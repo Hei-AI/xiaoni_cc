@@ -13,6 +13,14 @@ WEBSOCKET_CONFIG = {
     "uri": "ws://127.0.0.1:3001?access_token=w@123456"
 }
 
+# 机器人配置
+BOT_CONFIG = {
+    "qq_number": 1129974489,  # 机器人QQ号
+    "name": "智能助手",
+    "auto_reply_at": True,     # 自动回复@消息
+    "group_ai_enabled": True   # 群聊AI功能启用
+}
+
 # 测试配置
 TEST_CONFIG = {
     # 测试用户ID（请根据实际情况修改）

@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QQ机器人管理面板 - Gemini对话历史 & 任务状态</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 30px;
+        }
+
+        .panel {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 20px;
+            font-size: 1.3em;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+        }
+
+        .panel-header.tasks {
+            background: linear-gradient(135deg, #74b9ff, #0984e3);
+        }
+
+        .panel-header .icon {
+            margin-right: 10px;
+            font-size: 1.5em;
+        }
+
+        .panel-content {
+            padding: 20px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8f9fa;
+            padding: 15px 30px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #28a745;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.offline {
+            background: #dc3545;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(40, 167, 69, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); }
+        }
+
+        .conversation-item {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid #ff6b6b;
+            transition: all 0.3s ease;
+        }
+
+        .conversation-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .conversation-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            color: #6c757d;
+        }
+
+        .user-id {
+            background: #007bff;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-size: 0.8em;
+        }
+
+        .conversation-message {
+            background: white;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .message-label {
+            font-weight: bold;
+            color: #495057;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+
+        .message-content {
+            line-height: 1.5;
+            color: #212529;
+        }
+
+        .task-item {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid #74b9ff;
+            transition: all 0.3s ease;
+        }
+
+        .task-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .task-id {
+            font-weight: bold;
+            color: #495057;
+        }
+
+        .task-status {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .status-received { background: #ffeaa7; color: #e17055; }
+        .status-analyzing { background: #81ecec; color: #00b894; }
+        .status-processing { background: #a29bfe; color: #6c5ce7; }
+        .status-completed { background: #55efc4; color: #00b894; }
+        .status-failed { background: #ff7675; color: #d63031; }
+        .status-cancelled { background: #b2bec3; color: #636e72; }
+
+        .task-content {
+            margin-bottom: 10px;
+        }
+
+        .task-time {
+            font-size: 0.9em;
+            color: #6c757d;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .detail-btn {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 0.8em;
+            margin-top: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        .detail-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 10px rgba(0, 184, 148, 0.3);
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+        }
+        
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 0;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 1200px;
+            max-height: 85vh;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        
+        .modal-header {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.5em;
+        }
+        
+        .close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 2em;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+        
+        .modal-body {
+            padding: 20px;
+            max-height: calc(85vh - 80px);
+            overflow-y: auto;
+        }
+        
+        .detail-section {
+            margin-bottom: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+        }
+        
+        .detail-title {
+            font-weight: bold;
+            color: #495057;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .detail-content {
+            background: white;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .json-content {
+            font-size: 0.9em;
+            line-height: 1.4;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #74b9ff, #0984e3);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #a29bfe, #6c5ce7);
+            color: white;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #6c757d;
+        }
+
+        .empty-state .icon {
+            font-size: 3em;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #6c757d;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 2s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+                gap: 20px;
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 QQ机器人管理面板</h1>
+            <p>Gemini对话历史与需求管理中心</p>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-dot" id="bot-status"></div>
+                <span id="bot-status-text">检查中...</span>
+            </div>
+            <div class="status-item">
+                <span>🕐 最后更新: <span id="last-update">--</span></span>
+            </div>
+            <div class="status-item">
+                <span>📊 对话数: <span id="conversation-count">0</span></span>
+            </div>
+            <div class="status-item">
+                <span>📋 任务数: <span id="task-count">0</span></span>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- Gemini对话历史面板 -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="icon">💬</span>
+                    Gemini对话历史
+                </div>
+                <div class="panel-content">
+                    <div class="controls">
+                        <button class="btn btn-primary" onclick="loadConversations()">刷新对话</button>
+                        <button class="btn btn-secondary" onclick="clearConversations()">清空历史</button>
+                    </div>
+                    <div id="conversations-container">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            <p>正在加载对话历史...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 需求任务状态面板 -->
+            <div class="panel">
+                <div class="panel-header tasks">
+                    <span class="icon">📋</span>
+                    需求任务状态
+                </div>
+                <div class="panel-content">
+                    <div class="controls">
+                        <button class="btn btn-primary" onclick="loadTasks()">刷新任务</button>
+                        <button class="btn btn-secondary" onclick="loadTasksHistory()">历史记录</button>
+                    </div>
+                    <div id="tasks-container">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            <p>正在加载任务状态...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 对话详情模态框 -->
+    <div id="conversationModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🔍 对话详情</h2>
+                <button class="close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>加载中...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 状态更新间隔 (5秒)
+        const UPDATE_INTERVAL = 5000;
+        let updateTimer = null;
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeDashboard();
+            startAutoUpdate();
+        });
+
+        // 初始化仪表板
+        function initializeDashboard() {
+            checkBotStatus();
+            loadConversations();
+            loadTasks();
+        }
+
+        // 启动自动更新
+        function startAutoUpdate() {
+            updateTimer = setInterval(() => {
+                checkBotStatus();
+                loadConversations();
+                loadTasks();
+                updateLastUpdateTime();
+            }, UPDATE_INTERVAL);
+        }
+
+        // 检查机器人状态
+        async function checkBotStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                const statusDot = document.getElementById('bot-status');
+                const statusText = document.getElementById('bot-status-text');
+                
+                if (data.status === 'online') {
+                    statusDot.className = 'status-dot';
+                    statusText.textContent = '🟢 机器人在线';
+                } else {
+                    statusDot.className = 'status-dot offline';
+                    statusText.textContent = '🔴 机器人离线';
+                }
+            } catch (error) {
+                const statusDot = document.getElementById('bot-status');
+                const statusText = document.getElementById('bot-status-text');
+                statusDot.className = 'status-dot offline';
+                statusText.textContent = '❌ 连接失败';
+            }
+        }
+
+        // 加载对话历史
+        async function loadConversations() {
+            try {
+                const response = await fetch('/api/conversations');
+                const data = await response.json();
+                
+                const container = document.getElementById('conversations-container');
+                document.getElementById('conversation-count').textContent = data.conversations.length;
+                
+                if (data.conversations.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">💬</div>
+                            <p>暂无对话历史</p>
+                            <small>与机器人的对话将在这里显示</small>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = data.conversations.map(conv => `
+                        <div class="conversation-item">
+                            <div class="conversation-meta">
+                                <span class="user-id">用户 ${conv.user_id}</span>
+                                <span>${formatTime(conv.timestamp)}</span>
+                                <span style="color: #28a745; font-size: 0.8em;">⚡ ${conv.response_time ? conv.response_time.toFixed(2) + 's' : '--'}</span>
+                            </div>
+                            <div class="conversation-message">
+                                <div class="message-label">用户消息:</div>
+                                <div class="message-content">${conv.user_message}</div>
+                            </div>
+                            <div class="conversation-message">
+                                <div class="message-label">AI回复:</div>
+                                <div class="message-content">${conv.ai_response}</div>
+                            </div>
+                            <button class="detail-btn" onclick="showConversationDetail('${conv.id}')">
+                                🔍 查看详情
+                            </button>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                document.getElementById('conversations-container').innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">❌</div>
+                        <p>加载对话历史失败</p>
+                        <small>${error.message}</small>
+                    </div>
+                `;
+            }
+        }
+
+        // 加载任务状态
+        async function loadTasks() {
+            try {
+                const response = await fetch('/api/requirements');
+                const data = await response.json();
+                
+                const container = document.getElementById('tasks-container');
+                document.getElementById('task-count').textContent = data.requirements.length;
+                
+                if (data.requirements.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">📋</div>
+                            <p>暂无任务记录</p>
+                            <small>需求管理任务将在这里显示</small>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = data.requirements.map(task => `
+                        <div class="task-item">
+                            <div class="task-header">
+                                <span class="task-id">${task.id}</span>
+                                <span class="task-status status-${task.status}">${getStatusText(task.status)}</span>
+                            </div>
+                            <div class="task-content">${task.message}</div>
+                            <div class="task-time">
+                                <span>创建: ${formatTime(task.created_at)}</span>
+                                <span>更新: ${formatTime(task.updated_at)}</span>
+                            </div>
+                            ${task.completion_details ? `<div style="margin-top: 10px; padding: 10px; background: #e8f5e8; border-radius: 5px; font-size: 0.9em;"><strong>完成详情:</strong> ${task.completion_details}</div>` : ''}
+                            ${task.error_message ? `<div style="margin-top: 10px; padding: 10px; background: #ffe8e8; border-radius: 5px; font-size: 0.9em;"><strong>错误信息:</strong> ${task.error_message}</div>` : ''}
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                document.getElementById('tasks-container').innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">❌</div>
+                        <p>加载任务状态失败</p>
+                        <small>${error.message}</small>
+                    </div>
+                `;
+            }
+        }
+
+        // 清空对话历史
+        async function clearConversations() {
+            if (!confirm('确认清空所有对话历史吗？此操作不可恢复。')) return;
+            
+            try {
+                const response = await fetch('/api/conversations', { method: 'DELETE' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    loadConversations();
+                    alert('对话历史已清空');
+                } else {
+                    alert('清空失败: ' + data.error);
+                }
+            } catch (error) {
+                alert('清空失败: ' + error.message);
+            }
+        }
+
+        // 格式化时间
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        // 获取状态文本
+        function getStatusText(status) {
+            const statusMap = {
+                'received': '已接收',
+                'analyzing': '分析中',
+                'processing': '处理中',
+                'completed': '已完成',
+                'failed': '失败',
+                'cancelled': '已取消'
+            };
+            return statusMap[status] || status;
+        }
+
+        // 更新最后更新时间
+        function updateLastUpdateTime() {
+            document.getElementById('last-update').textContent = new Date().toLocaleTimeString('zh-CN');
+        }
+
+        // 显示对话详情
+        async function showConversationDetail(conversationId) {
+            const modal = document.getElementById('conversationModal');
+            const modalBody = document.getElementById('modalBody');
+            
+            // 显示加载状态
+            modalBody.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>正在加载对话详情...</p>
+                </div>
+            `;
+            modal.style.display = 'block';
+            
+            try {
+                const response = await fetch(`/api/conversations/${conversationId}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const conv = data.conversation;
+                    modalBody.innerHTML = `
+                        <div class="detail-section">
+                            <div class="detail-title">📝 基本信息</div>
+                            <div class="detail-content">
+对话ID: ${conv.id}
+用户ID: ${conv.user_id}
+模型: ${conv.model_name || 'gemini-2.5-flash'}
+响应时间: ${conv.response_time ? conv.response_time.toFixed(3) + 's' : '--'}
+时间戳: ${formatTime(conv.timestamp)}
+                            </div>
+                        </div>
+                        
+                        <div class="detail-section">
+                            <div class="detail-title">💬 用户消息</div>
+                            <div class="detail-content">${conv.user_message}</div>
+                        </div>
+                        
+                        <div class="detail-section">
+                            <div class="detail-title">🤖 AI回复</div>
+                            <div class="detail-content">${conv.ai_response}</div>
+                        </div>
+                        
+                        ${conv.raw_request ? `
+                        <div class="detail-section">
+                            <div class="detail-title">📤 原始请求 (LLM)</div>
+                            <div class="detail-content json-content">${typeof conv.raw_request_parsed === 'object' ? JSON.stringify(conv.raw_request_parsed, null, 2) : conv.raw_request}</div>
+                        </div>
+                        ` : ''}
+                        
+                        ${conv.raw_response ? `
+                        <div class="detail-section">
+                            <div class="detail-title">📥 原始响应 (LLM)</div>
+                            <div class="detail-content json-content">${typeof conv.raw_response_parsed === 'object' ? JSON.stringify(conv.raw_response_parsed, null, 2) : conv.raw_response}</div>
+                        </div>
+                        ` : ''}
+                    `;
+                } else {
+                    modalBody.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">❌</div>
+                            <p>加载失败: ${data.error}</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                modalBody.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">❌</div>
+                        <p>网络错误: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // 关闭模态框
+        function closeModal() {
+            document.getElementById('conversationModal').style.display = 'none';
+        }
+        
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('conversationModal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+        
+        // ESC键关闭模态框
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeModal();
+            }
+        });
+
+        // 页面卸载时清理定时器
+        window.addEventListener('beforeunload', () => {
+            if (updateTimer) {
+                clearInterval(updateTimer);
+            }
+        });
+    </script>
+</body>
+</html>

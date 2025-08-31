@@ -10,9 +10,13 @@ import logging
 import threading
 import time
 import asyncio
+import os
 from datetime import datetime
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 from websocket_client import WebSocketClient
+from gemini_agent import get_gemini_agent
+from requirement_manager import get_requirement_manager
+from database import get_database_manager
 import config
 
 
@@ -20,6 +24,7 @@ class QQBotHTTPServer:
     def __init__(self):
         self.app = Flask(__name__)
         self.websocket_client = None
+        self.db_manager = get_database_manager()
         self.setup_routes()
         self.setup_logging()
         self.server_thread = None
@@ -28,8 +33,7 @@ class QQBotHTTPServer:
         
     def setup_logging(self):
         """设置日志"""
-        log_dir = "log"
-        import os
+        log_dir = "../logs/http"
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
             
@@ -86,6 +90,36 @@ class QQBotHTTPServer:
         @self.app.route('/api/connection', methods=['GET'])
         def get_connection_status():
             return self.get_connection_status_handler()
+        
+        # WebUI 管理面板
+        @self.app.route('/dashboard', methods=['GET'])
+        def dashboard():
+            return self.dashboard_handler()
+        
+        # Gemini对话历史API
+        @self.app.route('/api/conversations', methods=['GET'])
+        def get_conversations():
+            return self.get_conversations_handler()
+        
+        # 清空对话历史API
+        @self.app.route('/api/conversations', methods=['DELETE'])
+        def clear_conversations():
+            return self.clear_conversations_handler()
+        
+        # 需求任务API
+        @self.app.route('/api/requirements', methods=['GET'])
+        def get_requirements():
+            return self.get_requirements_handler()
+        
+        # 获取单个对话详情（包含原始LLM数据）
+        @self.app.route('/api/conversations/<conversation_id>', methods=['GET'])
+        def get_conversation_detail(conversation_id):
+            return self.get_conversation_detail_handler(conversation_id)
+        
+        # 获取对话的LLM原始请求/响应
+        @self.app.route('/api/conversations/<conversation_id>/raw', methods=['GET'])
+        def get_conversation_raw_data(conversation_id):
+            return self.get_conversation_raw_data_handler(conversation_id)
         
     def health_check_handler(self):
         """健康检查接口"""
@@ -381,6 +415,197 @@ class QQBotHTTPServer:
             return jsonify({
                 "error": str(e)
             }), 500
+    
+    def dashboard_handler(self):
+        """WebUI管理面板"""
+        try:
+            # 读取HTML模板
+            template_path = os.path.join(os.path.dirname(__file__), 'templates', 'dashboard.html')
+            if os.path.exists(template_path):
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    template_content = f.read()
+                return render_template_string(template_content)
+            else:
+                return jsonify({
+                    "error": "Dashboard template not found"
+                }), 404
+        except Exception as e:
+            self.logger.error(f"Error loading dashboard: {e}")
+            return jsonify({
+                "error": str(e)
+            }), 500
+    
+    def get_conversations_handler(self):
+        """获取Gemini对话历史"""
+        try:
+            agent = get_gemini_agent()
+            
+            # 获取查询参数
+            user_id = request.args.get('user_id', type=int)
+            limit = request.args.get('limit', type=int, default=50)
+            
+            conversations = agent.get_conversations(user_id=user_id, limit=limit)
+            
+            # 转换为字典格式 - conversations已经是字典列表
+            conversations_data = []
+            for conv in conversations:
+                conversations_data.append({
+                    'id': conv['id'],
+                    'user_id': conv['user_id'],
+                    'user_message': conv['user_message'],
+                    'ai_response': conv['ai_response'],
+                    'timestamp': conv['timestamp'],
+                    'response_time': conv.get('response_time', 0)
+                })
+            
+            return jsonify({
+                'success': True,
+                'conversations': conversations_data,
+                'total': len(conversations_data),
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            self.logger.error(f"Error getting conversations: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e),
+                'conversations': []
+            }), 500
+    
+    def clear_conversations_handler(self):
+        """清空对话历史"""
+        try:
+            agent = get_gemini_agent()
+            cleared_count = agent.clear_conversations()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Successfully cleared {cleared_count} conversation records',
+                'cleared_count': cleared_count,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            self.logger.error(f"Error clearing conversations: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+    
+    def get_requirements_handler(self):
+        """获取需求任务状态"""
+        try:
+            manager = get_requirement_manager()
+            
+            # 获取查询参数
+            user_id = request.args.get('user_id', type=int)
+            
+            # 获取需求列表（现在直接从数据库获取）
+            if user_id:
+                requirements_data = manager.get_user_requirements(user_id)
+            else:
+                requirements_data = self.db_manager.get_requirements()
+            
+            # 数据已经是字典格式，且已按时间排序
+            
+            return jsonify({
+                'success': True,
+                'requirements': requirements_data,
+                'total': len(requirements_data),
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            self.logger.error(f"Error getting requirements: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e),
+                'requirements': []
+            }), 500
+    
+    def get_conversation_detail_handler(self, conversation_id: str):
+        """获取单个对话详情（包含原始LLM数据）"""
+        try:
+            conversation = self.db_manager.get_conversation_by_id(conversation_id)
+            
+            if not conversation:
+                return jsonify({
+                    'success': False,
+                    'error': 'Conversation not found'
+                }), 404
+            
+            # 处理原始数据的JSON解析
+            if conversation.get('raw_request'):
+                try:
+                    conversation['raw_request_parsed'] = json.loads(conversation['raw_request'])
+                except json.JSONDecodeError:
+                    conversation['raw_request_parsed'] = conversation['raw_request']
+            
+            if conversation.get('raw_response'):
+                try:
+                    conversation['raw_response_parsed'] = json.loads(conversation['raw_response'])
+                except json.JSONDecodeError:
+                    conversation['raw_response_parsed'] = conversation['raw_response']
+            
+            return jsonify({
+                'success': True,
+                'conversation': conversation,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            self.logger.error(f"Error getting conversation detail: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+    
+    def get_conversation_raw_data_handler(self, conversation_id: str):
+        """获取对话的LLM原始请求/响应数据"""
+        try:
+            conversation = self.db_manager.get_conversation_by_id(conversation_id)
+            
+            if not conversation:
+                return jsonify({
+                    'success': False,
+                    'error': 'Conversation not found'
+                }), 404
+            
+            raw_data = {
+                'conversation_id': conversation_id,
+                'raw_request': conversation.get('raw_request'),
+                'raw_response': conversation.get('raw_response'),
+                'model_name': conversation.get('model_name', 'unknown'),
+                'response_time': conversation.get('response_time', 0),
+                'timestamp': conversation.get('timestamp')
+            }
+            
+            # 尝试解析JSON格式化显示
+            if raw_data['raw_request']:
+                try:
+                    raw_data['raw_request_formatted'] = json.loads(raw_data['raw_request'])
+                except json.JSONDecodeError:
+                    raw_data['raw_request_formatted'] = raw_data['raw_request']
+            
+            if raw_data['raw_response']:
+                try:
+                    raw_data['raw_response_formatted'] = json.loads(raw_data['raw_response'])
+                except json.JSONDecodeError:
+                    raw_data['raw_response_formatted'] = raw_data['raw_response']
+            
+            return jsonify({
+                'success': True,
+                'raw_data': raw_data,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            self.logger.error(f"Error getting conversation raw data: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
             
     def run_async(self, coro):
         """运行异步协程的辅助方法"""
@@ -407,7 +632,7 @@ class QQBotHTTPServer:
         """设置WebSocket客户端"""
         self.websocket_client = client
         
-    def start_server(self, host='127.0.0.1', port=8080):
+    def start_server(self, host='0.0.0.0', port=8080):
         """启动HTTP服务器"""
         self.logger.info(f"Starting Flask HTTP server on {host}:{port}")
         self.is_running = True
@@ -434,7 +659,7 @@ class QQBotHTTPServer:
 http_server = QQBotHTTPServer()
 
 
-def start_http_server(websocket_client, host='127.0.0.1', port=8080):
+def start_http_server(websocket_client, host='0.0.0.0', port=8080):
     """启动HTTP服务器的便捷函数"""
     http_server.set_websocket_client(websocket_client)
     http_server.start_server(host, port)

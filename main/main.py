@@ -6,6 +6,9 @@ from websocket_client import WebSocketClient
 from http_server import start_http_server
 from gemini_agent import process_message_with_agent, get_gemini_agent
 from requirement_manager import handle_requirement_message, get_requirement_manager
+from requirement_intent_agent import analyze_requirement_intent
+from claude_code_manager import get_claude_code_manager
+from database import get_database_manager
 import config
 
 
@@ -60,6 +63,114 @@ async def handle_message(data):
         logger.error(f"Error handling message: {e}")
 
 
+async def extract_reply_context(event) -> tuple:
+    """提取消息回复上下文信息"""
+    reply_to_message_id = None
+    reply_to_text = None
+    
+    # 检查消息段中的回复信息
+    message_segments = event.get('message', [])
+    for segment in message_segments:
+        if segment.get('type') == 'reply':
+            reply_data = segment.get('data', {})
+            reply_to_message_id = reply_data.get('id')
+            break
+    
+    # 检查raw数据中的replyElement
+    raw_data = event.get('raw', {})
+    elements = raw_data.get('elements', [])
+    for element in elements:
+        reply_element = element.get('replyElement')
+        if reply_element:
+            reply_to_message_id = reply_element.get('replayMsgId') or reply_element.get('sourceMsgIdInRecords')
+            source_text_elems = reply_element.get('sourceMsgTextElems', [])
+            if source_text_elems and source_text_elems[0]:
+                reply_to_text = source_text_elems[0].get('textElemContent', '')
+            break
+    
+    return reply_to_message_id, reply_to_text
+
+async def get_conversation_context(user_id: int, reply_to_message_id: str = None, limit: int = 5) -> str:
+    """获取对话上下文历史"""
+    try:
+        db_manager = get_database_manager()
+        
+        if reply_to_message_id:
+            # 如果有回复的消息ID，找到被回复的对话
+            query = "SELECT user_message, ai_response FROM conversations WHERE user_id = %s AND message_id = %s"
+            results = db_manager.execute_query(query, (user_id, reply_to_message_id))
+            if results:
+                replied_conv = results[0]
+                return f"[回复上下文] 用户: {replied_conv['user_message']}\n机器人: {replied_conv['ai_response']}\n\n"
+        
+        # 获取最近的对话历史作为上下文
+        recent_conversations = db_manager.get_conversations(user_id=user_id, limit=limit)
+        if not recent_conversations:
+            return ""
+        
+        context_parts = []
+        for conv in reversed(recent_conversations[-3:]):  # 最近3条对话
+            context_parts.append(f"用户: {conv['user_message']}")
+            context_parts.append(f"机器人: {conv['ai_response']}")
+        
+        if context_parts:
+            return "[对话历史]\n" + "\n".join(context_parts) + "\n\n"
+        
+        return ""
+        
+    except Exception as e:
+        logger.error(f"Error getting conversation context: {e}")
+        return ""
+
+async def get_group_conversation_context(group_id: int, user_id: int, reply_to_message_id: str = None, limit: int = 3) -> str:
+    """获取群聊对话上下文历史"""
+    try:
+        db_manager = get_database_manager()
+        
+        context_parts = []
+        
+        if reply_to_message_id:
+            # 如果有回复的消息ID，查找被回复的群聊消息
+            query = """
+            SELECT user_message, ai_response, user_id FROM conversations 
+            WHERE message_id = %s 
+            ORDER BY timestamp DESC LIMIT 1
+            """
+            results = db_manager.execute_query(query, (reply_to_message_id,))
+            if results:
+                replied_conv = results[0]
+                context_parts.append(f"[回复上下文]")
+                context_parts.append(f"用户{replied_conv['user_id']}: {replied_conv['user_message']}")
+                if replied_conv['ai_response']:
+                    context_parts.append(f"机器人: {replied_conv['ai_response']}")
+                context_parts.append("")
+        
+        # 获取群聊中与机器人相关的最近对话
+        query = """
+        SELECT user_message, ai_response, user_id, timestamp FROM conversations 
+        WHERE user_id IN (SELECT DISTINCT user_id FROM conversations WHERE user_id = %s OR user_id = %s)
+        AND (user_message LIKE %s OR ai_response IS NOT NULL)
+        ORDER BY timestamp DESC LIMIT %s
+        """
+        bot_qq = config.BOT_CONFIG['qq_number']
+        results = db_manager.execute_query(query, (user_id, bot_qq, f"%@{bot_qq}%", limit))
+        
+        if results:
+            context_parts.append("[群聊历史]")
+            for conv in reversed(results):
+                context_parts.append(f"用户{conv['user_id']}: {conv['user_message']}")
+                if conv['ai_response']:
+                    context_parts.append(f"机器人: {conv['ai_response']}")
+        
+        if context_parts:
+            return "\n".join(context_parts) + "\n\n"
+        
+        return ""
+        
+    except Exception as e:
+        logger.error(f"Error getting group conversation context: {e}")
+        return ""
+
 async def handle_private_message(data):
     """处理私聊消息 - 增强AI Agent支持"""
     global client
@@ -67,7 +178,12 @@ async def handle_private_message(data):
     message = data.get('raw_message', '')
     message_id = data.get('message_id')
     
+    # 提取回复上下文
+    reply_to_message_id, reply_to_text = await extract_reply_context(data)
+    
     logger.info(f"Private message from {user_id}: {message}")
+    if reply_to_message_id:
+        logger.info(f"Message replies to: {reply_to_message_id} - '{reply_to_text}'")
     
     # 特殊命令处理
     if message == "帮助":
@@ -130,22 +246,62 @@ async def handle_private_message(data):
             await client.send_reply_message("private", user_id, message_id, "这是回复消息")
         return
     
-    # 优先处理需求消息（通过Claude Code）
+    # 智能需求处理流程
     try:
-        # 检查是否为需求消息并处理
-        requirement_handled = await handle_requirement_message(user_id, message, client)
-        
-        if requirement_handled:
-            logger.info(f"Requirement message handled for user {user_id}")
-            return
+        # 步骤1: 验证来源(用户ID 85178516)和类型(私聊)
+        if user_id != 85178516:
+            logger.debug(f"Message from non-authorized user {user_id}, proceeding to AI agent")
+        else:
+            # 优先检查Git提交许可处理
+            requirement_manager = get_requirement_manager(client)
+            commit_handled = await requirement_manager.handle_commit_permission(user_id, message)
+            if commit_handled:
+                logger.info(f"Git commit permission handled for user {user_id}")
+                return
             
+            # 步骤2: 使用Gemini进行需求意图识别
+            logger.info(f"Analyzing intent for message from authorized user {user_id}")
+            intent_result = await analyze_requirement_intent(user_id, message)
+            
+            # 步骤3: 根据意图识别结果决定处理方式
+            if intent_result.get("is_requirement", False) and intent_result.get("confidence", 0) > 0.6:
+                logger.info(f"Requirement intent detected with confidence {intent_result.get('confidence', 0):.2f}")
+                
+                # 通知用户意图识别结果
+                intent_notification = f"""🧠 需求意图识别完成
+意图类型: {intent_result.get('intent_type', 'unknown')}
+置信度: {intent_result.get('confidence', 0):.1%}
+关键词: {', '.join(intent_result.get('keywords', []))}
+
+正在下发至Claude Code处理..."""
+                await client.send_private_message(user_id, intent_notification)
+                
+                # 步骤4: 下发给Claude Code处理
+                requirement_handled = await handle_requirement_message(user_id, message, client)
+                
+                if requirement_handled:
+                    logger.info(f"Requirement message handled for user {user_id}")
+                    return
+                else:
+                    await client.send_private_message(user_id, "需求下发失败，请稍后重试或联系管理员")
+                    return
+            else:
+                logger.info(f"No requirement intent detected (confidence: {intent_result.get('confidence', 0):.2f})")
+                
     except Exception as e:
-        logger.error(f"Requirement processing error: {e}")
+        logger.error(f"Requirement intent analysis error: {e}")
+        await client.send_private_message(user_id, "需求意图分析出现错误，消息将转给AI助手处理")
     
     # AI Agent 智能回复（非需求消息）
     try:
+        # 获取对话上下文
+        context = await get_conversation_context(user_id, reply_to_message_id)
+        
         logger.info(f"Processing message with AI Agent: {message[:50]}...")
-        ai_response = await process_message_with_agent(message)
+        if context:
+            logger.info(f"Using conversation context for user {user_id}")
+        
+        ai_response = await process_message_with_agent_context(message, user_id, context, message_id, reply_to_message_id, reply_to_text)
         await client.send_private_message(user_id, ai_response)
         logger.info(f"AI response sent to {user_id}")
         
@@ -156,21 +312,81 @@ async def handle_private_message(data):
 
 
 async def handle_group_message(data):
-    """处理群聊消息"""
+    """处理群聊消息 - 支持@机器人智能回复"""
     global client
     group_id = data.get('group_id')
     user_id = data.get('user_id')
     message = data.get('raw_message', '')
     message_id = data.get('message_id')
     
-    logger.info(f"Group message in {group_id} from {user_id}: {message}")
+    # 提取回复上下文
+    reply_to_message_id, reply_to_text = await extract_reply_context(data)
     
-    # 简单的群聊自动回复示例
+    logger.info(f"Group message in {group_id} from {user_id}: {message}")
+    if reply_to_message_id:
+        logger.info(f"Group message replies to: {reply_to_message_id} - '{reply_to_text}'")
+    
+    # 检查是否@了机器人
+    bot_qq = config.BOT_CONFIG['qq_number']  # 1129974489
+    
+    # 防止机器人回复自己的消息
+    if user_id == bot_qq:
+        logger.debug(f"Ignoring message from bot itself: {message}")
+        return
+    is_at_bot = False
+    clean_message = message
+    
+    # 检查消息中是否包含@机器人 - 支持多种@格式
+    at_patterns = [
+        f"@{bot_qq}",
+        f"[CQ:at,qq={bot_qq}]",
+        f"＠{bot_qq}",  # 全角@
+    ]
+    
+    for pattern in at_patterns:
+        if pattern in message:
+            is_at_bot = True
+            clean_message = message.replace(pattern, "").strip()
+            break
+    
+    # 检查是否回复了机器人的消息
+    is_reply_to_bot = reply_to_message_id is not None
+    
+    if is_at_bot:
+        logger.info(f"Bot was @ed in group {group_id}, clean message: {clean_message}")
+    elif is_reply_to_bot:
+        logger.info(f"Message replies to bot in group {group_id}: {clean_message}")
+    
+    # 如果@了机器人或回复了机器人消息，转发给Gemini AI进行智能回复
+    if (is_at_bot or is_reply_to_bot) and config.BOT_CONFIG['group_ai_enabled']:
+        try:
+            logger.info(f"Processing group message with Gemini AI: {clean_message}")
+            
+            # 获取群聊上下文
+            context = await get_group_conversation_context(group_id, user_id, reply_to_message_id)
+            
+            # 调用Gemini AI处理消息（注意：这是聊天，不是需求识别）
+            ai_response = await process_message_with_agent_context(clean_message, user_id, context, message_id, reply_to_message_id, reply_to_text)
+            
+            if ai_response:
+                # 在群聊中回复，@发送消息的用户
+                await client.send_at_message(group_id, user_id, ai_response)
+                logger.info(f"AI response sent to group {group_id} for user {user_id}")
+            else:
+                await client.send_at_message(group_id, user_id, "抱歉，AI助手暂时无法响应，请稍后再试")
+                
+        except Exception as e:
+            logger.error(f"Error processing @bot message with AI: {e}")
+            await client.send_at_message(group_id, user_id, "抱歉，AI助手出现错误，请稍后再试")
+        
+        return  # 处理完@消息就返回
+    
+    # 原有的群聊指令处理
     if message == "群帮助":
         help_text = """群聊可用命令：
 - 群帮助：显示此帮助信息
 - 群时间：显示当前时间
-- @机器人：@机器人测试
+- @机器人 [消息]：与AI助手智能对话
 - 测试群聊：测试群聊功能"""
         await client.send_group_message(group_id, help_text)
     elif message == "群时间":
@@ -265,31 +481,54 @@ async def main():
     
     logger.info("Starting QQ Bot WebSocket Client...")
     
+    # 启动Claude Code交互进程
+    claude_code_manager = get_claude_code_manager()
+    logger.info("Starting Claude Code interactive process...")
+    await claude_code_manager.start_claude_code_process()
+    
+    # 启动HTTP服务器（独立于WebSocket连接状态）
+    start_http_server(client, host='0.0.0.0', port=8080)
+    logger.info("HTTP server starting on http://0.0.0.0:8080")
+    
+    # 等待HTTP服务器启动
+    await asyncio.sleep(3)
+    logger.info("HTTP server should be ready now")
+    
     try:
         # 启动WebSocket客户端
         await client.connect()
         if client.is_connected():
             logger.info("WebSocket client connected successfully")
             
-            # 启动HTTP服务器（在后台运行）
-            start_http_server(client, host='127.0.0.1', port=8080)
-            logger.info("HTTP server starting on http://127.0.0.1:8080")
+            # 发送服务启动通知给授权用户
+            startup_message = f"""🚀 QQ智能机器人服务启动成功
+启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+WebSocket: ✅ 已连接 (ws://127.0.0.1:3001)
+HTTP服务: ✅ 运行中 (http://0.0.0.0:8080)
+Gemini AI: ✅ 已就绪
+Claude Code: ✅ 交互进程已启动
+系统状态: 🟢 全部服务正常运行"""
             
-            # 等待HTTP服务器启动
-            await asyncio.sleep(3)
-            logger.info("HTTP server should be ready now")
+            await client.send_private_message(85178516, startup_message)
+            logger.info("Startup notification sent")
             
             # 启动WebSocket监听
             await client.listen()
             
         else:
-            logger.error("Failed to connect WebSocket client")
+            logger.error("Failed to connect WebSocket client - HTTP server still running")
+            # WebSocket连接失败时保持HTTP服务器运行
+            while True:
+                await asyncio.sleep(10)
+                logger.info("HTTP server continues running despite WebSocket connection failure")
             
     except KeyboardInterrupt:
         logger.info("Shutting down...")
+        await claude_code_manager.stop_claude_code_process()
         await client.disconnect()
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
+        await claude_code_manager.stop_claude_code_process()
         await client.disconnect()
 
 
