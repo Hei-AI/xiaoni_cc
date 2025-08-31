@@ -1,0 +1,63 @@
+2025-08-31 02:51:14,945 - __main__ - INFO - Starting QQ Bot Comprehensive Functionality Tests...
+2025-08-31 02:51:14,945 - __main__ - INFO - Creating WebSocket client...
+2025-08-31 02:51:14,946 - __main__ - INFO - WebSocket client created successfully
+2025-08-31 02:51:14,946 - __main__ - INFO - Connecting to WebSocket server...
+2025-08-31 02:51:14,968 - websocket_client - INFO - Connected to WebSocket server at ws://127.0.0.1:3001?access_token=w@123456
+2025-08-31 02:51:14,969 - __main__ - INFO - Connected to WebSocket server
+2025-08-31 02:51:14,969 - __main__ - INFO - === Testing Private Message Functionality ===
+2025-08-31 02:51:14,973 - __main__ - INFO - Test 1: Sending simple text message
+2025-08-31 02:51:14,973 - __main__ - INFO - Sending to user 85178516: 你好！这是一条测试私聊消息
+2025-08-31 02:51:14,974 - websocket_client - INFO - [SENT] Event: send_private_msg | Data: {"action": "send_private_msg", "params": {"user_id": 85178516, "message": [{"type": "text", "data": {"text": "你好！这是一条测试私聊消息"}}]}}
+2025-08-31 02:51:14,974 - websocket_client - INFO - Sent private message to 85178516: 你好！这是一条测试私聊消息
+2025-08-31 02:51:14,974 - __main__ - INFO - Send result: True
+2025-08-31 02:51:16,983 - __main__ - INFO - Test 2: Sending message segments
+2025-08-31 02:51:16,983 - __main__ - INFO - Sending message segments: [{"type": "text", "data": {"text": "测试"}}, {"type": "face", "data": {"id": 123}}, {"type": "text", "data": {"text": "表情消息"}}]
+2025-08-31 02:51:16,984 - websocket_client - INFO - [SENT] Event: send_private_msg | Data: {"action": "send_private_msg", "params": {"user_id": 85178516, "message": [{"type": "text", "data": {"text": "测试"}}, {"type": "face", "data": {"id": 123}}, {"type": "text", "data": {"text": "表情消息"}}]}}
+2025-08-31 02:51:16,984 - websocket_client - INFO - Sent private message to 85178516: [{'type': 'text', 'data': {'text': '测试'}}, {'type': 'face', 'data': {'id': 123}}, {'type': 'text', 'data': {'text': '表情消息'}}]
+2025-08-31 02:51:16,984 - __main__ - INFO - Send result: True
+2025-08-31 02:51:18,990 - __main__ - INFO - Test 3: Sending reply message
+2025-08-31 02:51:18,991 - __main__ - INFO - Sending reply message: 这是对'咋了'的回复消息
+2025-08-31 02:51:18,992 - websocket_client - INFO - [SENT] Event: send_reply_msg | Data: {"action": "send_private_msg", "params": {"user_id": 85178516, "message": [{"type": "reply", "data": {"id": 826585340}}, {"type": "text", "data": {"text": "这是对'咋了'的回复消息"}}]}}
+2025-08-31 02:51:18,992 - websocket_client - INFO - Sent reply message to private 85178516 for message 826585340: 这是对'咋了'的回复消息
+2025-08-31 02:51:18,992 - __main__ - INFO - Reply send result: True
+2025-08-31 02:51:21,006 - __main__ - INFO - Private message functionality tests completed
+2025-08-31 02:51:21,006 - __main__ - INFO - === Testing Group Message Functionality ===
+2025-08-31 02:51:21,006 - __main__ - INFO - Test 1: Sending simple group message
+2025-08-31 02:51:21,007 - __main__ - INFO - Sending to group 1019235326: 大家好！这是一条测试群聊消息
+2025-08-31 02:51:21,009 - websocket_client - INFO - [SENT] Event: send_group_msg | Data: {"action": "send_group_msg", "params": {"group_id": 1019235326, "message": [{"type": "text", "data": {"text": "大家好！这是一条测试群聊消息"}}]}}
+2025-08-31 02:51:21,009 - websocket_client - INFO - Sent group message to 1019235326: 大家好！这是一条测试群聊消息
+2025-08-31 02:51:21,009 - __main__ - INFO - Send result: True
+2025-08-31 02:51:23,010 - __main__ - INFO - Test 2: Sending @ message
+2025-08-31 02:51:23,011 - __main__ - INFO - Sending @ message to user 85178516 in group 1019235326
+2025-08-31 02:51:23,011 - websocket_client - INFO - [SENT] Event: send_at_msg | Data: {"action": "send_group_msg", "params": {"group_id": 1019235326, "message": [{"type": "at", "data": {"qq": 85178516}}, {"type": "text", "data": {"text": "这是@消息测试"}}]}}
+2025-08-31 02:51:23,011 - websocket_client - INFO - Sent @ message to group 1019235326 for user 85178516: 这是@消息测试
+2025-08-31 02:51:23,012 - __main__ - INFO - @ message send result: True
+2025-08-31 02:51:25,011 - __main__ - INFO - Test 3: Sending group reply message
+2025-08-31 02:51:25,011 - __main__ - INFO - Sending group reply message: 这是对群聊消息的回复
+2025-08-31 02:51:25,011 - websocket_client - INFO - [SENT] Event: send_reply_msg | Data: {"action": "send_group_msg", "params": {"group_id": 1019235326, "message": [{"type": "reply", "data": {"id": 1624888917}}, {"type": "text", "data": {"text": "这是对群聊消息的回复"}}]}}
+2025-08-31 02:51:25,012 - websocket_client - INFO - Sent reply message to group 1019235326 for message 1624888917: 这是对群聊消息的回复
+2025-08-31 02:51:25,012 - __main__ - INFO - Group reply send result: True
+2025-08-31 02:51:27,017 - __main__ - INFO - Test 4: Sending complex message segments to group
+2025-08-31 02:51:27,017 - __main__ - INFO - Sending complex message: [{"type": "text", "data": {"text": "复杂消息测试："}}, {"type": "face", "data": {"id": 1}}, {"type": "text", "data": {"text": " 表情"}}, {"type": "at", "data": {"qq": 85178516}}, {"type": "text", "data": {"text": " 这是@消息"}}]
+2025-08-31 02:51:27,018 - websocket_client - INFO - [SENT] Event: send_group_msg | Data: {"action": "send_group_msg", "params": {"group_id": 1019235326, "message": [{"type": "text", "data": {"text": "复杂消息测试："}}, {"type": "face", "data": {"id": 1}}, {"type": "text", "data": {"text": " 表情"}}, {"type": "at", "data": {"qq": 85178516}}, {"type": "text", "data": {"text": " 这是@消息"}}]}}
+2025-08-31 02:51:27,018 - websocket_client - INFO - Sent group message to 1019235326: [{'type': 'text', 'data': {'text': '复杂消息测试：'}}, {'type': 'face', 'data': {'id': 1}}, {'type': 'text', 'data': {'text': ' 表情'}}, {'type': 'at', 'data': {'qq': 85178516}}, {'type': 'text', 'data': {'text': ' 这是@消息'}}]
+2025-08-31 02:51:27,018 - __main__ - INFO - Complex message send result: True
+2025-08-31 02:51:29,034 - __main__ - INFO - Group message functionality tests completed
+2025-08-31 02:51:29,035 - __main__ - INFO - === Testing Different Message Types ===
+2025-08-31 02:51:29,035 - __main__ - INFO - Test 1: Text message
+2025-08-31 02:51:29,036 - websocket_client - INFO - [SENT] Event: send_private_msg | Data: {"action": "send_private_msg", "params": {"user_id": 85178516, "message": [{"type": "text", "data": {"text": "这是一条纯文本测试消息"}}]}}
+2025-08-31 02:51:29,036 - websocket_client - INFO - Sent private message to 85178516: 这是一条纯文本测试消息
+2025-08-31 02:51:29,036 - __main__ - INFO - Private send result: True
+2025-08-31 02:51:30,045 - websocket_client - INFO - [SENT] Event: send_group_msg | Data: {"action": "send_group_msg", "params": {"group_id": 1019235326, "message": [{"type": "text", "data": {"text": "这是一条纯文本测试消息"}}]}}
+2025-08-31 02:51:30,045 - websocket_client - INFO - Sent group message to 1019235326: 这是一条纯文本测试消息
+2025-08-31 02:51:30,045 - __main__ - INFO - Group send result: True
+2025-08-31 02:51:32,056 - __main__ - INFO - Test 2: Face message
+2025-08-31 02:51:32,056 - __main__ - INFO - Sending face message: [{"type": "face", "data": {"id": 1}}, {"type": "text", "data": {"text": " 表情消息测试"}}]
+2025-08-31 02:51:32,057 - websocket_client - INFO - [SENT] Event: send_private_msg | Data: {"action": "send_private_msg", "params": {"user_id": 85178516, "message": [{"type": "face", "data": {"id": 1}}, {"type": "text", "data": {"text": " 表情消息测试"}}]}}
+2025-08-31 02:51:32,057 - websocket_client - INFO - Sent private message to 85178516: [{'type': 'face', 'data': {'id': 1}}, {'type': 'text', 'data': {'text': ' 表情消息测试'}}]
+2025-08-31 02:51:32,057 - __main__ - INFO - Private send result: True
+2025-08-31 02:51:33,066 - websocket_client - INFO - [SENT] Event: send_group_msg | Data: {"action": "send_group_msg", "params": {"group_id": 1019235326, "message": [{"type": "face", "data": {"id": 1}}, {"type": "text", "data": {"text": " 表情消息测试"}}]}}
+2025-08-31 02:51:33,066 - websocket_client - INFO - Sent group message to 1019235326: [{'type': 'face', 'data': {'id': 1}}, {'type': 'text', 'data': {'text': ' 表情消息测试'}}]
+2025-08-31 02:51:33,066 - __main__ - INFO - Group send result: True
+2025-08-31 02:51:44,321 - websocket_client - INFO - WebSocket connection closed
+2025-08-31 02:51:44,321 - __main__ - INFO - Disconnected from WebSocket server
