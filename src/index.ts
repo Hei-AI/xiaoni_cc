@@ -18,9 +18,10 @@ class QQBot {
   private sessionManager: SessionManager;
   private moduleLogger = logger.createModuleLogger('main');
   
-  // 群聊管理状态
+  // 群聊管理状态 - 使用数据库存储的设置
   private groupReplyEnabled: boolean = true;
   private allowedGroups: Set<number> = new Set();
+  private groupSettingsCache: Map<number, boolean> = new Map(); // 群聊启用状态缓存
 
   constructor() {
     this.database = getDatabaseManager(config.database);
@@ -183,8 +184,9 @@ class QQBot {
         return;
       }
 
-      // 检查群聊白名单
-      if (message.group_id && this.allowedGroups.size > 0 && !this.allowedGroups.has(message.group_id)) {
+      // 检查群聊设置（从数据库）
+      if (message.group_id && !(await this.isGroupEnabled(message.group_id))) {
+        this.moduleLogger.debug('Group chat disabled or not configured', { group_id: message.group_id });
         return;
       }
 
@@ -202,11 +204,20 @@ class QQBot {
         .trim();
 
       if (!cleanMessage) {
+        // 获取群聊设置中的欢迎消息
+        const groupSetting = await this.database.getGroupChatSettingById(message.group_id!);
+        const welcomeMessage = groupSetting?.welcome_message || '您好！我是智能助手，有什么可以帮助您的吗？';
+        
         await this.websocketClient.sendGroupMessage(
           message.group_id!,
-          '您好！我是智能助手，有什么可以帮助您的吗？'
+          welcomeMessage
         );
         return;
+      }
+
+      // 更新群聊活跃度
+      if (message.group_id) {
+        await this.database.updateGroupActivity(message.group_id, 1, 0);
       }
 
       // AI对话处理 - 群聊也可以有session支持
@@ -220,58 +231,137 @@ class QQBot {
 
   private async handleGroupManagementCommand(userId: number, message: string): Promise<boolean> {
     const commands = {
-      '开启群聊': () => {
+      '开启群聊': async () => {
         this.groupReplyEnabled = true;
+        this.clearGroupSettingsCache(); // 清理缓存以刷新状态
         return '✅ 群聊AI回复已开启';
       },
-      '关闭群聊': () => {
+      '关闭群聊': async () => {
         this.groupReplyEnabled = false;
+        this.clearGroupSettingsCache(); // 清理缓存以刷新状态
         return '❌ 群聊AI回复已关闭';
       },
-      '群聊列表': () => {
-        const groups = Array.from(this.allowedGroups);
-        return groups.length > 0 
-          ? `📋 当前允许的群聊: ${groups.join(', ')}`
-          : '📋 当前没有设置群聊白名单';
+      '群聊列表': async () => {
+        const groupSettings = await this.database.getGroupChatSettings();
+        if (groupSettings.length === 0) {
+          const legacyGroups = Array.from(this.allowedGroups);
+          return legacyGroups.length > 0 
+            ? `📋 当前允许的群聊(传统设置): ${legacyGroups.join(', ')}`
+            : '📋 当前没有配置的群聊';
+        }
+        
+        const enabledGroups = groupSettings.filter(g => g.is_enabled);
+        return enabledGroups.length > 0 
+          ? `📋 已启用的群聊: ${enabledGroups.map(g => `${g.group_id}(${g.group_name || '未命名'})`).join(', ')}`
+          : '📋 当前没有启用的群聊';
       },
-      '清空群聊': () => {
+      '清空群聊': async () => {
+        // 传统方式清空
         this.allowedGroups.clear();
-        return '🗑️ 群聊白名单已清空';
+        this.clearGroupSettingsCache();
+        return '🗑️ 群聊设置缓存已清空（数据库设置保持不变）';
       }
     };
 
     // 检查基本命令
     if (message in commands) {
-      const response = commands[message as keyof typeof commands]();
+      const response = await commands[message as keyof typeof commands]();
       await this.websocketClient.sendPrivateMessage(userId, response);
       return true;
     }
 
-    // 检查添加群聊命令
-    const addGroupMatch = message.match(/^添加群聊\s+(\d+)$/);
+    // 检查添加群聊命令 - 使用数据库存储
+    const addGroupMatch = message.match(/^添加群聊\s+(\d+)(\s+(.+))?$/);
     if (addGroupMatch) {
       const groupId = parseInt(addGroupMatch[1]);
-      this.allowedGroups.add(groupId);
-      await this.websocketClient.sendPrivateMessage(
-        userId,
-        `✅ 已添加群聊 ${groupId} 到白名单`
-      );
+      const groupName = addGroupMatch[3] || undefined;
+      
+      const groupSettings = {
+        group_id: groupId,
+        group_name: groupName,
+        is_enabled: true,
+        auto_reply_enabled: true,
+        admin_user_id: userId,
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+      
+      const success = await this.database.saveGroupChatSettings(groupSettings);
+      if (success) {
+        this.clearGroupSettingsCache();
+        await this.websocketClient.sendPrivateMessage(
+          userId,
+          `✅ 已添加群聊 ${groupId}${groupName ? ` (${groupName})` : ''} 到数据库`
+        );
+      } else {
+        await this.websocketClient.sendPrivateMessage(
+          userId,
+          `❌ 添加群聊 ${groupId} 失败，可能已存在`
+        );
+      }
       return true;
     }
 
-    // 检查移除群聊命令
+    // 检查移除群聊命令 - 从数据库移除
     const removeGroupMatch = message.match(/^移除群聊\s+(\d+)$/);
     if (removeGroupMatch) {
       const groupId = parseInt(removeGroupMatch[1]);
-      this.allowedGroups.delete(groupId);
-      await this.websocketClient.sendPrivateMessage(
-        userId,
-        `❌ 已从白名单移除群聊 ${groupId}`
-      );
+      
+      const success = await this.database.deleteGroupChatSettings(groupId);
+      if (success) {
+        this.clearGroupSettingsCache();
+        await this.websocketClient.sendPrivateMessage(
+          userId,
+          `❌ 已从数据库移除群聊 ${groupId}`
+        );
+      } else {
+        await this.websocketClient.sendPrivateMessage(
+          userId,
+          `⚠️ 群聊 ${groupId} 不存在或删除失败`
+        );
+      }
       return true;
     }
 
     return false;
+  }
+
+  /**
+   * 检查群聊是否启用（从数据库检查）
+   */
+  private async isGroupEnabled(groupId: number): Promise<boolean> {
+    try {
+      // 检查缓存
+      if (this.groupSettingsCache.has(groupId)) {
+        return this.groupSettingsCache.get(groupId)!;
+      }
+      
+      // 从数据库获取设置
+      const groupSetting = await this.database.getGroupChatSettingById(groupId);
+      const isEnabled = groupSetting ? groupSetting.is_enabled && groupSetting.auto_reply_enabled : false;
+      
+      // 缓存结果（避免频繁查询）
+      this.groupSettingsCache.set(groupId, isEnabled);
+      
+      // 设置缓存过期时间（5分钟）
+      setTimeout(() => {
+        this.groupSettingsCache.delete(groupId);
+      }, 5 * 60 * 1000);
+      
+      return isEnabled;
+    } catch (error) {
+      this.moduleLogger.error('Failed to check group enabled status', { error, groupId });
+      // 发生错误时，默认启用（兼容旧设置）
+      return this.allowedGroups.has(groupId) || this.allowedGroups.size === 0;
+    }
+  }
+
+  /**
+   * 清理群聊设置缓存
+   */
+  private clearGroupSettingsCache(): void {
+    this.groupSettingsCache.clear();
+    this.moduleLogger.debug('Group settings cache cleared');
   }
 
   private async handleRequirement(
@@ -459,6 +549,9 @@ class QQBot {
                              (sessionId.includes('reply') || sessionId.includes('chain'));
 
       if (originalMessage.message_type === 'group' && originalMessage.group_id) {
+        // 更新群聊AI回复活跃度
+        await this.database.updateGroupActivity(originalMessage.group_id, 0, 1);
+        
         if (shouldSendReply && originalMessage.message_id) {
           await this.websocketClient.sendReplyMessage(
             originalMessage.message_id,
@@ -487,7 +580,8 @@ class QQBot {
       this.moduleLogger.info('AI conversation completed', {
         conversationId: conversation.id,
         userId,
-        responseTime
+        responseTime,
+        isGroupMessage: originalMessage.message_type === 'group'
       });
 
     } catch (error) {

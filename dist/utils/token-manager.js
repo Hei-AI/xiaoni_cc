@@ -334,21 +334,31 @@ class TokenManager {
      */
     async logTokenAction(tokenId, action, result, errorMessage, responseTimeMs, geminiUsage) {
         try {
+            // 确保所有参数都不是undefined，用null替代undefined
+            const params = [
+                tokenId,
+                action,
+                result || null,
+                errorMessage || null,
+                responseTimeMs || null,
+                geminiUsage ? JSON.stringify(geminiUsage) : null
+            ];
+            this.moduleLogger.debug('Logging token action', {
+                tokenId,
+                action,
+                result,
+                hasError: !!errorMessage,
+                hasResponseTime: responseTimeMs !== undefined,
+                hasGeminiUsage: !!geminiUsage
+            });
             await this.database.executeUpdate(`
         INSERT INTO api_token_logs 
         (token_id, action, result, error_message, response_time_ms, gemini_usage)
         VALUES (?, ?, ?, ?, ?, ?)
-      `, [
-                tokenId,
-                action,
-                result,
-                errorMessage,
-                responseTimeMs,
-                geminiUsage ? JSON.stringify(geminiUsage) : null
-            ]);
+      `, params);
         }
         catch (error) {
-            this.moduleLogger.error('Failed to log token action', { error, tokenId, action });
+            this.moduleLogger.error('Failed to log token action', { error, tokenId, action, result });
         }
     }
     /**

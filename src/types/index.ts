@@ -260,3 +260,248 @@ export interface TokenStats {
     blacklisted_until?: string;
   }>;
 }
+
+// Session API response interfaces (for dashboard UI compatibility)
+export interface SessionApiResponse {
+  session_id: string;
+  user_id: number;
+  session_type: 'chat' | 'requirement' | 'mixed';
+  status: 'active' | 'completed' | 'expired';
+  current_service: string;
+  service_transitions: Array<{
+    from_service: string;
+    to_service: string;
+    timestamp: Date;
+    trigger: string;
+    confidence: number;
+  }>;
+  message_count: number;
+  created_at: Date;
+  last_activity: Date;
+}
+
+export interface SessionsListResponse {
+  success: boolean;
+  data: SessionApiResponse[];
+  total?: number;
+}
+
+// Token Management API Response Types
+export interface TokenListResponse {
+  success: boolean;
+  data: Array<{
+    id: number;
+    project_name: string;
+    project_id: string;
+    is_active: boolean;
+    is_healthy: boolean;
+    daily_limit: number;
+    daily_used: number;
+    error_count: number;
+    priority: number;
+    weight: number;
+    last_used?: string;
+    last_health_check?: string;
+    blacklisted_until?: string;
+    blacklist_reason?: string;
+    created_at: string;
+  }>;
+  total: number;
+}
+
+export interface TokenStatsResponse {
+  success: boolean;
+  data: {
+    total: number;
+    active: number;
+    healthy: number;
+    blacklisted: number;
+    over_daily_limit: number;
+    available: number;
+    usage_rate: number;
+    daily_summary: {
+      total_requests: number;
+      successful_requests: number;
+      failed_requests: number;
+      error_rate: number;
+    };
+  };
+}
+
+export interface TokenHealthCheckResponse {
+  success: boolean;
+  message: string;
+  data?: {
+    checked_tokens: number;
+    healthy_tokens: number;
+    unhealthy_tokens: number;
+    duration_ms: number;
+  };
+}
+
+export interface TokenResetResponse {
+  success: boolean;
+  message: string;
+  data?: {
+    token_id: number;
+    previous_status: string;
+    new_status: string;
+  };
+}
+
+export interface TokenUsageHistoryResponse {
+  success: boolean;
+  data: {
+    logs: Array<{
+      id: number;
+      token_id: number;
+      project_name: string;
+      action: string;
+      result?: string;
+      error_message?: string;
+      response_time_ms?: number;
+      created_at: string;
+    }>;
+    total: number;
+    limit: number;
+    offset: number;
+    date_range?: {
+      start_date: string;
+      end_date: string;
+    };
+    summary?: {
+      total_requests: number;
+      successful_requests: number;
+      failed_requests: number;
+      average_response_time: number;
+    };
+  };
+}
+
+// Group Chat Management Types
+export interface GroupChatSettings {
+  id?: number;
+  group_id: number;
+  group_name?: string;
+  is_enabled: boolean;
+  auto_reply_enabled: boolean;
+  welcome_message?: string;
+  admin_user_id?: number;
+  created_at: Date;
+  updated_at: Date;
+  last_activity?: Date;
+}
+
+export interface GroupChatStats {
+  id?: number;
+  group_id: number;
+  date: string; // YYYY-MM-DD format
+  message_count: number;
+  active_users: number;
+  ai_responses: number;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface GroupChatActivity {
+  id?: number;
+  group_id: number;
+  user_id: number;
+  message_type: 'user_message' | 'ai_response' | 'notice' | 'join' | 'leave';
+  content?: string;
+  created_at: Date;
+}
+
+export interface GroupChatOverview {
+  group_id: number;
+  group_name?: string;
+  is_enabled: boolean;
+  auto_reply_enabled: boolean;
+  last_activity?: Date;
+  created_at: Date;
+  total_messages: number;
+  total_ai_responses: number;
+  avg_active_users: number;
+  days_since_last_activity?: number;
+}
+
+// Group Chat API Response Types
+export interface GroupListResponse {
+  success: boolean;
+  data: Array<{
+    group_id: number;
+    group_name?: string;
+    is_enabled: boolean;
+    auto_reply_enabled: boolean;
+    member_count?: number;
+    last_activity?: string;
+    total_messages: number;
+    total_ai_responses: number;
+    created_at: string;
+  }>;
+  total: number;
+}
+
+export interface GroupDetailResponse {
+  success: boolean;
+  data: {
+    group_id: number;
+    group_name?: string;
+    is_enabled: boolean;
+    auto_reply_enabled: boolean;
+    welcome_message?: string;
+    admin_user_id?: number;
+    last_activity?: string;
+    created_at: string;
+    updated_at: string;
+    stats: {
+      total_messages: number;
+      total_ai_responses: number;
+      avg_active_users: number;
+      recent_activity: Array<{
+        date: string;
+        message_count: number;
+        ai_responses: number;
+        active_users: number;
+      }>;
+    };
+  };
+}
+
+export interface GroupStatsResponse {
+  success: boolean;
+  data: {
+    total_groups: number;
+    enabled_groups: number;
+    disabled_groups: number;
+    total_messages_today: number;
+    total_ai_responses_today: number;
+    most_active_groups: Array<{
+      group_id: number;
+      group_name?: string;
+      message_count: number;
+      ai_responses: number;
+    }>;
+  };
+}
+
+export interface GroupBulkOperationRequest {
+  group_ids: number[];
+  action: 'enable' | 'disable' | 'delete';
+  settings?: Partial<GroupChatSettings>;
+}
+
+export interface GroupBulkOperationResponse {
+  success: boolean;
+  data: {
+    processed: number;
+    successful: number;
+    failed: number;
+    results: Array<{
+      group_id: number;
+      success: boolean;
+      message?: string;
+    }>;
+  };
+  message: string;
+}

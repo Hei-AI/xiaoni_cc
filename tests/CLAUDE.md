@@ -83,6 +83,73 @@ npm test -- --updateSnapshot
    - 必需配置项检查
    - 环境变量映射测试
 
+## 新增测试套件 (Token管理和Session管理)
+
+### token-management.test.ts
+**Token管理系统测试套件**
+
+#### 测试覆盖范围
+1. **TokenManager核心功能测试**
+   - Token选择算法验证
+   - 优先级和权重计算正确性
+   - 健康状态检查机制
+   - 每日用量限制和重置
+
+2. **Token轮换机制测试**
+   - 健康Token优先选择
+   - 黑名单Token跳过逻辑
+   - 所有Token不可用时的错误处理
+   - Token恢复机制验证
+
+3. **数据库集成测试**
+   - Token数据持久化
+   - 使用日志记录
+   - 健康检查配置加载
+   - 并发访问安全性
+
+### session-manager.test.ts
+**Session管理系统测试套件**
+
+#### 测试覆盖范围
+1. **Session生命周期测试**
+   - 会话创建和初始化
+   - 自动过期机制
+   - 会话状态转换
+   - 会话清理和垃圾回收
+
+2. **意图检测系统测试**
+   - 聊天意图识别准确性
+   - 需求意图检测置信度
+   - 服务切换触发条件
+   - 混合模式处理逻辑
+
+3. **上下文管理测试**
+   - 对话上下文保持
+   - 业务上下文更新
+   - 消息历史维护
+   - 服务间上下文传递
+
+### remote-claude-service.test.ts
+**Claude Code远程服务测试套件**
+
+#### 测试覆盖范围
+1. **远程会话管理测试**
+   - Tmux会话状态检查
+   - 会话可用性验证
+   - 会话错误处理
+
+2. **需求处理流程测试**
+   - 异步处理机制
+   - 状态更新正确性
+   - 错误回滚机制
+   - 处理超时管理
+
+3. **脚本执行测试**
+   - 命令执行安全性
+   - 输出捕获完整性
+   - 错误信息传递
+   - 进程生命周期管理
+
 #### 测试模式
 ```typescript
 describe('Basic TypeScript Migration Tests', () => {
@@ -303,5 +370,246 @@ test('should handle database connection failure gracefully', async () => {
   // 验证错误处理
   const result = await bot.start();
   expect(result).toBe(false);
+});
+```
+
+## 新增组件测试示例
+
+### Token管理系统测试示例
+```typescript
+describe('TokenManager', () => {
+  let tokenManager: TokenManager;
+  let mockDatabase: jest.Mocked<DatabaseManager>;
+
+  beforeEach(() => {
+    mockDatabase = createMockDatabase();
+    tokenManager = new TokenManager(mockDatabase);
+  });
+
+  describe('Token Selection Algorithm', () => {
+    test('should select highest priority healthy token', async () => {
+      // 准备测试数据
+      const mockTokens: ApiTokenData[] = [
+        { id: 1, priority: 1, is_healthy: true, daily_used: 10, daily_limit: 1000 },
+        { id: 2, priority: 2, is_healthy: true, daily_used: 5, daily_limit: 1000 }
+      ];
+      
+      mockDatabase.executeQuery.mockResolvedValue(mockTokens);
+      
+      // 执行测试
+      const selectedToken = await tokenManager.getOptimalToken();
+      
+      // 验证结果
+      expect(selectedToken?.id).toBe(1);
+      expect(selectedToken?.priority).toBe(1);
+    });
+
+    test('should skip blacklisted tokens', async () => {
+      const mockTokens: ApiTokenData[] = [
+        { 
+          id: 1, 
+          priority: 1, 
+          is_healthy: false, 
+          blacklisted_until: new Date(Date.now() + 3600000) // 1小时后
+        },
+        { id: 2, priority: 2, is_healthy: true, daily_used: 0, daily_limit: 1000 }
+      ];
+      
+      mockDatabase.executeQuery.mockResolvedValue(mockTokens);
+      
+      const selectedToken = await tokenManager.getOptimalToken();
+      expect(selectedToken?.id).toBe(2);
+    });
+  });
+
+  describe('Token Health Management', () => {
+    test('should mark token as unhealthy after max errors', async () => {
+      const tokenId = 1;
+      const errorMessage = 'API quota exceeded';
+      
+      // 模拟健康检查配置
+      mockDatabase.executeQuery.mockResolvedValueOnce([{
+        max_error_count: 3,
+        blacklist_duration_minutes: 60
+      }]);
+      
+      // 模拟Token当前状态
+      mockDatabase.executeQuery.mockResolvedValueOnce([{
+        id: tokenId,
+        error_count: 2 // 接近最大错误次数
+      }]);
+      
+      await tokenManager.markTokenError(tokenId, errorMessage);
+      
+      // 验证Token被标记为不健康
+      expect(mockDatabase.executeUpdate).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE api_tokens SET is_healthy = false'),
+        expect.arrayContaining([tokenId])
+      );
+    });
+  });
+});
+```
+
+### Session管理系统测试示例
+```typescript
+describe('SessionManager', () => {
+  let sessionManager: SessionManager;
+  let mockDatabase: jest.Mocked<DatabaseManager>;
+
+  beforeEach(() => {
+    mockDatabase = createMockDatabase();
+    sessionManager = new SessionManager(mockDatabase);
+  });
+
+  describe('Session Creation and Intent Detection', () => {
+    test('should create chat session for casual message', async () => {
+      const userId = 12345;
+      const message = '今天天气怎么样？';
+      
+      // 执行会话创建
+      const session = await sessionManager.createSession(userId, message);
+      
+      // 验证会话类型
+      expect(session.session_type).toBe('chat');
+      expect(session.user_id).toBe(userId);
+      expect(session.status).toBe('active');
+    });
+
+    test('should create requirement session for development request', async () => {
+      const userId = 85178516; // 授权用户
+      const message = '请帮我实现一个新的API接口用于用户管理';
+      
+      const session = await sessionManager.createSession(userId, message);
+      
+      expect(session.session_type).toBe('requirement');
+      expect(session.business_context).toHaveProperty('detected_intent');
+    });
+
+    test('should detect service transition during conversation', async () => {
+      const sessionId = 'test-session-id';
+      const newMessage = '实际上我需要修改数据库结构';
+      
+      // 模拟现有聊天会话
+      mockDatabase.executeQuery.mockResolvedValueOnce([{
+        session_id: sessionId,
+        session_type: 'chat',
+        current_service: 'ai-service'
+      }]);
+      
+      const transitionResult = await sessionManager.detectServiceTransition(
+        sessionId, 
+        newMessage
+      );
+      
+      expect(transitionResult.should_transition).toBe(true);
+      expect(transitionResult.target_service).toBe('requirement-processor');
+    });
+  });
+
+  describe('Context Management', () => {
+    test('should maintain conversation context across messages', async () => {
+      const sessionId = 'test-session-id';
+      const newContext = {
+        conversation_context: {
+          lastAIResponse: 'Hello! How can I help you?',
+          conversationTurn: 2
+        }
+      };
+      
+      await sessionManager.updateSessionContext(sessionId, newContext);
+      
+      expect(mockDatabase.executeUpdate).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE conversation_sessions'),
+        expect.arrayContaining([JSON.stringify(newContext.conversation_context)])
+      );
+    });
+  });
+});
+```
+
+### 远程Claude服务测试示例
+```typescript
+describe('RemoteClaudeService', () => {
+  let remoteClaudeService: RemoteClaudeService;
+  let mockDatabase: jest.Mocked<DatabaseManager>;
+
+  beforeEach(() => {
+    mockDatabase = createMockDatabase();
+    remoteClaudeService = new RemoteClaudeService(mockDatabase);
+  });
+
+  describe('Remote Session Management', () => {
+    test('should check remote session existence', async () => {
+      // 模拟tmux命令成功
+      jest.spyOn(require('child_process'), 'spawn').mockImplementation(() => ({
+        on: jest.fn((event, callback) => {
+          if (event === 'close') callback(0); // 成功退出码
+        })
+      }));
+      
+      const sessionExists = await remoteClaudeService.checkRemoteSession();
+      expect(sessionExists).toBe(true);
+    });
+
+    test('should handle remote session not found', async () => {
+      // 模拟tmux命令失败
+      jest.spyOn(require('child_process'), 'spawn').mockImplementation(() => ({
+        on: jest.fn((event, callback) => {
+          if (event === 'close') callback(1); // 错误退出码
+        })
+      }));
+      
+      const sessionExists = await remoteClaudeService.checkRemoteSession();
+      expect(sessionExists).toBe(false);
+    });
+  });
+
+  describe('Requirement Processing', () => {
+    test('should process requirement asynchronously', async () => {
+      const requirementData: RequirementData = {
+        id: 'req-123',
+        user_id: 85178516,
+        message: '实现用户登录功能',
+        status: 'received',
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+
+      // 模拟远程会话存在
+      jest.spyOn(remoteClaudeService, 'checkRemoteSession')
+          .mockResolvedValue(true);
+
+      // 启动需求处理
+      const processPromise = remoteClaudeService.processRequirement(requirementData);
+      
+      // 验证状态更新为processing
+      expect(mockDatabase.executeUpdate).toHaveBeenCalledWith(
+        expect.stringContaining("SET status = 'processing'"),
+        expect.arrayContaining([requirementData.id])
+      );
+
+      await processPromise;
+    });
+
+    test('should handle remote session unavailable error', async () => {
+      const requirementData: RequirementData = {
+        id: 'req-124',
+        user_id: 85178516,
+        message: '修复登录bug',
+        status: 'received',
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+
+      // 模拟远程会话不存在
+      jest.spyOn(remoteClaudeService, 'checkRemoteSession')
+          .mockResolvedValue(false);
+
+      await expect(
+        remoteClaudeService.processRequirement(requirementData)
+      ).rejects.toThrow('Claude Code远程会话不存在');
+    });
+  });
 });
 ```

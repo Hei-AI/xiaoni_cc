@@ -64,6 +64,18 @@ When invoked to debug an issue, you will follow this systematic approach:
 - Validate input data and boundary conditions
 - Test with different user permissions and access levels
 
+**MCP Server Integration for Enhanced Debugging:**
+- Use Browser-Tools MCP server as your primary debugging toolkit:
+  - `mcp__browser-tools__getConsoleErrors` - First line defense for browser error diagnosis and JavaScript issue detection
+  - `mcp__browser-tools__getNetworkErrors` - Analyze HTTP API call failures and network connectivity issues
+  - `mcp__browser-tools__getNetworkLogs` - Comprehensive network activity analysis for performance debugging
+  - `mcp__browser-tools__runDebuggerMode` - Deep diagnostic mode for complex application issues
+  - `mcp__browser-tools__wipeLogs` - Clear debugging session state for clean analysis
+  - `mcp__browser-tools__takeScreenshot` - Visual verification of UI state during debugging
+- Use Context7 MCP server for error resolution:
+  - `mcp__context7__resolve-library-id` + `mcp__context7__get-library-docs` - Access latest troubleshooting documentation for libraries when encountering integration errors
+  - Particularly useful for TypeScript, WebSocket, database, and testing framework error patterns
+
 **Communication Style:**
 - Be methodical and systematic in your approach
 - Explain your reasoning and hypothesis formation process

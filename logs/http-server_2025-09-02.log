@@ -29,3 +29,80 @@
 {"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T13:47:16.585Z"}
 {"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T13:47:34.710Z"}
 {"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T13:47:38.631Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T13:50:36.849Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T13:50:40.720Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T13:51:10.916Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T13:51:14.798Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T13:51:36.008Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T13:51:39.954Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T13:52:08.913Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T13:52:12.810Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T13:52:49.892Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T13:52:53.795Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:18:32.242Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:18:36.135Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:18:49.948Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:18:53.858Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:19:21.651Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:20:28.250Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:21:33.133Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:21:59.300Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:24:44.741Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:24:48.601Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:25:09.312Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:25:33.586Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:29:16.763Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:29:20.639Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:30:08.968Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:30:12.867Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:30:27.147Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:30:30.976Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:31:26.954Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:31:30.890Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:32:48.381Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:33:08.115Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:34:07.437Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:34:11.332Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:34:39.170Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:34:43.117Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:35:21.635Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:35:25.658Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:35:45.021Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:35:48.882Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:36:29.413Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:36:33.342Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:36:47.942Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:36:51.811Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:38:59.437Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:42:01.996Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:46:23.442Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:51:23.928Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:51:44.626Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:51:48.515Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:51:59.369Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:52:03.336Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T14:59:38.504Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T14:59:42.528Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T15:00:13.136Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T15:00:16.997Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T15:02:03.751Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T15:02:07.658Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T15:03:30.329Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T15:03:34.265Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T15:04:15.990Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T15:04:19.904Z"}
+{"extra":{"checkedTokens":"10","duration":8998,"healthyAfter":"10"},"level":"info","message":"Manual health check completed","module":"http-server","timestamp":"2025-09-02T15:04:42.765Z"}
+{"extra":{"operationTime":"2025-09-02T15:04:51.682Z","previousStatus":"blacklisted","projectName":"project.name_2","tokenId":2},"level":"info","message":"Token manually reset from blacklist","module":"http-server","timestamp":"2025-09-02T15:04:51.682Z"}
+{"extra":{"blacklistedAfter":"0","blacklistedBefore":"1","clearedCount":1,"operationTime":"2025-09-02T15:04:57.642Z"},"level":"warn","message":"Token blacklist manually cleared","module":"http-server","timestamp":"2025-09-02T15:04:57.642Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T15:11:33.737Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T15:11:37.665Z"}
+{"extra":{"error":"Unexpected token ! in JSON at position 167","method":"POST","stack":"SyntaxError: Unexpected token ! in JSON at position 167\n    at JSON.parse (<anonymous>)\n    at parse (/home/liahua/IdeaProject/qq_bot/node_modules/body-parser/lib/types/json.js:92:19)\n    at /home/liahua/IdeaProject/qq_bot/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:203:9)\n    at invokeCallback (/home/liahua/IdeaProject/qq_bot/node_modules/raw-body/index.js:238:16)\n    at done (/home/liahua/IdeaProject/qq_bot/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/home/liahua/IdeaProject/qq_bot/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:517:28)\n    at endReadableNT (node:internal/streams/readable:1400:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:82:21)","url":"/api/groups"},"level":"error","message":"HTTP Server Error","module":"http-server","timestamp":"2025-09-02T15:15:39.513Z"}
+{"extra":{"error":"Unexpected token ! in JSON at position 149","method":"POST","stack":"SyntaxError: Unexpected token ! in JSON at position 149\n    at JSON.parse (<anonymous>)\n    at parse (/home/liahua/IdeaProject/qq_bot/node_modules/body-parser/lib/types/json.js:92:19)\n    at /home/liahua/IdeaProject/qq_bot/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:203:9)\n    at invokeCallback (/home/liahua/IdeaProject/qq_bot/node_modules/raw-body/index.js:238:16)\n    at done (/home/liahua/IdeaProject/qq_bot/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/home/liahua/IdeaProject/qq_bot/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:517:28)\n    at endReadableNT (node:internal/streams/readable:1400:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:82:21)","url":"/api/groups"},"level":"error","message":"HTTP Server Error","module":"http-server","timestamp":"2025-09-02T15:17:41.215Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-02T15:18:14.658Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-02T15:18:21.095Z"}
+{"extra":{"group_id":123123123,"group_name":"Test Group"},"level":"info","message":"Group chat created","module":"http-server","timestamp":"2025-09-02T15:20:47.612Z"}
+{"extra":{"groupId":123123123,"updateData":{"group_name":"Updated Test Group","is_enabled":false}},"level":"info","message":"Group chat settings updated","module":"http-server","timestamp":"2025-09-02T15:20:55.596Z"}
+{"extra":{"groupId":123123123},"level":"info","message":"Group chat settings deleted","module":"http-server","timestamp":"2025-09-02T15:21:01.505Z"}
+{"extra":{"action":"enable","failed":0,"groupCount":2,"successful":2},"level":"info","message":"Bulk group operation completed","module":"http-server","timestamp":"2025-09-02T15:21:06.812Z"}
+{"extra":{"error":"Unexpected token ! in JSON at position 189","method":"POST","stack":"SyntaxError: Unexpected token ! in JSON at position 189\n    at JSON.parse (<anonymous>)\n    at parse (/home/liahua/IdeaProject/qq_bot/node_modules/body-parser/lib/types/json.js:92:19)\n    at /home/liahua/IdeaProject/qq_bot/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:203:9)\n    at invokeCallback (/home/liahua/IdeaProject/qq_bot/node_modules/raw-body/index.js:238:16)\n    at done (/home/liahua/IdeaProject/qq_bot/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/home/liahua/IdeaProject/qq_bot/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:517:28)\n    at endReadableNT (node:internal/streams/readable:1400:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:82:21)","url":"/api/groups"},"level":"error","message":"HTTP Server Error","module":"http-server","timestamp":"2025-09-02T15:21:45.063Z"}
+{"extra":{"group_id":888999000,"group_name":"Production Test Group"},"level":"info","message":"Group chat created","module":"http-server","timestamp":"2025-09-02T15:21:50.622Z"}

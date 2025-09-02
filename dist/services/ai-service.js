@@ -279,21 +279,94 @@ class AIService {
                 });
                 const responseTime = Date.now() - startTime;
                 const response = result.data;
-                // 从 HTTP API响应中提取文本
+                // 添加详细的响应结构日志用于调试
+                this.moduleLogger.debug('Raw Gemini API response structure', {
+                    status: result.status,
+                    hasResponse: !!response,
+                    responseKeys: response ? Object.keys(response) : null,
+                    hasCandidates: !!response?.candidates,
+                    candidatesLength: response?.candidates?.length || 0,
+                    finishReason: response?.candidates?.[0]?.finishReason,
+                    safetyRatings: response?.candidates?.[0]?.safetyRatings,
+                    usageMetadata: response?.usageMetadata,
+                    error: response?.error
+                });
+                // 从 HTTP API响应中提取文本 - 改进的鲁棒解析逻辑
                 let responseText;
                 try {
-                    // 解析Gemini API响应格式
-                    if (response.candidates && response.candidates.length > 0) {
-                        const candidate = response.candidates[0];
-                        if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
-                            responseText = candidate.content.parts[0].text || '';
+                    // 检查基本响应结构
+                    if (!response) {
+                        throw new Error('API响应为空');
+                    }
+                    if (!response.candidates) {
+                        this.moduleLogger.error('API响应缺少candidates字段', {
+                            responseKeys: Object.keys(response),
+                            responseError: response.error
+                        });
+                        throw new Error('API响应中没有candidates字段');
+                    }
+                    if (!Array.isArray(response.candidates) || response.candidates.length === 0) {
+                        this.moduleLogger.error('candidates为空或格式错误', {
+                            candidatesType: typeof response.candidates,
+                            candidatesLength: response.candidates?.length
+                        });
+                        throw new Error('API响应中没有候选结果');
+                    }
+                    const candidate = response.candidates[0];
+                    this.moduleLogger.debug('Processing first candidate', {
+                        candidateKeys: Object.keys(candidate),
+                        hasContent: !!candidate.content,
+                        finishReason: candidate.finishReason,
+                        safetyRatings: candidate.safetyRatings
+                    });
+                    // 检查内容被过滤的情况
+                    if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+                        this.moduleLogger.warn('Candidate finished with non-STOP reason', {
+                            finishReason: candidate.finishReason,
+                            safetyRatings: candidate.safetyRatings
+                        });
+                        if (candidate.finishReason === 'SAFETY') {
+                            throw new Error('内容被安全过滤器拦截');
+                        }
+                        else if (candidate.finishReason === 'RECITATION') {
+                            throw new Error('内容被引用检测器拦截');
                         }
                         else {
-                            throw new Error('无法从响应中提取文本内容');
+                            throw new Error(`生成被终止: ${candidate.finishReason}`);
                         }
                     }
-                    else {
-                        throw new Error('API响应中没有候选结果');
+                    if (!candidate.content) {
+                        this.moduleLogger.error('Candidate缺少content字段', {
+                            candidateKeys: Object.keys(candidate)
+                        });
+                        throw new Error('候选结果中没有内容');
+                    }
+                    if (!candidate.content.parts || !Array.isArray(candidate.content.parts) || candidate.content.parts.length === 0) {
+                        this.moduleLogger.error('Content缺少parts或parts为空', {
+                            contentKeys: Object.keys(candidate.content),
+                            partsType: typeof candidate.content.parts,
+                            partsLength: candidate.content.parts?.length
+                        });
+                        throw new Error('候选结果内容为空');
+                    }
+                    const firstPart = candidate.content.parts[0];
+                    this.moduleLogger.debug('Processing first part', {
+                        partKeys: Object.keys(firstPart),
+                        hasText: 'text' in firstPart,
+                        textType: typeof firstPart.text,
+                        textLength: firstPart.text?.length || 0
+                    });
+                    if (!('text' in firstPart) || typeof firstPart.text !== 'string') {
+                        this.moduleLogger.error('First part没有text字段或类型错误', {
+                            partKeys: Object.keys(firstPart),
+                            textType: typeof firstPart.text
+                        });
+                        throw new Error('候选结果第一部分没有有效的text字段');
+                    }
+                    responseText = firstPart.text || '';
+                    if (responseText === '') {
+                        this.moduleLogger.warn('Extracted text is empty but no error occurred');
+                        responseText = '抱歉，我无法生成回复。请稍后重试。';
                     }
                     // 检查是否存在编码问题（常见的UTF-8乱码特征）
                     if (responseText.includes('ä') || responseText.includes('ã') || responseText.includes('â') || responseText.includes('�')) {
@@ -320,8 +393,13 @@ class AIService {
                     }
                 }
                 catch (error) {
-                    this.moduleLogger.error('Failed to get response text', { error });
-                    throw new Error('Failed to extract response text from Gemini API');
+                    this.moduleLogger.error('Failed to extract response text - detailed analysis', {
+                        error: error instanceof Error ? error.message : 'Unknown error',
+                        responseType: typeof response,
+                        responseKeys: response ? Object.keys(response) : null,
+                        fullResponse: JSON.stringify(response, null, 2)
+                    });
+                    throw new Error(`Failed to extract response text from Gemini API: ${error instanceof Error ? error.message : 'Unknown parsing error'}`);
                 }
                 // 成功时报告Token使用成功
                 if (this.currentToken) {

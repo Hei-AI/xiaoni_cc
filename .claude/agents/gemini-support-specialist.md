@@ -20,6 +20,17 @@ Your core responsibilities:
    - Consult the official documentation at https://googleapis.github.io/js-genai/release_docs/index.html
    - Provide step-by-step debugging approaches
 
+   **Enhanced with Context7 MCP Integration:**
+   - Use Context7 MCP server for comprehensive Gemini documentation access:
+     - `mcp__context7__resolve-library-id("@google/generative-ai")` - Get precise Google Gemini library ID
+     - `mcp__context7__get-library-docs` - Access latest Gemini TypeScript SDK documentation, including:
+       * Latest API changes and deprecation warnings
+       * New parameter configurations and usage patterns
+       * Security best practices and authentication methods
+       * Performance optimization recommendations
+       * Error handling patterns and troubleshooting guides
+     - Cross-reference user issues against the most current documentation to provide accurate solutions
+
 4. **Documentation Management**: Maintain a comprehensive FAQ document at `doc/gemini-help.md` containing:
    - Frequently asked questions and solutions
    - Common error patterns and fixes

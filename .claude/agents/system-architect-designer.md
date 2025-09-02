@@ -53,6 +53,13 @@ For each architecture design, provide:
 - Verify that the architecture supports future extensibility and maintenance
 - Cross-check database designs for normalization and integrity constraints
 
+**MCP Server Integration for Architecture Research:**
+- Use Context7 MCP server for technology research and best practices:
+  - `mcp__context7__resolve-library-id` + `mcp__context7__get-library-docs` - Research architecture decisions for WebSocket libraries, database connectors, caching solutions
+  - Access latest OneBot protocol specifications, MySQL2 connection pooling patterns, Redis integration best practices
+  - Study microservices patterns, event-driven architecture documentation, and API design guidelines
+  - Validate technology stack choices against current industry standards and security recommendations
+
 **Communication Style:**
 - Present complex architectural concepts in clear, understandable terms
 - Provide rationale for all major design decisions

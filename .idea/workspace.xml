@@ -5,33 +5,56 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="e289a57b-6024-485c-8211-1bbd342ce7af" name="Changes" comment="save token.properties">
-      <change beforePath="$PROJECT_DIR$/.idea/qq_bot.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/qq_bot.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/agents/business-developer.md" beforeDir="false" afterPath="$PROJECT_DIR$/.claude/agents/business-developer.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/agents/code-reviewer.md" beforeDir="false" afterPath="$PROJECT_DIR$/.claude/agents/code-reviewer.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/agents/debugger.md" beforeDir="false" afterPath="$PROJECT_DIR$/.claude/agents/debugger.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/agents/gemini-support-specialist.md" beforeDir="false" afterPath="$PROJECT_DIR$/.claude/agents/gemini-support-specialist.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/agents/system-architect-designer.md" beforeDir="false" afterPath="$PROJECT_DIR$/.claude/agents/system-architect-designer.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jest.config.js" beforeDir="false" afterPath="$PROJECT_DIR$/jest.config.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/database/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/database/CLAUDE.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/index.d.ts" beforeDir="false" afterPath="$PROJECT_DIR$/dist/index.d.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/index.d.ts.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/index.d.ts.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/index.js" beforeDir="false" afterPath="$PROJECT_DIR$/dist/index.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/index.js.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/index.js.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/ai-service.d.ts.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/ai-service.d.ts.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/ai-service.js" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/ai-service.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/ai-service.js.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/ai-service.js.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/database.d.ts" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/database.d.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/database.d.ts.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/database.d.ts.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/database.js" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/database.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/database.js.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/database.js.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/http-server.d.ts" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/http-server.d.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/http-server.d.ts.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/http-server.d.ts.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/http-server.js" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/http-server.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/http-server.js.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/http-server.js.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/session-api-handlers.d.ts.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/session-api-handlers.d.ts.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/services/session-api-handlers.js.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/services/session-api-handlers.js.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/types/index.d.ts" beforeDir="false" afterPath="$PROJECT_DIR$/dist/types/index.d.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/types/index.d.ts.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/types/index.d.ts.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/utils/token-manager.d.ts.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/utils/token-manager.d.ts.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/utils/token-manager.js" beforeDir="false" afterPath="$PROJECT_DIR$/dist/utils/token-manager.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/utils/token-manager.js.map" beforeDir="false" afterPath="$PROJECT_DIR$/dist/utils/token-manager.js.map" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logs/ai-service_2025-09-02.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/ai-service_2025-09-02.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logs/database_2025-09-02.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/database_2025-09-02.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logs/hook-post-tool.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/hook-post-tool.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logs/http-server_2025-09-02.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/http-server_2025-09-02.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logs/main_2025-09-02.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/main_2025-09-02.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logs/service.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/service.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logs/session-manager_2025-09-02.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/session-manager_2025-09-02.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logs/token-manager_2025-09-02.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/token-manager_2025-09-02.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logs/websocket_2025-09-02.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/websocket_2025-09-02.log" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/CLAUDE.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/services/ai-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ai-service.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/services/database.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/database.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/services/http-server.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/http-server.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/websocket-client.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/websocket-client.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/session-api-handlers.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/session-api-handlers.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/types/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/src/types/CLAUDE.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/types/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/types/index.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/start_services_ts.sh" beforeDir="false" afterPath="$PROJECT_DIR$/start_services_ts.sh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/basic_test.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/comprehensive_test.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/debug_test.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/full_test.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/log/comprehensive_test_2025-08-31.log" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/log/websocket_events_2025-08-31.log" beforeDir="false" afterPath="$PROJECT_DIR$/test/log/websocket_events_2025-08-31.log" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/manual_send_test.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/minimal_test.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/send_test.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/simple_connection_test.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/simple_full_test.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/simple_test.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_bot.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_http_api.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/token-manager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/token-manager.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/tests/CLAUDE.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -171,7 +194,7 @@
       <workItem from="1756624451431" duration="729000" />
       <workItem from="1756626110156" duration="15000" />
       <workItem from="1756626295318" duration="11861000" />
-      <workItem from="1756733421318" duration="13799000" />
+      <workItem from="1756733421318" duration="18284000" />
     </task>
     <task id="LOCAL-00001" summary="save token.properties">
       <option name="closed" value="true" />
