@@ -1,0 +1,157 @@
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T00:31:04.311Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T00:31:04.340Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T00:31:04.341Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T00:31:04.344Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T00:31:04.349Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T00:31:04.354Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T00:31:05.368Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T00:31:24.816Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T00:31:24.840Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T00:31:46.739Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T00:31:46.746Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T00:31:51.075Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T00:31:51.099Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T00:31:51.101Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T00:31:51.104Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T00:31:51.109Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T00:31:51.112Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T00:31:52.125Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T00:34:21.143Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T00:34:21.152Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T00:34:25.049Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T00:34:25.077Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T00:34:25.078Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T00:34:25.080Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T00:34:25.085Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T00:34:25.088Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T00:34:26.100Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T00:38:03.787Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T00:38:03.796Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T00:38:26.139Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T00:38:26.167Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T00:38:26.168Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T00:38:26.171Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T00:38:26.176Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T00:38:26.179Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T00:38:27.194Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T00:38:53.134Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T00:38:53.142Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T00:39:33.074Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T00:39:33.099Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T00:39:33.101Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T00:39:33.103Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T00:39:33.108Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T00:39:33.115Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T00:39:34.128Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T00:42:04.907Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T00:42:04.916Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T00:42:08.834Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T00:42:08.856Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T00:42:08.858Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T00:42:08.860Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T00:42:08.867Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T00:42:08.870Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T00:42:09.883Z"}
+{"extra":{"message":"hello","user_id":85178516},"level":"info","message":"Received private message","module":"main","timestamp":"2025-09-02T00:43:46.500Z"}
+{"extra":{"sessionId":"session_85178516_644518184","sessionType":"chat","userId":85178516},"level":"info","message":"Session processing result","module":"main","timestamp":"2025-09-02T00:43:46.512Z"}
+{"extra":{"conversationId":"33306974-b856-4045-a828-5cbb14ba790e","responseTime":8977,"userId":85178516},"level":"info","message":"AI conversation completed","module":"main","timestamp":"2025-09-02T00:43:55.499Z"}
+{"extra":{"group_id":253631878,"user_id":2250861987},"level":"info","message":"New group member joined","module":"main","timestamp":"2025-09-02T04:05:27.157Z"}
+{"extra":{"group_id":253631878,"user_id":522341363},"level":"info","message":"New group member joined","module":"main","timestamp":"2025-09-02T04:06:33.330Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T12:33:56.851Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T12:33:56.907Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T12:34:00.846Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T12:34:00.870Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T12:34:00.872Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T12:34:00.874Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T12:34:00.883Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T12:34:00.885Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T12:34:01.898Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T12:34:37.524Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T12:34:37.533Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T12:34:41.429Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T12:34:41.454Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T12:34:41.457Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T12:34:41.459Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T12:34:41.465Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T12:34:41.472Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T12:34:42.488Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T12:38:22.297Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T12:38:22.306Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T13:10:38.795Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T13:10:38.824Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T13:10:38.826Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T13:10:38.828Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T13:10:38.833Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T13:10:38.839Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T13:10:39.861Z"}
+{"extra":{"message":"hello","user_id":85178516},"level":"info","message":"Received private message","module":"main","timestamp":"2025-09-02T13:13:24.933Z"}
+{"extra":{"sessionId":"session_85178516_1177170809","sessionType":"chat","userId":85178516},"level":"info","message":"Session processing result","module":"main","timestamp":"2025-09-02T13:13:24.938Z"}
+{"extra":{"conversationId":"b1fab93e-11cf-4312-901d-13efe2540b54","responseTime":4,"userId":85178516},"level":"info","message":"AI conversation completed","module":"main","timestamp":"2025-09-02T13:13:24.955Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T13:34:00.331Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T13:34:00.356Z"}
+{"extra":{"message":"hello","user_id":85178516},"level":"info","message":"Received private message","module":"main","timestamp":"2025-09-02T13:34:40.710Z"}
+{"extra":{"sessionId":"session_85178516_2068653021","sessionType":"chat","userId":85178516},"level":"info","message":"Session processing result","module":"main","timestamp":"2025-09-02T13:34:40.715Z"}
+{"extra":{"conversationId":"01421efe-2293-4573-b93b-0b04bfc1f268","responseTime":3,"userId":85178516},"level":"info","message":"AI conversation completed","module":"main","timestamp":"2025-09-02T13:34:40.728Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T13:40:38.262Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T13:40:38.271Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T13:40:54.680Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T13:40:54.703Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T13:40:54.705Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T13:40:54.707Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T13:40:54.714Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T13:40:54.717Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T13:40:55.737Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T13:44:46.483Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T13:44:46.493Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T13:44:50.343Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T13:44:50.364Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T13:44:50.365Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T13:44:50.368Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T13:44:50.375Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T13:44:50.378Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T13:44:51.392Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T13:45:02.815Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T13:45:02.824Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T13:45:06.670Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T13:45:06.693Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T13:45:06.695Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T13:45:06.697Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T13:45:06.707Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T13:45:06.713Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T13:45:07.729Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T13:45:17.838Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T13:45:17.846Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T13:45:21.608Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T13:45:21.629Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T13:45:21.630Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T13:45:21.633Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T13:45:21.639Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T13:45:21.645Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T13:45:22.661Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T13:45:46.528Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T13:45:46.536Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T13:45:50.358Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T13:45:50.377Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T13:45:50.381Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T13:45:50.384Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T13:45:50.392Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T13:45:50.395Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T13:45:51.411Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T13:47:12.715Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T13:47:12.725Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T13:47:16.559Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T13:47:16.583Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T13:47:16.585Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T13:47:16.588Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T13:47:16.595Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T13:47:16.602Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T13:47:17.617Z"}
+{"level":"info","message":"🛑 Stopping QQ Bot...","module":"main","timestamp":"2025-09-02T13:47:34.703Z"}
+{"level":"info","message":"✅ QQ Bot stopped successfully","module":"main","timestamp":"2025-09-02T13:47:34.711Z"}
+{"level":"info","message":"🚀 Starting QQ Bot...","module":"main","timestamp":"2025-09-02T13:47:38.609Z"}
+{"level":"info","message":"✅ Database connected","module":"main","timestamp":"2025-09-02T13:47:38.629Z"}
+{"level":"info","message":"✅ HTTP server started","module":"main","timestamp":"2025-09-02T13:47:38.631Z"}
+{"level":"info","message":"✅ WebSocket client connected","module":"main","timestamp":"2025-09-02T13:47:38.633Z"}
+{"level":"info","message":"WebSocket connected","module":"main","timestamp":"2025-09-02T13:47:38.640Z"}
+{"level":"info","message":"🎉 QQ Bot started successfully!","module":"main","timestamp":"2025-09-02T13:47:38.645Z"}
+{"extra":{"userId":85178516},"level":"info","message":"Startup notification sent to authorized user","module":"main","timestamp":"2025-09-02T13:47:39.662Z"}

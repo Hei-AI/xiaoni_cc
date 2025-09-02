@@ -63,6 +63,12 @@ export class WebSocketClient extends EventEmitter {
       const message = JSON.parse(data.toString()) as WebSocketMessage;
       this.moduleLogger.debug('Received message', { message });
 
+      // 检查是否是API响应消息
+      if (this.isApiResponse(message)) {
+        this.handleApiResponse(message as any);
+        return;
+      }
+
       // 根据消息类型分发事件
       switch (message.post_type) {
         case 'message':
@@ -77,8 +83,14 @@ export class WebSocketClient extends EventEmitter {
         case 'request':
           this.handleQQRequest(message as unknown as QQRequest);
           break;
+        case 'meta_event':
+          this.handleQQMetaEvent(message as unknown as any);
+          break;
         default:
-          this.moduleLogger.warn('Unknown message type', { type: message.post_type });
+          this.moduleLogger.warn('Unknown message type', { 
+            type: message.post_type, 
+            message: JSON.stringify(message).substring(0, 500) 
+          });
       }
 
       this.emit('raw_message', message);
@@ -88,12 +100,31 @@ export class WebSocketClient extends EventEmitter {
   }
 
   private handleQQMessage(message: QQMessage): void {
+    // 处理OneBot消息段格式
+    message = this.normalizeMessage(message);
+    
     if (message.message_type === 'private') {
       this.emit('private_message', message);
     } else if (message.message_type === 'group') {
       this.emit('group_message', message);
     }
     this.emit('message', message);
+  }
+
+  private normalizeMessage(message: QQMessage): QQMessage {
+    // 如果message是数组格式（OneBot消息段），转换为字符串
+    if (Array.isArray(message.message)) {
+      message.message = this.extractTextFromMessageSegments(message.message as any);
+    }
+    return message;
+  }
+
+  private extractTextFromMessageSegments(segments: any[]): string {
+    return segments
+      .filter(segment => segment.type === 'text')
+      .map(segment => segment.data?.text || '')
+      .join('')
+      .trim();
   }
 
   private handleQQNotice(notice: QQNotice): void {
@@ -115,6 +146,73 @@ export class WebSocketClient extends EventEmitter {
     } else if (request.request_type === 'group') {
       this.emit('group_request', request);
     }
+  }
+
+  private handleQQMetaEvent(metaEvent: any): void {
+    // 处理元事件（心跳、生命周期等）
+    this.moduleLogger.debug('Received meta event', {
+      meta_event_type: metaEvent.meta_event_type,
+      sub_type: metaEvent.sub_type
+    });
+    
+    switch (metaEvent.meta_event_type) {
+      case 'heartbeat':
+        // 心跳事件，更新连接状态
+        if (metaEvent.status) {
+          this.moduleLogger.debug('Heartbeat received', {
+            online: metaEvent.status.online,
+            good: metaEvent.status.good
+          });
+        }
+        this.emit('heartbeat', metaEvent);
+        break;
+      case 'lifecycle':
+        // 生命周期事件
+        this.moduleLogger.info('Lifecycle event received', {
+          sub_type: metaEvent.sub_type
+        });
+        this.emit('lifecycle', metaEvent);
+        break;
+      default:
+        this.moduleLogger.debug('Unknown meta event type', {
+          meta_event_type: metaEvent.meta_event_type
+        });
+    }
+    
+    this.emit('meta_event', metaEvent);
+  }
+
+  private isApiResponse(message: any): boolean {
+    // API响应消息的特征：包含status和retcode字段，不包含post_type字段
+    return (
+      Object.prototype.hasOwnProperty.call(message, 'status') &&
+      Object.prototype.hasOwnProperty.call(message, 'retcode') &&
+      !Object.prototype.hasOwnProperty.call(message, 'post_type')
+    );
+  }
+
+  private handleApiResponse(response: any): void {
+    // 处理API响应消息
+    this.moduleLogger.debug('Received API response', {
+      status: response.status,
+      retcode: response.retcode,
+      data: response.data,
+      echo: response.echo
+    });
+
+    // 检查API调用是否成功
+    if (response.status === 'ok' && response.retcode === 0) {
+      this.moduleLogger.debug('API call successful', { data: response.data });
+    } else {
+      this.moduleLogger.warn('API call failed', {
+        status: response.status,
+        retcode: response.retcode,
+        message: response.message || response.wording
+      });
+    }
+
+    // 触发API响应事件
+    this.emit('api_response', response);
   }
 
   private handleError(error: Error): void {
@@ -161,7 +259,7 @@ export class WebSocketClient extends EventEmitter {
     try {
       const jsonData = JSON.stringify(data);
       this.ws!.send(jsonData);
-      this.moduleLogger.debug('Message sent', { data });
+      this.moduleLogger.info('Message sent to OneBot server', { action: data.action, params: data.params });
     } catch (error) {
       this.moduleLogger.error('Failed to send message', { error, data });
       throw error;

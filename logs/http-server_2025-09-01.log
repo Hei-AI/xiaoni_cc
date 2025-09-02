@@ -1,0 +1,107 @@
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T12:58:48.845Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T12:59:32.292Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T13:13:20.402Z"}
+{"extra":{},"level":"error","message":"HTTP Server Error","module":"http-server","timestamp":"2025-09-01T13:16:03.347Z"}
+{"extra":{},"level":"error","message":"HTTP Server Error","module":"http-server","timestamp":"2025-09-01T13:16:04.359Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T13:19:42.318Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T13:20:52.315Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T13:25:43.762Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T13:31:30.238Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T13:32:26.181Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T13:35:44.117Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T13:38:50.726Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T13:39:37.299Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T15:29:27.572Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T15:29:42.308Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T15:31:44.975Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T15:32:42.319Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T15:35:41.696Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T15:35:42.313Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T16:24:21.902Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T16:36:28.130Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T16:36:38.532Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T16:39:33.581Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T16:45:11.570Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T17:22:08.218Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T17:22:12.245Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T17:27:48.418Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T17:28:43.890Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T17:31:35.288Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T17:34:12.396Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T17:35:23.586Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T17:36:24.633Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T17:40:19.050Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T17:48:50.306Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:06:50.644Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:06:54.712Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:07:18.231Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:07:46.717Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:09:33.621Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:13:58.225Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:15:39.745Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:19:55.155Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:20:27.452Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:23:12.623Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:23:18.744Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:23:23.002Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:23:38.828Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:23:44.895Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:24:05.015Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:24:11.842Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:24:51.121Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:24:57.665Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:25:11.377Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:25:15.892Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:25:19.189Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:25:25.946Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:25:38.295Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:25:42.411Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:26:36.751Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:26:40.891Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:27:10.826Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:27:15.121Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:27:50.089Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:27:54.568Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:28:05.475Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:28:09.872Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:28:39.985Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:28:43.935Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:28:53.898Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:28:57.859Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:29:08.658Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:29:12.556Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:29:26.677Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:29:30.559Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:29:51.688Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:29:55.623Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:30:20.279Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:30:24.272Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:34:30.742Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:34:34.654Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:34:59.799Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:35:03.736Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:35:17.436Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:35:21.312Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:35:35.121Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:35:38.983Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:35:52.006Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:35:55.919Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:36:30.316Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:36:34.178Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:37:24.609Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:37:28.685Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:38:35.024Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:38:38.895Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:39:32.785Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:39:36.639Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:39:51.001Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:39:54.881Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:40:06.304Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:40:10.155Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:40:23.904Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:40:27.833Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:40:41.071Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:40:45.041Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:41:14.869Z"}
+{"level":"info","message":"HTTP server started on 0.0.0.0:8080","module":"http-server","timestamp":"2025-09-01T18:41:18.783Z"}
+{"level":"info","message":"HTTP server stopped","module":"http-server","timestamp":"2025-09-01T18:41:52.489Z"}

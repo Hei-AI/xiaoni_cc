@@ -1,102 +1,445 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { AIConfig, ConversationData } from '../types';
+import axios from 'axios';
+import { AIConfig, ConversationData, AgentPromptData, TokenStats } from '../types';
 import { logger } from '../utils/logger';
+import { DatabaseManager } from './database';
+import { getTokenManager } from '../utils/token-manager';
 import { v4 as uuidv4 } from 'uuid';
 
 export class AIService {
   private config: AIConfig;
+  private database!: DatabaseManager;
   private moduleLogger = logger.createModuleLogger('ai-service');
-  private currentApiKeyIndex: number = 0;
-  private genAI: GoogleGenerativeAI | null = null;
+  private tokenManager!: ReturnType<typeof getTokenManager>;
+  private baseURL = 'https://generativelanguage.googleapis.com/v1beta/models';
+  private currentToken: string | null = null;
+  private promptCache: Map<string, AgentPromptData> = new Map();
+  private cacheTimeout: number = 5 * 60 * 1000; // 5 minutes
 
-  constructor(config: AIConfig) {
+  constructor(config: AIConfig, database: DatabaseManager) {
     this.config = config;
-    this.initializeGenAI();
+    this.database = database;
+    this.tokenManager = getTokenManager(this.database);
+    // 异步初始化
+    this.initializeGenAI().catch(error => {
+      this.moduleLogger.error('AI service initialization failed', { error });
+    });
+    this.initializeDefaultPrompts();
   }
 
-  private initializeGenAI(): void {
-    if (this.config.gemini_api_keys.length === 0) {
-      throw new Error('No Gemini API keys configured');
-    }
-    
-    const apiKey = this.getNextApiKey();
-    this.genAI = new GoogleGenerativeAI(apiKey);
-  }
-
-  private getNextApiKey(): string {
-    if (this.config.gemini_api_keys.length === 0) {
-      throw new Error('No Gemini API keys configured');
-    }
-
-    const apiKey = this.config.gemini_api_keys[this.currentApiKeyIndex];
-    this.currentApiKeyIndex = (this.currentApiKeyIndex + 1) % this.config.gemini_api_keys.length;
-    
-    return apiKey;
-  }
-
-  private async callGeminiAPI(
-    prompt: string,
-    systemContext?: string
-  ): Promise<{ response: string; rawResponse: any }> {
-    if (!this.genAI) {
-      this.initializeGenAI();
-    }
-
+  private async initializeGenAI(): Promise<void> {
     try {
-      const startTime = Date.now();
-      const model = this.genAI!.getGenerativeModel({ model: this.config.model_name });
+      const token = await this.tokenManager.getNextToken();
+      if (!token) {
+        this.moduleLogger.warn('No valid tokens available - AI features will be disabled');
+        return;
+      }
       
-      const fullPrompt = systemContext ? `${systemContext}\n\n${prompt}` : prompt;
-      const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
-        generationConfig: {
+      this.currentToken = token;
+      this.moduleLogger.info('Gemini AI service initialized successfully with database-backed token management');
+      
+      // 记录Token统计信息
+      const stats = await this.tokenManager.getStats();
+      this.moduleLogger.info('Token manager stats', stats);
+    } catch (error) {
+      this.moduleLogger.error('Failed to initialize Gemini AI service', { error });
+    }
+  }
+
+  /**
+   * 获取当前可用的API Token，使用数据库驱动的Token管理
+   */
+  private async getCurrentToken(): Promise<string | null> {
+    try {
+      // 如果没有当前 Token，尝试获取新Token
+      if (!this.currentToken) {
+        const token = await this.tokenManager.getNextToken();
+        if (token) {
+          this.currentToken = token;
+          this.moduleLogger.debug('Got fresh token for API calls');
+        }
+      }
+      
+      return this.currentToken;
+    } catch (error) {
+      this.moduleLogger.error('Failed to get current token', { error });
+      return null;
+    }
+  }
+  
+  /**
+   * 切换到下一个可用Token (当前Token失败时调用)
+   */
+  private async switchToNextToken(): Promise<boolean> {
+    try {
+      if (this.currentToken) {
+        await this.tokenManager.reportError(this.currentToken, 'API call failed, switching token');
+      }
+      
+      const newToken = await this.tokenManager.getNextToken();
+      if (newToken && newToken !== this.currentToken) {
+        this.currentToken = newToken;
+        this.moduleLogger.info('Switched to next available token');
+        return true;
+      }
+      
+      this.moduleLogger.warn('No alternative tokens available');
+      return false;
+    } catch (error) {
+      this.moduleLogger.error('Failed to switch token', { error });
+      return false;
+    }
+  }
+
+  private async initializeDefaultPrompts(): Promise<void> {
+    try {
+      // 确保默认Agent Prompts存在
+      const defaultPrompts = await this.getDefaultAgentPrompts();
+      
+      for (const prompt of defaultPrompts) {
+        const existing = await this.database.getAgentPrompt(prompt.agent_type, prompt.prompt_name);
+        if (!existing) {
+          await this.database.saveAgentPrompt(prompt);
+          this.moduleLogger.info(`Created default agent prompt: ${prompt.agent_type}/${prompt.prompt_name}`);
+        }
+      }
+    } catch (error) {
+      this.moduleLogger.error('Failed to initialize default prompts', { error });
+    }
+  }
+
+  private getDefaultAgentPrompts(): AgentPromptData[] {
+    const now = new Date();
+    return [
+      {
+        id: uuidv4(),
+        agent_type: 'chat_bot',
+        prompt_name: 'default_chat',
+        system_instructions: [
+          '你是一个智能QQ机器人助手，基于Gemini AI技术。你的特点是：',
+          '1. 友好、专业、有帮助',
+          '2. 能够理解中文对话',
+          '3. 可以协助用户进行各种咨询和交流',
+          '4. 对于技术问题能够提供有用的建议',
+          '5. 保持对话的连贯性和相关性',
+          '',
+          '请用中文回复，语言要自然、亲切。如果用户提出开发需求，可以提供技术建议或引导用户提供更多详细信息。'
+        ],
+        model_config: {
           temperature: 0.7,
           topK: 40,
           topP: 0.95,
           maxOutputTokens: 4096
-        }
-      });
-
-      const responseTime = Date.now() - startTime;
-      const response = await result.response;
-      const responseText = response.text();
-
-      this.moduleLogger.info('Gemini API call successful', {
-        model: this.config.model_name,
-        responseTime,
-        tokenUsage: response.usageMetadata
-      });
-
-      return {
-        response: responseText,
-        rawResponse: response
-      };
-    } catch (error) {
-      this.moduleLogger.error('Gemini API call failed', { 
-        error,
-        model: this.config.model_name,
-        apiKeyIndex: this.currentApiKeyIndex 
-      });
-      
-      // Try rotating to next API key
-      if (this.config.gemini_api_keys.length > 1) {
-        this.initializeGenAI();
+        },
+        is_active: true,
+        version: 1,
+        created_by: 'system',
+        created_at: now,
+        updated_at: now,
+        description: '默认聊天机器人系统指令'
+      },
+      {
+        id: uuidv4(),
+        agent_type: 'intent_analyzer',
+        prompt_name: 'requirement_analysis',
+        system_instructions: [
+          '你是一个需求分析专家。请分析用户消息是否是软件开发需求。',
+          '',
+          '判断标准：',
+          '1. 包含开发相关关键词：实现、开发、修改、修复、优化、添加、创建、构建、重构、改进、升级、集成',
+          '2. 描述技术功能或系统需求',
+          '3. 要求代码修改或新功能开发',
+          '',
+          '请返回JSON格式：',
+          '{',
+          '  "isRequirement": true/false,',
+          '  "confidence": 0-100,',
+          '  "category": "功能开发/bug修复/性能优化/架构重构/其他",',
+          '  "complexity": "简单/中等/复杂"',
+          '}',
+          '',
+          '复杂度判断：',
+          '- 简单：单个文件修改、配置调整、简单bug修复',
+          '- 中等：多文件修改、新增功能模块',
+          '- 复杂：包含"系统"、"模块"、"功能"关键词，或消息长度>100字符，或需要架构变更'
+        ],
+        model_config: {
+          temperature: 0.3,
+          topK: 20,
+          topP: 0.8,
+          maxOutputTokens: 1024
+        },
+        is_active: true,
+        version: 1,
+        created_by: 'system',
+        created_at: now,
+        updated_at: now,
+        description: '需求意图分析器系统指令'
       }
-      throw error;
+    ];
+  }
+
+  private async getAgentPrompt(agentType: string, promptName?: string): Promise<AgentPromptData | null> {
+    const cacheKey = `${agentType}:${promptName || 'default'}`;
+    
+    // 检查缓存
+    if (this.promptCache.has(cacheKey)) {
+      const cached = this.promptCache.get(cacheKey)!;
+      // 检查缓存是否过期 - 安全地处理updated_at字段
+      try {
+        let updatedAt: Date;
+        if (cached.updated_at instanceof Date) {
+          updatedAt = cached.updated_at;
+        } else if (typeof cached.updated_at === 'string') {
+          updatedAt = new Date(cached.updated_at);
+        } else {
+          // 如果updated_at无效，认为缓存已过期
+          this.promptCache.delete(cacheKey);
+          this.moduleLogger.warn('Invalid updated_at in cached prompt, clearing cache', { 
+            cacheKey, 
+            updated_at: cached.updated_at 
+          });
+          // 跳出缓存检查，从数据库重新获取
+          return await this.getAgentPromptFromDatabase(agentType, promptName, cacheKey);
+        }
+        
+        if (updatedAt! && Date.now() - updatedAt.getTime() < this.cacheTimeout) {
+          return cached;
+        }
+      } catch (error) {
+        this.moduleLogger.warn('Error processing cached prompt timestamp, clearing cache', { 
+          error: error instanceof Error ? error.message : 'Unknown error', 
+          cacheKey 
+        });
+      }
+      this.promptCache.delete(cacheKey);
     }
+
+    return await this.getAgentPromptFromDatabase(agentType, promptName, cacheKey);
+  }
+
+  private async getAgentPromptFromDatabase(agentType: string, promptName: string | undefined, cacheKey: string): Promise<AgentPromptData | null> {
+    // 从数据库获取
+    try {
+      const prompt = await this.database.getAgentPrompt(agentType, promptName);
+      if (prompt) {
+        this.promptCache.set(cacheKey, prompt);
+        return prompt;
+      }
+    } catch (error) {
+      this.moduleLogger.error('Failed to load agent prompt from database', { error, agentType, promptName });
+    }
+
+    return null;
+  }
+
+  private async callGeminiAPI(
+    prompt: string,
+    agentType: string = 'chat_bot',
+    promptName?: string
+  ): Promise<{ response: string; rawResponse: any; usedPrompt?: AgentPromptData }> {
+    const apiToken = this.getCurrentToken();
+    if (!apiToken) {
+      throw new Error('No API token available - all tokens may be blacklisted');
+    }
+
+    // 支持Token重试机制
+    let lastError: Error | null = null;
+    const maxRetries = 3;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const startTime = Date.now();
+        
+        // 获取Agent Prompt配置
+        const agentPrompt = await this.getAgentPrompt(agentType, promptName);
+        let systemInstructions: string[] = [];
+        let modelConfig = {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 4096
+        };
+
+        if (agentPrompt) {
+          systemInstructions = agentPrompt.system_instructions;
+          modelConfig = { ...modelConfig, ...agentPrompt.model_config };
+        }
+
+        // 构建系统指令
+        const systemContext = systemInstructions.length > 0 ? systemInstructions.join('\n') : '';
+        
+        // 使用直接HTTP API调用Gemini
+        const apiToken = await this.getCurrentToken();
+        if (!apiToken) {
+          throw new Error('API token became unavailable');
+        }
+
+        // 构建请求体
+        const requestBody: any = {
+          contents: [
+            {
+              parts: [
+                {
+                  text: systemContext ? `${systemContext}\n\n${prompt}` : prompt
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            temperature: modelConfig.temperature,
+            topK: modelConfig.topK,
+            topP: modelConfig.topP,
+            maxOutputTokens: modelConfig.maxOutputTokens
+          }
+        };
+
+        const result = await axios.post(
+          `${this.baseURL}/${this.config.model_name}:generateContent`,
+          requestBody,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'X-goog-api-key': apiToken
+            },
+            timeout: 30000 // 30秒超时
+          }
+        );
+
+        const responseTime = Date.now() - startTime;
+        const response = result.data;
+        // 从 HTTP API响应中提取文本
+        let responseText: string;
+        try {
+          // 解析Gemini API响应格式
+          if (response.candidates && response.candidates.length > 0) {
+            const candidate = response.candidates[0];
+            if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+              responseText = candidate.content.parts[0].text || '';
+            } else {
+              throw new Error('无法从响应中提取文本内容');
+            }
+          } else {
+            throw new Error('API响应中没有候选结果');
+          }
+          
+          // 检查是否存在编码问题（常见的UTF-8乱码特征）
+          if (responseText.includes('ä') || responseText.includes('ã') || responseText.includes('â') || responseText.includes('�')) {
+            this.moduleLogger.warn('Detected potential encoding issue in Gemini response', { 
+              preview: responseText.substring(0, 50) + '...' 
+            });
+            
+            // 尝试修复：假设原文本是UTF-8被误解析为latin-1
+            try {
+              const buffer = Buffer.from(responseText, 'latin1');
+              const fixedText = buffer.toString('utf-8');
+              
+              // 验证修复结果是否更合理（包含合法的中文字符）
+              if (/[\u4e00-\u9fa5]/.test(fixedText) && !fixedText.includes('�')) {
+                responseText = fixedText;
+                this.moduleLogger.info('Successfully fixed UTF-8 encoding issue');
+              } else {
+                // 修复失败，保持原文本
+                this.moduleLogger.warn('Encoding fix failed, keeping original text');
+              }
+            } catch (fixError) {
+              this.moduleLogger.warn('Error during encoding fix attempt', { error: fixError });
+            }
+          }
+        } catch (error) {
+          this.moduleLogger.error('Failed to get response text', { error });
+          throw new Error('Failed to extract response text from Gemini API');
+        }
+
+        // 成功时报告Token使用成功
+        if (this.currentToken) {
+          await this.tokenManager.reportSuccess(
+            this.currentToken, 
+            responseTime,
+            response.usageMetadata
+          );
+        }
+
+        this.moduleLogger.info('Gemini API call successful', {
+          model: this.config.model_name,
+          agentType,
+          promptName,
+          responseTime,
+          attempt,
+          tokenUsage: response.usageMetadata,
+          tokenPrefix: this.currentToken?.substring(0, 8) + '...'
+        });
+
+        return {
+          response: responseText,
+          rawResponse: response,
+          usedPrompt: agentPrompt || undefined
+        };
+        
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown API error');
+        
+        this.moduleLogger.warn(`Gemini API call failed (attempt ${attempt}/${maxRetries})`, { 
+          error: lastError.message,
+          model: this.config.model_name,
+          agentType,
+          promptName,
+          currentToken: this.currentToken?.substring(0, 8) + '...'
+        });
+        
+        // 最后一次尝试失败，不再重试
+        if (attempt >= maxRetries) {
+          break;
+        }
+        
+        // 尝试切换Token
+        const switched = await this.switchToNextToken();
+        if (!switched) {
+          this.moduleLogger.warn('Cannot switch token, no alternatives available');
+          break;
+        }
+        
+        // 短暂延迟后重试
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+
+    // 所有重试都失败，报告错误并抛出异常
+    if (this.currentToken && lastError) {
+      await this.tokenManager.reportError(this.currentToken, lastError.message);
+    }
+    
+    throw lastError || new Error('All API call attempts failed');
   }
 
   public async generateResponse(
     userMessage: string,
     userId: number,
-    context?: string
+    agentType: string = 'chat_bot',
+    promptName?: string
   ): Promise<ConversationData> {
     const conversationId = uuidv4();
     const timestamp = new Date();
 
     try {
-      const systemContext = context || this.getDefaultSystemContext();
-      const { response, rawResponse } = await this.callGeminiAPI(userMessage, systemContext);
+      const apiToken = await this.getCurrentToken();
+      if (!apiToken) {
+        // AI服务未初始化，返回友好提示
+        const fallbackResponse = '抱歉，AI服务当前不可用。所有API Token都不可用，请检查Token配置或联系管理员。';
+        
+        return {
+          id: conversationId,
+          user_id: userId,
+          user_message: userMessage,
+          ai_response: fallbackResponse,
+          timestamp,
+          response_time: 0,
+          model_name: this.config.model_name,
+          raw_request: JSON.stringify({ userMessage, agentType, promptName, note: 'AI service unavailable' }),
+          raw_response: JSON.stringify({ fallback: true })
+        };
+      }
+
+      const { response, rawResponse, usedPrompt } = await this.callGeminiAPI(userMessage, agentType, promptName);
 
       const conversationData: ConversationData = {
         id: conversationId,
@@ -106,14 +449,50 @@ export class AIService {
         timestamp,
         response_time: 0, // Will be calculated later
         model_name: this.config.model_name,
-        raw_request: JSON.stringify({ userMessage, systemContext }),
+        raw_request: JSON.stringify({ 
+          userMessage, 
+          agentType, 
+          promptName,
+          usedPrompt: usedPrompt ? {
+            id: usedPrompt.id,
+            prompt_name: usedPrompt.prompt_name,
+            version: usedPrompt.version
+          } : null
+        }),
         raw_response: JSON.stringify(rawResponse)
       };
 
       return conversationData;
     } catch (error) {
-      this.moduleLogger.error('Failed to generate AI response', { error, userId, conversationId });
-      throw error;
+      // 报告当前Token错误
+      if (this.currentToken) {
+        await this.tokenManager.reportError(
+          this.currentToken, 
+          error instanceof Error ? error.message : 'Unknown error'
+        );
+      }
+      
+      this.moduleLogger.error('Failed to generate AI response after all retries', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        userId,
+        userMessage: userMessage.substring(0, 50) + '...',
+        tokenStats: this.tokenManager.getStats()
+      });
+      
+      // 返回错误响应但不抛出异常
+      const errorResponse = '抱歉，我现在无法处理您的消息，请稍后再试。如果问题持续，请联系管理员。';
+      
+      return {
+        id: conversationId,
+        user_id: userId,
+        user_message: userMessage,
+        ai_response: errorResponse,
+        timestamp,
+        response_time: 0,
+        model_name: this.config.model_name,
+        raw_request: JSON.stringify({ userMessage, agentType, promptName, error: 'API call failed' }),
+        raw_response: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' })
+      };
     }
   }
 
@@ -121,30 +500,14 @@ export class AIService {
     message: string,
     userId: number
   ): Promise<{ isRequirement: boolean; confidence: number; category?: string; complexity?: string }> {
-    const systemContext = `
-你是一个需求分析专家。请分析用户消息是否是软件开发需求。
-
-判断标准：
-1. 包含开发相关关键词：实现、开发、修改、修复、优化、添加、创建、构建、重构、改进、升级、集成
-2. 描述技术功能或系统需求
-3. 要求代码修改或新功能开发
-
-请返回JSON格式：
-{
-  "isRequirement": true/false,
-  "confidence": 0-100,
-  "category": "功能开发/bug修复/性能优化/架构重构/其他",
-  "complexity": "简单/中等/复杂"
-}
-
-复杂度判断：
-- 简单：单个文件修改、配置调整、简单bug修复
-- 中等：多文件修改、新增功能模块
-- 复杂：包含"系统"、"模块"、"功能"关键词，或消息长度>100字符，或需要架构变更
-`;
-
     try {
-      const { response } = await this.callGeminiAPI(message, systemContext);
+      const apiToken = await this.getCurrentToken();
+      if (!apiToken) {
+        this.moduleLogger.warn('AI service not available, using fallback intent analysis');
+        return this.fallbackIntentAnalysis(message);
+      }
+
+      const { response } = await this.callGeminiAPI(message, 'intent_analyzer', 'requirement_analysis');
       
       // 尝试解析JSON响应
       const cleanedResponse = response.replace(/```json\n?|```\n?/g, '').trim();
@@ -159,9 +522,18 @@ export class AIService {
         complexity: result.complexity
       };
     } catch (error) {
-      this.moduleLogger.error('Failed to analyze intent', { error, userId, message });
+      // 报告Token错误
+      if (this.currentToken) {
+        await this.tokenManager.reportError(
+          this.currentToken,
+          error instanceof Error ? error.message : 'Intent analysis failed'
+        );
+      }
       
-      // 回退到基于关键词的简单分析
+      this.moduleLogger.warn('Intent analysis failed, using fallback', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        message: message.substring(0, 50) + '...' 
+      });
       return this.fallbackIntentAnalysis(message);
     }
   }
@@ -201,18 +573,35 @@ export class AIService {
     };
   }
 
-  private getDefaultSystemContext(): string {
-    return `
-你是一个智能QQ机器人助手，基于Gemini AI技术。你的特点是：
+  // Agent Prompt管理方法
+  public async updateAgentPrompt(promptData: AgentPromptData): Promise<boolean> {
+    try {
+      const success = await this.database.saveAgentPrompt(promptData);
+      if (success) {
+        // 清除相关缓存
+        const cacheKey = `${promptData.agent_type}:${promptData.prompt_name}`;
+        this.promptCache.delete(cacheKey);
+        this.moduleLogger.info(`Agent prompt updated: ${promptData.id}`);
+      }
+      return success;
+    } catch (error) {
+      this.moduleLogger.error('Failed to update agent prompt', { error, id: promptData.id });
+      return false;
+    }
+  }
 
-1. 友好、专业、有帮助
-2. 能够理解中文对话
-3. 可以协助用户进行各种咨询和交流
-4. 对于技术问题能够提供有用的建议
-5. 保持对话的连贯性和相关性
+  public async listAgentPrompts(agentType?: string): Promise<AgentPromptData[]> {
+    try {
+      return await this.database.getAgentPrompts(agentType);
+    } catch (error) {
+      this.moduleLogger.error('Failed to list agent prompts', { error, agentType });
+      return [];
+    }
+  }
 
-请用中文回复，语言要自然、亲切。如果用户提出开发需求，可以提供技术建议或引导用户提供更多详细信息。
-`;
+  public clearPromptCache(): void {
+    this.promptCache.clear();
+    this.moduleLogger.info('Agent prompt cache cleared');
   }
 
   public isAuthorizedUser(userId: number): boolean {
@@ -223,11 +612,44 @@ export class AIService {
     return this.config.bot_qq_number;
   }
 
-  public getModelInfo(): { name: string; apiKeysCount: number } {
+  public async getModelInfo(): Promise<{ name: string; apiKeysCount: number }> {
+    const stats = await this.tokenManager.getStats();
     return {
       name: this.config.model_name,
-      apiKeysCount: this.config.gemini_api_keys.length
+      apiKeysCount: stats.total
     };
+  }
+
+  /**
+   * 获取Token管理器统计信息
+   */
+  public async getTokenStats(): Promise<TokenStats> {
+    return await this.tokenManager.getStats();
+  }
+  
+  /**
+   * 重新加载Token配置
+   */
+  public async reloadTokens(): Promise<void> {
+    // 重新初始化AI服务
+    this.currentToken = null;
+    await this.initializeGenAI();
+  }
+  
+  /**
+   * 清除Token黑名单
+   */
+  public async clearTokenBlacklist(): Promise<number> {
+    const clearedCount = await this.tokenManager.clearBlacklist();
+    this.moduleLogger.info(`Token blacklist cleared: ${clearedCount} tokens`);
+    return clearedCount;
+  }
+  
+  /**
+   * 手动触发Token健康检查
+   */
+  public async runTokenHealthCheck(): Promise<void> {
+    await this.tokenManager.runHealthCheck();
   }
 }
 

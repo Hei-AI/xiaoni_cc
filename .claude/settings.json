@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/liahua/IdeaProject/qq_bot/.claude/hooks/post-tool-restart.sh",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

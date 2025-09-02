@@ -241,3 +241,48 @@ pkill -f "node dist/index.js" && npm run build && npm start > logs/service.log 2
 - 数据库操作使用连接池的 `async/await` 模式
 - WebSocket发送使用Promise包装确保消息发送状态
 - HTTP API响应统一错误处理中间件
+- Gemini API调用使用axios而非SDK，避免ES模块问题
+
+### AI服务集成要点
+- 使用`gemini-2.5-flash`模型，通过HTTP REST API调用
+- 实现LRU Token轮换机制，当Token出错时自动切换
+- API响应解析处理`candidates[0].content.parts[0].text`格式
+- 支持意图分析和对话生成两种AI代理模式
+
+### 测试策略
+- **单元测试**: 核心业务逻辑和工具函数
+- **集成测试**: 端到端对话流程和WebSocket消息模拟
+- **性能测试**: 并发消息处理和数据库连接压力测试
+- 测试超时配置：单元(30s)、集成(60s)、性能(120s)
+
+## 关键开发约束
+- 使用TypeScript严格模式开发，确保类型安全
+- 优先编辑现有文件而非创建新文件
+- 所有外部API调用必须包含错误处理和重试机制
+- 数据库操作使用事务确保数据一致性
+- 日志记录使用结构化格式，包含模块标识和时间戳
+
+## 故障排除指南
+
+### 常见错误模式
+1. **`cached.updated_at.getTime is not a function`**: Token管理缓存问题，通常由API响应格式变化引起
+2. **`message.message?.substring is not a function`**: OneBot消息格式为数组而非字符串，需要消息段提取
+3. **`Error [ERR_REQUIRE_ESM]`**: ES模块兼容性问题，使用直接HTTP调用替代SDK
+4. **WebSocket连接断开**: 检查OneBot服务器状态和access_token配置
+
+### 调试命令
+```bash
+# 查看实时日志
+tail -f logs/main_$(date +%Y-%m-%d).log
+tail -f logs/websocket_$(date +%Y-%m-%d).log
+tail -f logs/ai-service_$(date +%Y-%m-%d).log
+
+# 检查服务状态
+curl http://localhost:8080/api/status
+
+# 测试数据库连接
+npm test -- --testNamePattern="Database connection"
+
+# 验证Token配置
+node -e "console.log(require('./dist/utils/token-manager').getTokenManager().getStats())"
+```

@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: qqbot_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: qqbot_root_password
+      MYSQL_DATABASE: qqbot_db
+      MYSQL_USER: qqbot_user
+      MYSQL_PASSWORD: qqbot_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./database/mysql_data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - qqbot_network
+    command: --default-authentication-plugin=mysql_native_password
+
+networks:
+  qqbot_network:
+    driver: bridge

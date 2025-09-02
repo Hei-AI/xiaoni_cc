@@ -1,0 +1,26 @@
+{
+  "network": {
+    "httpServers": [],
+    "httpSseServers": [],
+    "httpClients": [],
+    "websocketServers": [
+      {
+        "enable": true,
+        "name": "liahua",
+        "host": "0.0.0.0",
+        "port": 3001,
+        "reportSelfMessage": true,
+        "enableForcePushEvent": true,
+        "messagePostFormat": "array",
+        "token": "w@123456",
+        "debug": true,
+        "heartInterval": 30000
+      }
+    ],
+    "websocketClients": [],
+    "plugins": []
+  },
+  "musicSignUrl": "",
+  "enableLocalFile2Url": false,
+  "parseMultMsg": false
+}

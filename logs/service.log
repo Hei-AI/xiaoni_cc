@@ -1,0 +1,25 @@
+
+> qq-bot-ts@1.0.0 start
+> node dist/index.js
+
+[32minfo[39m: Database connection pool created successfully {"module":"database","timestamp":"2025-09-02T13:47:38.598Z"}
+[32minfo[39m: 🚀 Starting QQ Bot... {"module":"main","timestamp":"2025-09-02T13:47:38.609Z"}
+[32minfo[39m: Database connection test successful {"module":"database","timestamp":"2025-09-02T13:47:38.629Z"}
+[32minfo[39m: ✅ Database connected {"module":"main","timestamp":"2025-09-02T13:47:38.629Z"}
+[32minfo[39m: HTTP server started on 0.0.0.0:8080 {"module":"http-server","timestamp":"2025-09-02T13:47:38.631Z"}
+[32minfo[39m: ✅ HTTP server started {"module":"main","timestamp":"2025-09-02T13:47:38.631Z"}
+[32minfo[39m: Connecting to WebSocket: ws://127.0.0.1:3001?access_token=w@123456 {"module":"websocket","timestamp":"2025-09-02T13:47:38.632Z"}
+[32minfo[39m: ✅ WebSocket client connected {"module":"main","timestamp":"2025-09-02T13:47:38.633Z"}
+[32minfo[39m: WebSocket connection established {"module":"websocket","timestamp":"2025-09-02T13:47:38.640Z"}
+[32minfo[39m: WebSocket connected {"module":"main","timestamp":"2025-09-02T13:47:38.640Z"}
+[32minfo[39m: Lifecycle event received {"extra":{"sub_type":"connect"},"module":"websocket","timestamp":"2025-09-02T13:47:38.641Z"}
+[32minfo[39m: Health check timer started with 30 minute interval {"module":"token-manager","timestamp":"2025-09-02T13:47:38.642Z"}
+[32minfo[39m: Daily reset timer set for 2025-09-02T16:00:00.000Z {"module":"token-manager","timestamp":"2025-09-02T13:47:38.642Z"}
+[32minfo[39m: Token Manager initialized with database backend {"module":"token-manager","timestamp":"2025-09-02T13:47:38.642Z"}
+[32minfo[39m: 🎉 QQ Bot started successfully! {"module":"main","timestamp":"2025-09-02T13:47:38.645Z"}
+[31merror[39m: Update execution failed {"extra":{"error":{"message":"Bind parameters must not contain undefined. To pass SQL NULL specify JS null"},"query":"\n        INSERT INTO api_token_logs \n        (token_id, action, result, error_message, response_time_ms, gemini_usage)\n        VALUES (?, ?, ?, ?, ?, ?)\n      "},"module":"database","timestamp":"2025-09-02T13:47:38.646Z"}
+[32minfo[39m: Gemini AI service initialized successfully with database-backed token management {"module":"ai-service","timestamp":"2025-09-02T13:47:38.647Z"}
+[32minfo[39m: Token manager stats {"extra":{"active":"10","blacklisted":"0","healthy":"10","over_daily_limit":"0","tokens":[{"daily_limit":1000,"daily_used":1,"error_count":0,"id":1,"is_healthy":1,"last_used":"2025-09-02T05:40:54.000Z","project_id":"502422130164","project_name":"project.name_1"},{"daily_limit":1000,"daily_used":1,"error_count":0,"id":10,"is_healthy":1,"last_used":"2025-09-02T05:44:50.000Z","project_id":"1021491103010","project_name":"project.name_10"},{"daily_limit":1000,"daily_used":1,"error_count":0,"id":2,"is_healthy":1,"last_used":"2025-09-02T05:45:06.000Z","project_id":"880710386052","project_name":"project.name_2"},{"daily_limit":1000,"daily_used":1,"error_count":0,"id":3,"is_healthy":1,"last_used":"2025-09-02T05:45:21.000Z","project_id":"928592136713","project_name":"project.name_3"},{"daily_limit":1000,"daily_used":1,"error_count":0,"id":4,"is_healthy":1,"last_used":"2025-09-02T05:45:50.000Z","project_id":"884687838082","project_name":"project.name_4"},{"daily_limit":1000,"daily_used":1,"error_count":0,"id":5,"is_healthy":1,"last_used":"2025-09-02T05:47:16.000Z","project_id":"473474642118","project_name":"project.name_5"},{"daily_limit":1000,"daily_used":1,"error_count":0,"id":6,"is_healthy":1,"last_used":"2025-09-02T05:47:38.000Z","project_id":"11393514745","project_name":"project.name_6"},{"daily_limit":1000,"daily_used":0,"error_count":0,"id":7,"is_healthy":1,"project_id":"103513478806","project_name":"project.name_7"},{"daily_limit":1000,"daily_used":0,"error_count":0,"id":8,"is_healthy":1,"project_id":"531701050439","project_name":"project.name_8"},{"daily_limit":1000,"daily_used":0,"error_count":0,"id":9,"is_healthy":1,"project_id":"581322877443","project_name":"project.name_9"}],"total":10},"module":"ai-service","timestamp":"2025-09-02T13:47:38.652Z"}
+[32minfo[39m: Message sent to OneBot server {"extra":{"action":"send_private_msg","params":{"message":"🎉 QQ智能机器人启动成功！\n\n📊 系统状态:\n✅ 数据库连接: 正常\n✅ WebSocket连接: 正常  \n✅ HTTP服务器: 正常\n✅ AI服务: 正常\n\n🤖 机器人信息:\n• QQ号: 1129974489\n• AI模型: gemini-2.5-flash\n• 启动时间: 2025/9/2 21:47:39\n\n💡 功能说明:\n• 智能对话: 直接发送消息进行对话\n• 需求管理: 描述开发需求，机器人会智能识别并处理\n• 群聊管理: 支持群聊AI回复功能\n\n您现在可以开始与我对话了！","user_id":85178516}},"module":"websocket","timestamp":"2025-09-02T13:47:39.661Z"}
+[32minfo[39m: Startup notification sent to authorized user {"extra":{"userId":85178516},"module":"main","timestamp":"2025-09-02T13:47:39.662Z"}
+[32minfo[39m: Database connection test successful {"module":"database","timestamp":"2025-09-02T13:47:43.317Z"}

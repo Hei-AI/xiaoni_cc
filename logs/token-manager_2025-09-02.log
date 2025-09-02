@@ -1,0 +1,40 @@
+{"level":"info","message":"Loaded 4 valid tokens from /home/liahua/IdeaProject/qq_bot/resource/token.properties","module":"token-manager","timestamp":"2025-09-02T00:31:04.307Z"}
+{"level":"info","message":"Loaded 4 valid tokens from /home/liahua/IdeaProject/qq_bot/resource/token.properties","module":"token-manager","timestamp":"2025-09-02T00:31:24.811Z"}
+{"level":"info","message":"Loaded 4 valid tokens from /home/liahua/IdeaProject/qq_bot/resource/token.properties","module":"token-manager","timestamp":"2025-09-02T00:31:51.070Z"}
+{"level":"info","message":"Loaded 4 valid tokens from /home/liahua/IdeaProject/qq_bot/resource/token.properties","module":"token-manager","timestamp":"2025-09-02T00:34:25.045Z"}
+{"level":"info","message":"Loaded 4 valid tokens from /home/liahua/IdeaProject/qq_bot/resource/token.properties","module":"token-manager","timestamp":"2025-09-02T00:38:26.134Z"}
+{"level":"info","message":"Loaded 4 valid tokens from /home/liahua/IdeaProject/qq_bot/resource/token.properties","module":"token-manager","timestamp":"2025-09-02T00:39:33.070Z"}
+{"level":"info","message":"Loaded 4 valid tokens from /home/liahua/IdeaProject/qq_bot/resource/token.properties","module":"token-manager","timestamp":"2025-09-02T00:42:08.830Z"}
+{"extra":{"error":"API call failed, switching token","errorCount":1,"projectName":"My Project 48128","tokenPrefix":"AIzaSyAX..."},"level":"warn","message":"Token error reported","module":"token-manager","timestamp":"2025-09-02T00:43:51.077Z"}
+{"extra":{"error":"API call failed, switching token","errorCount":1,"projectName":"My Project 63906","tokenPrefix":"AIzaSyAz..."},"level":"warn","message":"Token error reported","module":"token-manager","timestamp":"2025-09-02T00:43:52.760Z"}
+{"extra":{"error":"Request failed with status code 400","errorCount":1,"projectName":"My Project 5281","tokenPrefix":"AAIzaSyA..."},"level":"warn","message":"Token error reported","module":"token-manager","timestamp":"2025-09-02T00:43:55.488Z"}
+{"extra":{"error":"Request failed with status code 400","errorCount":2,"projectName":"My Project 5281","tokenPrefix":"AAIzaSyA..."},"level":"warn","message":"Token error reported","module":"token-manager","timestamp":"2025-09-02T00:43:55.489Z"}
+{"level":"info","message":"Loaded 10 valid tokens from /home/liahua/IdeaProject/qq_bot/resource/token.properties","module":"token-manager","timestamp":"2025-09-02T12:34:00.841Z"}
+{"level":"info","message":"Loaded 10 valid tokens from /home/liahua/IdeaProject/qq_bot/resource/token.properties","module":"token-manager","timestamp":"2025-09-02T12:34:41.423Z"}
+{"level":"info","message":"Health check timer started with 30 minute interval","module":"token-manager","timestamp":"2025-09-02T13:10:38.837Z"}
+{"level":"info","message":"Daily reset timer set for 2025-09-02T16:00:00.000Z","module":"token-manager","timestamp":"2025-09-02T13:10:38.837Z"}
+{"level":"info","message":"Token Manager initialized with database backend","module":"token-manager","timestamp":"2025-09-02T13:10:38.838Z"}
+{"level":"warn","message":"No available tokens found","module":"token-manager","timestamp":"2025-09-02T13:10:38.838Z"}
+{"level":"warn","message":"No available tokens found","module":"token-manager","timestamp":"2025-09-02T13:13:24.942Z"}
+{"level":"warn","message":"No available tokens found","module":"token-manager","timestamp":"2025-09-02T13:34:40.718Z"}
+{"level":"info","message":"Health check timer started with 30 minute interval","module":"token-manager","timestamp":"2025-09-02T13:40:54.716Z"}
+{"level":"info","message":"Daily reset timer set for 2025-09-02T16:00:00.000Z","module":"token-manager","timestamp":"2025-09-02T13:40:54.717Z"}
+{"level":"info","message":"Token Manager initialized with database backend","module":"token-manager","timestamp":"2025-09-02T13:40:54.717Z"}
+{"level":"info","message":"Health check timer started with 30 minute interval","module":"token-manager","timestamp":"2025-09-02T13:44:50.377Z"}
+{"level":"info","message":"Daily reset timer set for 2025-09-02T16:00:00.000Z","module":"token-manager","timestamp":"2025-09-02T13:44:50.378Z"}
+{"level":"info","message":"Token Manager initialized with database backend","module":"token-manager","timestamp":"2025-09-02T13:44:50.378Z"}
+{"level":"info","message":"Health check timer started with 30 minute interval","module":"token-manager","timestamp":"2025-09-02T13:45:06.702Z"}
+{"level":"info","message":"Daily reset timer set for 2025-09-02T16:00:00.000Z","module":"token-manager","timestamp":"2025-09-02T13:45:06.703Z"}
+{"level":"info","message":"Token Manager initialized with database backend","module":"token-manager","timestamp":"2025-09-02T13:45:06.703Z"}
+{"level":"info","message":"Health check timer started with 30 minute interval","module":"token-manager","timestamp":"2025-09-02T13:45:21.640Z"}
+{"level":"info","message":"Daily reset timer set for 2025-09-02T16:00:00.000Z","module":"token-manager","timestamp":"2025-09-02T13:45:21.641Z"}
+{"level":"info","message":"Token Manager initialized with database backend","module":"token-manager","timestamp":"2025-09-02T13:45:21.641Z"}
+{"level":"info","message":"Health check timer started with 30 minute interval","module":"token-manager","timestamp":"2025-09-02T13:45:50.394Z"}
+{"level":"info","message":"Daily reset timer set for 2025-09-02T16:00:00.000Z","module":"token-manager","timestamp":"2025-09-02T13:45:50.395Z"}
+{"level":"info","message":"Token Manager initialized with database backend","module":"token-manager","timestamp":"2025-09-02T13:45:50.395Z"}
+{"level":"info","message":"Health check timer started with 30 minute interval","module":"token-manager","timestamp":"2025-09-02T13:47:16.592Z"}
+{"level":"info","message":"Daily reset timer set for 2025-09-02T16:00:00.000Z","module":"token-manager","timestamp":"2025-09-02T13:47:16.592Z"}
+{"level":"info","message":"Token Manager initialized with database backend","module":"token-manager","timestamp":"2025-09-02T13:47:16.592Z"}
+{"level":"info","message":"Health check timer started with 30 minute interval","module":"token-manager","timestamp":"2025-09-02T13:47:38.642Z"}
+{"level":"info","message":"Daily reset timer set for 2025-09-02T16:00:00.000Z","module":"token-manager","timestamp":"2025-09-02T13:47:38.642Z"}
+{"level":"info","message":"Token Manager initialized with database backend","module":"token-manager","timestamp":"2025-09-02T13:47:38.642Z"}
