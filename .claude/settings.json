@@ -3,11 +3,45 @@
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
+        "filePathPatterns": [
+          "src/**/*.ts",
+          "src/**/*.js", 
+          "package.json",
+          "tsconfig.json",
+          "jest.config.js",
+          ".eslintrc.json",
+          ".env*",
+          "database/**/*.sql",
+          "tests/**/*.ts",
+          "tests/**/*.js",
+          "start_services_ts.sh"
+        ],
         "hooks": [
           {
             "type": "command",
-            "command": "/home/liahua/IdeaProject/qq_bot/.claude/hooks/post-tool-restart.sh",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/backend_restart.py",
             "timeout": 60
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit", 
+        "filePathPatterns": [
+          "frontend/**/*.vue",
+          "frontend/**/*.ts",
+          "frontend/**/*.js",
+          "frontend/**/*.css",
+          "frontend/**/*.scss",
+          "frontend/**/*.json",
+          "frontend/vite.config.ts",
+          "frontend/tailwind.config.js",
+          "frontend/postcss.config.js"
+        ],
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/frontend_dev.py",
+            "timeout": 30
           }
         ]
       }
