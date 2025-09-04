@@ -1,0 +1,17 @@
+{
+  "name": "qq-bot-admin-frontend",
+  "version": "1.0.0",
+  "description": "QQ智能机器人管理后台前端",
+  "scripts": {
+    "dev": "http-server . -p 3000 -o",
+    "build": "echo 'Frontend build completed'",
+    "start": "http-server . -p 3000"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  },
+  "keywords": ["qq-bot", "admin", "frontend", "dashboard"],
+  "author": "Claude Business Developer",
+  "license": "MIT"
+}
