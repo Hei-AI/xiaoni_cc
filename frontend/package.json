@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "description": "QQ智能机器人管理后台前端",
   "scripts": {
-    "dev": "http-server . -p 3000 -o",
+    "dev": "http-server . -p 3001 -o",
     "build": "echo 'Frontend build completed'",
-    "start": "http-server . -p 3000"
+    "start": "http-server . -p 3001",
+    "test": "echo 'Frontend tests not configured yet'"
   },
   "dependencies": {},
   "devDependencies": {

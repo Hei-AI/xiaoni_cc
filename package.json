@@ -9,12 +9,14 @@
     "shared"
   ],
   "scripts": {
+    "setup": "python3 scripts/setup.py",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
-    "build": "npm run build:backend && npm run build:frontend",
+    "build": "python3 scripts/build_all.py",
     "build:backend": "cd backend && npm run build",
     "build:frontend": "cd frontend && npm run build",
+    "deploy": "python3 scripts/deploy.py",
     "test": "npm run test:backend && npm run test:frontend",
     "test:backend": "cd backend && npm test",
     "test:frontend": "cd frontend && npm test",
@@ -24,9 +26,8 @@
     "lint": "npm run lint:backend && npm run lint:frontend",
     "lint:backend": "cd backend && npm run lint",
     "lint:frontend": "cd frontend && npm run lint",
-    "clean": "npm run clean:backend && npm run clean:frontend",
-    "clean:backend": "cd backend && rm -rf dist node_modules",
-    "clean:frontend": "cd frontend && rm -rf build node_modules"
+    "clean": "python3 -c \"import shutil; shutil.rmtree('backend/build', ignore_errors=True); shutil.rmtree('frontend/build', ignore_errors=True); print('✅ 清理完成')\"",
+    "clean:all": "python3 -c \"import shutil; shutil.rmtree('backend/node_modules', ignore_errors=True); shutil.rmtree('frontend/node_modules', ignore_errors=True); shutil.rmtree('node_modules', ignore_errors=True); print('✅ 深度清理完成')\""
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
