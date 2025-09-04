@@ -469,12 +469,148 @@ pkill -f "node dist/index.js" && npm run build && npm start > logs/service.log 2
 - **性能测试**: 并发消息处理和数据库连接压力测试
 - 测试超时配置：单元(30s)、集成(60s)、性能(120s)
 
+## Git协作规范
+
+### 多Claude并发协作分支策略
+
+**核心原则**: 不同Claude智能体通过独立分支树互不影响，避免并发冲突
+
+#### 分支命名约定
+```bash
+# Agent角色专用分支（按时间戳隔离）
+feature/business-dev-$(date +%Y%m%d-%H%M)      # 业务开发者
+feature/architect-$(date +%Y%m%d-%H%M)         # 系统架构师
+feature/reviewer-$(date +%Y%m%d-%H%M)          # 代码审查员
+feature/debugger-$(date +%Y%m%d-%H%M)          # 调试器
+feature/gemini-support-$(date +%Y%m%d-%H%M)    # Gemini专家
+
+# 任务专用分支（按功能模块）
+feature/websocket-optimization-[agent]         # WebSocket优化
+feature/database-migration-[agent]             # 数据库迁移
+feature/ai-service-enhancement-[agent]         # AI服务增强
+hotfix/[issue-description]-[agent]             # 紧急修复
+```
+
+#### Git Worktree并行协作模式
+
+**核心策略**: 使用`git worktree`为不同Claude智能体创建独立工作目录，实现真正的并行开发
+
+```bash
+# 1. 初始化主工作树（如果尚未存在）
+cd /home/liahua/IdeaProject/qq_bot  # 主工作目录
+
+# 2. 为不同Agent创建独立worktree
+git worktree add ../qq_bot-business-dev feature/business-dev-$(date +%Y%m%d-%H%M)
+git worktree add ../qq_bot-architect feature/architect-$(date +%Y%m%d-%H%M)
+git worktree add ../qq_bot-reviewer feature/reviewer-$(date +%Y%m%d-%H%M)
+git worktree add ../qq_bot-debugger feature/debugger-$(date +%Y%m%d-%H%M)
+git worktree add ../qq_bot-gemini-support feature/gemini-support-$(date +%Y%m%d-%H%M)
+
+# 3. 各Agent在独立目录工作
+# Business Developer
+cd /home/liahua/IdeaProject/qq_bot-business-dev
+npm install  # 安装依赖（如需要）
+# 进行开发工作...
+
+# Architect
+cd /home/liahua/IdeaProject/qq_bot-architect  
+# 进行架构设计工作...
+
+# 4. 提交规范（在各自worktree中）
+git commit -m "feat(business-dev): 实现WebSocket重连机制
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+Agent: Business Developer  
+Worktree: qq_bot-business-dev
+Task-ID: #12345
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+# 5. 推送和合并
+git push -u origin feature/business-dev-YYYYMMDD-HHMM
+# 创建PR，等待code-reviewer agent审批
+
+# 6. 清理worktree（任务完成后）
+git worktree remove ../qq_bot-business-dev
+git branch -d feature/business-dev-YYYYMMDD-HHMM
+```
+
+#### Worktree管理命令
+```bash
+# 查看所有worktree状态
+git worktree list
+
+# 修剪已删除的worktree引用
+git worktree prune
+
+# 移动worktree到新位置
+git worktree move ../qq_bot-business-dev ../qq_bot-business-dev-new
+
+# 强制删除worktree（包含未提交更改）
+git worktree remove --force ../qq_bot-business-dev
+```
+
+#### 文件级协作锁定
+```typescript
+// 避免多Agent同时修改相同文件
+interface FileOwnershipMap {
+  'src/services/database.ts': 'business-dev',
+  'src/services/websocket-client.ts': 'business-dev', 
+  'src/services/ai-service.ts': 'gemini-support',
+  'src/types/index.ts': 'architect',
+  'tests/': 'debugger',
+  'docs/': 'reviewer'
+}
+```
+
+#### 冲突解决优先级
+1. **架构师** (`architect`) - 最高决策权
+2. **代码审查员** (`reviewer`) - 安全风险否决权  
+3. **业务开发者** (`business-dev`) - 功能实现权
+4. **调试器** (`debugger`) - 生产故障最高优先级
+5. **Gemini专家** (`gemini-support`) - AI服务领域权威
+
+#### Worktree协作优势
+
+**并行隔离开发**:
+- 每个Agent在独立目录工作，避免文件锁定冲突
+- 可同时运行不同版本的开发服务器和测试
+- 不同Agent的依赖变更互不影响
+
+**任务状态管理**:
+```bash
+# 查看当前所有并行任务状态
+git worktree list --porcelain | grep -E "(worktree|branch)" 
+
+# 示例输出
+# worktree /home/liahua/IdeaProject/qq_bot
+# branch refs/heads/master
+# worktree /home/liahua/IdeaProject/qq_bot-business-dev  
+# branch refs/heads/feature/business-dev-20250904-1430
+# worktree /home/liahua/IdeaProject/qq_bot-debugger
+# branch refs/heads/feature/debugger-20250904-1435
+```
+
+**资源共享策略**:
+- `node_modules`: 各worktree独立安装，避免依赖冲突
+- `logs/`: 使用不同前缀区分日志文件
+- `dist/`: 编译输出隔离，支持并行构建
+
+#### 合并策略
+- **禁止直接push到master**: 所有变更通过Pull Request
+- **强制代码审查**: 所有PR必须经过`code-reviewer` agent审批  
+- **Worktree同步**: 定期在各worktree执行`git fetch origin`保持同步
+- **自动化检查**: CI/CD流程包含ESLint、Jest测试、TypeScript编译检查
+- **冲突预防**: Worktree创建时自动基于最新master分支
+- **清理机制**: 任务完成后及时删除worktree，避免磁盘空间浪费
+
 ## 关键开发约束
 - 使用TypeScript严格模式开发，确保类型安全
 - 优先编辑现有文件而非创建新文件
 - 所有外部API调用必须包含错误处理和重试机制
 - 数据库操作使用事务确保数据一致性
 - 日志记录使用结构化格式，包含模块标识和时间戳
+- **多Claude协作**: 并行任务必须使用Git Worktree隔离，避免文件锁定和依赖冲突
 
 ## 故障排除指南
 

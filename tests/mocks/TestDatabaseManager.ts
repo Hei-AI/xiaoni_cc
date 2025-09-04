@@ -38,6 +38,14 @@ export class TestDatabaseManager extends DatabaseManager {
   }
 
   // Session管理方法的测试实现
+  async createSession(
+    sessionId: string, 
+    userId: number, 
+    sessionType: string, 
+    currentService: string, 
+    status: string, 
+    expiresAt?: Date
+  ): Promise<boolean>;
   async createSession(sessionData: {
     session_id: string;
     user_id: number;
@@ -46,14 +54,37 @@ export class TestDatabaseManager extends DatabaseManager {
     expires_at?: Date;
     conversation_context?: any;
     business_context?: any;
-  }): Promise<boolean> {
+  }): Promise<boolean>;
+  async createSession(
+    sessionIdOrData: string | any, 
+    userId?: number, 
+    sessionType?: string, 
+    currentService?: string, 
+    status?: string, 
+    expiresAt?: Date
+  ): Promise<boolean> {
     try {
+      let sessionData: any;
+      
+      // Handle overloaded methods
+      if (typeof sessionIdOrData === 'string') {
+        sessionData = {
+          session_id: sessionIdOrData,
+          user_id: userId!,
+          session_type: sessionType || 'chat',
+          current_service: currentService || 'gemini_ai',
+          expires_at: expiresAt
+        };
+      } else {
+        sessionData = sessionIdOrData;
+      }
+
       const session: SessionData = {
         session_id: sessionData.session_id,
         user_id: sessionData.user_id,
         session_type: (sessionData.session_type as any) || 'chat',
         current_service: sessionData.current_service || 'gemini_ai',
-        status: 'active',
+        status: (status as any) || 'active',
         created_at: new Date(),
         last_activity: new Date(),
         expires_at: sessionData.expires_at || new Date(Date.now() + 3600000),
@@ -215,13 +246,13 @@ export class TestDatabaseManager extends DatabaseManager {
   createTestReplyChain(chainData: Array<{ id: string; depth: number; parent?: string }>): void {
     chainData.forEach(item => {
       if (item.parent) {
-        this.recordMessageChain(
-          item.id,
-          item.parent,
-          85178516,
-          `session_85178516_${item.parent}`,
-          item.depth
-        );
+        this.recordMessageChain({
+          message_id: item.id,
+          reply_to_message_id: item.parent,
+          user_id: 85178516,
+          session_id: `session_85178516_${item.parent}`,
+          depth: item.depth
+        });
       }
     });
   }

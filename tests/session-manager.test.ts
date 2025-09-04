@@ -24,6 +24,7 @@ describe('SessionManager', () => {
     test('should extract reply info from OneBot message with reply segment', () => {
       const message: QQMessage = {
         message_type: 'private',
+        sub_type: 'friend',
         message_id: 12345,
         user_id: 85178516,
         message: [
@@ -54,6 +55,7 @@ describe('SessionManager', () => {
     test('should extract reply info from raw message string with CQ code', () => {
       const message: QQMessage = {
         message_type: 'private',
+        sub_type: 'friend',
         message_id: 12345,
         user_id: 85178516,
         message: '[CQ:reply,id=98765]这是回复内容',
@@ -81,6 +83,7 @@ describe('SessionManager', () => {
     test('should return null for message without reply', () => {
       const message: QQMessage = {
         message_type: 'private',
+        sub_type: 'friend',
         message_id: 12345,
         user_id: 85178516,
         message: '普通消息',
@@ -123,7 +126,7 @@ describe('SessionManager', () => {
       expect(result.user_id).toBe(85178516);
       expect(result.session_type).toBe('requirement');
       expect(result.current_service).toBe('claude_code');
-      expect(mockDatabase.createSession).toHaveBeenCalled();
+      expect(testDatabase.createSession).toHaveBeenCalled();
     });
 
     test('should process reply message and continue existing session', async () => {
@@ -161,12 +164,13 @@ describe('SessionManager', () => {
       expect(result).toBeDefined();
       expect(result.session_id).toBe('session_85178516_12345');
       expect(result.session_type).toBe('requirement');
-      expect(mockDatabase.recordMessageChain).toHaveBeenCalled();
+      expect(testDatabase.recordMessageChain).toHaveBeenCalled();
     });
 
     test('should handle chat session type detection', async () => {
       const message: QQMessage = {
         message_type: 'private',
+        sub_type: 'friend',
         message_id: 12347,
         user_id: 85178516,
         message: '今天天气怎么样？',
@@ -213,7 +217,7 @@ describe('SessionManager', () => {
 
       expect(result).toBeDefined();
       expect(result?.session_id).toBe('session_85178516_original');
-      expect(mockDatabase.executeQuery).toHaveBeenCalledWith(
+      expect(testDatabase.executeQuery).toHaveBeenCalledWith(
         expect.stringContaining('FROM message_reply_chain'),
         [replyToMessageId]
       );
@@ -288,7 +292,7 @@ describe('SessionManager', () => {
 
       await (sessionManager as any).recordMessageChain(messageId, userId, replyInfo);
 
-      expect(mockDatabase.recordMessageChain).toHaveBeenCalledWith(
+      expect(testDatabase.recordMessageChain).toHaveBeenCalledWith(
         messageId,
         replyInfo.reply_to_message_id,
         userId,
@@ -300,7 +304,7 @@ describe('SessionManager', () => {
     test('should handle session cleanup correctly', async () => {
       testDatabase.cleanupExpiredSessions.mockResolvedValue(5);
 
-      const cleanedCount = await mockDatabase.cleanupExpiredSessions();
+      const cleanedCount = await testDatabase.cleanupExpiredSessions();
 
       expect(cleanedCount).toBe(5);
       expect(mockDatabase.cleanupExpiredSessions).toHaveBeenCalled();
@@ -427,6 +431,7 @@ describe('SessionManager', () => {
     test('should handle database errors gracefully in session processing', async () => {
       const message: QQMessage = {
         message_type: 'private',
+        sub_type: 'friend',
         message_id: 12345,
         user_id: 85178516,
         message: '测试消息',
@@ -451,6 +456,7 @@ describe('SessionManager', () => {
     test('should handle invalid reply message gracefully', () => {
       const message: QQMessage = {
         message_type: 'private',
+        sub_type: 'friend',
         message_id: 12345,
         user_id: 85178516,
         message: '[CQ:reply]Invalid reply format',

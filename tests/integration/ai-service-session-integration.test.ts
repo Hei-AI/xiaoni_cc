@@ -1,9 +1,9 @@
-import { QQBot } from '../../src';
-import { AIService } from '../../src/services/ai-service';
-import { DatabaseManager } from '../../src/services/database';
+import QQBot from '../../src';
+import AIService from '../../src/services/ai-service';
+import { DatabaseManager, getDatabaseManager } from '../../src/services/database';
 import { SessionManager } from '../../src/services/session-manager';
-import { WebSocketClient } from '../../src/services/websocket-client';
-import { HttpServer } from '../../src/services/http-server';
+import WebSocketClient from '../../src/services/websocket-client';
+import HttpServer from '../../src/services/http-server';
 import { QQMessage, ConversationData, RequirementData } from '../../src/types';
 import { config } from '../../src/config';
 import { createMockQQMessage, createMockSession, TestScenarios, ErrorScenarios } from '../helpers/session-test-factory';
@@ -36,20 +36,18 @@ describe('AI Service & Session Management Integration', () => {
     };
 
     // 初始化核心服务
-    databaseManager = new DatabaseManager(testConfig.database);
-    aiService = new AIService(testConfig.ai);
+    databaseManager = getDatabaseManager(testConfig.database);
+    aiService = new AIService(testConfig.ai, databaseManager);
     sessionManager = new SessionManager(databaseManager);
     wsClient = new WebSocketClient(testConfig.websocket);
     httpServer = new HttpServer(testConfig.http_server, {
       database: databaseManager,
-      aiService,
-      sessionManager,
       websocketClient: wsClient
     });
 
     // 初始化主应用
     bot = new QQBot();
-    await bot.initialize(testConfig);
+    // Note: 在实际测试中，不需要启动整个机器人，只需要测试特定方法
 
     // 确保测试数据库连接
     const isConnected = await databaseManager.testConnection();
@@ -61,16 +59,16 @@ describe('AI Service & Session Management Integration', () => {
   afterAll(async () => {
     // 清理测试资源
     await httpServer?.stop();
-    await wsClient?.disconnect();
+    wsClient?.close();
     await databaseManager?.close();
   });
 
   beforeEach(async () => {
     // 每个测试前清理测试数据
-    await databaseManager.execute('DELETE FROM conversation_sessions WHERE session_id LIKE "test-%"');
-    await databaseManager.execute('DELETE FROM conversations WHERE id LIKE "test-%"');
-    await databaseManager.execute('DELETE FROM requirements WHERE requirement_id LIKE "test-%"');
-    await databaseManager.execute('DELETE FROM message_reply_chain WHERE session_id LIKE "test-%"');
+    await databaseManager.executeUpdate('DELETE FROM conversation_sessions WHERE session_id LIKE "test-%"');
+    await databaseManager.executeUpdate('DELETE FROM conversations WHERE id LIKE "test-%"');
+    await databaseManager.executeUpdate('DELETE FROM requirements WHERE requirement_id LIKE "test-%"');
+    await databaseManager.executeUpdate('DELETE FROM message_reply_chain WHERE session_id LIKE "test-%"');
   });
 
   describe('Requirement Intent Detection & Session Creation', () => {
@@ -167,7 +165,7 @@ describe('AI Service & Session Management Integration', () => {
         await bot.handlePrivateMessage(message);
         
         // 验证消息链记录
-        const chainRecords = await databaseManager.execute(
+        const chainRecords = await databaseManager.executeQuery(
           'SELECT * FROM message_reply_chain WHERE session_id = ? ORDER BY depth',
           [chainScenario.session.session_id]
         );
@@ -211,7 +209,7 @@ describe('AI Service & Session Management Integration', () => {
 
       // 3. 验证每个用户的消息链完整性
       for (const user of concurrentUsers) {
-        const userChains = await databaseManager.execute(
+        const userChains = await databaseManager.executeQuery(
           'SELECT * FROM message_reply_chain WHERE user_id = ? ORDER BY depth',
           [user.userId]
         );
@@ -284,7 +282,7 @@ describe('AI Service & Session Management Integration', () => {
       const invalidSession = ErrorScenarios.createTimestampErrorScenario();
       
       // 手动插入有问题的数据
-      await databaseManager.execute(
+      await databaseManager.executeUpdate(
         'INSERT INTO conversation_sessions SET ?',
         [{
           ...invalidSession,

@@ -58,6 +58,7 @@ describe('Session Integration Tests', () => {
     test('should handle new requirement message and create session', async () => {
       const message: QQMessage = {
         message_type: 'private',
+        sub_type: 'friend',
         message_id: 12345,
         user_id: 85178516,
         message: '请帮我实现一个用户登录系统，需要包含密码加密和JWT认证',
@@ -98,6 +99,7 @@ describe('Session Integration Tests', () => {
       // 第一条消息创建session
       const firstMessage: QQMessage = {
         message_type: 'private',
+        sub_type: 'friend',
         message_id: 12345,
         user_id: 85178516,
         message: '实现一个TODO应用',
@@ -177,6 +179,7 @@ describe('Session Integration Tests', () => {
       // 开始是聊天消息
       const chatMessage: QQMessage = {
         message_type: 'private',
+        sub_type: 'friend',
         message_id: 12345,
         user_id: 85178516,
         message: '你好',
@@ -315,6 +318,7 @@ describe('Session Integration Tests', () => {
     test('should handle database connection failures gracefully', async () => {
       const message: QQMessage = {
         message_type: 'private',
+        sub_type: 'friend',
         message_id: 12345,
         user_id: 85178516,
         message: '测试消息',
@@ -340,6 +344,7 @@ describe('Session Integration Tests', () => {
     test('should handle malformed messages gracefully', async () => {
       const malformedMessage = {
         message_type: 'private',
+        sub_type: 'friend',
         message_id: 12345,
         user_id: 85178516,
         message: null, // 异常情况

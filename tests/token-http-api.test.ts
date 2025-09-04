@@ -357,4 +357,4 @@ describe('Token HTTP API', () => {
       database.executeQuery = originalExecuteQuery;
     });
   });
-}, 60000);
+});

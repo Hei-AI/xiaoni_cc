@@ -292,4 +292,4 @@ describe('Token Management System', () => {
       expect(token).toBeNull();
     });
   });
-}, 60000); // 设置60秒超时
+}); // Jest配置中已设置超时

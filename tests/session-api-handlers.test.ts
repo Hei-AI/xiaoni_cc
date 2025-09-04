@@ -39,24 +39,32 @@ describe('Session API Handlers', () => {
 
   describe('GET /api/sessions', () => {
     test('should return sessions list with default parameters', async () => {
+      const testDate = new Date();
       const mockSessions = [
         {
           session_id: 'session_85178516_1',
           user_id: 85178516,
           session_type: 'chat',
           status: 'active',
-          created_at: new Date(),
-          last_activity: new Date()
+          created_at: testDate,
+          last_activity: testDate
         },
         {
           session_id: 'session_85178516_2',
           user_id: 85178516,
           session_type: 'requirement',
           status: 'active',
-          created_at: new Date(),
-          last_activity: new Date()
+          created_at: testDate,
+          last_activity: testDate
         }
       ];
+      
+      // 期望返回的数据格式（日期转为字符串）
+      const expectedSessions = mockSessions.map(session => ({
+        ...session,
+        created_at: testDate.toISOString(),
+        last_activity: testDate.toISOString()
+      }));
 
       mockDatabase.getSessions.mockResolvedValue(mockSessions);
 

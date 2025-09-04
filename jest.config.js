@@ -19,8 +19,6 @@ module.exports = {
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
-  // 增加测试超时时间以适应端到端测试
-  testTimeout: 30000,
   // 为不同类型的测试设置不同的运行模式
   projects: [
     {
@@ -35,7 +33,8 @@ module.exports = {
       ],
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1'
-      }
+      },
+      testTimeout: 30000
     },
     {
       displayName: 'integration',
@@ -45,20 +44,20 @@ module.exports = {
         '<rootDir>/tests/end-to-end-conversation.test.ts',
         '<rootDir>/tests/websocket-message-simulator.test.ts'
       ],
-      testTimeout: 60000,
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1'
-      }
+      },
+      testTimeout: 60000
     },
     {
       displayName: 'performance',
       preset: 'ts-jest',
       testEnvironment: 'node',
       testMatch: ['<rootDir>/tests/performance-stress.test.ts'],
-      testTimeout: 120000,
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1'
-      }
+      },
+      testTimeout: 120000
     }
   ]
 };
