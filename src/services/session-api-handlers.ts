@@ -4,7 +4,7 @@
 import { Request, Response } from 'express';
 import { DatabaseManager } from './database';
 import { logger } from '../utils/logger';
-import { SessionsListResponse } from '../types';
+// import { SessionsListResponse } from '../types'; // Unused for now
 
 export class SessionApiHandlers {
   private database: DatabaseManager;

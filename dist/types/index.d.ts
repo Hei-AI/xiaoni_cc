@@ -98,11 +98,14 @@ export interface ConversationData {
     reply_to_message_id?: number;
     reply_to_text?: string;
     session_id?: string;
+    created_at: Date;
+    updated_at: Date;
 }
 export interface RequirementData {
     id: string;
     user_id: number;
     message: string;
+    user_message: string;
     status: 'received' | 'analyzing' | 'processing' | 'completed' | 'failed' | 'cancelled';
     created_at: Date;
     updated_at: Date;
@@ -462,5 +465,322 @@ export interface GroupBulkOperationResponse {
         }>;
     };
     message: string;
+}
+export interface ConversationQueryParams {
+    user_id?: number;
+    limit?: number;
+    page?: number;
+    start_date?: string;
+    end_date?: string;
+    search?: string;
+    model_name?: string;
+    sort_order?: 'desc' | 'asc';
+    include_raw?: boolean;
+}
+export interface ConversationPagination {
+    current_page: number;
+    total_pages: number;
+    per_page: number;
+    total_count: number;
+    has_next: boolean;
+    has_previous: boolean;
+}
+export interface ConversationFilters {
+    user_id?: number;
+    date_range?: {
+        start_date: string;
+        end_date: string;
+    };
+    search?: string;
+    model_name?: string;
+    sort_order?: 'desc' | 'asc';
+}
+export interface ConversationListResponse {
+    success: boolean;
+    data: {
+        conversations: ConversationData[];
+        pagination: ConversationPagination;
+        filters?: ConversationFilters;
+    };
+    message?: string;
+}
+export interface ConversationErrorResponse {
+    success: false;
+    error: string;
+    message: string;
+    code?: string;
+}
+export interface ConversationSearchResult extends ConversationData {
+    match_score?: number;
+    match_field?: 'user_message' | 'ai_response' | 'both';
+}
+export interface ConversationWindow {
+    id?: number;
+    user_id: number;
+    window_name: string;
+    window_size: number;
+    window_type: 'fixed' | 'sliding' | 'semantic';
+    context_retention_strategy: 'simple' | 'summary' | 'keyword';
+    is_active: boolean;
+    created_at: Date;
+    updated_at: Date;
+}
+export interface WindowMessage {
+    id?: number;
+    window_id: number;
+    conversation_id: string;
+    user_id: number;
+    sequence_number: number;
+    message_role: 'user' | 'assistant' | 'system';
+    message_content: string;
+    token_count: number;
+    importance_score: number;
+    is_pinned: boolean;
+    created_at: Date;
+}
+export interface WindowManagementParams {
+    window_id: number;
+    conversation_id: string;
+    user_id: number;
+    message_role: 'user' | 'assistant' | 'system';
+    message_content: string;
+    token_count?: number;
+}
+export interface UserProfile {
+    id?: number;
+    user_id: number;
+    nickname?: string;
+    preferred_language: string;
+    interaction_style: 'formal' | 'casual' | 'technical' | 'friendly';
+    response_length_preference: 'brief' | 'detailed' | 'adaptive';
+    topic_preferences?: Record<string, number>;
+    communication_patterns?: Record<string, any>;
+    skill_level: 'beginner' | 'intermediate' | 'advanced' | 'expert';
+    last_interaction?: Date;
+    interaction_count: number;
+    created_at: Date;
+    updated_at: Date;
+}
+export interface UserContext {
+    id?: number;
+    user_id: number;
+    context_key: string;
+    context_value: string;
+    context_type: 'preference' | 'memory' | 'state' | 'history';
+    priority: number;
+    expires_at?: Date;
+    is_persistent: boolean;
+    created_at: Date;
+    updated_at: Date;
+}
+export interface UserProfileSummary {
+    user_id: number;
+    nickname?: string;
+    interaction_style: 'formal' | 'casual' | 'technical' | 'friendly';
+    skill_level: 'beginner' | 'intermediate' | 'advanced' | 'expert';
+    interaction_count: number;
+    last_interaction?: Date;
+    context_count: number;
+    window_count: number;
+    avg_message_importance?: number;
+}
+export interface PromptTemplate {
+    id: string;
+    template_name: string;
+    category: 'system' | 'conversation' | 'analysis' | 'generation' | 'custom';
+    template_content: string;
+    variables?: Record<string, any>;
+    usage_instructions?: string;
+    version: string;
+    is_active: boolean;
+    is_default: boolean;
+    author: string;
+    tags?: string;
+    created_at: Date;
+    updated_at: Date;
+}
+export interface PromptConfig {
+    id?: number;
+    config_name: string;
+    prompt_template_id: string;
+    user_id?: number;
+    group_id?: number;
+    config_scope: 'global' | 'user' | 'group' | 'session';
+    config_parameters: Record<string, any>;
+    priority: number;
+    is_enabled: boolean;
+    effective_from?: Date;
+    effective_until?: Date;
+    created_at: Date;
+    updated_at: Date;
+}
+export interface PromptUsageStats {
+    template_id: string;
+    template_name: string;
+    category: string;
+    usage_count: number;
+    unique_users: number;
+    avg_processing_time?: number;
+    last_used?: Date;
+}
+export interface PromptRenderContext {
+    user_profile?: UserProfile;
+    user_context?: UserContext[];
+    conversation_history?: WindowMessage[];
+    custom_variables?: Record<string, any>;
+}
+export interface MessageChain {
+    id?: number;
+    chain_id: string;
+    user_id: number;
+    session_id?: string;
+    message_id: string;
+    parent_message_id?: string;
+    chain_depth: number;
+    chain_position: number;
+    processing_steps?: Record<string, any>;
+    timing_info?: Record<string, any>;
+    context_used?: Record<string, any>;
+    prompt_template_used?: string;
+    model_params?: Record<string, any>;
+    created_at: Date;
+}
+export interface DebugLog {
+    id?: number;
+    trace_id: string;
+    debug_level: 'TRACE' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+    component: string;
+    operation: string;
+    debug_data?: Record<string, any>;
+    execution_time_ms?: number;
+    memory_usage_mb?: number;
+    error_details?: string;
+    stack_trace?: string;
+    created_at: Date;
+}
+export interface ProcessingContext {
+    trace_id: string;
+    chain_id: string;
+    user_profile?: UserProfile;
+    active_window?: ConversationWindow;
+    applied_prompts: PromptConfig[];
+    debug_info: DebugLog[];
+}
+export interface WindowManagementResponse {
+    success: boolean;
+    data?: {
+        window: ConversationWindow;
+        message_count: number;
+        messages?: WindowMessage[];
+    };
+    message?: string;
+    error?: string;
+}
+export interface UserProfileResponse {
+    success: boolean;
+    data?: {
+        profile: UserProfile;
+        context: UserContext[];
+        active_windows: ConversationWindow[];
+        summary: UserProfileSummary;
+    };
+    message?: string;
+    error?: string;
+}
+export interface PromptManagementResponse {
+    success: boolean;
+    data?: {
+        templates: PromptTemplate[];
+        configs: PromptConfig[];
+        usage_stats: PromptUsageStats[];
+    };
+    total?: number;
+    message?: string;
+    error?: string;
+}
+export interface DebugTraceResponse {
+    success: boolean;
+    data?: {
+        message_chains: MessageChain[];
+        debug_logs: DebugLog[];
+        processing_summary: {
+            total_chains: number;
+            avg_processing_time: number;
+            error_rate: number;
+        };
+    };
+    message?: string;
+    error?: string;
+}
+export interface WindowQueryParams {
+    user_id?: number;
+    window_type?: 'fixed' | 'sliding' | 'semantic';
+    is_active?: boolean;
+    limit?: number;
+}
+export interface ContextQueryParams {
+    user_id: number;
+    context_type?: 'preference' | 'memory' | 'state' | 'history';
+    include_expired?: boolean;
+    priority_min?: number;
+}
+export interface PromptQueryParams {
+    category?: 'system' | 'conversation' | 'analysis' | 'generation' | 'custom';
+    is_active?: boolean;
+    config_scope?: 'global' | 'user' | 'group' | 'session';
+    user_id?: number;
+    group_id?: number;
+}
+export interface TraceQueryParams {
+    user_id?: number;
+    chain_id?: string;
+    session_id?: string;
+    date_range?: {
+        start_date: string;
+        end_date: string;
+    };
+    debug_level?: 'TRACE' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+    component?: string;
+}
+export interface ConversationContextBuilder {
+    user_profile: UserProfile;
+    active_window: ConversationWindow;
+    recent_messages: WindowMessage[];
+    user_context: UserContext[];
+    prompt_template: PromptTemplate;
+    build(): string;
+}
+export interface PromptRenderer {
+    template: PromptTemplate;
+    context: PromptRenderContext;
+    render(): string;
+    validate(): boolean;
+}
+export interface WindowManager {
+    getActiveWindow(user_id: number, window_name?: string): Promise<ConversationWindow | null>;
+    addMessage(params: WindowManagementParams): Promise<boolean>;
+    getWindowMessages(window_id: number, limit?: number): Promise<WindowMessage[]>;
+    updateWindowConfig(window_id: number, updates: Partial<ConversationWindow>): Promise<boolean>;
+}
+export interface ProfileManager {
+    getProfile(user_id: number): Promise<UserProfile | null>;
+    updateProfile(user_id: number, updates: Partial<UserProfile>): Promise<boolean>;
+    getContext(params: ContextQueryParams): Promise<UserContext[]>;
+    setContext(user_id: number, key: string, value: string, options?: Partial<UserContext>): Promise<boolean>;
+    cleanupExpiredContext(): Promise<number>;
+}
+export interface PromptManager {
+    getTemplate(template_id: string): Promise<PromptTemplate | null>;
+    getActiveConfigs(params: PromptQueryParams): Promise<PromptConfig[]>;
+    renderPrompt(template_id: string, context: PromptRenderContext): Promise<string>;
+    createTemplate(template: PromptTemplate): Promise<boolean>;
+    updateConfig(config_id: number, updates: Partial<PromptConfig>): Promise<boolean>;
+}
+export interface DebugTracer {
+    startTrace(trace_id: string, user_id: number): ProcessingContext;
+    addStep(context: ProcessingContext, step: string, data?: any): void;
+    recordTiming(context: ProcessingContext, operation: string, duration_ms: number): void;
+    logError(context: ProcessingContext, error: Error, component: string): void;
+    finishTrace(context: ProcessingContext): Promise<boolean>;
 }
 //# sourceMappingURL=index.d.ts.map

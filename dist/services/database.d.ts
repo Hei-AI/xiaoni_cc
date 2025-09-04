@@ -16,6 +16,14 @@ export declare class DatabaseManager {
     getConversationById(conversationId: string): Promise<ConversationData | null>;
     saveConversation(conversationData: ConversationData): Promise<boolean>;
     getConversations(userId?: number, limit?: number): Promise<ConversationData[]>;
+    /**
+     * 扩展的对话查询方法 - 支持分页、筛选和搜索
+     */
+    getConversationsPaginated(queryParams: import('../types').ConversationQueryParams): Promise<{
+        conversations: ConversationData[];
+        totalCount: number;
+        pagination: import('../types').ConversationPagination;
+    }>;
     clearConversations(): Promise<number>;
     getRequirementById(requirementId: string): Promise<RequirementData | null>;
     saveRequirement(requirementData: RequirementData): Promise<boolean>;

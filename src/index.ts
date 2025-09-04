@@ -1,7 +1,6 @@
 import { config } from './config';
 import { logger } from './utils/logger';
 import { DatabaseManager, getDatabaseManager } from './services/database';
-// Hook test: Backend code modification to trigger restart
 import WebSocketClient from './services/websocket-client';
 import HttpServer from './services/http-server';
 import AIService from './services/ai-service';
@@ -387,6 +386,7 @@ class QQBot {
         id: requirementId,
         user_id: userId,
         message: message,
+        user_message: message,  // Add alias for compatibility
         status: 'received',
         created_at: new Date(),
         updated_at: new Date(),

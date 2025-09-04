@@ -466,7 +466,9 @@ class AIService {
                     response_time: 0,
                     model_name: this.config.model_name,
                     raw_request: JSON.stringify({ userMessage, agentType, promptName, note: 'AI service unavailable' }),
-                    raw_response: JSON.stringify({ fallback: true })
+                    raw_response: JSON.stringify({ fallback: true }),
+                    created_at: timestamp,
+                    updated_at: timestamp
                 };
             }
             const { response, rawResponse, usedPrompt } = await this.callGeminiAPI(userMessage, agentType, promptName);
@@ -488,7 +490,9 @@ class AIService {
                         version: usedPrompt.version
                     } : null
                 }),
-                raw_response: JSON.stringify(rawResponse)
+                raw_response: JSON.stringify(rawResponse),
+                created_at: timestamp,
+                updated_at: timestamp
             };
             return conversationData;
         }
@@ -514,7 +518,9 @@ class AIService {
                 response_time: 0,
                 model_name: this.config.model_name,
                 raw_request: JSON.stringify({ userMessage, agentType, promptName, error: 'API call failed' }),
-                raw_response: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' })
+                raw_response: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+                created_at: timestamp,
+                updated_at: timestamp
             };
         }
     }

@@ -4,6 +4,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SessionApiHandlers = void 0;
 const logger_1 = require("../utils/logger");
+// import { SessionsListResponse } from '../types'; // Unused for now
 class SessionApiHandlers {
     constructor(database) {
         this.moduleLogger = logger_1.logger.createModuleLogger('session-api-handlers');

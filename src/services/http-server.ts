@@ -2,7 +2,7 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
-import { HttpServerConfig, TokenListResponse, TokenStatsResponse, TokenHealthCheckResponse, TokenResetResponse, TokenUsageHistoryResponse, GroupListResponse, GroupDetailResponse, GroupStatsResponse, GroupBulkOperationRequest, GroupBulkOperationResponse, GroupChatSettings } from '../types';
+import { HttpServerConfig, TokenListResponse, TokenStatsResponse, TokenHealthCheckResponse, TokenResetResponse, TokenUsageHistoryResponse, GroupListResponse, GroupDetailResponse, GroupStatsResponse, GroupBulkOperationRequest, GroupBulkOperationResponse, GroupChatSettings, ConversationQueryParams, ConversationListResponse, ConversationFilters } from '../types';
 import { logger } from '../utils/logger';
 import { DatabaseManager } from './database';
 import WebSocketClient from './websocket-client';
@@ -35,7 +35,33 @@ export class HttpServer {
   }
 
   private setupMiddleware(): void {
-    this.app.use(helmet());
+    // 配置Helmet CSP以允许前端页面正常工作
+    this.app.use(helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: [
+            "'self'",
+            "'unsafe-inline'", // 允许内联脚本
+            "https://cdn.jsdelivr.net", // 允许Bootstrap CDN
+            "https://cdnjs.cloudflare.com" // 允许FontAwesome CDN
+          ],
+          styleSrc: [
+            "'self'",
+            "'unsafe-inline'", // 允许内联样式
+            "https://cdn.jsdelivr.net", // 允许Bootstrap CDN
+            "https://cdnjs.cloudflare.com" // 允许FontAwesome CDN
+          ],
+          fontSrc: [
+            "'self'",
+            "https://cdnjs.cloudflare.com", // 允许FontAwesome字体
+            "data:" // 允许data: URLs的字体
+          ],
+          imgSrc: ["'self'", "data:", "https:"],
+          connectSrc: ["'self'"] // 只允许连接到同源
+        }
+      }
+    }));
     this.app.use(cors());
     this.app.use(express.json({ limit: '10mb' }));
     this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -63,6 +89,14 @@ export class HttpServer {
     
     this.app.get('/dashboard', (req, res) => {
       res.sendFile(path.join(__dirname, '../../public/dashboard.html'));
+    });
+    
+    this.app.get('/conversations', (req, res) => {
+      res.sendFile(path.join(__dirname, '../../public/conversations-admin.html'));
+    });
+    
+    this.app.get('/test', (req, res) => {
+      res.sendFile(path.join(__dirname, '../../public/simple-frontend-test.html'));
     });
 
     // 健康检查
@@ -263,20 +297,116 @@ export class HttpServer {
     }
   }
 
-  // 获取对话历史
+  // 获取对话历史 - 扩展版本支持分页、筛选和搜索
   private async handleGetConversations(req: Request, res: Response): Promise<void> {
     try {
-      const userId = req.query.user_id ? parseInt(req.query.user_id as string) : undefined;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+      // 解析查询参数
+      const queryParams: ConversationQueryParams = {
+        user_id: req.query.user_id ? parseInt(req.query.user_id as string) : undefined,
+        page: req.query.page ? parseInt(req.query.page as string) : 1,
+        limit: req.query.limit ? parseInt(req.query.limit as string) : 50,
+        start_date: req.query.start_date as string,
+        end_date: req.query.end_date as string,
+        search: req.query.search as string,
+        model_name: req.query.model_name as string,
+        sort_order: (req.query.sort_order as 'desc' | 'asc') || 'desc',
+        include_raw: req.query.include_raw === 'true'
+      };
 
-      const conversations = await this.database.getConversations(userId, limit);
-      res.json({ 
+      // 参数验证
+      if (queryParams.page && queryParams.page < 1) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid page parameter',
+          message: 'Page number must be greater than 0'
+        });
+        return;
+      }
+
+      if (queryParams.limit && (queryParams.limit < 1 || queryParams.limit > 1000)) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid limit parameter',
+          message: 'Limit must be between 1 and 1000'
+        });
+        return;
+      }
+
+      // 日期格式验证
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (queryParams.start_date && !dateRegex.test(queryParams.start_date)) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid start_date format',
+          message: 'Date format should be YYYY-MM-DD'
+        });
+        return;
+      }
+
+      if (queryParams.end_date && !dateRegex.test(queryParams.end_date)) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid end_date format',
+          message: 'Date format should be YYYY-MM-DD'
+        });
+        return;
+      }
+
+      // 检查是否为遗留API调用（向后兼容）
+      const isLegacyCall = !req.query.page && !req.query.start_date && !req.query.end_date && !req.query.search;
+      
+      if (isLegacyCall) {
+        // 使用旧的简单查询方法保持向后兼容
+        const userId = queryParams.user_id;
+        const limit = queryParams.limit || 50;
+        const conversations = await this.database.getConversations(userId, limit);
+        
+        res.json({ 
+          success: true,
+          data: conversations, 
+          total: conversations.length 
+        });
+        return;
+      }
+
+      // 使用新的分页查询方法
+      const result = await this.database.getConversationsPaginated(queryParams);
+
+      // 构建筛选信息
+      const filters: ConversationFilters = {};
+      if (queryParams.user_id) filters.user_id = queryParams.user_id;
+      if (queryParams.start_date || queryParams.end_date) {
+        filters.date_range = {
+          start_date: queryParams.start_date || '',
+          end_date: queryParams.end_date || ''
+        };
+      }
+      if (queryParams.search) filters.search = queryParams.search;
+      if (queryParams.model_name) filters.model_name = queryParams.model_name;
+      if (queryParams.sort_order) filters.sort_order = queryParams.sort_order;
+
+      const response: ConversationListResponse = {
         success: true,
-        data: conversations, 
-        total: conversations.length 
+        data: {
+          conversations: result.conversations,
+          pagination: result.pagination,
+          filters: Object.keys(filters).length > 0 ? filters : undefined
+        }
+      };
+
+      // 记录查询日志
+      this.moduleLogger.info('Conversations query executed', {
+        user_id: queryParams.user_id,
+        page: queryParams.page,
+        limit: queryParams.limit,
+        total_results: result.totalCount,
+        has_search: !!queryParams.search,
+        has_date_filter: !!(queryParams.start_date || queryParams.end_date)
       });
+
+      res.json(response);
     } catch (error) {
-      this.moduleLogger.error('Failed to get conversations', { error });
+      this.moduleLogger.error('Failed to get conversations', { error, query: req.query });
       res.status(500).json({ 
         success: false,
         error: 'Failed to get conversations',
@@ -292,14 +422,23 @@ export class HttpServer {
       const conversation = await this.database.getConversationById(id);
       
       if (!conversation) {
-        res.status(404).json({ error: 'Conversation not found' });
+        res.status(404).json({ 
+          success: false,
+          error: 'Conversation not found' 
+        });
         return;
       }
 
-      res.json(conversation);
+      res.json({
+        success: true,
+        data: conversation
+      });
     } catch (error) {
       this.moduleLogger.error('Failed to get conversation', { error });
-      res.status(500).json({ error: 'Failed to get conversation' });
+      res.status(500).json({ 
+        success: false,
+        error: 'Failed to get conversation' 
+      });
     }
   }
 

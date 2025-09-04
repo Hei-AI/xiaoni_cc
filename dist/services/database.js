@@ -210,6 +210,86 @@ class DatabaseManager {
         }
         return this.executeQuery(query, params);
     }
+    /**
+     * 扩展的对话查询方法 - 支持分页、筛选和搜索
+     */
+    async getConversationsPaginated(queryParams) {
+        const { user_id, page = 1, limit = 50, start_date, end_date, search, model_name, sort_order = 'desc', include_raw = false } = queryParams;
+        // 参数验证和处理
+        const validPage = Math.max(1, Math.floor(Number(page)) || 1);
+        const validLimit = Math.max(1, Math.min(Math.floor(Number(limit)) || 50, 1000));
+        const offset = (validPage - 1) * validLimit;
+        const sortDirection = sort_order === 'asc' ? 'ASC' : 'DESC';
+        // 构建查询条件
+        const conditions = [];
+        const params = [];
+        if (user_id) {
+            conditions.push('user_id = ?');
+            params.push(user_id);
+        }
+        if (start_date) {
+            conditions.push('DATE(timestamp) >= ?');
+            params.push(start_date);
+        }
+        if (end_date) {
+            conditions.push('DATE(timestamp) <= ?');
+            params.push(end_date);
+        }
+        if (model_name) {
+            conditions.push('model_name = ?');
+            params.push(model_name);
+        }
+        // 搜索条件
+        let searchCondition = '';
+        if (search && search.trim()) {
+            // 使用LIKE进行简单搜索（可后续优化为全文搜索）
+            searchCondition = '(user_message LIKE ? OR ai_response LIKE ?)';
+            const searchTerm = `%${search.trim()}%`;
+            params.push(searchTerm, searchTerm);
+        }
+        // 构建完整WHERE子句
+        let whereClause = '';
+        if (conditions.length > 0 || searchCondition) {
+            const allConditions = [...conditions];
+            if (searchCondition) {
+                allConditions.push(searchCondition);
+            }
+            whereClause = 'WHERE ' + allConditions.join(' AND ');
+        }
+        // 选择字段（是否包含原始数据）
+        const selectFields = include_raw
+            ? '*'
+            : 'id, user_id, user_message, ai_response, timestamp, response_time, model_name, message_id, reply_to_message_id, reply_to_text';
+        // 查询总数
+        const countQuery = `SELECT COUNT(*) as total FROM conversations ${whereClause}`;
+        const countResult = await this.executeQuery(countQuery, [...params]);
+        const totalCount = countResult[0]?.total || 0;
+        // 查询数据
+        const dataQuery = `
+      SELECT ${selectFields} 
+      FROM conversations 
+      ${whereClause}
+      ORDER BY timestamp ${sortDirection}, id ${sortDirection}
+      LIMIT ? OFFSET ?
+    `;
+        const dataParams = [...params, validLimit, offset];
+        const conversations = await this.executeQuery(dataQuery, dataParams);
+        // 构建分页信息
+        const totalPages = Math.ceil(totalCount / validLimit);
+        const pagination = {
+            current_page: validPage,
+            total_pages: totalPages,
+            per_page: validLimit,
+            total_count: totalCount,
+            has_next: validPage < totalPages,
+            has_previous: validPage > 1
+        };
+        return {
+            conversations,
+            totalCount,
+            pagination
+        };
+    }
     async clearConversations() {
         const query = 'DELETE FROM conversations';
         return this.executeUpdate(query);
@@ -742,8 +822,7 @@ class DatabaseManager {
             if (conditions.length > 0) {
                 query += ' WHERE ' + conditions.join(' AND ');
             }
-            query += ' ORDER BY created_at DESC LIMIT ?';
-            params.push(limit);
+            query += ` ORDER BY created_at DESC LIMIT ${parseInt(limit.toString())}`;
             return await this.executeQuery(query, params);
         }
         catch (error) {

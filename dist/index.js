@@ -310,6 +310,7 @@ class QQBot {
                 id: requirementId,
                 user_id: userId,
                 message: message,
+                user_message: message, // Add alias for compatibility
                 status: 'received',
                 created_at: new Date(),
                 updated_at: new Date(),
