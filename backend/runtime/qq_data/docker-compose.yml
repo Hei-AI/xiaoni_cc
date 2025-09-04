@@ -1,0 +1,34 @@
+version: "3.8" # 建议使用较新的版本以获得更好的特性支持
+
+services:
+  napcat:
+    # 镜像配置
+    image: mlikiowa/napcat-docker:latest # 指定使用的镜像和版本
+    container_name: napcat # 自定义容器名称，方便管理
+
+    # 重启策略
+    restart: always # 容器异常退出或Docker服务重启后，自动重启该容器
+
+    # 端口映射 (格式: 宿主机端口:容器内端口)
+    ports:
+      - "3000:3000" # 正向WebSocket API端口
+      - "3001:3001" # HTTP API端口
+      - "6099:6099" # WebUI管理界面端口
+
+    # 环境变量
+    # 将宿主机的用户ID和组ID传入容器，解决文件权限问题
+    environment:
+      - NAPCAT_UID=${NAPCAT_UID}
+      - NAPCAT_GID=${NAPCAT_GID}
+
+    # 数据卷挂载 (实现数据持久化)
+    # 格式: 宿主机路径:容器内路径
+    volumes:
+      # 挂载QQ的配置文件和数据，实现登录状态的持久化
+      - ./napcat_qq_data:/app/.config/QQ
+      # 挂载NapCat自身的核心配置文件
+      - ./napcat_config:/app/napcat/config
+
+networks:
+  default:
+    name: napcat_network # 为容器创建一个独立的网络，增加隔离性

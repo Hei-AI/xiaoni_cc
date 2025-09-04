@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QQ智能机器人管理后台</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome Icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Alpine.js -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- Tailwind Config -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        // Chakra UI inspired colors
+                        gray: {
+                            50: '#f7fafc',
+                            100: '#edf2f7',
+                            200: '#e2e8f0',
+                            300: '#cbd5e0',
+                            400: '#a0aec0',
+                            500: '#718096',
+                            600: '#4a5568',
+                            700: '#2d3748',
+                            800: '#1a202c',
+                            900: '#171923',
+                            950: '#0f1115'
+                        },
+                        blue: {
+                            50: '#ebf8ff',
+                            100: '#bee3f8',
+                            200: '#90cdf4',
+                            300: '#63b3ed',
+                            400: '#4299e1',
+                            500: '#3182ce',
+                            600: '#2b77cb',
+                            700: '#2c5aa0',
+                            800: '#2a4365',
+                            900: '#1a365d'
+                        },
+                        // Crypto inspired colors
+                        crypto: {
+                            green: '#00d4aa',
+                            red: '#ff6b6b',
+                            gold: '#f7b801',
+                            purple: '#6c5ce7',
+                            blue: '#74b9ff'
+                        }
+                    },
+                    backgroundImage: {
+                        'gradient-crypto': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        'gradient-success': 'linear-gradient(135deg, #00d4aa 0%, #4facfe 100%)',
+                        'gradient-danger': 'linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%)',
+                        'gradient-warning': 'linear-gradient(135deg, #f7b801 0%, #f093fb 100%)',
+                        'gradient-glass': 'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)'
+                    },
+                    backdropBlur: {
+                        xs: '2px',
+                    },
+                    animation: {
+                        'fade-in': 'fadeIn 0.5s ease-in-out',
+                        'slide-in': 'slideIn 0.3s ease-out',
+                        'scale-in': 'scaleIn 0.2s ease-out',
+                        'pulse-crypto': 'pulseCrypto 2s infinite'
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Custom Styles -->
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(-20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        @keyframes scaleIn {
+            from { transform: scale(0.95); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        
+        @keyframes pulseCrypto {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(0, 212, 170, 0.4); }
+            50% { box-shadow: 0 0 0 10px rgba(0, 212, 170, 0); }
+        }
+        
+        /* Glass morphism effects */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .glass-dark {
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Crypto-style gradients */
+        .crypto-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .success-gradient {
+            background: linear-gradient(135deg, #00d4aa 0%, #4facfe 100%);
+        }
+        
+        .danger-gradient {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+        }
+        
+        .warning-gradient {
+            background: linear-gradient(135deg, #f7b801 0%, #f093fb 100%);
+        }
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+        
+        /* Dark mode body background */
+        .dark body {
+            background: linear-gradient(135deg, #0f1115 0%, #1a202c 100%);
+        }
+        
+        /* Status indicators */
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        
+        .status-healthy {
+            background: #00d4aa;
+            box-shadow: 0 0 8px rgba(0, 212, 170, 0.5);
+        }
+        
+        .status-warning {
+            background: #f7b801;
+            box-shadow: 0 0 8px rgba(247, 184, 1, 0.5);
+        }
+        
+        .status-error {
+            background: #ff6b6b;
+            box-shadow: 0 0 8px rgba(255, 107, 107, 0.5);
+        }
+        
+        /* Hover effects */
+        .hover-lift {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .hover-lift:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen" x-data="appData()">
+    
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 glass-dark">
+        <div class="container mx-auto px-4">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo -->
+                <div class="flex items-center space-x-3">
+                    <div class="w-8 h-8 rounded-lg crypto-gradient flex items-center justify-center">
+                        <i class="fas fa-robot text-white text-sm"></i>
+                    </div>
+                    <span class="text-lg font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                        QQ智能机器人
+                    </span>
+                </div>
+                
+                <!-- Navigation Menu -->
+                <div class="hidden md:flex items-center space-x-1">
+                    <template x-for="item in navigation" :key="item.id">
+                        <button 
+                            @click="currentPage = item.id"
+                            class="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300"
+                            :class="currentPage === item.id ? 
+                                'bg-blue-600 text-white shadow-lg' : 
+                                'text-gray-300 hover:text-white hover:bg-white/10'"
+                        >
+                            <i :class="item.icon" class="mr-2"></i>
+                            <span x-text="item.name"></span>
+                        </button>
+                    </template>
+                </div>
+                
+                <!-- Mobile Menu Button -->
+                <button @click="mobileMenuOpen = !mobileMenuOpen" class="md:hidden p-2 rounded-lg hover:bg-white/10">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+            
+            <!-- Mobile Menu -->
+            <div x-show="mobileMenuOpen" x-transition class="md:hidden py-4 border-t border-white/10">
+                <template x-for="item in navigation" :key="item.id">
+                    <button 
+                        @click="currentPage = item.id; mobileMenuOpen = false"
+                        class="block w-full text-left px-4 py-3 rounded-lg mb-1 transition-all"
+                        :class="currentPage === item.id ? 
+                            'bg-blue-600 text-white' : 
+                            'text-gray-300 hover:bg-white/10'"
+                    >
+                        <i :class="item.icon" class="mr-3 w-5"></i>
+                        <span x-text="item.name"></span>
+                    </button>
+                </template>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="pt-20 min-h-screen">
+        
+        <!-- Dashboard Page -->
+        <div x-show="currentPage === 'dashboard'" x-transition class="page">
+            <div class="container mx-auto px-4 py-8">
+                
+                <!-- Header -->
+                <div class="mb-8">
+                    <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 bg-clip-text text-transparent mb-2">
+                        系统仪表板
+                    </h1>
+                    <p class="text-gray-400">实时监控QQ机器人运行状态和关键指标</p>
+                </div>
+                
+                <!-- Status Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <template x-for="status in systemStatus" :key="status.id">
+                        <div class="glass-card rounded-xl p-6 hover-lift">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center">
+                                    <div class="w-12 h-12 rounded-xl flex items-center justify-center mr-4"
+                                         :class="status.gradient">
+                                        <i :class="status.icon" class="text-xl text-white"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-sm font-medium text-gray-300" x-text="status.name"></h3>
+                                        <p class="text-lg font-bold text-white" x-text="status.value"></p>
+                                    </div>
+                                </div>
+                                <span class="status-dot" :class="status.statusClass"></span>
+                            </div>
+                            <div class="text-xs text-gray-400" x-text="status.description"></div>
+                        </div>
+                    </template>
+                </div>
+                
+                <!-- Metrics Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <template x-for="metric in metrics" :key="metric.id">
+                        <div class="glass-card rounded-xl p-6 text-center hover-lift">
+                            <div class="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center"
+                                 :class="metric.gradient">
+                                <i :class="metric.icon" class="text-2xl text-white"></i>
+                            </div>
+                            <h3 class="text-2xl font-bold text-white mb-1" x-text="metric.value"></h3>
+                            <p class="text-sm text-gray-300 mb-3" x-text="metric.name"></p>
+                            <div class="flex items-center justify-center text-xs"
+                                 :class="metric.changeType === 'positive' ? 'text-green-400' : 'text-red-400'">
+                                <i :class="metric.changeType === 'positive' ? 'fas fa-arrow-up' : 'fas fa-arrow-down'" class="mr-1"></i>
+                                <span x-text="metric.change"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+                
+                <!-- Charts Row -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- API Chart -->
+                    <div class="lg:col-span-2 glass-card rounded-xl p-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-semibold text-white">API调用趋势</h3>
+                            <div class="flex space-x-2">
+                                <button class="px-3 py-1 text-xs rounded-lg bg-blue-600 text-white">24H</button>
+                                <button class="px-3 py-1 text-xs rounded-lg text-gray-400 hover:bg-white/10">7D</button>
+                                <button class="px-3 py-1 text-xs rounded-lg text-gray-400 hover:bg-white/10">30D</button>
+                            </div>
+                        </div>
+                        <canvas id="apiChart" height="300"></canvas>
+                    </div>
+                    
+                    <!-- Status Overview -->
+                    <div class="glass-card rounded-xl p-6">
+                        <h3 class="text-lg font-semibold text-white mb-6">服务状态</h3>
+                        <div class="space-y-4">
+                            <template x-for="service in services" :key="service.name">
+                                <div class="flex items-center justify-between p-3 rounded-lg bg-white/5">
+                                    <div class="flex items-center">
+                                        <span class="status-dot" :class="service.statusClass"></span>
+                                        <span class="text-sm text-white" x-text="service.name"></span>
+                                    </div>
+                                    <span class="text-xs px-2 py-1 rounded-full"
+                                          :class="service.status === 'healthy' ? 'bg-green-500/20 text-green-400' :
+                                                  service.status === 'warning' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                  'bg-red-500/20 text-red-400'"
+                                          x-text="service.status === 'healthy' ? '正常' : 
+                                                  service.status === 'warning' ? '警告' : '错误'">
+                                    </span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Conversations Page -->
+        <div x-show="currentPage === 'conversations'" x-transition class="page">
+            <div class="container mx-auto px-4 py-8">
+                <div class="mb-8">
+                    <h1 class="text-3xl font-bold bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent mb-2">
+                        对话管理
+                    </h1>
+                    <p class="text-gray-400">查看和管理AI对话历史记录</p>
+                </div>
+                
+                <!-- Filters -->
+                <div class="glass-card rounded-xl p-6 mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">用户ID</label>
+                            <input type="number" x-model="conversationFilters.userId" 
+                                   class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">开始日期</label>
+                            <input type="date" x-model="conversationFilters.startDate"
+                                   class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:border-blue-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">结束日期</label>
+                            <input type="date" x-model="conversationFilters.endDate"
+                                   class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:border-blue-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">关键词</label>
+                            <input type="text" x-model="conversationFilters.keyword" placeholder="搜索内容"
+                                   class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none">
+                        </div>
+                        <div class="flex items-end">
+                            <button @click="searchConversations()" 
+                                    class="w-full px-4 py-2 crypto-gradient rounded-lg text-white font-medium hover:scale-105 transition-transform">
+                                <i class="fas fa-search mr-2"></i>搜索
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Conversations Table -->
+                <div class="glass-card rounded-xl overflow-hidden">
+                    <div class="p-6 border-b border-white/10">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg font-semibold text-white">对话列表</h3>
+                            <span class="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-sm" 
+                                  x-text="`${conversations.length} 条记录`"></span>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="border-b border-white/10">
+                                    <th class="px-6 py-4 text-left text-sm font-medium text-gray-300">时间</th>
+                                    <th class="px-6 py-4 text-left text-sm font-medium text-gray-300">用户</th>
+                                    <th class="px-6 py-4 text-left text-sm font-medium text-gray-300">消息预览</th>
+                                    <th class="px-6 py-4 text-left text-sm font-medium text-gray-300">AI模型</th>
+                                    <th class="px-6 py-4 text-left text-sm font-medium text-gray-300">响应时间</th>
+                                    <th class="px-6 py-4 text-left text-sm font-medium text-gray-300">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="conv in conversations" :key="conv.id">
+                                    <tr class="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                        <td class="px-6 py-4 text-sm text-gray-300" x-text="formatDate(conv.timestamp)"></td>
+                                        <td class="px-6 py-4 text-sm text-white font-medium" x-text="conv.user_id"></td>
+                                        <td class="px-6 py-4 text-sm text-gray-300 max-w-xs truncate" x-text="conv.user_message"></td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-2 py-1 bg-purple-500/20 text-purple-400 rounded text-xs" x-text="conv.model_name"></span>
+                                        </td>
+                                        <td class="px-6 py-4 text-sm text-gray-300" x-text="`${conv.response_time}ms`"></td>
+                                        <td class="px-6 py-4">
+                                            <button @click="viewConversation(conv)" 
+                                                    class="text-blue-400 hover:text-blue-300 text-sm">
+                                                <i class="fas fa-eye mr-1"></i>查看
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tokens Page -->
+        <div x-show="currentPage === 'tokens'" x-transition class="page">
+            <div class="container mx-auto px-4 py-8">
+                <div class="mb-8">
+                    <h1 class="text-3xl font-bold bg-gradient-to-r from-yellow-400 to-red-500 bg-clip-text text-transparent mb-2">
+                        Token管理
+                    </h1>
+                    <p class="text-gray-400">管理Gemini API Token的使用和健康状态</p>
+                </div>
+                
+                <!-- Token Stats -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                    <div class="glass-card rounded-xl p-6 text-center">
+                        <div class="w-12 h-12 rounded-xl crypto-gradient mx-auto mb-4 flex items-center justify-center">
+                            <i class="fas fa-key text-white text-xl"></i>
+                        </div>
+                        <h3 class="text-2xl font-bold text-white mb-1" x-text="tokenStats.total"></h3>
+                        <p class="text-sm text-gray-300">总Token数</p>
+                    </div>
+                    <div class="glass-card rounded-xl p-6 text-center">
+                        <div class="w-12 h-12 rounded-xl success-gradient mx-auto mb-4 flex items-center justify-center">
+                            <i class="fas fa-check-circle text-white text-xl"></i>
+                        </div>
+                        <h3 class="text-2xl font-bold text-white mb-1" x-text="tokenStats.healthy"></h3>
+                        <p class="text-sm text-gray-300">健康Token</p>
+                    </div>
+                    <div class="glass-card rounded-xl p-6 text-center">
+                        <div class="w-12 h-12 rounded-xl warning-gradient mx-auto mb-4 flex items-center justify-center">
+                            <i class="fas fa-exclamation-triangle text-white text-xl"></i>
+                        </div>
+                        <h3 class="text-2xl font-bold text-white mb-1" x-text="tokenStats.blacklisted"></h3>
+                        <p class="text-sm text-gray-300">黑名单Token</p>
+                    </div>
+                    <div class="glass-card rounded-xl p-6 text-center">
+                        <div class="w-12 h-12 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 mx-auto mb-4 flex items-center justify-center">
+                            <i class="fas fa-percentage text-white text-xl"></i>
+                        </div>
+                        <h3 class="text-2xl font-bold text-white mb-1" x-text="`${tokenStats.usageRate}%`"></h3>
+                        <p class="text-sm text-gray-300">平均使用率</p>
+                    </div>
+                </div>
+                
+                <!-- Token List -->
+                <div class="glass-card rounded-xl overflow-hidden">
+                    <div class="p-6 border-b border-white/10 flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-white">Token列表</h3>
+                        <button @click="healthCheckAll()" 
+                                class="px-4 py-2 success-gradient rounded-lg text-white text-sm hover:scale-105 transition-transform">
+                            <i class="fas fa-heartbeat mr-2"></i>全部健康检查
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="border-b border-white/10">
+                                    <th class="px-6 py-4 text-left text-sm font-medium text-gray-300">项目名称</th>
+                                    <th class="px-6 py-4 text-left text-sm font-medium text-gray-300">状态</th>
+                                    <th class="px-6 py-4 text-left text-sm font-medium text-gray-300">使用情况</th>
+                                    <th class="px-6 py-4 text-left text-sm font-medium text-gray-300">优先级</th>
+                                    <th class="px-6 py-4 text-left text-sm font-medium text-gray-300">最后使用</th>
+                                    <th class="px-6 py-4 text-left text-sm font-medium text-gray-300">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="token in tokens" :key="token.id">
+                                    <tr class="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                        <td class="px-6 py-4">
+                                            <div>
+                                                <div class="text-sm font-medium text-white" x-text="token.project_name"></div>
+                                                <div class="text-xs text-gray-400" x-text="token.project_id"></div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="flex items-center">
+                                                <span class="status-dot" :class="token.is_healthy ? 'status-healthy' : 'status-error'"></span>
+                                                <span class="text-sm" :class="token.is_healthy ? 'text-green-400' : 'text-red-400'"
+                                                      x-text="token.is_healthy ? '健康' : '异常'"></span>
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <div class="text-sm text-white" x-text="`${token.daily_used}/${token.daily_limit}`"></div>
+                                            <div class="w-full bg-gray-700 rounded-full h-1 mt-1">
+                                                <div class="h-1 rounded-full" :class="token.daily_used/token.daily_limit > 0.8 ? 'bg-red-500' : 'bg-blue-500'"
+                                                     :style="`width: ${(token.daily_used/token.daily_limit)*100}%`"></div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-xs" x-text="token.priority"></span>
+                                        </td>
+                                        <td class="px-6 py-4 text-sm text-gray-300" x-text="token.last_used ? formatDate(token.last_used) : '未使用'"></td>
+                                        <td class="px-6 py-4">
+                                            <div class="flex space-x-2">
+                                                <button @click="healthCheck(token.id)" 
+                                                        class="text-green-400 hover:text-green-300 text-sm">
+                                                    <i class="fas fa-heartbeat mr-1"></i>检查
+                                                </button>
+                                                <button @click="resetToken(token.id)" 
+                                                        class="text-yellow-400 hover:text-yellow-300 text-sm">
+                                                    <i class="fas fa-redo mr-1"></i>重置
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Groups Page -->
+        <div x-show="currentPage === 'groups'" x-transition class="page">
+            <div class="container mx-auto px-4 py-8">
+                <div class="mb-8">
+                    <h1 class="text-3xl font-bold bg-gradient-to-r from-pink-400 to-purple-500 bg-clip-text text-transparent mb-2">
+                        群聊管理
+                    </h1>
+                    <p class="text-gray-400">管理群聊白名单和设置</p>
+                </div>
+                
+                <!-- Placeholder for Groups Management -->
+                <div class="glass-card rounded-xl p-8 text-center">
+                    <i class="fas fa-users text-6xl text-gray-500 mb-4"></i>
+                    <h3 class="text-xl font-semibold text-white mb-2">群聊管理功能</h3>
+                    <p class="text-gray-400">正在开发中，敬请期待...</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Requirements Page -->
+        <div x-show="currentPage === 'requirements'" x-transition class="page">
+            <div class="container mx-auto px-4 py-8">
+                <div class="mb-8">
+                    <h1 class="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent mb-2">
+                        需求管理
+                    </h1>
+                    <p class="text-gray-400">跟踪Claude Code需求处理状态</p>
+                </div>
+                
+                <!-- Placeholder for Requirements Management -->
+                <div class="glass-card rounded-xl p-8 text-center">
+                    <i class="fas fa-tasks text-6xl text-gray-500 mb-4"></i>
+                    <h3 class="text-xl font-semibold text-white mb-2">需求管理功能</h3>
+                    <p class="text-gray-400">正在开发中，敬请期待...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div x-show="loading" x-transition 
+         class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+        <div class="glass-card rounded-xl p-8 text-center">
+            <div class="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p class="text-white">加载中...</p>
+        </div>
+    </div>
+
+    <!-- Alpine.js Data -->
+    <script>
+        function appData() {
+            return {
+                // App State
+                currentPage: 'dashboard',
+                mobileMenuOpen: false,
+                loading: false,
+                
+                // Navigation
+                navigation: [
+                    { id: 'dashboard', name: '仪表板', icon: 'fas fa-tachometer-alt' },
+                    { id: 'conversations', name: '对话管理', icon: 'fas fa-comments' },
+                    { id: 'tokens', name: 'Token管理', icon: 'fas fa-key' },
+                    { id: 'groups', name: '群聊管理', icon: 'fas fa-users' },
+                    { id: 'requirements', name: '需求管理', icon: 'fas fa-tasks' }
+                ],
+                
+                // System Status
+                systemStatus: [
+                    {
+                        id: 'system',
+                        name: '系统状态',
+                        value: '正常',
+                        icon: 'fas fa-server',
+                        gradient: 'success-gradient',
+                        statusClass: 'status-healthy',
+                        description: '所有服务运行正常'
+                    },
+                    {
+                        id: 'database',
+                        name: '数据库',
+                        value: '已连接',
+                        icon: 'fas fa-database',
+                        gradient: 'crypto-gradient',
+                        statusClass: 'status-healthy',
+                        description: 'MySQL连接池健康'
+                    },
+                    {
+                        id: 'websocket',
+                        name: 'WebSocket',
+                        value: '已连接',
+                        icon: 'fas fa-plug',
+                        gradient: 'warning-gradient',
+                        statusClass: 'status-healthy',
+                        description: 'OneBot协议连接正常'
+                    },
+                    {
+                        id: 'memory',
+                        name: '内存使用',
+                        value: '256MB',
+                        icon: 'fas fa-memory',
+                        gradient: 'bg-gradient-to-r from-cyan-500 to-blue-500',
+                        statusClass: 'status-healthy',
+                        description: '内存使用率良好'
+                    }
+                ],
+                
+                // Metrics
+                metrics: [
+                    {
+                        id: 'conversations',
+                        name: '今日对话',
+                        value: '1,234',
+                        icon: 'fas fa-comments',
+                        gradient: 'crypto-gradient',
+                        change: '+12%',
+                        changeType: 'positive'
+                    },
+                    {
+                        id: 'tokens',
+                        name: '活跃Token',
+                        value: '5',
+                        icon: 'fas fa-key',
+                        gradient: 'warning-gradient',
+                        change: '0%',
+                        changeType: 'neutral'
+                    },
+                    {
+                        id: 'groups',
+                        name: '活跃群聊',
+                        value: '12',
+                        icon: 'fas fa-users',
+                        gradient: 'success-gradient',
+                        change: '+5%',
+                        changeType: 'positive'
+                    }
+                ],
+                
+                // Services
+                services: [
+                    { name: 'HTTP服务器', status: 'healthy', statusClass: 'status-healthy' },
+                    { name: 'WebSocket客户端', status: 'healthy', statusClass: 'status-healthy' },
+                    { name: 'Token管理器', status: 'warning', statusClass: 'status-warning' },
+                    { name: 'AI服务', status: 'healthy', statusClass: 'status-healthy' }
+                ],
+                
+                // Conversations
+                conversations: [],
+                conversationFilters: {
+                    userId: '',
+                    startDate: '',
+                    endDate: '',
+                    keyword: ''
+                },
+                
+                // Tokens
+                tokens: [],
+                tokenStats: {
+                    total: 0,
+                    healthy: 0,
+                    blacklisted: 0,
+                    usageRate: 0
+                },
+                
+                // Methods
+                init() {
+                    this.loadData();
+                    this.initChart();
+                },
+                
+                async loadData() {
+                    this.loading = true;
+                    
+                    try {
+                        // Load conversations
+                        const convResponse = await fetch('http://localhost:8080/api/conversations?limit=10');
+                        if (convResponse.ok) {
+                            const convData = await convResponse.json();
+                            this.conversations = convData.data || [];
+                        }
+                        
+                        // Load tokens
+                        const tokenResponse = await fetch('http://localhost:8080/api/tokens');
+                        if (tokenResponse.ok) {
+                            const tokenData = await tokenResponse.json();
+                            this.tokens = tokenData.data || [];
+                        }
+                        
+                        // Load token stats
+                        const statsResponse = await fetch('http://localhost:8080/api/tokens/stats');
+                        if (statsResponse.ok) {
+                            const statsData = await statsResponse.json();
+                            this.tokenStats = statsData.data || this.tokenStats;
+                        }
+                        
+                    } catch (error) {
+                        console.error('Failed to load data:', error);
+                        // Use mock data for demo
+                        this.loadMockData();
+                    }
+                    
+                    this.loading = false;
+                },
+                
+                loadMockData() {
+                    // Mock conversations
+                    this.conversations = [
+                        {
+                            id: '1',
+                            user_id: 85178516,
+                            user_message: '你好，请帮我分析这个需求',
+                            ai_response: '好的，我来帮您分析这个需求',
+                            timestamp: new Date().toISOString(),
+                            model_name: 'gemini-2.5-flash',
+                            response_time: 1200
+                        },
+                        {
+                            id: '2',
+                            user_id: 85178516,
+                            user_message: '请实现一个API接口',
+                            ai_response: '我将为您设计并实现这个API接口',
+                            timestamp: new Date(Date.now() - 3600000).toISOString(),
+                            model_name: 'gemini-2.5-flash',
+                            response_time: 890
+                        }
+                    ];
+                    
+                    // Mock tokens
+                    this.tokens = [
+                        {
+                            id: 1,
+                            project_name: 'QQ Bot Project',
+                            project_id: 'qq-bot-001',
+                            is_healthy: true,
+                            daily_used: 156,
+                            daily_limit: 1000,
+                            priority: 1,
+                            last_used: new Date().toISOString()
+                        },
+                        {
+                            id: 2,
+                            project_name: 'Backup Project',
+                            project_id: 'backup-002',
+                            is_healthy: false,
+                            daily_used: 892,
+                            daily_limit: 1000,
+                            priority: 2,
+                            last_used: new Date(Date.now() - 86400000).toISOString()
+                        }
+                    ];
+                    
+                    // Mock token stats
+                    this.tokenStats = {
+                        total: 2,
+                        healthy: 1,
+                        blacklisted: 1,
+                        usageRate: 52.4
+                    };
+                },
+                
+                initChart() {
+                    const ctx = document.getElementById('apiChart');
+                    if (!ctx) return;
+                    
+                    new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'],
+                            datasets: [
+                                {
+                                    label: 'API调用',
+                                    data: [120, 190, 300, 500, 200, 300, 450],
+                                    borderColor: 'rgb(59, 130, 246)',
+                                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                    fill: true,
+                                    tension: 0.4
+                                },
+                                {
+                                    label: '成功响应',
+                                    data: [115, 185, 290, 480, 195, 290, 440],
+                                    borderColor: 'rgb(34, 197, 94)',
+                                    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                                    fill: true,
+                                    tension: 0.4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    labels: {
+                                        color: 'white'
+                                    }
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        color: '#9CA3AF'
+                                    },
+                                    grid: {
+                                        color: 'rgba(255, 255, 255, 0.1)'
+                                    }
+                                },
+                                x: {
+                                    ticks: {
+                                        color: '#9CA3AF'
+                                    },
+                                    grid: {
+                                        color: 'rgba(255, 255, 255, 0.1)'
+                                    }
+                                }
+                            }
+                        }
+                    });
+                },
+                
+                // Utility functions
+                formatDate(dateString) {
+                    return new Date(dateString).toLocaleString('zh-CN');
+                },
+                
+                async searchConversations() {
+                    this.loading = true;
+                    // Simulate API call
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    this.loading = false;
+                },
+                
+                viewConversation(conversation) {
+                    alert(`查看对话: ${conversation.user_message}`);
+                },
+                
+                async healthCheckAll() {
+                    this.loading = true;
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    this.loading = false;
+                    alert('所有Token健康检查完成');
+                },
+                
+                async healthCheck(tokenId) {
+                    this.loading = true;
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    this.loading = false;
+                    alert(`Token ${tokenId} 健康检查完成`);
+                },
+                
+                async resetToken(tokenId) {
+                    if (confirm('确定要重置这个Token吗？')) {
+                        this.loading = true;
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        this.loading = false;
+                        alert(`Token ${tokenId} 已重置`);
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

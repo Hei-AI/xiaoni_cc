@@ -1,0 +1,17 @@
+{
+  "name": "@qq-bot/shared",
+  "version": "1.0.0",
+  "description": "QQ Bot共享类型和工具",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  },
+  "keywords": ["qq-bot", "shared", "types", "utils"],
+  "author": "QQ Bot Team", 
+  "license": "MIT"
+}

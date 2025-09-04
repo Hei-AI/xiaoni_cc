@@ -1,0 +1,12 @@
+[
+  {
+    "ANTHROPIC_API_KEY": "sk-ant-api03-QeaspNMbjhi2uduGPtVW5i16-AN0A3ToO9dyu8xcMvvE-r5JO67mfsUxSBNRP4wqqAfyNkRzKxuEsCc-KvuDEQ",
+    "ANTHROPIC_BASE_URL": "https://api.aicodemirror.com/api/claudecode",
+    "ANTHROPIC_AUTH_TOKEN": ""
+  },
+  {
+    "ANTHROPIC_API_KEY": "sk-ant-oat01-30fc39c5dc71f998f2799b29fc5e7b1bbd45bacb2a5353de857dc8534aca9ac2",
+    "ANTHROPIC_BASE_URL": "https://gaccode.com/claudecode",
+    "ANTHROPIC_AUTH_TOKEN": ""
+  }
+]
