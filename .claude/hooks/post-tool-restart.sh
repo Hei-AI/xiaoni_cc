@@ -27,14 +27,34 @@ FILE_PATH=$(echo "$HOOK_INPUT" | grep -o '"file_path":"[^"]*"' | cut -d'"' -f4)
 
 log_message "Tool: $TOOL_NAME, File: $FILE_PATH"
 
-# 检查是否需要重启
+# 检查是否需要重启后端服务
 should_restart() {
+    # 排除前端目录的修改
     case "$FILE_PATH" in
-        */src/*|*.ts|*/package.json|*/tsconfig.json)
+        # 前端相关文件，不需要重启后端
+        */frontend/*)
+            log_message "Frontend file detected, skipping backend restart: $FILE_PATH"
+            return 1
+            ;;
+        # 文档和其他非后端文件，不需要重启
+        */docs/*|*/README*|*.md|*.log|*/logs/*)
+            log_message "Documentation/log file detected, skipping restart: $FILE_PATH"
+            return 1
+            ;;
+        # 后端相关文件，需要重启
+        */src/*|*.ts|*/package.json|*/tsconfig.json|*/database/*|*/tests/*|*.js|*/dist/*)
+            log_message "Backend file detected, restart required: $FILE_PATH"
             return 0
             ;;
+        # 配置文件和环境文件，需要重启  
+        */.env*|*/jest.config.js|*/eslint*|*/start_services_ts.sh)
+            log_message "Configuration file detected, restart required: $FILE_PATH"
+            return 0
+            ;;
+        # 默认情况：未知文件类型，安全起见进行重启
         *)
-            return 1
+            log_message "Unknown file type, defaulting to restart: $FILE_PATH"
+            return 0
             ;;
     esac
 }

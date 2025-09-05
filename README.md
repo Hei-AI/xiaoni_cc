@@ -1,298 +1,167 @@
-# QQ智能机器人项目
+# QQ智能机器人 - 4模块独立架构
 
-基于OneBot 11协议的智能QQ机器人，集成Gemini AI和Claude Code开发助手功能，支持WebSocket实时通信和HTTP API接口。
+基于OneBot 11协议的智能QQ机器人，采用4个独立模块的架构设计，支持独立开发和部署。
 
 ## 🏗️ 项目架构
 
-### 核心模块
 ```
 qq_bot/
-├── main/                           # 核心业务逻辑
-│   ├── main.py                    # 🎯 主程序入口 - 事件分发和处理
-│   ├── websocket_client.py        # 🔌 WebSocket客户端 - OneBot协议通信
-│   ├── http_server.py             # 🌐 HTTP API服务器 - RESTful接口
-│   ├── config.py                  # ⚙️ 配置管理 - 连接参数和功能开关
-│   ├── gemini_agent.py            # 🤖 Gemini AI代理 - 智能对话处理
-│   ├── requirement_manager.py     # 📋 需求管理器 - Claude Code集成
-│   └── database.py                # 💾 数据库管理 - MySQL存储
-├── test/                          # 测试套件
-│   ├── test_http_api.py          # HTTP API功能测试
-│   ├── send_test.py              # 消息发送功能测试
-│   ├── debug_test.py             # 调试和诊断测试
-│   └── [其他测试文件]            # 各功能模块测试
-├── resource/                      # 资源配置
-│   └── token.properties          # API密钥配置文件
-├── doc/                          # 技术文档
-│   ├── 事件类型.md               # OneBot事件类型说明
-│   ├── 事件字段详情.md           # 事件字段详细定义
-│   └── NapCat.md                 # NapCat服务器配置
-├── log/                          # 日志存储
-│   ├── main_YYYY-MM-DD.log       # 主程序日志
-│   ├── websocket_events_YYYY-MM-DD.log # WebSocket事件日志
-│   └── [其他日志文件]            # 各模块日志
-├── requirements.txt              # Python依赖清单
-├── CLAUDE.md                     # Claude Code配置和权限
-└── README.md                     # 项目文档
+├── modules/
+│   ├── http-api/           # 模块1: HTTP API网关服务 (端口: 8080)
+│   ├── qqbot-core/         # 模块2: QQ机器人核心服务 (端口: 8081)
+│   └── admin-panel/        # 模块3&4: 管理面前后端
+│       ├── backend/        #   管理面后端API (端口: 9080)
+│       └── frontend/       #   管理面前端界面 (端口: 3000)
+├── database/               # 共享数据库资源
+├── shared/                 # 共享工具和类型 (可选)
+├── docker-compose.yml      # 完整服务编排
+└── CLAUDE.md              # Claude Code开发指导
 ```
 
-### 系统架构图
-```
-┌─────────────────┐    WebSocket    ┌──────────────────┐
-│   OneBot Server │ ◄──────────────► │  WebSocket Client │
-│   (NapCat)      │                 │  (websocket_client.py)
-└─────────────────┘                 └──────────────────┘
-                                             │
-                                             ▼
-┌─────────────────┐                 ┌──────────────────┐
-│   QQ客户端       │                 │    主程序入口      │
-│   (接收/发送消息) │                 │   (main.py)      │
-└─────────────────┘                 └──────────────────┘
-                                             │
-                                    ┌────────┼────────┐
-                                    ▼        ▼        ▼
-                            ┌─────────┐ ┌──────┐ ┌─────────┐
-                            │HTTP API │ │AI代理│ │需求管理器│
-                            │服务器   │ │     │ │        │
-                            └─────────┘ └──────┘ └─────────┘
-                                    │        │        │
-                                    ▼        ▼        ▼
-                            ┌─────────┐ ┌──────┐ ┌─────────┐
-                            │REST接口 │ │Gemini│ │Claude   │
-                            │        │ │ API  │ │ Code    │
-                            └─────────┘ └──────┘ └─────────┘
-```
+## 🔧 各模块功能
 
-## ✨ 核心功能
+### 1. HTTP API Gateway (`modules/http-api/`)
+- **职责**: 外部HTTP请求接入点，消息路由和转发
+- **端口**: 8080
+- **独立性**: 完全独立，可替换为任何API网关
+- **日志**: `modules/http-api/resources/logs/`
 
-### 🤖 AI智能对话系统
-- **Gemini 2.5 Flash集成**: 智能理解和回复用户消息
-- **多API密钥轮换**: 确保服务高可用性
-- **对话记录存储**: MySQL数据库保存对话历史
-- **智能回复生成**: 基于上下文的个性化回复
+### 2. QQBot Core Service (`modules/qqbot-core/`)
+- **职责**: OneBot WebSocket连接，AI对话，核心业务逻辑
+- **端口**: 8081 (内部通信)
+- **独立性**: 核心服务，可独立运行和扩展
+- **资源**: 独立的napcat_qq_data、logs目录
+- **日志**: `modules/qqbot-core/resources/logs/`
 
-### 🛠️ Claude Code开发助手
-- **需求智能识别**: 自动识别开发需求关键词
-- **Claude Code集成**: 通过管道处理复杂开发任务
-- **Hook通知机制**: 开发完成状态自动通知
-- **需求状态管理**: 完整的需求生命周期跟踪
+### 3. Admin Backend (`modules/admin-panel/backend/`)
+- **职责**: 管理员API，系统配置，数据分析
+- **端口**: 9080
+- **独立性**: 独立的Express服务
+- **日志**: `modules/admin-panel/backend/resources/logs/`
 
-### 📡 OneBot协议通信
-- **WebSocket实时连接**: 与NapCat服务器实时通信
-- **多事件类型支持**: 私聊、群聊、通知、请求、元事件
-- **消息段支持**: 文本、表情、@、回复等复杂消息
-- **自动重连机制**: 网络中断后自动恢复连接
+### 4. Admin Frontend (`modules/admin-panel/frontend/`)
+- **职责**: 管理员控制台，实时数据展示
+- **端口**: 3000
+- **独立性**: 纯静态资源，可用任何Web服务器托管
+- **日志**: `modules/admin-panel/frontend/resources/logs/`
 
-### 🌐 HTTP API服务
-- **RESTful接口**: 标准化的API设计
-- **多种消息发送**: 私聊、群聊、@、回复消息
-- **状态查询**: 实时获取机器人和连接状态
-- **健康检查**: 服务运行状态监控
+## 🚀 快速开始
 
-### 💾 数据持久化
-- **MySQL存储**: 对话记录和需求数据持久化
-- **连接池管理**: 高效的数据库连接管理
-- **自动表创建**: 首次运行自动创建数据库结构
-
-## 安装和配置
-
-### 1. 安装依赖
+### 使用Docker Compose (推荐)
 ```bash
-pip install -r requirements.txt
+# 启动所有服务
+docker-compose up -d
+
+# 查看服务状态
+docker-compose ps
+
+# 查看日志
+docker-compose logs -f [service-name]
 ```
 
-### 2. 配置设置
-编辑 `main/config.py` 文件，配置WebSocket连接参数：
-```python
-WEBSOCKET_CONFIG = {
-    "host": "127.0.0.1",
-    "port": 3001,
-    "access_token": "your_access_token",
-    "uri": "ws://127.0.0.1:3001?access_token=your_access_token"
-}
-```
+### 独立开发模式
 
-## 使用方法
-
-### 1. 启动机器人
+#### 1. HTTP API模块
 ```bash
-cd main
-python main.py
+cd modules/http-api
+npm install
+cp .env.example .env
+npm run dev
 ```
 
-机器人将同时启动：
-- WebSocket客户端（连接到OneBot服务器）
-- HTTP服务器（监听8080端口）
-
-### 2. HTTP API使用
-
-#### 发送私聊消息
+#### 2. QQBot核心模块
 ```bash
-curl -X POST http://127.0.0.1:8080/api/send_private \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": 123456789,
-    "message": "你好！",
-    "message_type": "text"
-  }'
+cd modules/qqbot-core
+npm install
+cp .env.example .env
+npm run dev
 ```
 
-#### 发送群聊消息
+#### 3. 管理面后端
 ```bash
-curl -X POST http://127.0.0.1:8080/api/send_group \
-  -H "Content-Type: application/json" \
-  -d '{
-    "group_id": 987654321,
-    "message": "大家好！",
-    "message_type": "text"
-  }'
+cd modules/admin-panel/backend
+npm install
+cp .env.example .env
+npm run dev
 ```
 
-#### 发送@消息
+#### 4. 管理面前端
 ```bash
-curl -X POST http://127.0.0.1:8080/api/send_at \
-  -H "Content-Type: application/json" \
-  -d '{
-    "group_id": 987654321,
-    "user_id": 123456789,
-    "message": "这是@消息"
-  }'
+cd modules/admin-panel/frontend
+npm install
+npm run dev
 ```
 
-#### 发送回复消息
+## 🔗 服务端点
+
+- **HTTP API Gateway**: http://localhost:8080
+  - `GET /health` - 健康检查
+  - `GET /api/status` - 服务状态
+
+- **QQBot Core**: http://localhost:8081 (内部)
+  - 内部API，不对外暴露
+
+- **Admin Backend**: http://localhost:9080
+  - 管理员API接口
+
+- **Admin Frontend**: http://localhost:3000
+  - 管理员控制台界面
+
+## 📊 数据库
+
+所有模块共享MySQL数据库资源：
+- **主机**: localhost:3306
+- **数据库**: qqbot_db
+- **用户**: qqbot / qqbot_password
+
+## 📝 日志系统
+
+每个模块都有独立的日志目录：
+- `modules/http-api/resources/logs/`
+- `modules/qqbot-core/resources/logs/`
+- `modules/admin-panel/backend/resources/logs/`
+- `modules/admin-panel/frontend/resources/logs/`
+
+## 🛠️ 开发指南
+
+### 各模块独立开发
+1. 进入对应模块目录
+2. 复制 `.env.example` 为 `.env`
+3. 配置环境变量
+4. `npm install && npm run dev`
+
+### 模块间通信
+- HTTP API ↔ QQBot Core: HTTP API调用
+- Admin Backend ↔ Database: 直接数据库连接
+- Admin Frontend ↔ Admin Backend: REST API
+- QQBot Core ↔ Database: 直接数据库连接
+
+### 测试
 ```bash
-curl -X POST http://127.0.0.1:8080/api/send_reply \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message_type": "private",
-    "target_id": 123456789,
-    "reply_id": 1001,
-    "message": "这是回复",
-    "message_format": "text"
-  }'
+# 各模块独立测试
+cd modules/[module-name]
+npm test
 ```
 
-#### 获取状态
-```bash
-# 机器人状态
-curl http://127.0.0.1:8080/api/status
+## 📁 目录结构详情
 
-# 连接状态
-curl http://127.0.0.1:8080/api/connection
+每个模块包含：
+- `src/` - TypeScript源码
+- `tests/` - 测试文件
+- `resources/` - 资源文件（config、logs等）
+- `docs/` - 文档
+- `package.json` - 依赖管理
+- `tsconfig.json` - TypeScript配置
+- `Dockerfile` - 容器化配置
 
-# 健康检查
-curl http://127.0.0.1:8080/health
-```
+## 🤝 贡献指南
 
-### 3. 消息段格式
+1. Fork项目
+2. 选择要修改的模块
+3. 在对应模块目录下进行开发
+4. 确保模块独立测试通过
+5. 提交Pull Request
 
-支持发送复杂的消息段：
-```json
-{
-  "user_id": 123456789,
-  "message": [
-    {"type": "text", "data": {"text": "文本"}},
-    {"type": "face", "data": {"id": 123}},
-    {"type": "at", "data": {"qq": 987654321}}
-  ],
-  "message_type": "segments"
-}
-```
+## 📄 许可证
 
-## 测试
-
-### 1. 运行HTTP API测试
-```bash
-cd test
-python test_http_api.py
-```
-
-### 2. 运行发送功能测试
-```bash
-cd test
-python send_test.py
-```
-
-## API接口详细说明
-
-### 请求格式
-所有API接口都使用JSON格式，Content-Type为`application/json`
-
-### 响应格式
-成功响应：
-```json
-{
-  "success": true,
-  "message": "操作成功",
-  "timestamp": "2025-08-31T01:00:00"
-}
-```
-
-错误响应：
-```json
-{
-  "success": false,
-  "error": "错误描述"
-}
-```
-
-### 状态码
-- 200: 成功
-- 400: 请求参数错误
-- 500: 服务器内部错误
-- 503: 服务不可用（WebSocket未连接）
-
-## 日志系统
-
-机器人会生成详细的日志文件：
-- `log/main_YYYY-MM-DD.log`: 主程序日志
-- `log/websocket_events_YYYY-MM-DD.log`: WebSocket事件日志
-- `log/http_server_YYYY-MM-DD.log`: HTTP服务器日志
-
-## 故障排除
-
-### 1. WebSocket连接失败
-- 检查OneBot服务器是否运行
-- 验证access_token是否正确
-- 确认端口是否被占用
-
-### 2. HTTP API无响应
-- 确认HTTP服务器已启动（端口8080）
-- 检查WebSocket客户端是否已连接
-- 查看日志文件中的错误信息
-
-### 3. 消息发送失败
-- 验证用户ID和群ID是否正确
-- 确认机器人有发送消息的权限
-- 检查OneBot服务器状态
-
-## 开发说明
-
-### 1. 添加新的事件处理器
-在`main.py`中添加新的处理函数，并在`main()`函数中注册：
-```python
-async def handle_new_event(data):
-    # 处理逻辑
-    pass
-
-# 在main()函数中注册
-client.on('new_event', handle_new_event)
-```
-
-### 2. 添加新的API接口
-在`http_server.py`中添加新的路由和处理函数：
-```python
-async def new_api_endpoint(self, request):
-    # API逻辑
-    pass
-
-# 在setup_routes()中添加路由
-self.app.router.add_post('/api/new_endpoint', self.new_api_endpoint)
-```
-
-## 许可证
-
-本项目采用MIT许可证。
-
-## 贡献
-
-欢迎提交Issue和Pull Request来改进项目。
+MIT License

@@ -1,638 +1,516 @@
-# CLAUDE.md
+# CLAUDE.md - QQ智能机器人开发指导
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文件为Claude Code提供QQ智能机器人项目的开发指导和架构说明。
 
-# QQ智能机器人 - TypeScript异步事件驱动架构
+## 🏗️ 项目架构概述
 
-## 项目概述
-基于OneBot 11协议的智能QQ机器人，采用TypeScript构建的现代化异步事件驱动架构。集成Gemini AI智能对话，支持需求管理和Claude Code开发助手功能。
+基于OneBot 11协议的智能QQ机器人，采用4个独立模块的微服务架构设计，支持独立开发和部署。
 
-## 核心架构 
+### 核心设计原则
+- **模块独立性**: 4个模块完全独立，各有独立的资源、日志、测试目录
+- **服务间通信**: 仅通过HTTP API和共享数据库通信，无文件共享
+- **技术栈统一**: 全栈TypeScript + MySQL + Docker容器化
+- **可独立部署**: 每个模块支持独立开发、测试、部署
 
-### 主要组件依赖关系
+## 📁 项目结构
+
 ```
-QQBot (src/index.ts) - 主应用类
-├── DatabaseManager (src/services/database.ts) - MySQL2连接池管理
-├── WebSocketClient (src/services/websocket-client.ts) - OneBot协议WebSocket客户端  
-├── HttpServer (src/services/http-server.ts) - Express.js REST API服务器
-├── AIService (src/services/ai-service.ts) - Gemini AI集成和意图分析
-└── Logger (src/utils/logger.ts) - Winston结构化日志系统
+qq_bot/
+├── modules/                    # 4个独立模块
+│   ├── http-api/              # 模块1: HTTP API网关 (8080)
+│   │   ├── src/
+│   │   ├── tests/
+│   │   ├── resources/logs/
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   └── Dockerfile
+│   ├── qqbot-core/            # 模块2: QQ机器人核心服务 (8081)
+│   │   ├── src/
+│   │   │   ├── services/      # 核心服务层
+│   │   │   │   ├── websocket-client.ts
+│   │   │   │   ├── database.ts
+│   │   │   │   ├── ai-service.ts
+│   │   │   │   ├── session-manager.ts
+│   │   │   │   └── remote-claude-service.ts
+│   │   │   ├── utils/         # 工具层
+│   │   │   ├── config/        # 配置管理
+│   │   │   ├── types/         # TypeScript类型定义
+│   │   │   └── index.ts       # 主应用入口
+│   │   ├── tests/
+│   │   ├── resources/
+│   │   │   ├── logs/          # 独立日志目录
+│   │   │   └── napcat_qq_data/
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   └── Dockerfile
+│   └── admin-panel/           # 模块3&4: 管理面前后端
+│       ├── backend/           # 管理面后端API (9080)
+│       │   ├── src/
+│       │   ├── tests/
+│       │   ├── resources/logs/
+│       │   ├── package.json
+│       │   └── Dockerfile
+│       └── frontend/          # 管理面前端界面 (3003)
+│           ├── public/
+│           ├── src/
+│           ├── tests/
+│           └── resources/logs/
+├── scripts/                   # 自动化脚本目录
+│   ├── start_modules.py      # Python启动管理器 (主要)
+│   ├── process-manager.js    # Node.js启动管理器 (备用)
+│   └── module_pids.json      # 进程ID记录文件
+├── database/                  # 共享数据库资源
+│   ├── schema/               # 数据库架构定义
+│   └── migrations/           # 数据库迁移脚本
+├── requirements.txt          # Python依赖文件
+├── package.json             # 项目根配置和npm scripts
+├── docker-compose.yml       # 完整服务编排
+└── CLAUDE.md               # Claude Code开发指导
 ```
 
-### 事件流处理架构
-消息通过以下管道异步处理：
-```
-QQ消息 → OneBot服务器 → WebSocketClient → QQBot事件分发器
-├── handlePrivateMessage() → 需求分析 → AI对话/需求处理
-├── handleGroupMessage() → @机器人检测 → AI回复
-├── handleNotice() → 群成员变动记录
-└── handleRequest() → 自动好友请求处理
-```
+## 🔧 模块详细说明
 
-### TypeScript类型系统
-- **严格类型检查**: `strict: true` 配置，编译时错误检测
-- **路径别名**: `@/*` 映射到 `src/*`，便于模块导入
-- **接口定义**: 完整的QQ消息、数据库实体、配置项类型定义 (`src/types/index.ts`)
+### 模块1: HTTP API Gateway (`modules/http-api/`)
+- **职责**: 外部HTTP请求接入点，消息路由和转发
+- **端口**: 8080
+- **技术栈**: Express.js + TypeScript
+- **独立性**: 完全独立，可替换为任何API网关
+- **主要文件**:
+  - `src/index.ts`: Express服务器主入口
+  - 提供健康检查和API状态端点
 
-## 开发命令
+### 模块2: QQBot Core Service (`modules/qqbot-core/`)
+- **职责**: OneBot WebSocket连接，AI对话，核心业务逻辑
+- **端口**: 8081 (内部通信)
+- **技术栈**: TypeScript + WebSocket + Gemini AI
+- **核心服务**:
+  - `WebSocketClient`: OneBot协议WebSocket连接管理
+  - `DatabaseManager`: MySQL2连接池管理
+  - `AIService`: Gemini AI集成和意图分析
+  - `SessionManager`: 会话状态管理
+  - `RemoteClaudeService`: Claude Code集成服务
+- **主要文件**:
+  - `src/index.ts`: QQBot主应用类，事件驱动架构
+  - `src/services/*`: 核心业务服务层
+  - `src/utils/*`: 工具和辅助功能
+  - `src/types/index.ts`: 完整的TypeScript类型定义
 
-### 基础开发流程
+### 模块3: Admin Backend (`modules/admin-panel/backend/`)
+- **职责**: 管理员API，系统配置，数据分析
+- **端口**: 9080
+- **技术栈**: Express.js + TypeScript + MySQL
+- **独立性**: 独立的Express服务，仅与数据库通信
+
+### 模块4: Admin Frontend (`modules/admin-panel/frontend/`)
+- **职责**: 管理员控制台，实时数据展示
+- **端口**: 3000
+- **技术栈**: 静态HTML/CSS/JavaScript
+- **部署**: Nginx容器托管，纯静态资源
+
+## 🚀 开发工作流
+
+### 快速启动 (推荐方式)
 ```bash
-# 环境设置
-npm install
-cp .env.example .env  # 配置环境变量
+# 方式1: 一键启动所有模块
+npm start
 
-# 开发
-npm run dev          # ts-node开发服务器，自动重启
-npm run build        # TypeScript编译到dist/
-npm run build:watch  # 监听模式编译
+# 方式2: 使用Python脚本
+python3 scripts/start_modules.py start
 
-# 生产运行
-npm start           # 运行编译后的JavaScript
-./start_services_ts.sh  # 完整启动脚本（包含数据库检查）
+# 方式3: 完整部署流程
+npm run deploy  # 停止→安装依赖→启动
+
+# 检查服务状态
+npm run status
 ```
 
-### 测试和质量检查
+### 环境设置
 ```bash
-# 测试
-npm test                    # Jest单元测试
-npm run test:watch         # 监听模式测试
-npm test -- --coverage    # 覆盖率报告
+# 安装Python依赖 (一次性)
+pip3 install -r requirements.txt
 
-# 代码质量
-npm run lint              # ESLint检查
-npm run lint:fix         # 自动修复ESLint问题
+# 安装所有模块依赖
+npm run install:all
+# 或使用Python脚本并行安装
+python3 scripts/start_modules.py install
+
+# 使用Docker Compose启动完整环境
+docker-compose up -d
 ```
 
-### 单独测试指定模块
+### 模块独立开发
+每个模块都有完整的开发工具链：
 ```bash
-# 测试特定文件
-npm test tests/basic.test.ts
-
-# 测试特定模式匹配
-npm test -- --testNamePattern="Database Manager"
+cd modules/qqbot-core  # 或其他模块
+npm run dev          # 开发服务器
+npm run build        # TypeScript编译
+npm run test         # Jest单元测试
+npm run lint         # ESLint代码检查
 ```
 
-## 核心配置系统
+### 核心开发命令
+```bash
+# 启动所有模块
+npm start                                    # 自动启动4个模块
+python3 scripts/start_modules.py start     # Python方式启动
+node scripts/process-manager.js start      # Node.js方式启动
 
-### 环境配置 (.env)
-基于 `src/config/index.ts` 的统一配置管理：
-- **数据库**: MySQL连接、连接池设置
-- **WebSocket**: OneBot服务器连接参数 
-- **HTTP**: Express服务器监听配置
-- **AI**: Gemini API密钥轮换、授权用户设置
-- **日志**: Winston日志级别和文件前缀
+# 停止所有模块
+npm stop                                    # 停止所有服务
+python3 scripts/start_modules.py stop      # Python方式停止
 
-### 关键配置项
-```typescript
-// WebSocket配置 - OneBot协议连接
-websocket: {
-  host: "127.0.0.1",
-  port: 3001, 
-  access_token: "w@123456",
-  uri: "ws://127.0.0.1:3001?access_token=w@123456"
-}
+# 单独模块开发
+cd modules/qqbot-core
+npm run dev          # ts-node开发服务器，支持热重载
+npm run build        # 编译到dist/目录
+npm start           # 生产环境运行
 
-// AI配置 - Gemini集成
-ai: {
-  gemini_api_keys: ["key1", "key2"],  // 支持多密钥轮换
-  authorized_user_id: 85178516,       // 唯一授权需求管理用户
-  bot_qq_number: 1129974489           // 机器人QQ号
-}
+# HTTP API模块开发  
+cd modules/http-api
+npm run dev          # Express开发服务器
+
+# 管理面后端开发
+cd modules/admin-panel/backend
+npm run dev          # Express API开发服务器
 ```
 
-## 数据库架构
+## 🔗 服务间通信
+
+### 端口映射
+- **HTTP API Gateway**: http://localhost:8080
+- **QQBot Core**: http://localhost:8081 (内部)
+- **Admin Backend**: http://localhost:9080
+- **Admin Frontend**: http://localhost:3003 ⚠️ (注意端口变更)
+- **MySQL Database**: localhost:3306
+
+⚠️ **重要说明**: Admin Frontend默认端口由3000改为3003，避免与其他服务冲突。
+
+### 通信策略
+- **HTTP API ↔ QQBot Core**: HTTP REST API调用
+- **Admin Backend ↔ Database**: 直接MySQL连接
+- **Admin Frontend ↔ Admin Backend**: RESTful API
+- **QQBot Core ↔ Database**: 直接MySQL连接池
+
+## 📊 数据库架构
+
+### 共享数据库资源
+所有模块共享单一MySQL数据库：
+- **数据库**: `qqbot_db`
+- **用户**: `qqbot / qqbot_password`
+- **连接方式**: MySQL2连接池
 
 ### 核心数据表
-- `conversations`: 对话历史，包含用户消息、AI响应、原始请求/响应数据
-- `requirements`: 需求管理状态跟踪，支持processing/completed/failed状态流转
+- `conversations`: AI对话历史和会话记录
+- `requirements`: 需求管理和处理状态跟踪
+- `sessions`: 用户会话状态管理
+- `group_chat_settings`: 群聊配置和权限管理
+- `bot_status`: 机器人实时状态监控
 - `system_logs`: 系统运行日志结构化存储
-- `bot_status`: 机器人实时状态监控（WebSocket连接、HTTP服务状态）
 
-### 数据库连接管理
-```typescript
-// src/services/database.ts - MySQL2连接池单例
-export function getDatabaseManager(config: DatabaseConfig): DatabaseManager
+## 🤖 核心功能系统
+
+### AI服务集成 (Gemini 2.5 Flash)
+- **API调用**: HTTP REST方式，避免ES模块兼容性问题
+- **Token管理**: LRU缓存 + 多密钥轮换机制
+- **意图分析**: 开发需求智能识别和分类
+- **对话生成**: 上下文感知的自然语言响应
+
+### 需求管理系统
+- **触发条件**: 仅授权用户私聊，包含开发关键词
+- **处理流程**: 意图分析 → 需求存储 → 异步处理 → 结果反馈
+- **状态跟踪**: `pending` → `processing` → `completed/failed`
+- **Claude Code集成**: 通过RemoteClaudeService实现自动化开发
+
+### 群聊管理
+- **权限控制**: 数据库驱动的群聊白名单系统
+- **管理命令**: 开启/关闭群聊、添加/移除群聊、群聊列表管理
+- **触发机制**: @机器人检测 + 群聊权限验证
+- **活跃度统计**: 群聊消息和AI回复数量跟踪
+
+### 会话管理 (SessionManager)
+- **会话类型**: `chat`（普通对话）、`requirement`（需求处理）、`reply_chain`（回复链）
+- **上下文保持**: 基于用户ID和时间窗口的会话连续性
+- **消息关联**: 支持QQ回复消息功能，保持对话上下文
+
+## 📝 日志系统
+
+### 独立日志架构
+每个模块都有独立的日志目录：
 ```
-
-## HTTP API接口
-
-### 核心API端点
-- `GET /health` - 服务健康检查
-- `POST /api/send_private` - 发送私聊消息 
-- `POST /api/send_group` - 发送群聊消息
-- `GET /api/status` - 完整系统状态（WebSocket、数据库、进程信息）
-- `GET /api/conversations` - 对话历史查询（支持用户ID筛选）
-- `GET /api/requirements` - 需求管理状态查询
-
-### API参数格式
-```typescript
-// 发送消息API
-POST /api/send_private
-{
-  "user_id": number,
-  "message": string
-}
-
-// 对话历史查询
-GET /api/conversations?user_id=85178516&limit=50
+modules/http-api/resources/logs/
+modules/qqbot-core/resources/logs/
+modules/admin-panel/backend/resources/logs/
+modules/admin-panel/frontend/resources/logs/
 ```
-
-## 需求处理系统
-
-### 意图识别流程
-1. **触发条件**: 仅授权用户(85178516)私聊消息
-2. **AI分析**: Gemini模型分析消息意图，返回置信度和复杂度
-3. **关键词检测**: 实现、开发、修改、修复、优化等开发相关词汇
-4. **复杂度判断**: 包含"系统"、"模块"关键词或消息长度>100字符时标记为复杂需求
-
-### 需求状态管理
-```typescript
-// src/types/index.ts
-interface RequirementData {
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  processing_start_time?: Date;
-  processing_end_time?: Date;
-  claude_code_output?: string;
-  error_message?: string;
-}
-```
-
-## 群聊管理功能
-
-### 管理命令（仅授权用户）
-- `开启群聊`/`关闭群聊`: 全局群聊AI回复开关
-- `添加群聊 [群号]`/`移除群聊 [群号]`: 群聊白名单管理
-- `群聊列表`/`清空群聊`: 白名单查看和清理
-
-### 群聊触发机制
-- **触发条件**: @机器人(1129974489) 且 群聊白名单验证通过
-- **消息清理**: 自动移除@标记，提取纯文本内容用于AI处理
-
-## 异步编程模式
-
-### 事件驱动架构
-```typescript
-// WebSocket事件监听 - src/services/websocket-client.ts
-this.websocketClient.on('private_message', this.handlePrivateMessage.bind(this));
-this.websocketClient.on('group_message', this.handleGroupMessage.bind(this));
-```
-
-### 错误处理和恢复
-- **WebSocket重连**: 指数退避重连机制，最大重试10次
-- **数据库连接池**: 自动连接恢复和池管理
-- **优雅关闭**: SIGINT/SIGTERM信号处理，确保资源正确释放
-
-## Claude Code Subagent协作架构
-
-### 核心Subagent角色定义
-
-本QQ机器人项目基于Claude Code多智能体协作模式，通过专业化角色分工实现复杂TypeScript应用的高效开发和维护：
-
-#### 业务开发者 (Business Developer)
-- **职责范围**: 核心TypeScript服务开发、数据库操作实现、WebSocket/HTTP服务器功能扩展
-- **技术专长**: Express.js REST API、OneBot协议集成、MySQL2连接池管理、异步事件驱动架构
-- **任务类型**: 新功能实现、业务逻辑修改、数据库schema变更、API端点开发
-- **工作文件**: `src/services/*`, `src/index.ts`, `src/types/index.ts`, 数据库迁移脚本
-
-#### 代码审查员 (Code Reviewer)  
-- **职责范围**: 代码质量检查、安全漏洞识别、可维护性评估、TypeScript类型安全审查
-- **技术专长**: ESLint规则配置、TypeScript严格模式、异步编程最佳实践、错误处理模式
-- **任务类型**: Pull Request审查、代码重构建议、性能优化识别、安全风险评估
-- **关注重点**: 内存泄漏、SQL注入防护、WebSocket连接安全、Token管理安全
-
-#### 调试器 (Debugger)
-- **职责范围**: 错误调查、测试失败分析、系统故障诊断、性能瓶颈定位
-- **技术专长**: Jest测试框架、Winston日志分析、WebSocket连接诊断、数据库查询优化
-- **任务类型**: Bug修复、测试用例调试、日志分析、监控告警处理
-- **调试工具**: 实时日志监控、数据库连接状态检查、WebSocket事件跟踪
-
-#### 系统架构设计师 (System Architect Designer)
-- **职责范围**: 需求转换为系统架构、模块依赖设计、扩展性规划、技术选型决策
-- **技术专长**: 微服务架构、事件驱动设计、数据库建模、API设计模式
-- **任务类型**: 架构重构、新模块设计、系统集成方案、性能扩展策略
-- **设计产出**: 组件依赖图、数据流设计、接口规范定义、部署架构图
-
-#### Gemini支持专家 (Gemini Support Specialist)
-- **职责范围**: Google Gemini AI集成、Token轮换机制、意图分析优化、对话质量提升
-- **技术专长**: Gemini 2.5 Flash模型、HTTP REST API集成、LRU Token管理、意图识别算法
-- **任务类型**: AI服务故障处理、对话逻辑优化、Token池管理、AI响应质量调优
-- **专业领域**: `src/services/ai-service.ts`, Token管理器、意图分析流程
-
-### MCP服务器集成架构
-
-#### Browser-Tools MCP集成模式
-```typescript
-// MCP服务器集成点
-interface MCPBrowserIntegration {
-  screenshot_validation: '截图验证功能正确性',
-  network_analysis: '网络请求性能分析', 
-  performance_audit: 'Lighthouse性能评估',
-  accessibility_check: '无障碍性合规检查',
-  console_debugging: '浏览器控制台错误诊断'
-}
-```
-
-**集成工作流**:
-1. **调试器** → `mcp__browser-tools__takeScreenshot` → 可视化验证UI状态
-2. **代码审查员** → `mcp__browser-tools__runPerformanceAudit` → 性能瓶颈识别
-3. **业务开发者** → `mcp__browser-tools__getNetworkLogs` → API调用状态检查
-4. **系统架构设计师** → `mcp__browser-tools__runAccessibilityAudit` → 架构无障碍性评估
-
-#### Context7 MCP集成模式
-```typescript
-// 文档智能检索集成
-interface MCPContext7Integration {
-  library_resolution: 'TypeScript/Node.js生态系统库ID解析',
-  documentation_fetch: '实时库文档获取和代码示例',
-  api_reference: 'Express.js/MySQL2/Winston最新API参考',
-  integration_patterns: '第三方库集成最佳实践'
-}
-```
-
-**使用策略**:
-- **业务开发者**: `mcp__context7__resolve-library-id` → 查找Express.js中间件/MySQL2连接配置
-- **Gemini支持专家**: Context7检索Google AI SDK最新文档和集成模式
-- **系统架构设计师**: 获取微服务架构库的设计模式和最佳实践文档
-
-### 工作流协作模式
-
-#### 事件驱动开发工作流
-```mermaid
-需求接收 → 系统架构设计师(架构设计) → 业务开发者(功能实现) 
-    ↓
-代码审查员(质量检查) → 调试器(测试验证) → Gemini支持专家(AI优化)
-```
-
-**协作检查点**:
-1. **架构设计阶段**: 系统架构设计师输出技术方案 → 代码审查员预评估可行性
-2. **开发实现阶段**: 业务开发者完成编码 → 调试器执行单元测试 → 代码审查员质量检查
-3. **集成测试阶段**: 调试器运行集成测试 → Browser-Tools MCP验证功能 → Gemini专家优化AI交互
-4. **部署准备阶段**: 系统架构师确认部署配置 → 所有角色确认就绪状态
-
-#### 功能开发移交模式
-```typescript
-interface HandoffProtocol {
-  // 架构师 → 开发者
-  architecture_handoff: {
-    component_design: '组件依赖关系图',
-    api_specifications: 'REST API接口规范',
-    database_schema: '数据库表结构变更',
-    integration_points: '外部服务集成点'
-  },
-  
-  // 开发者 → 审查员  
-  development_handoff: {
-    implementation_code: 'TypeScript源码实现',
-    test_coverage: 'Jest测试用例覆盖',
-    documentation_update: '接口文档更新',
-    dependency_changes: '依赖项变更说明'
-  },
-  
-  // 审查员 → 调试器
-  review_handoff: {
-    quality_assessment: '代码质量评估报告', 
-    security_checklist: '安全检查清单',
-    performance_concerns: '性能风险点识别',
-    refactoring_suggestions: '重构建议'
-  }
-}
-```
-
-### 任务分发策略
-
-#### 基于复杂度的任务路由
-```typescript
-interface TaskRoutingStrategy {
-  // 简单配置变更 → 业务开发者
-  simple_config: ['环境变量修改', 'API端点参数调整', '日志级别配置'],
-  
-  // 业务逻辑开发 → 业务开发者 + 代码审查员
-  business_logic: ['新功能实现', '数据库操作', 'WebSocket事件处理', 'HTTP API扩展'],
-  
-  // 架构性变更 → 系统架构设计师 + 全员协作
-  architectural: ['模块依赖重构', '数据库schema设计', '服务拆分', '性能优化架构'],
-  
-  // AI服务相关 → Gemini支持专家 + 业务开发者
-  ai_integration: ['意图分析优化', 'Token管理器', '对话逻辑', 'Gemini API集成'],
-  
-  // 故障排除 → 调试器 + 相关专家
-  debugging: ['错误日志分析', '性能问题定位', '连接故障诊断', '测试失败调查']
-}
-```
-
-#### 专业领域责任矩阵
-| 任务类型 | 主责Agent | 协作Agent | MCP工具支持 |
-|---------|----------|-----------|------------|
-| OneBot协议集成 | 业务开发者 | 调试器 | Browser-Tools网络分析 |
-| 数据库性能优化 | 业务开发者 | 系统架构师 | Context7 MySQL2文档 |
-| Gemini AI故障 | Gemini专家 | 调试器 | Context7 Google AI SDK |
-| 安全漏洞修复 | 代码审查员 | 业务开发者 | Browser-Tools安全审计 |
-| 系统监控告警 | 调试器 | 所有专家 | Browser-Tools性能监控 |
-
-### 质量保证协调
-
-#### 多智能体质量门控
-```typescript
-interface QualityGateProtocol {
-  // 门控1: 架构合规性检查
-  architectural_gate: {
-    reviewer: '系统架构设计师',
-    criteria: ['组件依赖合理性', 'API设计一致性', '扩展性评估'],
-    tools: ['Context7架构模式文档', '设计原则检查清单']
-  },
-  
-  // 门控2: 代码质量检查  
-  code_quality_gate: {
-    reviewer: '代码审查员',
-    criteria: ['TypeScript类型安全', 'ESLint规则合规', '安全漏洞扫描'],
-    tools: ['静态分析工具', 'Browser-Tools安全审计']
-  },
-  
-  // 门控3: 功能验证检查
-  functional_gate: {
-    reviewer: '调试器',
-    criteria: ['单元测试通过', '集成测试覆盖', '性能基准达标'],
-    tools: ['Jest测试框架', 'Browser-Tools性能审计']
-  },
-  
-  // 门控4: AI服务质量检查
-  ai_service_gate: {
-    reviewer: 'Gemini支持专家', 
-    criteria: ['意图识别准确率', 'Token轮换稳定性', '响应时间达标'],
-    tools: ['AI服务监控', 'Context7 Gemini最佳实践']
-  }
-}
-```
-
-#### 协作冲突解决机制
-```typescript
-interface ConflictResolutionProtocol {
-  // 技术分歧仲裁
-  technical_arbitration: {
-    process: '系统架构设计师最终决策',
-    escalation: 'MCP Context7技术文档权威性验证',
-    documentation: '决策理由和替代方案记录'
-  },
-  
-  // 优先级冲突协调
-  priority_coordination: {
-    framework: '业务影响度 > 安全风险 > 性能优化 > 功能完善',
-    reviewer_authority: '代码审查员具有安全风险否决权',
-    debugging_priority: '调试器具有生产故障最高优先级'
-  },
-  
-  // 质量标准统一
-  quality_standardization: {
-    code_style: 'ESLint + Prettier自动格式化',
-    documentation: 'TypeDoc标准 + Context7文档模板',
-    testing: 'Jest测试覆盖率 > 80%基准线'
-  }
-}
-```
-
-#### 持续改进反馈循环
-1. **每周回顾**: 所有subagent参与，分析协作效率和质量问题
-2. **工具优化**: MCP服务器使用效果评估，集成模式持续改进
-3. **知识共享**: Context7获取的最新文档和最佳实践在团队内传播
-4. **流程迭代**: 基于实际项目复杂度调整任务分发策略和质量门控标准
-
-## 日志系统
 
 ### 日志结构 (Winston)
+- **分模块记录**: 按服务划分日志文件
+- **结构化格式**: JSON格式，支持查询和分析
+- **日志级别**: debug/info/warn/error
+- **日志轮转**: 按日期自动轮转
+
+### 核心日志文件
 ```
 logs/
-├── database_YYYY-MM-DD.log      # 数据库操作日志
+├── main_YYYY-MM-DD.log          # 主程序日志
 ├── websocket_YYYY-MM-DD.log     # WebSocket事件日志  
-├── http-server_YYYY-MM-DD.log   # HTTP服务器日志
+├── database_YYYY-MM-DD.log      # 数据库操作日志
 ├── ai-service_YYYY-MM-DD.log    # AI服务调用日志
-└── main_YYYY-MM-DD.log          # 主程序日志
+└── session-manager_YYYY-MM-DD.log # 会话管理日志
 ```
 
-### 日志监控
-```bash
-# 实时监控日志
-tail -f logs/main_$(date +%Y-%m-%d).log
-tail -f logs/websocket_$(date +%Y-%m-%d).log
-```
+## 🛠️ 开发注意事项
 
-## 服务部署
+### TypeScript开发最佳实践
+- **严格类型检查**: 所有模块启用`strict: true`
+- **类型定义**: 完整的接口定义在`src/types/index.ts`
+- **路径别名**: 使用`@/*`映射到`src/*`
+- **编译目标**: ES2020，Node.js兼容性
 
-### Docker容器化
-```bash
-# 使用TypeScript专用compose文件
-docker-compose -f docker-compose-ts.yml up -d
+### 异步编程模式
+- **事件驱动**: WebSocket事件监听和分发
+- **Promise/async-await**: 统一异步操作模式
+- **错误处理**: 统一错误处理和日志记录
+- **连接管理**: 自动重连和连接池管理
 
-# 包含MySQL数据库和应用容器的完整环境
-```
-
-### 生产环境启动
-```bash
-# 推荐使用启动脚本（包含环境检查）
-./start_services_ts.sh
-
-# 或手动启动
-npm run build && npm start
-
-# 后台运行
-npm run build && npm start > logs/service.log 2>&1 &
-```
-
-## 开发注意事项
-
-### 代码修改后服务重启
-修改TypeScript源码后必须重新编译和重启：
-```bash
-pkill -f "node dist/index.js" && npm run build && npm start > logs/service.log 2>&1 &
-```
-
-### 类型安全开发
-- 所有API接口参数使用TypeScript接口定义
-- 数据库查询结果通过泛型指定返回类型  
-- WebSocket消息解析使用类型断言确保数据结构正确
-
-### 异步操作最佳实践
-- 数据库操作使用连接池的 `async/await` 模式
-- WebSocket发送使用Promise包装确保消息发送状态
-- HTTP API响应统一错误处理中间件
-- Gemini API调用使用axios而非SDK，避免ES模块问题
-
-### AI服务集成要点
-- 使用`gemini-2.5-flash`模型，通过HTTP REST API调用
-- 实现LRU Token轮换机制，当Token出错时自动切换
-- API响应解析处理`candidates[0].content.parts[0].text`格式
-- 支持意图分析和对话生成两种AI代理模式
-
-### 测试策略
-- **单元测试**: 核心业务逻辑和工具函数
-- **集成测试**: 端到端对话流程和WebSocket消息模拟
-- **性能测试**: 并发消息处理和数据库连接压力测试
-- 测试超时配置：单元(30s)、集成(60s)、性能(120s)
-
-## Git协作规范
-
-### 多Claude并发协作分支策略
-
-**核心原则**: 不同Claude智能体通过独立分支树互不影响，避免并发冲突
-
-#### 分支命名约定
-```bash
-# Agent角色专用分支（按时间戳隔离）
-feature/business-dev-$(date +%Y%m%d-%H%M)      # 业务开发者
-feature/architect-$(date +%Y%m%d-%H%M)         # 系统架构师
-feature/reviewer-$(date +%Y%m%d-%H%M)          # 代码审查员
-feature/debugger-$(date +%Y%m%d-%H%M)          # 调试器
-feature/gemini-support-$(date +%Y%m%d-%H%M)    # Gemini专家
-
-# 任务专用分支（按功能模块）
-feature/websocket-optimization-[agent]         # WebSocket优化
-feature/database-migration-[agent]             # 数据库迁移
-feature/ai-service-enhancement-[agent]         # AI服务增强
-hotfix/[issue-description]-[agent]             # 紧急修复
-```
-
-#### Git Worktree并行协作模式
-
-**核心策略**: 使用`git worktree`为不同Claude智能体创建独立工作目录，实现真正的并行开发
-
-```bash
-# 1. 初始化主工作树（如果尚未存在）
-cd /home/liahua/IdeaProject/qq_bot  # 主工作目录
-
-# 2. 为不同Agent创建独立worktree
-git worktree add ../qq_bot-business-dev feature/business-dev-$(date +%Y%m%d-%H%M)
-git worktree add ../qq_bot-architect feature/architect-$(date +%Y%m%d-%H%M)
-git worktree add ../qq_bot-reviewer feature/reviewer-$(date +%Y%m%d-%H%M)
-git worktree add ../qq_bot-debugger feature/debugger-$(date +%Y%m%d-%H%M)
-git worktree add ../qq_bot-gemini-support feature/gemini-support-$(date +%Y%m%d-%H%M)
-
-# 3. 各Agent在独立目录工作
-# Business Developer
-cd /home/liahua/IdeaProject/qq_bot-business-dev
-npm install  # 安装依赖（如需要）
-# 进行开发工作...
-
-# Architect
-cd /home/liahua/IdeaProject/qq_bot-architect  
-# 进行架构设计工作...
-
-# 4. 提交规范（在各自worktree中）
-git commit -m "feat(business-dev): 实现WebSocket重连机制
-
-🤖 Generated with [Claude Code](https://claude.ai/code)
-Agent: Business Developer  
-Worktree: qq_bot-business-dev
-Task-ID: #12345
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
-
-# 5. 推送和合并
-git push -u origin feature/business-dev-YYYYMMDD-HHMM
-# 创建PR，等待code-reviewer agent审批
-
-# 6. 清理worktree（任务完成后）
-git worktree remove ../qq_bot-business-dev
-git branch -d feature/business-dev-YYYYMMDD-HHMM
-```
-
-#### Worktree管理命令
-```bash
-# 查看所有worktree状态
-git worktree list
-
-# 修剪已删除的worktree引用
-git worktree prune
-
-# 移动worktree到新位置
-git worktree move ../qq_bot-business-dev ../qq_bot-business-dev-new
-
-# 强制删除worktree（包含未提交更改）
-git worktree remove --force ../qq_bot-business-dev
-```
-
-#### 文件级协作锁定
+### 数据库操作规范
 ```typescript
-// 避免多Agent同时修改相同文件
-interface FileOwnershipMap {
-  'src/services/database.ts': 'business-dev',
-  'src/services/websocket-client.ts': 'business-dev', 
-  'src/services/ai-service.ts': 'gemini-support',
-  'src/types/index.ts': 'architect',
-  'tests/': 'debugger',
-  'docs/': 'reviewer'
+// 使用连接池的async/await模式
+const connection = await this.database.getConnection();
+try {
+  await connection.beginTransaction();
+  // 数据库操作
+  await connection.commit();
+} catch (error) {
+  await connection.rollback();
+  throw error;
+} finally {
+  connection.release();
 }
 ```
 
-#### 冲突解决优先级
-1. **架构师** (`architect`) - 最高决策权
-2. **代码审查员** (`reviewer`) - 安全风险否决权  
-3. **业务开发者** (`business-dev`) - 功能实现权
-4. **调试器** (`debugger`) - 生产故障最高优先级
-5. **Gemini专家** (`gemini-support`) - AI服务领域权威
+### 模块间集成规范
+- **无文件共享**: 严格通过HTTP API通信
+- **独立配置**: 每个模块独立的.env配置文件
+- **独立依赖**: 每个模块独立的package.json
+- **独立构建**: 支持单独构建和部署
 
-#### Worktree协作优势
+## 🔧 测试策略
 
-**并行隔离开发**:
-- 每个Agent在独立目录工作，避免文件锁定冲突
-- 可同时运行不同版本的开发服务器和测试
-- 不同Agent的依赖变更互不影响
+### 测试框架
+- **单元测试**: Jest + TypeScript
+- **测试目录**: 每个模块独立的`tests/`目录
+- **覆盖率**: 目标覆盖率 > 80%
 
-**任务状态管理**:
+### 测试类型
 ```bash
-# 查看当前所有并行任务状态
-git worktree list --porcelain | grep -E "(worktree|branch)" 
+# 各模块独立测试
+cd modules/qqbot-core
+npm test                    # 运行所有测试
+npm test -- --coverage    # 覆盖率报告
+npm test -- --watch       # 监听模式
 
-# 示例输出
-# worktree /home/liahua/IdeaProject/qq_bot
-# branch refs/heads/master
-# worktree /home/liahua/IdeaProject/qq_bot-business-dev  
-# branch refs/heads/feature/business-dev-20250904-1430
-# worktree /home/liahua/IdeaProject/qq_bot-debugger
-# branch refs/heads/feature/debugger-20250904-1435
+# 测试特定文件
+npm test tests/services/database.test.ts
 ```
 
-**资源共享策略**:
-- `node_modules`: 各worktree独立安装，避免依赖冲突
-- `logs/`: 使用不同前缀区分日志文件
-- `dist/`: 编译输出隔离，支持并行构建
+### 测试分类
+- **单元测试**: 核心业务逻辑和工具函数
+- **集成测试**: 模块间API通信和数据库操作
+- **WebSocket测试**: OneBot协议消息模拟
 
-#### 合并策略
-- **禁止直接push到master**: 所有变更通过Pull Request
-- **强制代码审查**: 所有PR必须经过`code-reviewer` agent审批  
-- **Worktree同步**: 定期在各worktree执行`git fetch origin`保持同步
-- **自动化检查**: CI/CD流程包含ESLint、Jest测试、TypeScript编译检查
-- **冲突预防**: Worktree创建时自动基于最新master分支
-- **清理机制**: 任务完成后及时删除worktree，避免磁盘空间浪费
+## 🐳 容器化部署
 
-## 关键开发约束
-- 使用TypeScript严格模式开发，确保类型安全
-- 优先编辑现有文件而非创建新文件
-- 所有外部API调用必须包含错误处理和重试机制
-- 数据库操作使用事务确保数据一致性
-- 日志记录使用结构化格式，包含模块标识和时间戳
-- **多Claude协作**: 并行任务必须使用Git Worktree隔离，避免文件锁定和依赖冲突
+### Docker Compose架构
+```yaml
+services:
+  mysql:        # 共享数据库
+  http-api:     # HTTP API网关 (8080)
+  qqbot-core:   # 核心服务 (8081)
+  admin-backend: # 管理后端 (9080)
+  admin-frontend: # 管理前端 (3000)
+```
 
-## 故障排除指南
+### 部署命令
+```bash
+# 启动完整环境
+docker-compose up -d
 
-### 常见错误模式
-1. **`cached.updated_at.getTime is not a function`**: Token管理缓存问题，通常由API响应格式变化引起
-2. **`message.message?.substring is not a function`**: OneBot消息格式为数组而非字符串，需要消息段提取
-3. **`Error [ERR_REQUIRE_ESM]`**: ES模块兼容性问题，使用直接HTTP调用替代SDK
-4. **WebSocket连接断开**: 检查OneBot服务器状态和access_token配置
+# 查看服务状态
+docker-compose ps
+
+# 查看特定服务日志
+docker-compose logs -f qqbot-core
+
+# 重启特定服务
+docker-compose restart qqbot-core
+```
+
+## 🚨 故障排除
+
+### 启动失败常见问题
+1. **端口被占用 (EADDRINUSE)**:
+   ```bash
+   # 检查端口占用
+   lsof -i :8080  # 或其他端口
+   
+   # 自动清理端口
+   python3 scripts/start_modules.py clean-ports
+   ```
+
+2. **依赖包缺失**:
+   ```bash
+   # 检查常见错误包
+   - lru.min (应为 lru-cache)
+   - cors, helmet 未安装
+   - node_modules 目录不存在
+   
+   # 解决方案
+   python3 scripts/start_modules.py install
+   ```
+
+3. **TypeScript编译错误**:
+   - HttpServer构造函数参数不匹配
+   - 导入路径错误
+   - 类型定义缺失
+
+### 服务运行时问题
+1. **WebSocket连接失败**: 检查OneBot服务器状态和access_token
+2. **数据库连接异常**: 验证MySQL服务状态和连接参数
+3. **AI服务异常**: 检查Gemini API密钥配置和网络连接
+4. **模块间通信失败**: 验证HTTP端口和服务启动状态
 
 ### 调试命令
 ```bash
-# 查看实时日志
-tail -f logs/main_$(date +%Y-%m-%d).log
-tail -f logs/websocket_$(date +%Y-%m-%d).log
-tail -f logs/ai-service_$(date +%Y-%m-%d).log
+# 服务状态检查
+npm run status                       # 检查所有模块状态
+curl http://localhost:8080/health    # HTTP API
+curl http://localhost:8081/health    # QQBot Core (修正路径)
+curl http://localhost:9080/health    # Admin Backend
+curl http://localhost:3003           # Admin Frontend
 
-# 检查服务状态
-curl http://localhost:8080/api/status
+# 实时日志监控
+tail -f modules/qqbot-core/resources/logs/main_$(date +%Y-%m-%d).log
 
-# 测试数据库连接
-npm test -- --testNamePattern="Database connection"
+# Python脚本调试
+python3 -c "import psutil, requests; print('依赖OK')"
 
-# 验证Token配置
-node -e "console.log(require('./dist/utils/token-manager').getTokenManager().getStats())"
+# 端口监听检查
+netstat -tulnp | grep -E ':(8080|8081|9080|3003)'
 ```
+
+### 性能监控
+- **响应时间**: AI对话响应时间跟踪
+- **连接状态**: WebSocket连接稳定性监控
+- **数据库性能**: 连接池使用率和查询性能
+- **内存使用**: 各服务内存占用监控
+
+## 📚 API文档
+
+### HTTP API Gateway端点
+- `GET /health` - 服务健康检查
+- `GET /api/status` - 服务状态信息
+
+### QQBot Core内部API
+- `POST /api/send_private` - 发送私聊消息
+- `POST /api/send_group` - 发送群聊消息
+- `GET /api/conversations` - 对话历史查询
+- `GET /api/requirements` - 需求管理状态
+
+### Admin Backend API
+- 系统配置管理接口
+- 数据分析和统计接口
+- 用户权限管理接口
+
+## ⚠️ 启动和部署常见问题
+
+### 端口冲突问题
+- **现象**: 启动时出现 `EADDRINUSE` 错误
+- **原因**: 系统中有进程占用了预定义端口 (8080, 8081, 9080, 3000-3003)
+- **解决方案**: 
+  - 自动清理: `python3 scripts/start_modules.py clean-ports`
+  - 手动清理: `lsof -ti :端口号 | xargs kill -9`
+  - 修改端口: 在各模块的配置中调整端口设置
+
+### 依赖安装问题
+- **现象**: TypeScript编译错误，模块找不到
+- **常见错误**:
+  - `lru.min` 包名错误，应为 `lru-cache`
+  - 缺少 `cors`, `helmet` 等依赖包
+  - node_modules目录不存在
+- **解决方案**:
+  - 并行安装: `python3 scripts/start_modules.py install`
+  - 单独安装: `npm run install:all`
+  - 检查package.json中的依赖配置
+
+### 模块启动顺序问题  
+- **推荐启动顺序**: 
+  1. HTTP API Gateway (8080)
+  2. QQBot Core (8081) 
+  3. Admin Backend (9080)
+  4. Admin Frontend (3003)
+- **注意事项**: 前端模块需要最后启动以避免端口冲突
+
+### 配置文件不一致问题
+- **端口配置不匹配**:
+  - QQBot Core默认端口在config中配置为8080，但实际应为8081
+  - Admin Frontend在package.json中端口可能不是3003
+- **解决方法**: 
+  - 统一检查各模块的端口配置
+  - 确保config文件与实际部署一致
+
+### 自动化启动脚本使用
+```bash
+# Python脚本方式 (推荐)
+python3 scripts/start_modules.py start     # 启动所有模块
+python3 scripts/start_modules.py stop      # 停止所有模块  
+python3 scripts/start_modules.py restart   # 重启所有模块
+python3 scripts/start_modules.py status    # 检查状态
+python3 scripts/start_modules.py install   # 安装依赖
+
+# Node.js脚本方式 (备用)
+node scripts/process-manager.js start
+
+# npm scripts方式
+npm start          # 自动启动所有模块
+npm stop           # 停止所有模块
+npm run restart    # 重启所有模块
+npm run status     # 检查状态
+npm run deploy     # 完整部署流程
+```
+
+## 🔒 安全考虑
+
+### 配置安全
+- **敏感信息**: 所有API密钥通过环境变量配置
+- **数据库安全**: 使用专用数据库用户，最小权限原则
+- **网络隔离**: Docker网络隔离，仅必要端口暴露
+
+### 代码安全
+- **输入验证**: 所有用户输入严格验证和过滤
+- **SQL注入防护**: 使用参数化查询
+- **访问控制**: 基于用户ID的权限验证
+- **错误处理**: 避免敏感信息泄露
+
+## 🤝 开发协作
+
+### Git工作流
+- **分支策略**: 功能分支开发，main分支保护
+- **代码审查**: 所有变更通过Pull Request
+- **提交规范**: 使用conventional commits格式
+
+### 模块责任划分
+- **HTTP API**: 负责外部接入和路由转发
+- **QQBot Core**: 负责核心业务逻辑和AI集成  
+- **Admin Backend**: 负责管理功能和数据分析
+- **Admin Frontend**: 负责用户界面和交互体验
+
+---
+
+**重要提醒**: 本项目采用4模块独立架构，开发时请注意：
+1. 优先编辑现有文件，避免不必要的新文件创建
+2. 遵循模块独立性原则，通过API而非文件共享
+3. 保持TypeScript严格类型检查和代码质量标准
+4. 所有数据库操作使用事务确保一致性
+5. 重要变更前确保相关测试通过
+- 各模块的开发及修复工作必须通过git worktree模式继续
