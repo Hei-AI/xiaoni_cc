@@ -26,6 +26,10 @@ qq_bot/
 │   │   └── Dockerfile
 │   ├── qqbot-core/            # 模块2: QQ机器人核心服务 (8081)
 │   │   ├── src/
+│   │   │   ├── engines/       # Stage 1 智能引擎层 (新增)
+│   │   │   │   ├── decision-engine.ts    # 决策引擎
+│   │   │   │   ├── context-engine.ts     # 上下文引擎
+│   │   │   │   └── persona-engine.ts     # 人格化引擎
 │   │   │   ├── services/      # 核心服务层
 │   │   │   │   ├── websocket-client.ts
 │   │   │   │   ├── database.ts
@@ -40,6 +44,7 @@ qq_bot/
 │   │   ├── resources/
 │   │   │   ├── logs/          # 独立日志目录
 │   │   │   └── napcat_qq_data/
+│   │   ├── logs/              # 实际使用的日志目录
 │   │   ├── package.json
 │   │   ├── tsconfig.json
 │   │   └── Dockerfile
@@ -83,6 +88,10 @@ qq_bot/
 - **职责**: OneBot WebSocket连接，AI对话，核心业务逻辑
 - **端口**: 8081 (内部通信)
 - **技术栈**: TypeScript + WebSocket + Gemini AI
+- **Stage 1 智能引擎** (新增):
+  - `DecisionEngine`: 智能决策引擎，判断是否回复消息
+  - `ContextEngine`: 上下文构建引擎，分析消息历史和语义
+  - `PersonaEngine`: 人格化引擎，生成拟人化回复
 - **核心服务**:
   - `WebSocketClient`: OneBot协议WebSocket连接管理
   - `DatabaseManager`: MySQL2连接池管理
@@ -91,6 +100,7 @@ qq_bot/
   - `RemoteClaudeService`: Claude Code集成服务
 - **主要文件**:
   - `src/index.ts`: QQBot主应用类，事件驱动架构
+  - `src/engines/*`: Stage 1智能引擎系统
   - `src/services/*`: 核心业务服务层
   - `src/utils/*`: 工具和辅助功能
   - `src/types/index.ts`: 完整的TypeScript类型定义
@@ -209,7 +219,21 @@ npm run dev          # Express API开发服务器
 
 ## 🤖 核心功能系统
 
-### AI服务集成 (Gemini 2.5 Flash)
+### Stage 1 智能响应引擎 ✅ (已实现)
+- **DecisionEngine**: 智能决策是否回复消息
+  - 规则过滤: @消息、私聊必回
+  - AI分析: LLM意图识别和置信度评估
+  - 综合决策: 结合规则和AI分析的最终判断
+- **ContextEngine**: 上下文构建和语义理解  
+  - 消息历史获取和相关性分析
+  - 用户信息和群聊信息整合
+  - 主题关键词提取和分类
+- **PersonaEngine**: 人格化回复生成
+  - 多人格侧面动态选择 (技术专家/休闲伙伴/共情倾听者)
+  - 自然语言润色和风格统一
+  - 分段回复和延迟执行计划
+
+### AI服务集成 (Gemini 2.0 Flash Exp)
 - **API调用**: HTTP REST方式，避免ES模块兼容性问题
 - **Token管理**: LRU缓存 + 多密钥轮换机制
 - **意图分析**: 开发需求智能识别和分类
@@ -249,14 +273,19 @@ modules/admin-panel/frontend/resources/logs/
 - **日志级别**: debug/info/warn/error
 - **日志轮转**: 按日期自动轮转
 
-### 核心日志文件
+### 核心日志文件 (QQBot Core)
 ```
-logs/
-├── main_YYYY-MM-DD.log          # 主程序日志
-├── websocket_YYYY-MM-DD.log     # WebSocket事件日志  
-├── database_YYYY-MM-DD.log      # 数据库操作日志
-├── ai-service_YYYY-MM-DD.log    # AI服务调用日志
-└── session-manager_YYYY-MM-DD.log # 会话管理日志
+modules/qqbot-core/logs/
+├── main_YYYY-MM-DD.log              # 主程序日志
+├── websocket_YYYY-MM-DD.log         # WebSocket事件日志  
+├── database_YYYY-MM-DD.log          # 数据库操作日志
+├── ai-service_YYYY-MM-DD.log        # AI服务调用日志
+├── session-manager_YYYY-MM-DD.log   # 会话管理日志
+├── decision-engine_YYYY-MM-DD.log   # 决策引擎日志 (Stage 1)
+├── context-engine_YYYY-MM-DD.log    # 上下文引擎日志 (Stage 1)
+├── persona-engine_YYYY-MM-DD.log    # 人格化引擎日志 (Stage 1)
+├── http-server_YYYY-MM-DD.log       # HTTP服务器日志
+└── token-manager_YYYY-MM-DD.log     # Token管理日志
 ```
 
 ## 🛠️ 开发注意事项
@@ -379,24 +408,40 @@ docker-compose restart qqbot-core
 2. **数据库连接异常**: 验证MySQL服务状态和连接参数
 3. **AI服务异常**: 检查Gemini API密钥配置和网络连接
 4. **模块间通信失败**: 验证HTTP端口和服务启动状态
+5. **决策引擎不响应**: 检查授权用户ID配置，确认为正确的QQ号
+6. **上下文引擎错误**: 检查数据库表是否存在，特别是conversation_sessions表
+7. **日志路径问题**: QQBot Core使用logs/目录而非resources/logs/
 
 ### 调试命令
 ```bash
 # 服务状态检查
 npm run status                       # 检查所有模块状态
 curl http://localhost:8080/health    # HTTP API
-curl http://localhost:8081/health    # QQBot Core (修正路径)
+curl http://localhost:8081/health    # QQBot Core
 curl http://localhost:9080/health    # Admin Backend
 curl http://localhost:3003           # Admin Frontend
 
-# 实时日志监控
-tail -f modules/qqbot-core/resources/logs/main_$(date +%Y-%m-%d).log
+# Stage 1 引擎调试
+grep "DecisionEngine initialized" modules/qqbot-core/logs/decision-engine_$(date +%Y-%m-%d).log
+grep "Context built successfully" modules/qqbot-core/logs/context-engine_$(date +%Y-%m-%d).log
+grep "PersonaEngine enhanced" modules/qqbot-core/logs/main_$(date +%Y-%m-%d).log
+
+# 实时日志监控 (Stage 1)
+tail -f modules/qqbot-core/logs/main_$(date +%Y-%m-%d).log
+tail -f modules/qqbot-core/logs/decision-engine_$(date +%Y-%m-%d).log
+tail -f modules/qqbot-core/logs/context-engine_$(date +%Y-%m-%d).log
 
 # Python脚本调试
 python3 -c "import psutil, requests; print('依赖OK')"
 
 # 端口监听检查
 netstat -tulnp | grep -E ':(8080|8081|9080|3003)'
+
+# 检查QQBot Core实际运行状态
+curl http://localhost:8081/health 2>/dev/null || echo "QQBot Core服务未响应"
+
+# 检查授权用户配置
+grep -n "authorized_user_id" modules/qqbot-core/src/engines/decision-engine.ts
 ```
 
 ### 性能监控
@@ -451,13 +496,14 @@ netstat -tulnp | grep -E ':(8080|8081|9080|3003)'
   4. Admin Frontend (3003)
 - **注意事项**: 前端模块需要最后启动以避免端口冲突
 
-### 配置文件不一致问题
-- **端口配置不匹配**:
-  - QQBot Core默认端口在config中配置为8080，但实际应为8081
-  - Admin Frontend在package.json中端口可能不是3003
-- **解决方法**: 
-  - 统一检查各模块的端口配置
-  - 确保config文件与实际部署一致
+### 配置文件不一致问题 ✅ (已修复)
+- **端口配置不匹配** (已修复):
+  - ✅ QQBot Core正确运行在8081端口
+  - ✅ Admin Frontend已统一使用3003端口
+- **授权用户ID配置** (已修复):
+  - ✅ DecisionEngine中授权用户ID已更新为85178516
+- **数据库连接配置** (已修复):
+  - ✅ Admin Backend MySQL2连接池配置已优化
 
 ### 自动化启动脚本使用
 ```bash

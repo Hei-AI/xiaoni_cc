@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+# QQBot Core - Stage 1 智能响应引擎
+
+## 模块概述
+QQBot Core是QQ智能机器人的核心服务模块，负责OneBot WebSocket连接、AI对话处理和核心业务逻辑。
+
+### Stage 1 架构特性 ✅ (已实现)
+- **智能决策引擎**: DecisionEngine - 判断是否回复消息
+- **上下文构建引擎**: ContextEngine - 分析消息历史和语义
+- **人格化引擎**: PersonaEngine - 生成拟人化回复
+- **完整日志系统**: 分模块记录所有引擎活动
+- **实时消息处理**: 事件驱动架构，支持实时对话
+
 # TypeScript类型系统 (src/types/)
 
 ## 类型系统概述
@@ -208,6 +220,50 @@ type RequirementUpdate = Partial<Pick<RequirementData, 'status' | 'completion_de
 
 // 必需字段验证
 type CreateConversationData = Omit<ConversationData, 'id'> & { id?: string };
+```
+
+## Stage 1 引擎类型定义
+
+### DecisionResult
+**决策引擎结果类型**
+```typescript
+interface DecisionResult {
+  shouldRespond: boolean;     // 是否应该回复
+  confidence: number;         // 置信度 (0-100)
+  reason: string;            // 决策理由
+  suggestedService?: string; // 建议服务类型
+  userId?: number;           // 用户ID
+}
+```
+
+### MessageContext  
+**消息上下文类型**
+```typescript
+interface MessageContext {
+  currentMessage: QQMessage;        // 当前消息
+  recentMessages: QQMessage[];      // 最近消息历史
+  userInfo: UserInfo;               // 用户信息
+  groupInfo?: GroupInfo;            // 群信息 (群聊时)
+  topicKeywords: string[];          // 主题关键词
+  contextSummary?: string;          // 上下文摘要
+}
+```
+
+### PersonaResponse
+**人格化回复类型**
+```typescript
+interface PersonaResponse {
+  response: string;                 // 回复内容
+  selectedPersona: string;          // 选择的人格侧面
+  confidence: number;               // 人格匹配置信度
+  executionPlan?: ExecutionStep[];  // 执行计划
+}
+
+interface ExecutionStep {
+  delay: number;                    // 延迟秒数
+  content: string;                  // 内容
+  action: 'send' | 'typing';        // 动作类型
+}
 ```
 
 ## 新增类型定义 (Token管理和Session管理)
