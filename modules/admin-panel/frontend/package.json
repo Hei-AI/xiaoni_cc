@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "http-server public -p 3003 -o --cors",
     "build": "echo 'Frontend build completed - static files ready'",
-    "start": "http-server public -p 3001 --cors",
+    "start": "http-server public -p 3003 --cors",
     "test": "echo 'Frontend tests not configured yet'",
     "clean": "echo 'No build artifacts to clean'"
   },

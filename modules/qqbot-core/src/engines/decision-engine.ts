@@ -22,7 +22,7 @@ export class DecisionEngine {
     this.config = config || {
       gemini_api_keys: [],
       model_name: 'gemini-2.0-flash-exp',
-      authorized_user_id: 123456789,
+      authorized_user_id: 85178516, // 使用正确的授权用户ID
       bot_qq_number: 987654321
     };
     this.moduleLogger.info('DecisionEngine initialized for Stage 1');

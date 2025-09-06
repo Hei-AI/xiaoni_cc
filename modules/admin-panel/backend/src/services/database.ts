@@ -71,10 +71,7 @@ export class DatabaseManager {
       charset: config.charset,
       timezone: config.timezone,
       connectionLimit: 10,
-      queueLimit: 0,
-      acquireTimeout: 60000,
-      timeout: 60000,
-      reconnect: true
+      queueLimit: 0
     });
     
     this.logger.info('Database connection pool initialized (Admin Backend)');

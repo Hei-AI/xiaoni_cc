@@ -52,12 +52,18 @@ export class ContextEngine {
   /**
    * 主入口：构建消息的完整上下文
    */
-  async buildContext(messageId: string): Promise<MessageContext> {
+  async buildContext(messageOrId: string | QQMessage): Promise<MessageContext> {
     try {
       // 第一步：获取当前消息信息
-      const currentMessage = await this.getCurrentMessage(messageId);
-      if (!currentMessage) {
-        throw new Error(`Message not found: ${messageId}`);
+      let currentMessage: QQMessage;
+      if (typeof messageOrId === 'string') {
+        const foundMessage = await this.getCurrentMessage(messageOrId);
+        if (!foundMessage) {
+          throw new Error(`Message not found: ${messageOrId}`);
+        }
+        currentMessage = foundMessage;
+      } else {
+        currentMessage = messageOrId;
       }
 
       // 第二步：获取相关历史消息
@@ -93,7 +99,7 @@ export class ContextEngine {
       };
 
       this.moduleLogger.info('Context built successfully', {
-        messageId,
+        messageId: typeof messageOrId === 'string' ? messageOrId : `msg_${currentMessage.user_id}_${currentMessage.time}`,
         userId: currentMessage.user_id,
         groupId: currentMessage.group_id,
         recentMessageCount: recentMessages.length,
@@ -105,11 +111,11 @@ export class ContextEngine {
     } catch (error) {
       this.moduleLogger.error('Failed to build context', {
         error: error instanceof Error ? error.message : 'Unknown error',
-        messageId
+        messageId: typeof messageOrId === 'string' ? messageOrId : `msg_${messageOrId.user_id}_${messageOrId.time}`
       });
       
       // 返回最小化的上下文，确保系统能继续运行
-      return this.buildMinimalContext(messageId);
+      return this.buildMinimalContext(messageOrId);
     }
   }
 
@@ -325,25 +331,31 @@ export class ContextEngine {
   /**
    * 构建最小化上下文（错误时使用）
    */
-  private async buildMinimalContext(messageId: string): Promise<MessageContext> {
+  private async buildMinimalContext(messageOrId: string | QQMessage): Promise<MessageContext> {
     // 创建一个基础的上下文，确保系统不会崩溃
-    const minimalMessage: QQMessage = {
-      message_type: 'private',
-      sub_type: '',
-      message_id: parseInt(messageId) || 0,
-      user_id: 0,
-      message: '消息获取失败',
-      raw_message: '',
-      font: 0,
-      sender: {
+    let minimalMessage: QQMessage;
+    
+    if (typeof messageOrId === 'string') {
+      minimalMessage = {
+        message_type: 'private',
+        sub_type: '',
+        message_id: parseInt(messageOrId) || 0,
         user_id: 0,
-        nickname: 'Unknown',
-        sex: 'unknown' as const
-      },
-      time: Math.floor(Date.now() / 1000),
-      post_type: 'message' as const,
-      self_id: 987654321
-    };
+        message: '消息获取失败',
+        raw_message: '',
+        font: 0,
+        sender: {
+          user_id: 0,
+          nickname: 'Unknown',
+          sex: 'unknown' as const
+        },
+        time: Math.floor(Date.now() / 1000),
+        post_type: 'message' as const,
+        self_id: 987654321
+      };
+    } else {
+      minimalMessage = messageOrId;
+    }
 
     const minimalUserInfo: UserInfo = {
       user_id: 0,

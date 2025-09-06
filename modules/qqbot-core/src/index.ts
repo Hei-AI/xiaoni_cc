@@ -597,13 +597,9 @@ class QQBot {
    */
   private async buildMessageContext(message: QQMessage): Promise<MessageContext> {
     try {
-      // For Stage 1, we'll create a simplified version since ContextEngine expects messageId
-      // In production, you'd want to store messages and use real IDs
-      const tempMessageId = `temp_${Date.now()}_${message.user_id}`;
-      
-      // Try to use ContextEngine first, fall back to manual construction
+      // Use ContextEngine with the message object directly
       try {
-        return await this.contextEngine.buildContext(tempMessageId);
+        return await this.contextEngine.buildContext(message);
       } catch (contextError) {
         this.moduleLogger.warn('ContextEngine failed, building minimal context', { 
           error: contextError instanceof Error ? contextError.message : 'Unknown error' 
