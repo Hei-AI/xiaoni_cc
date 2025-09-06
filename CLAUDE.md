@@ -514,3 +514,13 @@ npm run deploy     # 完整部署流程
 4. 所有数据库操作使用事务确保一致性
 5. 重要变更前确保相关测试通过
 - 各模块的开发及修复工作必须通过git worktree模式继续
+
+
+---
+
+# 下面是本项目的演进计划和目标
+
+- @docs/final_roadmap.md
+- @docs/evolution_roadmap.md
+- @docs/roadmap_v1.md
+- @docs/roadmap_v2.md

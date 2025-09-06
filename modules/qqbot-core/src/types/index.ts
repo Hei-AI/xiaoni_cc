@@ -873,3 +873,97 @@ export interface DebugTracer {
   logError(context: ProcessingContext, error: Error, component: string): void;
   finishTrace(context: ProcessingContext): Promise<boolean>;
 }
+
+// =============================================================================
+// Stage 1 Engine Type Definitions
+// =============================================================================
+
+// DecisionEngine types
+export interface DecisionResult {
+  shouldRespond: boolean;
+  confidence: number;
+  reason: string;
+  suggestedService: 'chat' | 'requirement' | 'ignore';
+  metadata?: {
+    isDirectMention?: boolean;
+    containsQuestionWords?: boolean;
+    isFromAuthorizedUser?: boolean;
+    hasKeywords?: boolean;
+    contextualScore?: number;
+  };
+}
+
+// ContextEngine types - expanded MessageContext interface
+export interface MessageContext {
+  currentMessage: QQMessage;
+  recentMessages: QQMessage[];
+  userInfo: UserInfo;
+  groupInfo?: GroupInfo;
+  conversationSummary?: string;
+  topicKeywords?: string[];
+}
+
+export interface UserInfo {
+  user_id: number;
+  nickname: string;
+  recent_interaction_count: number;
+  last_interaction?: Date;
+  is_frequent_user: boolean;
+}
+
+export interface GroupInfo {
+  group_id: number;
+  recent_activity_level: 'low' | 'medium' | 'high';
+  participant_count: number;
+  current_topic_hint?: string;
+}
+
+// PersonaEngine types
+export interface PersonaConfig {
+  primaryPersona: PersonaType;
+  secondaryAspects: PersonaAspect[];
+  responseStyle: ResponseStyle;
+  contextAdaptation: boolean;
+}
+
+export type PersonaType = 
+  | 'technical_expert'
+  | 'empathetic_friend'
+  | 'professional_assistant'
+  | 'casual_companion'
+  | 'creative_helper';
+
+export interface PersonaAspect {
+  aspect: 'humor' | 'formality' | 'enthusiasm' | 'patience' | 'creativity';
+  weight: number;
+}
+
+export interface ResponseStyle {
+  verbosity: 'concise' | 'balanced' | 'detailed';
+  tone: 'friendly' | 'professional' | 'casual' | 'warm';
+  useEmojis: boolean;
+  includeExamples: boolean;
+}
+
+export interface ResponseContext {
+  messageType: 'private' | 'group';
+  userRelation: 'new' | 'occasional' | 'frequent';
+  conversationTopic: string[];
+  previousResponses: string[];
+  timeOfDay: 'morning' | 'afternoon' | 'evening' | 'night';
+  isUrgent: boolean;
+}
+
+export interface PersonaResponse {
+  content: string;
+  selectedPersona: PersonaType;
+  appliedAspects: PersonaAspect[];
+  confidence: number;
+  processingTime: number;
+  metadata?: {
+    originalResponse?: string;
+    adjustmentsMade?: string[];
+    emojiCount?: number;
+    sentimentScore?: number;
+  };
+}

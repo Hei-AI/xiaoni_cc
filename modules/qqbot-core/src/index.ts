@@ -6,7 +6,19 @@ import HttpServer from './services/http-server';
 import AIService from './services/ai-service';
 import RemoteClaudeService from './services/remote-claude-service';
 import { SessionManager } from './services/session-manager';
-import { QQMessage, QQNotice, QQRequest, ConversationData, RequirementData } from './types';
+import DecisionEngine from './engines/decision-engine';
+import PersonaEngine from './engines/persona-engine';
+import ContextEngine from './engines/context-engine';
+import { 
+  QQMessage, 
+  QQNotice, 
+  QQRequest, 
+  ConversationData, 
+  RequirementData, 
+  MessageContext,
+  DecisionResult,
+  PersonaResponse 
+} from './types';
 import { v4 as uuidv4 } from 'uuid';
 
 class QQBot {
@@ -16,6 +28,12 @@ class QQBot {
   private aiService: AIService;
   private remoteClaudeService: RemoteClaudeService;
   private sessionManager: SessionManager;
+  
+  // Stage 1 Engines
+  private decisionEngine: DecisionEngine;
+  private personaEngine: PersonaEngine;
+  private contextEngine: ContextEngine;
+  
   private moduleLogger = logger.createModuleLogger('main');
   
   // 群聊管理状态 - 使用数据库存储的设置
@@ -29,6 +47,12 @@ class QQBot {
     this.aiService = new AIService(config.ai, this.database);
     this.remoteClaudeService = new RemoteClaudeService(this.database);
     this.sessionManager = new SessionManager(this.database);
+    
+    // Initialize Stage 1 Engines
+    this.contextEngine = new ContextEngine(this.database);
+    this.decisionEngine = new DecisionEngine(this.aiService, config.ai);
+    this.personaEngine = new PersonaEngine(this.aiService);
+    
     this.httpServer = new HttpServer(config.http_server, {
       database: this.database,
       websocketClient: this.websocketClient
@@ -113,6 +137,29 @@ class QQBot {
       const userId = message.user_id;
       const userMessage = typeof message.message === 'string' ? message.message.trim() : '';
 
+      // Stage 1: Build comprehensive message context using ContextEngine
+      const messageContext = await this.buildMessageContext(message);
+      
+      // Stage 1: Use DecisionEngine for intelligent response decision
+      const decision = await this.decisionEngine.analyzeMessage(messageContext);
+      
+      this.moduleLogger.info('Decision engine result', {
+        shouldRespond: decision.shouldRespond,
+        confidence: decision.confidence,
+        reason: decision.reason,
+        suggestedService: decision.suggestedService,
+        userId
+      });
+
+      // If decision engine says don't respond, exit early
+      if (!decision.shouldRespond) {
+        this.moduleLogger.info('Decision engine determined not to respond', { 
+          userId, 
+          reason: decision.reason 
+        });
+        return;
+      }
+
       // 使用SessionManager处理消息
       const sessionContext = await this.sessionManager.processIncomingMessage(message);
       
@@ -127,9 +174,10 @@ class QQBot {
         const handled = await this.handleGroupManagementCommand(userId, userMessage);
         if (handled) return;
 
-        // 根据Session类型决策处理消息
-        if (sessionContext.session_type === 'requirement' || 
-            (sessionContext.session_type === 'chat' && userMessage.length > 100)) {
+        // 根据Decision Engine和Session类型决策处理消息
+        if (decision.suggestedService === 'requirement' || 
+            (sessionContext.session_type === 'requirement' || 
+            (sessionContext.session_type === 'chat' && userMessage.length > 100))) {
           // 分析是否为需求
           const intent = await this.aiService.analyzeIntent(userMessage, userId);
           
@@ -140,8 +188,14 @@ class QQBot {
         }
       }
 
-      // 普通AI对话 - 传递sessionId以保持会话连续性
-      await this.handleAIConversation(userId, userMessage, message, sessionContext.session_id);
+      // Stage 1: Enhanced AI conversation with PersonaEngine
+      await this.handleEnhancedAIConversation(
+        userId, 
+        userMessage, 
+        message, 
+        messageContext, 
+        sessionContext.session_id
+      );
 
     } catch (error) {
       this.moduleLogger.error('Error handling private message', { 
@@ -215,14 +269,45 @@ class QQBot {
         return;
       }
 
+      // Stage 1: Build comprehensive message context for group message
+      const messageWithCleanContent = { ...message, message: cleanMessage };
+      const messageContext = await this.buildMessageContext(messageWithCleanContent);
+      
+      // Stage 1: Use DecisionEngine for group message decisions
+      const decision = await this.decisionEngine.analyzeMessage(messageContext);
+      
+      this.moduleLogger.info('Group message decision engine result', {
+        shouldRespond: decision.shouldRespond,
+        confidence: decision.confidence,
+        reason: decision.reason,
+        groupId: message.group_id,
+        userId: message.user_id
+      });
+
+      // If decision engine says don't respond, exit early
+      if (!decision.shouldRespond) {
+        this.moduleLogger.info('Decision engine determined not to respond to group message', { 
+          groupId: message.group_id,
+          userId: message.user_id,
+          reason: decision.reason 
+        });
+        return;
+      }
+
       // 更新群聊活跃度
       if (message.group_id) {
         await this.database.updateGroupActivity(message.group_id, 1, 0);
       }
 
-      // AI对话处理 - 群聊也可以有session支持
+      // Stage 1: Enhanced AI conversation for group messages
       const sessionContext = await this.sessionManager.processIncomingMessage(message);
-      await this.handleAIConversation(message.user_id, cleanMessage, message, sessionContext.session_id);
+      await this.handleEnhancedAIConversation(
+        message.user_id, 
+        cleanMessage, 
+        messageWithCleanContent, 
+        messageContext, 
+        sessionContext.session_id
+      );
 
     } catch (error) {
       this.moduleLogger.error('Error handling group message', { error, message });
@@ -508,6 +593,189 @@ class QQBot {
   }
 
   /**
+   * Stage 1: Build comprehensive message context using ContextEngine
+   */
+  private async buildMessageContext(message: QQMessage): Promise<MessageContext> {
+    try {
+      // For Stage 1, we'll create a simplified version since ContextEngine expects messageId
+      // In production, you'd want to store messages and use real IDs
+      const tempMessageId = `temp_${Date.now()}_${message.user_id}`;
+      
+      // Try to use ContextEngine first, fall back to manual construction
+      try {
+        return await this.contextEngine.buildContext(tempMessageId);
+      } catch (contextError) {
+        this.moduleLogger.warn('ContextEngine failed, building minimal context', { 
+          error: contextError instanceof Error ? contextError.message : 'Unknown error' 
+        });
+        
+        // Build minimal context manually
+        return {
+          currentMessage: message,
+          recentMessages: [], // Stage 1 limitation
+          userInfo: {
+            user_id: message.user_id,
+            nickname: message.sender.nickname,
+            recent_interaction_count: 0,
+            is_frequent_user: false
+          },
+          groupInfo: message.group_id ? {
+            group_id: message.group_id,
+            recent_activity_level: 'medium',
+            participant_count: 0
+          } : undefined,
+          conversationSummary: '新对话',
+          topicKeywords: []
+        };
+      }
+    } catch (error) {
+      this.moduleLogger.error('Failed to build message context', { 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
+      
+      // Return minimal fallback context
+      return {
+        currentMessage: message,
+        recentMessages: [],
+        userInfo: {
+          user_id: message.user_id,
+          nickname: message.sender.nickname || `User_${message.user_id}`,
+          recent_interaction_count: 0,
+          is_frequent_user: false
+        },
+        conversationSummary: '上下文构建失败',
+        topicKeywords: []
+      };
+    }
+  }
+
+  /**
+   * Stage 1: Enhanced AI conversation with PersonaEngine
+   */
+  private async handleEnhancedAIConversation(
+    userId: number,
+    userMessage: string,
+    originalMessage: QQMessage,
+    messageContext: MessageContext,
+    sessionId?: string
+  ): Promise<void> {
+    const startTime = Date.now();
+
+    try {
+      // Build response context for PersonaEngine
+      const responseContext = {
+        messageType: originalMessage.message_type,
+        userRelation: messageContext.userInfo.is_frequent_user ? 'frequent' : 'occasional' as 'new' | 'occasional' | 'frequent',
+        conversationTopic: messageContext.topicKeywords || [],
+        previousResponses: [], // Stage 1 limitation
+        timeOfDay: this.getTimeOfDay(),
+        isUrgent: userMessage.includes('紧急') || userMessage.includes('急')
+      };
+
+      // Generate base AI response
+      const baseConversation = await this.aiService.generateResponse(userMessage, userId);
+      
+      // Enhance response with PersonaEngine
+      const personaResponse = await this.personaEngine.generateResponse(
+        userMessage,
+        responseContext
+      );
+      
+      this.moduleLogger.info('PersonaEngine enhanced response', {
+        originalLength: baseConversation.ai_response.length,
+        enhancedLength: personaResponse.content.length,
+        selectedPersona: personaResponse.selectedPersona,
+        confidence: personaResponse.confidence,
+        processingTime: personaResponse.processingTime
+      });
+
+      // Use persona-enhanced response
+      const finalResponse = personaResponse.content;
+      const responseTime = Date.now() - startTime;
+
+      // Create conversation record with enhanced data
+      const conversation: ConversationData = {
+        ...baseConversation,
+        ai_response: finalResponse,
+        response_time: responseTime,
+        message_id: originalMessage.message_id,
+        session_id: sessionId,
+        raw_response: JSON.stringify({
+          baseResponse: baseConversation.ai_response,
+          personaResponse: personaResponse,
+          messageContext: {
+            topicKeywords: messageContext.topicKeywords,
+            conversationSummary: messageContext.conversationSummary,
+            userRelation: responseContext.userRelation,
+            selectedPersona: personaResponse.selectedPersona
+          }
+        })
+      };
+
+      // Save enhanced conversation to database
+      await this.database.saveConversation(conversation);
+
+      // Send response using existing logic
+      const shouldSendReply = sessionId && originalMessage.message_id && 
+                             (sessionId.includes('reply') || sessionId.includes('chain'));
+
+      if (originalMessage.message_type === 'group' && originalMessage.group_id) {
+        // 更新群聊AI回复活跃度
+        await this.database.updateGroupActivity(originalMessage.group_id, 0, 1);
+        
+        if (shouldSendReply && originalMessage.message_id) {
+          await this.websocketClient.sendReplyMessage(
+            originalMessage.message_id,
+            finalResponse
+          );
+        } else {
+          await this.websocketClient.sendGroupMessage(
+            originalMessage.group_id,
+            finalResponse
+          );
+        }
+      } else {
+        if (shouldSendReply && originalMessage.message_id) {
+          await this.websocketClient.sendReplyMessage(
+            originalMessage.message_id,
+            finalResponse
+          );
+        } else {
+          await this.websocketClient.sendPrivateMessage(
+            userId,
+            finalResponse
+          );
+        }
+      }
+
+      this.moduleLogger.info('Enhanced AI conversation completed', {
+        conversationId: conversation.id,
+        userId,
+        responseTime,
+        personaUsed: personaResponse.selectedPersona,
+        isGroupMessage: originalMessage.message_type === 'group'
+      });
+
+    } catch (error) {
+      this.moduleLogger.error('Failed to handle enhanced AI conversation', { error, userId });
+      
+      // Fallback to original method
+      await this.handleAIConversation(userId, userMessage, originalMessage, sessionId);
+    }
+  }
+
+  /**
+   * Get current time of day for context
+   */
+  private getTimeOfDay(): 'morning' | 'afternoon' | 'evening' | 'night' {
+    const hour = new Date().getHours();
+    if (hour >= 6 && hour < 12) return 'morning';
+    if (hour >= 12 && hour < 18) return 'afternoon';  
+    if (hour >= 18 && hour < 22) return 'evening';
+    return 'night';
+  }
+
+  /**
    * 格式化处理时间
    */
   private formatProcessingTime(startTime?: Date, endTime?: Date): string {
@@ -638,7 +906,7 @@ class QQBot {
 
       const authorizedUserId = config.ai.authorized_user_id;
 
-      const startupMessage = `🎉 QQ智能机器人启动成功！
+      const startupMessage = `🎉 QQ智能机器人 Stage 1 启动成功！
 
 📊 系统状态:
 ✅ 数据库连接: 正常
@@ -646,15 +914,24 @@ class QQBot {
 ✅ HTTP服务器: 正常
 ✅ AI服务: 正常
 
+🧠 Stage 1 新特性:
+✅ 智能决策引擎: 自动判断是否需要回复
+✅ 人格化引擎: 根据场景选择合适的回复风格
+✅ 上下文引擎: 理解对话历史和用户信息
+
 🤖 机器人信息:
 • QQ号: ${config.ai.bot_qq_number}
 • AI模型: ${(await this.aiService.getModelInfo()).name}
+• 架构版本: Stage 1 - Smart Responder
 • 启动时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
 
 💡 功能说明:
-• 智能对话: 直接发送消息进行对话
+• 智能对话: 直接发送消息进行对话（现在更懂你了！）
 • 需求管理: 描述开发需求，机器人会智能识别并处理
-• 群聊管理: 支持群聊AI回复功能
+• 群聊管理: 支持群聊AI回复功能（智能过滤无意义回复）
+• 个性化回复: 根据时间、用户关系、对话主题自动调整语调
+
+🚀 Stage 1 进化完成！现在我能更智能地理解您的意图，提供更有针对性的回复。
 
 您现在可以开始与我对话了！`;
 
