@@ -1,4 +1,0 @@
-测试官方格式的hooks配置
-创建时间: 2025-09-01
-使用Python脚本替代bash脚本
-符合Claude Code官方文档格式

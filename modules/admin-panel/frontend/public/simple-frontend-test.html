@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>前端功能测试</title>
+    <script>
+        // 简单的前端测试页面来验证搜索功能
+        async function testSearch() {
+            console.log('测试搜索功能...');
+            
+            try {
+                const response = await fetch('http://localhost:9080/api/conversations?search=hello&page=1&limit=5');
+                const result = await response.json();
+                
+                console.log('API响应:', result);
+                document.getElementById('result').innerHTML = 
+                    `<h3>搜索结果:</h3>
+                     <p>成功: ${result.success}</p>
+                     <p>对话数量: ${result.data.conversations.length}</p>
+                     <p>总数: ${result.data.pagination.total_count}</p>
+                     <pre>${JSON.stringify(result, null, 2)}</pre>`;
+                     
+            } catch (error) {
+                console.error('API调用失败:', error);
+                document.getElementById('result').innerHTML = 
+                    `<h3>错误:</h3><p>${error.message}</p>`;
+            }
+        }
+        
+        async function testUserFilter() {
+            console.log('测试用户筛选功能...');
+            
+            try {
+                const response = await fetch('http://localhost:9080/api/conversations?user_id=85178516&page=1&limit=3');
+                const result = await response.json();
+                
+                console.log('用户筛选响应:', result);
+                document.getElementById('result2').innerHTML = 
+                    `<h3>用户筛选结果:</h3>
+                     <p>成功: ${result.success}</p>
+                     <p>对话数量: ${result.data.conversations.length}</p>
+                     <p>总数: ${result.data.pagination.total_count}</p>
+                     <pre>${JSON.stringify(result, null, 2)}</pre>`;
+                     
+            } catch (error) {
+                console.error('API调用失败:', error);
+                document.getElementById('result2').innerHTML = 
+                    `<h3>错误:</h3><p>${error.message}</p>`;
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>QQ机器人前端API测试</h1>
+    
+    <button onclick="testSearch()" style="padding: 10px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px;">
+        测试搜索API
+    </button>
+    
+    <button onclick="testUserFilter()" style="padding: 10px; margin: 5px; background: #28a745; color: white; border: none; border-radius: 4px;">
+        测试用户筛选API
+    </button>
+    
+    <div id="result" style="margin-top: 20px; padding: 10px; background: #f8f9fa; border: 1px solid #ddd;"></div>
+    <div id="result2" style="margin-top: 20px; padding: 10px; background: #f8f9fa; border: 1px solid #ddd;"></div>
+    
+    <hr>
+    <h2>管理页面链接</h2>
+    <a href="/conversations" target="_blank" style="color: #007bff;">打开完整管理页面</a>
+</body>
+</html>

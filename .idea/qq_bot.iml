@@ -1,7 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <module type="PYTHON_MODULE" version="4">
-  <component name="NewModuleRootManager">
+  <component name="NewModuleRootManager" inherit-compiler-output="true">
+    <exclude-output />
     <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/modules/admin-panel/backend/resources" type="java-resource" />
+      <sourceFolder url="file://$MODULE_DIR$/modules/admin-panel/backend/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/modules/admin-panel/frontend/resources" type="java-resource" />
+      <sourceFolder url="file://$MODULE_DIR$/modules/admin-panel/frontend/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/modules/http-api/resources" type="java-resource" />
+      <sourceFolder url="file://$MODULE_DIR$/modules/http-api/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/modules/qqbot-core/resources" type="java-resource" />
+      <sourceFolder url="file://$MODULE_DIR$/modules/qqbot-core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/modules/qqbot-core/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.12 (qq_bot)" jdkType="Python SDK" />

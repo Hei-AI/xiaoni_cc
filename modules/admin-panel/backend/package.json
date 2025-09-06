@@ -1,0 +1,53 @@
+{
+  "name": "qq-bot-admin-backend",
+  "version": "1.0.0",
+  "description": "QQ Bot Admin Panel Backend Service",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "axios": "^1.5.0",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "helmet": "^7.2.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "mysql2": "^3.6.0",
+    "winston": "^3.10.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.0",
+    "@types/cors": "^2.8.13",
+    "@types/express": "^4.17.17",
+    "@types/jest": "^29.5.3",
+    "@types/jsonwebtoken": "^9.0.2",
+    "@types/multer": "^1.4.7",
+    "@types/node": "^20.5.0",
+    "@typescript-eslint/eslint-plugin": "^6.4.0",
+    "@typescript-eslint/parser": "^6.4.0",
+    "eslint": "^8.47.0",
+    "jest": "^29.6.2",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.1.6"
+  },
+  "keywords": [
+    "qq-bot",
+    "admin",
+    "backend",
+    "api"
+  ],
+  "author": "QQ Bot Team",
+  "license": "MIT",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  }
+}

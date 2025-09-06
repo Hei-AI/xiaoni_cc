@@ -1,24 +1,102 @@
 version: '3.8'
 
 services:
+  # Shared MySQL Database
   mysql:
     image: mysql:8.0
-    container_name: qqbot_mysql
-    restart: always
+    container_name: qq_bot_mysql
     environment:
-      MYSQL_ROOT_PASSWORD: qqbot_root_password
+      MYSQL_ROOT_PASSWORD: root_password
       MYSQL_DATABASE: qqbot_db
-      MYSQL_USER: qqbot_user
+      MYSQL_USER: qqbot
       MYSQL_PASSWORD: qqbot_password
     ports:
       - "3306:3306"
     volumes:
       - ./database/mysql_data:/var/lib/mysql
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./database/schema:/docker-entrypoint-initdb.d
     networks:
-      - qqbot_network
-    command: --default-authentication-plugin=mysql_native_password
+      - qq_bot_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # HTTP API Gateway
+  http-api:
+    build: ./modules/http-api
+    container_name: qq_bot_http_api
+    ports:
+      - "8080:8080"
+    environment:
+      - HTTP_PORT=8080
+      - QQBOT_CORE_URL=http://qqbot-core:8081
+      - LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    depends_on:
+      - qqbot-core
+    networks:
+      - qq_bot_network
+
+  # QQBot Core Service  
+  qqbot-core:
+    build: ./modules/qqbot-core
+    container_name: qq_bot_core
+    ports:
+      - "8081:8081"
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=qqbot
+      - DB_PASSWORD=qqbot_password
+      - DB_NAME=qqbot_db
+      - INTERNAL_HTTP_PORT=8081
+      - LOG_LEVEL=info
+    depends_on:
+      - mysql
+    volumes:
+      - ./modules/qqbot-core/resources/napcat_qq_data:/app/resources/napcat_qq_data
+      - ./modules/qqbot-core/resources/logs:/app/resources/logs
+    networks:
+      - qq_bot_network
+
+  # Admin Panel Backend
+  admin-backend:
+    build: ./modules/admin-panel/backend
+    container_name: qq_bot_admin_backend
+    ports:
+      - "9080:9080"
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=qqbot
+      - DB_PASSWORD=qqbot_password
+      - DB_NAME=qqbot_db
+      - HTTP_PORT=9080
+      - LOG_LEVEL=info
+    depends_on:
+      - mysql
+    networks:
+      - qq_bot_network
+
+  # Admin Panel Frontend
+  admin-frontend:
+    image: nginx:alpine
+    container_name: qq_bot_admin_frontend
+    ports:
+      - "3000:80"
+    volumes:
+      - ./modules/admin-panel/frontend/public:/usr/share/nginx/html
+    depends_on:
+      - admin-backend
+    networks:
+      - qq_bot_network
 
 networks:
-  qqbot_network:
+  qq_bot_network:
     driver: bridge

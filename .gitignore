@@ -17,6 +17,7 @@ backend/build/
 # Runtime data
 backend/runtime/
 backend/database/mysql_data/
+database/mysql_data/
 
 # Dependencies
 node_modules/
@@ -27,6 +28,7 @@ backend/node_modules/
 logs/
 backend/resources/logs/
 modules/*/resources/logs/
+**/*.log
 
 # Python cache
 __pycache__/

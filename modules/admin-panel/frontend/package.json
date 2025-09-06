@@ -1,0 +1,28 @@
+{
+  "name": "qq-bot-admin-frontend",
+  "version": "1.0.0",
+  "description": "QQ Bot Admin Panel Frontend",
+  "main": "index.js",
+  "scripts": {
+    "dev": "http-server public -p 3003 -o --cors",
+    "build": "echo 'Frontend build completed - static files ready'",
+    "start": "http-server public -p 3001 --cors",
+    "test": "echo 'Frontend tests not configured yet'",
+    "clean": "echo 'No build artifacts to clean'"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  },
+  "keywords": [
+    "qq-bot",
+    "admin",
+    "frontend",
+    "dashboard"
+  ],
+  "author": "QQ Bot Team",
+  "license": "MIT",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  }
+}
