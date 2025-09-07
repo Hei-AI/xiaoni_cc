@@ -61,7 +61,20 @@ export class WebSocketClient extends EventEmitter {
   private handleMessage(data: WebSocket.Data): void {
     try {
       const message = JSON.parse(data.toString()) as WebSocketMessage;
-      this.moduleLogger.debug('Received message', { message });
+      this.moduleLogger.info('🔍 WebSocket message received', { 
+        post_type: message.post_type, 
+        message_type: message.message_type,
+        user_id: message.user_id,
+        group_id: message.group_id,
+        raw: JSON.stringify(message).substring(0, 500) + (JSON.stringify(message).length > 500 ? '...' : '')
+      });
+
+      // 对于群聊消息，显示完整的JSON结构
+      if (message.post_type === 'message' && message.message_type === 'group') {
+        this.moduleLogger.info('📄 Complete group message JSON:', {
+          fullMessage: JSON.stringify(message, null, 2)
+        });
+      }
 
       // 检查是否是API响应消息
       if (this.isApiResponse(message)) {
@@ -72,6 +85,11 @@ export class WebSocketClient extends EventEmitter {
       // 根据消息类型分发事件
       switch (message.post_type) {
         case 'message':
+          this.moduleLogger.info('📨 Processing message event', { 
+            message_type: message.message_type,
+            user_id: message.user_id,
+            group_id: message.group_id
+          });
           this.handleQQMessage(message as unknown as QQMessage);
           break;
         case 'message_sent':
@@ -100,12 +118,21 @@ export class WebSocketClient extends EventEmitter {
   }
 
   private handleQQMessage(message: QQMessage): void {
+    this.moduleLogger.info('🎯 handleQQMessage called', { 
+      message_type: message.message_type,
+      user_id: message.user_id,
+      group_id: message.group_id,
+      message: typeof message.message === 'string' ? message.message.substring(0, 100) : JSON.stringify(message.message).substring(0, 100)
+    });
+    
     // 处理OneBot消息段格式
     message = this.normalizeMessage(message);
     
     if (message.message_type === 'private') {
+      this.moduleLogger.info('📞 Emitting private_message event');
       this.emit('private_message', message);
     } else if (message.message_type === 'group') {
+      this.moduleLogger.info('👥 Emitting group_message event', { group_id: message.group_id });
       this.emit('group_message', message);
     }
     this.emit('message', message);

@@ -227,14 +227,32 @@ class QQBot {
   }
 
   private async handleGroupMessage(message: QQMessage): Promise<void> {
+    this.moduleLogger.info('🎯 handleGroupMessage called', {
+      group_id: message.group_id,
+      user_id: message.user_id,
+      message_type: message.message_type,
+      message: typeof message.message === 'string' ? message.message.substring(0, 100) : JSON.stringify(message.message).substring(0, 100)
+    });
+    
     try {
       // 只处理@机器人的消息
       const botQQ = this.aiService.getBotQQNumber();
-      const messageText = typeof message.message === 'string' ? message.message : '';
-      const isAtBot = messageText.includes(`[CQ:at,qq=${botQQ}]`) || 
-                      messageText.includes(`@${botQQ}`);
+      this.moduleLogger.info('📍 Bot QQ number:', { botQQ });
+      
+      // 检测@机器人：使用OneBot消息段数组中的at类型
+      const isAtBot = Array.isArray(message.message) && 
+        message.message.some((segment: any) => 
+          segment.type === 'at' && segment.data?.qq === botQQ.toString()
+        );
+      
+      this.moduleLogger.info('📍 AT检测:', { 
+        messageSegments: JSON.stringify(message.message).substring(0, 200),
+        isAtBot,
+        groupReplyEnabled: this.groupReplyEnabled 
+      });
 
       if (!isAtBot || !this.groupReplyEnabled) {
+        this.moduleLogger.info('❌ Skipping group message:', { isAtBot, groupReplyEnabled: this.groupReplyEnabled });
         return;
       }
 

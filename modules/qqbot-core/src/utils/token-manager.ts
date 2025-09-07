@@ -77,7 +77,7 @@ export class TokenManager {
       await this.resetDailyUsageIfNeeded();
       
       // 查询可用Token：活跃、健康、未黑名单、未超过每日限制
-      const availableTokens = await this.database.executeQuery<ApiTokenData>(`
+      const query = `
         SELECT * FROM api_tokens 
         WHERE is_active = TRUE 
           AND is_healthy = TRUE 
@@ -89,7 +89,21 @@ export class TokenManager {
           last_used ASC,          -- 最少最近使用
           weight DESC             -- 权重排序
         LIMIT 1
-      `);
+      `;
+      
+      this.moduleLogger.debug('Executing token query', { query: query.replace(/\s+/g, ' ').trim() });
+      
+      const availableTokens = await this.database.executeQuery<ApiTokenData>(query);
+      
+      this.moduleLogger.debug('Token query result', { 
+        tokensFound: availableTokens.length,
+        firstToken: availableTokens.length > 0 ? {
+          id: availableTokens[0].id,
+          project_name: availableTokens[0].project_name,
+          is_active: availableTokens[0].is_active,
+          is_healthy: availableTokens[0].is_healthy
+        } : null
+      });
 
       if (availableTokens.length === 0) {
         this.moduleLogger.warn('No available tokens found');

@@ -1006,7 +1006,7 @@ export class DatabaseManager {
         params.push(groupId);
       }
       
-      query += ' ORDER BY last_activity DESC, created_at DESC';
+      query += ' ORDER BY created_at DESC';
       
       return await this.executeQuery<GroupChatSettings>(query, params);
     } catch (error) {
