@@ -139,10 +139,11 @@ export class WebSocketClient extends EventEmitter {
   }
 
   private normalizeMessage(message: QQMessage): QQMessage {
-    // 如果message是数组格式（OneBot消息段），转换为字符串
-    if (Array.isArray(message.message)) {
+    // 只对私聊消息进行文本提取，群聊消息保持原始格式以保留@信息
+    if (Array.isArray(message.message) && message.message_type === 'private') {
       message.message = this.extractTextFromMessageSegments(message.message as any);
     }
+    // 群聊消息保持原始数组格式，这样@bot检测才能正常工作
     return message;
   }
 

@@ -227,6 +227,7 @@ class QQBot {
   }
 
   private async handleGroupMessage(message: QQMessage): Promise<void> {
+    console.log('🚨 EMERGENCY DEBUG: handleGroupMessage CALLED!', message.group_id, message.user_id);
     this.moduleLogger.info('🎯 handleGroupMessage called', {
       group_id: message.group_id,
       user_id: message.user_id,
@@ -239,20 +240,56 @@ class QQBot {
       const botQQ = this.aiService.getBotQQNumber();
       this.moduleLogger.info('📍 Bot QQ number:', { botQQ });
       
-      // 检测@机器人：使用OneBot消息段数组中的at类型
-      const isAtBot = Array.isArray(message.message) && 
-        message.message.some((segment: any) => 
+      // 检测@机器人：同时支持消息段数组格式和字符串CQ码格式
+      let isAtBot = false;
+      
+      if (Array.isArray(message.message)) {
+        // 消息段数组格式检测 - 增强调试
+        this.moduleLogger.info('🔍 Debug @bot detection (Array format):', {
+          messageSegments: message.message,
+          botQQ,
+          botQQString: botQQ.toString(),
+          botQQType: typeof botQQ
+        });
+        
+        for (const segment of message.message) {
+          if (segment.type === 'at') {
+            this.moduleLogger.info('🎯 Found AT segment:', {
+              segment,
+              segmentQQ: segment.data?.qq,
+              segmentQQType: typeof segment.data?.qq,
+              botQQString: botQQ.toString(),
+              match: segment.data?.qq === botQQ.toString()
+            });
+          }
+        }
+        
+        isAtBot = message.message.some((segment: any) => 
           segment.type === 'at' && segment.data?.qq === botQQ.toString()
         );
+      } else if (typeof message.message === 'string') {
+        // 字符串CQ码格式检测
+        const atPattern = new RegExp(`\\[CQ:at,qq=${botQQ}\\]`);
+        isAtBot = atPattern.test(message.message);
+      }
       
       this.moduleLogger.info('📍 AT检测:', { 
+        messageType: typeof message.message,
+        messageIsArray: Array.isArray(message.message),
         messageSegments: JSON.stringify(message.message).substring(0, 200),
         isAtBot,
-        groupReplyEnabled: this.groupReplyEnabled 
+        groupReplyEnabled: this.groupReplyEnabled,
+        botQQ,
+        botQQStr: botQQ.toString()
       });
 
-      if (!isAtBot || !this.groupReplyEnabled) {
-        this.moduleLogger.info('❌ Skipping group message:', { isAtBot, groupReplyEnabled: this.groupReplyEnabled });
+      // Stage 1: Only skip if group reply is completely disabled
+      // Let DecisionEngine handle @/non-@ logic intelligently
+      if (!this.groupReplyEnabled) {
+        this.moduleLogger.info('❌ Skipping group message: Group reply disabled', { 
+          isAtBot, 
+          groupReplyEnabled: this.groupReplyEnabled 
+        });
         return;
       }
 
@@ -269,11 +306,22 @@ class QQBot {
       });
 
       // 清理消息内容（移除@信息）
-      const messageText2 = typeof message.message === 'string' ? message.message : '';
-      const cleanMessage = messageText2
-        .replace(/\[CQ:at,qq=\d+\]/g, '')
-        .replace(/@\d+/g, '')
-        .trim();
+      let cleanMessage = '';
+      
+      if (typeof message.message === 'string') {
+        // 字符串格式：移除CQ码和@信息
+        cleanMessage = message.message
+          .replace(/\[CQ:at,qq=\d+\]/g, '')
+          .replace(/@\d+/g, '')
+          .trim();
+      } else if (Array.isArray(message.message)) {
+        // 消息段数组格式：提取文本内容，跳过at段
+        cleanMessage = message.message
+          .filter((segment: any) => segment.type === 'text')
+          .map((segment: any) => segment.data?.text || '')
+          .join('')
+          .trim();
+      }
 
       if (!cleanMessage) {
         // 获取群聊设置中的欢迎消息

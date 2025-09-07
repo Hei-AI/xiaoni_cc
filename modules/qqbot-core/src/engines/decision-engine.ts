@@ -21,7 +21,7 @@ export class DecisionEngine {
     this.aiService = aiService;
     this.config = config || {
       gemini_api_keys: [],
-      model_name: 'gemini-2.0-flash-exp',
+      model_name: 'gemini-2.5-flash',
       authorized_user_id: 85178516, // 使用正确的授权用户ID
       bot_qq_number: 987654321
     };
@@ -181,13 +181,25 @@ export class DecisionEngine {
    * 检查是否为直接@消息
    */
   private isDirectMention(message: QQMessage): boolean {
+    // 检查数组格式的消息（OneBot 11协议）
+    if (Array.isArray(message.message)) {
+      const hasAtSegment = message.message.some(segment => 
+        segment && typeof segment === 'object' && 
+        segment.type === 'at' && 
+        segment.data && 
+        segment.data.qq === this.config.bot_qq_number?.toString()
+      );
+      if (hasAtSegment) return true;
+    }
+    
+    // 检查字符串格式的消息
     const messageText = typeof message.message === 'string' ? message.message : '';
     
-    // 检查OneBot的@格式
-    const hasAtFormat = messageText.includes('[CQ:at,qq=');
+    // 检查OneBot的CQ码格式
+    const hasAtFormat = messageText.includes(`[CQ:at,qq=${this.config.bot_qq_number}]`);
     
-    // 检查简单@格式（可能有些客户端用这种）
-    const hasSimpleAt = /@\d+/.test(messageText);
+    // 检查简单@格式
+    const hasSimpleAt = new RegExp(`@${this.config.bot_qq_number}\\b`).test(messageText);
     
     return hasAtFormat || hasSimpleAt;
   }
@@ -240,16 +252,8 @@ export class DecisionEngine {
       const analysisResult = this.parseAIResponse(response.ai_response);
       const isAuthorized = this.isAuthorizedUser(context.currentMessage.user_id);
       
-      // 对于非授权用户，应用更严格的决策逻辑
-      if (!isAuthorized && !this.hasTechnicalHelpKeywords(messageText)) {
-        return {
-          shouldRespond: false,
-          confidence: 45,  // Lower confidence for spam detection
-          source: 'ai_analysis',
-          reasoning: '非授权用户非技术内容',
-          suggestedService: 'ignore'
-        };
-      }
+      // 对于@消息，放宽限制 - 因为@本身就表明了用户想要互动的意图
+      // 仅对明显的垃圾内容进行过滤
       
       return {
         shouldRespond: analysisResult.shouldParticipate,
@@ -294,22 +298,25 @@ export class DecisionEngine {
 ${context.currentMessage.group_id ? `群聊ID: ${context.currentMessage.group_id}` : ''}
 
 阿正的特点：
-- 热情的技术专家，乐于助人
-- 主要关注技术讨论、问题解答、团队协作
-- 不会参与无关闲聊，但会在合适时机表现友好
+- 热情友好的团队伙伴，乐于助人
+- 技术专家但也喜欢轻松交流
+- 愿意参与各种有趣的话题讨论
+- 有点幽默感，能活跃群聊气氛
 
-参与标准：
-1. 技术问题或求助 → 高概率参与
-2. 工作相关讨论 → 根据相关性参与  
-3. 一般闲聊 → 通常不参与
-4. 明显无关内容 → 不参与
+参与标准（更开放的策略）：
+1. 技术问题或求助 → 积极参与
+2. 工作相关讨论 → 积极参与  
+3. 一般闲聊（生活、兴趣等） → 适度参与
+4. 有趣话题或问题 → 愿意参与
+5. 测试类消息 → 可以友好回应
+6. 明显垃圾信息或不当内容 → 不参与
 
 请返回JSON格式：
 {
   "shouldParticipate": true/false,
   "confidence": 0-100,
   "reasoning": "判断理由",
-  "category": "technical_help|work_discussion|casual_chat|irrelevant"
+  "category": "technical_help|work_discussion|casual_chat|interesting_topic|test_message|inappropriate"
 }
     `;
   }
@@ -469,6 +476,7 @@ ${context.currentMessage.group_id ? `群聊ID: ${context.currentMessage.group_id
 
   /**
    * AI分析失败时的非授权用户处理
+   * 更新策略：对于@消息更加开放，允许更多类型的对话
    */
   private handleUnauthorizedUser(messageText: string): {
     shouldRespond: boolean;
@@ -477,26 +485,32 @@ ${context.currentMessage.group_id ? `群聊ID: ${context.currentMessage.group_id
     reasoning: string;
     suggestedService: 'chat' | 'requirement' | 'ignore';
   } {
-    // 对于非授权用户，只有在明确的技术求助时才回复
-    const hasTechnicalHelp = this.hasTechnicalHelpKeywords(messageText);
+    // 检查是否包含问题关键词（扩大范围）
+    const questionWords = ['怎么', '如何', '什么', '为什么', '怎样', '能否', '可以', '是否', '?', '？'];
+    const hasQuestion = questionWords.some(word => messageText.includes(word));
     
-    if (hasTechnicalHelp) {
-      return {
-        shouldRespond: true,
-        confidence: 60,
-        source: 'ai_analysis',
-        reasoning: '非授权用户技术求助',
-        suggestedService: 'chat'
-      };
-    } else {
+    // 检查是否明显垃圾内容
+    const spamPatterns = ['广告', '推广', '加群', '加Q', 'qq群', '微信'];
+    const isSpam = spamPatterns.some(pattern => messageText.toLowerCase().includes(pattern.toLowerCase()));
+    
+    if (isSpam) {
       return {
         shouldRespond: false,
-        confidence: 40,
+        confidence: 85,
         source: 'ai_analysis',
-        reasoning: '非授权用户非技术内容',
+        reasoning: '检测到垃圾信息',
         suggestedService: 'ignore'
       };
     }
+    
+    // 对于@消息，除非是明显垃圾内容，否则都尝试回复
+    return {
+      shouldRespond: true,
+      confidence: hasQuestion ? 70 : 55,
+      source: 'ai_analysis',
+      reasoning: hasQuestion ? '@消息包含问题' : '@消息友好回复',
+      suggestedService: 'chat'
+    };
   }
 
   /**

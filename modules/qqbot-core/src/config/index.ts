@@ -30,7 +30,7 @@ export const config: AppConfig = {
   
   ai: {
     gemini_api_keys: (process.env.GEMINI_API_KEYS || '').split(',').filter(key => key.trim()),
-    model_name: process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp',
+    model_name: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     authorized_user_id: parseInt(process.env.AUTHORIZED_USER_ID || '85178516', 10),
     bot_qq_number: parseInt(process.env.BOT_QQ_NUMBER || '1129974489', 10)
   },
