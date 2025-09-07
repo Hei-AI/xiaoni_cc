@@ -121,6 +121,309 @@ app.get('/api/database/test', async (req, res) => {
   }
 });
 
+// Token Management API endpoints
+app.get('/api/tokens', async (req, res) => {
+  try {
+    const tokens = await database.executeQuery(`
+      SELECT 
+        id, project_name, project_id, is_active, is_healthy,
+        daily_limit, daily_used, total_used, 
+        last_used, last_health_check, error_count, last_error_time,
+        priority, weight, blacklisted_until, blacklist_reason,
+        created_at, updated_at
+      FROM api_tokens 
+      ORDER BY priority ASC, created_at DESC
+    `);
+    
+    res.json({
+      success: true,
+      data: tokens,
+      total: tokens.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Failed to get tokens', { error });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get tokens',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Token health check test endpoint - 测试版本(无需数据库)
+app.post('/api/tokens/health-check-test', async (req, res) => {
+  try {
+    logger.info('Starting real token health check test...');
+    
+    // 测试用的模拟Token数据
+    const testTokens = [
+      {
+        id: 1,
+        token: 'invalid_test_token_12345',
+        project_name: 'Test Project 1'
+      },
+      {
+        id: 2, 
+        token: 'another_invalid_test_token_67890',
+        project_name: 'Test Project 2'
+      }
+    ];
+    
+    logger.info(`Found ${testTokens.length} test tokens to check`);
+    
+    let healthyCount = 0;
+    const axios = require('axios');
+    
+    // 并行检查所有Token
+    const checkPromises = testTokens.map(async (tokenData: any) => {
+      try {
+        const startTime = Date.now();
+        
+        // 发送测试请求到Gemini API
+        const response = await axios.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+          {
+            contents: [{
+              parts: [{
+                text: "Test health check - respond with 'OK'"
+              }]
+            }]
+          },
+          {
+            headers: {
+              'X-goog-api-key': tokenData.token,
+              'Content-Type': 'application/json'
+            },
+            timeout: 10000  // 10秒超时
+          }
+        );
+        
+        const responseTime = Date.now() - startTime;
+        
+        if (response.status === 200 && response.data.candidates) {
+          logger.info(`Token ${tokenData.project_name} is healthy (${responseTime}ms)`);
+          healthyCount++;
+          return { id: tokenData.id, healthy: true };
+        }
+      } catch (error: any) {
+        // Token不健康，记录错误
+        const errorMessage = error.response?.data?.error?.message || error.message || 'Unknown error';
+        
+        logger.warn(`Token ${tokenData.project_name} failed health check: ${errorMessage}`);
+        return { id: tokenData.id, healthy: false, error: errorMessage };
+      }
+    });
+    
+    const results = await Promise.allSettled(checkPromises);
+    const totalChecked = results.length;
+    
+    logger.info(`Health check test completed: ${healthyCount}/${totalChecked} tokens healthy`);
+    
+    res.json({
+      success: true,
+      message: 'Real health check test completed (using fake tokens)',
+      summary: {
+        totalTokens: totalChecked,
+        healthyTokens: healthyCount,
+        failedTokens: totalChecked - healthyCount,
+        healthyRate: totalChecked > 0 ? (healthyCount / totalChecked * 100).toFixed(1) + '%' : '0%'
+      },
+      results: results.map(result => result.status === 'fulfilled' ? result.value : { error: 'Promise rejected' }),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Token health check test failed', { error });
+    res.status(500).json({
+      success: false,
+      error: 'Token health check test failed',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Token health check endpoint - 真实的健康检查
+app.post('/api/tokens/health-check', async (req, res) => {
+  try {
+    logger.info('Starting real token health check...');
+    
+    // 获取所有活跃的Token
+    const tokens = await database.executeQuery(`
+      SELECT id, token, project_name FROM api_tokens WHERE is_active = TRUE
+    `);
+    
+    logger.info(`Found ${tokens.length} active tokens to check`);
+    
+    let healthyCount = 0;
+    const axios = require('axios');
+    
+    // 并行检查所有Token
+    const checkPromises = tokens.map(async (tokenData: any) => {
+      try {
+        const startTime = Date.now();
+        
+        // 发送测试请求到Gemini API
+        const response = await axios.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+          {
+            contents: [{
+              parts: [{
+                text: "Test health check - respond with 'OK'"
+              }]
+            }]
+          },
+          {
+            headers: {
+              'X-goog-api-key': tokenData.token,
+              'Content-Type': 'application/json'
+            },
+            timeout: 10000  // 10秒超时
+          }
+        );
+        
+        const responseTime = Date.now() - startTime;
+        
+        if (response.status === 200 && response.data.candidates) {
+          // Token健康，更新数据库
+          await database.executeUpdate(`
+            UPDATE api_tokens SET 
+              is_healthy = TRUE,
+              error_count = 0,
+              last_error = NULL,
+              last_error_time = NULL,
+              last_health_check = NOW()
+            WHERE id = ?
+          `, [tokenData.id]);
+          
+          logger.info(`Token ${tokenData.project_name} is healthy (${responseTime}ms)`);
+          healthyCount++;
+          return { id: tokenData.id, healthy: true };
+        }
+      } catch (error: any) {
+        // Token不健康，更新数据库
+        const errorMessage = error.response?.data?.error?.message || error.message || 'Unknown error';
+        
+        await database.executeUpdate(`
+          UPDATE api_tokens SET 
+            is_healthy = FALSE,
+            error_count = error_count + 1,
+            last_error = ?,
+            last_error_time = NOW(),
+            last_health_check = NOW()
+          WHERE id = ?
+        `, [errorMessage, tokenData.id]);
+        
+        logger.warn(`Token ${tokenData.project_name} failed health check: ${errorMessage}`);
+        return { id: tokenData.id, healthy: false, error: errorMessage };
+      }
+    });
+    
+    const results = await Promise.allSettled(checkPromises);
+    const totalChecked = results.length;
+    
+    logger.info(`Health check completed: ${healthyCount}/${totalChecked} tokens healthy`);
+    
+    res.json({
+      success: true,
+      message: 'Real health check completed',
+      summary: {
+        totalTokens: totalChecked,
+        healthyTokens: healthyCount,
+        failedTokens: totalChecked - healthyCount,
+        healthyRate: totalChecked > 0 ? (healthyCount / totalChecked * 100).toFixed(1) + '%' : '0%'
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Token health check failed', { error });
+    res.status(500).json({
+      success: false,
+      error: 'Token health check failed',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Token force reset endpoint - 强制重置DB状态(仅用于紧急情况)
+app.post('/api/tokens/force-reset', async (req, res) => {
+  try {
+    logger.warn('Force resetting token database states (emergency use only)...');
+    
+    const result = await database.executeUpdate(`
+      UPDATE api_tokens SET 
+        is_healthy = TRUE,
+        error_count = 0,
+        last_error = NULL,
+        last_error_time = NULL,
+        last_health_check = NOW(),
+        blacklisted_until = NULL,
+        blacklist_reason = NULL
+      WHERE is_active = TRUE
+    `);
+    
+    logger.warn('Token force reset completed', { affectedTokens: result });
+    
+    res.json({
+      success: true,
+      message: 'Force reset completed (emergency use only)',
+      warning: 'This only resets database states, not real token validity',
+      affectedTokens: result,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Token force reset failed', { error });
+    res.status(500).json({
+      success: false,
+      error: 'Token force reset failed',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Token statistics endpoint
+app.get('/api/tokens/stats', async (req, res) => {
+  try {
+    const stats = await database.executeQuery(`
+      SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN is_active = TRUE THEN 1 ELSE 0 END) as active,
+        SUM(CASE WHEN is_healthy = TRUE THEN 1 ELSE 0 END) as healthy,
+        SUM(CASE WHEN blacklisted_until > NOW() THEN 1 ELSE 0 END) as blacklisted,
+        SUM(CASE WHEN daily_used >= daily_limit THEN 1 ELSE 0 END) as over_daily_limit
+      FROM api_tokens
+    `);
+    
+    const recentLogs = await database.executeQuery(`
+      SELECT tl.*, at.project_name 
+      FROM token_logs tl
+      JOIN api_tokens at ON tl.token_id = at.id
+      ORDER BY tl.created_at DESC 
+      LIMIT 10
+    `);
+    
+    res.json({
+      success: true,
+      data: {
+        summary: stats[0] || {},
+        recentLogs: recentLogs || []
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Failed to get token stats', { error });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get token stats',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Conversations API endpoints
 app.get('/api/conversations', async (req, res) => {
   try {

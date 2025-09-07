@@ -206,8 +206,19 @@ npm run dev          # Express API开发服务器
 ### 共享数据库资源
 所有模块共享单一MySQL数据库：
 - **数据库**: `qqbot_db`
-- **用户**: `qqbot / qqbot_password`
+- **用户**: `qqbot_user / qqbot_password` ⚠️ **重要**: 必须使用 `qqbot_user`，不是 `qqbot`
 - **连接方式**: MySQL2连接池
+
+### 数据库配置注意事项
+各模块的 `.env` 文件中必须正确配置数据库用户名：
+```bash
+# 正确的配置
+DB_USER=qqbot_user  # ✅ 正确
+DB_PASSWORD=qqbot_password
+
+# 常见错误
+DB_USER=qqbot  # ❌ 错误，会导致 "Access denied for user 'qqbot'" 错误
+```
 
 ### 核心数据表
 - `conversations`: AI对话历史和会话记录
@@ -466,6 +477,41 @@ grep -n "authorized_user_id" modules/qqbot-core/src/engines/decision-engine.ts
 - 系统配置管理接口
 - 数据分析和统计接口
 - 用户权限管理接口
+
+#### Token 管理 API (端口: 9080)
+- `GET /api/tokens` - 获取所有token列表，包括健康状态和使用统计
+- `POST /api/tokens/health-check` - 执行真实的token健康检查 (调用Gemini API验证)
+- `POST /api/tokens/health-check-test` - 测试版健康检查 (使用假token进行功能演示)
+
+#### 健康检查实现说明
+Token健康检查功能通过实际调用Google Gemini API来验证token是否可用：
+```typescript
+// 健康检查逻辑示例
+const response = await axios.post(
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+  {
+    contents: [{
+      parts: [{ text: "Test health check - respond with 'OK'" }]
+    }]
+  },
+  {
+    headers: {
+      'X-goog-api-key': token,
+      'Content-Type': 'application/json'
+    },
+    timeout: 10000
+  }
+);
+```
+
+#### 测试命令
+```bash
+# 获取token列表
+curl http://localhost:9080/api/tokens
+
+# 执行健康检查测试 (使用假token演示功能)
+curl -X POST http://localhost:9080/api/tokens/health-check-test
+```
 
 ## ⚠️ 启动和部署常见问题
 
