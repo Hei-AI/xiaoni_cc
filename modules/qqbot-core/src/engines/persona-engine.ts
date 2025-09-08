@@ -48,7 +48,8 @@ export class PersonaEngine {
    */
   async generateResponse(
     userMessage: string,
-    context: ResponseContext
+    context: ResponseContext,
+    traceId?: string
   ): Promise<PersonaResponse> {
     const startTime = Date.now();
     
@@ -60,7 +61,8 @@ export class PersonaEngine {
       const rawResponse = await this.generatePersonalizedResponse(
         userMessage, 
         context, 
-        selectedPersona
+        selectedPersona,
+        traceId
       );
       
       // 第三步：应用后处理过滤器
@@ -87,6 +89,7 @@ export class PersonaEngine {
       }
       
       this.moduleLogger.info('Persona response generated', {
+        traceId,
         contextType: context.messageType,
         selectedPersona,
         generationTime,
@@ -109,6 +112,7 @@ export class PersonaEngine {
       
     } catch (error) {
       this.moduleLogger.error('Persona response generation failed', {
+        traceId,
         error: error instanceof Error ? error.message : 'Unknown error',
         contextType: context.messageType
       });
@@ -228,7 +232,8 @@ export class PersonaEngine {
   private async generatePersonalizedResponse(
     userMessage: string,
     context: ResponseContext,
-    personaAspect: string
+    personaAspect: string,
+    traceId?: string
   ): Promise<string> {
     
     const personaPrompt = this.buildPersonaPrompt(userMessage, context, personaAspect);
@@ -238,7 +243,8 @@ export class PersonaEngine {
         personaPrompt,
         0, // dummy user id for persona generation
         'chat_bot',
-        'persona_chat'
+        'persona_chat',
+        traceId
       );
       
       return response.ai_response;

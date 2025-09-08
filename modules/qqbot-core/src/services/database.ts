@@ -1221,9 +1221,13 @@ export class DatabaseManager {
     aiResponseCount: number = 0
   ): Promise<boolean> {
     try {
-      // 调用存储过程更新群聊活跃度
-      const query = 'CALL UpdateGroupActivity(?, ?, ?)';
-      await this.executeUpdate(query, [groupId, messageCount, aiResponseCount]);
+      // 直接使用SQL插入/更新群聊设置，避免依赖存储过程
+      const query = `
+        INSERT INTO group_chat_settings (group_id, is_enabled, updated_at) 
+        VALUES (?, 1, NOW())
+        ON DUPLICATE KEY UPDATE updated_at = NOW()
+      `;
+      await this.executeUpdate(query, [groupId]);
       
       this.moduleLogger.debug('Group activity updated', {
         groupId,

@@ -6,6 +6,7 @@ import HttpServer from './services/http-server';
 import AIService from './services/ai-service';
 import RemoteClaudeService from './services/remote-claude-service';
 import { SessionManager } from './services/session-manager';
+import { LoggingService } from './services/logging-service';
 import DecisionEngine from './engines/decision-engine';
 import PersonaEngine from './engines/persona-engine';
 import ContextEngine from './engines/context-engine';
@@ -28,6 +29,7 @@ class QQBot {
   private aiService: AIService;
   private remoteClaudeService: RemoteClaudeService;
   private sessionManager: SessionManager;
+  private loggingService: LoggingService;
   
   // Stage 1 Engines
   private decisionEngine: DecisionEngine;
@@ -43,8 +45,9 @@ class QQBot {
 
   constructor() {
     this.database = getDatabaseManager(config.database);
-    this.websocketClient = new WebSocketClient(config.websocket);
-    this.aiService = new AIService(config.ai, this.database);
+    this.loggingService = new LoggingService(this.database);
+    this.websocketClient = new WebSocketClient(config.websocket, this.loggingService);
+    this.aiService = new AIService(config.ai, this.database, this.loggingService);
     this.remoteClaudeService = new RemoteClaudeService(this.database);
     this.sessionManager = new SessionManager(this.database);
     
@@ -127,9 +130,12 @@ class QQBot {
     this.websocketClient.on('message_sent', this.handleMessageSent.bind(this));
   }
 
-  private async handlePrivateMessage(message: QQMessage): Promise<void> {
+  private async handlePrivateMessage(message: QQMessage, eventData?: any): Promise<void> {
+    const traceId = eventData?.traceId;
+    
     try {
       this.moduleLogger.info('Received private message', {
+        traceId,
         user_id: message.user_id,
         message: message.message
       });
@@ -138,10 +144,10 @@ class QQBot {
       const userMessage = typeof message.message === 'string' ? message.message.trim() : '';
 
       // Stage 1: Build comprehensive message context using ContextEngine
-      const messageContext = await this.buildMessageContext(message);
+      const messageContext = await this.buildMessageContext(message, traceId);
       
       // Stage 1: Use DecisionEngine for intelligent response decision
-      const decision = await this.decisionEngine.analyzeMessage(messageContext);
+      const decision = await this.decisionEngine.analyzeMessage(messageContext, traceId);
       
       this.moduleLogger.info('Decision engine result', {
         shouldRespond: decision.shouldRespond,
@@ -179,7 +185,7 @@ class QQBot {
             (sessionContext.session_type === 'requirement' || 
             (sessionContext.session_type === 'chat' && userMessage.length > 100))) {
           // 分析是否为需求
-          const intent = await this.aiService.analyzeIntent(userMessage, userId);
+          const intent = await this.aiService.analyzeIntent(userMessage, userId, traceId);
           
           if (intent.isRequirement && intent.confidence > 60) {
             await this.handleRequirement(userId, userMessage, intent, message, sessionContext.session_id);
@@ -194,7 +200,8 @@ class QQBot {
         userMessage, 
         message, 
         messageContext, 
-        sessionContext.session_id
+        sessionContext.session_id,
+        traceId
       );
 
     } catch (error) {
@@ -226,9 +233,12 @@ class QQBot {
     }
   }
 
-  private async handleGroupMessage(message: QQMessage): Promise<void> {
+  private async handleGroupMessage(message: QQMessage, eventData?: any): Promise<void> {
+    const traceId = eventData?.traceId;
+    
     console.log('🚨 EMERGENCY DEBUG: handleGroupMessage CALLED!', message.group_id, message.user_id);
     this.moduleLogger.info('🎯 handleGroupMessage called', {
+      traceId,
       group_id: message.group_id,
       user_id: message.user_id,
       message_type: message.message_type,
@@ -337,10 +347,10 @@ class QQBot {
 
       // Stage 1: Build comprehensive message context for group message
       const messageWithCleanContent = { ...message, message: cleanMessage };
-      const messageContext = await this.buildMessageContext(messageWithCleanContent);
+      const messageContext = await this.buildMessageContext(messageWithCleanContent, traceId);
       
       // Stage 1: Use DecisionEngine for group message decisions
-      const decision = await this.decisionEngine.analyzeMessage(messageContext);
+      const decision = await this.decisionEngine.analyzeMessage(messageContext, traceId);
       
       this.moduleLogger.info('Group message decision engine result', {
         shouldRespond: decision.shouldRespond,
@@ -372,7 +382,8 @@ class QQBot {
         cleanMessage, 
         messageWithCleanContent, 
         messageContext, 
-        sessionContext.session_id
+        sessionContext.session_id,
+        traceId
       );
 
     } catch (error) {
@@ -661,11 +672,11 @@ class QQBot {
   /**
    * Stage 1: Build comprehensive message context using ContextEngine
    */
-  private async buildMessageContext(message: QQMessage): Promise<MessageContext> {
+  private async buildMessageContext(message: QQMessage, traceId?: string): Promise<MessageContext> {
     try {
       // Use ContextEngine with the message object directly
       try {
-        return await this.contextEngine.buildContext(message);
+        return await this.contextEngine.buildContext(message, traceId);
       } catch (contextError) {
         this.moduleLogger.warn('ContextEngine failed, building minimal context', { 
           error: contextError instanceof Error ? contextError.message : 'Unknown error' 
@@ -719,7 +730,8 @@ class QQBot {
     userMessage: string,
     originalMessage: QQMessage,
     messageContext: MessageContext,
-    sessionId?: string
+    sessionId?: string,
+    traceId?: string
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -735,12 +747,13 @@ class QQBot {
       };
 
       // Generate base AI response
-      const baseConversation = await this.aiService.generateResponse(userMessage, userId);
+      const baseConversation = await this.aiService.generateResponse(userMessage, userId, 'chat_bot', 'enhanced_chat', traceId);
       
       // Enhance response with PersonaEngine
       const personaResponse = await this.personaEngine.generateResponse(
         userMessage,
-        responseContext
+        responseContext,
+        traceId
       );
       
       this.moduleLogger.info('PersonaEngine enhanced response', {
@@ -858,13 +871,14 @@ class QQBot {
     userId: number,
     message: string,
     originalMessage: QQMessage,
-    sessionId?: string
+    sessionId?: string,
+    traceId?: string
   ): Promise<void> {
     const startTime = Date.now();
 
     try {
       // 生成AI响应
-      const conversation = await this.aiService.generateResponse(message, userId);
+      const conversation = await this.aiService.generateResponse(message, userId, 'chat_bot', 'basic_chat', traceId);
       const responseTime = Date.now() - startTime;
 
       // 更新响应时间和Session关联
@@ -928,7 +942,7 @@ class QQBot {
     }
   }
 
-  private async handleNotice(notice: QQNotice): Promise<void> {
+  private async handleNotice(notice: QQNotice, eventData?: any): Promise<void> {
     this.moduleLogger.debug('Received notice', notice);
     
     if (notice.notice_type === 'group_increase') {
@@ -944,7 +958,7 @@ class QQBot {
     }
   }
 
-  private async handleRequest(request: QQRequest): Promise<void> {
+  private async handleRequest(request: QQRequest, eventData?: any): Promise<void> {
     this.moduleLogger.info('Received request', request);
     
     // 自动同意好友请求 (可以根据需要修改)
@@ -957,7 +971,7 @@ class QQBot {
     }
   }
 
-  private async handleMessageSent(event: any): Promise<void> {
+  private async handleMessageSent(event: any, eventData?: any): Promise<void> {
     this.moduleLogger.debug('Bot message sent', event);
   }
 

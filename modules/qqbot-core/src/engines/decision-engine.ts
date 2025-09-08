@@ -31,7 +31,7 @@ export class DecisionEngine {
   /**
    * 主要决策入口：分析是否应该回复消息
    */
-  async analyzeMessage(context: MessageContext): Promise<DecisionResult> {
+  async analyzeMessage(context: MessageContext, traceId?: string): Promise<DecisionResult> {
     const startTime = Date.now();
     
     try {
@@ -43,6 +43,7 @@ export class DecisionEngine {
         const analysisTime = Date.now() - startTime;
         
         this.moduleLogger.info('Rule-based decision made', {
+          traceId,
           messageId: context.currentMessage.message_id,
           decision: ruleResult.shouldRespond,
           source: ruleResult.source,
@@ -67,10 +68,11 @@ export class DecisionEngine {
       }
       
       // 第二步：需要AI分析的情况（主要是群聊消息）
-      const aiResult = await this.performAIAnalysis(context);
+      const aiResult = await this.performAIAnalysis(context, traceId);
       const analysisTime = Date.now() - startTime;
       
       this.moduleLogger.info('AI-based decision made', {
+        traceId,
         messageId: context.currentMessage.message_id,
         decision: aiResult.shouldRespond,
         confidence: aiResult.confidence,
@@ -93,6 +95,7 @@ export class DecisionEngine {
       
     } catch (error) {
       this.moduleLogger.error('Decision analysis failed', {
+        traceId,
         error: error instanceof Error ? error.message : 'Unknown error',
         messageId: context.currentMessage.message_id
       });
@@ -225,7 +228,7 @@ export class DecisionEngine {
   /**
    * AI分析：对需要智能判断的消息进行分析
    */
-  private async performAIAnalysis(context: MessageContext): Promise<{
+  private async performAIAnalysis(context: MessageContext, traceId?: string): Promise<{
     shouldRespond: boolean;
     confidence: number;
     source: 'ai_analysis';
@@ -245,7 +248,8 @@ export class DecisionEngine {
         analysisPrompt,
         context.currentMessage.user_id,
         'intent_analyzer',
-        'participation_analysis'
+        'participation_analysis',
+        traceId
       );
       
       // 解析AI响应
@@ -265,6 +269,7 @@ export class DecisionEngine {
       
     } catch (error) {
       this.moduleLogger.warn('AI analysis failed, using fallback', {
+        traceId,
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       

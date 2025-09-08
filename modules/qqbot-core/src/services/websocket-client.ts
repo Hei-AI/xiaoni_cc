@@ -2,6 +2,9 @@ import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import { WebSocketConfig, QQMessage, QQNotice, QQRequest, WebSocketEvent } from '../types';
 import { logger } from '../utils/logger';
+import { LoggingService } from './logging-service';
+import { TraceIdGenerator, ExecutionContext, createExecutionContext } from '../utils/trace-id';
+import { TraceStrategyManager, createEventContext } from '../utils/trace-strategy';
 
 interface WebSocketMessage extends WebSocketEvent {
   message?: string;
@@ -19,10 +22,12 @@ export class WebSocketClient extends EventEmitter {
   private reconnectAttempts: number = 0;
   private isConnecting: boolean = false;
   private isManualClose: boolean = false;
+  private loggingService: LoggingService | null = null;
 
-  constructor(config: WebSocketConfig) {
+  constructor(config: WebSocketConfig, loggingService?: LoggingService) {
     super();
     this.config = config;
+    this.loggingService = loggingService || null;
   }
 
   public async connect(): Promise<void> {
@@ -58,67 +63,139 @@ export class WebSocketClient extends EventEmitter {
     this.emit('connected');
   }
 
-  private handleMessage(data: WebSocket.Data): void {
+  private async handleMessage(data: WebSocket.Data): Promise<void> {
+    const startTime = Date.now();
+    let traceId: string | null = null;
+    let logId: number | null = null;
+
     try {
       const message = JSON.parse(data.toString()) as WebSocketMessage;
+      
+      // 创建事件上下文并决定是否生成TraceID
+      const eventContext = createEventContext(message.post_type, message);
+      traceId = eventContext.traceId;
+
       this.moduleLogger.info('🔍 WebSocket message received', { 
         post_type: message.post_type, 
         message_type: message.message_type,
         user_id: message.user_id,
         group_id: message.group_id,
+        traceId,
+        priority: eventContext.priority,
+        shouldLog: eventContext.shouldLog,
         raw: JSON.stringify(message).substring(0, 500) + (JSON.stringify(message).length > 500 ? '...' : '')
       });
+
+      // 记录WebSocket接收日志（如果需要）
+      if (this.loggingService && eventContext.shouldLog) {
+        try {
+          logId = await this.loggingService.logWebSocketMessage({
+            traceId,
+            direction: 'IN',
+            messageType: message.post_type || 'unknown',
+            eventPriority: eventContext.priority,
+            rawPayload: message,
+            userId: message.user_id,
+            groupId: message.group_id,
+            messageId: message.message_id,
+            processingTimeMs: Date.now() - startTime,
+            status: 'SUCCESS'
+          });
+
+          this.moduleLogger.info('📝 WebSocket IN logged', { logId, traceId });
+        } catch (logError) {
+          this.moduleLogger.error('Failed to log WebSocket IN message', { 
+            error: logError.message, 
+            traceId 
+          });
+        }
+      }
 
       // 对于群聊消息，显示完整的JSON结构
       if (message.post_type === 'message' && message.message_type === 'group') {
         this.moduleLogger.info('📄 Complete group message JSON:', {
+          traceId,
           fullMessage: JSON.stringify(message, null, 2)
         });
       }
 
       // 检查是否是API响应消息
       if (this.isApiResponse(message)) {
-        this.handleApiResponse(message as any);
+        await this.handleApiResponse(message as any, traceId);
         return;
       }
 
-      // 根据消息类型分发事件
+      // 根据消息类型分发事件，传递TraceID和其他上下文
+      const eventData = { traceId, logId, startTime, eventContext };
+      
       switch (message.post_type) {
         case 'message':
           this.moduleLogger.info('📨 Processing message event', { 
+            traceId,
             message_type: message.message_type,
             user_id: message.user_id,
             group_id: message.group_id
           });
-          this.handleQQMessage(message as unknown as QQMessage);
+          await this.handleQQMessage(message as unknown as QQMessage, eventData);
           break;
         case 'message_sent':
-          this.emit('message_sent', message);
+          this.emit('message_sent', message, eventData);
           break;
         case 'notice':
-          this.handleQQNotice(message as unknown as QQNotice);
+          await this.handleQQNotice(message as unknown as QQNotice, eventData);
           break;
         case 'request':
-          this.handleQQRequest(message as unknown as QQRequest);
+          await this.handleQQRequest(message as unknown as QQRequest, eventData);
           break;
         case 'meta_event':
-          this.handleQQMetaEvent(message as unknown as any);
+          await this.handleQQMetaEvent(message as unknown as any, eventData);
           break;
         default:
           this.moduleLogger.warn('Unknown message type', { 
+            traceId,
             type: message.post_type, 
             message: JSON.stringify(message).substring(0, 500) 
           });
       }
 
-      this.emit('raw_message', message);
+      this.emit('raw_message', message, eventData);
     } catch (error) {
-      this.moduleLogger.error('Failed to parse WebSocket message', { error, data: data.toString() });
+      const processingTime = Date.now() - startTime;
+      
+      this.moduleLogger.error('Failed to parse WebSocket message', { 
+        traceId,
+        error: error.message, 
+        processingTime,
+        data: data.toString().substring(0, 500) 
+      });
+
+      // 记录错误日志
+      if (this.loggingService && traceId) {
+        try {
+          await this.loggingService.logWebSocketMessage({
+            traceId,
+            direction: 'IN',
+            messageType: 'parse_error',
+            eventPriority: 'HIGH',
+            rawPayload: { error: error.message, data: data.toString().substring(0, 500) },
+            processingTimeMs: processingTime,
+            status: 'ERROR',
+            errorMessage: error.message
+          });
+        } catch (logError) {
+          this.moduleLogger.error('Failed to log WebSocket parse error', { 
+            error: logError.message 
+          });
+        }
+      }
     }
   }
 
-  private handleQQMessage(message: QQMessage): void {
+  private async handleQQMessage(message: QQMessage, eventData?: any): Promise<void> {
+    const traceId = eventData?.traceId;
+    
     this.moduleLogger.info('🎯 handleQQMessage called', { 
+      traceId,
       message_type: message.message_type,
       user_id: message.user_id,
       group_id: message.group_id,
@@ -129,13 +206,13 @@ export class WebSocketClient extends EventEmitter {
     message = this.normalizeMessage(message);
     
     if (message.message_type === 'private') {
-      this.moduleLogger.info('📞 Emitting private_message event');
-      this.emit('private_message', message);
+      this.moduleLogger.info('📞 Emitting private_message event', { traceId });
+      this.emit('private_message', message, eventData);
     } else if (message.message_type === 'group') {
-      this.moduleLogger.info('👥 Emitting group_message event', { group_id: message.group_id });
-      this.emit('group_message', message);
+      this.moduleLogger.info('👥 Emitting group_message event', { traceId, group_id: message.group_id });
+      this.emit('group_message', message, eventData);
     }
-    this.emit('message', message);
+    this.emit('message', message, eventData);
   }
 
   private normalizeMessage(message: QQMessage): QQMessage {
@@ -155,28 +232,46 @@ export class WebSocketClient extends EventEmitter {
       .trim();
   }
 
-  private handleQQNotice(notice: QQNotice): void {
-    this.emit('notice', notice);
+  private async handleQQNotice(notice: QQNotice, eventData?: any): Promise<void> {
+    const traceId = eventData?.traceId;
+    
+    this.moduleLogger.info('🔔 Processing notice event', { 
+      traceId,
+      notice_type: notice.notice_type,
+      user_id: notice.user_id,
+      group_id: notice.group_id
+    });
+    
+    this.emit('notice', notice, eventData);
     
     // 具体通知类型
     if (notice.notice_type === 'group_increase') {
-      this.emit('group_member_increase', notice);
+      this.emit('group_member_increase', notice, eventData);
     } else if (notice.notice_type === 'group_decrease') {
-      this.emit('group_member_decrease', notice);
+      this.emit('group_member_decrease', notice, eventData);
     }
   }
 
-  private handleQQRequest(request: QQRequest): void {
-    this.emit('request', request);
+  private async handleQQRequest(request: QQRequest, eventData?: any): Promise<void> {
+    const traceId = eventData?.traceId;
+    
+    this.moduleLogger.info('📋 Processing request event', { 
+      traceId,
+      request_type: request.request_type,
+      user_id: request.user_id,
+      group_id: request.group_id
+    });
+    
+    this.emit('request', request, eventData);
     
     if (request.request_type === 'friend') {
-      this.emit('friend_request', request);
+      this.emit('friend_request', request, eventData);
     } else if (request.request_type === 'group') {
-      this.emit('group_request', request);
+      this.emit('group_request', request, eventData);
     }
   }
 
-  private handleQQMetaEvent(metaEvent: any): void {
+  private async handleQQMetaEvent(metaEvent: any, eventData?: any): Promise<void> {
     // 处理元事件（心跳、生命周期等）
     this.moduleLogger.debug('Received meta event', {
       meta_event_type: metaEvent.meta_event_type,
@@ -219,7 +314,7 @@ export class WebSocketClient extends EventEmitter {
     );
   }
 
-  private handleApiResponse(response: any): void {
+  private async handleApiResponse(response: any, traceId?: string | null): Promise<void> {
     // 处理API响应消息
     this.moduleLogger.debug('Received API response', {
       status: response.status,
@@ -279,7 +374,9 @@ export class WebSocketClient extends EventEmitter {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  public async sendMessage(data: any): Promise<void> {
+  public async sendMessage(data: any, traceId?: string): Promise<void> {
+    const startTime = Date.now();
+    
     if (!this.isConnected()) {
       throw new Error('WebSocket is not connected');
     }
@@ -287,9 +384,67 @@ export class WebSocketClient extends EventEmitter {
     try {
       const jsonData = JSON.stringify(data);
       this.ws!.send(jsonData);
-      this.moduleLogger.info('Message sent to OneBot server', { action: data.action, params: data.params });
+      
+      const processingTime = Date.now() - startTime;
+      
+      this.moduleLogger.info('Message sent to OneBot server', { 
+        traceId,
+        action: data.action, 
+        params: data.params,
+        processingTime
+      });
+
+      // 记录WebSocket发送日志
+      if (this.loggingService) {
+        try {
+          await this.loggingService.logWebSocketMessage({
+            traceId,
+            direction: 'OUT',
+            messageType: data.action || 'unknown_action',
+            eventPriority: 'HIGH',
+            rawPayload: data,
+            processingTimeMs: processingTime,
+            status: 'SUCCESS'
+          });
+
+          this.moduleLogger.info('📝 WebSocket OUT logged', { traceId, action: data.action });
+        } catch (logError) {
+          this.moduleLogger.error('Failed to log WebSocket OUT message', { 
+            error: logError.message, 
+            traceId 
+          });
+        }
+      }
     } catch (error) {
-      this.moduleLogger.error('Failed to send message', { error, data });
+      const processingTime = Date.now() - startTime;
+      
+      this.moduleLogger.error('Failed to send message', { 
+        traceId, 
+        error: error.message, 
+        data, 
+        processingTime 
+      });
+
+      // 记录错误发送日志
+      if (this.loggingService) {
+        try {
+          await this.loggingService.logWebSocketMessage({
+            traceId,
+            direction: 'OUT',
+            messageType: data.action || 'unknown_action',
+            eventPriority: 'HIGH',
+            rawPayload: data,
+            processingTimeMs: processingTime,
+            status: 'ERROR',
+            errorMessage: error.message
+          });
+        } catch (logError) {
+          this.moduleLogger.error('Failed to log WebSocket OUT error', { 
+            error: logError.message 
+          });
+        }
+      }
+
       throw error;
     }
   }

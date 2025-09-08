@@ -432,6 +432,292 @@
             </div>
         </div>
         
+        <!-- Logs Management Page -->
+        <div x-show="currentPage === 'logs'" x-transition class="page">
+            <div class="container mx-auto px-4 py-8">
+                <div class="mb-8">
+                    <h1 class="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-purple-500 bg-clip-text text-transparent mb-2">
+                        日志管理
+                    </h1>
+                    <p class="text-gray-400">查看和分析系统日志、WebSocket通信和LLM调用记录</p>
+                </div>
+                
+                <!-- Log Type Tabs -->
+                <div class="glass-card rounded-xl p-6 mb-6">
+                    <div class="flex flex-wrap gap-2 mb-4">
+                        <button @click="logType = 'websocket'" 
+                                :class="logType === 'websocket' ? 'bg-blue-500 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/20'"
+                                class="px-4 py-2 rounded-lg transition-colors">
+                            <i class="fas fa-plug mr-2"></i>WebSocket日志
+                        </button>
+                        <button @click="logType = 'llm'" 
+                                :class="logType === 'llm' ? 'bg-purple-500 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/20'"
+                                class="px-4 py-2 rounded-lg transition-colors">
+                            <i class="fas fa-robot mr-2"></i>LLM调用日志
+                        </button>
+                        <button @click="logType = 'sessions'" 
+                                :class="logType === 'sessions' ? 'bg-green-500 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/20'"
+                                class="px-4 py-2 rounded-lg transition-colors">
+                            <i class="fas fa-sitemap mr-2"></i>会话跟踪
+                        </button>
+                        <button @click="logType = 'statistics'" 
+                                :class="logType === 'statistics' ? 'bg-orange-500 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/20'"
+                                class="px-4 py-2 rounded-lg transition-colors">
+                            <i class="fas fa-chart-bar mr-2"></i>统计分析
+                        </button>
+                    </div>
+                    
+                    <!-- Common Filters -->
+                    <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">TraceID</label>
+                            <input type="text" x-model="logFilters.traceId" placeholder="输入TraceID"
+                                   class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">用户ID</label>
+                            <input type="number" x-model="logFilters.userId" placeholder="用户QQ号"
+                                   class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">开始时间</label>
+                            <input type="datetime-local" x-model="logFilters.startTime"
+                                   class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:border-blue-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">结束时间</label>
+                            <input type="datetime-local" x-model="logFilters.endTime"
+                                   class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:border-blue-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">显示数量</label>
+                            <select x-model="logFilters.limit" 
+                                    class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:border-blue-500 focus:outline-none">
+                                <option value="20">20条</option>
+                                <option value="50">50条</option>
+                                <option value="100">100条</option>
+                                <option value="200">200条</option>
+                            </select>
+                        </div>
+                        <div class="flex items-end">
+                            <button @click="loadLogs()" 
+                                    class="w-full px-4 py-2 crypto-gradient rounded-lg text-white font-medium hover:scale-105 transition-transform">
+                                <i class="fas fa-sync-alt mr-2"></i>刷新
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- WebSocket Logs -->
+                <div x-show="logType === 'websocket'" class="glass-card rounded-xl overflow-hidden">
+                    <div class="p-6 border-b border-white/10">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg font-semibold text-white">WebSocket通信日志</h3>
+                            <span class="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-sm" 
+                                  x-text="`${websocketLogs.length} 条记录`"></span>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="border-b border-white/10">
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">时间</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">TraceID</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">方向</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">消息类型</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">用户ID</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">状态</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">处理时间</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="log in websocketLogs" :key="log.id">
+                                    <tr class="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                        <td class="px-4 py-3 text-sm text-gray-300" x-text="formatDateTime(log.timestamp)"></td>
+                                        <td class="px-4 py-3 text-sm text-blue-400 font-mono" x-text="log.trace_id.substring(0, 8) + '...'"></td>
+                                        <td class="px-4 py-3">
+                                            <span :class="log.direction === 'IN' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'" 
+                                                  class="px-2 py-1 rounded text-xs" x-text="log.direction"></span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-white" x-text="log.message_type"></td>
+                                        <td class="px-4 py-3 text-sm text-gray-300" x-text="log.user_id || '-'"></td>
+                                        <td class="px-4 py-3">
+                                            <span :class="getStatusClass(log.status)" class="px-2 py-1 rounded text-xs" x-text="log.status"></span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-gray-300" x-text="log.processing_time_ms ? log.processing_time_ms + 'ms' : '-'"></td>
+                                        <td class="px-4 py-3">
+                                            <button @click="viewLogDetail(log, 'websocket')" 
+                                                    class="text-blue-400 hover:text-blue-300 text-sm">
+                                                <i class="fas fa-eye mr-1"></i>详情
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- LLM Call Logs -->
+                <div x-show="logType === 'llm'" class="glass-card rounded-xl overflow-hidden">
+                    <div class="p-6 border-b border-white/10">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg font-semibold text-white">LLM调用日志</h3>
+                            <span class="px-3 py-1 bg-purple-500/20 text-purple-400 rounded-full text-sm" 
+                                  x-text="`${llmLogs.length} 条记录`"></span>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="border-b border-white/10">
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">时间</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">TraceID</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">Agent类型</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">模型</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">用户ID</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">Token使用</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">响应时间</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">状态</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="log in llmLogs" :key="log.id">
+                                    <tr class="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                        <td class="px-4 py-3 text-sm text-gray-300" x-text="formatDateTime(log.timestamp)"></td>
+                                        <td class="px-4 py-3 text-sm text-blue-400 font-mono" x-text="log.trace_id.substring(0, 8) + '...'"></td>
+                                        <td class="px-4 py-3">
+                                            <span class="px-2 py-1 bg-purple-500/20 text-purple-400 rounded text-xs" x-text="log.agent_type"></span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-white" x-text="log.model_name"></td>
+                                        <td class="px-4 py-3 text-sm text-gray-300" x-text="log.user_id || '-'"></td>
+                                        <td class="px-4 py-3 text-sm text-gray-300" x-text="`${log.input_tokens || 0}/${log.output_tokens || 0}`"></td>
+                                        <td class="px-4 py-3 text-sm text-gray-300" x-text="(log.api_call_time_ms || 0) + 'ms'"></td>
+                                        <td class="px-4 py-3">
+                                            <span :class="getStatusClass(log.status)" class="px-2 py-1 rounded text-xs" x-text="log.status"></span>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <button @click="viewLogDetail(log, 'llm')" 
+                                                    class="text-blue-400 hover:text-blue-300 text-sm">
+                                                <i class="fas fa-eye mr-1"></i>详情
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- Session Traces -->
+                <div x-show="logType === 'sessions'" class="glass-card rounded-xl overflow-hidden">
+                    <div class="p-6 border-b border-white/10">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg font-semibold text-white">会话跟踪记录</h3>
+                            <span class="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-sm" 
+                                  x-text="`${sessionTraces.length} 条记录`"></span>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="border-b border-white/10">
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">时间</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">TraceID</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">用户ID</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">触发事件</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">LLM调用</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">WebSocket事件</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">总耗时</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">状态</th>
+                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-300">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="trace in sessionTraces" :key="trace.id">
+                                    <tr class="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                        <td class="px-4 py-3 text-sm text-gray-300" x-text="formatDateTime(trace.created_at)"></td>
+                                        <td class="px-4 py-3 text-sm text-blue-400 font-mono" x-text="trace.trace_id.substring(0, 8) + '...'"></td>
+                                        <td class="px-4 py-3 text-sm text-white" x-text="trace.user_id"></td>
+                                        <td class="px-4 py-3 text-sm text-gray-300" x-text="trace.trigger_event_type"></td>
+                                        <td class="px-4 py-3 text-sm text-gray-300" x-text="trace.llm_calls_count || 0"></td>
+                                        <td class="px-4 py-3 text-sm text-gray-300" x-text="trace.websocket_messages_count || 0"></td>
+                                        <td class="px-4 py-3 text-sm text-gray-300" x-text="(trace.total_processing_time_ms || 0) + 'ms'"></td>
+                                        <td class="px-4 py-3">
+                                            <span :class="getStatusClass(trace.status)" class="px-2 py-1 rounded text-xs" x-text="trace.status"></span>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <button @click="viewTraceChain(trace.trace_id)" 
+                                                    class="text-blue-400 hover:text-blue-300 text-sm">
+                                                <i class="fas fa-sitemap mr-1"></i>链路
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- Statistics Dashboard -->
+                <div x-show="logType === 'statistics'" class="space-y-6">
+                    <!-- Stats Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div class="glass-card rounded-xl p-6 text-center">
+                            <div class="mb-4">
+                                <div class="w-16 h-16 mx-auto rounded-full flex items-center justify-center success-gradient">
+                                    <i class="fas fa-plug text-2xl text-white"></i>
+                                </div>
+                            </div>
+                            <h3 class="text-2xl font-bold text-white mb-2" x-text="logStats.websocketTotal || 0"></h3>
+                            <p class="text-gray-400 text-sm">WebSocket消息总数</p>
+                        </div>
+                        <div class="glass-card rounded-xl p-6 text-center">
+                            <div class="mb-4">
+                                <div class="w-16 h-16 mx-auto rounded-full flex items-center justify-center crypto-gradient">
+                                    <i class="fas fa-robot text-2xl text-white"></i>
+                                </div>
+                            </div>
+                            <h3 class="text-2xl font-bold text-white mb-2" x-text="logStats.llmTotal || 0"></h3>
+                            <p class="text-gray-400 text-sm">LLM调用总数</p>
+                        </div>
+                        <div class="glass-card rounded-xl p-6 text-center">
+                            <div class="mb-4">
+                                <div class="w-16 h-16 mx-auto rounded-full flex items-center justify-center warning-gradient">
+                                    <i class="fas fa-chart-line text-2xl text-white"></i>
+                                </div>
+                            </div>
+                            <h3 class="text-2xl font-bold text-white mb-2" x-text="(logStats.avgResponseTime || 0).toFixed(1) + 'ms'"></h3>
+                            <p class="text-gray-400 text-sm">平均响应时间</p>
+                        </div>
+                        <div class="glass-card rounded-xl p-6 text-center">
+                            <div class="mb-4">
+                                <div class="w-16 h-16 mx-auto rounded-full flex items-center justify-center danger-gradient">
+                                    <i class="fas fa-exclamation-triangle text-2xl text-white"></i>
+                                </div>
+                            </div>
+                            <h3 class="text-2xl font-bold text-white mb-2" x-text="logStats.errorCount || 0"></h3>
+                            <p class="text-gray-400 text-sm">错误次数</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Charts -->
+                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        <div class="glass-card rounded-xl p-6">
+                            <h3 class="text-lg font-semibold text-white mb-4">日志类型分布</h3>
+                            <canvas id="logTypeChart" width="400" height="300"></canvas>
+                        </div>
+                        <div class="glass-card rounded-xl p-6">
+                            <h3 class="text-lg font-semibold text-white mb-4">响应时间趋势</h3>
+                            <canvas id="responseTimeChart" width="400" height="300"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <!-- Tokens Page -->
         <div x-show="currentPage === 'tokens'" x-transition class="page">
             <div class="container mx-auto px-4 py-8">
@@ -604,6 +890,7 @@
                 navigation: [
                     { id: 'dashboard', name: '仪表板', icon: 'fas fa-tachometer-alt' },
                     { id: 'conversations', name: '对话管理', icon: 'fas fa-comments' },
+                    { id: 'logs', name: '日志管理', icon: 'fas fa-clipboard-list' },
                     { id: 'tokens', name: 'Token管理', icon: 'fas fa-key' },
                     { id: 'groups', name: '群聊管理', icon: 'fas fa-users' },
                     { id: 'requirements', name: '需求管理', icon: 'fas fa-tasks' }
@@ -704,6 +991,24 @@
                     healthy: 0,
                     blacklisted: 0,
                     usageRate: 0
+                },
+                
+                // Logging
+                logType: 'websocket',
+                logFilters: {
+                    traceId: '',
+                    userId: '',
+                    startTime: '',
+                    endTime: '',
+                    limit: 50
+                },
+                websocketLogs: [],
+                llmLogs: [],
+                sessionLogs: [],
+                logStatistics: {
+                    websocket: { total: 0, incoming: 0, outgoing: 0, errors: 0 },
+                    llm: { total: 0, successful: 0, errors: 0 },
+                    sessions: { total: 0, completed: 0, errors: 0 }
                 },
                 
                 // Methods
@@ -892,6 +1197,171 @@
                     alert(`Token ${tokenId} 健康检查完成`);
                 },
                 
+                // 日志加载功能
+                async loadLogs() {
+                    this.loading = true;
+                    
+                    try {
+                        // 构建查询参数
+                        const params = new URLSearchParams();
+                        if (this.logFilters.traceId) params.append('traceId', this.logFilters.traceId);
+                        if (this.logFilters.userId) params.append('userId', this.logFilters.userId);
+                        if (this.logFilters.startTime) params.append('startTime', this.logFilters.startTime);
+                        if (this.logFilters.endTime) params.append('endTime', this.logFilters.endTime);
+                        if (this.logFilters.limit) params.append('limit', this.logFilters.limit.toString());
+                        
+                        // 根据当前日志类型调用相应的API
+                        let response;
+                        switch (this.logType) {
+                            case 'websocket':
+                                response = await fetch(`${this.apiBase}/logs/websocket?${params}`);
+                                if (response.ok) {
+                                    const data = await response.json();
+                                    this.websocketLogs = data.data || [];
+                                }
+                                break;
+                                
+                            case 'llm':
+                                response = await fetch(`${this.apiBase}/logs/llm?${params}`);
+                                if (response.ok) {
+                                    const data = await response.json();
+                                    this.llmLogs = data.data || [];
+                                }
+                                break;
+                                
+                            case 'sessions':
+                                response = await fetch(`${this.apiBase}/logs/sessions?${params}`);
+                                if (response.ok) {
+                                    const data = await response.json();
+                                    this.sessionLogs = data.data || [];
+                                }
+                                break;
+                        }
+                        
+                        // 同时加载统计信息
+                        await this.loadLogStatistics();
+                        
+                    } catch (error) {
+                        console.error('加载日志失败:', error);
+                        alert('加载日志失败，请检查网络连接');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                
+                // 加载日志统计信息
+                async loadLogStatistics() {
+                    try {
+                        const response = await fetch(`${this.apiBase}/logs/statistics`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            this.logStatistics = {
+                                websocket: data.websocket || { total: 0, incoming: 0, outgoing: 0, errors: 0 },
+                                llm: data.llm || { total: 0, successful: 0, errors: 0 },
+                                sessions: data.sessions || { total: 0, completed: 0, errors: 0 }
+                            };
+                        }
+                    } catch (error) {
+                        console.error('加载统计信息失败:', error);
+                    }
+                },
+                
+                // 查看日志详情
+                async viewLogDetail(log, type) {
+                    try {
+                        let detailInfo = '';
+                        
+                        if (type === 'websocket') {
+                            detailInfo = `
+TraceID: ${log.trace_id}
+会话ID: ${log.session_id}
+消息类型: ${log.message_type}
+方向: ${log.direction === 'incoming' ? '接收' : '发送'}
+用户ID: ${log.user_id || 'N/A'}
+群组ID: ${log.group_id || 'N/A'}
+处理时间: ${log.processing_time_ms || 0}ms
+状态: ${log.status}
+原始载荷: ${JSON.stringify(log.raw_payload, null, 2)}
+                            `.trim();
+                        } else if (type === 'llm') {
+                            detailInfo = `
+TraceID: ${log.trace_id}
+模型: ${log.model_name}
+Agent类型: ${log.agent_type}
+Prompt: ${log.prompt_name}
+输入Token: ${log.input_token_count || 0}
+输出Token: ${log.output_token_count || 0}
+响应时间: ${log.response_time_ms}ms
+成功: ${log.success ? '是' : '否'}
+${log.error_message ? '错误: ' + log.error_message : ''}
+输入内容: ${log.input_prompt}
+输出内容: ${log.response_text}
+                            `.trim();
+                        } else if (type === 'sessions') {
+                            detailInfo = `
+TraceID: ${log.trace_id}
+用户ID: ${log.user_id}
+会话ID: ${log.session_id}
+服务类型: ${log.service_type}
+状态: ${log.status}
+LLM调用次数: ${log.llm_calls_count || 0}
+WebSocket事件数: ${log.websocket_events_count || 0}
+总处理时间: ${log.total_processing_time_ms || 0}ms
+业务上下文: ${log.business_context ? JSON.stringify(log.business_context, null, 2) : 'N/A'}
+                            `.trim();
+                        }
+                        
+                        alert(detailInfo);
+                    } catch (error) {
+                        console.error('查看详情失败:', error);
+                        alert('查看详情失败');
+                    }
+                },
+                
+                // 格式化日期时间
+                formatDateTime(dateString) {
+                    if (!dateString) return 'N/A';
+                    return new Date(dateString).toLocaleString('zh-CN', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                },
+                
+                // 获取状态样式
+                getStatusClass(status) {
+                    const statusClasses = {
+                        'SUCCESS': 'bg-green-500/20 text-green-400',
+                        'FAILED': 'bg-red-500/20 text-red-400',
+                        'PENDING': 'bg-yellow-500/20 text-yellow-400',
+                        'COMPLETED': 'bg-green-500/20 text-green-400',
+                        'ERROR': 'bg-red-500/20 text-red-400',
+                        'STARTED': 'bg-blue-500/20 text-blue-400',
+                        'PROCESSING': 'bg-yellow-500/20 text-yellow-400',
+                        'active': 'bg-green-500/20 text-green-400',
+                        'paused': 'bg-yellow-500/20 text-yellow-400',
+                        'completed': 'bg-green-500/20 text-green-400',
+                        'expired': 'bg-gray-500/20 text-gray-400'
+                    };
+                    
+                    return statusClasses[status] || 'bg-gray-500/20 text-gray-400';
+                },
+                
+                // 获取消息类型样式  
+                getMessageTypeClass(messageType) {
+                    const typeClasses = {
+                        'message': 'bg-blue-500/20 text-blue-400',
+                        'notice': 'bg-purple-500/20 text-purple-400',
+                        'request': 'bg-orange-500/20 text-orange-400',
+                        'meta_event': 'bg-gray-500/20 text-gray-400'
+                    };
+                    
+                    return typeClasses[messageType] || 'bg-gray-500/20 text-gray-400';
+                },
+
                 async resetToken(tokenId) {
                     if (confirm('确定要重置这个Token吗？')) {
                         this.loading = true;

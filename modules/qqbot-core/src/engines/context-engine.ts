@@ -52,7 +52,7 @@ export class ContextEngine {
   /**
    * 主入口：构建消息的完整上下文
    */
-  async buildContext(messageOrId: string | QQMessage): Promise<MessageContext> {
+  async buildContext(messageOrId: string | QQMessage, traceId?: string): Promise<MessageContext> {
     try {
       // 第一步：获取当前消息信息
       let currentMessage: QQMessage;
@@ -99,6 +99,7 @@ export class ContextEngine {
       };
 
       this.moduleLogger.info('Context built successfully', {
+        traceId,
         messageId: typeof messageOrId === 'string' ? messageOrId : `msg_${currentMessage.user_id}_${currentMessage.time}`,
         userId: currentMessage.user_id,
         groupId: currentMessage.group_id,
@@ -110,6 +111,7 @@ export class ContextEngine {
 
     } catch (error) {
       this.moduleLogger.error('Failed to build context', {
+        traceId,
         error: error instanceof Error ? error.message : 'Unknown error',
         messageId: typeof messageOrId === 'string' ? messageOrId : `msg_${messageOrId.user_id}_${messageOrId.time}`
       });

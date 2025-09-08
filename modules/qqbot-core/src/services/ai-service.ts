@@ -3,11 +3,13 @@ import { AIConfig, ConversationData, AgentPromptData, TokenStats } from '../type
 import { logger } from '../utils/logger';
 import { DatabaseManager } from './database';
 import { getTokenManager } from '../utils/token-manager';
+import { LoggingService } from './logging-service';
 import { v4 as uuidv4 } from 'uuid';
 
 export class AIService {
   private config: AIConfig;
   private database!: DatabaseManager;
+  private loggingService: LoggingService;
   private moduleLogger = logger.createModuleLogger('ai-service');
   private tokenManager!: ReturnType<typeof getTokenManager>;
   private baseURL = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -15,9 +17,10 @@ export class AIService {
   private promptCache: Map<string, AgentPromptData> = new Map();
   private cacheTimeout: number = 5 * 60 * 1000; // 5 minutes
 
-  constructor(config: AIConfig, database: DatabaseManager) {
+  constructor(config: AIConfig, database: DatabaseManager, loggingService: LoggingService) {
     this.config = config;
     this.database = database;
+    this.loggingService = loggingService;
     this.tokenManager = getTokenManager(this.database);
     // 异步初始化
     this.initializeGenAI().catch(error => {
@@ -235,23 +238,31 @@ export class AIService {
   private async callGeminiAPI(
     prompt: string,
     agentType: string = 'chat_bot',
-    promptName?: string
+    promptName?: string,
+    traceId?: string,
+    userId?: number
   ): Promise<{ response: string; rawResponse: any; usedPrompt?: AgentPromptData }> {
     const apiToken = this.getCurrentToken();
     if (!apiToken) {
       throw new Error('No API token available - all tokens may be blacklisted');
     }
 
+    // 生成唯一的LLM调用ID
+    const llmCallId = uuidv4();
+    const callStartTime = Date.now();
+
     // 支持Token重试机制
     let lastError: Error | null = null;
+    let agentPrompt: AgentPromptData | null = null;
+    let requestBody: any = null;
     const maxRetries = 3;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const startTime = Date.now();
+        const attemptStartTime = Date.now();
         
         // 获取Agent Prompt配置
-        const agentPrompt = await this.getAgentPrompt(agentType, promptName);
+        agentPrompt = await this.getAgentPrompt(agentType, promptName);
         let systemInstructions: string[] = [];
         let modelConfig = {
           temperature: 0.7,
@@ -275,7 +286,7 @@ export class AIService {
         }
 
         // 构建请求体
-        const requestBody: any = {
+        requestBody = {
           contents: [
             {
               parts: [
@@ -305,7 +316,7 @@ export class AIService {
           }
         );
 
-        const responseTime = Date.now() - startTime;
+        const responseTime = Date.now() - attemptStartTime;
         const response = result.data;
         
         // 添加详细的响应结构日志用于调试
@@ -460,6 +471,45 @@ export class AIService {
           tokenPrefix: this.currentToken?.substring(0, 8) + '...'
         });
 
+        // Log successful LLM call to database
+        try {
+          if (traceId && this.loggingService) {
+            await this.loggingService.logLLMCall({
+              id: llmCallId,
+              trace_id: traceId,
+              user_id: userId,
+              call_sequence: attempt, // Sequence number for retry attempts
+              model_name: this.config.model_name,
+              agent_type: agentType,
+              prompt_name: promptName || 'default',
+              input_prompt: prompt,
+              system_instructions: agentPrompt?.system_instructions || [],
+              model_parameters: {
+                temperature: requestBody.generationConfig.temperature,
+                topK: requestBody.generationConfig.topK,
+                topP: requestBody.generationConfig.topP,
+                maxOutputTokens: requestBody.generationConfig.maxOutputTokens
+              },
+              response_text: responseText,
+              response_time_ms: responseTime,
+              token_usage: response.usageMetadata || {},
+              finish_reason: response.candidates?.[0]?.finishReason || 'STOP',
+              safety_ratings: response.candidates?.[0]?.safetyRatings || [],
+              api_token_prefix: this.currentToken?.substring(0, 8) || '',
+              raw_request: JSON.stringify(requestBody),
+              raw_response: JSON.stringify(response),
+              success: true,
+              created_at: new Date()
+            });
+          }
+        } catch (loggingError) {
+          this.moduleLogger.warn('Failed to log LLM call', { 
+            error: loggingError, 
+            llmCallId,
+            traceId 
+          });
+        }
+
         return {
           response: responseText,
           rawResponse: response,
@@ -499,6 +549,43 @@ export class AIService {
       await this.tokenManager.reportError(this.currentToken, lastError.message);
     }
     
+    // Log failed LLM call to database
+    try {
+      if (traceId && this.loggingService) {
+        const totalTime = Date.now() - callStartTime;
+        await this.loggingService.logLLMCall({
+          id: llmCallId,
+          trace_id: traceId,
+          user_id: userId,
+          call_sequence: maxRetries, // Final sequence number
+          model_name: this.config.model_name,
+          agent_type: agentType,
+          prompt_name: promptName || 'default',
+          input_prompt: prompt,
+          system_instructions: agentPrompt?.system_instructions || [],
+          model_parameters: requestBody?.generationConfig || {},
+          response_text: '',
+          response_time_ms: totalTime,
+          token_usage: {},
+          finish_reason: 'ERROR',
+          safety_ratings: [],
+          api_token_prefix: this.currentToken?.substring(0, 8) || '',
+          raw_request: JSON.stringify(requestBody || {}),
+          raw_response: '',
+          success: false,
+          error_message: lastError?.message || 'All API call attempts failed',
+          retry_count: maxRetries,
+          created_at: new Date()
+        });
+      }
+    } catch (loggingError) {
+      this.moduleLogger.warn('Failed to log failed LLM call', { 
+        error: loggingError, 
+        llmCallId,
+        traceId 
+      });
+    }
+    
     throw lastError || new Error('All API call attempts failed');
   }
 
@@ -506,7 +593,8 @@ export class AIService {
     userMessage: string,
     userId: number,
     agentType: string = 'chat_bot',
-    promptName?: string
+    promptName?: string,
+    traceId?: string
   ): Promise<ConversationData> {
     const conversationId = uuidv4();
     const timestamp = new Date();
@@ -532,7 +620,7 @@ export class AIService {
         };
       }
 
-      const { response, rawResponse, usedPrompt } = await this.callGeminiAPI(userMessage, agentType, promptName);
+      const { response, rawResponse, usedPrompt } = await this.callGeminiAPI(userMessage, agentType, promptName, traceId, userId);
 
       const conversationData: ConversationData = {
         id: conversationId,
@@ -595,7 +683,8 @@ export class AIService {
 
   public async analyzeIntent(
     message: string,
-    userId: number
+    userId: number,
+    traceId?: string
   ): Promise<{ isRequirement: boolean; confidence: number; category?: string; complexity?: string }> {
     try {
       const apiToken = await this.getCurrentToken();
@@ -604,7 +693,7 @@ export class AIService {
         return this.fallbackIntentAnalysis(message);
       }
 
-      const { response } = await this.callGeminiAPI(message, 'intent_analyzer', 'requirement_analysis');
+      const { response } = await this.callGeminiAPI(message, 'intent_analyzer', 'requirement_analysis', traceId, userId);
       
       // 尝试解析JSON响应
       const cleanedResponse = response.replace(/```json\n?|```\n?/g, '').trim();
