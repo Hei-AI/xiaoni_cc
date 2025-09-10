@@ -1,618 +1,265 @@
-# CLAUDE.md - QQ智能机器人开发指导
+# CLAUDE.md
 
-本文件为Claude Code提供QQ智能机器人项目的开发指导和架构说明。
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 🏗️ 项目架构概述
+# QQ智能机器人 - 4模块独立架构
 
-基于OneBot 11协议的智能QQ机器人，采用4个独立模块的微服务架构设计，支持独立开发和部署。
+## 项目概述
+基于OneBot 11协议的智能QQ机器人，采用微服务架构，支持AI对话、需求处理和管理控制。使用TypeScript开发，MySQL数据库，Docker容器化部署。
 
-### 核心设计原则
-- **模块独立性**: 4个模块完全独立，各有独立的资源、日志、测试目录
-- **服务间通信**: 仅通过HTTP API和共享数据库通信，无文件共享
-- **技术栈统一**: 全栈TypeScript + MySQL + Docker容器化
-- **可独立部署**: 每个模块支持独立开发、测试、部署
+## 核心架构
 
-## 📁 项目结构
-
+### 4模块设计
 ```
-qq_bot/
-├── modules/                    # 4个独立模块
-│   ├── http-api/              # 模块1: HTTP API网关 (8080)
-│   │   ├── src/
-│   │   ├── tests/
-│   │   ├── resources/logs/
-│   │   ├── package.json
-│   │   ├── tsconfig.json
-│   │   └── Dockerfile
-│   ├── qqbot-core/            # 模块2: QQ机器人核心服务 (8081)
-│   │   ├── src/
-│   │   │   ├── engines/       # Stage 1 智能引擎层 (新增)
-│   │   │   │   ├── decision-engine.ts    # 决策引擎
-│   │   │   │   ├── context-engine.ts     # 上下文引擎
-│   │   │   │   └── persona-engine.ts     # 人格化引擎
-│   │   │   ├── services/      # 核心服务层
-│   │   │   │   ├── websocket-client.ts
-│   │   │   │   ├── database.ts
-│   │   │   │   ├── ai-service.ts
-│   │   │   │   ├── session-manager.ts
-│   │   │   │   └── remote-claude-service.ts
-│   │   │   ├── utils/         # 工具层
-│   │   │   ├── config/        # 配置管理
-│   │   │   ├── types/         # TypeScript类型定义
-│   │   │   └── index.ts       # 主应用入口
-│   │   ├── tests/
-│   │   ├── resources/
-│   │   │   ├── logs/          # 独立日志目录
-│   │   │   └── napcat_qq_data/
-│   │   ├── logs/              # 实际使用的日志目录
-│   │   ├── package.json
-│   │   ├── tsconfig.json
-│   │   └── Dockerfile
-│   └── admin-panel/           # 模块3&4: 管理面前后端
-│       ├── backend/           # 管理面后端API (9080)
-│       │   ├── src/
-│       │   ├── tests/
-│       │   ├── resources/logs/
-│       │   ├── package.json
-│       │   └── Dockerfile
-│       └── frontend/          # 管理面前端界面 (3003)
-│           ├── public/
-│           ├── src/
-│           ├── tests/
-│           └── resources/logs/
-├── scripts/                   # 自动化脚本目录
-│   ├── start_modules.py      # Python启动管理器 (主要)
-│   ├── process-manager.js    # Node.js启动管理器 (备用)
-│   └── module_pids.json      # 进程ID记录文件
-├── database/                  # 共享数据库资源
-│   ├── schema/               # 数据库架构定义
-│   └── migrations/           # 数据库迁移脚本
-├── requirements.txt          # Python依赖文件
-├── package.json             # 项目根配置和npm scripts
-├── docker-compose.yml       # 完整服务编排
-└── CLAUDE.md               # Claude Code开发指导
+modules/
+├── http-api/           # HTTP API网关 (端口: 8080)
+├── qqbot-core/         # QQ机器人核心服务 (端口: 8081)
+└── admin-panel/        # 管理面板
+    ├── backend/        # 管理后端API (端口: 9080)
+    └── frontend/       # 管理前端界面 (端口: 3000)
 ```
 
-## 🔧 模块详细说明
+### 关键服务组件 (`modules/qqbot-core/src/services/`)
+- **ai-service.ts**: Gemini AI集成，意图识别，对话处理，Token轮换机制
+- **database.ts**: MySQL数据库管理，连接池，类型安全查询 (50KB+)
+- **http-server.ts**: HTTP API端点，健康检查，状态监控 (26KB+)
+- **websocket-client.ts**: OneBot WebSocket连接，QQ消息收发
+- **session-manager.ts**: 多服务会话编排，智能服务切换逻辑
+- **context-manager.ts**: 对话上下文维护，消息历史管理，智能上下文感知
+- **remote-claude-service.ts**: Claude Code远程会话处理，Tmux会话管理
+- **logging-service.ts**: 结构化日志系统，Trace ID支持，多级日志输出 (20KB+)
+- **debug-service.ts**: 开发调试服务，请求追踪，性能监控
 
-### 模块1: HTTP API Gateway (`modules/http-api/`)
-- **职责**: 外部HTTP请求接入点，消息路由和转发
-- **端口**: 8080
-- **技术栈**: Express.js + TypeScript
-- **独立性**: 完全独立，可替换为任何API网关
-- **主要文件**:
-  - `src/index.ts`: Express服务器主入口
-  - 提供健康检查和API状态端点
+### 智能引擎系统 (`modules/qqbot-core/src/engines/`)
+- **decision-engine.ts**: Stage 1智能决策引擎，基于规则的消息分类和路由
+- **context-engine.ts**: 上下文分析引擎，对话感知和历史理解
+- **persona-engine.ts**: 人格适应引擎，响应风格和个性化处理
 
-### 模块2: QQBot Core Service (`modules/qqbot-core/`)
-- **职责**: OneBot WebSocket连接，AI对话，核心业务逻辑
-- **端口**: 8081 (内部通信)
-- **技术栈**: TypeScript + WebSocket + Gemini AI
-- **Stage 1 智能引擎** (新增):
-  - `DecisionEngine`: 智能决策引擎，判断是否回复消息
-  - `ContextEngine`: 上下文构建引擎，分析消息历史和语义
-  - `PersonaEngine`: 人格化引擎，生成拟人化回复
-- **核心服务**:
-  - `WebSocketClient`: OneBot协议WebSocket连接管理
-  - `DatabaseManager`: MySQL2连接池管理
-  - `AIService`: Gemini AI集成和意图分析
-  - `SessionManager`: 会话状态管理
-  - `RemoteClaudeService`: Claude Code集成服务
-- **主要文件**:
-  - `src/index.ts`: QQBot主应用类，事件驱动架构
-  - `src/engines/*`: Stage 1智能引擎系统
-  - `src/services/*`: 核心业务服务层
-  - `src/utils/*`: 工具和辅助功能
-  - `src/types/index.ts`: 完整的TypeScript类型定义
+## 常用命令
 
-### 模块3: Admin Backend (`modules/admin-panel/backend/`)
-- **职责**: 管理员API，系统配置，数据分析
-- **端口**: 9080
-- **技术栈**: Express.js + TypeScript + MySQL
-- **独立性**: 独立的Express服务，仅与数据库通信
-
-### 模块4: Admin Frontend (`modules/admin-panel/frontend/`)
-- **职责**: 管理员控制台，实时数据展示
-- **端口**: 3000
-- **技术栈**: 静态HTML/CSS/JavaScript
-- **部署**: Nginx容器托管，纯静态资源
-
-## 🚀 开发工作流
-
-### 快速启动 (推荐方式)
+### 项目级操作
 ```bash
-# 方式1: 一键启动所有模块
-npm start
-
-# 方式2: 使用Python脚本
-python3 scripts/start_modules.py start
-
-# 方式3: 完整部署流程
-npm run deploy  # 停止→安装依赖→启动
-
-# 检查服务状态
-npm run status
-```
-
-### 环境设置
-```bash
-# 安装Python依赖 (一次性)
-pip3 install -r requirements.txt
-
 # 安装所有模块依赖
 npm run install:all
-# 或使用Python脚本并行安装
-python3 scripts/start_modules.py install
 
-# 使用Docker Compose启动完整环境
-docker-compose up -d
+# 启动所有服务 (Python管理脚本)
+npm start
+# 或
+python3 scripts/start_modules.py start
+
+# 停止所有服务
+npm run stop
+
+# 查看服务状态
+npm run status
+
+# 清理端口占用
+npm run clean-ports
 ```
 
-### 模块独立开发
-每个模块都有完整的开发工具链：
+### 开发命令
 ```bash
-cd modules/qqbot-core  # 或其他模块
-npm run dev          # 开发服务器
-npm run build        # TypeScript编译
-npm run test         # Jest单元测试
-npm run lint         # ESLint代码检查
+# 开发模式运行单个模块
+npm run dev:http-api
+npm run dev:qqbot-core
+npm run dev:admin-backend
+npm run dev:admin-frontend
+
+# 构建所有模块
+npm run build:all
+
+# 运行测试
+npm run test:all
+
+# 代码检查
+npm run lint:all
 ```
 
-### 核心开发命令
+### 模块内部命令 (在各模块目录内)
 ```bash
-# 启动所有模块
-npm start                                    # 自动启动4个模块
-python3 scripts/start_modules.py start     # Python方式启动
-node scripts/process-manager.js start      # Node.js方式启动
+# 开发模式
+npm run dev
 
-# 停止所有模块
-npm stop                                    # 停止所有服务
-python3 scripts/start_modules.py stop      # Python方式停止
+# 构建
+npm run build
 
-# 单独模块开发
-cd modules/qqbot-core
-npm run dev          # ts-node开发服务器，支持热重载
-npm run build        # 编译到dist/目录
-npm start           # 生产环境运行
+# 启动生产版本
+npm start
 
-# HTTP API模块开发  
-cd modules/http-api
-npm run dev          # Express开发服务器
+# 运行测试
+npm test
 
-# 管理面后端开发
-cd modules/admin-panel/backend
-npm run dev          # Express API开发服务器
+# 代码检查
+npm run lint
+
+# 清理构建文件
+npm run clean
 ```
 
-## 🔗 服务间通信
-
-### 端口映射
-- **HTTP API Gateway**: http://localhost:8080
-- **QQBot Core**: http://localhost:8081 (内部)
-- **Admin Backend**: http://localhost:9080
-- **Admin Frontend**: http://localhost:3003 ⚠️ (注意端口变更)
-- **MySQL Database**: localhost:3306
-
-⚠️ **重要说明**: Admin Frontend默认端口由3000改为3003，避免与其他服务冲突。
-
-### 通信策略
-- **HTTP API ↔ QQBot Core**: HTTP REST API调用
-- **Admin Backend ↔ Database**: 直接MySQL连接
-- **Admin Frontend ↔ Admin Backend**: RESTful API
-- **QQBot Core ↔ Database**: 直接MySQL连接池
-
-## 📊 数据库架构
-
-### 共享数据库资源
-所有模块共享单一MySQL数据库：
-- **数据库**: `qqbot_db`
-- **用户**: `qqbot_user / qqbot_password` ⚠️ **重要**: 必须使用 `qqbot_user`，不是 `qqbot`
-- **连接方式**: MySQL2连接池
-
-### 数据库配置注意事项
-各模块的 `.env` 文件中必须正确配置数据库用户名：
-```bash
-# 正确的配置
-DB_USER=qqbot_user  # ✅ 正确
-DB_PASSWORD=qqbot_password
-
-# 常见错误
-DB_USER=qqbot  # ❌ 错误，会导致 "Access denied for user 'qqbot'" 错误
-```
+## 数据库架构
 
 ### 核心数据表
-- `conversations`: AI对话历史和会话记录
-- `requirements`: 需求管理和处理状态跟踪
-- `sessions`: 用户会话状态管理
-- `group_chat_settings`: 群聊配置和权限管理
-- `bot_status`: 机器人实时状态监控
-- `system_logs`: 系统运行日志结构化存储
+- **conversations**: AI对话历史，支持上下文查询
+- **requirements**: Claude Code需求处理状态跟踪
+- **system_logs**: 结构化系统日志存储
+- **bot_status**: 实时机器人运行状态监控
+- **api_tokens**: Gemini API Token轮换管理，健康状态检查
+- **conversation_sessions**: 多服务会话状态跟踪，服务切换记录
+- **agent_prompts**: AI Agent提示词配置管理
 
-## 🤖 核心功能系统
+### 会话管理表
+- **message_reply_chain**: 消息引用和回复链追踪
+- **session_events**: 会话事件审计跟踪，支持分区表
+- **llm_interactions**: LLM调用日志，成本和性能追踪
+- **service_call_logs**: 服务间调用记录和性能分析
+- **user_confirmations**: 用户交互确认记录
 
-### Stage 1 智能响应引擎 ✅ (已实现)
-- **DecisionEngine**: 智能决策是否回复消息
-  - 规则过滤: @消息、私聊必回
-  - AI分析: LLM意图识别和置信度评估
-  - 综合决策: 结合规则和AI分析的最终判断
-- **ContextEngine**: 上下文构建和语义理解  
-  - 消息历史获取和相关性分析
-  - 用户信息和群聊信息整合
-  - 主题关键词提取和分类
-- **PersonaEngine**: 人格化回复生成
-  - 多人格侧面动态选择 (技术专家/休闲伙伴/共情倾听者)
-  - 自然语言润色和风格统一
-  - 分段回复和延迟执行计划
+### 追踪日志表
+- **websocket_logs**: 完整WebSocket消息追踪
+- **llm_call_logs**: 详细LLM API调用日志，性能指标
+- **session_traces**: 端到端对话追踪分析
+- **trace_statistics**: 聚合分析统计，支持分区查询
 
-### AI服务集成 (Gemini 2.0 Flash Exp)
-- **API调用**: HTTP REST方式，避免ES模块兼容性问题
-- **Token管理**: LRU缓存 + 多密钥轮换机制
-- **意图分析**: 开发需求智能识别和分类
-- **对话生成**: 上下文感知的自然语言响应
+### 数据库连接
+- **主机**: localhost:3306
+- **数据库**: qqbot_db
+- **用户**: qqbot_user/qqbot_password
+- **字符集**: utf8mb4_unicode_ci
 
-### 需求管理系统
-- **触发条件**: 仅授权用户私聊，包含开发关键词
-- **处理流程**: 意图分析 → 需求存储 → 异步处理 → 结果反馈
-- **状态跟踪**: `pending` → `processing` → `completed/failed`
-- **Claude Code集成**: 通过RemoteClaudeService实现自动化开发
+## 开发工作流
 
-### 群聊管理
-- **权限控制**: 数据库驱动的群聊白名单系统
-- **管理命令**: 开启/关闭群聊、添加/移除群聊、群聊列表管理
-- **触发机制**: @机器人检测 + 群聊权限验证
-- **活跃度统计**: 群聊消息和AI回复数量跟踪
+### 新功能开发流程
+1. 确定功能涉及的模块 (通常是`qqbot-core`)
+2. 在对应模块目录内进行开发
+3. 使用`npm run dev`启动开发模式
+4. 运行`npm test`确保测试通过
+5. 运行`npm run lint`检查代码风格
+6. 使用`npm run build`验证构建成功
 
-### 会话管理 (SessionManager)
-- **会话类型**: `chat`（普通对话）、`requirement`（需求处理）、`reply_chain`（回复链）
-- **上下文保持**: 基于用户ID和时间窗口的会话连续性
-- **消息关联**: 支持QQ回复消息功能，保持对话上下文
+### 调试和日志
+- **日志文件**: `modules/*/resources/logs/` - 模块级日志存储
+- **结构化日志**: JSON格式，支持Trace ID追踪
+- **LoggingService**: 统一日志服务，数据库集成
+- **日志级别**: DEBUG、INFO、WARN、ERROR四级分类
+- **追踪系统**: 完整请求链路追踪，性能监控
+- **Debug Service**: 开发环境调试工具，实时状态监控
 
-## 📝 日志系统
+### 测试策略
+- **单元测试**: Jest框架，TypeScript支持
+- **集成测试**: 数据库和HTTP API测试
+- **端到端测试**: 完整工作流验证
+- **覆盖率目标**: 语句>80%, 分支>75%, 函数>85%
 
-### 独立日志架构
-每个模块都有独立的日志目录：
-```
-modules/http-api/resources/logs/
-modules/qqbot-core/resources/logs/
-modules/admin-panel/backend/resources/logs/
-modules/admin-panel/frontend/resources/logs/
-```
+## 配置管理
 
-### 日志结构 (Winston)
-- **分模块记录**: 按服务划分日志文件
-- **结构化格式**: JSON格式，支持查询和分析
-- **日志级别**: debug/info/warn/error
-- **日志轮转**: 按日期自动轮转
-
-### 核心日志文件 (QQBot Core)
-```
-modules/qqbot-core/logs/
-├── main_YYYY-MM-DD.log              # 主程序日志
-├── websocket_YYYY-MM-DD.log         # WebSocket事件日志  
-├── database_YYYY-MM-DD.log          # 数据库操作日志
-├── ai-service_YYYY-MM-DD.log        # AI服务调用日志
-├── session-manager_YYYY-MM-DD.log   # 会话管理日志
-├── decision-engine_YYYY-MM-DD.log   # 决策引擎日志 (Stage 1)
-├── context-engine_YYYY-MM-DD.log    # 上下文引擎日志 (Stage 1)
-├── persona-engine_YYYY-MM-DD.log    # 人格化引擎日志 (Stage 1)
-├── http-server_YYYY-MM-DD.log       # HTTP服务器日志
-└── token-manager_YYYY-MM-DD.log     # Token管理日志
-```
-
-## 🛠️ 开发注意事项
-
-### TypeScript开发最佳实践
-- **严格类型检查**: 所有模块启用`strict: true`
-- **类型定义**: 完整的接口定义在`src/types/index.ts`
-- **路径别名**: 使用`@/*`映射到`src/*`
-- **编译目标**: ES2020，Node.js兼容性
-
-### 异步编程模式
-- **事件驱动**: WebSocket事件监听和分发
-- **Promise/async-await**: 统一异步操作模式
-- **错误处理**: 统一错误处理和日志记录
-- **连接管理**: 自动重连和连接池管理
-
-### 数据库操作规范
-```typescript
-// 使用连接池的async/await模式
-const connection = await this.database.getConnection();
-try {
-  await connection.beginTransaction();
-  // 数据库操作
-  await connection.commit();
-} catch (error) {
-  await connection.rollback();
-  throw error;
-} finally {
-  connection.release();
-}
-```
-
-### 模块间集成规范
-- **无文件共享**: 严格通过HTTP API通信
-- **独立配置**: 每个模块独立的.env配置文件
-- **独立依赖**: 每个模块独立的package.json
-- **独立构建**: 支持单独构建和部署
-
-## 🔧 测试策略
-
-### 测试框架
-- **单元测试**: Jest + TypeScript
-- **测试目录**: 每个模块独立的`tests/`目录
-- **覆盖率**: 目标覆盖率 > 80%
-
-### 测试类型
+### 环境变量文件
+每个模块都需要`.env`文件，从`.env.example`复制：
 ```bash
-# 各模块独立测试
-cd modules/qqbot-core
-npm test                    # 运行所有测试
-npm test -- --coverage    # 覆盖率报告
-npm test -- --watch       # 监听模式
-
-# 测试特定文件
-npm test tests/services/database.test.ts
+cp modules/*/env.example modules/*/.env
 ```
 
-### 测试分类
-- **单元测试**: 核心业务逻辑和工具函数
-- **集成测试**: 模块间API通信和数据库操作
-- **WebSocket测试**: OneBot协议消息模拟
+### 关键配置项
+- **数据库连接**: DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
+- **QQ机器人**: BOT_QQ_NUMBER, ONEBOT_WS_URL
+- **AI服务**: GEMINI_API_KEY, AI_MODEL_NAME
+- **服务端口**: HTTP_PORT, WEBSOCKET_PORT
 
-## 🐳 容器化部署
+## 服务间通信
 
-### Docker Compose架构
-```yaml
-services:
-  mysql:        # 共享数据库
-  http-api:     # HTTP API网关 (8080)
-  qqbot-core:   # 核心服务 (8081)
-  admin-backend: # 管理后端 (9080)
-  admin-frontend: # 管理前端 (3000)
-```
+### 通信模式
+- HTTP API ↔ QQBot Core: HTTP REST API
+- Admin Backend ↔ Database: 直接数据库连接
+- Admin Frontend ↔ Admin Backend: REST API
+- QQBot Core ↔ Database: 连接池管理的直接连接
 
-### 部署命令
+### 端口规划
+- 8080: HTTP API Gateway (外部访问)
+- 8081: QQBot Core (内部通信)
+- 9080: Admin Backend API
+- 3000: Admin Frontend
+- 3306: MySQL Database
+
+## 特殊功能
+
+### AI智能对话系统
+- **核心模型**: Google Gemini 1.5 Pro，支持上下文感知
+- **智能引擎**: Stage 1决策引擎，上下文分析，人格适应
+- **意图识别**: 高级消息分类和路由决策
+- **Token管理**: 智能轮换机制，健康检查，使用统计
+- **响应优化**: 个性化回复风格，上下文相关性分析
+
+### 需求处理系统
+- **Claude Code集成**: 远程会话处理，实时状态同步
+- **异步处理流程**: 需求队列管理，进度追踪
+- **Tmux会话管理**: 隔离环境执行，会话持久化
+- **状态追踪**: 完整需求生命周期管理
+
+### 会话管理架构
+- **多服务编排**: chat, requirement, mixed会话类型
+- **智能服务切换**: 基于上下文的自动路由
+- **会话持久化**: 30分钟超时，跨服务上下文保持
+- **上下文管理**: 智能历史维护，相关性分析
+- **性能监控**: 会话活跃度，响应时间统计
+
+## 部署和运维
+
+### Docker部署
 ```bash
-# 启动完整环境
+# 启动所有服务
 docker-compose up -d
 
 # 查看服务状态
 docker-compose ps
 
-# 查看特定服务日志
+# 查看日志
 docker-compose logs -f qqbot-core
-
-# 重启特定服务
-docker-compose restart qqbot-core
 ```
 
-## 🚨 故障排除
+### 健康检查
+- HTTP健康检查端点: `GET /health`
+- 数据库连接状态监控
+- WebSocket连接状态跟踪
+- 自动故障恢复机制
 
-### 启动失败常见问题
-1. **端口被占用 (EADDRINUSE)**:
-   ```bash
-   # 检查端口占用
-   lsof -i :8080  # 或其他端口
-   
-   # 自动清理端口
-   python3 scripts/start_modules.py clean-ports
-   ```
+### 监控和维护
+- **追踪系统**: 完整请求链路追踪，端到端性能监控
+- **数据库监控**: 系统日志集中存储，分区表管理
+- **Token管理**: 使用情况统计，健康状态检查，成本追踪
+- **会话分析**: 活跃度统计，服务切换模式分析
+- **性能指标**: LLM调用延迟，WebSocket连接状态，服务响应时间
+- **自动维护**: 定期数据清理，日志轮转，统计聚合
 
-2. **依赖包缺失**:
-   ```bash
-   # 检查常见错误包
-   - lru.min (应为 lru-cache)
-   - cors, helmet 未安装
-   - node_modules 目录不存在
-   
-   # 解决方案
-   python3 scripts/start_modules.py install
-   ```
+## 故障排除
 
-3. **TypeScript编译错误**:
-   - HttpServer构造函数参数不匹配
-   - 导入路径错误
-   - 类型定义缺失
+### 常见问题
+1. **端口占用**: 运行`npm run clean-ports`
+2. **数据库连接失败**: 检查MySQL容器状态
+3. **WebSocket连接断开**: 检查OneBot服务状态
+4. **Token失效**: 检查api_tokens表健康状态
 
-### 服务运行时问题
-1. **WebSocket连接失败**: 检查OneBot服务器状态和access_token
-2. **数据库连接异常**: 验证MySQL服务状态和连接参数
-3. **AI服务异常**: 检查Gemini API密钥配置和网络连接
-4. **模块间通信失败**: 验证HTTP端口和服务启动状态
-5. **决策引擎不响应**: 检查授权用户ID配置，确认为正确的QQ号
-6. **上下文引擎错误**: 检查数据库表是否存在，特别是conversation_sessions表
-7. **日志路径问题**: QQBot Core使用logs/目录而非resources/logs/
+### 调试技巧
+- 使用`npm run status`查看所有服务状态
+- 检查各模块的logs目录
+- 使用数据库查询验证数据完整性
+- 利用HTTP API的健康检查端点
 
-### 调试命令
+### 开发环境重置
 ```bash
-# 服务状态检查
-npm run status                       # 检查所有模块状态
-curl http://localhost:8080/health    # HTTP API
-curl http://localhost:8081/health    # QQBot Core
-curl http://localhost:9080/health    # Admin Backend
-curl http://localhost:3003           # Admin Frontend
+# 停止所有服务
+npm run stop
 
-# Stage 1 引擎调试
-grep "DecisionEngine initialized" modules/qqbot-core/logs/decision-engine_$(date +%Y-%m-%d).log
-grep "Context built successfully" modules/qqbot-core/logs/context-engine_$(date +%Y-%m-%d).log
-grep "PersonaEngine enhanced" modules/qqbot-core/logs/main_$(date +%Y-%m-%d).log
+# 清理端口占用
+npm run clean-ports
 
-# 实时日志监控 (Stage 1)
-tail -f modules/qqbot-core/logs/main_$(date +%Y-%m-%d).log
-tail -f modules/qqbot-core/logs/decision-engine_$(date +%Y-%m-%d).log
-tail -f modules/qqbot-core/logs/context-engine_$(date +%Y-%m-%d).log
+# 重新安装依赖
+npm run install:all
 
-# Python脚本调试
-python3 -c "import psutil, requests; print('依赖OK')"
-
-# 端口监听检查
-netstat -tulnp | grep -E ':(8080|8081|9080|3003)'
-
-# 检查QQBot Core实际运行状态
-curl http://localhost:8081/health 2>/dev/null || echo "QQBot Core服务未响应"
-
-# 检查授权用户配置
-grep -n "authorized_user_id" modules/qqbot-core/src/engines/decision-engine.ts
+# 重启所有服务
+npm start
 ```
 
-### 性能监控
-- **响应时间**: AI对话响应时间跟踪
-- **连接状态**: WebSocket连接稳定性监控
-- **数据库性能**: 连接池使用率和查询性能
-- **内存使用**: 各服务内存占用监控
+### 各模块信息
 
-## 📚 API文档
-
-### HTTP API Gateway端点
-- `GET /health` - 服务健康检查
-- `GET /api/status` - 服务状态信息
-
-### QQBot Core内部API
-- `POST /api/send_private` - 发送私聊消息
-- `POST /api/send_group` - 发送群聊消息
-- `GET /api/conversations` - 对话历史查询
-- `GET /api/requirements` - 需求管理状态
-
-### Admin Backend API
-- 系统配置管理接口
-- 数据分析和统计接口
-- 用户权限管理接口
-
-#### Token 管理 API (端口: 9080)
-- `GET /api/tokens` - 获取所有token列表，包括健康状态和使用统计
-- `POST /api/tokens/health-check` - 执行真实的token健康检查 (调用Gemini API验证)
-- `POST /api/tokens/health-check-test` - 测试版健康检查 (使用假token进行功能演示)
-
-#### 健康检查实现说明
-Token健康检查功能通过实际调用Google Gemini API来验证token是否可用：
-```typescript
-// 健康检查逻辑示例
-const response = await axios.post(
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
-  {
-    contents: [{
-      parts: [{ text: "Test health check - respond with 'OK'" }]
-    }]
-  },
-  {
-    headers: {
-      'X-goog-api-key': token,
-      'Content-Type': 'application/json'
-    },
-    timeout: 10000
-  }
-);
-```
-
-#### 测试命令
-```bash
-# 获取token列表
-curl http://localhost:9080/api/tokens
-
-# 执行健康检查测试 (使用假token演示功能)
-curl -X POST http://localhost:9080/api/tokens/health-check-test
-```
-
-## ⚠️ 启动和部署常见问题
-
-### 端口冲突问题
-- **现象**: 启动时出现 `EADDRINUSE` 错误
-- **原因**: 系统中有进程占用了预定义端口 (8080, 8081, 9080, 3000-3003)
-- **解决方案**: 
-  - 自动清理: `python3 scripts/start_modules.py clean-ports`
-  - 手动清理: `lsof -ti :端口号 | xargs kill -9`
-  - 修改端口: 在各模块的配置中调整端口设置
-
-### 依赖安装问题
-- **现象**: TypeScript编译错误，模块找不到
-- **常见错误**:
-  - `lru.min` 包名错误，应为 `lru-cache`
-  - 缺少 `cors`, `helmet` 等依赖包
-  - node_modules目录不存在
-- **解决方案**:
-  - 并行安装: `python3 scripts/start_modules.py install`
-  - 单独安装: `npm run install:all`
-  - 检查package.json中的依赖配置
-
-### 模块启动顺序问题  
-- **推荐启动顺序**: 
-  1. HTTP API Gateway (8080)
-  2. QQBot Core (8081) 
-  3. Admin Backend (9080)
-  4. Admin Frontend (3003)
-- **注意事项**: 前端模块需要最后启动以避免端口冲突
-
-### 配置文件不一致问题 ✅ (已修复)
-- **端口配置不匹配** (已修复):
-  - ✅ QQBot Core正确运行在8081端口
-  - ✅ Admin Frontend已统一使用3003端口
-- **授权用户ID配置** (已修复):
-  - ✅ DecisionEngine中授权用户ID已更新为85178516
-- **数据库连接配置** (已修复):
-  - ✅ Admin Backend MySQL2连接池配置已优化
-
-### 自动化启动脚本使用
-```bash
-# Python脚本方式 (推荐)
-python3 scripts/start_modules.py start     # 启动所有模块
-python3 scripts/start_modules.py stop      # 停止所有模块  
-python3 scripts/start_modules.py restart   # 重启所有模块
-python3 scripts/start_modules.py status    # 检查状态
-python3 scripts/start_modules.py install   # 安装依赖
-
-# Node.js脚本方式 (备用)
-node scripts/process-manager.js start
-
-# npm scripts方式
-npm start          # 自动启动所有模块
-npm stop           # 停止所有模块
-npm run restart    # 重启所有模块
-npm run status     # 检查状态
-npm run deploy     # 完整部署流程
-```
-
-## 🔒 安全考虑
-
-### 配置安全
-- **敏感信息**: 所有API密钥通过环境变量配置
-- **数据库安全**: 使用专用数据库用户，最小权限原则
-- **网络隔离**: Docker网络隔离，仅必要端口暴露
-
-### 代码安全
-- **输入验证**: 所有用户输入严格验证和过滤
-- **SQL注入防护**: 使用参数化查询
-- **访问控制**: 基于用户ID的权限验证
-- **错误处理**: 避免敏感信息泄露
-
-## 🤝 开发协作
-
-### Git工作流
-- **分支策略**: 功能分支开发，main分支保护
-- **代码审查**: 所有变更通过Pull Request
-- **提交规范**: 使用conventional commits格式
-
-### 模块责任划分
-- **HTTP API**: 负责外部接入和路由转发
-- **QQBot Core**: 负责核心业务逻辑和AI集成  
-- **Admin Backend**: 负责管理功能和数据分析
-- **Admin Frontend**: 负责用户界面和交互体验
-
----
-
-**重要提醒**: 本项目采用4模块独立架构，开发时请注意：
-1. 优先编辑现有文件，避免不必要的新文件创建
-2. 遵循模块独立性原则，通过API而非文件共享
-3. 保持TypeScript严格类型检查和代码质量标准
-4. 所有数据库操作使用事务确保一致性
-5. 重要变更前确保相关测试通过
-- 各模块的开发及修复工作必须通过git worktree模式继续
-
-
----
-
-# 下面是本项目的演进计划和目标
-
-- @docs/final_roadmap.md
-- @docs/evolution_roadmap.md
-- @docs/roadmap_v1.md
-- @docs/roadmap_v2.md
+- @modules/qqbot-core/CLAUDE.md
+- @modules/http-api/CLAUDE.md
+- @modules/admin-panel/CLAUDE.md

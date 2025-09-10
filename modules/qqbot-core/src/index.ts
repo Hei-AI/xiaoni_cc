@@ -7,6 +7,8 @@ import AIService from './services/ai-service';
 import RemoteClaudeService from './services/remote-claude-service';
 import { SessionManager } from './services/session-manager';
 import { LoggingService } from './services/logging-service';
+import { ContextManager } from './services/context-manager';
+import { DebugService } from './services/debug-service';
 import DecisionEngine from './engines/decision-engine';
 import PersonaEngine from './engines/persona-engine';
 import ContextEngine from './engines/context-engine';
@@ -18,7 +20,8 @@ import {
   RequirementData, 
   MessageContext,
   DecisionResult,
-  PersonaResponse 
+  PersonaResponse,
+  ResponseContext 
 } from './types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -30,6 +33,8 @@ class QQBot {
   private remoteClaudeService: RemoteClaudeService;
   private sessionManager: SessionManager;
   private loggingService: LoggingService;
+  private contextManager: ContextManager;
+  private debugService: DebugService;
   
   // Stage 1 Engines
   private decisionEngine: DecisionEngine;
@@ -50,6 +55,8 @@ class QQBot {
     this.aiService = new AIService(config.ai, this.database, this.loggingService);
     this.remoteClaudeService = new RemoteClaudeService(this.database);
     this.sessionManager = new SessionManager(this.database);
+    this.contextManager = new ContextManager(this.database);
+    this.debugService = new DebugService(this.database);
     
     // Initialize Stage 1 Engines
     this.contextEngine = new ContextEngine(this.database);
@@ -58,7 +65,9 @@ class QQBot {
     
     this.httpServer = new HttpServer(config.http_server, {
       database: this.database,
-      websocketClient: this.websocketClient
+      websocketClient: this.websocketClient,
+      debugService: this.debugService,
+      qqBot: this // Pass QQBot instance for test endpoints
     });
   }
 
@@ -143,9 +152,16 @@ class QQBot {
       const userId = message.user_id;
       const userMessage = typeof message.message === 'string' ? message.message.trim() : '';
 
-      // Stage 1: Build comprehensive message context using ContextEngine
-      const messageContext = await this.buildMessageContext(message, traceId);
+      // 构建消息上下文（前20条消息）
+      const messageContext = await this.contextManager.buildMessageContext(message, 20);
       
+      this.moduleLogger.info('Message context built', {
+        traceId,
+        historyCount: messageContext.historyMessages.length,
+        hasUserInfo: !!messageContext.userInfo,
+        userId
+      });
+
       // Stage 1: Use DecisionEngine for intelligent response decision
       const decision = await this.decisionEngine.analyzeMessage(messageContext, traceId);
       
@@ -345,9 +361,16 @@ class QQBot {
         return;
       }
 
-      // Stage 1: Build comprehensive message context for group message
+      // 构建群聊消息上下文（前20条消息）
       const messageWithCleanContent = { ...message, message: cleanMessage };
-      const messageContext = await this.buildMessageContext(messageWithCleanContent, traceId);
+      const messageContext = await this.contextManager.buildMessageContext(messageWithCleanContent, 20);
+      
+      this.moduleLogger.info('Group message context built', {
+        traceId,
+        historyCount: messageContext.historyMessages.length,
+        hasGroupInfo: !!messageContext.groupInfo,
+        groupId: message.group_id
+      });
       
       // Stage 1: Use DecisionEngine for group message decisions
       const decision = await this.decisionEngine.analyzeMessage(messageContext, traceId);
@@ -670,54 +693,31 @@ class QQBot {
   }
 
   /**
-   * Stage 1: Build comprehensive message context using ContextEngine
+   * Build comprehensive message context using ContextManager  
    */
   private async buildMessageContext(message: QQMessage, traceId?: string): Promise<MessageContext> {
     try {
-      // Use ContextEngine with the message object directly
-      try {
-        return await this.contextEngine.buildContext(message, traceId);
-      } catch (contextError) {
-        this.moduleLogger.warn('ContextEngine failed, building minimal context', { 
-          error: contextError instanceof Error ? contextError.message : 'Unknown error' 
-        });
-        
-        // Build minimal context manually
-        return {
-          currentMessage: message,
-          recentMessages: [], // Stage 1 limitation
-          userInfo: {
-            user_id: message.user_id,
-            nickname: message.sender.nickname,
-            recent_interaction_count: 0,
-            is_frequent_user: false
-          },
-          groupInfo: message.group_id ? {
-            group_id: message.group_id,
-            recent_activity_level: 'medium',
-            participant_count: 0
-          } : undefined,
-          conversationSummary: '新对话',
-          topicKeywords: []
-        };
-      }
-    } catch (error) {
-      this.moduleLogger.error('Failed to build message context', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      // Use new ContextManager to get the full 20-message history
+      return await this.contextManager.buildMessageContext(message, 20);
+    } catch (contextError) {
+      this.moduleLogger.warn('ContextManager failed, building minimal context', { 
+        error: contextError instanceof Error ? contextError.message : 'Unknown error' 
       });
       
-      // Return minimal fallback context
+      // Build minimal context manually
       return {
         currentMessage: message,
-        recentMessages: [],
+        historyMessages: [],
+        contextSummary: '新对话开始',
         userInfo: {
           user_id: message.user_id,
-          nickname: message.sender.nickname || `User_${message.user_id}`,
-          recent_interaction_count: 0,
-          is_frequent_user: false
+          nickname: message.sender.nickname,
+          message_count: 0
         },
-        conversationSummary: '上下文构建失败',
-        topicKeywords: []
+        groupInfo: message.group_id ? {
+          group_id: message.group_id,
+          message_count: 0
+        } : undefined
       };
     }
   }
@@ -737,23 +737,41 @@ class QQBot {
 
     try {
       // Build response context for PersonaEngine
-      const responseContext = {
+      const responseContext: ResponseContext = {
         messageType: originalMessage.message_type,
-        userRelation: messageContext.userInfo.is_frequent_user ? 'frequent' : 'occasional' as 'new' | 'occasional' | 'frequent',
-        conversationTopic: messageContext.topicKeywords || [],
+        userRelation: (messageContext.userInfo?.message_count || 0) > 10 ? 'frequent' : 'occasional' as 'new' | 'occasional' | 'frequent',
+        conversationTopic: [], // Extract from contextSummary if needed
         previousResponses: [], // Stage 1 limitation
         timeOfDay: this.getTimeOfDay(),
         isUrgent: userMessage.includes('紧急') || userMessage.includes('急')
       };
 
-      // Generate base AI response
-      const baseConversation = await this.aiService.generateResponse(userMessage, userId, 'chat_bot', 'enhanced_chat', traceId);
+      // Generate base AI response with context
+      const contextPrompt = this.contextManager.formatContextForAI(messageContext);
+      const fullPrompt = `${contextPrompt}\n\n=== 当前需要回复的消息 ===\n${userMessage}`;
+      
+      // Pass original user message and context prompt separately
+      const baseConversation = await this.aiService.generateResponseWithContext(
+        userMessage, // Original user message for database
+        fullPrompt,  // Full context prompt for AI
+        userId, 
+        'chat_bot', 
+        'enhanced_chat', 
+        traceId,
+        originalMessage, // Pass original message for raw_request
+        sessionId // Pass session ID for LLM tracking
+      );
+      
+      // Add conversation ID to context for PersonaEngine
+      responseContext.conversationId = baseConversation.id;
       
       // Enhance response with PersonaEngine
-      const personaResponse = await this.personaEngine.generateResponse(
+      const personaResponse = await this.personaEngine.enhanceResponse(
+        baseConversation.ai_response, // Pass AI response for enhancement
         userMessage,
         responseContext,
-        traceId
+        traceId,
+        sessionId // Pass session ID for LLM tracking
       );
       
       this.moduleLogger.info('PersonaEngine enhanced response', {
@@ -779,10 +797,10 @@ class QQBot {
           baseResponse: baseConversation.ai_response,
           personaResponse: personaResponse,
           messageContext: {
-            topicKeywords: messageContext.topicKeywords,
-            conversationSummary: messageContext.conversationSummary,
+            contextSummary: messageContext.contextSummary,
             userRelation: responseContext.userRelation,
-            selectedPersona: personaResponse.selectedPersona
+            selectedPersona: personaResponse.selectedPersona,
+            historyCount: messageContext.historyMessages.length
           }
         })
       };
@@ -840,6 +858,52 @@ class QQBot {
   }
 
   /**
+   * 测试方法：模拟处理私聊消息
+   * 用于自动化测试LLM追踪功能
+   */
+  public async simulatePrivateMessage(testMessage: any): Promise<{ conversationId?: string, success: boolean, error?: string }> {
+    try {
+      this.moduleLogger.info('🧪 Processing simulated private message', { 
+        user_id: testMessage.user_id, 
+        message: testMessage.message 
+      });
+
+      // 创建标准的QQMessage格式
+      const qqMessage: QQMessage = {
+        message_type: 'private',
+        user_id: testMessage.user_id,
+        message: testMessage.message,
+        raw_message: testMessage.raw_message || testMessage.message,
+        message_id: testMessage.message_id || Date.now(),
+        time: testMessage.time || Math.floor(Date.now() / 1000),
+        self_id: 1129974489, // Bot's QQ ID
+        sender: testMessage.sender || {
+          user_id: testMessage.user_id,
+          nickname: `测试用户${testMessage.user_id}`,
+          sex: 'unknown' as const
+        },
+        font: testMessage.font || 14,
+        sub_type: testMessage.sub_type || 'friend',
+        post_type: 'message'
+      };
+
+      // 调用实际的消息处理逻辑
+      await this.handlePrivateMessage(qqMessage);
+
+      return { success: true };
+    } catch (error) {
+      this.moduleLogger.error('Failed to simulate private message', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        testMessage 
+      });
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
+  /**
    * Get current time of day for context
    */
   private getTimeOfDay(): 'morning' | 'afternoon' | 'evening' | 'night' {
@@ -877,8 +941,24 @@ class QQBot {
     const startTime = Date.now();
 
     try {
-      // 生成AI响应
-      const conversation = await this.aiService.generateResponse(message, userId, 'chat_bot', 'basic_chat', traceId);
+      // 构建消息上下文
+      const messageContext = await this.contextManager.buildMessageContext(originalMessage, 20);
+      
+      // 生成包含上下文的AI响应
+      const contextPrompt = this.contextManager.formatContextForAI(messageContext);
+      const fullPrompt = `${contextPrompt}\n\n=== 当前需要回复的消息 ===\n${message}`;
+      
+      // Pass original user message and context prompt separately
+      const conversation = await this.aiService.generateResponseWithContext(
+        message, // Original user message for database
+        fullPrompt, // Full context prompt for AI
+        userId, 
+        'chat_bot', 
+        'basic_chat', 
+        traceId,
+        originalMessage, // Pass original message for raw_request
+        sessionId // Pass session ID for LLM tracking
+      );
       const responseTime = Date.now() - startTime;
 
       // 更新响应时间和Session关联

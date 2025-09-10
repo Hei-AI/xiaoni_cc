@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { AIConfig, ConversationData, AgentPromptData, TokenStats } from '../types';
+import { AIConfig, ConversationData, AgentPromptData, TokenStats, LLMCallTrace } from '../types';
 import { logger } from '../utils/logger';
 import { DatabaseManager } from './database';
 import { getTokenManager } from '../utils/token-manager';
@@ -142,6 +142,74 @@ export class AIService {
       },
       {
         id: uuidv4(),
+        agent_type: 'chat_bot',
+        prompt_name: 'enhanced_chat',
+        system_instructions: [
+          '你是阿正，一个智能QQ机器人助手，基于Gemini AI技术。你的角色特点是：',
+          '1. 友好、专业、热情，具有人格化特征',
+          '2. 技术能力强，能够理解和回答各种技术问题',  
+          '3. 语言风格自然亲切，略带幽默感',
+          '4. 能够基于对话历史提供连贯性回复',
+          '5. 对用户请求给予有帮助的建议和解决方案',
+          '',
+          '回复要求：',
+          '- 使用自然的中文表达，语气友好但专业',
+          '- 根据上下文历史提供相关性强的回复',
+          '- 对技术问题给出准确、有用的建议',
+          '- 保持对话的连贯性和一致性',
+          '- 如遇到开发需求，可提供技术指导或询问更多细节'
+        ],
+        model_config: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 4096
+        },
+        is_active: true,
+        version: 1,
+        created_by: 'system',
+        created_at: now,
+        updated_at: now,
+        description: '增强型聊天机器人系统指令，包含上下文感知'
+      },
+      {
+        id: uuidv4(),
+        agent_type: 'persona_chat',
+        prompt_name: 'persona_chat',
+        system_instructions: [
+          '你是一个人格化增强处理专家。你的任务是将AI生成的标准回复转换为具有"阿正"人格特征的个性化回复。',
+          '',
+          '阿正的人格特点：',
+          '- 友好专业的技术专家和好伙伴',
+          '- 热情、乐于助人、略带幽默感',
+          '- 语言风格自然亲切、不官方、像真实的同事朋友',
+          '- 技术过硬，能帮助解决技术问题',
+          '',
+          '转换要求：',
+          '1. 保持原始回复的核心信息和准确性，不能丢失重要内容',
+          '2. 将语言风格转换为阿正的自然亲切表达',
+          '3. 适当使用emoji增加亲和力（但不过度）',
+          '4. 根据上下文调整语气和专业程度',
+          '5. 保持回复长度适中，不要过长或过短',
+          '6. 去除AI腔调，使回复更人性化',
+          '',
+          '注意：你的任务是增强润色，不是重新回答问题。必须基于提供的原始AI回复进行人格化转换。'
+        ],
+        model_config: {
+          temperature: 0.6,
+          topK: 30,
+          topP: 0.9,
+          maxOutputTokens: 2048
+        },
+        is_active: true,
+        version: 1,
+        created_by: 'system',
+        created_at: now,
+        updated_at: now,
+        description: 'Persona人格化增强处理系统指令'
+      },
+      {
+        id: uuidv4(),
         agent_type: 'intent_analyzer',
         prompt_name: 'requirement_analysis',
         system_instructions: [
@@ -241,7 +309,7 @@ export class AIService {
     promptName?: string,
     traceId?: string,
     userId?: number
-  ): Promise<{ response: string; rawResponse: any; usedPrompt?: AgentPromptData }> {
+  ): Promise<{ response: string; rawResponse: any; usedPrompt?: AgentPromptData; requestBody?: any }> {
     const apiToken = this.getCurrentToken();
     if (!apiToken) {
       throw new Error('No API token available - all tokens may be blacklisted');
@@ -475,31 +543,25 @@ export class AIService {
         try {
           if (traceId && this.loggingService) {
             await this.loggingService.logLLMCall({
-              id: llmCallId,
-              trace_id: traceId,
-              user_id: userId,
-              call_sequence: attempt, // Sequence number for retry attempts
-              model_name: this.config.model_name,
-              agent_type: agentType,
-              prompt_name: promptName || 'default',
-              input_prompt: prompt,
-              system_instructions: agentPrompt?.system_instructions || [],
-              model_parameters: {
+              traceId: traceId,
+              userId: userId,
+              callSequence: attempt,
+              agentType: agentType,
+              modelName: this.config.model_name,
+              promptTemplate: promptName || 'default',
+              inputPrompt: prompt,
+              modelConfig: {
                 temperature: requestBody.generationConfig.temperature,
                 topK: requestBody.generationConfig.topK,
                 topP: requestBody.generationConfig.topP,
                 maxOutputTokens: requestBody.generationConfig.maxOutputTokens
               },
-              response_text: responseText,
-              response_time_ms: responseTime,
-              token_usage: response.usageMetadata || {},
-              finish_reason: response.candidates?.[0]?.finishReason || 'STOP',
-              safety_ratings: response.candidates?.[0]?.safetyRatings || [],
-              api_token_prefix: this.currentToken?.substring(0, 8) || '',
-              raw_request: JSON.stringify(requestBody),
-              raw_response: JSON.stringify(response),
-              success: true,
-              created_at: new Date()
+              rawResponse: JSON.stringify(response),
+              processedResponse: responseText,
+              apiCallTimeMs: responseTime,
+              processingTimeMs: responseTime,
+              status: 'SUCCESS',
+              tokenUsage: response.usageMetadata || {}
             });
           }
         } catch (loggingError) {
@@ -513,7 +575,8 @@ export class AIService {
         return {
           response: responseText,
           rawResponse: response,
-          usedPrompt: agentPrompt || undefined
+          usedPrompt: agentPrompt || undefined,
+          requestBody: requestBody
         };
         
       } catch (error) {
@@ -554,28 +617,21 @@ export class AIService {
       if (traceId && this.loggingService) {
         const totalTime = Date.now() - callStartTime;
         await this.loggingService.logLLMCall({
-          id: llmCallId,
-          trace_id: traceId,
-          user_id: userId,
-          call_sequence: maxRetries, // Final sequence number
-          model_name: this.config.model_name,
-          agent_type: agentType,
-          prompt_name: promptName || 'default',
-          input_prompt: prompt,
-          system_instructions: agentPrompt?.system_instructions || [],
-          model_parameters: requestBody?.generationConfig || {},
-          response_text: '',
-          response_time_ms: totalTime,
-          token_usage: {},
-          finish_reason: 'ERROR',
-          safety_ratings: [],
-          api_token_prefix: this.currentToken?.substring(0, 8) || '',
-          raw_request: JSON.stringify(requestBody || {}),
-          raw_response: '',
-          success: false,
-          error_message: lastError?.message || 'All API call attempts failed',
-          retry_count: maxRetries,
-          created_at: new Date()
+          traceId: traceId,
+          userId: userId,
+          callSequence: maxRetries,
+          agentType: agentType,
+          modelName: this.config.model_name,
+          promptTemplate: promptName || 'default',
+          inputPrompt: prompt,
+          modelConfig: requestBody?.generationConfig || {},
+          rawResponse: '',
+          processedResponse: '',
+          apiCallTimeMs: totalTime,
+          processingTimeMs: totalTime,
+          status: 'ERROR',
+          errorMessage: lastError?.message || 'All API call attempts failed',
+          tokenUsage: {}
         });
       }
     } catch (loggingError) {
@@ -678,6 +734,186 @@ export class AIService {
         created_at: timestamp,
         updated_at: timestamp
       };
+    }
+  }
+
+  /**
+   * Generate response with separate user message and context prompt
+   * This fixes the issue where context was being saved as user message
+   * Also tracks LLM calls for session analysis
+   */
+  public async generateResponseWithContext(
+    originalUserMessage: string,
+    fullContextPrompt: string,
+    userId: number,
+    agentType: string = 'chat_bot',
+    promptName?: string,
+    traceId?: string,
+    originalMessage?: any,
+    sessionId?: string,
+    existingConversationId?: string
+  ): Promise<ConversationData> {
+    const conversationId = existingConversationId || uuidv4();
+    const timestamp = new Date();
+
+    try {
+      const apiToken = await this.getCurrentToken();
+      if (!apiToken) {
+        // AI服务未初始化，返回友好提示
+        const fallbackResponse = '抱歉，AI服务当前不可用。所有API Token都不可用，请检查Token配置或联系管理员。';
+        
+        return {
+          id: conversationId,
+          user_id: userId,
+          user_message: originalUserMessage, // Save original user message
+          ai_response: fallbackResponse,
+          timestamp,
+          response_time: 0,
+          model_name: this.config.model_name,
+          raw_request: originalMessage ? JSON.stringify(originalMessage) : JSON.stringify({ 
+            message: originalUserMessage, 
+            agentType, 
+            promptName, 
+            note: 'AI service unavailable' 
+          }),
+          raw_response: JSON.stringify({ fallback: true }),
+          created_at: timestamp,
+          updated_at: timestamp
+        };
+      }
+
+      // Track LLM call if session ID is provided
+      let llmTrace: LLMCallTrace | null = null;
+      const startTime = Date.now();
+      
+      // Use fullContextPrompt for AI call but save originalUserMessage to database
+      const { response, rawResponse, usedPrompt, requestBody } = await this.callGeminiAPI(fullContextPrompt, agentType, promptName, traceId, userId);
+      
+      const endTime = Date.now();
+      const responseTime = endTime - startTime;
+      
+      // Create LLM trace record if session is provided
+      if (sessionId) {
+        const callSequence = await this.database.getNextCallSequence(sessionId);
+        
+        llmTrace = {
+          id: uuidv4(),
+          session_id: sessionId,
+          conversation_id: conversationId,
+          call_sequence: callSequence,
+          engine_type: this.mapAgentTypeToEngine(agentType),
+          model_name: this.config.model_name,
+          request: requestBody ? JSON.stringify(requestBody) : undefined,
+          response: rawResponse ? JSON.stringify(rawResponse) : undefined,
+          prompt_tokens: rawResponse.usageMetadata?.promptTokenCount || 0,
+          completion_tokens: rawResponse.usageMetadata?.candidatesTokenCount || 0,
+          total_tokens: rawResponse.usageMetadata?.totalTokenCount || 0,
+          response_time: responseTime,
+          timestamp: new Date(),
+          success: true
+        };
+        
+        // Save LLM trace to database
+        try {
+          if (llmTrace) {
+            await this.database.saveLLMCallTrace(llmTrace);
+          }
+        } catch (traceError) {
+          this.moduleLogger.warn('Failed to save LLM trace', { 
+            traceError: traceError instanceof Error ? traceError.message : 'Unknown error',
+            sessionId
+          });
+        }
+      }
+
+      const conversationData: ConversationData = {
+        id: conversationId,
+        user_id: userId,
+        user_message: originalUserMessage, // Save original user message, not the context
+        ai_response: response,
+        timestamp,
+        response_time: 0, // Will be calculated later
+        model_name: this.config.model_name,
+        raw_request: originalMessage ? JSON.stringify(originalMessage) : JSON.stringify({ 
+          originalMessage: originalUserMessage,
+          fullContextPrompt: fullContextPrompt,
+          agentType, 
+          promptName,
+          usedPrompt: usedPrompt ? {
+            id: usedPrompt.id,
+            prompt_name: usedPrompt.prompt_name,
+            version: usedPrompt.version
+          } : null
+        }),
+        raw_response: JSON.stringify(rawResponse),
+        created_at: timestamp,
+        updated_at: timestamp
+      };
+
+      return conversationData;
+    } catch (error) {
+      // 报告当前Token错误
+      if (this.currentToken) {
+        await this.tokenManager.reportError(
+          this.currentToken, 
+          error instanceof Error ? error.message : 'Unknown error'
+        );
+      }
+      
+      this.moduleLogger.error('Failed to generate AI response with context after all retries', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        userId,
+        originalMessage: originalUserMessage.substring(0, 50) + '...',
+        tokenStats: this.tokenManager.getStats()
+      });
+      
+      // 返回错误响应但不抛出异常
+      const errorResponse = '抱歉，我现在无法处理您的消息，请稍后再试。如果问题持续，请联系管理员。';
+      
+      return {
+        id: conversationId,
+        user_id: userId,
+        user_message: originalUserMessage, // Save original user message even on error
+        ai_response: errorResponse,
+        timestamp,
+        response_time: 0,
+        model_name: this.config.model_name,
+        raw_request: originalMessage ? JSON.stringify(originalMessage) : JSON.stringify({ 
+          originalMessage: originalUserMessage, 
+          agentType, 
+          promptName, 
+          error: 'API call failed' 
+        }),
+        raw_response: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+        created_at: timestamp,
+        updated_at: timestamp
+      };
+    }
+  }
+
+  /**
+   * Map agent type to engine type for LLM traces
+   */
+  private mapAgentTypeToEngine(agentType: string): 'decision' | 'context' | 'persona' | 'main_chat' | 'requirement' {
+    switch (agentType) {
+      case 'decision_analyzer':
+      case 'decision_engine':
+        return 'decision';
+      case 'context_analyzer':
+      case 'context_engine': 
+        return 'context';
+      case 'persona_engine':
+      case 'persona_analyzer':
+      case 'persona_chat':
+        return 'persona';
+      case 'intent_analyzer':
+      case 'requirement_analyzer':
+        return 'requirement';
+      case 'chat_bot':
+      case 'enhanced_chat':
+      case 'basic_chat':
+      default:
+        return 'main_chat';
     }
   }
 

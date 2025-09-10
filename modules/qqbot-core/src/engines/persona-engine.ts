@@ -44,12 +44,14 @@ export class PersonaEngine {
   }
 
   /**
-   * 主入口：生成具有人格特征的回复
+   * 主入口：对AI回复进行人格化增强
    */
-  async generateResponse(
+  async enhanceResponse(
+    aiResponse: string,
     userMessage: string,
     context: ResponseContext,
-    traceId?: string
+    traceId?: string,
+    sessionId?: string
   ): Promise<PersonaResponse> {
     const startTime = Date.now();
     
@@ -57,12 +59,15 @@ export class PersonaEngine {
       // 第一步：基于上下文选择人格侧面
       const selectedPersona = await this.selectPersonaAspect(userMessage, context);
       
-      // 第二步：使用人格化prompt生成回复
+      // 第二步：使用人格化prompt增强AI回复
       const rawResponse = await this.generatePersonalizedResponse(
+        aiResponse,
         userMessage, 
         context, 
         selectedPersona,
-        traceId
+        traceId,
+        sessionId,
+        context.conversationId
       );
       
       // 第三步：应用后处理过滤器
@@ -132,6 +137,30 @@ export class PersonaEngine {
         }
       };
     }
+  }
+
+  /**
+   * 向后兼容方法：生成具有人格特征的回复（已废弃，请使用 enhanceResponse）
+   * @deprecated Use enhanceResponse instead
+   */
+  async generateResponse(
+    userMessage: string,
+    context: ResponseContext,
+    traceId?: string,
+    sessionId?: string
+  ): Promise<PersonaResponse> {
+    this.moduleLogger.warn('generateResponse is deprecated, please use enhanceResponse instead');
+    
+    // 生成一个简单的默认回复作为基础
+    const defaultResponse = `对于"${userMessage}"这个问题，我需要更多信息才能给出准确回复。`;
+    
+    return await this.enhanceResponse(
+      defaultResponse,
+      userMessage,
+      context,
+      traceId,
+      sessionId
+    );
   }
 
   /**
@@ -227,27 +256,46 @@ export class PersonaEngine {
   }
 
   /**
-   * 使用人格化prompt生成回复
+   * 使用人格化prompt增强AI回复
    */
   private async generatePersonalizedResponse(
+    aiResponse: string,
     userMessage: string,
     context: ResponseContext,
     personaAspect: string,
-    traceId?: string
+    traceId?: string,
+    sessionId?: string,
+    conversationId?: string
   ): Promise<string> {
     
-    const personaPrompt = this.buildPersonaPrompt(userMessage, context, personaAspect);
+    const personaPrompt = this.buildPersonaPrompt(aiResponse, userMessage, context, personaAspect);
     
     try {
-      const response = await this.aiService.generateResponse(
-        personaPrompt,
-        0, // dummy user id for persona generation
-        'chat_bot',
-        'persona_chat',
-        traceId
-      );
-      
-      return response.ai_response;
+      if (sessionId) {
+        // Use generateResponseWithContext for session tracking
+        const response = await this.aiService.generateResponseWithContext(
+          userMessage, // Original user message
+          personaPrompt, // Full persona prompt
+          0, // Use 0 for persona engine calls
+          'persona_chat', // Use persona_chat as agentType for proper engine classification
+          'persona_chat',
+          traceId,
+          undefined, // No original message for persona calls
+          sessionId,
+          conversationId // Pass the main conversation ID
+        );
+        return response.ai_response;
+      } else {
+        // Fallback to regular generateResponse
+        const response = await this.aiService.generateResponse(
+          personaPrompt,
+          0, // dummy user id for persona generation
+          'chat_bot',
+          'persona_chat',
+          traceId
+        );
+        return response.ai_response;
+      }
       
     } catch (error) {
       this.moduleLogger.warn('Personalized response generation failed, using fallback');
@@ -256,9 +304,10 @@ export class PersonaEngine {
   }
 
   /**
-   * 构建人格化prompt
+   * 构建人格化增强prompt
    */
   private buildPersonaPrompt(
+    aiResponse: string,
     userMessage: string,
     context: ResponseContext,
     personaAspect: string
@@ -276,18 +325,25 @@ ${aspectPersonality}
 语言风格要求：
 ${styleGuide}
 
+任务：将以下AI回复转换为阿正的人格化表达
+
+原始AI回复：
+"${aiResponse}"
+
+用户问题：
+"${userMessage}"
+
 对话情况：
 - 消息类型: ${context.messageType === 'group' ? '群聊' : '私聊'}
-- 用户消息: "${userMessage}"
 
-请以阿正的身份回复，要求：
-1. 保持人格一致性，体现热情专业的特点
-2. 语言自然亲切，避免机械感
+请按要求进行人格化转换：
+1. 保持原始回复的核心信息和准确性
+2. 转换为阿正的语言风格：自然亲切、略带幽默
 3. 适当使用emoji增加亲和力
-4. 根据问题类型调整专业程度
-5. 回复长度适中，不要过长或过短
+4. 根据选定的人格侧面调整语气
+5. 保持回复长度适中
 
-直接给出回复内容，不要解释过程：
+直接给出人格化后的回复，不要解释转换过程：
     `;
   }
 

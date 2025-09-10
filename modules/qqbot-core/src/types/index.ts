@@ -110,6 +110,45 @@ export interface ConversationData {
   updated_at: Date;
 }
 
+// LLM 调用追踪相关类型
+export interface LLMCallTrace {
+  id: string;
+  session_id: string;
+  conversation_id?: string;
+  call_sequence: number;
+  engine_type: 'decision' | 'context' | 'persona' | 'main_chat' | 'requirement';
+  model_name?: string;
+  request?: string;
+  response?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  response_time: number;
+  timestamp: Date;
+  success: boolean;
+  error_message?: string;
+  created_at?: Date;
+  gemini_request?: any;
+  gemini_response?: any;
+}
+
+// 扩展的消息上下文，包含LLM追踪信息
+export interface MessageContextWithTraces extends MessageContext {
+  llmCallHistory: LLMCallTrace[];
+}
+
+// Session LLM 分析结果
+export interface SessionLLMAnalysis {
+  session_id: string;
+  total_calls: number;
+  total_tokens: number;
+  total_cost_estimate: number;
+  average_response_time: number;
+  engine_breakdown: Record<string, number>;
+  call_timeline: LLMCallTrace[];
+  success_rate: number;
+}
+
 export interface RequirementData {
   id: string;
   user_id: number;
@@ -178,7 +217,7 @@ export interface LogEntry {
 
 export interface AgentPromptData {
   id: string;
-  agent_type: 'chat_bot' | 'intent_analyzer' | 'requirement_processor' | 'custom';
+  agent_type: 'chat_bot' | 'intent_analyzer' | 'requirement_processor' | 'persona_chat' | 'custom';
   prompt_name: string;
   system_instructions: string[];
   user_prompt_template?: string;
@@ -893,14 +932,20 @@ export interface DecisionResult {
   };
 }
 
-// ContextEngine types - expanded MessageContext interface
+// ContextManager types - unified MessageContext interface
 export interface MessageContext {
   currentMessage: QQMessage;
-  recentMessages: QQMessage[];
-  userInfo: UserInfo;
-  groupInfo?: GroupInfo;
-  conversationSummary?: string;
-  topicKeywords?: string[];
+  historyMessages: ConversationData[];
+  contextSummary: string;
+  userInfo?: {
+    user_id: number;
+    nickname: string;
+    message_count: number;
+  };
+  groupInfo?: {
+    group_id: number;
+    message_count: number;
+  };
 }
 
 export interface UserInfo {
@@ -952,6 +997,7 @@ export interface ResponseContext {
   previousResponses: string[];
   timeOfDay: 'morning' | 'afternoon' | 'evening' | 'night';
   isUrgent: boolean;
+  conversationId?: string;
 }
 
 export interface PersonaResponse {
