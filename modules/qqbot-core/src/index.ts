@@ -903,6 +903,52 @@ class QQBot {
     }
   }
 
+  public async simulateGroupMessage(testMessage: any): Promise<{ conversationId?: string, success: boolean, error?: string }> {
+    try {
+      this.moduleLogger.info('🧪 Processing simulated group message', { 
+        user_id: testMessage.user_id,
+        group_id: testMessage.group_id,
+        message: testMessage.message 
+      });
+
+      // 创建标准的QQMessage格式
+      const qqMessage: QQMessage = {
+        message_type: 'group',
+        user_id: testMessage.user_id,
+        group_id: testMessage.group_id,
+        message: testMessage.message,
+        raw_message: testMessage.raw_message || testMessage.message,
+        message_id: testMessage.message_id || Date.now(),
+        time: testMessage.time || Math.floor(Date.now() / 1000),
+        self_id: 1129974489, // Bot's QQ ID
+        sender: testMessage.sender || {
+          user_id: testMessage.user_id,
+          nickname: `测试用户${testMessage.user_id}`,
+          card: `测试群名片${testMessage.user_id}`,
+          sex: 'unknown' as const,
+          role: 'member' as const
+        },
+        font: testMessage.font || 14,
+        sub_type: testMessage.sub_type || 'normal',
+        post_type: 'message'
+      };
+
+      // 调用实际的群消息处理逻辑
+      await this.handleGroupMessage(qqMessage);
+
+      return { success: true };
+    } catch (error) {
+      this.moduleLogger.error('Failed to simulate group message', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        testMessage 
+      });
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
   /**
    * Get current time of day for context
    */
