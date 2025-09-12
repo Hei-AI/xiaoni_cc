@@ -6,6 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a sophisticated QQ bot system built with a microservices architecture, implementing intelligent AI conversation features with advanced decision-making engines.
 
+## 🔥 最新更新 - Token-Model绑定架构
+
+**核心增强 (2025-09-11):**
+- **Model-aware Token管理**: TokenManager支持按模型选择Token
+- **被动健康检查**: 移除定时器，改为使用时被动更新
+- **5分钟黑名单**: 429/403/401错误自动5分钟黑名单
+- **数据库连接池优化**: 修复连接泄露，优化配置参数
+- **调用链追踪**: 修复websocket_logs和conversations表关联
+
 ## Development Commands
 
 ### Project Management
@@ -74,9 +83,10 @@ npm run health-check       # Check service status
 ### Key Architectural Patterns
 
 **Service Layer Pattern**: Each major functionality is encapsulated in service classes:
-- `DatabaseManager`: MySQL database operations with connection pooling
-- `AIService`: Gemini API integration with intelligent token rotation
-- `WebSocketClient`: OneBot 11 protocol implementation
+- `DatabaseManager`: MySQL database operations with **优化连接池** (修复泄露问题)
+- `AIService`: Gemini API integration with **Model-aware Token管理**
+- `TokenManager`: **被动健康检查**, Model-specific token选择与黑名单管理
+- `WebSocketClient`: OneBot 11 protocol implementation with **Trace ID生成**
 - `SessionManager`: Conversation session tracking and management
 - `ContextManager`: Builds comprehensive message context from chat history
 
@@ -93,14 +103,20 @@ filtering    for intent    adaptation    awareness
 - Rich type definitions in `src/types/index.ts` covering all database schemas
 - Comprehensive API response types for frontend integration
 
-## Database Schema
+## Database Schema (🔥 更新)
 
 The system uses a sophisticated database schema with tables for:
-- **Core**: `conversations`, `requirements`, `user_profiles`, `group_chat_settings`
-- **Token Management**: `api_tokens`, `token_logs`, `token_health_configs`  
+- **Core**: `conversations` (🆕 trace_id), `requirements`, `user_profiles`, `group_chat_settings`
+- **Token Management**: `api_tokens` (🆕 model_blacklist JSON), `agent_prompts` (🆕 model_name, allowed_token_ids)  
 - **Session Management**: `sessions`, `session_transitions`
 - **Context**: `conversation_windows`, `window_messages`, `user_context`
-- **Monitoring**: `debug_logs`, `message_chains`
+- **Monitoring**: `websocket_logs` (关联trace_id), `debug_logs`, `message_chains`
+
+**重要字段更新:**
+- `conversations.trace_id`: 关联WebSocket日志的追踪ID
+- `api_tokens.model_blacklist`: JSON字段，按模型存储黑名单时间
+- `agent_prompts.model_name`: 绑定的模型名称 (如gemini-2.5-flash)
+- `agent_prompts.allowed_token_ids`: JSON数组，允许使用的token ID
 
 See `src/types/index.ts` for complete type definitions.
 
@@ -118,9 +134,12 @@ See `src/types/index.ts` for complete type definitions.
 4. **Persona Enhancement**: Response style adapted based on user relationship and time context
 5. **Database Persistence**: All conversations logged with metadata
 
-### AI Integration Best Practices
-- Multi-token system with health checking and blacklisting
-- Token usage analytics and quota management
+### AI Integration Best Practices (🔥 更新)
+- **Model-aware Token System**: 按模型独立选择和管理Token
+- **被动健康检查**: Token使用时自动更新状态，无定时器开销
+- **5分钟快速黑名单**: 429/403/401错误自动5分钟黑名单，快速恢复
+- **架构分离**: QQ Bot被动更新，Admin Panel主动检查
+- **连接池优化**: 修复数据库连接泄露，优化配置参数
 - Graceful fallback when AI services are unavailable
 - Context-aware prompt engineering for different conversation types
 

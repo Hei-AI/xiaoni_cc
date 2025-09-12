@@ -152,6 +152,126 @@ app.get('/api/tokens', async (req, res) => {
   }
 });
 
+// Token状态查询接口 - 管理端专用
+app.get('/api/tokens', async (req, res) => {
+  try {
+    const tokens = await database.executeQuery(`
+      SELECT 
+        id,
+        LEFT(token, 20) as token_preview,
+        project_name,
+        blacklisted_until,
+        daily_used,
+        daily_limit,
+        error_count,
+        last_error,
+        last_error_time,
+        last_used,
+        created_at,
+        updated_at
+      FROM api_tokens
+      ORDER BY id
+    `);
+    
+    const now = new Date();
+    const processedTokens = tokens.map((token: any) => {
+      const blacklistTime = token.blacklisted_until ? new Date(token.blacklisted_until) : null;
+      let status = 'available';
+      
+      if (blacklistTime) {
+        if (blacklistTime >= new Date('2030-01-01')) {
+          status = 'permanently_disabled';
+        } else if (blacklistTime > now) {
+          status = 'temporarily_disabled';
+        } else {
+          status = 'recovered';
+        }
+      }
+      
+      return {
+        ...token,
+        status,
+        is_available: !blacklistTime || blacklistTime <= now,
+        usage_percentage: Math.round((token.daily_used / token.daily_limit) * 100),
+        recovery_time: blacklistTime && blacklistTime > now ? blacklistTime : null
+      };
+    });
+    
+    res.json({
+      success: true,
+      data: processedTokens,
+      total: processedTokens.length,
+      summary: {
+        total: processedTokens.length,
+        available: processedTokens.filter((t: any) => t.is_available && t.daily_used < t.daily_limit).length,
+        temporarily_disabled: processedTokens.filter((t: any) => t.status === 'temporarily_disabled').length,
+        permanently_disabled: processedTokens.filter((t: any) => t.status === 'permanently_disabled').length,
+        recovered: processedTokens.filter((t: any) => t.status === 'recovered').length
+      }
+    });
+  } catch (error) {
+    logger.error('Failed to get tokens', { error });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve tokens'
+    });
+  }
+});
+
+// 永久禁用Token接口
+app.post('/api/tokens/:id/disable', async (req, res) => {
+  try {
+    const tokenId = parseInt(req.params.id);
+    
+    await database.executeUpdate(`
+      UPDATE api_tokens 
+      SET blacklisted_until = '2030-12-31 23:59:59',
+          last_error = '[管理员] 手动永久禁用',
+          last_error_time = NOW()
+      WHERE id = ?
+    `, [tokenId]);
+    
+    logger.info(`Token ID ${tokenId} permanently disabled by admin`);
+    res.json({
+      success: true,
+      message: `Token ID ${tokenId} has been permanently disabled`
+    });
+  } catch (error) {
+    logger.error('Failed to disable token', { error, tokenId: req.params.id });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to disable token'
+    });
+  }
+});
+
+// 启用Token接口
+app.post('/api/tokens/:id/enable', async (req, res) => {
+  try {
+    const tokenId = parseInt(req.params.id);
+    
+    await database.executeUpdate(`
+      UPDATE api_tokens 
+      SET blacklisted_until = NULL,
+          last_error = NULL,
+          last_error_time = NULL
+      WHERE id = ?
+    `, [tokenId]);
+    
+    logger.info(`Token ID ${tokenId} enabled by admin`);
+    res.json({
+      success: true,
+      message: `Token ID ${tokenId} has been enabled`
+    });
+  } catch (error) {
+    logger.error('Failed to enable token', { error, tokenId: req.params.id });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to enable token'
+    });
+  }
+});
+
 // Token health check test endpoint - 测试版本(无需数据库)
 app.post('/api/tokens/health-check-test', async (req, res) => {
   try {
@@ -244,17 +364,22 @@ app.post('/api/tokens/health-check-test', async (req, res) => {
   }
 });
 
-// Token health check endpoint - 真实的健康检查
+// Token health check endpoint - 真实的健康检查 (主动检测)
 app.post('/api/tokens/health-check', async (req, res) => {
   try {
-    logger.info('Starting real token health check...');
+    // 获取请求参数中的模型ID，默认为gemini-2.5-flash
+    const modelId = req.body.model_id || req.query.model_id || 'gemini-2.5-flash';
     
-    // 获取所有活跃的Token
+    logger.info('Starting real token health check...', { modelId });
+    
+    // 获取所有Token (移除is_active依赖)
     const tokens = await database.executeQuery(`
-      SELECT id, token, project_name FROM api_tokens WHERE is_active = TRUE
+      SELECT id, token, project_name FROM api_tokens 
+      WHERE (blacklisted_until IS NULL OR blacklisted_until < '2030-01-01')
+      ORDER BY id
     `);
     
-    logger.info(`Found ${tokens.length} active tokens to check`);
+    logger.info(`Found ${tokens.length} active tokens to check for model ${modelId}`);
     
     let healthyCount = 0;
     const axios = require('axios');
@@ -264,9 +389,9 @@ app.post('/api/tokens/health-check', async (req, res) => {
       try {
         const startTime = Date.now();
         
-        // 发送测试请求到Gemini API
+        // 发送测试请求到Gemini API (使用指定的模型ID)
         const response = await axios.post(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent`,
           {
             contents: [{
               parts: [{
@@ -286,14 +411,13 @@ app.post('/api/tokens/health-check', async (req, res) => {
         const responseTime = Date.now() - startTime;
         
         if (response.status === 200 && response.data.candidates) {
-          // Token健康，更新数据库
+          // Token健康，清除黑名单状态
           await database.executeUpdate(`
             UPDATE api_tokens SET 
-              is_healthy = TRUE,
+              blacklisted_until = NULL,
               error_count = 0,
               last_error = NULL,
-              last_error_time = NULL,
-              last_health_check = NOW()
+              last_error_time = NULL
             WHERE id = ?
           `, [tokenData.id]);
           
@@ -302,18 +426,47 @@ app.post('/api/tokens/health-check', async (req, res) => {
           return { id: tokenData.id, healthy: true };
         }
       } catch (error: any) {
-        // Token不健康，更新数据库
-        const errorMessage = error.response?.data?.error?.message || error.message || 'Unknown error';
+        // Token不健康，根据错误类型决定处理方式
+        let errorMessage = '';
+        let shouldBlacklist = false;
         
-        await database.executeUpdate(`
-          UPDATE api_tokens SET 
-            is_healthy = FALSE,
-            error_count = error_count + 1,
-            last_error = ?,
-            last_error_time = NOW(),
-            last_health_check = NOW()
-          WHERE id = ?
-        `, [errorMessage, tokenData.id]);
+        if (error.response) {
+          const status = error.response.status;
+          const statusText = error.response.statusText;
+          errorMessage = `[主动检查] HTTP ${status}: ${statusText}`;
+          
+          // 429/403/401 错误临时黑名单5分钟
+          if (status === 429 || status === 403 || status === 401) {
+            shouldBlacklist = true;
+          }
+        } else {
+          errorMessage = `[主动检查] ${error.message || 'Unknown error'}`;
+        }
+        
+        if (shouldBlacklist) {
+          // 临时黑名单5分钟
+          await database.executeUpdate(`
+            UPDATE api_tokens SET 
+              blacklisted_until = DATE_ADD(NOW(), INTERVAL 5 MINUTE),
+              error_count = error_count + 1,
+              last_error = ?,
+              last_error_time = NOW()
+            WHERE id = ?
+          `, [errorMessage, tokenData.id]);
+          
+          logger.warn(`Token ${tokenData.project_name} temporarily blacklisted (5min): ${errorMessage}`);
+        } else {
+          // 只记录错误，不黑名单
+          await database.executeUpdate(`
+            UPDATE api_tokens SET 
+              error_count = error_count + 1,
+              last_error = ?,
+              last_error_time = NOW()
+            WHERE id = ?
+          `, [errorMessage, tokenData.id]);
+          
+          logger.warn(`Token ${tokenData.project_name} error recorded: ${errorMessage}`);
+        }
         
         logger.warn(`Token ${tokenData.project_name} failed health check: ${errorMessage}`);
         return { id: tokenData.id, healthy: false, error: errorMessage };
@@ -328,6 +481,7 @@ app.post('/api/tokens/health-check', async (req, res) => {
     res.json({
       success: true,
       message: 'Real health check completed',
+      model_id: modelId,
       summary: {
         totalTokens: totalChecked,
         healthyTokens: healthyCount,
@@ -1000,6 +1154,91 @@ app.get('/api/logs/trace/:traceId', async (req, res) => {
       success: false,
       error: 'Failed to get trace details',
       message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// ============== DEBUG ENDPOINTS ==============
+// Debug conversation LLM flow - 迁移自QQBot Core
+app.get('/api/debug/conversation/:conversationId/llm-flow', async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    
+    if (!database) {
+      return res.status(500).json({
+        success: false,
+        error: 'Database service not available',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 获取对话基本信息
+    const conversationQuery = `SELECT * FROM conversations WHERE id = ?`;
+    const conversations = await database.executeQuery(conversationQuery, [conversationId]);
+    
+    if (conversations.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Conversation not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const conversation = conversations[0] as any;
+    
+    // 安全JSON解析函数
+    const safeJsonParse = (jsonString: string | null): any => {
+      if (!jsonString) return null;
+      try {
+        return JSON.parse(jsonString);
+      } catch (error) {
+        logger.warn('Failed to parse JSON', { jsonString, error });
+        return null;
+      }
+    };
+    
+    // 获取数据库中的LLM追踪数据 - 直接根据conversation_id查询
+    logger.info('Fetching LLM traces for conversation', { conversationId });
+    const llmTraces = await database.executeQuery(
+      `SELECT * FROM llm_call_traces WHERE conversation_id = ? ORDER BY call_sequence ASC`, 
+      [conversationId]
+    );
+    logger.info('Found LLM traces', { conversationId, traceCount: llmTraces.length });
+
+    res.json({
+      conversation_id: conversationId,
+      websocket_input: safeJsonParse(conversation.raw_request) || {},
+      websocket_output: {
+        content: conversation.ai_response,
+        response_time_ms: conversation.response_time,
+        model: conversation.model_name,
+        timestamp: conversation.timestamp instanceof Date ? conversation.timestamp.toISOString() : new Date(conversation.timestamp).toISOString()
+      },
+      llm_trace: llmTraces.map((trace: any) => ({
+        llm_raw_input: {
+          engine_type: trace.engine_type,
+          call_sequence: trace.call_sequence,
+          model_name: trace.model_name,
+          timestamp: trace.timestamp instanceof Date ? trace.timestamp.toISOString() : new Date(trace.timestamp).toISOString(),
+          gemini_request: safeJsonParse(trace.request)
+        },
+        llm_raw_output: {
+          prompt_tokens: trace.prompt_tokens,
+          completion_tokens: trace.completion_tokens,
+          total_tokens: trace.total_tokens,
+          response_time_ms: trace.response_time,
+          success: trace.success,
+          gemini_response: safeJsonParse(trace.response)
+        }
+      }))
+    });
+
+  } catch (error) {
+    logger.error('Failed to fetch LLM flow', { error, conversationId: req.params.conversationId });
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString()
     });
   }

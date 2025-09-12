@@ -20,20 +20,33 @@ modules/
 ```
 
 ### 关键服务组件 (`modules/qqbot-core/src/services/`)
-- **ai-service.ts**: Gemini AI集成，意图识别，对话处理，Token轮换机制
-- **database.ts**: MySQL数据库管理，连接池，类型安全查询 (50KB+)
+- **ai-service.ts**: Gemini AI集成，**Model-aware Token管理**，对话处理 (🔥 增强)
+- **database.ts**: MySQL数据库管理，**优化连接池**，**修复连接泄露**，**调用链追踪** (🔥 增强)
 - **http-server.ts**: HTTP API端点，健康检查，状态监控 (26KB+)
-- **websocket-client.ts**: OneBot WebSocket连接，QQ消息收发
+- **websocket-client.ts**: OneBot WebSocket连接，QQ消息收发，**Trace ID生成**
 - **session-manager.ts**: 多服务会话编排，智能服务切换逻辑
 - **context-manager.ts**: 对话上下文维护，消息历史管理，智能上下文感知
 - **remote-claude-service.ts**: Claude Code远程会话处理，Tmux会话管理
 - **logging-service.ts**: 结构化日志系统，Trace ID支持，多级日志输出 (20KB+)
 - **debug-service.ts**: 开发调试服务，请求追踪，性能监控
 
+### Token-Model绑定管理系统 (🆕 新增架构)
+- **TokenManager** (`utils/token-manager.ts`): **Model-aware token选择**，被动健康检查，5分钟黑名单机制
+- **Agent Prompts**: 模型与Token绑定配置，支持`gemini-2.5-flash`和`gemini-1.5-pro`
+- **Model Blacklist**: 按模型独立的Token黑名单状态管理（JSON字段）
+- **Admin Panel Health Check**: 主动Token健康检查接口，**仅存在于管理端**
+- **架构分离**: QQ Bot Core为被动模式，Admin Panel为主动检查模式
+
 ### 智能引擎系统 (`modules/qqbot-core/src/engines/`)
 - **decision-engine.ts**: Stage 1智能决策引擎，基于规则的消息分类和路由
 - **context-engine.ts**: 上下文分析引擎，对话感知和历史理解
 - **persona-engine.ts**: 人格适应引擎，响应风格和个性化处理
+
+### 调用链路追踪系统 (🔥 增强)
+- **Trace ID**: 完整的消息处理链路标识
+- **WebSocket-Conversations关联**: `websocket_logs`和`conversations`表通过`trace_id`关联
+- **完整时间线**: WebSocket事件、AI处理、数据库操作的完整追踪
+- **DatabaseManager新增方法**: `getTraceDetails()`, `getFullTraceAnalysis()`
 
 ## 常用命令
 
@@ -258,8 +271,52 @@ npm run install:all
 npm start
 ```
 
+## 综合测试 (🆕 新增)
+
+### 运行完整系统测试
+```bash
+# 执行Token-Model绑定系统综合测试
+node test_token_model_system.js
+```
+
+**测试覆盖范围:**
+- 数据库表结构验证 (token-model绑定字段)
+- Token-Model绑定机制测试
+- WebSocket日志与对话记录关联验证
+- 服务健康检查 (所有4个模块)
+- 私聊功能模拟测试
+- 群聊功能模拟测试 (通过group_chat_settings控制)
+- Admin Panel Token健康检查
+- 调用链路追踪API验证
+
+**测试要求:**
+- 必须通过所有8项测试
+- 发现问题必须修复，不允许规避
+- 包含私聊和群聊的完整模拟
+- 验证调用链路的完整性
+
 ### 各模块信息
 
 - @modules/qqbot-core/CLAUDE.md
 - @modules/http-api/CLAUDE.md
 - @modules/admin-panel/CLAUDE.md
+
+## 最近更新 (🔥 重要)
+
+### Token-Model绑定架构 (2025-09-11)
+- 实现Model-aware Token选择机制
+- 支持按模型独立的黑名单管理
+- 移除定时器健康检查，改为被动+主动混合模式
+- 修复数据库连接池连接泄露问题
+
+### 调用链路追踪增强 (2025-09-11)
+- 修复websocket_logs和conversations表关联
+- 新增trace_id字段和索引
+- 实现完整的调用链时间线分析
+- 提供调用链路API查询接口
+
+### 群聊管理改进 (2025-09-11)
+- 群聊功能通过group_chat_settings表控制
+- is_enabled: 群聊事件监听开关
+- auto_reply_enabled: 群聊自动回复开关
+- 支持群聊级别的细粒度控制

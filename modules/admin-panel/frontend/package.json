@@ -1,28 +1,51 @@
 {
   "name": "qq-bot-admin-frontend",
   "version": "1.0.0",
-  "description": "QQ Bot Admin Panel Frontend",
-  "main": "index.js",
+  "description": "QQ Bot Admin Panel Frontend with shadcn/ui",
+  "type": "module",
   "scripts": {
-    "dev": "http-server public -p 3003 -o --cors",
-    "build": "echo 'Frontend build completed - static files ready'",
-    "start": "http-server public -p 3003 --cors",
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "start": "vite preview --port 3003",
     "test": "echo 'Frontend tests not configured yet'",
-    "clean": "echo 'No build artifacts to clean'"
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "@tanstack/react-query": "^5.59.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-collapsible": "^1.1.1",
+    "@radix-ui/react-tabs": "^1.1.1",
+    "@radix-ui/react-scroll-area": "^1.2.0",
+    "@radix-ui/react-progress": "^1.1.0",
+    "@radix-ui/react-separator": "^1.1.0",
+    "lucide-react": "^0.451.0",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.5.3",
+    "class-variance-authority": "^0.7.0"
   },
   "devDependencies": {
-    "http-server": "^14.1.1"
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.14",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
   },
   "keywords": [
     "qq-bot",
     "admin",
     "frontend",
-    "dashboard"
+    "dashboard",
+    "shadcn-ui",
+    "react"
   ],
   "author": "QQ Bot Team",
-  "license": "MIT",
-  "directories": {
-    "doc": "docs",
-    "test": "tests"
-  }
+  "license": "MIT"
 }
