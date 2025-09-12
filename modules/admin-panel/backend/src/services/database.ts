@@ -92,8 +92,24 @@ export class DatabaseManager {
 
   public async executeQuery<T>(query: string, params: any[] = []): Promise<T[]> {
     try {
-      const [rows] = await this.pool.execute(query, params);
-      return rows as T[];
+      const connection = await this.pool.getConnection();
+      const [rows] = await connection.execute(query, params);
+      connection.release();
+      
+      // 处理日期时间序列化
+      if (Array.isArray(rows)) {
+        return rows.map((row: any) => {
+          const processedRow = { ...row };
+          Object.keys(processedRow).forEach(key => {
+            if (processedRow[key] instanceof Date) {
+              processedRow[key] = processedRow[key].toISOString();
+            }
+          });
+          return processedRow;
+        });
+      }
+      
+      return [];
     } catch (error) {
       this.logger.error('Database query failed', { query, params, error });
       throw error;
@@ -133,13 +149,15 @@ export class DatabaseManager {
       params.push(searchTerm, searchTerm);
     }
 
+    // 正确的参数顺序：先是where条件参数，再是limit和offset
+    
     try {
       // 获取总数
       const totalQuery = `SELECT COUNT(*) as total FROM conversations ${whereClause}`;
-      const totalResult = await this.executeQuery<{ total: number }>(totalQuery, params);
+      const totalResult = await this.executeQuery<{ total: number }>(totalQuery, [...params]);
       const total = totalResult[0]?.total || 0;
 
-      // 获取数据
+      // 获取数据 - LIMIT/OFFSET不支持参数绑定，使用字符串插值（已验证为安全数值）
       const dataQuery = `
         SELECT id, user_id, user_message, ai_response, timestamp, response_time, 
                model_name, message_id, reply_to_message_id, reply_to_text, 
@@ -147,16 +165,33 @@ export class DatabaseManager {
         FROM conversations 
         ${whereClause}
         ORDER BY timestamp DESC 
-        LIMIT ? OFFSET ?
+        LIMIT ${parseInt(limit.toString())} OFFSET ${parseInt(offset.toString())}
       `;
-      params.push(limit, offset);
       
+      // 只传递WHERE条件参数，LIMIT/OFFSET已嵌入查询
       const data = await this.executeQuery<ConversationData>(dataQuery, params);
+
+      this.logger.info('Conversations query executed successfully', { 
+        dataCount: data.length, 
+        total, 
+        limit, 
+        offset,
+        params: params // 只传递WHERE条件参数
+      });
 
       return { data, total };
     } catch (error) {
-      this.logger.warn('Failed to query conversations table, it may not exist yet', { error });
-      return { data: [], total: 0 };
+      // 记录详细错误信息并重新抛出错误
+      this.logger.error('Failed to query conversations table', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : 'No stack trace',
+        whereClause,
+        params: params, // 显示实际使用的参数
+        limit,
+        offset,
+        queryType: 'conversations'
+      });
+      throw error; // 重新抛出错误，不允许静默处理
     }
   }
 
@@ -193,13 +228,14 @@ export class DatabaseManager {
       params.push(status);
     }
 
+
     try {
       // 获取总数
       const totalQuery = `SELECT COUNT(*) as total FROM requirements ${whereClause}`;
       const totalResult = await this.executeQuery<{ total: number }>(totalQuery, params);
       const total = totalResult[0]?.total || 0;
 
-      // 获取数据
+      // 获取数据 - LIMIT/OFFSET不支持参数绑定，使用字符串插值（已验证为安全数值）
       const dataQuery = `
         SELECT id, user_id, message, status, claude_code_output, completion_details, 
                error_message, processing_start_time, processing_end_time, 
@@ -207,16 +243,23 @@ export class DatabaseManager {
         FROM requirements 
         ${whereClause}
         ORDER BY created_at DESC 
-        LIMIT ? OFFSET ?
+        LIMIT ${parseInt(limit.toString())} OFFSET ${parseInt(offset.toString())}
       `;
-      params.push(limit, offset);
       
       const data = await this.executeQuery<RequirementData>(dataQuery, params);
 
       return { data, total };
     } catch (error) {
-      this.logger.warn('Failed to query requirements table, it may not exist yet', { error });
-      return { data: [], total: 0 };
+      this.logger.error('Failed to query requirements table', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : 'No stack trace',
+        whereClause,
+        params: params,
+        limit,
+        offset,
+        queryType: 'requirements'
+      });
+      throw error; // 重新抛出错误，不允许静默处理
     }
   }
 
@@ -242,29 +285,37 @@ export class DatabaseManager {
       params.push(parseInt(userId));
     }
 
+
     try {
       // 获取总数
       const totalQuery = `SELECT COUNT(*) as total FROM conversation_sessions ${whereClause}`;
       const totalResult = await this.executeQuery<{ total: number }>(totalQuery, params);
       const total = totalResult[0]?.total || 0;
 
-      // 获取数据
+      // 获取数据 - LIMIT/OFFSET不支持参数绑定，使用字符串插值（已验证为安全数值）
       const dataQuery = `
         SELECT session_id, user_id, session_type, current_service, status, 
                created_at, last_activity, expires_at, message_count
         FROM conversation_sessions 
         ${whereClause}
         ORDER BY last_activity DESC 
-        LIMIT ? OFFSET ?
+        LIMIT ${parseInt(limit.toString())} OFFSET ${parseInt(offset.toString())}
       `;
-      params.push(limit, offset);
       
       const data = await this.executeQuery<SessionData>(dataQuery, params);
 
       return { data, total };
     } catch (error) {
-      this.logger.warn('Failed to query conversation_sessions table, it may not exist yet', { error });
-      return { data: [], total: 0 };
+      this.logger.error('Failed to query conversation_sessions table', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : 'No stack trace',
+        whereClause,
+        params: params,
+        limit,
+        offset,
+        queryType: 'sessions'
+      });
+      throw error; // 重新抛出错误，不允许静默处理
     }
   }
 

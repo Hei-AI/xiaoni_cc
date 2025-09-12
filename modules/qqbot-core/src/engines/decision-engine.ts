@@ -252,8 +252,20 @@ export class DecisionEngine {
         traceId
       );
       
+      // 如果AI服务返回null，返回保守的fallback结果
+      if (!response) {
+        this.moduleLogger.info('AI analysis failed, falling back to conservative decision');
+        return {
+          shouldRespond: false,
+          confidence: 10,
+          source: 'ai_analysis' as const,
+          reasoning: 'AI service unavailable, conservative fallback applied',
+          suggestedService: 'ignore' as const
+        };
+      }
+      
       // 解析AI响应
-      const analysisResult = this.parseAIResponse(response.ai_response);
+      const analysisResult = this.parseAIResponse(response.ai_response || '');
       const isAuthorized = this.isAuthorizedUser(context.currentMessage.user_id);
       
       // 对于@消息，放宽限制 - 因为@本身就表明了用户想要互动的意图
@@ -459,10 +471,12 @@ ${context.currentMessage.group_id ? `群聊ID: ${context.currentMessage.group_id
    * 辅助方法：检查是否包含相关关键词
    */
   private hasRelevantKeywords(context: MessageContext): boolean {
-    const keywords = context.topicKeywords || [];
+    // 从消息内容中提取关键词进行判断
+    const message = context.currentMessage.raw_message || context.currentMessage.message;
+    const messageText = typeof message === 'string' ? message : JSON.stringify(message);
     const technicalKeywords = ['bug', 'error', '错误', '问题', '代码', '开发', '实现', 'API'];
-    return keywords.some(keyword => 
-      technicalKeywords.some(tech => keyword.toLowerCase().includes(tech.toLowerCase()))
+    return technicalKeywords.some(tech => 
+      messageText.toLowerCase().includes(tech.toLowerCase())
     );
   }
 

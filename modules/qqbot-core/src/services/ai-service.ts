@@ -306,23 +306,20 @@ export class AIService {
   private async callGeminiAPI(
     prompt: string,
     agentType: string = 'chat_bot',
-    promptName?: string,
+    promptName: string = 'default_chat',
     traceId?: string,
     userId?: number
-  ): Promise<{ response: string; rawResponse: any; usedPrompt?: AgentPromptData; requestBody?: any }> {
-    const apiToken = this.getCurrentToken();
-    if (!apiToken) {
-      throw new Error('No API token available - all tokens may be blacklisted');
-    }
-
+  ): Promise<{ response: string; rawResponse: any; usedPrompt?: AgentPromptData; requestBody?: any; modelName: string } | null> {
     // 生成唯一的LLM调用ID
     const llmCallId = uuidv4();
     const callStartTime = Date.now();
 
-    // 支持Token重试机制
+    // Model-aware Token管理 - 支持重试机制
     let lastError: Error | null = null;
     let agentPrompt: AgentPromptData | null = null;
     let requestBody: any = null;
+    let modelName = 'gemini-2.5-flash'; // 默认模型
+    let tokenInfo: { token: string; tokenId: number; projectName: string } | null = null;
     const maxRetries = 3;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -342,16 +339,39 @@ export class AIService {
         if (agentPrompt) {
           systemInstructions = agentPrompt.system_instructions;
           modelConfig = { ...modelConfig, ...agentPrompt.model_config };
+          // 使用Agent Prompt中配置的模型名称
+          modelName = agentPrompt.model_name || 'gemini-2.5-flash';
+          this.moduleLogger.debug('🔍 Agent Prompt model debug', {
+            agentType,
+            promptName,
+            agentPromptModelName: agentPrompt.model_name,
+            finalModelName: modelName,
+            configModelName: this.config.model_name
+          });
+        } else {
+          this.moduleLogger.debug('🔍 No agent prompt found, using default', {
+            agentType,
+            promptName,
+            defaultModelName: modelName,
+            configModelName: this.config.model_name
+          });
         }
 
         // 构建系统指令
         const systemContext = systemInstructions.length > 0 ? systemInstructions.join('\n') : '';
         
-        // 使用直接HTTP API调用Gemini
-        const apiToken = await this.getCurrentToken();
-        if (!apiToken) {
-          throw new Error('API token became unavailable');
+        // 使用Model-aware Token获取
+        tokenInfo = await this.tokenManager.getTokenForModel(modelName, agentType, promptName);
+        if (!tokenInfo) {
+          throw new Error(`No available tokens for model ${modelName} and prompt ${agentType}/${promptName}`);
         }
+
+        this.moduleLogger.debug('Using token for model-aware API call', {
+          tokenId: tokenInfo.tokenId,
+          projectName: tokenInfo.projectName,
+          modelName,
+          attempt
+        });
 
         // 构建请求体
         requestBody = {
@@ -373,12 +393,12 @@ export class AIService {
         };
 
         const result = await axios.post(
-          `${this.baseURL}/${this.config.model_name}:generateContent`,
+          `${this.baseURL}/${modelName}:generateContent`,
           requestBody,
           {
             headers: {
               'Content-Type': 'application/json',
-              'X-goog-api-key': apiToken
+              'X-goog-api-key': tokenInfo.token
             },
             timeout: 30000 // 30秒超时
           }
@@ -484,7 +504,8 @@ export class AIService {
           
           if (responseText === '') {
             this.moduleLogger.warn('Extracted text is empty but no error occurred');
-            responseText = '抱歉，我无法生成回复。请稍后重试。';
+            // 返回空响应，不生成错误消息
+            return null;
           }
           
           // 检查是否存在编码问题（常见的UTF-8乱码特征）
@@ -520,23 +541,18 @@ export class AIService {
           throw new Error(`Failed to extract response text from Gemini API: ${error instanceof Error ? error.message : 'Unknown parsing error'}`);
         }
 
-        // 成功时报告Token使用成功
-        if (this.currentToken) {
-          await this.tokenManager.reportSuccess(
-            this.currentToken, 
-            responseTime,
-            response.usageMetadata
-          );
-        }
+        // Model-aware成功处理 - 记录token使用成功
+        await this.tokenManager.markTokenSuccess(tokenInfo.tokenId);
 
-        this.moduleLogger.info('Gemini API call successful', {
-          model: this.config.model_name,
+        this.moduleLogger.info('Model-aware Gemini API call successful', {
+          modelName,
           agentType,
           promptName,
           responseTime,
           attempt,
-          tokenUsage: response.usageMetadata,
-          tokenPrefix: this.currentToken?.substring(0, 8) + '...'
+          tokenId: tokenInfo.tokenId,
+          projectName: tokenInfo.projectName,
+          tokenUsage: response.usageMetadata
         });
 
         // Log successful LLM call to database
@@ -547,7 +563,7 @@ export class AIService {
               userId: userId,
               callSequence: attempt,
               agentType: agentType,
-              modelName: this.config.model_name,
+              modelName: modelName,
               promptTemplate: promptName || 'default',
               inputPrompt: prompt,
               modelConfig: {
@@ -576,18 +592,25 @@ export class AIService {
           response: responseText,
           rawResponse: response,
           usedPrompt: agentPrompt || undefined,
-          requestBody: requestBody
+          requestBody: requestBody,
+          modelName: modelName
         };
         
       } catch (error) {
         lastError = error instanceof Error ? error : new Error('Unknown API error');
         
-        this.moduleLogger.warn(`Gemini API call failed (attempt ${attempt}/${maxRetries})`, { 
+        // Model-aware错误处理 - 记录token失败
+        if (tokenInfo) {
+          await this.tokenManager.markTokenFailedForModel(tokenInfo.tokenId, modelName, lastError, 'AI Service API调用');
+        }
+        
+        this.moduleLogger.warn(`Model-aware Gemini API call failed (attempt ${attempt}/${maxRetries})`, { 
           error: lastError.message,
-          model: this.config.model_name,
+          modelName,
           agentType,
           promptName,
-          currentToken: this.currentToken?.substring(0, 8) + '...'
+          tokenId: tokenInfo?.tokenId,
+          projectName: tokenInfo?.projectName
         });
         
         // 最后一次尝试失败，不再重试
@@ -621,7 +644,7 @@ export class AIService {
           userId: userId,
           callSequence: maxRetries,
           agentType: agentType,
-          modelName: this.config.model_name,
+          modelName: modelName,
           promptTemplate: promptName || 'default',
           inputPrompt: prompt,
           modelConfig: requestBody?.generationConfig || {},
@@ -651,32 +674,23 @@ export class AIService {
     agentType: string = 'chat_bot',
     promptName?: string,
     traceId?: string
-  ): Promise<ConversationData> {
+  ): Promise<ConversationData | null> {
     const conversationId = uuidv4();
     const timestamp = new Date();
 
     try {
       const apiToken = await this.getCurrentToken();
       if (!apiToken) {
-        // AI服务未初始化，返回友好提示
-        const fallbackResponse = '抱歉，AI服务当前不可用。所有API Token都不可用，请检查Token配置或联系管理员。';
-        
-        return {
-          id: conversationId,
-          user_id: userId,
-          user_message: userMessage,
-          ai_response: fallbackResponse,
-          timestamp,
-          response_time: 0,
-          model_name: this.config.model_name,
-          raw_request: JSON.stringify({ userMessage, agentType, promptName, note: 'AI service unavailable' }),
-          raw_response: JSON.stringify({ fallback: true }),
-          created_at: timestamp,
-          updated_at: timestamp
-        };
+        this.moduleLogger.error('AI service unavailable: all API tokens are unavailable');
+        // 不返回任何响应给用户
+        return null;
       }
 
-      const { response, rawResponse, usedPrompt } = await this.callGeminiAPI(userMessage, agentType, promptName, traceId, userId);
+      const callResult = await this.callGeminiAPI(userMessage, agentType, promptName, traceId, userId);
+      if (!callResult) {
+        return null;
+      }
+      const { response, rawResponse, usedPrompt, modelName } = callResult;
 
       const conversationData: ConversationData = {
         id: conversationId,
@@ -685,7 +699,7 @@ export class AIService {
         ai_response: response,
         timestamp,
         response_time: 0, // Will be calculated later
-        model_name: this.config.model_name,
+        model_name: modelName,
         raw_request: JSON.stringify({ 
           userMessage, 
           agentType, 
@@ -697,6 +711,7 @@ export class AIService {
           } : null
         }),
         raw_response: JSON.stringify(rawResponse),
+        status: 'completed', // 添加必需的status字段
         created_at: timestamp,
         updated_at: timestamp
       };
@@ -718,22 +733,8 @@ export class AIService {
         tokenStats: this.tokenManager.getStats()
       });
       
-      // 返回错误响应但不抛出异常
-      const errorResponse = '抱歉，我现在无法处理您的消息，请稍后再试。如果问题持续，请联系管理员。';
-      
-      return {
-        id: conversationId,
-        user_id: userId,
-        user_message: userMessage,
-        ai_response: errorResponse,
-        timestamp,
-        response_time: 0,
-        model_name: this.config.model_name,
-        raw_request: JSON.stringify({ userMessage, agentType, promptName, error: 'API call failed' }),
-        raw_response: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-        created_at: timestamp,
-        updated_at: timestamp
-      };
+      // 不返回任何响应给用户
+      return null;
     }
   }
 
@@ -742,6 +743,83 @@ export class AIService {
    * This fixes the issue where context was being saved as user message
    * Also tracks LLM calls for session analysis
    */
+  // 新增：为已存在的conversation生成响应的方法
+  public async generateResponseForExistingConversation(
+    originalUserMessage: string,
+    fullContextPrompt: string,
+    userId: number,
+    agentType: string = 'chat_bot',
+    promptName?: string,
+    traceId?: string,
+    conversationId?: string,
+    sessionId?: string
+  ): Promise<{ ai_response: string; response_time: number; model_name: string; raw_response?: string } | null> {
+    if (!conversationId) {
+      this.moduleLogger.error('conversationId is required for generateResponseForExistingConversation');
+      return null;
+    }
+
+    const startTime = Date.now();
+    
+    try {
+      const apiToken = await this.getCurrentToken();
+      if (!apiToken) {
+        this.moduleLogger.error('AI service unavailable: all API tokens are unavailable');
+        // 不返回任何响应给用户，让调用方处理状态更新
+        return null;
+      }
+
+      // 使用fullContextPrompt调用Gemini API
+      const callResult = await this.callGeminiAPI(fullContextPrompt, agentType, promptName, traceId, userId);
+      if (!callResult) {
+        return null;
+      }
+
+      const { response, rawResponse, usedPrompt, requestBody, modelName } = callResult;
+      const responseTime = Date.now() - startTime;
+
+      // Track LLM call if session ID is provided
+      if (sessionId) {
+        const callSequence = await this.database.getNextCallSequence(sessionId);
+        
+        const llmTrace: LLMCallTrace = {
+          id: uuidv4(),
+          session_id: sessionId,
+          conversation_id: conversationId,
+          call_sequence: callSequence,
+          engine_type: this.mapAgentTypeToEngine(agentType),
+          model_name: modelName,
+          request: requestBody ? JSON.stringify(requestBody) : undefined,
+          response: rawResponse ? JSON.stringify(rawResponse) : undefined,
+          prompt_tokens: rawResponse.usageMetadata?.promptTokenCount || 0,
+          completion_tokens: rawResponse.usageMetadata?.candidatesTokenCount || 0,
+          total_tokens: (rawResponse.usageMetadata?.promptTokenCount || 0) + (rawResponse.usageMetadata?.candidatesTokenCount || 0),
+          response_time: responseTime,
+          timestamp: new Date(),
+          success: true
+        };
+
+        await this.database.saveLLMCallTrace(llmTrace);
+      }
+
+      return {
+        ai_response: response,
+        response_time: responseTime,
+        model_name: modelName,
+        raw_response: JSON.stringify(rawResponse)
+      };
+      
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      this.moduleLogger.error('AI response generation failed for existing conversation', {
+        conversationId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        responseTime
+      });
+      return null;
+    }
+  }
+
   public async generateResponseWithContext(
     originalUserMessage: string,
     fullContextPrompt: string,
@@ -752,34 +830,16 @@ export class AIService {
     originalMessage?: any,
     sessionId?: string,
     existingConversationId?: string
-  ): Promise<ConversationData> {
+  ): Promise<ConversationData | null> {
     const conversationId = existingConversationId || uuidv4();
     const timestamp = new Date();
 
     try {
       const apiToken = await this.getCurrentToken();
       if (!apiToken) {
-        // AI服务未初始化，返回友好提示
-        const fallbackResponse = '抱歉，AI服务当前不可用。所有API Token都不可用，请检查Token配置或联系管理员。';
-        
-        return {
-          id: conversationId,
-          user_id: userId,
-          user_message: originalUserMessage, // Save original user message
-          ai_response: fallbackResponse,
-          timestamp,
-          response_time: 0,
-          model_name: this.config.model_name,
-          raw_request: originalMessage ? JSON.stringify(originalMessage) : JSON.stringify({ 
-            message: originalUserMessage, 
-            agentType, 
-            promptName, 
-            note: 'AI service unavailable' 
-          }),
-          raw_response: JSON.stringify({ fallback: true }),
-          created_at: timestamp,
-          updated_at: timestamp
-        };
+        this.moduleLogger.error('AI service unavailable: all API tokens are unavailable');
+        // 不返回任何响应给用户
+        return null;
       }
 
       // Track LLM call if session ID is provided
@@ -787,7 +847,11 @@ export class AIService {
       const startTime = Date.now();
       
       // Use fullContextPrompt for AI call but save originalUserMessage to database
-      const { response, rawResponse, usedPrompt, requestBody } = await this.callGeminiAPI(fullContextPrompt, agentType, promptName, traceId, userId);
+      const callResult = await this.callGeminiAPI(fullContextPrompt, agentType, promptName, traceId, userId);
+      if (!callResult) {
+        return null;
+      }
+      const { response, rawResponse, usedPrompt, requestBody, modelName } = callResult;
       
       const endTime = Date.now();
       const responseTime = endTime - startTime;
@@ -802,7 +866,7 @@ export class AIService {
           conversation_id: conversationId,
           call_sequence: callSequence,
           engine_type: this.mapAgentTypeToEngine(agentType),
-          model_name: this.config.model_name,
+          model_name: modelName,
           request: requestBody ? JSON.stringify(requestBody) : undefined,
           response: rawResponse ? JSON.stringify(rawResponse) : undefined,
           prompt_tokens: rawResponse.usageMetadata?.promptTokenCount || 0,
@@ -833,7 +897,7 @@ export class AIService {
         ai_response: response,
         timestamp,
         response_time: 0, // Will be calculated later
-        model_name: this.config.model_name,
+        model_name: modelName,
         raw_request: originalMessage ? JSON.stringify(originalMessage) : JSON.stringify({ 
           originalMessage: originalUserMessage,
           fullContextPrompt: fullContextPrompt,
@@ -846,6 +910,7 @@ export class AIService {
           } : null
         }),
         raw_response: JSON.stringify(rawResponse),
+        status: 'completed', // 添加必需的status字段
         created_at: timestamp,
         updated_at: timestamp
       };
@@ -867,27 +932,8 @@ export class AIService {
         tokenStats: this.tokenManager.getStats()
       });
       
-      // 返回错误响应但不抛出异常
-      const errorResponse = '抱歉，我现在无法处理您的消息，请稍后再试。如果问题持续，请联系管理员。';
-      
-      return {
-        id: conversationId,
-        user_id: userId,
-        user_message: originalUserMessage, // Save original user message even on error
-        ai_response: errorResponse,
-        timestamp,
-        response_time: 0,
-        model_name: this.config.model_name,
-        raw_request: originalMessage ? JSON.stringify(originalMessage) : JSON.stringify({ 
-          originalMessage: originalUserMessage, 
-          agentType, 
-          promptName, 
-          error: 'API call failed' 
-        }),
-        raw_response: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-        created_at: timestamp,
-        updated_at: timestamp
-      };
+      // 不返回任何响应给用户
+      return null;
     }
   }
 
@@ -921,7 +967,7 @@ export class AIService {
     message: string,
     userId: number,
     traceId?: string
-  ): Promise<{ isRequirement: boolean; confidence: number; category?: string; complexity?: string }> {
+  ): Promise<{ isRequirement: boolean; confidence: number; category?: string; complexity?: string } | null> {
     try {
       const apiToken = await this.getCurrentToken();
       if (!apiToken) {
@@ -929,7 +975,11 @@ export class AIService {
         return this.fallbackIntentAnalysis(message);
       }
 
-      const { response } = await this.callGeminiAPI(message, 'intent_analyzer', 'requirement_analysis', traceId, userId);
+      const callResult = await this.callGeminiAPI(message, 'intent_analyzer', 'requirement_analysis', traceId, userId);
+      if (!callResult) {
+        return null;
+      }
+      const { response } = callResult;
       
       // 尝试解析JSON响应
       const cleanedResponse = response.replace(/```json\n?|```\n?/g, '').trim();
@@ -1071,7 +1121,6 @@ export class AIService {
    * 手动触发Token健康检查
    */
   public async runTokenHealthCheck(): Promise<void> {
-    await this.tokenManager.runHealthCheck();
   }
 }
 

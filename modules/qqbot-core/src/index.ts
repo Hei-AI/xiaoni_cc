@@ -69,6 +69,9 @@ class QQBot {
       debugService: this.debugService,
       qqBot: this // Pass QQBot instance for test endpoints
     });
+    
+    // Clear group settings cache to pick up any recent database changes
+    this.groupSettingsCache.clear();
   }
 
   public async start(): Promise<void> {
@@ -141,10 +144,12 @@ class QQBot {
 
   private async handlePrivateMessage(message: QQMessage, eventData?: any): Promise<void> {
     const traceId = eventData?.traceId;
+    const conversationId = uuidv4();
     
     try {
       this.moduleLogger.info('Received private message', {
         traceId,
+        conversationId,
         user_id: message.user_id,
         message: message.message
       });
@@ -152,8 +157,37 @@ class QQBot {
       const userId = message.user_id;
       const userMessage = typeof message.message === 'string' ? message.message.trim() : '';
 
+      // 立即创建conversation记录 - 改进后的架构
+      const initialConversation: ConversationData = {
+        id: conversationId,
+        trace_id: traceId,
+        user_id: userId,
+        user_message: userMessage,
+        timestamp: new Date(),
+        response_time: 0,
+        raw_request: JSON.stringify(message), // 保存完整的WebSocket消息数据
+        status: 'pending', // 初始状态为pending
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+
+      await this.database.saveConversation(initialConversation);
+      this.moduleLogger.info('Initial conversation record created', { conversationId, status: 'pending' });
+
+      this.moduleLogger.info('DEBUG: About to call buildMessageContext', { 
+        userId, 
+        messageType: message.message_type,
+        hasContextManager: !!this.contextManager,
+        conversationId
+      });
+      
+      // 更新状态为processing
+      await this.database.updateConversationStatus(conversationId, 'processing');
+      
       // 构建消息上下文（前20条消息）
       const messageContext = await this.contextManager.buildMessageContext(message, 20);
+      
+      this.moduleLogger.info('DEBUG: buildMessageContext completed', { userId });
       
       this.moduleLogger.info('Message context built', {
         traceId,
@@ -203,7 +237,7 @@ class QQBot {
           // 分析是否为需求
           const intent = await this.aiService.analyzeIntent(userMessage, userId, traceId);
           
-          if (intent.isRequirement && intent.confidence > 60) {
+          if (intent && intent.isRequirement && intent.confidence > 60) {
             await this.handleRequirement(userId, userMessage, intent, message, sessionContext.session_id);
             return;
           }
@@ -217,7 +251,8 @@ class QQBot {
         message, 
         messageContext, 
         sessionContext.session_id,
-        traceId
+        traceId,
+        conversationId // 传递已创建的conversationId
       );
 
     } catch (error) {
@@ -225,27 +260,18 @@ class QQBot {
         error: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
         userId: message.user_id,
+        conversationId,
         messagePreview: typeof message.message === 'string' ? message.message.substring(0, 50) : JSON.stringify(message.message)?.substring(0, 50)
       });
       
-      try {
-        let errorMessage = '抱歉，处理您的消息时出现了错误，请稍后再试。';
-        
-        // 根据错误类型提供更具体的错误信息
-        if (error instanceof Error) {
-          if (error.message.includes('API keys')) {
-            errorMessage = '系统配置问题：AI服务暂时不可用，请联系管理员。';
-          } else if (error.message.includes('Database')) {
-            errorMessage = '数据库连接异常，请稍后再试。';
-          }
-        }
-        
-        await this.websocketClient.sendPrivateMessage(message.user_id, errorMessage);
-      } catch (sendError) {
-        this.moduleLogger.error('Failed to send error message', { 
-          sendError: sendError instanceof Error ? sendError.message : 'Unknown send error' 
-        });
-      }
+      // 更新conversation状态为失败
+      await this.database.updateConversationStatus(
+        conversationId, 
+        'failed', 
+        `Processing error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+      
+      // 不再发送错误消息给用户，只记录日志
     }
   }
 
@@ -523,7 +549,20 @@ class QQBot {
       
       // 从数据库获取设置
       const groupSetting = await this.database.getGroupChatSettingById(groupId);
-      const isEnabled = groupSetting ? groupSetting.is_enabled && groupSetting.auto_reply_enabled : false;
+      
+      // FIX: Default to enabled for groups without database entries
+      // This allows new groups to work immediately without manual configuration
+      const isEnabled = groupSetting ? (groupSetting.is_enabled && groupSetting.auto_reply_enabled) : true;
+      
+      this.moduleLogger.info('Group enablement check', {
+        groupId,
+        hasDbEntry: !!groupSetting,
+        isEnabled,
+        settingDetails: groupSetting ? {
+          is_enabled: groupSetting.is_enabled,
+          auto_reply_enabled: groupSetting.auto_reply_enabled
+        } : null
+      });
       
       // 缓存结果（避免频繁查询）
       this.groupSettingsCache.set(groupId, isEnabled);
@@ -731,7 +770,8 @@ class QQBot {
     originalMessage: QQMessage,
     messageContext: MessageContext,
     sessionId?: string,
-    traceId?: string
+    traceId?: string,
+    conversationId?: string // 新增参数：已存在的conversationId
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -743,31 +783,42 @@ class QQBot {
         conversationTopic: [], // Extract from contextSummary if needed
         previousResponses: [], // Stage 1 limitation
         timeOfDay: this.getTimeOfDay(),
-        isUrgent: userMessage.includes('紧急') || userMessage.includes('急')
+        isUrgent: userMessage.includes('紧急') || userMessage.includes('急'),
+        conversationId: conversationId // 传递conversationId给PersonaEngine
       };
 
       // Generate base AI response with context
       const contextPrompt = this.contextManager.formatContextForAI(messageContext);
       const fullPrompt = `${contextPrompt}\n\n=== 当前需要回复的消息 ===\n${userMessage}`;
       
-      // Pass original user message and context prompt separately
-      const baseConversation = await this.aiService.generateResponseWithContext(
-        userMessage, // Original user message for database
-        fullPrompt,  // Full context prompt for AI
-        userId, 
-        'chat_bot', 
-        'enhanced_chat', 
+      // 现在我们不再创建新的conversation，而是调用AI服务并更新已存在的记录
+      const aiResponse = await this.aiService.generateResponseForExistingConversation(
+        userMessage,
+        fullPrompt,
+        userId,
+        'chat_bot',
+        'enhanced_chat',
         traceId,
-        originalMessage, // Pass original message for raw_request
-        sessionId // Pass session ID for LLM tracking
+        conversationId, // 传递现有conversationId
+        sessionId
       );
       
-      // Add conversation ID to context for PersonaEngine
-      responseContext.conversationId = baseConversation.id;
+      // 如果AI服务返回null（错误时），更新conversation状态为failed
+      if (!aiResponse) {
+        this.moduleLogger.info('AI service returned null, updating conversation status to failed');
+        if (conversationId) {
+          await this.database.updateConversationStatus(
+            conversationId,
+            'failed',
+            'AI service unavailable - all API tokens are unavailable'
+          );
+        }
+        return;
+      }
       
       // Enhance response with PersonaEngine
       const personaResponse = await this.personaEngine.enhanceResponse(
-        baseConversation.ai_response, // Pass AI response for enhancement
+        aiResponse.ai_response, // Pass AI response for enhancement
         userMessage,
         responseContext,
         traceId,
@@ -775,7 +826,7 @@ class QQBot {
       );
       
       this.moduleLogger.info('PersonaEngine enhanced response', {
-        originalLength: baseConversation.ai_response.length,
+        originalLength: aiResponse.ai_response.length,
         enhancedLength: personaResponse.content.length,
         selectedPersona: personaResponse.selectedPersona,
         confidence: personaResponse.confidence,
@@ -784,29 +835,43 @@ class QQBot {
 
       // Use persona-enhanced response
       const finalResponse = personaResponse.content;
+      
+      // 如果PersonaEngine返回空content，标记为失败
+      if (!finalResponse || finalResponse.trim() === '') {
+        this.moduleLogger.info('PersonaEngine returned empty content, marking conversation as failed');
+        if (conversationId) {
+          await this.database.updateConversationStatus(
+            conversationId,
+            'failed',
+            'PersonaEngine returned empty content'
+          );
+        }
+        return;
+      }
+      
       const responseTime = Date.now() - startTime;
 
-      // Create conversation record with enhanced data
-      const conversation: ConversationData = {
-        ...baseConversation,
-        ai_response: finalResponse,
-        response_time: responseTime,
-        message_id: originalMessage.message_id,
-        session_id: sessionId,
-        raw_response: JSON.stringify({
-          baseResponse: baseConversation.ai_response,
-          personaResponse: personaResponse,
-          messageContext: {
-            contextSummary: messageContext.contextSummary,
-            userRelation: responseContext.userRelation,
-            selectedPersona: personaResponse.selectedPersona,
-            historyCount: messageContext.historyMessages.length
-          }
-        })
-      };
-
-      // Save enhanced conversation to database
-      await this.database.saveConversation(conversation);
+      // 更新conversation记录为完成状态
+      if (conversationId) {
+        await this.database.updateConversationStatus(
+          conversationId,
+          'completed',
+          undefined, // no error
+          finalResponse, // AI response
+          responseTime,
+          aiResponse.model_name,
+          JSON.stringify({
+            baseResponse: aiResponse.ai_response,
+            personaResponse: personaResponse,
+            messageContext: {
+              contextSummary: messageContext.contextSummary,
+              userRelation: responseContext.userRelation,
+              selectedPersona: personaResponse.selectedPersona,
+              historyCount: messageContext.historyMessages.length
+            }
+          })
+        );
+      }
 
       // Send response using existing logic
       const shouldSendReply = sessionId && originalMessage.message_id && 
@@ -842,7 +907,7 @@ class QQBot {
       }
 
       this.moduleLogger.info('Enhanced AI conversation completed', {
-        conversationId: conversation.id,
+        conversationId: conversationId,
         userId,
         responseTime,
         personaUsed: personaResponse.selectedPersona,
@@ -850,10 +915,22 @@ class QQBot {
       });
 
     } catch (error) {
-      this.moduleLogger.error('Failed to handle enhanced AI conversation', { error, userId });
+      this.moduleLogger.error('Failed to handle enhanced AI conversation', { 
+        error: error instanceof Error ? error.message : 'Unknown error', 
+        userId, 
+        conversationId 
+      });
       
-      // Fallback to original method
-      await this.handleAIConversation(userId, userMessage, originalMessage, sessionId);
+      // 更新conversation状态为失败
+      if (conversationId) {
+        await this.database.updateConversationStatus(
+          conversationId,
+          'failed',
+          `Enhanced AI conversation error: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+      
+      // 不再发送错误消息给用户，只记录日志
     }
   }
 
@@ -887,8 +964,9 @@ class QQBot {
         post_type: 'message'
       };
 
-      // 调用实际的消息处理逻辑
-      await this.handlePrivateMessage(qqMessage);
+      // 调用实际的消息处理逻辑，传递trace ID用于测试
+      const testTraceId = `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      await this.handlePrivateMessage(qqMessage, { traceId: testTraceId });
 
       return { success: true };
     } catch (error) {
@@ -1005,6 +1083,13 @@ class QQBot {
         originalMessage, // Pass original message for raw_request
         sessionId // Pass session ID for LLM tracking
       );
+      
+      // 如果AI服务返回null（错误时），不发送任何消息，只记录日志
+      if (!conversation) {
+        this.moduleLogger.info('AI service returned null, no message will be sent to user');
+        return;
+      }
+      
       const responseTime = Date.now() - startTime;
 
       // 更新响应时间和Session关联
@@ -1023,24 +1108,24 @@ class QQBot {
         // 更新群聊AI回复活跃度
         await this.database.updateGroupActivity(originalMessage.group_id, 0, 1);
         
-        if (shouldSendReply && originalMessage.message_id) {
+        if (shouldSendReply && originalMessage.message_id && conversation.ai_response) {
           await this.websocketClient.sendReplyMessage(
             originalMessage.message_id,
             conversation.ai_response
           );
-        } else {
+        } else if (conversation.ai_response) {
           await this.websocketClient.sendGroupMessage(
             originalMessage.group_id,
             conversation.ai_response
           );
         }
       } else {
-        if (shouldSendReply && originalMessage.message_id) {
+        if (shouldSendReply && originalMessage.message_id && conversation.ai_response) {
           await this.websocketClient.sendReplyMessage(
             originalMessage.message_id,
             conversation.ai_response
           );
-        } else {
+        } else if (conversation.ai_response) {
           await this.websocketClient.sendPrivateMessage(
             userId,
             conversation.ai_response
@@ -1058,13 +1143,7 @@ class QQBot {
     } catch (error) {
       this.moduleLogger.error('Failed to handle AI conversation', { error, userId });
       
-      const errorMessage = 'sorry，我现在无法正常回复，请稍后再试...';
-      
-      if (originalMessage.message_type === 'group' && originalMessage.group_id) {
-        await this.websocketClient.sendGroupMessage(originalMessage.group_id, errorMessage);
-      } else {
-        await this.websocketClient.sendPrivateMessage(userId, errorMessage);
-      }
+      // 不再发送错误消息给用户，只记录日志
     }
   }
 

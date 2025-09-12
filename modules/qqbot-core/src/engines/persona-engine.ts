@@ -122,12 +122,12 @@ export class PersonaEngine {
         contextType: context.messageType
       });
       
-      // 错误时返回简单的友好回复
+      // 错误时返回空结果，不生成任何回复
       return {
-        content: '抱歉，让我重新组织一下语言～ 😅',
+        content: '',
         selectedPersona: 'casual_companion',
         appliedAspects: [],
-        confidence: 30,
+        confidence: 0,
         processingTime: Date.now() - startTime,
         metadata: {
           originalResponse: '',
@@ -284,7 +284,7 @@ export class PersonaEngine {
           sessionId,
           conversationId // Pass the main conversation ID
         );
-        return response.ai_response;
+        return response?.ai_response || '';
       } else {
         // Fallback to regular generateResponse
         const response = await this.aiService.generateResponse(
@@ -294,7 +294,7 @@ export class PersonaEngine {
           'persona_chat',
           traceId
         );
-        return response.ai_response;
+        return response?.ai_response || '';
       }
       
     } catch (error) {

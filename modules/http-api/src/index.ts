@@ -38,6 +38,8 @@ app.get('/health', (req, res) => {
   });
 });
 
+// HTTP API Gateway - 专注于QQ Bot业务功能
+
 // API routes
 app.get('/api/status', (req, res) => {
   res.json({
@@ -47,6 +49,9 @@ app.get('/api/status', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+// QQ Bot业务功能区域
+// 后续可以在这里添加发送消息、查询对话等QQ Bot核心业务接口
 
 app.listen(PORT, () => {
   logger.info(`HTTP API Gateway started on port ${PORT}`);

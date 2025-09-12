@@ -49,9 +49,9 @@ export class WebSocketClient extends EventEmitter {
       this.ws.on('error', this.handleError.bind(this));
       this.ws.on('close', this.handleClose.bind(this));
 
-    } catch (error) {
+    } catch (error: unknown) {
       this.isConnecting = false;
-      this.moduleLogger.error('Failed to create WebSocket connection', { error });
+      this.moduleLogger.error('Failed to create WebSocket connection', { error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }
@@ -90,22 +90,22 @@ export class WebSocketClient extends EventEmitter {
       if (this.loggingService && eventContext.shouldLog) {
         try {
           logId = await this.loggingService.logWebSocketMessage({
-            traceId,
+            traceId: traceId || undefined,
             direction: 'IN',
             messageType: message.post_type || 'unknown',
             eventPriority: eventContext.priority,
             rawPayload: message,
             userId: message.user_id,
             groupId: message.group_id,
-            messageId: message.message_id,
+            messageId: (message as any).message_id,
             processingTimeMs: Date.now() - startTime,
             status: 'SUCCESS'
           });
 
           this.moduleLogger.info('📝 WebSocket IN logged', { logId, traceId });
-        } catch (logError) {
+        } catch (logError: unknown) {
           this.moduleLogger.error('Failed to log WebSocket IN message', { 
-            error: logError.message, 
+            error: logError instanceof Error ? logError.message : String(logError), 
             traceId 
           });
         }
@@ -159,12 +159,12 @@ export class WebSocketClient extends EventEmitter {
       }
 
       this.emit('raw_message', message, eventData);
-    } catch (error) {
+    } catch (error: unknown) {
       const processingTime = Date.now() - startTime;
       
       this.moduleLogger.error('Failed to parse WebSocket message', { 
         traceId,
-        error: error.message, 
+        error: error instanceof Error ? error.message : String(error), 
         processingTime,
         data: data.toString().substring(0, 500) 
       });
@@ -177,14 +177,14 @@ export class WebSocketClient extends EventEmitter {
             direction: 'IN',
             messageType: 'parse_error',
             eventPriority: 'HIGH',
-            rawPayload: { error: error.message, data: data.toString().substring(0, 500) },
+            rawPayload: { error: error instanceof Error ? error.message : String(error), data: data.toString().substring(0, 500) },
             processingTimeMs: processingTime,
             status: 'ERROR',
-            errorMessage: error.message
+            errorMessage: error instanceof Error ? error.message : String(error)
           });
-        } catch (logError) {
+        } catch (logError: unknown) {
           this.moduleLogger.error('Failed to log WebSocket parse error', { 
-            error: logError.message 
+            error: logError instanceof Error ? logError.message : String(logError) 
           });
         }
       }
@@ -408,19 +408,19 @@ export class WebSocketClient extends EventEmitter {
           });
 
           this.moduleLogger.info('📝 WebSocket OUT logged', { traceId, action: data.action });
-        } catch (logError) {
+        } catch (logError: unknown) {
           this.moduleLogger.error('Failed to log WebSocket OUT message', { 
-            error: logError.message, 
+            error: logError instanceof Error ? logError.message : String(logError), 
             traceId 
           });
         }
       }
-    } catch (error) {
+    } catch (error: unknown) {
       const processingTime = Date.now() - startTime;
       
       this.moduleLogger.error('Failed to send message', { 
         traceId, 
-        error: error.message, 
+        error: error instanceof Error ? error.message : String(error), 
         data, 
         processingTime 
       });
@@ -436,11 +436,11 @@ export class WebSocketClient extends EventEmitter {
             rawPayload: data,
             processingTimeMs: processingTime,
             status: 'ERROR',
-            errorMessage: error.message
+            errorMessage: error instanceof Error ? error.message : String(error)
           });
-        } catch (logError) {
+        } catch (logError: unknown) {
           this.moduleLogger.error('Failed to log WebSocket OUT error', { 
-            error: logError.message 
+            error: logError instanceof Error ? logError.message : String(logError) 
           });
         }
       }

@@ -1,7 +1,8 @@
 import mysql from 'mysql2/promise';
 import { 
   DatabaseConfig, ConversationData, RequirementData, AgentPromptData, LogLevel,
-  GroupChatSettings, GroupChatStats, GroupChatActivity, GroupChatOverview
+  GroupChatSettings, GroupChatStats, GroupChatActivity, GroupChatOverview,
+  LLMCallTrace, SessionLLMAnalysis
 } from '../types';
 import { logger } from '../utils/logger';
 
@@ -23,13 +24,30 @@ export class DatabaseManager {
         user: this.config.user,
         password: this.config.password,
         database: this.config.database,
-        charset: 'utf8',
+        charset: 'utf8mb4',
         timezone: this.config.timezone || '+08:00',
-        connectionLimit: 10,
-        queueLimit: 0
+        
+        // 连接池配置优化
+        connectionLimit: 10,           // 最大连接数
+        queueLimit: 20,               // 等待队列限制
+        
+        // 连接保持活跃
+        idleTimeout: 300000,          // 空闲超时5分钟
+        maxIdle: 5,                   // 最大空闲连接数
+        
+        // 其他优化设置
+        dateStrings: false,           // 返回原生Date对象
+        supportBigNumbers: true,      // 支持大数字
+        bigNumberStrings: false,      // 不将大数字转为字符串
+        waitForConnections: true      // 等待可用连接
+        
       });
 
-      this.moduleLogger.info('Database connection pool created successfully');
+      this.moduleLogger.info('Optimized database connection pool created successfully', {
+        connectionLimit: 10,
+        queueLimit: 20,
+        idleTimeout: 300000
+      });
     } catch (error) {
       this.moduleLogger.error('Error creating connection pool', { error });
       this.pool = null;
@@ -62,16 +80,22 @@ export class DatabaseManager {
   }
 
   /**
-   * 确保连接使用正确的UTF-8字符集设置
+   * 确保连接使用正确的UTF-8字符集设置 (现在主要由连接池initSql处理)
    */
   private async ensureUtf8Connection(connection: mysql.PoolConnection): Promise<void> {
+    // initSql已经处理了UTF-8设置，这里保留作为后备
+    // 在连接池配置有问题时确保字符集正确
     try {
-      await connection.execute("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
-      await connection.execute("SET character_set_client = utf8mb4");
-      await connection.execute("SET character_set_connection = utf8mb4");
-      await connection.execute("SET character_set_results = utf8mb4");
+      // 只检查字符集，不重复设置
+      const [rows] = await connection.execute("SELECT @@character_set_connection, @@character_set_results") as [any[], any];
+      const charset = rows[0];
+      
+      if (charset['@@character_set_connection'] !== 'utf8mb4' || charset['@@character_set_results'] !== 'utf8mb4') {
+        this.moduleLogger.debug('Connection charset not utf8mb4, setting manually');
+        await connection.execute("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+      }
     } catch (error) {
-      this.moduleLogger.warn('Failed to set UTF-8 character set on connection', { error });
+      this.moduleLogger.warn('Failed to verify/set UTF-8 character set on connection', { error });
     }
   }
 
@@ -79,18 +103,39 @@ export class DatabaseManager {
     query: string, 
     params: any[] = []
   ): Promise<T[]> {
+    const startTime = Date.now();
+    const queryId = Math.random().toString(36).substr(2, 8);
+    let connection: any = null;
+    
+    this.moduleLogger.debug(`[${queryId}] Starting query execution`, {
+      queryPreview: query.substring(0, 100),
+      paramCount: params.length
+    });
+    
     try {
       if (!this.pool) {
         throw new Error('Database pool not initialized');
       }
 
-      const connection = await this.pool.getConnection();
+      this.moduleLogger.debug(`[${queryId}] Getting connection from pool`);
+      connection = await this.pool.getConnection();
       
+      this.moduleLogger.debug(`[${queryId}] Connection acquired, setting UTF-8`);
       // 确保连接使用UTF-8字符集
       await this.ensureUtf8Connection(connection);
       
+      this.moduleLogger.debug(`[${queryId}] Executing query with params`);
       const [rows] = await connection.execute(query, params);
+      
+      this.moduleLogger.debug(`[${queryId}] Query executed, releasing connection`);
       connection.release();
+      connection = null;
+      
+      const executionTime = Date.now() - startTime;
+      this.moduleLogger.debug(`[${queryId}] Query completed successfully`, {
+        executionTime,
+        rowCount: Array.isArray(rows) ? rows.length : 0
+      });
       
       // 处理日期时间序列化
       if (Array.isArray(rows)) {
@@ -107,8 +152,30 @@ export class DatabaseManager {
 
       return [];
     } catch (error) {
-      this.moduleLogger.error('Query execution failed', { error, query });
-      return [];
+      const executionTime = Date.now() - startTime;
+      this.moduleLogger.error(`[${queryId}] Database query execution failed`, {
+        error: error instanceof Error ? {
+          message: error.message,
+          code: (error as any).code,
+          sqlState: (error as any).sqlState,
+          errno: (error as any).errno
+        } : error,
+        query: query.substring(0, 200),
+        queryLength: query.length,
+        paramCount: params.length,
+        executionTime
+      });
+      
+      // 确保连接被释放，即使查询失败或超时
+      if (connection) {
+        try {
+          connection.release();
+        } catch (releaseError) {
+          this.moduleLogger.error(`[${queryId}] Failed to release connection`, { releaseError });
+        }
+      }
+      
+      throw error; // 重新抛出异常，不允许静默处理
     }
   }
 
@@ -116,23 +183,55 @@ export class DatabaseManager {
     query: string, 
     params: any[] = []
   ): Promise<number> {
+    const updateId = Math.random().toString(36).substr(2, 8);
+    let connection: mysql.PoolConnection | null = null;
+    
+    this.moduleLogger.debug(`[${updateId}] Starting update execution`, {
+      queryPreview: query.substring(0, 100),
+      paramCount: params.length
+    });
+    
     try {
       if (!this.pool) {
         throw new Error('Database pool not initialized');
       }
 
-      const connection = await this.pool.getConnection();
+      connection = await this.pool.getConnection();
+      this.moduleLogger.debug(`[${updateId}] Connection acquired, setting UTF-8`);
       
       // 确保连接使用UTF-8字符集
       await this.ensureUtf8Connection(connection);
       
+      this.moduleLogger.debug(`[${updateId}] Executing update with params`);
       const [result] = await connection.execute(query, params);
+      
+      this.moduleLogger.debug(`[${updateId}] Update executed, releasing connection`);
       connection.release();
+      connection = null;
       
       const affectedRows = (result as mysql.ResultSetHeader).affectedRows;
+      this.moduleLogger.debug(`[${updateId}] Update completed successfully`, {
+        affectedRows
+      });
+      
       return affectedRows;
     } catch (error) {
-      this.moduleLogger.error('Update execution failed', { error, query });
+      this.moduleLogger.error(`[${updateId}] Update execution failed`, { 
+        error,
+        query: query.substring(0, 200),
+        paramCount: params.length
+      });
+      
+      // 确保连接被释放，即使更新失败
+      if (connection) {
+        try {
+          connection.release();
+          this.moduleLogger.debug(`[${updateId}] Connection released after error`);
+        } catch (releaseError) {
+          this.moduleLogger.error(`[${updateId}] Failed to release connection after error`, { releaseError });
+        }
+      }
+      
       return 0;
     }
   }
@@ -141,35 +240,71 @@ export class DatabaseManager {
     query: string, 
     paramsList: any[][]
   ): Promise<number> {
+    const batchId = Math.random().toString(36).substr(2, 8);
+    let connection: mysql.PoolConnection | null = null;
+    
+    this.moduleLogger.debug(`[${batchId}] Starting batch execution`, {
+      queryPreview: query.substring(0, 100),
+      batchSize: paramsList.length
+    });
+    
     try {
       if (!this.pool) {
         throw new Error('Database pool not initialized');
       }
 
-      const connection = await this.pool.getConnection();
+      connection = await this.pool.getConnection();
+      this.moduleLogger.debug(`[${batchId}] Connection acquired, setting UTF-8`);
       
       // 确保连接使用UTF-8字符集
       await this.ensureUtf8Connection(connection);
       
+      this.moduleLogger.debug(`[${batchId}] Starting transaction`);
       await connection.beginTransaction();
 
       try {
         let totalAffected = 0;
-        for (const params of paramsList) {
+        for (let i = 0; i < paramsList.length; i++) {
+          const params = paramsList[i];
           const [result] = await connection.execute(query, params);
           totalAffected += (result as mysql.ResultSetHeader).affectedRows;
         }
 
+        this.moduleLogger.debug(`[${batchId}] Committing transaction`);
         await connection.commit();
+        
+        this.moduleLogger.debug(`[${batchId}] Transaction completed, releasing connection`);
         connection.release();
+        connection = null;
+        
+        this.moduleLogger.debug(`[${batchId}] Batch completed successfully`, {
+          totalAffected,
+          batchSize: paramsList.length
+        });
+        
         return totalAffected;
-      } catch (error) {
-        await connection.rollback();
-        connection.release();
-        throw error;
+      } catch (transactionError) {
+        this.moduleLogger.warn(`[${batchId}] Transaction failed, rolling back`);
+        if (connection) { await connection.rollback(); }
+        throw transactionError;
       }
     } catch (error) {
-      this.moduleLogger.error('Batch execution failed', { error, query });
+      this.moduleLogger.error(`[${batchId}] Batch execution failed`, { 
+        error,
+        query: query.substring(0, 200),
+        batchSize: paramsList.length
+      });
+      
+      // 确保连接被释放，即使批处理失败
+      if (connection) {
+        try {
+          connection.release();
+          this.moduleLogger.debug(`[${batchId}] Connection released after error`);
+        } catch (releaseError) {
+          this.moduleLogger.error(`[${batchId}] Failed to release connection after error`, { releaseError });
+        }
+      }
+      
       return 0;
     }
   }
@@ -184,10 +319,12 @@ export class DatabaseManager {
   public async saveConversation(conversationData: ConversationData): Promise<boolean> {
     const query = `
       INSERT INTO conversations (
-        id, user_id, user_message, ai_response, timestamp, response_time, 
-        model_name, raw_request, raw_response, message_id, reply_to_message_id, reply_to_text
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, trace_id, user_id, user_message, ai_response, timestamp, response_time, 
+        model_name, raw_request, raw_response, message_id, reply_to_message_id, reply_to_text, 
+        session_id, status, error_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
+        trace_id = VALUES(trace_id),
         ai_response = VALUES(ai_response),
         response_time = VALUES(response_time),
         raw_request = VALUES(raw_request),
@@ -195,34 +332,95 @@ export class DatabaseManager {
         message_id = VALUES(message_id),
         reply_to_message_id = VALUES(reply_to_message_id),
         reply_to_text = VALUES(reply_to_text),
+        session_id = VALUES(session_id),
+        status = VALUES(status),
+        error_reason = VALUES(error_reason),
         updated_at = CURRENT_TIMESTAMP
     `;
 
     try {
       const params = [
         conversationData.id,
+        conversationData.trace_id || null,
         conversationData.user_id,
         conversationData.user_message,
-        conversationData.ai_response,
+        conversationData.ai_response || null,
         conversationData.timestamp,
         conversationData.response_time,
-        conversationData.model_name,
+        conversationData.model_name || null,
         conversationData.raw_request || null,
         conversationData.raw_response || null,
         conversationData.message_id || null,
         conversationData.reply_to_message_id || null,
-        conversationData.reply_to_text || null
+        conversationData.reply_to_text || null,
+        conversationData.session_id || null,
+        conversationData.status,
+        conversationData.error_reason || null
       ];
 
       const affectedRows = await this.executeUpdate(query, params);
       
       if (affectedRows > 0) {
-        this.moduleLogger.info(`Conversation saved: ${conversationData.id}`);
+        this.moduleLogger.info(`Conversation saved: ${conversationData.id}`, { 
+          status: conversationData.status,
+          hasError: !!conversationData.error_reason 
+        });
         return true;
       }
       return false;
     } catch (error) {
       this.moduleLogger.error('Failed to save conversation', { error, id: conversationData.id });
+      return false;
+    }
+  }
+
+  // 新增：更新conversation状态的专用方法
+  public async updateConversationStatus(
+    conversationId: string,
+    status: 'pending' | 'processing' | 'completed' | 'failed',
+    errorReason?: string,
+    aiResponse?: string,
+    responseTime?: number,
+    modelName?: string,
+    rawResponse?: string
+  ): Promise<boolean> {
+    const query = `
+      UPDATE conversations 
+      SET status = ?, error_reason = ?, ai_response = ?, response_time = ?, 
+          model_name = ?, raw_response = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `;
+
+    try {
+      const params = [
+        status,
+        errorReason || null,
+        aiResponse || null,
+        responseTime || 0,
+        modelName || null,
+        rawResponse || null,
+        conversationId
+      ];
+
+      const affectedRows = await this.executeUpdate(query, params);
+      
+      if (affectedRows > 0) {
+        this.moduleLogger.info(`Conversation status updated: ${conversationId}`, { 
+          status, 
+          hasError: !!errorReason,
+          hasResponse: !!aiResponse 
+        });
+        return true;
+      }
+      
+      this.moduleLogger.warn(`No conversation found to update: ${conversationId}`);
+      return false;
+    } catch (error) {
+      this.moduleLogger.error('Failed to update conversation status', { 
+        error, 
+        conversationId, 
+        status 
+      });
       return false;
     }
   }
@@ -238,11 +436,11 @@ export class DatabaseManager {
     const validLimit = Math.max(1, Math.min(Math.floor(Number(limit)) || 50, 1000));
 
     if (userId) {
-      query = `SELECT * FROM conversations WHERE user_id = ? ORDER BY timestamp DESC LIMIT ${validLimit}`;
-      params = [userId];
+      query = 'SELECT * FROM conversations WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?';
+      params = [userId, validLimit];
     } else {
-      query = `SELECT * FROM conversations ORDER BY timestamp DESC LIMIT ${validLimit}`;
-      params = [];
+      query = 'SELECT * FROM conversations ORDER BY timestamp DESC LIMIT ?';
+      params = [validLimit];
     }
 
     return this.executeQuery<ConversationData>(query, params);
@@ -329,16 +527,15 @@ export class DatabaseManager {
     const countResult = await this.executeQuery<{ total: number }>(countQuery, [...params]);
     const totalCount = countResult[0]?.total || 0;
 
-    // 查询数据
+    // 查询数据 - LIMIT/OFFSET不支持参数绑定，使用字符串插值（已验证为安全数值）
     const dataQuery = `
       SELECT ${selectFields} 
       FROM conversations 
       ${whereClause}
       ORDER BY timestamp ${sortDirection}, id ${sortDirection}
-      LIMIT ? OFFSET ?
+      LIMIT ${parseInt(validLimit.toString())} OFFSET ${parseInt(offset.toString())}
     `;
-    const dataParams = [...params, validLimit, offset];
-    const conversations = await this.executeQuery<ConversationData>(dataQuery, dataParams);
+    const conversations = await this.executeQuery<ConversationData>(dataQuery, params);
 
     // 构建分页信息
     const totalPages = Math.ceil(totalCount / validLimit);
@@ -361,6 +558,147 @@ export class DatabaseManager {
   public async clearConversations(): Promise<number> {
     const query = 'DELETE FROM conversations';
     return this.executeUpdate(query);
+  }
+
+  /**
+   * 根据trace_id获取相关的WebSocket日志和对话记录
+   * 实现websocket_logs和conversations表的关联查询
+   */
+  public async getTraceDetails(traceId: string): Promise<{
+    conversation: ConversationData | null;
+    websocketLogs: any[];
+    totalEvents: number;
+  }> {
+    try {
+      // 获取对话记录
+      const conversationQuery = 'SELECT * FROM conversations WHERE trace_id = ? LIMIT 1';
+      const conversations = await this.executeQuery<ConversationData>(conversationQuery, [traceId]);
+      const conversation = conversations.length > 0 ? conversations[0] : null;
+
+      // 获取WebSocket日志
+      const websocketQuery = `
+        SELECT * FROM websocket_logs 
+        WHERE trace_id = ? 
+        ORDER BY timestamp ASC
+      `;
+      const websocketLogs = await this.executeQuery(websocketQuery, [traceId]);
+
+      // 统计事件总数
+      const totalEvents = websocketLogs.length;
+
+      this.moduleLogger.debug('Retrieved trace details', {
+        traceId,
+        hasConversation: !!conversation,
+        websocketEvents: totalEvents
+      });
+
+      return {
+        conversation,
+        websocketLogs,
+        totalEvents
+      };
+    } catch (error) {
+      this.moduleLogger.error('Failed to get trace details', { error, traceId });
+      return {
+        conversation: null,
+        websocketLogs: [],
+        totalEvents: 0
+      };
+    }
+  }
+
+  /**
+   * 获取完整的调用链路分析
+   * 包括WebSocket事件和AI处理流程的完整时间线
+   */
+  public async getFullTraceAnalysis(traceId: string): Promise<{
+    timeline: Array<{
+      timestamp: Date;
+      type: 'websocket' | 'conversation' | 'llm_call';
+      event: string;
+      details: any;
+      duration?: number;
+    }>;
+    summary: {
+      totalDuration: number;
+      websocketEvents: number;
+      llmCalls: number;
+      success: boolean;
+    };
+  }> {
+    try {
+      const traceDetails = await this.getTraceDetails(traceId);
+      const timeline: Array<{
+        timestamp: Date;
+        type: 'websocket' | 'conversation' | 'llm_call';
+        event: string;
+        details: any;
+        duration?: number;
+      }> = [];
+
+      // 添加WebSocket事件到时间线
+      for (const wsLog of traceDetails.websocketLogs) {
+        timeline.push({
+          timestamp: new Date(wsLog.timestamp),
+          type: 'websocket',
+          event: `${wsLog.direction} ${wsLog.message_type}`,
+          details: {
+            status: wsLog.status,
+            user_id: wsLog.user_id,
+            group_id: wsLog.group_id,
+            message_id: wsLog.message_id,
+            processing_time_ms: wsLog.processing_time_ms,
+            error_message: wsLog.error_message
+          },
+          duration: wsLog.processing_time_ms
+        });
+      }
+
+      // 添加对话记录到时间线
+      if (traceDetails.conversation) {
+        const conv = traceDetails.conversation;
+        timeline.push({
+          timestamp: new Date(conv.timestamp),
+          type: 'conversation',
+          event: 'AI_RESPONSE',
+          details: {
+            status: conv.status,
+            model_name: conv.model_name,
+            response_time: conv.response_time,
+            error_reason: conv.error_reason
+          },
+          duration: conv.response_time * 1000 // 转换为毫秒
+        });
+      }
+
+      // 按时间排序
+      timeline.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+      // 计算总体统计
+      const totalDuration = timeline.length > 1 
+        ? timeline[timeline.length - 1].timestamp.getTime() - timeline[0].timestamp.getTime()
+        : 0;
+
+      const summary = {
+        totalDuration,
+        websocketEvents: traceDetails.websocketLogs.length,
+        llmCalls: traceDetails.conversation ? 1 : 0,
+        success: traceDetails.conversation?.status === 'completed'
+      };
+
+      return { timeline, summary };
+    } catch (error) {
+      this.moduleLogger.error('Failed to get full trace analysis', { error, traceId });
+      return {
+        timeline: [],
+        summary: {
+          totalDuration: 0,
+          websocketEvents: 0,
+          llmCalls: 0,
+          success: false
+        }
+      };
+    }
   }
 
   // 需求相关方法
@@ -493,6 +831,91 @@ export class DatabaseManager {
     const params = [botId, status, websocketConnected, httpServerRunning, errorMessage || null];
     const affectedRows = await this.executeUpdate(query, params);
     return affectedRows > 0;
+  }
+
+  // 历史消息查询方法
+  /**
+   * 获取私聊历史消息（前N条）- 仅该用户与机器人的对话
+   * @param userId QQ用户ID
+   * @param limit 消息数量限制（默认20）
+   * @returns 历史消息数组，按时间正序（最早的在前）
+   */
+  public async getPrivateMessageHistory(userId: number, limit: number = 20): Promise<ConversationData[]> {
+    // 确保 limit 是整数，MySQL LIMIT 要求整数参数
+    const safeLimit = Math.max(1, Math.floor(Number(limit)));
+    
+    const query = `SELECT * FROM conversations WHERE user_id = ? AND (JSON_EXTRACT(raw_request, '$.message_type') = 'private' OR raw_request IS NULL OR JSON_EXTRACT(raw_request, '$.message_type') IS NULL) ORDER BY timestamp DESC LIMIT ${safeLimit}`;
+    
+    this.moduleLogger.debug('Executing private message history query', {
+      userId,
+      originalLimit: limit,
+      safeLimit,
+      query
+    });
+    
+    const results = await this.executeQuery<ConversationData>(query, [userId]);
+    
+    this.moduleLogger.info('Retrieved private message history', {
+      userId,
+      count: results.length,
+      limit
+    });
+    
+    // 返回正序（最早的在前）
+    return results.reverse();
+  }
+
+  /**
+   * 获取群聊历史消息（前N条）- 该群所有成员的消息
+   * @param groupId 群ID
+   * @param limit 消息数量限制（默认20）
+   * @returns 历史消息数组，按时间正序（最早的在前）
+   */
+  public async getGroupMessageHistory(groupId: number, limit: number = 20): Promise<ConversationData[]> {
+    // 确保 limit 是整数，MySQL LIMIT 要求整数参数
+    const safeLimit = Math.max(1, Math.floor(Number(limit)));
+    
+    const query = `
+      SELECT c.*, 'group' as message_type FROM conversations c
+      WHERE JSON_EXTRACT(c.raw_request, '$.group_id') = ?
+        AND JSON_EXTRACT(c.raw_request, '$.message_type') = 'group'
+      ORDER BY c.timestamp DESC 
+      LIMIT ${safeLimit}
+    `;
+    
+    this.moduleLogger.debug('Executing group message history query', {
+      groupId,
+      originalLimit: limit,
+      safeLimit,
+      query: query.replace(/\s+/g, ' ').trim()
+    });
+    
+    const results = await this.executeQuery<ConversationData>(query, [groupId]);
+    
+    this.moduleLogger.info('Retrieved group message history', {
+      groupId,
+      count: results.length,
+      limit
+    });
+    
+    // 返回正序（最早的在前）
+    return results.reverse();
+  }
+
+  /**
+   * 获取消息上下文（智能检测私聊或群聊）
+   * @param message 当前消息对象
+   * @param limit 上下文消息数量
+   * @returns 上下文消息数组
+   */
+  public async getMessageContext(message: any, limit: number = 20): Promise<ConversationData[]> {
+    if (message.message_type === 'private') {
+      return await this.getPrivateMessageHistory(message.user_id, limit);
+    } else if (message.message_type === 'group' && message.group_id) {
+      return await this.getGroupMessageHistory(message.group_id, limit);
+    }
+    
+    return [];
   }
 
   // 统计相关方法
@@ -1389,6 +1812,163 @@ export class DatabaseManager {
         stats_deleted: 0
       };
     }
+  }
+
+  // =============================================================================
+  // LLM Call Trace Methods
+  // =============================================================================
+
+  /**
+   * Save LLM call trace to database
+   */
+  public async saveLLMCallTrace(trace: LLMCallTrace): Promise<void> {
+    const query = `
+      INSERT INTO llm_call_traces 
+      (id, session_id, conversation_id, call_sequence, engine_type, model_name, 
+       request, response, prompt_tokens, completion_tokens, total_tokens, 
+       response_time, timestamp, success, error_message) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    
+    const params = [
+      trace.id,
+      trace.session_id,
+      trace.conversation_id || null,
+      trace.call_sequence,
+      trace.engine_type,
+      trace.model_name || null,
+      trace.request || null,
+      trace.response || null,
+      trace.prompt_tokens || 0,
+      trace.completion_tokens || 0,
+      trace.total_tokens || 0,
+      trace.response_time,
+      trace.timestamp,
+      trace.success,
+      trace.error_message || null
+    ];
+
+    await this.executeQuery(query, params);
+    
+    this.moduleLogger.debug('LLM call trace saved', {
+      traceId: trace.id,
+      sessionId: trace.session_id,
+      engineType: trace.engine_type,
+      success: trace.success
+    });
+  }
+
+  /**
+   * Get all LLM traces for a session
+   */
+  public async getSessionLLMTraces(sessionId: string): Promise<LLMCallTrace[]> {
+    const query = `
+      SELECT * FROM llm_call_traces 
+      WHERE session_id = ? 
+      ORDER BY call_sequence ASC, timestamp ASC
+    `;
+    
+    const results = await this.executeQuery<LLMCallTrace>(query, [sessionId]);
+    
+    this.moduleLogger.debug('Retrieved session LLM traces', {
+      sessionId,
+      count: results.length
+    });
+    
+    return results;
+  }
+
+  /**
+   * Get LLM traces for a specific conversation
+   */
+  public async getConversationLLMTraces(conversationId: string): Promise<LLMCallTrace[]> {
+    const query = `
+      SELECT * FROM llm_call_traces 
+      WHERE conversation_id = ? 
+      ORDER BY call_sequence ASC, timestamp ASC
+    `;
+    
+    return this.executeQuery<LLMCallTrace>(query, [conversationId]);
+  }
+
+  /**
+   * Get next call sequence number for a session
+   */
+  public async getNextCallSequence(sessionId: string): Promise<number> {
+    const query = `
+      SELECT COALESCE(MAX(call_sequence), 0) + 1 as next_sequence 
+      FROM llm_call_traces 
+      WHERE session_id = ?
+    `;
+    
+    const results = await this.executeQuery(query, [sessionId]);
+    return results[0]?.next_sequence || 1;
+  }
+
+  /**
+   * Analyze LLM usage for a session
+   */
+  public async analyzeSessionLLMCalls(sessionId: string): Promise<SessionLLMAnalysis> {
+    const traces = await this.getSessionLLMTraces(sessionId);
+    
+    if (traces.length === 0) {
+      return {
+        session_id: sessionId,
+        total_calls: 0,
+        total_tokens: 0,
+        total_cost_estimate: 0,
+        average_response_time: 0,
+        engine_breakdown: {},
+        call_timeline: [],
+        success_rate: 0
+      };
+    }
+
+    const totalCalls = traces.length;
+    const totalTokens = traces.reduce((sum, trace) => sum + (trace.total_tokens || 0), 0);
+    const totalResponseTime = traces.reduce((sum, trace) => sum + trace.response_time, 0);
+    const successfulCalls = traces.filter(trace => trace.success).length;
+    
+    // Engine breakdown
+    const engineBreakdown: Record<string, number> = {};
+    traces.forEach(trace => {
+      engineBreakdown[trace.engine_type] = (engineBreakdown[trace.engine_type] || 0) + 1;
+    });
+
+    // Simple cost estimation (adjust rates as needed)
+    // Gemini 1.5 Pro: ~$0.00125 per 1K input tokens, ~$0.005 per 1K output tokens
+    const estimatedCost = totalTokens * 0.003; // Average estimate per 1K tokens
+
+    return {
+      session_id: sessionId,
+      total_calls: totalCalls,
+      total_tokens: totalTokens,
+      total_cost_estimate: estimatedCost,
+      average_response_time: totalCalls > 0 ? totalResponseTime / totalCalls : 0,
+      engine_breakdown: engineBreakdown,
+      call_timeline: traces,
+      success_rate: totalCalls > 0 ? (successfulCalls / totalCalls) * 100 : 0
+    };
+  }
+
+  /**
+   * Clean up old LLM traces (older than specified days)
+   */
+  public async cleanupOldLLMTraces(daysOld: number = 30): Promise<number> {
+    const query = `
+      DELETE FROM llm_call_traces 
+      WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)
+    `;
+    
+    const result = await this.executeQuery(query, [daysOld]);
+    const deletedCount = (result as any).affectedRows || 0;
+    
+    this.moduleLogger.info('Cleaned up old LLM traces', {
+      daysOld,
+      deletedCount
+    });
+    
+    return deletedCount;
   }
 
   public async close(): Promise<void> {

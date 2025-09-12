@@ -59,9 +59,13 @@
   "author": "QQ Bot Team",
   "license": "MIT",
   "devDependencies": {
-    "concurrently": "^8.2.0"
+    "concurrently": "^8.2.0",
+    "shadcn": "^3.2.1"
   },
   "dependencies": {
-    "typescript": "^5.9.2"
+    "axios": "^1.11.0",
+    "mysql2": "^3.14.4",
+    "typescript": "^5.9.2",
+    "uuid": "^13.0.0"
   }
 }

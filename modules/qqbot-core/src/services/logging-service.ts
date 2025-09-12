@@ -4,7 +4,7 @@
  */
 
 import { DatabaseManager } from './database';
-import { ModuleLogger } from '../utils/logger';
+import { logger } from '../utils/logger';
 import { TraceIdGenerator } from '../utils/trace-id';
 import { TraceStrategyManager } from '../utils/trace-strategy';
 
@@ -93,12 +93,11 @@ export interface SessionTraceUpdateData {
  */
 export class LoggingService {
   private database: DatabaseManager;
-  private logger: ModuleLogger;
+  private moduleLogger = logger.createModuleLogger('logging-service');
   private callSequenceMap: Map<string, number> = new Map(); // 记录每个TraceID的调用序号
 
   constructor(database: DatabaseManager) {
     this.database = database;
-    this.logger = new ModuleLogger('logging-service');
   }
 
   /**
@@ -143,7 +142,7 @@ export class LoggingService {
       const result = await this.database.executeQuery(sql, values);
       const logId = (result as any).insertId;
 
-      this.logger.info('WebSocket message logged', {
+      this.moduleLogger.info('WebSocket message logged', {
         logId,
         traceId: data.traceId,
         direction: data.direction,
@@ -152,8 +151,8 @@ export class LoggingService {
       });
 
       return logId;
-    } catch (error) {
-      this.logger.error('Failed to log WebSocket message', { error: error.message, data });
+    } catch (error: unknown) {
+      this.moduleLogger.error('Failed to log WebSocket message', { error: error instanceof Error ? error.message : String(error), data });
       throw error;
     }
   }
@@ -217,7 +216,7 @@ export class LoggingService {
       const result = await this.database.executeQuery(sql, values);
       const logId = (result as any).insertId;
 
-      this.logger.info('LLM call logged', {
+      this.moduleLogger.info('LLM call logged', {
         logId,
         traceId: data.traceId,
         agentType: data.agentType,
@@ -228,8 +227,8 @@ export class LoggingService {
       });
 
       return logId;
-    } catch (error) {
-      this.logger.error('Failed to log LLM call', { error: error.message, data });
+    } catch (error: unknown) {
+      this.moduleLogger.error('Failed to log LLM call', { error: error instanceof Error ? error.message : String(error), data });
       throw error;
     }
   }
@@ -252,14 +251,14 @@ export class LoggingService {
 
       await this.database.executeQuery(sql, values);
 
-      this.logger.info('Session trace created', {
+      this.moduleLogger.info('Session trace created', {
         traceId: data.traceId,
         sessionId: data.sessionId,
         userId: data.userId,
         triggerEventType: data.triggerEventType
       });
-    } catch (error) {
-      this.logger.error('Failed to create session trace', { error: error.message, data });
+    } catch (error: unknown) {
+      this.moduleLogger.error('Failed to create session trace', { error: error instanceof Error ? error.message : String(error), data });
       throw error;
     }
   }
@@ -331,7 +330,7 @@ export class LoggingService {
       }
 
       if (updateFields.length === 0) {
-        this.logger.warn('No fields to update in session trace', { traceId });
+        this.moduleLogger.warn('No fields to update in session trace', { traceId });
         return;
       }
 
@@ -345,13 +344,13 @@ export class LoggingService {
 
       await this.database.executeQuery(sql, values);
 
-      this.logger.info('Session trace updated', {
+      this.moduleLogger.info('Session trace updated', {
         traceId,
         updatedFields: updateFields.length,
         status: data.status
       });
-    } catch (error) {
-      this.logger.error('Failed to update session trace', { error: error.message, traceId, data });
+    } catch (error: unknown) {
+      this.moduleLogger.error('Failed to update session trace', { error: error instanceof Error ? error.message : String(error), traceId, data });
       throw error;
     }
   }
@@ -392,8 +391,8 @@ export class LoggingService {
           status: trace.status
         }
       };
-    } catch (error) {
-      this.logger.error('Failed to get complete session trace', { error: error.message, traceId });
+    } catch (error: unknown) {
+      this.moduleLogger.error('Failed to get complete session trace', { error: error instanceof Error ? error.message : String(error), traceId });
       throw error;
     }
   }
@@ -458,15 +457,15 @@ export class LoggingService {
       const countResult = await this.database.executeQuery(countSql, values);
       const total = Array.isArray(countResult) ? countResult[0].total : 0;
 
-      // 查询分页数据
+      // 查询分页数据 - LIMIT/OFFSET不支持参数绑定，使用字符串插值（已验证为安全数值）
       const sql = `
         SELECT * FROM websocket_logs 
         ${whereClause}
         ORDER BY timestamp DESC 
-        LIMIT ? OFFSET ?
+        LIMIT ${parseInt(limit.toString())} OFFSET ${parseInt(offset.toString())}
       `;
       
-      const logs = await this.database.executeQuery(sql, [...values, limit, offset]);
+      const logs = await this.database.executeQuery(sql, values);
 
       return {
         logs: Array.isArray(logs) ? logs : [],
@@ -474,8 +473,8 @@ export class LoggingService {
         page,
         limit
       };
-    } catch (error) {
-      this.logger.error('Failed to get WebSocket logs', { error: error.message, options });
+    } catch (error: unknown) {
+      this.moduleLogger.error('Failed to get WebSocket logs', { error: error instanceof Error ? error.message : String(error), options });
       throw error;
     }
   }
@@ -540,15 +539,15 @@ export class LoggingService {
       const countResult = await this.database.executeQuery(countSql, values);
       const total = Array.isArray(countResult) ? countResult[0].total : 0;
 
-      // 查询分页数据
+      // 查询分页数据 - LIMIT/OFFSET不支持参数绑定，使用字符串插值（已验证为安全数值）
       const sql = `
         SELECT * FROM llm_call_logs 
         ${whereClause}
         ORDER BY timestamp DESC, call_sequence ASC
-        LIMIT ? OFFSET ?
+        LIMIT ${parseInt(limit.toString())} OFFSET ${parseInt(offset.toString())}
       `;
       
-      const logs = await this.database.executeQuery(sql, [...values, limit, offset]);
+      const logs = await this.database.executeQuery(sql, values);
 
       return {
         logs: Array.isArray(logs) ? logs : [],
@@ -556,8 +555,8 @@ export class LoggingService {
         page,
         limit
       };
-    } catch (error) {
-      this.logger.error('Failed to get LLM call logs', { error: error.message, options });
+    } catch (error: unknown) {
+      this.moduleLogger.error('Failed to get LLM call logs', { error: error instanceof Error ? error.message : String(error), options });
       throw error;
     }
   }
@@ -567,7 +566,7 @@ export class LoggingService {
    */
   clearCallSequenceCache(): void {
     this.callSequenceMap.clear();
-    this.logger.info('Call sequence cache cleared');
+    this.moduleLogger.info('Call sequence cache cleared');
   }
 
   /**
@@ -595,8 +594,8 @@ export class LoggingService {
 
       const result = await this.database.executeQuery(sql, [startTime, startTime, startTime]);
       return Array.isArray(result) && result.length > 0 ? result[0] : null;
-    } catch (error) {
-      this.logger.error('Failed to get logging statistics', { error: error.message, hours });
+    } catch (error: unknown) {
+      this.moduleLogger.error('Failed to get logging statistics', { error: error instanceof Error ? error.message : String(error), hours });
       throw error;
     }
   }

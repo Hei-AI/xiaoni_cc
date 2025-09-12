@@ -6,8 +6,62 @@
   <component name="ChangeListManager">
     <list default="true" id="e289a57b-6024-485c-8211-1bbd342ce7af" name="Changes" comment="save token.properties">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/backend/src/services/database.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/backend/src/services/database.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/http-api/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/http-api/src/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/engines/decision-engine.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/engines/decision-engine.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/engines/persona-engine.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/engines/persona-engine.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/ai-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/ai-service.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/database.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/database.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/http-server.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/http-server.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/logging-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/logging-service.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/websocket-client.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/websocket-client.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/types/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/types/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/utils/token-manager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/utils/token-manager.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/mmkv/mmkv.default.crc" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/mmkv/mmkv.default.crc" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/mmkv/nt_mmkv_o3" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/mmkv/nt_mmkv_o3" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/mmkv/nt_mmkv_o3.crc" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/mmkv/nt_mmkv_o3.crc" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/mmkv/nt_mmkv_united_config_no_login" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/mmkv/nt_mmkv_united_config_no_login" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/mmkv/nt_mmkv_united_config_no_login.crc" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/mmkv/nt_mmkv_united_config_no_login.crc" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/msf/msfconnseq" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/msf/msfconnseq" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/msf/msfnethistory_155ffdc80c9a9b08ca2f6cc91ebe6412" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_data/msf/msfnethistory_155ffdc80c9a9b08ca2f6cc91ebe6412" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_db/login.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_db/login.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_db/login.db-wal" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq/global/nt_db/login.db-wal" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_data/log-cache/qq-log.mmap3" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_data/log-cache/qq-log.mmap3" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_data/log/qq-log_2025-09-08-09.qqxlog" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_data/log/qq-log_2025-09-08-09.qqxlog" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_data/mmkv/nt_mmkv_flash_transfer" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_data/mmkv/nt_mmkv_flash_transfer" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_data/mmkv/nt_mmkv_flash_transfer.crc" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_data/mmkv/nt_mmkv_flash_transfer.crc" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/buddy_msg_fts.db" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/buddy_msg_fts.db" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/buddy_msg_fts.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/buddy_msg_fts.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/buddy_msg_fts.db-wal" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/buddy_msg_fts.db-wal" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/collection.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/collection.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/data_line_msg_fts.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/data_line_msg_fts.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/discuss_msg_fts.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/discuss_msg_fts.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/emoji.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/emoji.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/file_assistant.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/file_assistant.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/group_info.db" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/group_info.db" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/group_info.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/group_info.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/group_info.db-wal" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/group_info.db-wal" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/group_msg_fts.db" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/group_msg_fts.db" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/group_msg_fts.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/group_msg_fts.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/group_msg_fts.db-wal" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/group_msg_fts.db-wal" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/guild_msg.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/guild_msg.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/misc.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/misc.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/misc.db-wal" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/misc.db-wal" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/msg_fts.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/msg_fts.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_flash_transfer.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_flash_transfer.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db-first.material" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db-first.material" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db-wal" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db-wal" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/profile_info.db" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/profile_info.db" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/profile_info.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/profile_info.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/profile_info.db-wal" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/profile_info.db-wal" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/rich_media.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/rich_media.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/settings.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/settings.db-shm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/module_pids.json" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/module_pids.json" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -50,6 +104,9 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "HTTP Request.rest-api | #1.executor": "Run",
+    "HTTP Request.rest-api_1 | #1.executor": "Run",
+    "HTTP Request.rest-api_1 | #2.executor": "Run",
+    "HTTP Request.rest-api_1 | #3.executor": "Run",
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "Python.main.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
@@ -68,7 +125,7 @@
     "project.structure.proportion": "0.0",
     "project.structure.side.proportion": "0.2",
     "settings.editor.selected.configurable": "Docker",
-    "ts.external.directory.path": "\\\\wsl.localhost\\Ubuntu-22.04\\home\\liahua\\IdeaProject\\qq_bot\\modules\\http-api\\node_modules\\typescript\\lib",
+    "ts.external.directory.path": "\\\\wsl.localhost\\Ubuntu-22.04\\home\\liahua\\IdeaProject\\qq_bot\\node_modules\\typescript\\lib",
     "vue.rearranger.settings.migration": "true"
   },
   "keyToStringList": {
@@ -91,14 +148,26 @@
           <value>
             <map>
               <entry key="rest-api | #1" value="STOPPED" />
+              <entry key="rest-api_1 | #1" value="STOPPED" />
+              <entry key="rest-api_1 | #2" value="STOPPED" />
+              <entry key="rest-api_1 | #3" value="STOPPED" />
             </map>
           </value>
         </entry>
       </map>
     </option>
   </component>
-  <component name="RunManager" selected="HTTP Request.rest-api | #1">
+  <component name="RunManager" selected="HTTP Request.rest-api_1 | #2">
     <configuration name="rest-api | #1" type="HttpClient.HttpRequestRunConfigurationType" factoryName="HTTP Request" temporary="true" nameIsGenerated="true" path="$APPLICATION_CONFIG_DIR$/scratches/rest-api.http" executionIdentifier="#1" runType="Run single request">
+      <method v="2" />
+    </configuration>
+    <configuration name="rest-api_1 | #1" type="HttpClient.HttpRequestRunConfigurationType" factoryName="HTTP Request" temporary="true" nameIsGenerated="true" path="$APPLICATION_CONFIG_DIR$/scratches/rest-api_1.http" executionIdentifier="#1" runType="Run single request">
+      <method v="2" />
+    </configuration>
+    <configuration name="rest-api_1 | #2" type="HttpClient.HttpRequestRunConfigurationType" factoryName="HTTP Request" temporary="true" nameIsGenerated="true" path="$APPLICATION_CONFIG_DIR$/scratches/rest-api_1.http" executionIdentifier="#2" index="2" runType="Run single request">
+      <method v="2" />
+    </configuration>
+    <configuration name="rest-api_1 | #3" type="HttpClient.HttpRequestRunConfigurationType" factoryName="HTTP Request" temporary="true" nameIsGenerated="true" path="$APPLICATION_CONFIG_DIR$/scratches/rest-api_1.http" executionIdentifier="#3" index="3" runType="Run single request">
       <method v="2" />
     </configuration>
     <configuration name="main" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
@@ -126,7 +195,10 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="HTTP Request.rest-api_1 | #2" />
+        <item itemvalue="HTTP Request.rest-api_1 | #3" />
         <item itemvalue="HTTP Request.rest-api | #1" />
+        <item itemvalue="HTTP Request.rest-api_1 | #1" />
         <item itemvalue="Python.main" />
       </list>
     </recent_temporary>
@@ -154,7 +226,8 @@
       <workItem from="1756626295318" duration="11861000" />
       <workItem from="1756733421318" duration="33319000" />
       <workItem from="1756991160490" duration="338000" />
-      <workItem from="1756991604503" duration="17789000" />
+      <workItem from="1756991604503" duration="46867000" />
+      <workItem from="1757503459879" duration="29351000" />
     </task>
     <task id="LOCAL-00001" summary="save token.properties">
       <option name="closed" value="true" />

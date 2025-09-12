@@ -18,7 +18,6 @@ import { ApiTokenData, TokenHealthConfig, TokenStats } from '../types';
 export class TokenManager {
   private database: DatabaseManager;
   private moduleLogger = logger.createModuleLogger('token-manager');
-  private healthCheckTimer?: ReturnType<typeof setTimeout>;
   private dailyResetTimer?: ReturnType<typeof setTimeout>;
   private healthConfig?: TokenHealthConfig;
 
@@ -32,12 +31,10 @@ export class TokenManager {
    */
   private async initialize(): Promise<void> {
     try {
-      await this.loadHealthConfig();
       await this.resetDailyUsageIfNeeded();
-      this.startHealthCheckTimer();
       this.startDailyResetTimer();
       
-      this.moduleLogger.info('Token Manager initialized with database backend');
+      this.moduleLogger.info('Token Manager initialized with database backend (passive mode)');
     } catch (error) {
       this.moduleLogger.error('Failed to initialize Token Manager', { error });
     }
@@ -48,22 +45,42 @@ export class TokenManager {
    */
   private async loadHealthConfig(): Promise<void> {
     try {
-      const configs = await this.database.executeQuery<TokenHealthConfig>(
-        'SELECT * FROM api_token_health_config WHERE enabled = TRUE ORDER BY id DESC LIMIT 1'
+      const result = await this.database.executeQuery<TokenHealthConfig>(
+        "SELECT * FROM token_health_config WHERE enabled = TRUE LIMIT 1"
       );
       
-      this.healthConfig = configs[0] || {
-        check_interval_minutes: 30,
+      if (result.length > 0) {
+        this.healthConfig = result[0];
+      } else {
+        // 使用默认配置
+        this.healthConfig = {
+          id: 1,
+          check_interval_minutes: 60,
+          max_error_count: 3,
+          blacklist_duration_minutes: 5,
+          health_check_timeout_ms: 10000,
+          daily_reset_hour: 0,
+          enabled: true,
+          created_at: new Date(),
+          updated_at: new Date()
+        };
+      }
+      
+      this.moduleLogger.debug("Health config loaded", { config: this.healthConfig });
+    } catch (error) {
+      this.moduleLogger.error("Failed to load health config", { error });
+      // 使用默认配置作为fallback
+      this.healthConfig = {
+        id: 1,
+        check_interval_minutes: 60,
         max_error_count: 3,
-        blacklist_duration_minutes: 300,
+        blacklist_duration_minutes: 5,
         health_check_timeout_ms: 10000,
         daily_reset_hour: 0,
-        enabled: true
-      } as TokenHealthConfig;
-      
-      this.moduleLogger.debug('Health config loaded', this.healthConfig);
-    } catch (error) {
-      this.moduleLogger.warn('Failed to load health config, using defaults', { error });
+        enabled: true,
+        created_at: new Date(),
+        updated_at: new Date()
+      };
     }
   }
 
@@ -76,12 +93,10 @@ export class TokenManager {
       await this.cleanupBlacklist();
       await this.resetDailyUsageIfNeeded();
       
-      // 查询可用Token：活跃、健康、未黑名单、未超过每日限制
+      // 查询可用Token：只依赖blacklisted_until字段，简化查询
       const query = `
         SELECT * FROM api_tokens 
-        WHERE is_active = TRUE 
-          AND is_healthy = TRUE 
-          AND (blacklisted_until IS NULL OR blacklisted_until < NOW())
+        WHERE (blacklisted_until IS NULL OR blacklisted_until <= NOW())
           AND daily_used < daily_limit
         ORDER BY 
           priority ASC,           -- 优先级排序（1=最高优先级）
@@ -121,8 +136,6 @@ export class TokenManager {
         WHERE id = ?
       `, [selectedToken.id]);
       
-      // 记录使用日志
-      await this.logTokenAction(selectedToken.id, 'use');
 
       this.moduleLogger.debug('Selected token for use', {
         id: selectedToken.id,
@@ -157,11 +170,6 @@ export class TokenManager {
         WHERE token = ?
       `, [token]);
       
-      // 记录成功日志
-      const tokenData = await this.getTokenByValue(token);
-      if (tokenData) {
-        await this.logTokenAction(tokenData.id, 'success', 'success', undefined, responseTimeMs, geminiUsage);
-      }
       
       this.moduleLogger.debug('Token usage successful', {
         tokenPrefix: token.substring(0, 8) + '...',
@@ -214,29 +222,10 @@ export class TokenManager {
       ]);
       
       if (updateResult > 0) {
-        // 记录错误日志
-        const tokenData = await this.getTokenByValue(token);
-        if (tokenData) {
-          await this.logTokenAction(tokenData.id, 'error', 'error', error, responseTimeMs);
-          
-          if (tokenData.error_count + 1 >= this.healthConfig!.max_error_count) {
-            this.moduleLogger.warn('Token blacklisted due to repeated errors', {
-              id: tokenData.id,
-              project: tokenData.project_name,
-              errorCount: tokenData.error_count + 1,
-              error,
-              tokenPrefix: token.substring(0, 8) + '...'
-            });
-          } else {
-            this.moduleLogger.warn('Token error reported', {
-              id: tokenData.id,
-              project: tokenData.project_name,
-              errorCount: tokenData.error_count + 1,
-              error,
-              tokenPrefix: token.substring(0, 8) + '...'
-            });
-          }
-        }
+        this.moduleLogger.warn('Token error reported', { 
+          error,
+          tokenPrefix: token.substring(0, 8) + '...'
+        });
       }
     } catch (error) {
       this.moduleLogger.error('Failed to report token error', { error: error, tokenPrefix: token.substring(0, 8) + '...' });
@@ -365,46 +354,6 @@ export class TokenManager {
     }
   }
   
-  /**
-   * 记录Token操作日志
-   */
-  private async logTokenAction(
-    tokenId: number, 
-    action: 'use' | 'success' | 'error' | 'health_check',
-    result?: 'success' | 'error' | 'timeout' | 'quota_exceeded',
-    errorMessage?: string,
-    responseTimeMs?: number,
-    geminiUsage?: Record<string, any>
-  ): Promise<void> {
-    try {
-      // 确保所有参数都不是undefined，用null替代undefined
-      const params = [
-        tokenId,
-        action,
-        result || null,
-        errorMessage || null,
-        responseTimeMs || null,
-        geminiUsage ? JSON.stringify(geminiUsage) : null
-      ];
-      
-      this.moduleLogger.debug('Logging token action', { 
-        tokenId, 
-        action, 
-        result, 
-        hasError: !!errorMessage,
-        hasResponseTime: responseTimeMs !== undefined,
-        hasGeminiUsage: !!geminiUsage 
-      });
-      
-      await this.database.executeUpdate(`
-        INSERT INTO api_token_logs 
-        (token_id, action, result, error_message, response_time_ms, gemini_usage)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, params);
-    } catch (error) {
-      this.moduleLogger.error('Failed to log token action', { error, tokenId, action, result });
-    }
-  }
   
   /**
    * 根据Token值获取Token数据
@@ -422,26 +371,6 @@ export class TokenManager {
     }
   }
   
-  /**
-   * 启动健康检查定时器
-   */
-  private startHealthCheckTimer(): void {
-    if (this.healthCheckTimer) {
-      clearInterval(this.healthCheckTimer);
-    }
-    
-    if (!this.healthConfig?.enabled) {
-      return;
-    }
-    
-    const intervalMs = this.healthConfig.check_interval_minutes * 60 * 1000;
-    
-    this.healthCheckTimer = setInterval(async () => {
-      await this.performHealthCheck();
-    }, intervalMs);
-    
-    this.moduleLogger.info(`Health check timer started with ${this.healthConfig.check_interval_minutes} minute interval`);
-  }
   
   /**
    * 启动每日重置定时器
@@ -472,121 +401,345 @@ export class TokenManager {
     this.moduleLogger.info(`Daily reset timer set for ${nextReset.toISOString()}`);
   }
   
+
   /**
-   * 执行健康检查
+   * Model-aware token失败处理 - 增强功能
+   * @param token Token字符串或ID
+   * @param modelName 使用的模型名称
+   * @param error 错误对象
+   * @param context 调用上下文
    */
-  private async performHealthCheck(): Promise<void> {
+  public async markTokenFailedForModel(token: string | number, modelName: string, error: any, context: string = 'LLM调用'): Promise<void> {
     try {
-      const tokens = await this.database.executeQuery<ApiTokenData>(
-        'SELECT * FROM api_tokens WHERE is_active = TRUE'
-      );
+      // 确定token ID
+      let tokenId: number;
+      let tokenInfo = '';
       
-      this.moduleLogger.info(`Starting health check for ${tokens.length} active tokens`);
-      
-      const healthCheckPromises = tokens.map(token => this.checkTokenHealth(token));
-      const results = await Promise.allSettled(healthCheckPromises);
-      
-      const healthyCount = results.filter(result => 
-        result.status === 'fulfilled' && result.value
-      ).length;
-      
-      this.moduleLogger.info(`Health check completed: ${healthyCount}/${tokens.length} tokens healthy`);
-    } catch (error) {
-      this.moduleLogger.error('Health check failed', { error });
+      if (typeof token === 'string') {
+        const results = await this.database.executeQuery<ApiTokenData>(
+          'SELECT id, project_name FROM api_tokens WHERE token = ? LIMIT 1',
+          [token]
+        );
+        
+        if (results.length === 0) {
+          this.moduleLogger.warn('Token not found for model-specific failure recording', { token: token.substring(0, 20) + '...' });
+          return;
+        }
+        
+        tokenId = results[0].id;
+        tokenInfo = results[0].project_name;
+      } else {
+        tokenId = token;
+        tokenInfo = `ID:${token}`;
+      }
+
+      // 构建错误信息
+      let errorMessage = '';
+      let shouldBlacklist = false;
+
+      if (error?.response) {
+        const status = error.response.status;
+        const statusText = error.response.statusText || '';
+        errorMessage = `[${context}][${modelName}] HTTP ${status}: ${statusText}`;
+        
+        // 429/403/401 自动5分钟模型级黑名单
+        if (status === 429 || status === 403 || status === 401) {
+          shouldBlacklist = true;
+        }
+      } else if (error?.message) {
+        errorMessage = `[${context}][${modelName}] ${error.message}`;
+      } else {
+        errorMessage = `[${context}][${modelName}] Unknown error`;
+      }
+
+      if (shouldBlacklist) {
+        // 获取当前的模型黑名单
+        const currentData = await this.database.executeQuery<{model_blacklist: any}>(
+          'SELECT model_blacklist FROM api_tokens WHERE id = ? LIMIT 1',
+          [tokenId]
+        );
+        
+        const currentBlacklist = currentData[0]?.model_blacklist || {};
+        const blacklistUntil = new Date(Date.now() + 5 * 60 * 1000); // 5分钟后
+        
+        // 更新特定模型的黑名单
+        const newBlacklist = {
+          ...currentBlacklist,
+          [modelName]: blacklistUntil.toISOString().slice(0, 19).replace('T', ' ')
+        };
+        
+        await this.database.executeQuery(
+          `UPDATE api_tokens 
+           SET model_blacklist = ?,
+               error_count = error_count + 1,
+               last_error = ?,
+               last_error_time = NOW()
+           WHERE id = ?`,
+          [JSON.stringify(newBlacklist), errorMessage, tokenId]
+        );
+        
+        this.moduleLogger.warn('Token blacklisted for specific model', {
+          tokenInfo,
+          tokenId,
+          modelName,
+          error: errorMessage,
+          duration: '5 minutes',
+          blacklistUntil: blacklistUntil.toISOString()
+        });
+      } else {
+        // 只记录错误，不黑名单
+        await this.database.executeQuery(
+          `UPDATE api_tokens 
+           SET error_count = error_count + 1,
+               last_error = ?,
+               last_error_time = NOW()
+           WHERE id = ?`,
+          [errorMessage, tokenId]
+        );
+        
+        this.moduleLogger.info('Token model error recorded', {
+          tokenInfo,
+          tokenId,
+          modelName,
+          error: errorMessage
+        });
+      }
+    } catch (updateError) {
+      this.moduleLogger.error('Failed to record model-specific token failure', {
+        updateError,
+        originalError: error,
+        modelName,
+        context
+      });
     }
   }
-  
+
   /**
-   * 检查单个Token健康状态
+   * 被动更新：记录token使用失败 - 向后兼容方法
+   * @param token Token字符串或ID
+   * @param error 错误对象
+   * @param context 调用上下文 (如 'LLM请求', 'AI服务调用')
    */
-  private async checkTokenHealth(tokenData: ApiTokenData): Promise<boolean> {
-    const startTime = Date.now();
-    let isHealthy = false;
-    let errorMessage = '';
-    
+  public async markTokenFailed(token: string | number, error: any, context: string = 'LLM调用'): Promise<void> {
+    // 使用默认模型名称调用新的model-aware方法
+    return this.markTokenFailedForModel(token, 'gemini-2.5-flash', error, context);
+  }
+
+  /**
+   * 被动更新：记录token使用成功
+   * @param token Token字符串或ID
+   */
+  public async markTokenSuccess(token: string | number): Promise<void> {
     try {
-      // 使用简单的API调用测试Token有效性
-      const response = await axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
-        {
-          contents: [{
-            parts: [{
-              text: "Explain how AI works in a few words"
-            }]
-          }]
-        },
-        {
-          headers: {
-            'X-goog-api-key': tokenData.token,
-            'Content-Type': 'application/json'
-          },
-          timeout: this.healthConfig?.health_check_timeout_ms || 10000
+      // 确定token ID
+      let tokenId: number;
+      
+      if (typeof token === 'string') {
+        const results = await this.database.executeQuery<ApiTokenData>(
+          'SELECT id FROM api_tokens WHERE token = ? LIMIT 1',
+          [token]
+        );
+        
+        if (results.length === 0) {
+          this.moduleLogger.warn('Token not found for success recording', { token: token.substring(0, 20) + '...' });
+          return;
         }
+        
+        tokenId = results[0].id;
+      } else {
+        tokenId = token;
+      }
+
+      // 更新使用统计
+      await this.database.executeQuery(
+        `UPDATE api_tokens 
+         SET daily_used = daily_used + 1,
+             total_used = total_used + 1,
+             last_used = NOW()
+         WHERE id = ?`,
+        [tokenId]
       );
       
-      isHealthy = response.status === 200 && response.data?.candidates?.length > 0;
-      
+      this.moduleLogger.debug('Token usage recorded', { tokenId });
     } catch (error) {
-      isHealthy = false;
-      if (axios.isAxiosError(error)) {
-        errorMessage = `HTTP ${error.response?.status}: ${error.response?.statusText || error.message}`;
-      } else {
-        errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.moduleLogger.error('Failed to record token success', { error });
+    }
+  }
+
+  /**
+   * 获取可用token并自动记录使用 - 带试错机制
+   * @param maxRetries 最大重试次数
+   * @returns Token信息或null
+   */
+  public async getTokenWithRetry(maxRetries: number = 3): Promise<{
+    token: string;
+    tokenId: number;
+    projectName: string;
+  } | null> {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const tokenString = await this.getNextToken();
+        
+        if (!tokenString) {
+          this.moduleLogger.warn(`No available tokens found on attempt ${attempt + 1}`);
+          continue;
+        }
+        
+        // 获取token详细信息
+        const tokenInfo = await this.database.executeQuery<ApiTokenData>(
+          'SELECT id, project_name FROM api_tokens WHERE token = ? LIMIT 1',
+          [tokenString]
+        );
+        
+        if (tokenInfo.length === 0) {
+          this.moduleLogger.warn('Token info not found', { token: tokenString.substring(0, 20) + '...' });
+          continue;
+        }
+        
+        const token = tokenInfo[0];
+        
+        // 记录token成功获取
+        await this.markTokenSuccess(token.id);
+        
+        return {
+          token: tokenString,
+          tokenId: token.id,
+          projectName: token.project_name
+        };
+        
+      } catch (error) {
+        this.moduleLogger.warn(`Token retrieval failed on attempt ${attempt + 1}`, { error });
+        
+        if (attempt === maxRetries - 1) {
+          this.moduleLogger.error('All token retrieval attempts failed');
+          return null;
+        }
       }
     }
     
-    const responseTime = Date.now() - startTime;
-    
-    // 更新数据库中的健康状态
-    await this.database.executeUpdate(`
-      UPDATE api_tokens SET 
-        is_healthy = ?,
-        last_health_check = NOW(),
-        last_error = CASE WHEN ? = FALSE THEN ? ELSE last_error END,
-        last_error_time = CASE WHEN ? = FALSE THEN NOW() ELSE last_error_time END
-      WHERE id = ?
-    `, [isHealthy, isHealthy, errorMessage, isHealthy, tokenData.id]);
-    
-    // 记录健康检查日志
-    await this.logTokenAction(
-      tokenData.id,
-      'health_check',
-      isHealthy ? 'success' : 'error',
-      isHealthy ? undefined : errorMessage,
-      responseTime
-    );
-    
-    if (!isHealthy) {
-      this.moduleLogger.warn('Token health check failed', {
-        id: tokenData.id,
-        project: tokenData.project_name,
-        error: errorMessage,
-        responseTime,
-        tokenPrefix: tokenData.token.substring(0, 8) + '...'
-      });
+    return null;
+  }
+
+  /**
+   * Model-aware token获取 - 核心增强功能
+   * @param modelName 模型名称 (如 'gemini-2.5-flash')
+   * @param agentType Agent类型 (如 'chat_bot')
+   * @param promptName Prompt名称 (如 'default')
+   * @param maxRetries 最大重试次数
+   * @returns Token信息或null
+   */
+  public async getTokenForModel(
+    modelName: string, 
+    agentType: string, 
+    promptName: string, 
+    maxRetries: number = 3
+  ): Promise<{
+    token: string;
+    tokenId: number;
+    projectName: string;
+  } | null> {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        // 查询支持该模型的可用token
+        const query = `
+          SELECT t.id, t.token, t.project_name
+          FROM api_tokens t
+          JOIN agent_prompts ap ON (
+            ap.model_name = ?
+            AND ap.agent_type = ?
+            AND ap.prompt_name = ?
+            AND ap.is_active = TRUE
+            AND (ap.allowed_token_ids IS NULL OR JSON_CONTAINS(ap.allowed_token_ids, CAST(t.id AS JSON)))
+          )
+          WHERE t.daily_used < t.daily_limit
+            AND (
+              t.model_blacklist IS NULL 
+              OR JSON_EXTRACT(t.model_blacklist, CONCAT('$."', ?, '"')) IS NULL
+              OR STR_TO_DATE(JSON_UNQUOTE(JSON_EXTRACT(t.model_blacklist, CONCAT('$."', ?, '"'))), '%Y-%m-%d %H:%i:%s') <= NOW()
+            )
+          ORDER BY 
+            t.priority ASC,
+            (t.daily_used / t.daily_limit) ASC,
+            t.last_used ASC
+          LIMIT 1
+        `;
+
+        this.moduleLogger.debug('Executing model-aware token query', { 
+          modelName, 
+          agentType, 
+          promptName,
+          attempt: attempt + 1
+        });
+
+        const results = await this.database.executeQuery<{
+          id: number;
+          token: string; 
+          project_name: string;
+        }>(query, [modelName, agentType, promptName, modelName, modelName]);
+
+        if (results.length === 0) {
+          this.moduleLogger.warn(`No available tokens for model on attempt ${attempt + 1}`, { 
+            modelName, 
+            agentType, 
+            promptName 
+          });
+          continue;
+        }
+
+        const token = results[0];
+        
+        // 更新使用统计
+        await this.database.executeUpdate(`
+          UPDATE api_tokens SET 
+            last_used = NOW(),
+            daily_used = daily_used + 1,
+            total_used = total_used + 1
+          WHERE id = ?
+        `, [token.id]);
+        
+        this.moduleLogger.debug('Selected token for model', {
+          tokenId: token.id,
+          projectName: token.project_name,
+          modelName,
+          attempt: attempt + 1
+        });
+
+        return {
+          token: token.token,
+          tokenId: token.id,
+          projectName: token.project_name
+        };
+
+      } catch (error) {
+        this.moduleLogger.warn(`Model-aware token retrieval failed on attempt ${attempt + 1}`, { 
+          error,
+          modelName,
+          agentType,
+          promptName
+        });
+        
+        if (attempt === maxRetries - 1) {
+          this.moduleLogger.error('All model-aware token retrieval attempts failed', {
+            modelName,
+            agentType,
+            promptName
+          });
+          return null;
+        }
+      }
     }
     
-    return isHealthy;
-  }
-  
-  /**
-   * 手动触发健康检查
-   */
-  public async runHealthCheck(): Promise<void> {
-    await this.performHealthCheck();
+    return null;
   }
   
   /**
    * 销毁管理器，清理定时器
    */
   public destroy(): void {
-    if (this.healthCheckTimer) {
-      clearInterval(this.healthCheckTimer);
-    }
     if (this.dailyResetTimer) {
       clearTimeout(this.dailyResetTimer);
     }
-    this.moduleLogger.info('Token Manager destroyed');
+    this.moduleLogger.info('Token Manager destroyed (passive mode)');
   }
 }
 

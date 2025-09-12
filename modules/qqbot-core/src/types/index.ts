@@ -94,18 +94,21 @@ export interface QQMetaEvent extends WebSocketEvent {
 
 export interface ConversationData {
   id: string;
+  trace_id?: string; // 调用链追踪ID，关联websocket_logs
   user_id: number;
   user_message: string;
-  ai_response: string;
+  ai_response?: string; // 改为可选，因为初始创建时可能为空
   timestamp: Date;
   response_time: number;
-  model_name: string;
+  model_name?: string; // 改为可选，因为初始创建时可能为空
   raw_request?: string;
   raw_response?: string;
   message_id?: number;
   reply_to_message_id?: number;
   reply_to_text?: string;
   session_id?: string;  // Session管理支持
+  status: 'pending' | 'processing' | 'completed' | 'failed'; // 新增状态字段
+  error_reason?: string; // 新增错误原因字段
   created_at: Date;
   updated_at: Date;
 }
@@ -222,6 +225,7 @@ export interface AgentPromptData {
   system_instructions: string[];
   user_prompt_template?: string;
   context_variables?: Record<string, string>;
+  model_name?: string;
   model_config?: {
     temperature?: number;
     topK?: number;

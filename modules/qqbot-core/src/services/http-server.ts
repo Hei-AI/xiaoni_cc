@@ -442,12 +442,13 @@ class HttpServer {
 
         const conversation = conversations[0];
         
-        // 获取数据库中的LLM追踪数据
-        const llmTraces = conversation.session_id ? 
-          await this.services.database.executeQuery(
-            `SELECT * FROM llm_call_traces WHERE conversation_id = ? ORDER BY call_sequence ASC`, 
-            [conversationId]
-          ) : [];
+        // 获取数据库中的LLM追踪数据 - 直接根据conversation_id查询
+        this.moduleLogger.info('Fetching LLM traces for conversation', { conversationId });
+        const llmTraces = await this.services.database.executeQuery(
+          `SELECT * FROM llm_call_traces WHERE conversation_id = ? ORDER BY call_sequence ASC`, 
+          [conversationId]
+        );
+        this.moduleLogger.info('Found LLM traces', { conversationId, traceCount: llmTraces.length });
 
         res.json({
           conversation_id: conversationId,

@@ -1,0 +1,82 @@
+{
+  "metadata": {
+    "testRunner": "QQ Bot Fix Verification",
+    "version": "1.0.0",
+    "environment": {
+      "node": "v22.19.0",
+      "platform": "linux",
+      "architecture": "x64",
+      "memory": {
+        "rss": 79613952,
+        "heapTotal": 31121408,
+        "heapUsed": 19368616,
+        "external": 3672862,
+        "arrayBuffers": 251109
+      }
+    },
+    "startTime": "2025-09-10T12:42:25.053Z",
+    "endTime": "2025-09-10T12:42:25.727Z",
+    "totalDuration": 674
+  },
+  "summary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0,
+    "critical_failed": 0
+  },
+  "suites": [
+    {
+      "name": "Message Storage Fix",
+      "description": "Verifies original user messages are stored correctly and raw_request contains complete data",
+      "critical": true,
+      "status": "passed",
+      "duration": 50,
+      "startTime": "2025-09-10T12:42:25.054Z",
+      "endTime": "2025-09-10T12:42:25.104Z",
+      "error": null,
+      "outputCount": 25
+    },
+    {
+      "name": "LLM Call Tracking",
+      "description": "Tests LLM trace creation, storage, aggregation, cost calculation, and linkage",
+      "critical": true,
+      "status": "passed",
+      "duration": 79,
+      "startTime": "2025-09-10T12:42:25.104Z",
+      "endTime": "2025-09-10T12:42:25.183Z",
+      "error": null,
+      "outputCount": 70
+    },
+    {
+      "name": "Integration Flow",
+      "description": "Tests complete message processing flow from input to storage",
+      "critical": false,
+      "status": "passed",
+      "duration": 169,
+      "startTime": "2025-09-10T12:42:25.183Z",
+      "endTime": "2025-09-10T12:42:25.352Z",
+      "error": null,
+      "outputCount": 98
+    },
+    {
+      "name": "Database Operations",
+      "description": "Tests all database methods, query performance, and data integrity",
+      "critical": true,
+      "status": "passed",
+      "duration": 374,
+      "startTime": "2025-09-10T12:42:25.353Z",
+      "endTime": "2025-09-10T12:42:25.727Z",
+      "error": null,
+      "outputCount": 95
+    }
+  ],
+  "recommendations": [
+    {
+      "type": "success",
+      "title": "Core Functionality Verified",
+      "description": "All critical tests passed - core fixes are working correctly",
+      "action": "System is ready for deployment"
+    }
+  ]
+}
