@@ -168,8 +168,7 @@ const TimelineNodeComponent: React.FC<{
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-sm font-medium">
                       {node.timestamp.toLocaleTimeString('zh-CN', { 
-                        hour12: false, 
-                        fractionalSecondDigits: 3 
+                        hour12: false 
                       })} {node.title}
                     </CardTitle>
                     {node.duration_ms !== undefined && node.duration_ms > 0 && (

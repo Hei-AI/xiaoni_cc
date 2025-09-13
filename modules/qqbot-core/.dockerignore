@@ -1,0 +1,81 @@
+# QQBot Core .dockerignore
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Logs (本地开发日志不打包进镜像)
+logs/
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Tests
+tests/
+test/
+__tests__/
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+
+# Development files
+.env.local
+.env.development
+.env.test
+*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Build artifacts
+dist/
+build/
+
+# Documentation
+docs/
+README.md
+*.md
+
+# Docker
+docker-compose*.yml
+.dockerignore
+
+# QQ Bot specific
+resources/napcat_qq_data/
+resources/logs/
+fix_database_schema.js
+test_db_connection.js
+
+# Scripts (保留必要的脚本)
+scripts/

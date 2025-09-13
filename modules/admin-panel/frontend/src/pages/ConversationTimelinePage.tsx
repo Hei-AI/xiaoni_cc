@@ -116,7 +116,7 @@ export const ConversationTimelinePage: React.FC = () => {
       )}
 
       {/* Development Note */}
-      {process.env.NODE_ENV === 'development' && (
+      {import.meta.env.DEV && (
         <Card className="bg-blue-50 border-blue-200">
           <CardContent className="pt-6">
             <p className="text-xs text-blue-600">

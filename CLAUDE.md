@@ -16,7 +16,7 @@ modules/
 ├── qqbot-core/         # QQ机器人核心服务 (端口: 8081)
 └── admin-panel/        # 管理面板
     ├── backend/        # 管理后端API (端口: 9080)
-    └── frontend/       # 管理前端界面 (端口: 3000)
+    └── frontend/       # 管理前端界面 (端口: 3003)
 ```
 
 ### 关键服务组件 (`modules/qqbot-core/src/services/`)
@@ -189,7 +189,7 @@ cp modules/*/env.example modules/*/.env
 - 8080: HTTP API Gateway (外部访问)
 - 8081: QQBot Core (内部通信)
 - 9080: Admin Backend API
-- 3000: Admin Frontend
+- 3003: Admin Frontend (容器化部署)
 - 3306: MySQL Database
 
 ## 特殊功能
@@ -217,16 +217,14 @@ cp modules/*/env.example modules/*/.env
 ## 部署和运维
 
 ### Docker部署
-```bash
-# 启动所有服务
-docker-compose up -d
+完整的Docker容器化部署指南请参考：
 
-# 查看服务状态
-docker-compose ps
-
-# 查看日志
-docker-compose logs -f qqbot-core
-```
+**@DOCKER.md** - 详细的Docker容器化部署文档，包含：
+- 🏠 宿主机网络架构设计
+- 🚀 一键部署脚本使用方法
+- 📦 4个核心模块的完整容器化配置
+- 🔧 环境变量配置和网络优化
+- 🛠️ 故障排除和监控指南
 
 ### 健康检查
 - HTTP健康检查端点: `GET /health`
@@ -251,17 +249,36 @@ docker-compose logs -f qqbot-core
 4. **Token失效**: 检查api_tokens表健康状态
 
 ### 调试技巧
-- 使用`npm run status`查看所有服务状态
-- 检查各模块的logs目录
+- 使用Docker容器部署，通过容器挂载的本地日志进行排查
+- 检查容器挂载的日志目录：`logs/*/` 
 - 使用数据库查询验证数据完整性
 - 利用HTTP API的健康检查端点
+- 容器状态检查：`docker ps` 和 `docker logs <container_name>`
 
 ### 开发环境重置
+推荐使用Docker容器化部署，详见 **@DOCKER.md**：
+
+```bash
+# 停止所有容器服务
+./scripts/docker-deploy.sh all stop
+
+# 清理容器和镜像
+./scripts/docker-deploy.sh all clean
+
+# 重新构建和启动
+./scripts/docker-deploy.sh all build
+./scripts/docker-deploy.sh all run
+
+# 查看服务状态
+./scripts/docker-deploy.sh all status
+```
+
+**传统开发模式** (仅在必要时使用)：
 ```bash
 # 停止所有服务
 npm run stop
 
-# 清理端口占用
+# 清理端口占用  
 npm run clean-ports
 
 # 重新安装依赖

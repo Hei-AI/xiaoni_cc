@@ -1,0 +1,80 @@
+# Admin Panel Frontend .dockerignore
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Logs
+logs/
+*.log
+resources/logs/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Tests
+tests/
+test/
+__tests__/
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+
+# Development files
+.env.local
+.env.development
+.env.test
+*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Build artifacts (除了最终的dist目录)
+# dist/ - 需要这个目录用于生产构建
+
+# Documentation
+docs/
+README.md
+*.md
+
+# Docker
+docker-compose*.yml
+.dockerignore
+
+# Frontend specific
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.out/
+.vuepress/dist/

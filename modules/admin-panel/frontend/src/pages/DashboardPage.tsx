@@ -32,7 +32,7 @@ export const DashboardPage: React.FC = () => {
   }, [searchTerm]);
 
   // Fetch data using our custom hooks
-  const { data: dashboardStats, isLoading: statsLoading, error: statsError } = useDashboardStats();
+  const { data: dashboardStats, isLoading: statsLoading } = useDashboardStats();
   const { data: tokenStats, isLoading: tokenStatsLoading } = useTokenStats();
   
   // Get conversations with search and pagination
