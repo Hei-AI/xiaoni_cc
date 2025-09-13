@@ -147,11 +147,11 @@ docker run -d \
   --network host \
   -v "$(pwd)/logs/admin-backend:/app/logs" \
   -v "$(pwd)/modules/admin-panel/backend/resources/uploads:/app/resources/uploads" \
-  -e MYSQL_HOST=localhost \
-  -e MYSQL_PORT=3306 \
-  -e MYSQL_USER=qqbot_user \
-  -e MYSQL_PASSWORD=qqbot_password \
-  -e MYSQL_DATABASE=qqbot_db \
+  -e DB_HOST=localhost \
+  -e DB_PORT=3306 \
+  -e DB_USER=qqbot_user \
+  -e DB_PASSWORD=qqbot_password \
+  -e DB_NAME=qqbot_db \
   -e ADMIN_PORT=9080 \
   --restart unless-stopped \
   qqbot-admin-backend
@@ -196,12 +196,19 @@ TZ=Asia/Shanghai
 
 ### 数据库环境变量
 ```bash
-# QQBot Core和Admin Backend使用
+# QQBot Core使用 (MYSQL_* 前缀)
 MYSQL_HOST=localhost
 MYSQL_PORT=3306  
 MYSQL_USER=qqbot_user
 MYSQL_PASSWORD=qqbot_password
 MYSQL_DATABASE=qqbot_db
+
+# Admin Backend使用 (DB_* 前缀)
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=qqbot_user
+DB_PASSWORD=qqbot_password
+DB_NAME=qqbot_db
 ```
 
 ### QQ机器人环境变量

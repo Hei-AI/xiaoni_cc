@@ -57,48 +57,93 @@ interface SessionData {
 }
 
 export class DatabaseManager {
-  private pool: mysql.Pool;
+  private pool: mysql.Pool | null = null;
+  private config: DatabaseConfig;
   private logger: winston.Logger;
 
   constructor(config: DatabaseConfig, logger: winston.Logger) {
+    this.config = config;
     this.logger = logger;
-    this.pool = mysql.createPool({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      database: config.database,
-      charset: config.charset,
-      timezone: config.timezone,
-      connectionLimit: 10,
-      queueLimit: 0
-    });
-    
-    this.logger.info('Database connection pool initialized (Admin Backend)');
+    this.createConnectionPool();
+  }
+
+  private createConnectionPool(): void {
+    try {
+      this.pool = mysql.createPool({
+        host: this.config.host,
+        port: this.config.port,
+        user: this.config.user,
+        password: this.config.password,
+        database: this.config.database,
+        charset: 'utf8mb4',
+        timezone: '+08:00',
+        connectionLimit: 10,
+        queueLimit: 0
+      });
+
+      this.logger.info('Database connection pool initialized (Admin Backend)', {
+        connectionLimit: 10,
+        queueLimit: 0
+      });
+    } catch (error) {
+      this.logger.error('Error creating connection pool', { error });
+      this.pool = null;
+    }
+  }
+
+  private handleConnectionLost(): void {
+    this.logger.warn('Connection lost, attempting to recreate pool...');
+    if (this.pool) {
+      try {
+        this.pool.end();
+      } catch (error) {
+        this.logger.warn('Error closing old pool', { error });
+      }
+      this.pool = null;
+    }
+    // 立即重建连接池，不等待
+    this.createConnectionPool();
   }
 
   public async testConnection(): Promise<boolean> {
     try {
-      const connection = await this.pool.getConnection();
+      // 绕过连接池，直接创建连接进行测试
+      const connection = await mysql.createConnection({
+        host: this.config.host,
+        port: this.config.port,
+        user: this.config.user,
+        password: this.config.password,
+        database: this.config.database,
+        charset: 'utf8mb4',
+        timezone: '+08:00'
+      });
+      
       await connection.ping();
-      connection.release();
-      this.logger.info('Database connection test successful');
+      await connection.end();
+      this.logger.info('Database connection test successful (direct connection)');
       return true;
     } catch (error) {
-      this.logger.error('Database connection test failed', { error });
+      this.logger.error('Database connection test failed (direct connection)', { error });
       return false;
     }
   }
 
   public async executeQuery<T>(query: string, params: any[] = []): Promise<T[]> {
     try {
-      const connection = await this.pool.getConnection();
-      const [rows] = await connection.execute(query, params);
-      connection.release();
+      // 临时使用直连方式，绕过连接池问题
+      const connection = await mysql.createConnection({
+        host: this.config.host,
+        port: this.config.port,
+        user: this.config.user,
+        password: this.config.password,
+        database: this.config.database,
+        charset: 'utf8mb4',
+        timezone: '+08:00'
+      });
       
-      // 处理日期时间序列化
-      if (Array.isArray(rows)) {
-        return rows.map((row: any) => {
+      try {
+        const [rows] = await connection.execute(query, params);
+        return Array.isArray(rows) ? rows.map((row: any) => {
           const processedRow = { ...row };
           Object.keys(processedRow).forEach(key => {
             if (processedRow[key] instanceof Date) {
@@ -106,10 +151,10 @@ export class DatabaseManager {
             }
           });
           return processedRow;
-        });
+        }) : [];
+      } finally {
+        await connection.end();
       }
-      
-      return [];
     } catch (error) {
       this.logger.error('Database query failed', { query, params, error });
       throw error;
@@ -118,7 +163,11 @@ export class DatabaseManager {
 
   public async executeUpdate(query: string, params: any[] = []): Promise<number> {
     try {
-      const [result] = await this.pool.execute(query, params) as [mysql.ResultSetHeader, mysql.FieldPacket[]];
+      if (!this.pool) {
+        this.createConnectionPool();
+      }
+      // 直接使用连接池的execute方法，让连接池自动管理连接
+      const [result] = await this.pool!.execute(query, params) as [mysql.ResultSetHeader, mysql.FieldPacket[]];
       return result.affectedRows;
     } catch (error) {
       this.logger.error('Database update failed', { query, params, error });
@@ -362,7 +411,10 @@ export class DatabaseManager {
   }
 
   public async close(): Promise<void> {
-    await this.pool.end();
+    if (this.pool) {
+      await this.pool.end();
+      this.pool = null;
+    }
     this.logger.info('Database connection pool closed');
   }
 }

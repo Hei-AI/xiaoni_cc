@@ -553,7 +553,7 @@ app.get('/api/tokens/stats', async (req, res) => {
     
     const recentLogs = await database.executeQuery(`
       SELECT tl.*, at.project_name 
-      FROM token_logs tl
+      FROM api_token_logs tl
       JOIN api_tokens at ON tl.token_id = at.id
       ORDER BY tl.created_at DESC 
       LIMIT 10
