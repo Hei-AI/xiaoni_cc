@@ -107,8 +107,9 @@ export interface ConversationData {
   reply_to_message_id?: number;
   reply_to_text?: string;
   session_id?: string;  // Session管理支持
-  status: 'pending' | 'processing' | 'completed' | 'failed'; // 新增状态字段
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'filtered_receive_events' | 'filtered_disabled' | 'filtered_no_response'; // 扩展状态字段支持过滤状态
   error_reason?: string; // 新增错误原因字段
+  group_id?: number; // 群聊ID，用于群聊消息记录
   created_at: Date;
   updated_at: Date;
 }
@@ -431,8 +432,23 @@ export interface GroupChatSettings {
   group_name?: string;
   is_enabled: boolean;
   auto_reply_enabled: boolean;
+  receive_events: boolean;
   welcome_message?: string;
   admin_user_id?: number;
+  created_at: Date;
+  updated_at: Date;
+  last_activity?: Date;
+}
+
+// Private chat settings interface (similar to group but without receive_events)
+export interface PrivateChatSettings {
+  id?: number;
+  user_id: number;
+  username?: string;
+  is_enabled: boolean;
+  auto_reply_enabled: boolean;
+  welcome_message?: string;
+  user_notes?: string;
   created_at: Date;
   updated_at: Date;
   last_activity?: Date;

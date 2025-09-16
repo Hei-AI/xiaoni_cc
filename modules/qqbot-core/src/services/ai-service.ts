@@ -333,7 +333,7 @@ export class AIService {
           temperature: 0.7,
           topK: 40,
           topP: 0.95,
-          maxOutputTokens: 4096
+          maxOutputTokens: 2048  // 降低输出token限制，为思考token留出空间
         };
 
         if (agentPrompt) {
@@ -679,13 +679,6 @@ export class AIService {
     const timestamp = new Date();
 
     try {
-      const apiToken = await this.getCurrentToken();
-      if (!apiToken) {
-        this.moduleLogger.error('AI service unavailable: all API tokens are unavailable');
-        // 不返回任何响应给用户
-        return null;
-      }
-
       const callResult = await this.callGeminiAPI(userMessage, agentType, promptName, traceId, userId);
       if (!callResult) {
         return null;
@@ -762,13 +755,6 @@ export class AIService {
     const startTime = Date.now();
     
     try {
-      const apiToken = await this.getCurrentToken();
-      if (!apiToken) {
-        this.moduleLogger.error('AI service unavailable: all API tokens are unavailable');
-        // 不返回任何响应给用户，让调用方处理状态更新
-        return null;
-      }
-
       // 使用fullContextPrompt调用Gemini API
       const callResult = await this.callGeminiAPI(fullContextPrompt, agentType, promptName, traceId, userId);
       if (!callResult) {
@@ -835,13 +821,6 @@ export class AIService {
     const timestamp = new Date();
 
     try {
-      const apiToken = await this.getCurrentToken();
-      if (!apiToken) {
-        this.moduleLogger.error('AI service unavailable: all API tokens are unavailable');
-        // 不返回任何响应给用户
-        return null;
-      }
-
       // Track LLM call if session ID is provided
       let llmTrace: LLMCallTrace | null = null;
       const startTime = Date.now();
@@ -969,15 +948,10 @@ export class AIService {
     traceId?: string
   ): Promise<{ isRequirement: boolean; confidence: number; category?: string; complexity?: string } | null> {
     try {
-      const apiToken = await this.getCurrentToken();
-      if (!apiToken) {
-        this.moduleLogger.warn('AI service not available, using fallback intent analysis');
-        return this.fallbackIntentAnalysis(message);
-      }
-
       const callResult = await this.callGeminiAPI(message, 'intent_analyzer', 'requirement_analysis', traceId, userId);
       if (!callResult) {
-        return null;
+        this.moduleLogger.warn('AI service not available, using fallback intent analysis');
+        return this.fallbackIntentAnalysis(message);
       }
       const { response } = callResult;
       

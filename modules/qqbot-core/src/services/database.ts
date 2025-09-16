@@ -2,7 +2,7 @@ import mysql from 'mysql2/promise';
 import { 
   DatabaseConfig, ConversationData, RequirementData, AgentPromptData, LogLevel,
   GroupChatSettings, GroupChatStats, GroupChatActivity, GroupChatOverview,
-  LLMCallTrace, SessionLLMAnalysis
+  PrivateChatSettings, LLMCallTrace, SessionLLMAnalysis
 } from '../types';
 import { logger } from '../utils/logger';
 
@@ -321,8 +321,8 @@ export class DatabaseManager {
       INSERT INTO conversations (
         id, trace_id, user_id, user_message, ai_response, timestamp, response_time, 
         model_name, raw_request, raw_response, message_id, reply_to_message_id, reply_to_text, 
-        session_id, status, error_reason
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        session_id, status, error_reason, group_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         trace_id = VALUES(trace_id),
         ai_response = VALUES(ai_response),
@@ -335,6 +335,7 @@ export class DatabaseManager {
         session_id = VALUES(session_id),
         status = VALUES(status),
         error_reason = VALUES(error_reason),
+        group_id = VALUES(group_id),
         updated_at = CURRENT_TIMESTAMP
     `;
 
@@ -355,7 +356,8 @@ export class DatabaseManager {
         conversationData.reply_to_text || null,
         conversationData.session_id || null,
         conversationData.status,
-        conversationData.error_reason || null
+        conversationData.error_reason || null,
+        conversationData.group_id || null
       ];
 
       const affectedRows = await this.executeUpdate(query, params);
@@ -377,7 +379,7 @@ export class DatabaseManager {
   // 新增：更新conversation状态的专用方法
   public async updateConversationStatus(
     conversationId: string,
-    status: 'pending' | 'processing' | 'completed' | 'failed',
+    status: 'pending' | 'processing' | 'completed' | 'failed' | 'filtered_receive_events' | 'filtered_disabled' | 'filtered_no_response',
     errorReason?: string,
     aiResponse?: string,
     responseTime?: number,
@@ -1447,6 +1449,25 @@ export class DatabaseManager {
       return results.length > 0 ? results[0] : null;
     } catch (error) {
       this.moduleLogger.error('Failed to get group chat setting by ID', { error, groupId });
+      return null;
+    }
+  }
+
+  /**
+   * 获取单个私聊设置
+   */
+  public async getPrivateChatSettingById(userId: number): Promise<PrivateChatSettings | null> {
+    try {
+      const query = `
+        SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
+               created_at, updated_at, last_activity
+        FROM private_chat_settings 
+        WHERE user_id = ?
+      `;
+      const results = await this.executeQuery(query, [userId]);
+      return results.length > 0 ? results[0] : null;
+    } catch (error) {
+      this.moduleLogger.error('Failed to get private chat setting by ID', { error, userId });
       return null;
     }
   }

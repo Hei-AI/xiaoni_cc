@@ -7,7 +7,10 @@ import {
   MessageCircle, 
   Settings, 
   Activity,
-  Bot
+  Bot,
+  Users,
+  User,
+  FileText
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -24,6 +27,24 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       label: '仪表盘',
       icon: LayoutDashboard,
       active: location.pathname === '/dashboard'
+    },
+    {
+      href: '/groups',
+      label: '群聊管理', 
+      icon: Users,
+      active: location.pathname === '/groups'
+    },
+    {
+      href: '/private-chats',
+      label: '私聊管理', 
+      icon: User,
+      active: location.pathname.startsWith('/private-chats')
+    },
+    {
+      href: '/prompts',
+      label: 'Prompt 管理', 
+      icon: FileText,
+      active: location.pathname.startsWith('/prompts')
     },
     {
       href: '/conversations',

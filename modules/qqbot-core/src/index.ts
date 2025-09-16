@@ -157,7 +157,7 @@ class QQBot {
       const userId = message.user_id;
       const userMessage = typeof message.message === 'string' ? message.message.trim() : '';
 
-      // 立即创建conversation记录 - 改进后的架构
+      // 🔥 FIX: 立即创建conversation记录 - 改进后的架构 (移到过滤检查之前)
       const initialConversation: ConversationData = {
         id: conversationId,
         trace_id: traceId,
@@ -173,6 +173,31 @@ class QQBot {
 
       await this.database.saveConversation(initialConversation);
       this.moduleLogger.info('Initial conversation record created', { conversationId, status: 'pending' });
+
+      // 检查私聊设置（2层过滤控制 - private_chat_settings表没有receive_events字段）
+      const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
+      
+      // 第1层：检查是否启用LLM处理（is_enabled）
+      if (privateChatSettings && privateChatSettings.is_enabled === false) {
+        this.moduleLogger.debug('Private chat LLM processing disabled', { user_id: userId });
+        
+        // 🔥 FIX: Update conversation status for traceability instead of early return
+        await this.database.updateConversationStatus(conversationId, 'filtered_disabled', 'Private chat LLM processing disabled');
+        this.moduleLogger.info('Conversation updated for filtered private message', { 
+          conversationId, 
+          reason: 'llm_processing_disabled',
+          traceId 
+        });
+        
+        return; // 不调用LLM处理
+      }
+      
+      // 记录通过检查
+      this.moduleLogger.debug('Private chat passed initial checks', { 
+        user_id: userId,
+        is_enabled: privateChatSettings?.is_enabled ?? true,
+        auto_reply_enabled: privateChatSettings?.auto_reply_enabled ?? true
+      });
 
       this.moduleLogger.info('DEBUG: About to call buildMessageContext', { 
         userId, 
@@ -207,12 +232,20 @@ class QQBot {
         userId
       });
 
-      // If decision engine says don't respond, exit early
+      // If decision engine says don't respond, update conversation status and exit
       if (!decision.shouldRespond) {
         this.moduleLogger.info('Decision engine determined not to respond', { 
           userId, 
           reason: decision.reason 
         });
+        
+        // 🔥 FIX: Update conversation status for traceability
+        await this.database.updateConversationStatus(
+          conversationId,
+          'filtered_no_response',
+          `Decision engine: ${decision.reason}`
+        );
+        
         return;
       }
 
@@ -345,10 +378,78 @@ class QQBot {
         return;
       }
 
-      // 检查群聊设置（从数据库）
-      if (message.group_id && !(await this.isGroupEnabled(message.group_id))) {
-        this.moduleLogger.debug('Group chat disabled or not configured', { group_id: message.group_id });
-        return;
+      // 检查群聊设置（3层过滤控制）
+      if (message.group_id) {
+        const groupSettings = await this.database.getGroupChatSettingById(message.group_id);
+        
+        // 第1层：检查是否接收事件（receive_events）
+        if (groupSettings && !groupSettings.receive_events) {
+          this.moduleLogger.debug('Group chat events disabled', { group_id: message.group_id });
+          
+          // 🔥 FIX: Save filtered conversation record for traceability
+          const conversationId = uuidv4();
+          const filteredConversation: ConversationData = {
+            id: conversationId,
+            trace_id: traceId,
+            user_id: message.user_id,
+            user_message: typeof message.message === 'string' ? message.message : JSON.stringify(message.message),
+            timestamp: new Date(),
+            response_time: 0,
+            raw_request: JSON.stringify(message),
+            status: 'filtered_receive_events',
+            error_reason: 'Group chat receive_events disabled',
+            group_id: message.group_id,
+            created_at: new Date(),
+            updated_at: new Date()
+          };
+          
+          await this.database.saveConversation(filteredConversation);
+          this.moduleLogger.info('Filtered conversation saved for traceability', { 
+            conversationId, 
+            reason: 'receive_events_disabled',
+            traceId 
+          });
+          
+          return; // 直接忽略，不做任何处理
+        }
+        
+        // 第2层：检查是否启用LLM处理（is_enabled）
+        if (groupSettings && !groupSettings.is_enabled) {
+          this.moduleLogger.debug('Group chat LLM processing disabled', { group_id: message.group_id });
+          
+          // 🔥 FIX: Save filtered conversation record for traceability  
+          const conversationId = uuidv4();
+          const filteredConversation: ConversationData = {
+            id: conversationId,
+            trace_id: traceId,
+            user_id: message.user_id,
+            user_message: typeof message.message === 'string' ? message.message : JSON.stringify(message.message),
+            timestamp: new Date(),
+            response_time: 0,
+            raw_request: JSON.stringify(message),
+            status: 'filtered_disabled',
+            error_reason: 'Group chat LLM processing disabled',
+            group_id: message.group_id,
+            created_at: new Date(),
+            updated_at: new Date()
+          };
+          
+          await this.database.saveConversation(filteredConversation);
+          this.moduleLogger.info('Filtered conversation saved for traceability', { 
+            conversationId, 
+            reason: 'llm_processing_disabled',
+            traceId 
+          });
+          
+          return; // 不调用LLM处理
+        }
+        
+        // 记录通过前两层检查
+        this.moduleLogger.debug('Group chat passed initial checks', { 
+          group_id: message.group_id,
+          receive_events: groupSettings?.receive_events ?? true,
+          is_enabled: groupSettings?.is_enabled ?? true
+        });
       }
 
       this.moduleLogger.info('Received group at message', {
@@ -398,6 +499,25 @@ class QQBot {
         groupId: message.group_id
       });
       
+      // 🔥 FIX: Create conversation record for group messages early for traceability
+      const conversationId = uuidv4();
+      const groupConversation: ConversationData = {
+        id: conversationId,
+        trace_id: traceId,
+        user_id: message.user_id,
+        group_id: message.group_id,
+        user_message: cleanMessage,
+        timestamp: new Date(),
+        response_time: 0,
+        raw_request: JSON.stringify(message),
+        status: 'pending',
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+      
+      await this.database.saveConversation(groupConversation);
+      this.moduleLogger.info('Group conversation record created', { conversationId, groupId: message.group_id, traceId });
+
       // Stage 1: Use DecisionEngine for group message decisions
       const decision = await this.decisionEngine.analyzeMessage(messageContext, traceId);
       
@@ -409,13 +529,21 @@ class QQBot {
         userId: message.user_id
       });
 
-      // If decision engine says don't respond, exit early
+      // If decision engine says don't respond, update conversation status and exit
       if (!decision.shouldRespond) {
         this.moduleLogger.info('Decision engine determined not to respond to group message', { 
           groupId: message.group_id,
           userId: message.user_id,
           reason: decision.reason 
         });
+        
+        // 🔥 FIX: Update conversation status for traceability
+        await this.database.updateConversationStatus(
+          conversationId,
+          'filtered_no_response',
+          `Decision engine: ${decision.reason}`
+        );
+        
         return;
       }
 
@@ -423,6 +551,9 @@ class QQBot {
       if (message.group_id) {
         await this.database.updateGroupActivity(message.group_id, 1, 0);
       }
+
+      // Update conversation status to processing
+      await this.database.updateConversationStatus(conversationId, 'processing');
 
       // Stage 1: Enhanced AI conversation for group messages
       const sessionContext = await this.sessionManager.processIncomingMessage(message);
@@ -432,7 +563,8 @@ class QQBot {
         messageWithCleanContent, 
         messageContext, 
         sessionContext.session_id,
-        traceId
+        traceId,
+        conversationId // 🔥 FIX: Pass conversationId for error handling
       );
 
     } catch (error) {
@@ -492,6 +624,7 @@ class QQBot {
         group_name: groupName,
         is_enabled: true,
         auto_reply_enabled: true,
+        receive_events: true,
         admin_user_id: userId,
         created_at: new Date(),
         updated_at: new Date()
@@ -878,6 +1011,15 @@ class QQBot {
                              (sessionId.includes('reply') || sessionId.includes('chain'));
 
       if (originalMessage.message_type === 'group' && originalMessage.group_id) {
+        // 第3层：检查群聊自动回复是否开启（auto_reply_enabled）
+        const groupSettings = await this.database.getGroupChatSettingById(originalMessage.group_id);
+        if (groupSettings && !groupSettings.auto_reply_enabled) {
+          this.moduleLogger.debug('Group chat auto reply disabled, skipping message send', { 
+            group_id: originalMessage.group_id 
+          });
+          return; // 不发送回复，但LLM处理已完成并记录
+        }
+        
         // 更新群聊AI回复活跃度
         await this.database.updateGroupActivity(originalMessage.group_id, 0, 1);
         
@@ -893,6 +1035,15 @@ class QQBot {
           );
         }
       } else {
+        // 第3层：检查私聊自动回复是否开启（auto_reply_enabled）
+        const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
+        if (privateChatSettings && !privateChatSettings.auto_reply_enabled) {
+          this.moduleLogger.debug('Private chat auto reply disabled, skipping message send', { 
+            user_id: userId 
+          });
+          return; // 不发送回复，但LLM处理已完成并记录
+        }
+        
         if (shouldSendReply && originalMessage.message_id) {
           await this.websocketClient.sendReplyMessage(
             originalMessage.message_id,
@@ -1108,6 +1259,19 @@ class QQBot {
         // 更新群聊AI回复活跃度
         await this.database.updateGroupActivity(originalMessage.group_id, 0, 1);
         
+        // 第3层检查：是否允许发送自动回复
+        const groupSettings = await this.database.getGroupChatSettingById(originalMessage.group_id);
+        const canAutoReply = groupSettings?.auto_reply_enabled ?? true; // 默认允许回复
+        
+        if (!canAutoReply) {
+          this.moduleLogger.debug('Group auto reply disabled, AI response generated but not sent', { 
+            group_id: originalMessage.group_id,
+            has_response: !!conversation.ai_response
+          });
+          return; // LLM已处理，但不发送回复
+        }
+        
+        // 通过所有检查，发送回复
         if (shouldSendReply && originalMessage.message_id && conversation.ai_response) {
           await this.websocketClient.sendReplyMessage(
             originalMessage.message_id,
@@ -1120,6 +1284,19 @@ class QQBot {
           );
         }
       } else {
+        // 私聊消息 - 检查私聊设置的auto_reply_enabled
+        const privateSettings = await this.database.getPrivateChatSettingById(userId);
+        const canAutoReply = privateSettings?.auto_reply_enabled ?? true; // 默认允许回复
+        
+        if (!canAutoReply) {
+          this.moduleLogger.debug('Private chat auto reply disabled, AI response generated but not sent', { 
+            user_id: userId,
+            has_response: !!conversation.ai_response
+          });
+          return; // LLM已处理，但不发送回复
+        }
+        
+        // 通过检查，发送回复
         if (shouldSendReply && originalMessage.message_id && conversation.ai_response) {
           await this.websocketClient.sendReplyMessage(
             originalMessage.message_id,
