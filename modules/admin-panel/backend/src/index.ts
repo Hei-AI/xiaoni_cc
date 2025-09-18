@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { config } from 'dotenv';
 import winston from 'winston';
 import { DatabaseManager } from './services/database';
+import simpleQueueRoutes from './routes/simple-queue-monitor';
 
 // Load environment variables
 config();
@@ -65,6 +66,9 @@ app.get('/api/status', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+// 简单队列监控路由
+app.use('/api/simple-queue', simpleQueueRoutes);
 
 // Dashboard stats endpoint
 app.get('/api/dashboard/stats', async (req, res) => {
@@ -2191,38 +2195,121 @@ app.get('/api/debug/conversation/:conversationId/llm-flow', async (req, res) => 
       }
     };
     
-    // 获取数据库中的LLM追踪数据 - 直接根据conversation_id查询
-    logger.info('Fetching LLM traces for conversation', { conversationId });
-    const llmTraces = await database.executeQuery(
-      `SELECT * FROM llm_call_traces WHERE conversation_id = ? ORDER BY call_sequence ASC`, 
-      [conversationId]
-    );
-    logger.info('Found LLM traces', { conversationId, traceCount: llmTraces.length });
+    // LLM trace去重函数 - 解决重复调用导致的时间线混乱
+    const deduplicateLLMTraces = (traces: any[]): any[] => {
+      const deduplicatedMap = new Map();
+      
+      traces.forEach(trace => {
+        const key = `${trace.call_sequence}_${trace.agent_type}`;
+        const existing = deduplicatedMap.get(key);
+        
+        if (!existing) {
+          deduplicatedMap.set(key, trace);
+        } else {
+          // 保留时间戳更晚的记录 (最新的调用结果)
+          const existingTime = new Date(existing.timestamp);
+          const currentTime = new Date(trace.timestamp);
+          
+          if (currentTime > existingTime) {
+            deduplicatedMap.set(key, trace);
+          }
+        }
+      });
+      
+      // 按call_sequence排序返回
+      return Array.from(deduplicatedMap.values())
+        .sort((a, b) => a.call_sequence - b.call_sequence);
+    };
+    
+    // 获取数据库中的LLM追踪数据 - 根据conversation的trace_id查询llm_call_logs表
+    logger.info('Fetching LLM traces for conversation', { conversationId, traceId: conversation.trace_id });
+    let llmTraces: any[] = [];
+    let websocketInput: any = null;
+    
+    if (conversation.trace_id) {
+      llmTraces = await database.executeQuery(
+        `SELECT * FROM llm_call_logs WHERE trace_id = ? ORDER BY call_sequence ASC`, 
+        [conversation.trace_id]
+      );
+      logger.info('Found LLM traces from llm_call_logs', { 
+        conversationId, 
+        traceId: conversation.trace_id, 
+        traceCount: llmTraces.length 
+      });
+      
+      // 获取WebSocket输入日志数据 (使用正确的时间戳)
+      const websocketLogs = await database.executeQuery(
+        `SELECT * FROM websocket_logs WHERE trace_id = ? AND direction = 'IN' ORDER BY timestamp ASC LIMIT 1`, 
+        [conversation.trace_id]
+      );
+      
+      if (websocketLogs.length > 0) {
+        const wsLog = websocketLogs[0] as any;
+        const rawPayload = safeJsonParse(wsLog.raw_payload);
+        
+        websocketInput = {
+          message_type: wsLog.message_type,
+          user_id: wsLog.user_id,
+          message_id: wsLog.message_id,
+          time: Math.floor(new Date(wsLog.timestamp).getTime() / 1000), // 转换为Unix时间戳
+          raw_message: rawPayload?.raw_message || rawPayload?.message,
+          message: rawPayload?.message,
+          group_id: rawPayload?.group_id,
+          sender: rawPayload?.sender,
+          timestamp: wsLog.timestamp instanceof Date ? wsLog.timestamp.toISOString() : new Date(wsLog.timestamp).toISOString()
+        };
+        logger.info('Found WebSocket input from websocket_logs', { 
+          conversationId, 
+          traceId: conversation.trace_id, 
+          wsTimestamp: websocketInput.timestamp 
+        });
+      } else {
+        logger.warn('No WebSocket input logs found, falling back to conversation.raw_request', { 
+          conversationId, 
+          traceId: conversation.trace_id 
+        });
+        websocketInput = safeJsonParse(conversation.raw_request);
+      }
+    } else {
+      logger.warn('Conversation has no trace_id, cannot fetch LLM traces', { conversationId });
+      // 没有trace_id时，回退到原来的方式
+      websocketInput = safeJsonParse(conversation.raw_request);
+    }
 
     res.json({
       conversation_id: conversationId,
-      websocket_input: safeJsonParse(conversation.raw_request) || {},
+      websocket_input: websocketInput || {},
       websocket_output: {
         content: conversation.ai_response,
         response_time_ms: conversation.response_time,
         model: conversation.model_name,
         timestamp: conversation.timestamp instanceof Date ? conversation.timestamp.toISOString() : new Date(conversation.timestamp).toISOString()
       },
-      llm_trace: llmTraces.map((trace: any) => ({
+      llm_trace: deduplicateLLMTraces(llmTraces).map((trace: any) => ({
         llm_raw_input: {
-          engine_type: trace.engine_type,
+          agent_type: trace.agent_type,
           call_sequence: trace.call_sequence,
           model_name: trace.model_name,
+          model_provider: trace.model_provider,
           timestamp: trace.timestamp instanceof Date ? trace.timestamp.toISOString() : new Date(trace.timestamp).toISOString(),
-          gemini_request: safeJsonParse(trace.request)
+          input_prompt: trace.input_prompt,
+          prompt_template: trace.prompt_template,
+          model_config: safeJsonParse(trace.model_config),
+          context_summary: trace.context_summary
         },
         llm_raw_output: {
-          prompt_tokens: trace.prompt_tokens,
-          completion_tokens: trace.completion_tokens,
-          total_tokens: trace.total_tokens,
-          response_time_ms: trace.response_time,
-          success: trace.success,
-          gemini_response: safeJsonParse(trace.response)
+          input_tokens: trace.input_tokens,
+          output_tokens: trace.output_tokens,
+          total_tokens: (trace.input_tokens || 0) + (trace.output_tokens || 0),
+          api_call_time_ms: trace.api_call_time_ms,
+          processing_time_ms: trace.processing_time_ms,
+          status: trace.status,
+          error_message: trace.error_message,
+          error_code: trace.error_code,
+          cost_estimate: trace.cost_estimate,
+          raw_response: trace.raw_response,
+          processed_response: trace.processed_response,
+          token_usage: safeJsonParse(trace.token_usage)
         }
       }))
     });
@@ -2578,6 +2665,216 @@ app.post('/api/conversation-monitoring/private-chats/:userId/retry/:conversation
     res.status(500).json({
       success: false,
       error: 'Failed to retry conversation',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Debug prompt endpoint - 直接调试LLM提示
+app.post('/api/debug/prompt', async (req, res) => {
+  try {
+    const { prompt, parameters = {}, model = 'gemini-2.5-flash', conversation_id } = req.body;
+
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Prompt is required and must be a string',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (!database) {
+      return res.status(500).json({
+        success: false,
+        error: 'Database service not available',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 获取可用的token - 使用与TokenManager相同的查询逻辑
+    const availableTokensQuery = `
+      SELECT id, token, project_name, model_blacklist, daily_used, daily_limit, priority, weight
+      FROM api_tokens
+      WHERE (blacklisted_until IS NULL OR blacklisted_until <= NOW())
+        AND daily_used < daily_limit
+      ORDER BY
+        priority ASC,
+        (daily_used / daily_limit) ASC,
+        last_used ASC,
+        weight DESC
+    `;
+
+    const tokens = await database.executeQuery(availableTokensQuery);
+    
+    if (!tokens || tokens.length === 0) {
+      return res.status(503).json({
+        success: false,
+        error: 'No available tokens found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Model-aware token selection - 按模型筛选可用token
+    const availableTokens = tokens.filter((token: any) => {
+      let modelBlacklist: Record<string, string> = {};
+      try {
+        modelBlacklist = token.model_blacklist ? JSON.parse(token.model_blacklist) : {};
+      } catch (e) {
+        logger.warn(`Invalid model_blacklist JSON for token ${token.id}`, { model_blacklist: token.model_blacklist });
+        modelBlacklist = {};
+      }
+
+      const blacklistExpiry = modelBlacklist[model];
+      if (blacklistExpiry) {
+        const expiryTime = new Date(blacklistExpiry).getTime();
+        const now = Date.now();
+        if (now < expiryTime) {
+          return false; // Still blacklisted for this model
+        }
+      }
+      return true;
+    });
+
+    if (availableTokens.length === 0) {
+      return res.status(503).json({
+        success: false,
+        error: `No available tokens for model ${model}`,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 选择第一个可用的token
+    const selectedToken = availableTokens[0] as any;
+
+    // 调用Gemini API
+    let apiUrl = '';
+    if (model === 'gemini-2.5-flash') {
+      apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${selectedToken.token}`;
+    } else if (model === 'gemini-1.5-pro') {
+      apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${selectedToken.token}`;
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: `Unsupported model: ${model}`,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const requestBody = {
+      contents: [{
+        parts: [{
+          text: prompt
+        }]
+      }],
+      generationConfig: {
+        temperature: parameters.temperature || 0.7,
+        maxOutputTokens: parameters.max_output_tokens || 1000,
+        topP: parameters.top_p || 0.95,
+        topK: parameters.top_k || 40,
+        ...parameters
+      }
+    };
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    const responseData = await response.json() as any;
+
+    if (!response.ok) {
+      // Handle error responses
+      const errorCode = response.status;
+      let blacklistDuration = 0;
+
+      if (errorCode === 429 || errorCode === 403 || errorCode === 401) {
+        blacklistDuration = 5 * 60 * 1000; // 5 minutes
+      }
+
+      if (blacklistDuration > 0) {
+        // Update model blacklist
+        const currentBlacklist = selectedToken.model_blacklist ? JSON.parse(selectedToken.model_blacklist) : {};
+        currentBlacklist[model] = new Date(Date.now() + blacklistDuration).toISOString();
+
+        await database.executeUpdate(
+          'UPDATE api_tokens SET model_blacklist = ? WHERE id = ?',
+          [JSON.stringify(currentBlacklist), selectedToken.id]
+        );
+
+        logger.warn(`Token ${selectedToken.id} blacklisted for model ${model} (${blacklistDuration}ms)`, { 
+          error_code: errorCode,
+          token_project: selectedToken.project_name
+        });
+      }
+
+      return res.status(response.status).json({
+        success: false,
+        error: responseData.error?.message || `API request failed with status ${response.status}`,
+        details: responseData,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Update token usage - 更新每日使用量和总使用量
+    await database.executeUpdate(
+      'UPDATE api_tokens SET last_used = NOW(), total_used = total_used + 1, daily_used = daily_used + 1 WHERE id = ?',
+      [selectedToken.id]
+    );
+
+    // Extract response text
+    const responseText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated';
+
+    // Log the debug call if conversation_id is provided
+    if (conversation_id) {
+      try {
+        await database.executeUpdate(
+          `INSERT INTO llm_call_logs (
+            conversation_id, trace_id, token_id, model, prompt, parameters, 
+            response, status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [
+            conversation_id,
+            `debug-${Date.now()}`,
+            selectedToken.id,
+            model,
+            prompt,
+            JSON.stringify(parameters),
+            responseText,
+            'success'
+          ]
+        );
+      } catch (logError) {
+        logger.warn('Failed to log debug prompt call', { error: logError });
+      }
+    }
+
+    logger.info('Debug prompt executed successfully', {
+      model,
+      token_project: selectedToken.project_name,
+      conversation_id,
+      response_length: responseText.length
+    });
+
+    res.json({
+      success: true,
+      response: responseText,
+      token_used: {
+        id: selectedToken.id,
+        project_name: selectedToken.project_name
+      },
+      model: model,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    logger.error('Failed to execute debug prompt', { error });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to execute debug prompt',
       message: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString()
     });

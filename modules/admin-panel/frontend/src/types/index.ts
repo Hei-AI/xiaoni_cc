@@ -4,7 +4,7 @@ export interface LLMFlowResponse {
   websocket_input: OneBot11Message;
   websocket_output: {
     content: string;
-    response_time_ms: number;
+    response_time_ms: string | number;
     model: string;
     timestamp: string;
   };
@@ -23,19 +23,29 @@ export interface OneBot11Message {
 
 export interface LLMTrace {
   llm_raw_input: {
-    engine_type: 'decision' | 'context' | 'persona' | 'main_chat';
+    agent_type: string;
     call_sequence: number;
     model_name: string;
+    model_provider: string;
     timestamp: string;
-    gemini_request: GeminiRequest;
+    input_prompt: string;
+    prompt_template?: string;
+    model_config?: any;
+    context_summary?: string;
   };
   llm_raw_output: {
-    prompt_tokens: number;
-    completion_tokens: number;
+    input_tokens?: number;
+    output_tokens?: number;
     total_tokens: number;
-    response_time_ms: number;
-    success: boolean;
-    gemini_response: GeminiResponse;
+    api_call_time_ms?: number;
+    processing_time_ms?: number;
+    status: string;
+    error_message?: string;
+    error_code?: string;
+    cost_estimate?: number;
+    raw_response?: string;
+    processed_response?: string;
+    token_usage?: any;
   };
 }
 
@@ -78,10 +88,18 @@ export interface TimelineNode {
     input: any;
     output: any;
     model_name?: string;
+    agent_type?: string;
     prompt_tokens?: number;
     completion_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    processing_time_ms?: number;
+    api_call_time_ms?: number;
     response_time_ms?: number;
     success?: boolean;
+    status?: string;
+    error_message?: string;
     cost?: number;
     confidence?: number;
   };
@@ -92,7 +110,7 @@ export interface ConversationTimelineData {
   websocket_input: OneBot11Message;
   websocket_output: {
     content: string;
-    response_time_ms: number;
+    response_time_ms: string | number;
     model: string;
     timestamp: string;
   };
@@ -109,9 +127,12 @@ export interface ConversationTimelineData {
 // Engine Type Display Names
 export const ENGINE_NAMES: Record<string, string> = {
   'decision': 'DecisionEngine分析',
-  'context': 'ContextEngine上下文', 
+  'context': 'ContextEngine上下文',
   'persona': 'PersonaEngine风格',
-  'main_chat': 'MainChat回复生成'
+  'main_chat': 'MainChat回复生成',
+  'user_relationship_analyzer': '用户关系分析',
+  'chat_bot': '智能对话生成',
+  'attention_analyzer': '注意力分析算法'
 };
 
 // Status Colors
