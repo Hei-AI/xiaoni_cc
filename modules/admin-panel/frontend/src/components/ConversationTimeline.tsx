@@ -5,7 +5,6 @@ import { Button } from './ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
-import { ScrollArea } from './ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Textarea } from './ui/textarea';
 import { 
@@ -24,6 +23,57 @@ import {
 } from 'lucide-react';
 import { TimelineNode, ConversationTimelineData, STATUS_COLORS } from '../types';
 import { cn } from '../lib/utils';
+
+// 格式化JSON显示，处理换行符
+const formatJSONForDisplay = (data: any): string => {
+  if (data === null || data === undefined) {
+    return '';
+  }
+
+  let jsonString = JSON.stringify(data, null, 2);
+
+  // 处理转义的换行符，将\\n转换为实际换行
+  jsonString = jsonString.replace(/\\n/g, '\n');
+
+  // 处理其他常见的转义字符
+  jsonString = jsonString.replace(/\\t/g, '\t');
+  jsonString = jsonString.replace(/\\r/g, '\r');
+
+  return jsonString;
+};
+
+// 自动调整高度的Textarea组件
+const AutoResizeTextarea: React.FC<{
+  value: string;
+  className?: string;
+  minHeight?: number;
+  maxHeight?: number;
+}> = ({ value, className, minHeight = 120, maxHeight = 400 }) => {
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  React.useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      // 重置高度以获取准确的scrollHeight
+      textarea.style.height = 'auto';
+      const scrollHeight = textarea.scrollHeight;
+
+      // 应用高度限制
+      const finalHeight = Math.max(minHeight, Math.min(scrollHeight, maxHeight));
+      textarea.style.height = `${finalHeight}px`;
+    }
+  }, [value, minHeight, maxHeight]);
+
+  return (
+    <Textarea
+      ref={textareaRef}
+      value={value}
+      readOnly
+      className={cn("font-mono text-xs resize-none overflow-y-auto", className)}
+      style={{ minHeight: `${minHeight}px`, maxHeight: `${maxHeight}px` }}
+    />
+  );
+};
 
 interface ConversationTimelineProps {
   data: ConversationTimelineData;
@@ -221,34 +271,30 @@ const LLMDetailTabs: React.FC<{ node: TimelineNode }> = ({ node }) => (
     </TabsContent>
     
     <TabsContent value="input" className="space-y-3">
-      <ScrollArea className="h-64">
-        <Textarea 
-          value={JSON.stringify(node.data.input, null, 2)}
-          readOnly
-          className="font-mono text-xs"
-        />
-      </ScrollArea>
+      <AutoResizeTextarea
+        value={formatJSONForDisplay(node.data.input)}
+        minHeight={120}
+        maxHeight={400}
+      />
     </TabsContent>
-    
+
     <TabsContent value="output" className="space-y-3">
-      <ScrollArea className="h-64">
-        <Textarea 
-          value={JSON.stringify(node.data.output, null, 2)}
-          readOnly  
-          className="font-mono text-xs"
-        />
-      </ScrollArea>
+      <AutoResizeTextarea
+        value={formatJSONForDisplay(node.data.output)}
+        minHeight={120}
+        maxHeight={400}
+      />
     </TabsContent>
   </Tabs>
 );
 
 // 消息详情标签页
 const MessageDetailTabs: React.FC<{ node: TimelineNode }> = ({ node }) => (
-  <ScrollArea className="h-48">
-    <pre className="text-xs bg-muted p-3 rounded-md">
-      {JSON.stringify(node.data.input || node.data.output, null, 2)}
+  <div className="max-h-96 overflow-y-auto">
+    <pre className="text-xs bg-muted p-3 rounded-md whitespace-pre-wrap">
+      {formatJSONForDisplay(node.data.input || node.data.output)}
     </pre>
-  </ScrollArea>
+  </div>
 );
 
 // LLM概览组件

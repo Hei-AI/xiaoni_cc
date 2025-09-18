@@ -2773,7 +2773,30 @@ app.post('/api/debug/prompt', async (req, res) => {
         topP: parameters.top_p || 0.95,
         topK: parameters.top_k || 40,
         ...parameters
-      }
+      },
+      // 🔥 新增：Gemini安全设置 - 解除所有内容限制
+      safetySettings: [
+        {
+          category: "HARM_CATEGORY_HARASSMENT",
+          threshold: "BLOCK_NONE"
+        },
+        {
+          category: "HARM_CATEGORY_HATE_SPEECH",
+          threshold: "BLOCK_NONE"
+        },
+        {
+          category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+          threshold: "BLOCK_NONE"
+        },
+        {
+          category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+          threshold: "BLOCK_NONE"
+        },
+        {
+          category: "HARM_CATEGORY_CIVIC_INTEGRITY",
+          threshold: "BLOCK_NONE"
+        }
+      ]
     };
 
     const response = await fetch(apiUrl, {
