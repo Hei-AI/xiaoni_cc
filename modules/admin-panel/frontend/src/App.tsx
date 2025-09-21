@@ -1,5 +1,5 @@
 // import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConversationTimelinePage } from './pages/ConversationTimelinePage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -8,8 +8,9 @@ import { GroupChatDetailPage } from './pages/GroupChatDetailPage';
 import { PrivateChatManagementPage } from './pages/PrivateChatManagementPage';
 import { PrivateChatDetailPage } from './pages/PrivateChatDetailPage';
 import { PromptManagementPage } from './pages/PromptManagementPage';
-import { PromptDetailPage } from './pages/PromptDetailPage';
 import { PromptEditPage } from './pages/PromptEditPage';
+import { PromptDebugPage } from './pages/PromptDebugPage';
+import SimpleQueueMonitorPage from './pages/SimpleQueueMonitorPage';
 import { Layout } from './components/Layout';
 import './globals.css';
 
@@ -21,6 +22,11 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+const PromptRedirect: React.FC = () => {
+  const { promptId } = useParams<{ promptId: string }>();
+  return <Navigate to={`/prompts/${promptId}/edit`} replace />;
+};
 
 function App() {
   return (
@@ -36,8 +42,11 @@ function App() {
             <Route path="/private-chats" element={<PrivateChatManagementPage />} />
             <Route path="/private-chats/:userId" element={<PrivateChatDetailPage />} />
             <Route path="/prompts" element={<PromptManagementPage />} />
-            <Route path="/prompts/:promptId" element={<PromptDetailPage />} />
+            <Route path="/prompts/new" element={<PromptEditPage />} />
+            <Route path="/prompts/:promptId" element={<PromptRedirect />} />
             <Route path="/prompts/:promptId/edit" element={<PromptEditPage />} />
+            <Route path="/prompts/:promptId/debug" element={<PromptDebugPage />} />
+            <Route path="/queue-monitor" element={<SimpleQueueMonitorPage />} />
           </Routes>
         </Layout>
       </Router>

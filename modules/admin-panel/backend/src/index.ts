@@ -5,6 +5,7 @@ import { config } from 'dotenv';
 import winston from 'winston';
 import { DatabaseManager } from './services/database';
 import simpleQueueRoutes from './routes/simple-queue-monitor';
+import llmConfigRoutes from './routes/llm-config-minimal';
 
 // Load environment variables
 config();
@@ -69,6 +70,9 @@ app.get('/api/status', (req, res) => {
 
 // 简单队列监控路由
 app.use('/api/simple-queue', simpleQueueRoutes);
+
+// 🆕 LLM配置管理路由
+app.use('/api/llm-config', llmConfigRoutes);
 
 // Dashboard stats endpoint
 app.get('/api/dashboard/stats', async (req, res) => {
@@ -1736,6 +1740,16 @@ app.get('/api/prompts', async (req, res) => {
 app.get('/api/prompts/:id', async (req, res) => {
   try {
     const promptId = req.params.id;
+
+    // 特殊处理：如果ID是"new"，返回创建新Prompt的提示
+    if (promptId === 'new') {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot fetch prompt with ID "new". Use the frontend form to create a new prompt.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
     const prompts = await database.executeQuery(`
       SELECT * FROM agent_prompts WHERE id = ?
     `, [promptId]);
@@ -2224,6 +2238,7 @@ app.get('/api/debug/conversation/:conversationId/llm-flow', async (req, res) => 
     // 获取数据库中的LLM追踪数据 - 根据conversation的trace_id查询llm_call_logs表
     logger.info('Fetching LLM traces for conversation', { conversationId, traceId: conversation.trace_id });
     let llmTraces: any[] = [];
+    let timelineEvents: any[] = [];
     let websocketInput: any = null;
     
     if (conversation.trace_id) {
@@ -2231,11 +2246,30 @@ app.get('/api/debug/conversation/:conversationId/llm-flow', async (req, res) => 
         `SELECT * FROM llm_call_logs WHERE trace_id = ? ORDER BY call_sequence ASC`, 
         [conversation.trace_id]
       );
-      logger.info('Found LLM traces from llm_call_logs', { 
-        conversationId, 
-        traceId: conversation.trace_id, 
-        traceCount: llmTraces.length 
+      logger.info('Found LLM traces from llm_call_logs', {
+        conversationId,
+        traceId: conversation.trace_id,
+        traceCount: llmTraces.length
       });
+
+      // 🔥 新增：获取时间线事件数据
+      try {
+        timelineEvents = await database.executeQuery(
+          `SELECT * FROM timeline_events WHERE trace_id = ? ORDER BY event_time ASC`,
+          [conversation.trace_id]
+        );
+        logger.info('Found timeline events', {
+          conversationId,
+          traceId: conversation.trace_id,
+          eventCount: timelineEvents.length
+        });
+      } catch (timelineError) {
+        logger.warn('Failed to fetch timeline events (table may not exist yet)', {
+          error: timelineError instanceof Error ? timelineError.message : String(timelineError),
+          traceId: conversation.trace_id
+        });
+        timelineEvents = [];
+      }
       
       // 获取WebSocket输入日志数据 (使用正确的时间戳)
       const websocketLogs = await database.executeQuery(
@@ -2276,6 +2310,18 @@ app.get('/api/debug/conversation/:conversationId/llm-flow', async (req, res) => 
       websocketInput = safeJsonParse(conversation.raw_request);
     }
 
+    // 🔥 修复：查找实际的response_sent埋点时间作为WebSocket输出时间戳
+    const responseSentEvent = timelineEvents.find((event: any) =>
+      event.event_name === 'response_sent' &&
+      (event.event_type === 'websocket' || event.event_type === 'conversation')
+    );
+
+    const websocketOutputTimestamp = responseSentEvent
+      ? (responseSentEvent.event_time instanceof Date
+         ? responseSentEvent.event_time.toISOString()
+         : new Date(responseSentEvent.event_time).toISOString())
+      : null; // 如果没有响应发送埋点，则为null表示没有发送响应
+
     res.json({
       conversation_id: conversationId,
       websocket_input: websocketInput || {},
@@ -2283,7 +2329,7 @@ app.get('/api/debug/conversation/:conversationId/llm-flow', async (req, res) => 
         content: conversation.ai_response,
         response_time_ms: conversation.response_time,
         model: conversation.model_name,
-        timestamp: conversation.timestamp instanceof Date ? conversation.timestamp.toISOString() : new Date(conversation.timestamp).toISOString()
+        timestamp: websocketOutputTimestamp
       },
       llm_trace: deduplicateLLMTraces(llmTraces).map((trace: any) => ({
         llm_raw_input: {
@@ -2311,6 +2357,14 @@ app.get('/api/debug/conversation/:conversationId/llm-flow', async (req, res) => 
           processed_response: trace.processed_response,
           token_usage: safeJsonParse(trace.token_usage)
         }
+      })),
+      timeline_events: timelineEvents.map((event: any) => ({
+        event_type: event.event_type,
+        event_name: event.event_name,
+        event_phase: event.event_phase,
+        event_time: event.event_time instanceof Date ? event.event_time.toISOString() : new Date(event.event_time).toISOString(),
+        duration_ms: event.duration_ms,
+        metadata: safeJsonParse(event.metadata)
       }))
     });
 
@@ -3682,7 +3736,16 @@ app.get('/api/prompts', async (req, res) => {
 app.get('/api/prompts/:id', async (req, res) => {
   try {
     const promptId = req.params.id;
-    
+
+    // 特殊处理：如果ID是"new"，返回创建新Prompt的提示
+    if (promptId === 'new') {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot fetch prompt with ID "new". Use the frontend form to create a new prompt.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
     const prompt = await database.executeQuery(
       'SELECT * FROM agent_prompts WHERE id = ?',
       [promptId]
@@ -3899,6 +3962,152 @@ app.delete('/api/prompts/:id', async (req, res) => {
   }
 });
 
+// Prompt调试API
+app.post('/api/prompts/debug', async (req, res) => {
+  try {
+    const { promptId, messages, userInput } = req.body;
+
+    if (!promptId || !userInput) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: promptId and userInput',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 获取Prompt配置
+    const prompt = await database.executeQuery(
+      'SELECT * FROM agent_prompts WHERE id = ? AND is_active = true',
+      [promptId]
+    );
+
+    if (!prompt || prompt.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Prompt not found or inactive',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const promptConfig = prompt[0] as any;
+
+    // 构建对话历史 (Gemini API只接受user和model角色)
+    const conversationHistory = messages?.map((msg: any) => ({
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: msg.content }]
+    })) || [];
+
+
+    // 添加用户当前输入
+    conversationHistory.push({
+      role: 'user',
+      parts: [{ text: userInput }]
+    });
+
+    // 准备系统指令
+    let systemInstructions = promptConfig.system_instructions;
+    if (typeof systemInstructions === 'string') {
+      try {
+        systemInstructions = JSON.parse(systemInstructions);
+      } catch {
+        systemInstructions = [systemInstructions];
+      }
+    }
+
+    // 调用真实的Gemini API
+    const startTime = Date.now();
+
+    // 获取API Token
+    const apiTokens = await database.executeQuery(
+      'SELECT token FROM api_tokens WHERE is_active = 1 AND is_healthy = 1 AND (blacklisted_until IS NULL OR blacklisted_until < NOW()) ORDER BY last_used ASC LIMIT 1',
+      []
+    );
+
+    if (!apiTokens || apiTokens.length === 0) {
+      throw new Error('No available API tokens');
+    }
+
+    const apiToken = (apiTokens[0] as any).token;
+    const modelName = promptConfig.model_name || 'gemini-2.5-flash';
+
+    // 构建请求体
+    const requestBody = {
+      contents: conversationHistory,
+      generationConfig: {
+        thinkingConfig: {
+          thinkingBudget: -1,
+          includeThoughts: true
+        },
+        ...(promptConfig.model_config || {}),
+        temperature: promptConfig.model_config?.temperature || 1.0,
+        topK: promptConfig.model_config?.topK || 40,
+        topP: promptConfig.model_config?.topP || 0.95,
+        maxOutputTokens: promptConfig.model_config?.maxOutputTokens || 65536
+      },
+      safetySettings: promptConfig.advanced_config?.safetySettings || [
+        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+      ],
+      system_instruction: {
+        parts: [
+          {
+            text: Array.isArray(systemInstructions)
+              ? systemInstructions.join('\n')
+              : systemInstructions
+          }
+        ]
+      }
+    };
+
+    // 调用Gemini API
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiToken}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error('Gemini API error', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText
+      });
+      throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
+    }
+
+    const geminiResponse = await response.json();
+    const processingTime = Date.now() - startTime;
+
+    const responseWithProcessingTime = Object.assign({}, geminiResponse, {
+      processingTime
+    });
+
+    res.json({
+      success: true,
+      data: responseWithProcessingTime,
+      timestamp: new Date().toISOString(),
+      ...responseWithProcessingTime
+    });
+
+  } catch (error) {
+    console.error('Prompt debug error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Debug request failed',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // 获取 Agent 类型列表
 app.get('/api/agent-types', (req, res) => {
   const agentTypes = [
@@ -3913,6 +4122,184 @@ app.get('/api/agent-types', (req, res) => {
     data: agentTypes,
     timestamp: new Date().toISOString()
   });
+});
+
+// =================== Debug Session History API ===================
+
+// 获取调试历史记录列表
+app.get('/api/prompts/:promptId/debug-sessions', async (req, res) => {
+  try {
+    const { promptId } = req.params;
+    const limit = parseInt(req.query.limit as string) || 10;
+
+    const sessions = await database.executeQuery(`
+      SELECT id, session_name, created_at, created_by,
+             JSON_LENGTH(messages) as message_count
+      FROM prompt_debug_sessions
+      WHERE prompt_id = ?
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `, [promptId]);
+
+    res.json({
+      success: true,
+      data: sessions,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Failed to get debug sessions', { error });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get debug sessions',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// 获取特定调试会话详情
+app.get('/api/debug-sessions/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const sessions = await database.executeQuery(`
+      SELECT id, prompt_id, session_name, messages, created_at, created_by
+      FROM prompt_debug_sessions
+      WHERE id = ?
+    `, [sessionId]);
+
+    if (!sessions || sessions.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Debug session not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const session = sessions[0] as any;
+    // 解析JSON消息
+    try {
+      if (typeof session.messages === 'string') {
+        session.messages = JSON.parse(session.messages);
+      }
+    } catch (e) {
+      logger.warn('Failed to parse messages JSON', { sessionId, error: e, messageType: typeof session.messages, messagePreview: session.messages?.substring?.(0, 100) });
+      session.messages = [];
+    }
+
+    res.json({
+      success: true,
+      data: session,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Failed to get debug session', { error });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get debug session',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// 保存调试会话
+app.post('/api/prompts/:promptId/debug-sessions', async (req, res) => {
+  try {
+    const { promptId } = req.params;
+    const { sessionName, messages } = req.body;
+
+    if (!sessionName || !messages || !Array.isArray(messages)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: sessionName and messages',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 检查Prompt是否存在
+    const prompt = await database.executeQuery(
+      'SELECT id FROM agent_prompts WHERE id = ?',
+      [promptId]
+    );
+
+    if (!prompt || prompt.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Prompt not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 转换消息角色为Gemini兼容格式再保存
+    const convertedMessages = messages.map((msg: any) => ({
+      ...msg,
+      role: msg.role === 'assistant' ? 'model' : 'user'
+    }));
+
+    // 插入调试会话
+    const result = await database.executeUpdate(`
+      INSERT INTO prompt_debug_sessions (prompt_id, session_name, messages, created_by)
+      VALUES (?, ?, ?, ?)
+    `, [promptId, sessionName, JSON.stringify(convertedMessages), 'admin']);
+
+    logger.info(`Debug session saved`, { promptId, sessionName, messageCount: messages.length });
+
+    res.json({
+      success: true,
+      data: {
+        id: result,
+        promptId,
+        sessionName,
+        messageCount: messages.length
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Failed to save debug session', { error });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to save debug session',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// 删除调试会话
+app.delete('/api/debug-sessions/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const result = await database.executeUpdate(
+      'DELETE FROM prompt_debug_sessions WHERE id = ?',
+      [sessionId]
+    );
+
+    if (result === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Debug session not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    logger.info(`Debug session deleted`, { sessionId });
+
+    res.json({
+      success: true,
+      message: 'Debug session deleted successfully',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Failed to delete debug session', { error });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete debug session',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // 404 handler - Must be LAST route definition

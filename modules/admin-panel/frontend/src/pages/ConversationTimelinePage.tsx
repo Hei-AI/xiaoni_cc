@@ -1,19 +1,26 @@
-import React from 'react';
-import { useParams, Link, Navigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { useParams, useNavigate, Navigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { ConversationTimeline } from '../components/ConversationTimeline';
+import { UnifiedTimeline } from '../components/UnifiedTimeline';
+import { DebugPromptModal } from '../components/DebugPromptModal';
 import { useConversationTimeline } from '../hooks/useConversationTimeline';
 import { 
   ArrowLeft, 
   RefreshCw, 
   AlertCircle,
-  Loader2
+  Loader2,
+  Play,
+  Pause,
+  Bug
 } from 'lucide-react';
 
 export const ConversationTimelinePage: React.FC = () => {
   const { conversationId } = useParams<{ conversationId: string }>();
+  const navigate = useNavigate();
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [isDebugModalOpen, setIsDebugModalOpen] = useState(false);
   
   if (!conversationId) {
     return <Navigate to="/dashboard" replace />;
@@ -25,7 +32,7 @@ export const ConversationTimelinePage: React.FC = () => {
     error, 
     refetch,
     isRefetching 
-  } = useConversationTimeline(conversationId);
+  } = useConversationTimeline(conversationId, autoRefreshEnabled);
 
   const handleRefresh = () => {
     refetch();
@@ -36,12 +43,10 @@ export const ConversationTimelinePage: React.FC = () => {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link to="/dashboard">
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              返回
-            </Button>
-          </Link>
+          <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            返回
+          </Button>
           <div>
             <h1 className="text-2xl font-bold">对话时间线分析</h1>
             <p className="text-muted-foreground">
@@ -52,17 +57,44 @@ export const ConversationTimelinePage: React.FC = () => {
         
         <div className="flex items-center gap-2">
           <Button 
+            variant={autoRefreshEnabled ? "default" : "outline"}
+            size="sm" 
+            onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+            className={autoRefreshEnabled ? "bg-green-600 hover:bg-green-700" : ""}
+          >
+            {autoRefreshEnabled ? (
+              <>
+                <Pause className="h-4 w-4 mr-2" />
+                停止自动刷新
+              </>
+            ) : (
+              <>
+                <Play className="h-4 w-4 mr-2" />
+                开启自动刷新
+              </>
+            )}
+          </Button>
+          <Button 
             variant="outline" 
             size="sm" 
             onClick={handleRefresh}
             disabled={isRefetching}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${isRefetching ? 'animate-spin' : ''}`} />
-            刷新
+            手动刷新
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setIsDebugModalOpen(true)}
+            className="bg-purple-50 hover:bg-purple-100 border-purple-200"
+          >
+            <Bug className="h-4 w-4 mr-2" />
+            调试Prompt
           </Button>
           {timelineData && (
             <Badge variant="secondary">
-              {timelineData.timeline_nodes.length} 个节点
+              {timelineData.timeline_nodes.length + timelineData.timeline_events.length} 个事件
             </Badge>
           )}
         </div>
@@ -107,24 +139,43 @@ export const ConversationTimelinePage: React.FC = () => {
         </Card>
       )}
 
-      {/* Timeline Content */}
+      {/* Unified Timeline Content */}
       {timelineData && (
-        <ConversationTimeline 
+        <UnifiedTimeline
           data={timelineData}
-          isLoading={isRefetching}
         />
       )}
 
-      {/* Development Note */}
-      {import.meta.env.DEV && (
-        <Card className="bg-blue-50 border-blue-200">
-          <CardContent className="pt-6">
-            <p className="text-xs text-blue-600">
-              开发模式: 数据每30秒自动刷新 | API端点: /api/debug/conversation/{conversationId}/llm-flow
+      {/* Auto-refresh Status */}
+      <Card className={autoRefreshEnabled ? "bg-green-50 border-green-200" : "bg-gray-50 border-gray-200"}>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <p className={`text-xs ${autoRefreshEnabled ? 'text-green-600' : 'text-gray-600'}`}>
+              {autoRefreshEnabled ? (
+                <>
+                  🔄 自动刷新已开启 - 每30秒更新一次
+                </>
+              ) : (
+                <>
+                  ⏸️ 自动刷新已暂停 - 仅手动刷新
+                </>
+              )}
             </p>
-          </CardContent>
-        </Card>
-      )}
+            {import.meta.env.DEV && (
+              <p className="text-xs text-blue-600">
+                开发模式 | API: /api/debug/conversation/{conversationId}/llm-flow
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Debug Prompt Modal */}
+      <DebugPromptModal
+        isOpen={isDebugModalOpen}
+        onClose={() => setIsDebugModalOpen(false)}
+        conversationId={conversationId}
+      />
     </div>
   );
 };

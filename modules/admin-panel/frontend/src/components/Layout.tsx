@@ -1,16 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
-import { 
-  LayoutDashboard, 
-  MessageCircle, 
-  Settings, 
+import {
+  LayoutDashboard,
+  MessageCircle,
+  Settings,
   Activity,
   Bot,
   Users,
   User,
-  FileText
+  FileText,
+  Layers,
+  ChevronLeft,
+  ChevronRight,
+  Menu
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -20,6 +24,11 @@ interface LayoutProps {
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const toggleSidebar = () => {
+    setIsCollapsed(!isCollapsed);
+  };
   
   const navigationItems = [
     {
@@ -47,6 +56,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       active: location.pathname.startsWith('/prompts')
     },
     {
+      href: '/queue-monitor',
+      label: '队列监控', 
+      icon: Layers,
+      active: location.pathname === '/queue-monitor'
+    },
+    {
       href: '/conversations',
       label: '对话管理', 
       icon: MessageCircle,
@@ -67,12 +82,21 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-3">
+      <header className="border-b bg-card flex-shrink-0">
+        <div className="px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleSidebar}
+                className="p-2"
+                title={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
+              >
+                <Menu className="h-4 w-4" />
+              </Button>
               <Bot className="h-6 w-6 text-primary" />
               <h1 className="text-xl font-semibold">QQ Bot 管理后台</h1>
             </div>
@@ -83,33 +107,67 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       </header>
 
-      <div className="container mx-auto px-4 py-6 flex gap-6">
+      <div className="flex-1 flex gap-4 px-4 py-4 min-h-0">
         {/* Sidebar Navigation */}
-        <aside className="w-64 space-y-2">
+        <aside
+          className={cn(
+            "transition-all duration-300 ease-in-out space-y-2 flex-shrink-0",
+            isCollapsed ? "w-16" : "w-64"
+          )}
+        >
           <Card>
             <CardContent className="p-3">
+              {!isCollapsed && (
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-medium text-muted-foreground">导航菜单</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={toggleSidebar}
+                    className="p-1 h-6 w-6"
+                    title="收起侧边栏"
+                  >
+                    <ChevronLeft className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
               <nav className="space-y-1">
                 {navigationItems.map((item) => (
                   <Link key={item.href} to={item.href}>
                     <Button
                       variant={item.active ? 'default' : 'ghost'}
                       className={cn(
-                        'w-full justify-start gap-2',
+                        'w-full transition-all duration-200',
+                        isCollapsed ? 'justify-center p-2' : 'justify-start gap-2',
                         item.active && 'bg-primary text-primary-foreground'
                       )}
+                      title={isCollapsed ? item.label : undefined}
                     >
-                      <item.icon className="h-4 w-4" />
-                      {item.label}
+                      <item.icon className="h-4 w-4 flex-shrink-0" />
+                      {!isCollapsed && <span className="truncate">{item.label}</span>}
                     </Button>
                   </Link>
                 ))}
               </nav>
+              {isCollapsed && (
+                <div className="mt-3 pt-3 border-t">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={toggleSidebar}
+                    className="w-full p-2"
+                    title="展开侧边栏"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1">
+        <main className="flex-1 min-w-0 overflow-auto">
           {children}
         </main>
       </div>
