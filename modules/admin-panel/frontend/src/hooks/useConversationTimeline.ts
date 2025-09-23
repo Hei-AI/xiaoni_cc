@@ -31,36 +31,56 @@ const extractConfidence = (response: any): number => {
 const buildTimelineNodes = (llmFlowData: LLMFlowResponse): TimelineNode[] => {
   const nodes: TimelineNode[] = [];
 
-  // 1. WebSocket input node
-  const inputTimestamp = new Date(llmFlowData.websocket_output.timestamp);
-  const responseTimeMs = parseFloat(String(llmFlowData.websocket_output.response_time_ms || '0'));
+  // 🔥 优先使用新的 llm_call_chain 结构 (MESSAGE_FLOW_API规范)
+  const llmCalls = llmFlowData.llm_call_chain || [];
 
-  nodes.push({
-    id: 'websocket_in',
-    timestamp: new Date(inputTimestamp.getTime() - responseTimeMs),
-    type: 'websocket_in',
-    title: 'WebSocket消息接收',
-    duration_ms: 0,
-    status: 'success',
-    summary: `用户消息 | ID: ${llmFlowData.websocket_input.user_id}`,
-    data: {
-      input: llmFlowData.websocket_input,
-      output: null
-    }
-  });
+  if (llmCalls.length > 0) {
+    // 使用新的扁平化 llm_call_chain 结构
+    llmCalls.forEach((call, index) => {
+      const agentType = call.agent_type || 'unknown';
+      const title = ENGINE_NAMES[agentType] || `${agentType}`;
+      const isSuccess = call.output.status === 'SUCCESS';
 
-  // 2. LLM call nodes
-  if (llmFlowData.llm_trace && Array.isArray(llmFlowData.llm_trace)) {
+      // 从新的结构中获取处理时间
+      const processingTime = call.output.performance.processing_time_ms || call.output.performance.api_call_time_ms || 0;
+
+      // 从新的结构中获取token信息
+      const totalTokens = call.output.token_usage.total_tokens || 0;
+
+      nodes.push({
+        id: `llm_${index}`,
+        timestamp: new Date(call.input.timestamp),
+        type: 'llm_call',
+        title: title,
+        duration_ms: processingTime,
+        status: isSuccess ? 'success' : 'error',
+        summary: `模型: ${call.input.model_name} | 耗时: ${processingTime}ms`,
+        data: {
+          input: call.input,
+          output: call.output,
+          model_name: call.input.model_name,
+          agent_type: agentType,
+          prompt_tokens: call.output.token_usage.input_tokens || 0,
+          completion_tokens: call.output.token_usage.output_tokens || 0,
+          total_tokens: totalTokens,
+          processing_time_ms: processingTime,
+          api_call_time_ms: call.output.performance.api_call_time_ms || 0,
+          success: isSuccess,
+          status: call.output.status,
+          error_message: call.output.error_info?.error_message,
+          cost: call.output.cost_estimate || calculateCost(call.output),
+          confidence: extractConfidence(call.output.raw_response)
+        }
+      });
+    });
+  } else if (llmFlowData.llm_trace && Array.isArray(llmFlowData.llm_trace)) {
+    // 回退到旧的 llm_trace 结构 (向后兼容)
     llmFlowData.llm_trace.forEach((trace, index) => {
-      // 使用实际的字段名称
       const agentType = trace.llm_raw_input.agent_type || 'unknown';
       const title = ENGINE_NAMES[agentType] || `${agentType}`;
       const isSuccess = trace.llm_raw_output.status === 'SUCCESS';
 
-      // 处理处理时间
       const processingTime = trace.llm_raw_output.processing_time_ms || trace.llm_raw_output.api_call_time_ms || 0;
-
-      // 处理token计算
       const totalTokens = trace.llm_raw_output.total_tokens || 0;
 
       nodes.push({
@@ -91,26 +111,26 @@ const buildTimelineNodes = (llmFlowData: LLMFlowResponse): TimelineNode[] => {
     });
   }
 
-  // 3. WebSocket output node
-  nodes.push({
-    id: 'websocket_out',
-    timestamp: new Date(llmFlowData.websocket_output.timestamp),
-    type: 'websocket_out',
-    title: 'WebSocket响应发送',
-    duration_ms: 0,
-    status: 'success',
-    summary: `回复: ${llmFlowData.websocket_output.content?.substring(0, 50) || ''}...`,
-    data: {
-      input: null,
-      output: llmFlowData.websocket_output
-    }
-  });
-
   return nodes.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 };
 
-// Calculate timeline summary
-const calculateTimelineSummary = (nodes: TimelineNode[]) => {
+// Calculate timeline summary (with new API flow_summary support)
+const calculateTimelineSummary = (nodes: TimelineNode[], flowSummary?: any) => {
+  // 🔥 优先使用新API提供的flow_summary数据
+  if (flowSummary) {
+    return {
+      total_duration: flowSummary.total_processing_time_ms || flowSummary.llm_processing_time_ms || 0,
+      total_cost: flowSummary.total_cost_estimate || 0,
+      total_tokens: flowSummary.total_tokens_used || 0,
+      success_rate: flowSummary.success_rate || 0,
+      efficiency_score: flowSummary.efficiency_score || 0,
+      // 新增字段
+      queue_wait_time: flowSummary.queue_wait_time_ms || 0,
+      bottleneck_stage: flowSummary.bottleneck_stage
+    };
+  }
+
+  // 回退到客户端计算 (向后兼容)
   const llmNodes = nodes.filter(node => node.type === 'llm_call');
 
   const totalDuration = llmNodes.reduce((sum, node) => sum + (node.duration_ms || 0), 0);
@@ -127,7 +147,10 @@ const calculateTimelineSummary = (nodes: TimelineNode[]) => {
     total_duration: totalDuration,
     total_cost: Math.round(totalCost * 1000) / 1000,
     total_tokens: totalTokens,
-    success_rate: Math.round(successRate * 10) / 10
+    success_rate: Math.round(successRate * 10) / 10,
+    efficiency_score: 80, // 默认值
+    queue_wait_time: 0,
+    bottleneck_stage: undefined
   };
 };
 
@@ -146,14 +169,24 @@ export const useConversationTimeline = (conversationId: string, autoRefreshEnabl
       
       // Build timeline nodes
       const timelineNodes = buildTimelineNodes(llmFlowData);
-      const timelineSummary = calculateTimelineSummary(timelineNodes);
-      
+      const timelineSummary = calculateTimelineSummary(timelineNodes, llmFlowData.flow_summary);
+
       return {
         conversation_id: conversationId,
-        websocket_input: llmFlowData.websocket_input,
-        websocket_output: llmFlowData.websocket_output,
-        llm_traces: llmFlowData.llm_trace,
+        trace_id: llmFlowData.trace_id,
+        // 新规范数据
+        message_input: llmFlowData.message_input,
+        message_output: llmFlowData.message_output,
+        llm_call_chain: llmFlowData.llm_call_chain || [],
+        processing_events: llmFlowData.processing_events || [],
+        flow_summary: llmFlowData.flow_summary,
+        debug_info: llmFlowData.debug_info,
+        // 向后兼容数据
+        websocket_input: llmFlowData.websocket_input || llmFlowData.message_input,
+        websocket_output: llmFlowData.websocket_output || llmFlowData.message_output,
+        llm_traces: llmFlowData.llm_trace || [],
         timeline_nodes: timelineNodes,
+        timeline_events: llmFlowData.timeline_events || llmFlowData.processing_events || [],
         timeline_summary: timelineSummary
       };
     },
