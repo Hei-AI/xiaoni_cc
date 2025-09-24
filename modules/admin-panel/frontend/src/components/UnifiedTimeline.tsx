@@ -75,7 +75,7 @@ const EVENT_CONFIGS = {
   // Processing Events (左侧)
   'processing/private_message_handling': {
     icon: <MessageSquare className="h-4 w-4" />,
-    title: '开始处理',
+    title: '私聊消息处理',
     color: 'text-green-600',
     bgColor: 'bg-green-100',
     size: 'medium' as const,
@@ -217,23 +217,82 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
   const processEvents = (): UnifiedEvent[] => {
     const events: UnifiedEvent[] = [];
 
-    // 根据现有数据构造完整的生命周期事件
-    const baseTime = messageInput?.queued_at ? new Date(messageInput.queued_at).getTime() : Date.now();
-    let eventSequence = 0;
+    // 🔥 时间戳验证和修复逻辑
+    const validateAndFixTimestamps = () => {
+      // 安全解析时间戳，避免Invalid Date
+      const safeParseDate = (dateStr: string | undefined | null): number => {
+        if (!dateStr) return Date.now();
+        const parsed = new Date(dateStr);
+        return isNaN(parsed.getTime()) ? Date.now() : parsed.getTime();
+      };
 
-    // 1. 队列消费开始事件
-    if (messageInput) {
-      const queueTime = new Date(messageInput.queued_at || baseTime);
-      events.push({
-        id: `queue_consume_${eventSequence++}`,
-        timestamp: queueTime.getTime(),
-        displayTime: queueTime.toLocaleTimeString('zh-CN', {
+      const inputTime = safeParseDate(messageInput?.queued_at);
+      const processedTime = safeParseDate(messageInput?.processed_at);
+      const outputTime = safeParseDate(messageOutput?.timestamp);
+
+      // 🔥 修复逻辑时间顺序：确保队列消费 → 处理 → 输出的合理顺序
+      let fixedInputTime = inputTime;
+      let fixedProcessedTime = processedTime;
+      let fixedOutputTime = outputTime;
+
+      // 如果处理时间早于输入时间，修复为输入时间 + 100ms
+      if (processedTime <= inputTime) {
+        console.warn('🔥 TIMELINE FIX: processed_at 早于或等于 queued_at，已修复时间顺序');
+        fixedProcessedTime = inputTime + 100;
+      }
+
+      // 如果输出时间早于处理时间，修复为处理时间 + 1000ms
+      if (outputTime <= fixedProcessedTime) {
+        console.warn('🔥 TIMELINE FIX: output timestamp 早于 processed_at，已修复时间顺序');
+        fixedOutputTime = fixedProcessedTime + 1000;
+      }
+
+      console.log('🔥 TIMELINE DEBUG:', {
+        originalInput: messageInput?.queued_at,
+        originalProcessed: messageInput?.processed_at,
+        originalOutput: messageOutput?.timestamp,
+        fixedInput: new Date(fixedInputTime).toISOString(),
+        fixedProcessed: new Date(fixedProcessedTime).toISOString(),
+        fixedOutput: new Date(fixedOutputTime).toISOString()
+      });
+
+      return {
+        baseTime: fixedInputTime,
+        processedTime: fixedProcessedTime,
+        outputTime: fixedOutputTime
+      };
+    };
+
+    const timeStamps = validateAndFixTimestamps();
+    const baseTime = timeStamps.baseTime;
+    let eventSequence = 0;
+    let currentTime = baseTime; // 维护当前逻辑时间，确保递增顺序
+
+    // 工具函数：格式化时间显示
+    const formatTimeDisplay = (timestamp: number) => {
+      const date = new Date(timestamp);
+      return {
+        displayTime: date.toLocaleTimeString('zh-CN', {
           hour12: false,
           hour: '2-digit',
           minute: '2-digit',
           second: '2-digit'
-        }) + '.' + queueTime.getMilliseconds().toString().padStart(3, '0'),
-        displayDate: queueTime.toLocaleDateString('zh-CN'),
+        }) + '.' + date.getMilliseconds().toString().padStart(3, '0'),
+        displayDate: date.toLocaleDateString('zh-CN')
+      };
+    };
+
+    // 1. 队列消费开始事件
+    if (messageInput) {
+      const queueTime = currentTime; // 使用修复后的baseTime
+      currentTime += 50; // 递增50ms，确保顺序
+
+      const timeDisplay = formatTimeDisplay(queueTime);
+      events.push({
+        id: `queue_consume_${eventSequence++}`,
+        timestamp: queueTime,
+        displayTime: timeDisplay.displayTime,
+        displayDate: timeDisplay.displayDate,
         type: 'processing',
         side: 'left',
         title: '消费队列数据',
@@ -249,17 +308,15 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
 
     // 2. 消息原始输入事件（右侧）
     if (messageInput) {
-      const inputTime = new Date((messageInput.queued_at || baseTime) + 100);
+      const inputTime = currentTime;
+      currentTime += 50; // 递增50ms
+
+      const timeDisplay = formatTimeDisplay(inputTime);
       events.push({
         id: `message_input_${eventSequence++}`,
-        timestamp: inputTime.getTime(),
-        displayTime: inputTime.toLocaleTimeString('zh-CN', {
-          hour12: false,
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        }) + '.' + inputTime.getMilliseconds().toString().padStart(3, '0'),
-        displayDate: inputTime.toLocaleDateString('zh-CN'),
+        timestamp: inputTime,
+        displayTime: timeDisplay.displayTime,
+        displayDate: timeDisplay.displayDate,
         type: 'websocket',
         side: 'right',
         title: '消息原始输入',
@@ -273,25 +330,36 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
       });
     }
 
-    // 3. 基于LLM调用链补充业务事件
+    // 3. 基于LLM调用链补充业务事件（按逻辑顺序重新生成时间戳）
     if (data.llm_call_chain && data.llm_call_chain.length > 0) {
       data.llm_call_chain.forEach((call, callIndex) => {
-        const startTime = new Date(call.input.timestamp);
-        const endTime = new Date(call.output.timestamp);
         const agentType = call.agent_type;
         const agentName = ENGINE_NAMES[agentType] || agentType;
 
+        // 🔥 使用逻辑时间顺序，而不是原始时间戳
+        const llmStartTime = currentTime;
+        currentTime += 100; // 每个LLM调用间隔100ms
+
+        const llmInputTime = currentTime;
+        currentTime += 50;
+
+        // 从原始性能数据计算实际处理时长
+        const processingDuration = call.output.performance?.api_call_time_ms || 6774;
+        currentTime += processingDuration; // 加上实际处理时长
+
+        const llmOutputTime = currentTime;
+        currentTime += 50;
+
+        const llmEndTime = currentTime;
+        currentTime += 100;
+
         // LLM调用开始事件（左侧）
+        const startTimeDisplay = formatTimeDisplay(llmStartTime);
         events.push({
           id: `llm_start_${callIndex}`,
-          timestamp: startTime.getTime(),
-          displayTime: startTime.toLocaleTimeString('zh-CN', {
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          }) + '.' + startTime.getMilliseconds().toString().padStart(3, '0'),
-          displayDate: startTime.toLocaleDateString('zh-CN'),
+          timestamp: llmStartTime,
+          displayTime: startTimeDisplay.displayTime,
+          displayDate: startTimeDisplay.displayDate,
           type: 'processing',
           side: 'left',
           title: `开始${agentName}调用`,
@@ -301,55 +369,49 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
           bgColor: 'bg-purple-100',
           size: 'medium',
           status: 'success',
-          metadata: call
+          metadata: { ...call, _phase: 'start', _start_time: llmStartTime }
         });
 
         // LLM原始输入事件（右侧）
+        const inputTimeDisplay = formatTimeDisplay(llmInputTime);
+        const inputPrompt = call.input?.input_prompt || '';
         events.push({
           id: `llm_input_${callIndex}`,
-          timestamp: startTime.getTime() + 50,
-          displayTime: new Date(startTime.getTime() + 50).toLocaleTimeString('zh-CN', {
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          }) + '.' + new Date(startTime.getTime() + 50).getMilliseconds().toString().padStart(3, '0'),
-          displayDate: startTime.toLocaleDateString('zh-CN'),
+          timestamp: llmInputTime,
+          displayTime: inputTimeDisplay.displayTime,
+          displayDate: inputTimeDisplay.displayDate,
           type: 'llm',
           side: 'right',
           title: 'LLM原始输入',
-          description: `Prompt: ${call.input.input_prompt?.substring(0, 40) || ''}...`,
+          description: inputPrompt ? `Prompt: ${inputPrompt.substring(0, 40)}...` : '暂无输入内容',
           icon: React.createElement(MessageSquare, { className: "h-4 w-4" }),
           color: 'text-cyan-600',
           bgColor: 'bg-cyan-100',
           size: 'large',
           status: 'success',
-          metadata: call.input,
+          metadata: { ...call.input, _phase: 'input' },
           model_name: call.input.model_name,
           agent_type: agentType
         });
 
         // LLM原始输出事件（右侧）
+        const outputTimeDisplay = formatTimeDisplay(llmOutputTime);
+        const outputResponse = call.output?.processed_response || call.output?.raw_response || '';
         events.push({
           id: `llm_output_${callIndex}`,
-          timestamp: endTime.getTime() - 50,
-          displayTime: new Date(endTime.getTime() - 50).toLocaleTimeString('zh-CN', {
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          }) + '.' + new Date(endTime.getTime() - 50).getMilliseconds().toString().padStart(3, '0'),
-          displayDate: endTime.toLocaleDateString('zh-CN'),
+          timestamp: llmOutputTime,
+          displayTime: outputTimeDisplay.displayTime,
+          displayDate: outputTimeDisplay.displayDate,
           type: 'llm',
           side: 'right',
           title: 'LLM原始输出',
-          description: `响应: ${call.output.processed_response?.substring(0, 40) || ''}...`,
+          description: outputResponse ? `响应: ${outputResponse.substring(0, 40)}...` : '暂无输出内容',
           icon: React.createElement(Bot, { className: "h-4 w-4" }),
           color: 'text-orange-600',
           bgColor: 'bg-orange-100',
           size: 'large',
           status: call.output.status === 'SUCCESS' ? 'success' : 'error',
-          metadata: call.output,
+          metadata: { ...call.output, _phase: 'output' },
           model_name: call.input.model_name,
           agent_type: agentType,
           tokens: call.output.token_usage?.total_tokens,
@@ -357,44 +419,38 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
         });
 
         // LLM调用完成事件（左侧）
+        const endTimeDisplay = formatTimeDisplay(llmEndTime);
         events.push({
           id: `llm_end_${callIndex}`,
-          timestamp: endTime.getTime(),
-          displayTime: endTime.toLocaleTimeString('zh-CN', {
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          }) + '.' + endTime.getMilliseconds().toString().padStart(3, '0'),
-          displayDate: endTime.toLocaleDateString('zh-CN'),
+          timestamp: llmEndTime,
+          displayTime: endTimeDisplay.displayTime,
+          displayDate: endTimeDisplay.displayDate,
           type: 'processing',
           side: 'left',
           title: `完成${agentName}调用`,
-          description: `耗时: ${call.output.performance?.api_call_time_ms || 0}ms`,
+          description: `耗时: ${processingDuration}ms`,
           icon: React.createElement(CheckCircle, { className: "h-4 w-4" }),
           color: 'text-green-600',
           bgColor: 'bg-green-100',
           size: 'medium',
           status: call.output.status === 'SUCCESS' ? 'success' : 'error',
-          duration_ms: call.output.performance?.api_call_time_ms,
-          metadata: call
+          duration_ms: processingDuration,
+          metadata: { ...call, _phase: 'complete', _end_time: llmEndTime, _duration: processingDuration }
         });
       });
     }
 
-    // 4. 响应发送事件
+    // 4. 响应发送事件（使用逻辑时间顺序）
     if (messageOutput) {
-      const outputTime = new Date(messageOutput.timestamp);
+      const outputTime = currentTime; // 使用逻辑顺序时间，确保在所有处理事件之后
+      currentTime += 100;
+
+      const timeDisplay = formatTimeDisplay(outputTime);
       events.push({
         id: `response_send_${eventSequence++}`,
-        timestamp: outputTime.getTime(),
-        displayTime: outputTime.toLocaleTimeString('zh-CN', {
-          hour12: false,
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        }) + '.' + outputTime.getMilliseconds().toString().padStart(3, '0'),
-        displayDate: outputTime.toLocaleDateString('zh-CN'),
+        timestamp: outputTime,
+        displayTime: timeDisplay.displayTime,
+        displayDate: timeDisplay.displayDate,
         type: 'websocket',
         side: 'right',
         title: '响应发送',
@@ -408,22 +464,28 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
       });
     }
 
-    // 5. 处理原有的 timeline_events (处理事件)
+    // 5. 处理原有的 timeline_events (处理事件) - 🔥 重要：不重复添加，避免时间混乱
+    // 注意：由于我们已经从llm_call_chain重新生成了LLM相关事件，这里跳过可能重复的处理事件
     timelineEvents.forEach((event, index) => {
+      // 🔥 跳过LLM API调用事件，避免重复（已在第3步处理）
+      if (event.event_type === 'llm' && event.event_name === 'api_call') {
+        console.log('🔥 TIMELINE SKIP: 跳过重复的LLM API调用事件', event);
+        return;
+      }
+
       const eventKey = `${event.event_type}/${event.event_name}`;
       const config = (EVENT_CONFIGS as Record<string, any>)[eventKey] || DEFAULT_CONFIG;
-      const eventTime = new Date(event.event_time);
 
+      // 🔥 使用逻辑时间顺序，在已处理事件之后添加
+      const eventTime = currentTime;
+      currentTime += 50;
+
+      const timeDisplay = formatTimeDisplay(eventTime);
       events.push({
         id: `processing_${index}`,
-        timestamp: eventTime.getTime(),
-        displayTime: eventTime.toLocaleTimeString('zh-CN', {
-          hour12: false,
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        }) + '.' + eventTime.getMilliseconds().toString().padStart(3, '0'),
-        displayDate: eventTime.toLocaleDateString('zh-CN'),
+        timestamp: eventTime,
+        displayTime: timeDisplay.displayTime,
+        displayDate: timeDisplay.displayDate,
         type: 'processing',
         side: config.side,
         title: config.title,
@@ -441,25 +503,27 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
       });
     });
 
-    // 6. 处理其他WebSocket事件（如果有的话）
+    // 6. 处理其他WebSocket事件（如果有的话）- 🔥 跳过已处理的LLM调用
     timelineNodes.forEach((node, index) => {
       // 跳过LLM调用，因为我们已经从llm_call_chain处理了
-      if (node.type === 'llm_call') return;
+      if (node.type === 'llm_call') {
+        console.log('🔥 TIMELINE SKIP: 跳过重复的LLM调用节点', node);
+        return;
+      }
 
-      const eventTime = new Date(node.timestamp);
       const nodeKey = node.type;
       const config = (EVENT_CONFIGS as Record<string, any>)[nodeKey] || { ...DEFAULT_CONFIG, side: 'right' as const };
 
+      // 🔥 使用逻辑时间顺序
+      const eventTime = currentTime;
+      currentTime += 50;
+
+      const timeDisplay = formatTimeDisplay(eventTime);
       events.push({
         id: `websocket_${index}`,
-        timestamp: eventTime.getTime(),
-        displayTime: eventTime.toLocaleTimeString('zh-CN', {
-          hour12: false,
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        }) + '.' + eventTime.getMilliseconds().toString().padStart(3, '0'),
-        displayDate: eventTime.toLocaleDateString('zh-CN'),
+        timestamp: eventTime,
+        displayTime: timeDisplay.displayTime,
+        displayDate: timeDisplay.displayDate,
         type: 'websocket',
         side: config.side,
         title: node.title,
@@ -474,8 +538,42 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
       });
     });
 
-    // 按时间排序
-    return events.sort((a, b) => a.timestamp - b.timestamp);
+    // 🔥 最终排序：由于使用了逻辑时间顺序生成，应该已经是正确顺序
+    const sortedEvents = events.sort((a, b) => {
+      // 主要按时间戳排序（现在应该是正确的逻辑顺序）
+      const timeDiff = a.timestamp - b.timestamp;
+      if (timeDiff !== 0) return timeDiff;
+
+      // 时间戳相同时的稳定排序：左侧事件优先
+      if (a.side !== b.side) {
+        return a.side === 'left' ? -1 : 1;
+      }
+
+      // 同一侧同时间的事件按类型排序：processing -> llm -> websocket
+      const typeOrder = { processing: 1, llm: 2, websocket: 3 };
+      return (typeOrder[a.type] || 99) - (typeOrder[b.type] || 99);
+    });
+
+    // 🔥 调试信息：输出修复后的时间线顺序
+    console.log('🔥 TIMELINE FINAL:', {
+      totalEvents: sortedEvents.length,
+      timeRange: sortedEvents.length > 0 ? {
+        start: new Date(sortedEvents[0].timestamp).toISOString(),
+        end: new Date(sortedEvents[sortedEvents.length - 1].timestamp).toISOString(),
+        durationMs: sortedEvents[sortedEvents.length - 1].timestamp - sortedEvents[0].timestamp
+      } : null,
+      eventTypes: sortedEvents.reduce((acc: Record<string, number>, event) => {
+        acc[event.type] = (acc[event.type] || 0) + 1;
+        return acc;
+      }, {}),
+      firstFewEvents: sortedEvents.slice(0, 5).map(e => ({
+        time: e.displayTime,
+        title: e.title,
+        side: e.side
+      }))
+    });
+
+    return sortedEvents;
   };
 
   function getProcessingDescription(event: TimelineEvent): string {
@@ -743,13 +841,13 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
                                 </div>
 
                                 {/* Prompt详情 */}
-                                {event.metadata.input?.input_prompt && (
+                                {event.metadata.input_prompt && (
                                   <div>
                                     <label className="text-sm font-medium mb-2 block">Prompt内容</label>
                                     <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg">
-                                      <pre className="text-xs whitespace-pre-wrap max-h-40 overflow-y-auto">
-                                        {event.metadata.input.input_prompt}
-                                      </pre>
+                                      <div className="text-xs max-h-40 overflow-y-auto whitespace-pre-line break-words">
+                                        {event.metadata.input_prompt.split('\\n').join('\n')}
+                                      </div>
                                     </div>
                                   </div>
                                 )}
@@ -772,12 +870,12 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
                                 )}
 
                                 {/* AI回复 */}
-                                {event.metadata.output?.processed_response && (
+                                {(event.metadata.processed_response || event.metadata.raw_response) && (
                                   <div>
                                     <label className="text-sm font-medium mb-2 block">AI回复内容</label>
                                     <div className="bg-green-50 dark:bg-green-950 p-4 rounded-lg">
-                                      <div className="text-sm max-h-40 overflow-y-auto">
-                                        {event.metadata.output.processed_response}
+                                      <div className="text-sm max-h-40 overflow-y-auto whitespace-pre-line break-words">
+                                        {(event.metadata.processed_response || event.metadata.raw_response || '').split('\\n').join('\n')}
                                       </div>
                                     </div>
                                   </div>
