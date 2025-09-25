@@ -43,13 +43,13 @@ async function cleanupTestData(connection) {
   
   const cleanupQueries = [
     `DELETE FROM llm_call_traces WHERE session_id LIKE 'test_db_%'`,
-    `DELETE FROM conversations WHERE user_id IN (999888777, 999888778, 999888779, 999888780, 999888781)`,
-    `DELETE FROM requirements WHERE user_id IN (999888777, 999888778, 999888779, 999888780, 999888781)`,
-    `DELETE FROM group_chat_settings WHERE group_id = 888999111`,
+    `DELETE FROM conversations WHERE user_id IN (85178516)`,
+    `DELETE FROM requirements WHERE user_id IN (85178516)`,
+    `DELETE FROM group_chat_settings WHERE group_id = 1019235326`,
     `DELETE FROM conversation_sessions WHERE session_id LIKE 'test_db_%'`,
     `DELETE FROM message_reply_chain WHERE session_id LIKE 'test_db_%'`,
     // Clean up any test conversations from integration tests that might be interfering
-    `DELETE FROM conversations WHERE JSON_EXTRACT(raw_request, '$.group_id') = 888999111`,
+    `DELETE FROM conversations WHERE JSON_EXTRACT(raw_request, '$.group_id') = 1019235326`,
     `DELETE FROM llm_call_traces WHERE session_id LIKE '%test_%'`
   ];
   
@@ -127,8 +127,8 @@ async function testDatabaseOperations() {
 
 async function testBasicCRUD(connection) {
   console.log('  📊 Testing basic CRUD operations...');
-  
-  const testUserId = 999888777;
+
+  const testUserId = 85178516;
   const testConversationId = `test_db_conv_${Date.now()}`;
   
   // CREATE: Insert conversation
@@ -346,8 +346,8 @@ async function testSessionMethods(connection) {
   console.log('  📋 Testing session management methods...');
   
   // Note: Since conversation_sessions table may not exist, we'll test the fallback methods
-  
-  const testUserId = 999888777;
+
+  const testUserId = 85178516;
   
   // Create some conversations for session testing
   const conversations = [];
@@ -423,9 +423,9 @@ async function testSessionMethods(connection) {
 
 async function testContextHistoryMethods(connection) {
   console.log('  📜 Testing context and history methods...');
-  
-  const testUserId = 999888777;
-  const testGroupId = 888999111;
+
+  const testUserId = 85178516;
+  const testGroupId = 1019235326;
   
   // Test private message history
   console.log('    👤 Testing private message history...');
@@ -552,7 +552,7 @@ async function testQueryPerformance(connection) {
     {
       name: 'Simple conversation lookup',
       query: 'SELECT * FROM conversations WHERE user_id = ? LIMIT 10',
-      params: [999888777],
+      params: [85178516],
       benchmark: 50
     },
     {
@@ -584,7 +584,7 @@ async function testQueryPerformance(connection) {
         ORDER BY c.timestamp DESC
         LIMIT 5
       `,
-      params: [999888777],
+      params: [85178516],
       benchmark: 300
     },
     {
@@ -658,7 +658,7 @@ async function testAggregationQueries(connection) {
       AVG(response_time) as avg_response_time,
       COUNT(DISTINCT DATE(timestamp)) as active_days
     FROM conversations 
-    WHERE user_id IN (999888777, 999888778, 999888779, 999888780, 999888781)
+    WHERE user_id IN (85178516)
     GROUP BY user_id
     HAVING message_count > 0
     ORDER BY message_count DESC

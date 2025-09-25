@@ -542,8 +542,8 @@ async function testContextBuilding(connection) {
   console.log('  🏗️ Testing context building functionality...');
   
   // Create some historical messages for context testing
-  const userId = 999888777;
-  const groupId = 888777666;
+  const userId = 85178516;
+  const groupId = 1019235326;
   
   const historicalMessages = [
     { user_id: userId, message: '上次你帮我写的那个函数有个bug', timestamp: new Date(Date.now() - 3600000) },
@@ -701,12 +701,12 @@ async function testErrorRecovery(connection) {
     ) VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?)
   `, [
     failedConversationId,
-    111222333,
+    85178516,
     'Test message for error recovery',
     'Error occurred during processing',
     5000,
     'gemini-1.5-pro',
-    JSON.stringify({ message_type: 'private', user_id: 111222333, message: 'Test error' }),
+    JSON.stringify({ message_type: 'private', user_id: 85178516, message: 'Test error' }),
     999999
   ]);
   

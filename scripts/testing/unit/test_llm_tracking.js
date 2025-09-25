@@ -5,13 +5,13 @@ async function testLLMTracking() {
     
     const testMessage = {
         message_type: 'private',
-        user_id: 999888777, // 使用测试用户ID
+        user_id: 85178516, // 使用测试用户ID
         message: '测试LLM追踪功能',
         raw_message: '测试LLM追踪功能',
         message_id: Date.now(),
         time: Math.floor(Date.now() / 1000),
         sender: {
-            user_id: 999888777,
+            user_id: 85178516,
             nickname: '测试用户',
             card: ''
         },
