@@ -627,7 +627,7 @@ export const PromptDebugPage: React.FC = () => {
                               <Textarea
                                 value={editingContent}
                                 onChange={(e) => setEditingContent(e.target.value)}
-                                className="min-h-[60px] text-sm"
+                                className="min-h-[60px] text-sm text-gray-900 bg-white"
                                 autoFocus
                               />
                               <div className="flex gap-2">
@@ -642,7 +642,7 @@ export const PromptDebugPage: React.FC = () => {
                                   variant="outline"
                                   size="sm"
                                   onClick={cancelEditMessage}
-                                  className="h-6 px-2 text-xs"
+                                  className="h-6 px-2 text-xs bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                                 >
                                   取消
                                 </Button>
