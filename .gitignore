@@ -54,3 +54,7 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
+**/qq-log*
+resource/napcat_qq_data
+resource/napcat_qq_data2
+.idea
