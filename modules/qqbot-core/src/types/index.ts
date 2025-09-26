@@ -233,12 +233,62 @@ export interface AgentPromptData {
     topP?: number;
     maxOutputTokens?: number;
   };
+  // 🆕 新增高级配置字段
+  advanced_config?: AgentAdvancedConfig;
+  config_version?: string;
+  last_config_update?: Date;
   is_active: boolean;
   version: number;
   created_by: string;
   created_at: Date;
   updated_at: Date;
   description?: string;
+  // 🆕 Token-Model绑定字段
+  allowed_token_ids?: number[]; // 允许使用的Token ID列表
+}
+
+// 🆕 Agent高级配置接口
+export interface AgentAdvancedConfig {
+  generationConfig?: {
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    maxOutputTokens?: number;
+    stopSequences?: string[];
+    responseMimeType?: string;
+  };
+  thinkingConfig?: {
+    thinkingBudget?: number; // -1为自动，0为禁用，正数为固定预算
+    includeThoughts?: boolean;
+  };
+  safetySettings?: Array<{
+    category: string;
+    threshold: string;
+  }>;
+  toolsConfig?: {
+    enabled?: boolean;
+    selectedTools?: string[]; // 🆕 使用预定义工具的key
+    mode?: 'AUTO' | 'ANY' | 'NONE';
+    allowedTools?: string[]; // 可调用的工具限制
+    functionCallingConfig?: FunctionCallingConfig;
+  };
+  googleSearchConfig?: {
+    enabled: boolean;
+    dynamicThreshold?: boolean | number;
+  };
+  urlContextConfig?: {
+    enabled: boolean;
+    maxUrls?: number;
+    maxSizePerUrl?: number; // MB
+  };
+  structuredOutputConfig?: {
+    enabled: boolean;
+    jsonSchema?: any;
+  };
+  promptConfig?: {
+    promptPrefix?: string;
+    promptSuffix?: string;
+  };
 }
 
 // Token管理相关类型定义
@@ -1032,4 +1082,392 @@ export interface PersonaResponse {
     emojiCount?: number;
     sentimentScore?: number;
   };
+}
+
+// 🔥 新增：可配置LLM参数系统 - 支持所有Gemini高级功能
+
+// 基础生成配置参数
+export interface GenerationConfig {
+  // 温度控制：0.0-2.0，控制创造性和随机性
+  temperature?: number;
+  // Top-P核采样：0.0-1.0，控制词汇选择的多样性
+  topP?: number;
+  // Top-K采样：正整数，限制每步的候选词汇数量
+  topK?: number;
+  // 最大输出令牌数：控制响应长度
+  maxOutputTokens?: number;
+  // 停止序列：遇到这些序列时停止生成
+  stopSequences?: string[];
+  // 响应MIME类型 - 更宽松的类型定义
+  responseMimeType?: string;
+  // 响应JSON模式 (用于结构化输出)
+  responseSchema?: any;
+}
+
+// 思考模式配置
+export interface ThinkingConfig {
+  // 思考预算：-1为动态，0为禁用，正数为具体令牌数
+  thinkingBudget?: number;
+  // 是否包含思考摘要
+  includeThoughts?: boolean;
+}
+
+// 安全设置配置 - 更宽松的类型定义
+export interface SafetyConfig {
+  category: string;
+  threshold: string;
+}
+
+// 函数调用模式
+export type FunctionCallingMode = 'AUTO' | 'ANY' | 'NONE';
+
+// 函数参数定义
+export interface FunctionParameter {
+  type: 'string' | 'integer' | 'number' | 'boolean' | 'array' | 'object';
+  description?: string;
+  enum?: string[];
+  format?: string;
+  nullable?: boolean;
+  properties?: Record<string, FunctionParameter>;
+  required?: string[];
+  minItems?: number;
+  maxItems?: number;
+}
+
+// 函数声明
+export interface FunctionDeclaration {
+  name: string;
+  description: string;
+  parameters: FunctionParameter;
+}
+
+// 函数调用配置
+export interface FunctionCallingConfig {
+  mode: FunctionCallingMode;
+  allowedFunctionNames?: string[];
+}
+
+// 工具配置 (包含函数调用)
+export interface ToolConfig {
+  functionCallingConfig?: FunctionCallingConfig;
+}
+
+// Google搜索配置
+export interface GoogleSearchConfig {
+  // 启用Google搜索
+  enabled: boolean;
+  // 动态阈值 (仅适用于Gemini 1.5模型) - 支持数字和布尔值
+  dynamicThreshold?: number | boolean;
+}
+
+// URL上下文配置
+export interface UrlContextConfig {
+  // 启用URL上下文处理
+  enabled: boolean;
+  // 最大URL数量 (限制20个)
+  maxUrls?: number;
+  // 支持的内容类型
+  supportedContentTypes?: string[];
+}
+
+// 结构化输出配置
+export interface StructuredOutputConfig {
+  // 启用结构化输出
+  enabled: boolean;
+  // JSON模式
+  jsonSchema?: any;
+  // 枚举值选择
+  enumValues?: string[];
+  // 属性排序
+  propertyOrdering?: string[];
+}
+
+// 完整的LLM调用配置
+export interface LLMCallConfig {
+  // 模型名称
+  modelName: string;
+  // 系统指令
+  systemInstruction?: string;
+  // 基础生成配置
+  generationConfig?: GenerationConfig;
+  // 思考模式配置
+  thinkingConfig?: ThinkingConfig;
+  // 安全设置
+  safetySettings?: SafetyConfig[];
+  // 函数/工具配置
+  tools?: FunctionDeclaration[];
+  toolConfig?: ToolConfig;
+  toolsConfig?: {
+    functionCallingConfig?: FunctionCallingConfig;
+  };
+  // Google搜索配置
+  googleSearch?: GoogleSearchConfig;
+  googleSearchConfig?: GoogleSearchConfig;
+  // URL上下文配置
+  urlContext?: UrlContextConfig;
+  urlContextConfig?: UrlContextConfig;
+  // 结构化输出配置
+  structuredOutput?: StructuredOutputConfig;
+  structuredOutputConfig?: StructuredOutputConfig;
+  // 允许使用的Token ID列表
+  allowedTokenIds?: number[];
+  // 上下文窗口大小
+  contextWindow?: number;
+  // 上下文变量
+  contextVariables?: Record<string, string>;
+  // 自定义提示词前缀和后缀
+  promptPrefix?: string;
+  promptSuffix?: string;
+}
+
+// LLM调用响应
+export interface LLMCallResponse {
+  // 响应内容
+  content: string;
+  // 原始响应对象
+  rawResponse?: any;
+  // 使用的配置
+  usedConfig: LLMCallConfig;
+  // 思考过程 (如果启用)
+  thoughts?: string;
+  // 函数调用结果 (如果有)
+  functionCalls?: Array<{
+    name: string;
+    args: any;
+    result?: any;
+  }>;
+  // 搜索查询和结果 (如果启用Google搜索)
+  searchQueries?: string[];
+  groundingChunks?: Array<{
+    title: string;
+    uri: string;
+  }>;
+  // 性能指标
+  metrics: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    processingTimeMs: number;
+    apiCallTimeMs: number;
+  };
+  // 错误信息 (如果有)
+  error?: {
+    message: string;
+    code?: string;
+    details?: any;
+  };
+}
+
+// Agent提示词配置 (扩展现有的AgentPromptData)
+export interface EnhancedAgentPromptData extends Omit<AgentPromptData, 'model_config'> {
+  // 使用新的LLM调用配置替代简单的model_config
+  llmConfig?: LLMCallConfig;
+  // 允许使用的Token ID列表
+  allowedTokenIds?: number[];
+}
+
+// 可配置的LLM服务接口
+export interface ConfigurableLLMService {
+  // 使用配置调用LLM
+  callWithConfig(
+    prompt: string,
+    config: LLMCallConfig,
+    traceId?: string,
+    userId?: number
+  ): Promise<LLMCallResponse>;
+
+  // 验证配置有效性
+  validateConfig(config: LLMCallConfig): Promise<{
+    valid: boolean;
+    errors: string[];
+  }>;
+
+  // 获取模型支持的功能
+  getModelCapabilities(modelName: string): Promise<{
+    supportsFunctionCalling: boolean;
+    supportsThinking: boolean;
+    supportsGoogleSearch: boolean;
+    supportsUrlContext: boolean;
+    supportsStructuredOutput: boolean;
+    maxInputTokens: number;
+    maxOutputTokens: number;
+  }>;
+}
+
+// 配置预设模板
+export interface LLMConfigTemplate {
+  id: string;
+  name: string;
+  description: string;
+  config: LLMCallConfig;
+  category: 'chat' | 'analysis' | 'code' | 'creative' | 'reasoning' | 'search';
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Re-export from llm-config-unified for convenience
+export type {
+  UnifiedLLMConfig,
+  LLMConfigCategory,
+  ModelConfig,
+  UnifiedToolConfig,
+  ContextConfig,
+  PerformanceConfig,
+  ConfigVersion
+} from './llm-config-unified';
+
+// ============================================================================
+// 🧠 人类化消息处理系统类型定义
+// ============================================================================
+
+/**
+ * 队列中的消息项
+ */
+export interface QueuedMessage {
+  id: string;
+  message: QQMessage;
+  eventData?: any;
+  arrivalTime: Date;
+  sourceKey: string;
+  traceId: string;
+  status: 'queued' | 'aggregated' | 'consumed';
+  metadata?: {
+    isAggregated?: boolean;
+    totalBatchSize?: number;
+    messageIndexInBatch?: number;
+  };
+}
+
+/**
+ * 聚合窗口定义
+ */
+export interface AggregationWindow {
+  sourceKey: string;
+  messages: QueuedMessage[];
+  firstMessageTime: Date;
+  status: 'aggregating' | 'ready_for_consumption' | 'consumed';
+  windowTimer: NodeJS.Timeout | null;
+  windowId?: string;
+}
+
+/**
+ * 消息聚合管理器配置
+ */
+export interface MessageAggregationConfig {
+  aggregationWindowMs: number; // 聚合窗口时间（毫秒）
+  maxQueueSize: number; // 单队列最大消息数
+  enableWindowExtension: boolean; // 是否启用窗口延长
+  maxWindowExtensions: number; // 最大延长次数
+}
+
+/**
+ * 生活节奏管理器配置
+ */
+export interface LifeRhythmConfig {
+  enabled: boolean;
+  baseCheckInterval: number; // 基础检查间隔（毫秒）
+  workHoursProbability: number; // 工作时间检查概率 (0-1)
+  restHoursProbability: number; // 休息时间检查概率 (0-1)
+  sleepHoursProbability: number; // 睡眠时间检查概率 (0-1)
+  workHoursStart: number; // 工作时间开始（小时）
+  workHoursEnd: number; // 工作时间结束（小时）
+  restHoursStart: number; // 休息时间开始（小时）
+  restHoursEnd: number; // 休息时间结束（小时）
+}
+
+/**
+ * 人类化消息处理器配置
+ */
+export interface HumanLikeProcessingConfig {
+  enabled: boolean;
+  aggregation: MessageAggregationConfig;
+  lifeRhythm: LifeRhythmConfig;
+  debug: boolean;
+}
+
+/**
+ * 消息消费触发原因
+ */
+export type ConsumptionTriggerReason =
+  | 'window_timeout'           // 聚合窗口超时
+  | 'queue_size_limit'         // 队列大小限制
+  | 'life_rhythm_check'        // 生活节奏检查
+  | 'manual_trigger'           // 手动触发
+  | 'system_shutdown';         // 系统关闭
+
+/**
+ * 消息到达事件数据
+ */
+export interface MessageArrivalEvent {
+  messageId: string;
+  sourceKey: string;
+  arrivalTime: Date;
+  traceId: string;
+  eventData?: any;
+}
+
+/**
+ * 消息消费事件数据
+ */
+export interface MessageConsumptionEvent {
+  batchId: string;
+  sourceKey: string;
+  messageIds: string[];
+  batchSize: number;
+  triggerReason: ConsumptionTriggerReason;
+  consumptionTime: Date;
+  processingDuration?: number;
+  traceId: string;
+  status: 'started' | 'completed' | 'failed';
+  errorMessage?: string;
+}
+
+/**
+ * 人类化处理统计信息
+ */
+export interface HumanLikeProcessingStats {
+  // 消息到达统计
+  totalMessagesArrived: number;
+  totalBatchesProcessed: number;
+  averageBatchSize: number;
+
+  // 聚合窗口统计
+  aggregationWindowsCreated: number;
+  averageWindowDuration: number;
+  windowTimeoutRate: number;
+
+  // 生活节奏统计
+  rhythmChecksPerformed: number;
+  rhythmChecksSkipped: number;
+  messagesProcessedByRhythm: number;
+  currentRhythmProbability: number;
+
+  // 性能指标
+  averageProcessingDelay: number;
+  totalProcessingTime: number;
+  errorRate: number;
+
+  // 队列状态
+  activeQueues: number;
+  totalQueuedMessages: number;
+  maxQueueSize: number;
+}
+
+/**
+ * 原始处理器句柄接口
+ */
+export interface OriginalMessageHandlers {
+  handlePrivateMessage: (message: QQMessage, eventData?: any) => Promise<void>;
+  handleGroupMessage: (message: QQMessage, eventData?: any) => Promise<void>;
+}
+
+/**
+ * 人类化消息处理器初始化选项
+ */
+export interface HumanLikeProcessorOptions {
+  originalHandlers: OriginalMessageHandlers;
+  database: any; // DatabaseManager类型
+  loggingService: any; // LoggingService类型
+  contextManager: any; // ContextManager类型
+  config?: Partial<HumanLikeProcessingConfig>;
 }

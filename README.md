@@ -45,9 +45,25 @@ qq_bot/
 - **独立性**: 纯静态资源，可用任何Web服务器托管
 - **日志**: `modules/admin-panel/frontend/resources/logs/`
 
-## 🚀 快速开始
+## 🚀 快速开始 (🐳 全面Docker化部署)
 
-### 使用Docker Compose (推荐)
+### 🎯 一键部署 (推荐方式)
+```bash
+# 构建所有服务镜像
+./scripts/docker-deploy.sh all build
+
+# 启动所有服务
+./scripts/docker-deploy.sh all run
+
+# 查看服务状态
+./scripts/docker-deploy.sh all status
+
+# 查看实时日志
+docker logs -f qqbot-qqbot-core
+docker logs -f qqbot-http-api
+```
+
+### 🐳 Docker Compose 部署
 ```bash
 # 启动所有服务
 docker-compose up -d
@@ -57,40 +73,21 @@ docker-compose ps
 
 # 查看日志
 docker-compose logs -f [service-name]
+
+# 停止服务
+docker-compose down
 ```
 
-### 独立开发模式
+### 🔧 开发环境说明
 
-#### 1. HTTP API模块
-```bash
-cd modules/http-api
-npm install
-cp .env.example .env
-npm run dev
-```
+**📋 架构特点**: 本项目采用完全容器化架构，开发和生产都使用Docker部署。
 
-#### 2. QQBot核心模块
-```bash
-cd modules/qqbot-core
-npm install
-cp .env.example .env
-npm run dev
-```
-
-#### 3. 管理面后端
-```bash
-cd modules/admin-panel/backend
-npm install
-cp .env.example .env
-npm run dev
-```
-
-#### 4. 管理面前端
-```bash
-cd modules/admin-panel/frontend
-npm install
-npm run dev
-```
+Docker化开发的特点：
+1. 使用Docker容器运行所有服务
+2. 通过容器挂载源码目录实现热重载
+3. 使用`docker logs`查看实时日志进行调试
+4. 使用`docker exec`进入容器进行深度调试
+5. 开发和生产环境完全一致
 
 ## 🔗 服务端点
 
@@ -122,26 +119,40 @@ npm run dev
 - `modules/admin-panel/backend/resources/logs/`
 - `modules/admin-panel/frontend/resources/logs/`
 
-## 🛠️ 开发指南
+## 🛠️ 开发指南 (🐳 Docker-First架构)
 
-### 各模块独立开发
-1. 进入对应模块目录
-2. 复制 `.env.example` 为 `.env`
-3. 配置环境变量
-4. `npm install && npm run dev`
+### Docker化开发流程
+1. **构建开发环境**: `./scripts/docker-deploy.sh all build`
+2. **启动开发服务**: `./scripts/docker-deploy.sh all run`
+3. **实时日志调试**: `docker logs -f qqbot-qqbot-core`
+4. **容器内调试**: `docker exec -it qqbot-qqbot-core /bin/sh`
 
-### 模块间通信
-- HTTP API ↔ QQBot Core: HTTP API调用
-- Admin Backend ↔ Database: 直接数据库连接
-- Admin Frontend ↔ Admin Backend: REST API
-- QQBot Core ↔ Database: 直接数据库连接
-
-### 测试
+### 代码热重载开发
 ```bash
-# 各模块独立测试
-cd modules/[module-name]
-npm test
+# 挂载源码目录实现热重载
+docker run -d \
+  --name qqbot-dev \
+  --network host \
+  -v "$(pwd)/modules/qqbot-core/src:/app/src" \
+  -v "$(pwd)/logs:/app/logs" \
+  qqbot-qqbot-core
 ```
+
+### 容器内测试
+```bash
+# 在容器内执行测试
+docker exec qqbot-qqbot-core npm test
+docker exec qqbot-admin-backend npm test
+
+# 批量测试 (CI/CD环境)
+./scripts/docker-deploy.sh all test
+```
+
+### 服务间通信架构
+- **宿主机网络模式**: 所有容器共享localhost网络
+- **零延迟通信**: 容器间直接localhost访问
+- **统一端口管理**: 8080(API), 8081(Core), 9080(Admin), 3003(Frontend)
+- **数据库连接**: 所有服务直接访问localhost:3306
 
 ## 📁 目录结构详情
 

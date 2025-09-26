@@ -227,6 +227,7 @@ export class DecisionEngine {
 
   /**
    * AI分析：对需要智能判断的消息进行分析
+   * 临时版本：跳过LLM调用，默认返回需要回复
    */
   private async performAIAnalysis(context: MessageContext, traceId?: string): Promise<{
     shouldRespond: boolean;
@@ -235,72 +236,20 @@ export class DecisionEngine {
     reasoning: string;
     suggestedService?: 'chat' | 'requirement' | 'ignore';
   }> {
-    
+
     const message = context.currentMessage;
     const messageText = typeof message.message === 'string' ? message.message : '';
-    
-    // 构建分析prompt
-    const analysisPrompt = this.buildAnalysisPrompt(messageText, context);
-    
-    try {
-      // 调用AI服务进行分析
-      const response = await this.aiService.generateResponse(
-        analysisPrompt,
-        context.currentMessage.user_id,
-        'intent_analyzer',
-        'participation_analysis',
-        traceId
-      );
-      
-      // 如果AI服务返回null，返回保守的fallback结果
-      if (!response) {
-        this.moduleLogger.info('AI analysis failed, falling back to conservative decision');
-        return {
-          shouldRespond: false,
-          confidence: 10,
-          source: 'ai_analysis' as const,
-          reasoning: 'AI service unavailable, conservative fallback applied',
-          suggestedService: 'ignore' as const
-        };
-      }
-      
-      // 解析AI响应
-      const analysisResult = this.parseAIResponse(response.ai_response || '');
-      const isAuthorized = this.isAuthorizedUser(context.currentMessage.user_id);
-      
-      // 对于@消息，放宽限制 - 因为@本身就表明了用户想要互动的意图
-      // 仅对明显的垃圾内容进行过滤
-      
-      return {
-        shouldRespond: analysisResult.shouldParticipate,
-        confidence: analysisResult.confidence,
-        source: 'ai_analysis',
-        reasoning: analysisResult.reasoning,
-        suggestedService: this.determineServiceFromAnalysis(analysisResult)
-      };
-      
-    } catch (error) {
-      this.moduleLogger.warn('AI analysis failed, using fallback', {
-        traceId,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-      
-      // AI分析失败时的fallback策略
-      const isAuthorized = this.isAuthorizedUser(context.currentMessage.user_id);
-      if (!isAuthorized) {
-        const unauthorizedResult = this.handleUnauthorizedUser(messageText);
-        return {
-          ...unauthorizedResult,
-          reasoning: '规则判断 - ' + unauthorizedResult.reasoning
-        };
-      } else {
-        const fallbackResult = this.getFallbackDecision(messageText);
-        return {
-          ...fallbackResult,
-          reasoning: '规则判断 - ' + fallbackResult.reasoning
-        };
-      }
-    }
+
+    this.moduleLogger.info('AI analysis skipped, using default positive decision');
+
+    // 临时跳过AI调用，默认返回需要回复
+    return {
+      shouldRespond: true,
+      confidence: 80,
+      source: 'ai_analysis' as const,
+      reasoning: 'Default positive decision (AI analysis temporarily disabled)',
+      suggestedService: 'chat' as const
+    };
   }
 
   /**

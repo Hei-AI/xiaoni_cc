@@ -22,8 +22,8 @@ RUN npm install
 COPY src/ ./src/
 COPY tsconfig.json ./
 
-# 全局安装ts-node用于生产运行
-RUN npm install -g ts-node typescript
+# 编译TypeScript
+RUN npm run build
 
 # 设置环境变量
 ENV NODE_ENV=production
@@ -42,5 +42,5 @@ EXPOSE 9080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:9080/api/status || exit 1
 
-# 启动命令
-CMD ["ts-node", "src/index.ts"]
+# 启动命令 - 运行编译后的JavaScript
+CMD ["node", "dist/index.js"]

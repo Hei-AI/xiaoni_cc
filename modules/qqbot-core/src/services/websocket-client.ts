@@ -71,8 +71,13 @@ export class WebSocketClient extends EventEmitter {
     try {
       const message = JSON.parse(data.toString()) as WebSocketMessage;
       
-      // 创建事件上下文并决定是否生成TraceID
-      const eventContext = createEventContext(message.post_type, message);
+      // 🔥 FIX: 创建事件上下文并决定是否生成TraceID - 修复事件类型映射
+      let eventType: string = message.post_type;
+      if (message.post_type === 'message') {
+        // 将通用的'message'类型转换为具体的私聊或群聊类型
+        eventType = message.message_type === 'private' ? 'private_message' : 'group_message';
+      }
+      const eventContext = createEventContext(eventType as any, message);
       traceId = eventContext.traceId;
 
       this.moduleLogger.info('🔍 WebSocket message received', { 
@@ -127,10 +132,10 @@ export class WebSocketClient extends EventEmitter {
 
       // 根据消息类型分发事件，传递TraceID和其他上下文
       const eventData = { traceId, logId, startTime, eventContext };
-      
+
       switch (message.post_type) {
         case 'message':
-          this.moduleLogger.info('📨 Processing message event', { 
+          this.moduleLogger.info('📨 Processing message event', {
             traceId,
             message_type: message.message_type,
             user_id: message.user_id,

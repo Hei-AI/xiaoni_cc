@@ -43,11 +43,11 @@ server {
     gzip_min_length 1024;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
     
-    # 静态资源缓存
+    # 静态资源缓存 - 开发环境使用较短的缓存
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
         root /usr/share/nginx/html;
-        expires 1y;
-        add_header Cache-Control "public, immutable";
+        expires 5m;
+        add_header Cache-Control "public, max-age=300";
     }
     
     # SPA路由处理

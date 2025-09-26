@@ -175,6 +175,23 @@ export class DatabaseManager {
     }
   }
 
+  public async executeInsert(query: string, params: any[] = []): Promise<{ insertId: number; affectedRows: number }> {
+    try {
+      if (!this.pool) {
+        this.createConnectionPool();
+      }
+      // 直接使用连接池的execute方法，让连接池自动管理连接
+      const [result] = await this.pool!.execute(query, params) as [mysql.ResultSetHeader, mysql.FieldPacket[]];
+      return {
+        insertId: result.insertId,
+        affectedRows: result.affectedRows
+      };
+    } catch (error) {
+      this.logger.error('Database insert failed', { query, params, error });
+      throw error;
+    }
+  }
+
   // Conversation相关方法
   public async getConversations(options: {
     limit?: number;

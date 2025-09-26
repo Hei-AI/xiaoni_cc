@@ -15,47 +15,64 @@ This is a sophisticated QQ bot system built with a microservices architecture, i
 - **数据库连接池优化**: 修复连接泄露，优化配置参数
 - **调用链追踪**: 修复websocket_logs和conversations表关联
 
-## Development Commands
+## Development Commands (🐳 Docker-First Architecture)
 
-### Project Management
+### 🚀 Docker 部署命令 (推荐方式)
 ```bash
-# Install all dependencies across modules
-npm run install:all
+# 构建和启动所有服务
+./scripts/docker-deploy.sh all build   # 构建所有镜像
+./scripts/docker-deploy.sh all run     # 启动所有容器服务
+./scripts/docker-deploy.sh all status  # 检查服务状态
+./scripts/docker-deploy.sh all stop    # 停止所有服务
 
-# Start all services (uses Python orchestration script)
-npm start                    # Full startup with dependency checks
-npm run start:fast          # Skip dependency installation
+# 单个服务管理
+./scripts/docker-deploy.sh qqbot-core build
+./scripts/docker-deploy.sh qqbot-core run
+./scripts/docker-deploy.sh qqbot-core stop
 
-# Stop all services 
-npm stop
-
-# Development mode (individual modules)
-npm run dev:qqbot-core      # Core bot service
-npm run dev:http-api        # HTTP API gateway
-npm run dev:admin-backend   # Admin panel backend
-npm run dev:admin-frontend  # Admin panel frontend
-
-# Build and test
-npm run build:all           # Build all modules
-npm run test:all           # Run all tests
-npm run lint:all           # Lint all TypeScript code
+# 容器调试和日志查看
+docker logs -f qqbot-qqbot-core        # 实时日志
+docker exec -it qqbot-qqbot-core /bin/sh  # 进入容器调试
 ```
 
-### Module-specific Commands (from module directories)
+### 🔧 容器内开发调试
 ```bash
-# In modules/qqbot-core/
-npm run dev                 # Start with ts-node
-npm run build              # TypeScript compilation
-npm test                   # Jest tests
-npm run lint              # ESLint
+# ✅ 推荐的容器内开发调试方式
+# 在Docker容器内执行所有开发任务
 
-# Similar pattern for other modules
+# 容器内测试和构建
+docker exec qqbot-qqbot-core npm test      # 运行测试
+docker exec qqbot-qqbot-core npm run lint  # 代码检查
+docker exec qqbot-qqbot-core npm run build # 构建验证
+
+# 热重载开发 (挂载源码目录)
+docker run -d \
+  --name qqbot-dev \
+  --network host \
+  -v "$(pwd)/modules/qqbot-core/src:/app/src" \
+  -v "$(pwd)/logs/qqbot-core:/app/logs" \
+  qqbot-qqbot-core
+
+# CI/CD 流程构建验证
+npm run build:all    # 仅在CI环境使用
+npm run test:all     # 仅在CI环境使用
+npm run lint:all     # 仅在CI环境使用
+
+# 📝 本项目采用Docker容器化架构
 ```
 
-### Port Management
+### 🏥 健康检查和监控
 ```bash
-npm run clean-ports        # Kill processes on configured ports
-npm run health-check       # Check service status
+# 容器健康状态检查
+docker ps --format "table {{.Names}}\t{{.Status}}"
+
+# 服务端点健康检查
+curl http://localhost:8081/health       # QQBot Core
+curl http://localhost:8080/health       # HTTP API Gateway
+curl http://localhost:9080/api/health   # Admin Backend
+
+# 容器资源监控
+docker stats qqbot-qqbot-core qqbot-http-api
 ```
 
 ## Architecture Overview
@@ -156,6 +173,29 @@ See `src/types/index.ts` for complete type definitions.
 - `src/types/index.ts`: Comprehensive type definitions for entire system
 - `scripts/start_modules.py`: Python orchestration script for multi-service startup
 - `package.json`: Workspace configuration with module management commands
+
+## 📋 功能验证和开发规范
+
+### 消息流程API规范文档
+- **规范文档**: `/MESSAGE_FLOW_API_SPECIFICATION.md`
+- **验证脚本**: `/test_message_flow_api_complete.js`
+
+**重要**：所有涉及消息处理流程的开发都必须：
+1. 先参考规范文档设计
+2. 使用验证脚本测试
+3. 更新文档和脚本以适应变更
+
+### 新功能开发检查清单
+- [ ] 是否影响消息流程？如影响，更新`MESSAGE_FLOW_API_SPECIFICATION.md`
+- [ ] 是否添加新的LLM调用？如是，确保调用`loggingService.logLLMCall()`
+- [ ] 是否修改API响应？如是，更新TypeScript接口定义
+- [ ] 运行`node test_message_flow_api_complete.js`验证功能完整性
+
+### 重构项目检查清单
+- [ ] 运行验证脚本记录重构前基准
+- [ ] 更新相关TypeScript接口和数据库查询
+- [ ] 修改验证脚本适应新架构
+- [ ] 确保向后兼容性或提供迁移方案
 
 ## Stage 1 Intelligence Features
 

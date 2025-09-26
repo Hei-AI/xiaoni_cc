@@ -1057,6 +1057,54 @@ export class DatabaseManager {
     }
   }
 
+  public async getAgentPromptById(id: string): Promise<AgentPromptData | null> {
+    const query = 'SELECT * FROM agent_prompts WHERE id = ?';
+
+    try {
+      const results = await this.executeQuery<AgentPromptData>(query, [id]);
+      if (results.length > 0) {
+        const prompt = results[0];
+        // 解析JSON字段
+        if (typeof prompt.system_instructions === 'string') {
+          prompt.system_instructions = JSON.parse(prompt.system_instructions);
+        }
+        if (typeof prompt.context_variables === 'string') {
+          prompt.context_variables = JSON.parse(prompt.context_variables);
+        }
+        if (typeof prompt.model_config === 'string') {
+          prompt.model_config = JSON.parse(prompt.model_config);
+        }
+        if (typeof prompt.advanced_config === 'string') {
+          prompt.advanced_config = JSON.parse(prompt.advanced_config);
+        }
+        if (typeof prompt.allowed_token_ids === 'string') {
+          prompt.allowed_token_ids = JSON.parse(prompt.allowed_token_ids);
+        }
+        return prompt;
+      }
+      return null;
+    } catch (error) {
+      this.moduleLogger.error('Failed to get agent prompt by id', { error, id });
+      return null;
+    }
+  }
+
+  public async deleteAgentPrompt(id: string): Promise<boolean> {
+    const query = 'DELETE FROM agent_prompts WHERE id = ?';
+
+    try {
+      const affectedRows = await this.executeUpdate(query, [id]);
+      if (affectedRows > 0) {
+        this.moduleLogger.info(`Agent prompt deleted: ${id}`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      this.moduleLogger.error('Failed to delete agent prompt', { error, id });
+      return false;
+    }
+  }
+
   public async deactivateAgentPrompt(promptId: string): Promise<boolean> {
     const query = 'UPDATE agent_prompts SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
     const affectedRows = await this.executeUpdate(query, [promptId]);

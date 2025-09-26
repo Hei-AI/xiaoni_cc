@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -89,11 +89,19 @@ const savePrompt = async (promptId: string | null, data: any) => {
 
 export const PromptEditPage: React.FC = () => {
   const { promptId } = useParams<{ promptId: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  
-  const isNew = promptId === 'new';
+
+  // Check if we're on the "new" route by looking at the path
+  const isNew = location.pathname === '/prompts/new' || promptId === 'new';
   const [isEditing, setIsEditing] = useState(isNew);
+
+  // 响应路由参数变化，更新编辑状态
+  useEffect(() => {
+    const newIsNew = location.pathname === '/prompts/new' || promptId === 'new';
+    setIsEditing(newIsNew);
+  }, [promptId, location.pathname]);
 
   // 表单状态
   const [formData, setFormData] = useState({

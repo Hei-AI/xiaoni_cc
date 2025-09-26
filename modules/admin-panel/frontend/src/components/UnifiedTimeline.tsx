@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
+import { Button } from './ui/button';
 import {
   MessageSquare,
   RefreshCw,
@@ -14,9 +15,12 @@ import {
   Brain,
   Users,
   Search,
-  XCircle
+  XCircle,
+  Play
 } from 'lucide-react';
 import { TimelineEvent, ConversationTimelineData, ENGINE_NAMES } from '../types';
+import { DebugPromptModal } from './DebugPromptModal';
+import { usePromptTemplates, separatePromptContent } from '../hooks/usePromptTemplates';
 
 // 统一事件接口
 interface UnifiedEvent {
@@ -210,9 +214,64 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
   const { timeline_events: timelineEvents, timeline_nodes: timelineNodes } = data;
   const traceId = data.trace_id || data.websocket_input?.message_id?.toString();
 
+  // 🔥 获取Prompt模板数据
+  const { data: promptTemplates = [] } = usePromptTemplates();
+
+  // 🔥 重放调试状态管理
+  const [debugModalOpen, setDebugModalOpen] = useState(false);
+  const [debugData, setDebugData] = useState<{
+    systemPrompt: string;
+    userInput: string;
+    model: string;
+    parameters: string;
+    conversationId: string;
+  } | null>(null);
+
   // 获取消息内容信息
   const messageInput = data.message_input || data.websocket_input;
   const messageOutput = data.message_output || data.websocket_output;
+
+  // 🔥 处理LLM重放调试
+  const handleLLMReplay = (event: UnifiedEvent) => {
+    if (event.type !== 'llm' || !event.metadata) return;
+
+    // 从LLM调用链中获取prompt模板信息
+    const llmCall = data.llm_call_chain?.find(call =>
+      call.input?.input_prompt === event.metadata.input_prompt
+    );
+    const promptTemplate = llmCall?.input?.prompt_template || 'enhanced_chat';
+
+    // 🔥 分离System Prompt和User Input
+    const mixedPrompt = event.metadata.input_prompt || '';
+    const { systemPrompt, userInput } = separatePromptContent(
+      promptTemplates,
+      promptTemplate,
+      mixedPrompt
+    );
+
+    const model = event.model_name || 'gemini-2.5-flash';
+    const modelConfig = event.metadata.input?.model_config || {};
+    const parameters = JSON.stringify(modelConfig, null, 2);
+    const conversationId = data.conversation_id || '';
+
+    console.log('🔥 LLM Replay Debug Data (Separated):', {
+      promptTemplate,
+      systemPrompt: systemPrompt.substring(0, 100) + '...',
+      userInput: userInput.substring(0, 100) + '...',
+      model,
+      parameters,
+      conversationId
+    });
+
+    setDebugData({
+      systemPrompt,
+      userInput,
+      model,
+      parameters,
+      conversationId
+    });
+    setDebugModalOpen(true);
+  };
   // 合并和处理所有事件
   const processEvents = (): UnifiedEvent[] => {
     const events: UnifiedEvent[] = [];
@@ -389,7 +448,14 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
           bgColor: 'bg-cyan-100',
           size: 'large',
           status: 'success',
-          metadata: { ...call.input, _phase: 'input' },
+          metadata: {
+            _phase: 'input',
+            input_prompt: call.input?.input_prompt || '',
+            input: {
+              model_config: call.input?.model_config || {}
+            },
+            output: call.output || {}
+          },
           model_name: call.input.model_name,
           agent_type: agentType
         });
@@ -411,7 +477,14 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
           bgColor: 'bg-orange-100',
           size: 'large',
           status: call.output.status === 'SUCCESS' ? 'success' : 'error',
-          metadata: { ...call.output, _phase: 'output' },
+          metadata: {
+            _phase: 'output',
+            input_prompt: call.input?.input_prompt || '',
+            input: {
+              model_config: call.input?.model_config || {}
+            },
+            output: call.output || {}
+          },
           model_name: call.input.model_name,
           agent_type: agentType,
           tokens: call.output.token_usage?.total_tokens,
@@ -645,6 +718,7 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
   }
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
@@ -812,8 +886,21 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
                             {/* LLM调用详细信息 */}
                             {event.type === 'llm' && event.metadata && (
                               <div className="space-y-6">
-                                {/* 基础信息 */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                {/* 基础信息和重放调试按钮 */}
+                                <div className="space-y-4">
+                                  <div className="flex justify-between items-center">
+                                    <h5 className="text-sm font-medium">LLM调用信息</h5>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleLLMReplay(event)}
+                                      className="flex items-center gap-2"
+                                    >
+                                      <Play className="h-4 w-4" />
+                                      重放调试
+                                    </Button>
+                                  </div>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                   {event.model_name && (
                                     <div>
                                       <label className="text-sm font-medium">模型</label>
@@ -838,19 +925,55 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
                                       <div className="text-sm text-muted-foreground">${event.cost}</div>
                                     </div>
                                   )}
+                                  </div>
                                 </div>
 
-                                {/* Prompt详情 */}
-                                {event.metadata.input_prompt && (
-                                  <div>
-                                    <label className="text-sm font-medium mb-2 block">Prompt内容</label>
-                                    <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg">
-                                      <div className="text-xs max-h-40 overflow-y-auto whitespace-pre-line break-words">
-                                        {event.metadata.input_prompt.split('\\n').join('\n')}
+                                {/* 🔥 分离的System Prompt和User Input */}
+                                {event.metadata.input_prompt && (() => {
+                                  // 获取prompt模板信息
+                                  const llmCall = data.llm_call_chain?.find(call =>
+                                    call.input?.input_prompt === event.metadata.input_prompt
+                                  );
+                                  const promptTemplate = llmCall?.input?.prompt_template || 'enhanced_chat';
+
+                                  // 分离System Prompt和User Input
+                                  const { systemPrompt, userInput } = separatePromptContent(
+                                    promptTemplates,
+                                    promptTemplate,
+                                    event.metadata.input_prompt
+                                  );
+
+                                  return (
+                                    <div className="space-y-4">
+                                      {/* System Prompt 部分 */}
+                                      <div>
+                                        <label className="text-sm font-medium mb-2 block flex items-center gap-2">
+                                          <Brain className="h-4 w-4 text-purple-600" />
+                                          System Prompt
+                                          <Badge variant="outline" className="text-xs">{promptTemplate}</Badge>
+                                        </label>
+                                        <div className="bg-purple-50 dark:bg-purple-950/50 p-4 rounded-lg border border-purple-200 dark:border-purple-800">
+                                          <div className="text-xs max-h-40 overflow-y-auto whitespace-pre-line break-words text-purple-900 dark:text-purple-100">
+                                            {systemPrompt || '未找到系统提示词模板'}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* User Input 部分 */}
+                                      <div>
+                                        <label className="text-sm font-medium mb-2 block flex items-center gap-2">
+                                          <MessageSquare className="h-4 w-4 text-blue-600" />
+                                          User Input & Context
+                                        </label>
+                                        <div className="bg-blue-50 dark:bg-blue-950/50 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                                          <div className="text-xs max-h-40 overflow-y-auto whitespace-pre-line break-words text-blue-900 dark:text-blue-100">
+                                            {userInput.split('\\n').join('\n')}
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
-                                  </div>
-                                )}
+                                  );
+                                })()}
 
                                 {/* 模型配置 */}
                                 {event.metadata.input?.model_config && (
@@ -993,5 +1116,24 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
         )}
       </CardContent>
     </Card>
+
+    {/* 🔥 LLM重放调试弹窗 */}
+    {debugData && (
+      <DebugPromptModal
+        isOpen={debugModalOpen}
+        onClose={() => {
+          setDebugModalOpen(false);
+          setDebugData(null);
+        }}
+        conversationId={debugData.conversationId}
+        initialData={{
+          systemPrompt: debugData.systemPrompt,
+          userInput: debugData.userInput,
+          parameters: debugData.parameters,
+          model: debugData.model
+        }}
+      />
+    )}
+    </>
   );
 };

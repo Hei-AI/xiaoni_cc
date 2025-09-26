@@ -75,11 +75,30 @@ const SimpleQueueMonitorPage: React.FC = () => {
   // 获取队列统计
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/simple-queue/stats');
-      const result = await response.json();
-      
-      if (result.success) {
-        setStats(result.data);
+      // 获取统计数据和配置信息
+      const [statsResponse, configResponse] = await Promise.all([
+        fetch('/api/simple-queue/stats'),
+        fetch('/api/simple-queue/config')
+      ]);
+
+      const statsResult = await statsResponse.json();
+      const configResult = await configResponse.json();
+
+      if (statsResult.success && configResult.success) {
+        // 合并统计数据和配置信息
+        const mergedStats = {
+          totalPartitions: statsResult.data.partition_count || 0,
+          activePartitions: statsResult.data.active_partitions || 0,
+          totalMessages: statsResult.data.total_messages || 0,
+          processingPartitions: statsResult.data.processing_messages || 0,
+          config: {
+            pollIntervalMs: configResult.config.performance?.pollIntervalMs || 100,
+            batchSize: configResult.config.limits?.batchSize || 10,
+            maxRetries: configResult.config.limits?.maxRetries || 3,
+            maxPartitions: configResult.config.limits?.maxPartitions || 1000
+          }
+        };
+        setStats(mergedStats);
       }
     } catch (error) {
       console.error('Failed to fetch stats:', error);
@@ -91,9 +110,21 @@ const SimpleQueueMonitorPage: React.FC = () => {
     try {
       const response = await fetch('/api/simple-queue/partitions');
       const result = await response.json();
-      
+
       if (result.success) {
-        setPartitions(result.data);
+        // 映射API响应到组件期望的格式
+        const mappedPartitions = result.data.map((partition: any) => ({
+          partitionKey: partition.partition_key,
+          info: {
+            partitionKey: partition.partition_key,
+            type: partition.type === 'private' ? 'user' : 'group',
+            messageCount: partition.queue_size || 0,
+            isProcessing: partition.processing > 0 || partition.status === 'active',
+            lastProcessedAt: partition.last_activity,
+            messages: [] // 暂时为空，可以后续扩展
+          }
+        }));
+        setPartitions(mappedPartitions);
       }
     } catch (error) {
       console.error('Failed to fetch partitions:', error);

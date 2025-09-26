@@ -158,7 +158,11 @@ export const PromptManagementPage: React.FC = () => {
   const deletePromptMutation = useMutation({
     mutationFn: deletePrompt,
     onSuccess: () => {
+      // 使用多种策略确保数据刷新
       queryClient.invalidateQueries({ queryKey: ['prompts'] });
+      queryClient.refetchQueries({ queryKey: ['prompts'] });
+      // 强制刷新当前查询
+      refetch();
     },
   });
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
@@ -6,16 +6,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Loader2, Send, AlertCircle, CheckCircle, Copy } from 'lucide-react';
+import { Loader2, Send, AlertCircle, CheckCircle, Copy, Brain, MessageSquare } from 'lucide-react';
 
 interface DebugPromptModalProps {
   isOpen: boolean;
   onClose: () => void;
   conversationId?: string;
+  initialData?: {
+    systemPrompt?: string;
+    userInput?: string;
+    prompt?: string; // 向后兼容
+    parameters: string;
+    model: string;
+  };
 }
 
 interface DebugRequest {
-  prompt: string;
+  systemPrompt: string;
+  userInput: string;
   parameters: string;
   model: string;
 }
@@ -40,18 +48,33 @@ const AVAILABLE_MODELS = [
 export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
   isOpen,
   onClose,
-  conversationId
+  conversationId,
+  initialData
 }) => {
   const [request, setRequest] = useState<DebugRequest>({
-    prompt: '',
+    systemPrompt: '',
+    userInput: '',
     parameters: '{}',
     model: 'gemini-2.5-flash'
   });
   const [response, setResponse] = useState<DebugResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // 🔥 预填充初始数据
+  useEffect(() => {
+    if (initialData && isOpen) {
+      setRequest({
+        systemPrompt: initialData.systemPrompt || '',
+        userInput: initialData.userInput || initialData.prompt || '', // 兼容旧版本
+        parameters: initialData.parameters,
+        model: initialData.model
+      });
+      setResponse(null); // 清除之前的响应
+    }
+  }, [initialData, isOpen]);
+
   const handleSubmit = async () => {
-    if (!request.prompt.trim()) {
+    if (!request.systemPrompt.trim() && !request.userInput.trim()) {
       return;
     }
 
@@ -68,13 +91,14 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
       }
 
       const startTime = Date.now();
-      const response = await fetch('/api/debug/prompt', {
+      const response = await fetch('/api/debug/prompt-v2', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          prompt: request.prompt,
+          systemPrompt: request.systemPrompt,
+          userInput: request.userInput,
           parameters: parsedParams,
           model: request.model,
           conversation_id: conversationId
@@ -112,7 +136,8 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
 
   const handleReset = () => {
     setRequest({
-      prompt: '',
+      systemPrompt: '',
+      userInput: '',
       parameters: '{}',
       model: 'gemini-2.5-flash'
     });
@@ -177,14 +202,33 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
               </Select>
             </div>
 
+            {/* 🔥 System Prompt 输入区域 */}
             <div className="space-y-2">
-              <Label htmlFor="prompt">Prompt 内容</Label>
+              <Label htmlFor="systemPrompt" className="flex items-center gap-2">
+                <Brain className="h-4 w-4 text-purple-600" />
+                System Prompt （系统提示词）
+              </Label>
               <Textarea
-                id="prompt"
-                value={request.prompt}
-                onChange={(e) => setRequest(prev => ({ ...prev, prompt: e.target.value }))}
-                placeholder="输入你要测试的prompt..."
-                className="min-h-[120px] font-mono text-sm"
+                id="systemPrompt"
+                value={request.systemPrompt}
+                onChange={(e) => setRequest(prev => ({ ...prev, systemPrompt: e.target.value }))}
+                placeholder="输入系统提示词，定义AI的角色和行为..."
+                className="min-h-[100px] font-mono text-sm bg-purple-50 dark:bg-purple-950/50 border-purple-200 dark:border-purple-800"
+              />
+            </div>
+
+            {/* 🔥 User Input 输入区域 */}
+            <div className="space-y-2">
+              <Label htmlFor="userInput" className="flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-blue-600" />
+                User Input （用户输入和上下文）
+              </Label>
+              <Textarea
+                id="userInput"
+                value={request.userInput}
+                onChange={(e) => setRequest(prev => ({ ...prev, userInput: e.target.value }))}
+                placeholder="输入用户消息和相关上下文..."
+                className="min-h-[120px] font-mono text-sm bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800"
               />
             </div>
 
@@ -298,7 +342,7 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
             <Button
               type="button"
               onClick={handleSubmit}
-              disabled={isLoading || !request.prompt.trim()}
+              disabled={isLoading || (!request.systemPrompt.trim() && !request.userInput.trim())}
             >
               {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               发送调试

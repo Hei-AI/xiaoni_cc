@@ -59,7 +59,7 @@ interface AgentPrompt {
 }
 
 interface DebugSession {
-  id: number;
+  id: string;
   prompt_id: string;
   session_name: string;
   messages: DebugMessage[];
@@ -103,7 +103,7 @@ const debugPrompt = async (promptId: string, messages: DebugMessage[], userInput
 };
 
 // 获取调试历史
-const fetchDebugSessions = async (promptId: string): Promise<{ success: boolean; data: DebugSession[] }> => {
+const fetchDebugSessions = async (promptId: string): Promise<{ success: boolean; data: { sessions: DebugSession[], pagination: any } }> => {
   const response = await fetch(`/api/prompts/${promptId}/debug-sessions`);
   if (!response.ok) {
     throw new Error('Failed to fetch debug sessions');
@@ -112,7 +112,7 @@ const fetchDebugSessions = async (promptId: string): Promise<{ success: boolean;
 };
 
 // 获取特定调试会话
-const fetchDebugSession = async (sessionId: number): Promise<{ success: boolean; data: DebugSession }> => {
+const fetchDebugSession = async (sessionId: string): Promise<{ success: boolean; data: DebugSession }> => {
   const response = await fetch(`/api/debug-sessions/${sessionId}`);
   if (!response.ok) {
     throw new Error('Failed to fetch debug session');
@@ -141,7 +141,7 @@ const saveDebugSession = async (promptId: string, sessionName: string, messages:
 };
 
 // 删除调试会话
-const deleteDebugSession = async (sessionId: number) => {
+const deleteDebugSession = async (sessionId: string) => {
   const response = await fetch(`/api/debug-sessions/${sessionId}`, {
     method: 'DELETE',
   });
@@ -266,7 +266,7 @@ export const PromptDebugPage: React.FC = () => {
         thought: thought.trim() || undefined,
         timestamp: new Date(),
         metadata: {
-          model: response.modelVersion || 'unknown',
+          model: response.model || 'unknown',
           tokensUsed: response.usageMetadata?.totalTokenCount,
           processingTime: response.processingTime
         }
@@ -329,12 +329,12 @@ export const PromptDebugPage: React.FC = () => {
     saveSessionMutation.mutate({ sessionName: saveSessionName, messages });
   };
 
-  const handleLoadSession = (sessionId: number) => {
+  const handleLoadSession = (sessionId: string) => {
     loadSessionMutation.mutate(sessionId);
     setShowHistoryPanel(false);
   };
 
-  const handleDeleteSession = (sessionId: number) => {
+  const handleDeleteSession = (sessionId: string) => {
     if (confirm('确定要删除这个调试会话吗？')) {
       deleteSessionMutation.mutate(sessionId);
     }
@@ -394,9 +394,9 @@ export const PromptDebugPage: React.FC = () => {
           >
             <History className="h-4 w-4 mr-2" />
             调试历史
-            {debugSessionsData?.data && debugSessionsData.data.length > 0 && (
+            {debugSessionsData?.data?.sessions && debugSessionsData.data.sessions.length > 0 && (
               <Badge variant="secondary" className="ml-2">
-                {debugSessionsData.data.length}
+                {debugSessionsData.data.sessions.length}
               </Badge>
             )}
           </Button>
@@ -439,13 +439,13 @@ export const PromptDebugPage: React.FC = () => {
                     <RefreshCw className="h-4 w-4 animate-spin mx-auto mb-2" />
                     <p className="text-sm text-muted-foreground">加载中...</p>
                   </div>
-                ) : !debugSessionsData?.data || debugSessionsData.data.length === 0 ? (
+                ) : !debugSessionsData?.data?.sessions || debugSessionsData.data.sessions.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
                     <p className="text-sm">暂无调试历史</p>
                   </div>
                 ) : (
-                  debugSessionsData?.data.map((session) => (
+                  debugSessionsData?.data.sessions.map((session) => (
                     <div
                       key={session.id}
                       className="p-3 border rounded-lg hover:bg-muted/50 cursor-pointer group"

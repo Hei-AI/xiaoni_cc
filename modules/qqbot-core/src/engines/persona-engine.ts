@@ -10,7 +10,8 @@
 
 import { logger } from '../utils/logger';
 import { AIService } from '../services/ai-service';
-import { QQMessage, PersonaResponse, ResponseContext, PersonaConfig, PersonaType, PersonaAspect } from '../types';
+import { LoggingService } from '../services/logging-service';
+import { PersonaResponse, ResponseContext, PersonaType, PersonaAspect } from '../types';
 
 // Local interface for internal configuration (different from global PersonaConfig)
 interface InternalPersonaConfig {
@@ -34,13 +35,17 @@ interface EmojiConfig {
 
 export class PersonaEngine {
   private aiService: AIService;
+  private loggingService?: LoggingService;
   private moduleLogger = logger.createModuleLogger('persona-engine');
   private personaConfig: InternalPersonaConfig;
   
-  constructor(aiService: AIService) {
+  constructor(aiService: AIService, loggingService?: LoggingService) {
     this.aiService = aiService;
+    this.loggingService = loggingService;
     this.personaConfig = this.getDefaultPersonaConfig();
-    this.moduleLogger.info('PersonaEngine initialized with default "阿正" persona');
+    this.moduleLogger.info('PersonaEngine initialized with default "阿正" persona', {
+      hasLoggingService: !!loggingService
+    });
   }
 
   /**
@@ -59,20 +64,10 @@ export class PersonaEngine {
       // 第一步：基于上下文选择人格侧面
       const selectedPersona = await this.selectPersonaAspect(userMessage, context);
       
-      // 第二步：使用人格化prompt增强AI回复
-      const rawResponse = await this.generatePersonalizedResponse(
-        aiResponse,
-        userMessage, 
-        context, 
-        selectedPersona,
-        traceId,
-        sessionId,
-        context.conversationId
-      );
-      
-      // 第三步：应用后处理过滤器
+      // 🔥 修复：直接使用原始AI回复，避免二次AI调用风险
+      // 第二步：应用轻量级后处理过滤器（保留原始内容完整性）
       const processedResponse = await this.applyPersonalityFilters(
-        rawResponse, 
+        aiResponse, // 直接使用原始AI回复
         context, 
         selectedPersona
       );
@@ -93,12 +88,30 @@ export class PersonaEngine {
         confidence = Math.min(95, confidence + topicRelevance);
       }
       
-      this.moduleLogger.info('Persona response generated', {
+      // 记录PersonaEngine处理埋点（自动序列管理）
+      if (this.loggingService && traceId) {
+        await this.loggingService.logLLMCall({
+          traceId,
+          agentType: 'persona_chat',
+          modelName: 'persona_engine',
+          inputPrompt: `Persona enhancement for: ${aiResponse.substring(0, 100)}`,
+          processedResponse: processedResponse,
+          apiCallTimeMs: generationTime,
+          processingTimeMs: generationTime,
+          status: 'SUCCESS',
+          userId: context.conversationId ? parseInt(context.conversationId.toString()) : undefined,
+          contextSummary: `Persona: ${selectedPersona}, Confidence: ${confidence}`
+        });
+      }
+      
+      this.moduleLogger.info('Persona response enhanced successfully', {
         traceId,
         contextType: context.messageType,
         selectedPersona,
         generationTime,
-        responseLength: processedResponse.length
+        originalLength: aiResponse.length,
+        finalLength: processedResponse.length,
+        processingMethod: 'direct_enhancement'
       });
       
       return {
@@ -108,31 +121,48 @@ export class PersonaEngine {
         confidence,
         processingTime: generationTime,
         metadata: {
-          originalResponse: rawResponse,
-          adjustmentsMade: ['personality_injection', 'emoji_enhancement', 'tone_adjustment'],
+          originalResponse: aiResponse,
+          adjustmentsMade: ['tone_adjustment', 'emoji_enhancement', 'ai_artifacts_removal'],
           emojiCount: this.countEmojis(processedResponse),
           sentimentScore: 0.7 // Default sentiment score
         }
       };
       
     } catch (error) {
-      this.moduleLogger.error('Persona response generation failed', {
+      // 记录PersonaEngine错误埋点（自动序列管理）
+      if (this.loggingService && traceId) {
+        await this.loggingService.logLLMCall({
+          traceId,
+          agentType: 'persona_chat',
+          modelName: 'persona_engine',
+          inputPrompt: `Persona enhancement for: ${aiResponse.substring(0, 100)}`,
+          apiCallTimeMs: Date.now() - startTime,
+          processingTimeMs: Date.now() - startTime,
+          status: 'ERROR',
+          errorMessage: error instanceof Error ? error.message : 'Unknown error',
+          userId: context.conversationId ? parseInt(context.conversationId.toString()) : undefined,
+          contextSummary: 'PersonaEngine processing failed'
+        });
+      }
+      
+      this.moduleLogger.error('Persona enhancement failed, returning original AI response', {
         traceId,
         error: error instanceof Error ? error.message : 'Unknown error',
-        contextType: context.messageType
+        contextType: context.messageType,
+        originalLength: aiResponse.length
       });
       
-      // 错误时返回空结果，不生成任何回复
+      // 错误时返回原始AI回复，确保用户能收到完整响应
       return {
-        content: '',
+        content: aiResponse, // 保留原始AI回复而非空内容
         selectedPersona: 'casual_companion',
         appliedAspects: [],
-        confidence: 0,
+        confidence: 70, // 给予中等置信度
         processingTime: Date.now() - startTime,
         metadata: {
-          originalResponse: '',
-          adjustmentsMade: [],
-          emojiCount: 1,
+          originalResponse: aiResponse,
+          adjustmentsMade: ['fallback_to_original'],
+          emojiCount: this.countEmojis(aiResponse),
           sentimentScore: 0.5
         }
       };
@@ -279,10 +309,7 @@ export class PersonaEngine {
           0, // Use 0 for persona engine calls
           'persona_chat', // Use persona_chat as agentType for proper engine classification
           'persona_chat',
-          traceId,
-          undefined, // No original message for persona calls
-          sessionId,
-          conversationId // Pass the main conversation ID
+          traceId
         );
         return response?.ai_response || '';
       } else {
@@ -433,26 +460,26 @@ ${styleGuide}
   }
 
   /**
-   * 调整语气
+   * 调整语气 - 🔥 修复：减少过度修改，保留原始内容质量
    */
   private adjustTone(response: string, personaAspect: string): string {
     let adjusted = response;
     
-    // 将正式语气调整为更亲和的语气
+    // 🔥 修复：仅进行必要的语气调整，避免破坏原始内容
+    // 只替换明显过于正式的表达
     adjusted = adjusted
-      .replace(/您/g, '你')
-      .replace(/请问/g, '')
-      .replace(/。/g, '～')
-      .replace(/！/g, '！')
-      .replace(/\?/g, '？');
+      .replace(/您好/g, '你好')
+      .replace(/\b您\b/g, '你'); // 使用单词边界，避免误替换
     
-    // 根据人格侧面调整
+    // 🔥 移除激进的标点符号替换，保留原始语调
+    // 原来会把所有"。"替换成"～"，这会破坏严肃内容的语调
+    
+    // 根据人格侧面进行轻微调整（仅限casual_friend模式）
     if (personaAspect === 'casual_friend') {
-      // 轻松朋友模式：更口语化
+      // 轻松朋友模式：适度口语化
       adjusted = adjusted
-        .replace(/非常/g, '超')
-        .replace(/确实/g, '的确')
-        .replace(/可以/g, '可以');
+        .replace(/非常地/g, '超级')
+        .replace(/\b确实是\b/g, '的确是');
     }
     
     return adjusted;
@@ -538,12 +565,20 @@ ${styleGuide}
   }
 
   /**
-   * 控制回复长度
+   * 控制回复长度 - 🔥 修复：大幅放宽长度限制，保留完整AI回复
    */
   private controlResponseLength(response: string, context: ResponseContext): string {
-    const maxLength = context.messageType === 'group' ? 200 : 300;
+    // 🔥 修复：放宽长度限制，群聊800字符，私聊1200字符
+    const maxLength = context.messageType === 'group' ? 800 : 1200;
     
+    // 只对极长回复进行智能截断，保留大部分内容
     if (response.length > maxLength) {
+      this.moduleLogger.warn('Response length exceeds limit, applying smart truncation', {
+        originalLength: response.length,
+        maxLength,
+        messageType: context.messageType
+      });
+      
       // 截断到最后一个完整句子
       const truncated = response.substring(0, maxLength);
       const lastSentenceEnd = Math.max(
@@ -553,7 +588,7 @@ ${styleGuide}
         truncated.lastIndexOf('～')
       );
       
-      if (lastSentenceEnd > maxLength * 0.7) {
+      if (lastSentenceEnd > maxLength * 0.8) {
         return truncated.substring(0, lastSentenceEnd + 1);
       } else {
         return truncated + '...';

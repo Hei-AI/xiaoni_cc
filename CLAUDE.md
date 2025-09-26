@@ -48,65 +48,57 @@ modules/
 - **完整时间线**: WebSocket事件、AI处理、数据库操作的完整追踪
 - **DatabaseManager新增方法**: `getTraceDetails()`, `getFullTraceAnalysis()`
 
-## 常用命令
+## 常用命令 (🐳 Docker 部署 - 推荐方式)
 
-### 项目级操作
+### Docker 部署操作 (主要方式)
 ```bash
-# 安装所有模块依赖
-npm run install:all
+# 🚀 构建所有服务镜像
+./scripts/docker-deploy.sh all build
 
-# 启动所有服务 (Python管理脚本)
-npm start
-# 或
-python3 scripts/start_modules.py start
+# ✅ 启动所有服务 (推荐)
+./scripts/docker-deploy.sh all run
 
-# 停止所有服务
-npm run stop
+# 📊 检查服务状态
+./scripts/docker-deploy.sh all status
 
-# 查看服务状态
-npm run status
+# ⏹️ 停止所有服务
+./scripts/docker-deploy.sh all stop
 
-# 清理端口占用
-npm run clean-ports
+# 🗑️ 清理容器和镜像
+./scripts/docker-deploy.sh all clean
 ```
 
-### 开发命令
+### 单个服务 Docker 管理
 ```bash
-# 开发模式运行单个模块
-npm run dev:http-api
-npm run dev:qqbot-core
-npm run dev:admin-backend
-npm run dev:admin-frontend
+# 管理特定服务 (qqbot-core, http-api, admin-backend, admin-frontend)
+./scripts/docker-deploy.sh qqbot-core build
+./scripts/docker-deploy.sh qqbot-core run
+./scripts/docker-deploy.sh qqbot-core stop
 
-# 构建所有模块
-npm run build:all
+# 查看实时日志
+docker logs -f qqbot-qqbot-core
+docker logs -f qqbot-http-api
 
-# 运行测试
-npm run test:all
-
-# 代码检查
-npm run lint:all
+# 进入容器调试
+docker exec -it qqbot-qqbot-core /bin/sh
 ```
 
-### 模块内部命令 (在各模块目录内)
+### 🔧 CI/CD 和构建命令 (容器内执行)
 ```bash
-# 开发模式
-npm run dev
+# ⚠️ 以下命令在Docker容器内或CI/CD流程中使用
+# 不建议本地直接执行，应优先使用Docker部署
 
-# 构建
-npm run build
+# 在容器内或CI环境执行构建和测试
+docker exec qqbot-qqbot-core npm run build
+docker exec qqbot-qqbot-core npm test
+docker exec qqbot-qqbot-core npm run lint
 
-# 启动生产版本
-npm start
+# CI/CD 流程中的构建验证 (在CI环境或容器内执行)
+./scripts/docker-deploy.sh all build  # Docker构建验证
+./scripts/docker-deploy.sh all test   # Docker自动化测试
+./scripts/docker-deploy.sh all lint   # Docker代码质量检查
 
-# 运行测试
-npm test
-
-# 代码检查
-npm run lint
-
-# 清理构建文件
-npm run clean
+# 注意: 开发和生产都应使用Docker部署
 ```
 
 ## 数据库架构
@@ -139,15 +131,15 @@ npm run clean
 - **用户**: qqbot_user/qqbot_password
 - **字符集**: utf8mb4_unicode_ci
 
-## 开发工作流
+## 开发工作流 (🐳 Docker 容器化开发)
 
 ### 新功能开发流程
 1. 确定功能涉及的模块 (通常是`qqbot-core`)
-2. 在对应模块目录内进行开发
-3. 使用`npm run dev`启动开发模式
-4. 运行`npm test`确保测试通过
-5. 运行`npm run lint`检查代码风格
-6. 使用`npm run build`验证构建成功
+2. 使用Docker容器化开发环境进行开发
+3. 构建并启动开发容器：`./scripts/docker-deploy.sh <module> build && ./scripts/docker-deploy.sh <module> run`
+4. 在容器内运行测试：`docker exec qqbot-<module> npm test`
+5. 在容器内检查代码质量：`docker exec qqbot-<module> npm run lint`
+6. 在容器内验证构建：`docker exec qqbot-<module> npm run build`
 
 ### 调试和日志
 - **日志文件**: `modules/*/resources/logs/` - 模块级日志存储
@@ -156,6 +148,31 @@ npm run clean
 - **日志级别**: DEBUG、INFO、WARN、ERROR四级分类
 - **追踪系统**: 完整请求链路追踪，性能监控
 - **Debug Service**: 开发环境调试工具，实时状态监控
+
+### 🎯 前端问题调试方法论 (重要)
+
+**调试优先级顺序**:
+1. **Playwright 自动化测试** - 首要工具
+   - 模拟真实用户交互流程
+   - 自动化重现问题场景
+   - 获取页面快照和DOM状态信息
+
+2. **F12 开发者工具检查** - 关键辅助排查
+   - **Network 网络面板**: 检查API调用、HTTP状态码、请求/响应数据
+   - **Console 控制台**: 查看JavaScript错误、警告和日志信息
+   - **Elements 元素面板**: 检查DOM结构和CSS样式问题
+   - **Application 应用面板**: 检查LocalStorage、SessionStorage等状态
+
+**标准前端调试流程**:
+```bash
+1. Playwright UI测试 → 发现功能异常和交互问题
+2. F12 Network检查 → 定位网络请求和API响应问题
+3. 后端API验证 → 确认服务端逻辑和数据处理
+4. 代码修复 → 解决根本原因（前端/后端）
+5. Playwright端到端验证 → 确认修复效果和回归测试
+```
+
+**重要**: 所有前端功能问题都应优先使用此方法论进行系统化排查，确保快速准确定位问题根源。
 
 ### 测试策略
 - **单元测试**: Jest框架，TypeScript支持
@@ -243,7 +260,7 @@ cp modules/*/env.example modules/*/.env
 ## 故障排除
 
 ### 常见问题
-1. **端口占用**: 运行`npm run clean-ports`
+1. **端口占用**: 使用`./scripts/docker-deploy.sh all stop`停止所有容器释放端口
 2. **数据库连接失败**: 检查MySQL容器状态
 3. **WebSocket连接断开**: 检查OneBot服务状态
 4. **Token失效**: 检查api_tokens表健康状态
@@ -256,44 +273,41 @@ cp modules/*/env.example modules/*/.env
 - 容器状态检查：`docker ps` 和 `docker logs <container_name>`
 
 ### 开发环境重置
-推荐使用Docker容器化部署，详见 **@DOCKER.md**：
+
+**🐳 Docker 容器化部署** (强烈推荐，生产就绪)：
 
 ```bash
-# 停止所有容器服务
-./scripts/docker-deploy.sh all stop
-
-# 清理容器和镜像
-./scripts/docker-deploy.sh all clean
-
-# 重新构建和启动
-./scripts/docker-deploy.sh all build
-./scripts/docker-deploy.sh all run
+# 完整重置流程
+./scripts/docker-deploy.sh all stop     # 停止所有容器服务
+./scripts/docker-deploy.sh all clean    # 清理容器和镜像
+./scripts/docker-deploy.sh all build    # 重新构建所有镜像
+./scripts/docker-deploy.sh all run      # 启动所有服务
 
 # 查看服务状态
 ./scripts/docker-deploy.sh all status
+
+# 查看服务日志
+docker logs -f qqbot-qqbot-core
 ```
 
-**传统开发模式** (仅在必要时使用)：
+详见 **@DOCKER.md** - 完整的Docker容器化部署指南
+
+**📝 说明**：
 ```bash
-# 停止所有服务
-npm run stop
-
-# 清理端口占用  
-npm run clean-ports
-
-# 重新安装依赖
-npm run install:all
-
-# 重启所有服务
-npm start
+# 本项目采用Docker容器化架构
+# 所有服务通过Docker部署和运行
+# 详见 @DOCKER.md 获取完整部署指南
 ```
 
 ## 综合测试 (🆕 新增)
 
 ### 运行完整系统测试
 ```bash
-# 执行Token-Model绑定系统综合测试
-node test_token_model_system.js
+# 执行Token-Model绑定系统综合测试 (在Docker容器内运行)
+docker exec qqbot-qqbot-core node test_token_model_system.js
+
+# 或使用专用测试容器
+./scripts/docker-deploy.sh qqbot-core exec "node test_token_model_system.js"
 ```
 
 **测试覆盖范围:**
@@ -320,6 +334,12 @@ node test_token_model_system.js
 
 ## 最近更新 (🔥 重要)
 
+### 消息流程API规范建立 (2025-09-22)
+- 建立完整的消息流程API规范文档 (`MESSAGE_FLOW_API_SPECIFICATION.md`)
+- 创建4层验证体系和自动化测试脚本 (`test_message_flow_api_complete.js`)
+- 明确队列解耦架构下的API设计标准
+- 为所有新功能开发和重构建立验证基准
+
 ### Token-Model绑定架构 (2025-09-11)
 - 实现Model-aware Token选择机制
 - 支持按模型独立的黑名单管理
@@ -337,3 +357,13 @@ node test_token_model_system.js
 - is_enabled: 群聊事件监听开关
 - auto_reply_enabled: 群聊自动回复开关
 - 支持群聊级别的细粒度控制
+
+## 🎯 开发规范强制要求
+
+**所有开发者必须遵循**：
+1. **新功能开发前**：阅读 `MESSAGE_FLOW_API_SPECIFICATION.md`
+2. **修改消息处理逻辑**：先更新规范文档，再编码
+3. **完成开发后**：在容器内运行 `docker exec qqbot-qqbot-core node test_message_flow_api_complete.js` 验证
+4. **重构项目时**：确保通过完整验证脚本
+
+**不合规的代码将不被合并到主分支。**

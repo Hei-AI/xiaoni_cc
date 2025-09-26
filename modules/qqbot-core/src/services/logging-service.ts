@@ -33,6 +33,7 @@ export interface WebSocketLogData {
  */
 export interface LLMCallLogData {
   traceId: string;
+  conversationId?: string;
   sessionId?: string;
   callSequence?: number;
   agentType: string;
@@ -89,15 +90,58 @@ export interface SessionTraceUpdateData {
 }
 
 /**
+ * 时间线事件记录数据接口
+ */
+export interface TimelineEventData {
+  traceId: string;
+  conversationId?: string;
+  eventType: string;
+  eventName: string;
+  eventPhase?: 'start' | 'end' | 'instant';
+  eventTime?: Date;
+  durationMs?: number;
+  metadata?: any;
+}
+
+/**
  * 日志记录服务
  */
 export class LoggingService {
   private database: DatabaseManager;
   private moduleLogger = logger.createModuleLogger('logging-service');
-  private callSequenceMap: Map<string, number> = new Map(); // 记录每个TraceID的调用序号
+  // 移除内存中的序列号管理，改用数据库原子操作保证一致性
+  private sequenceLocks: Map<string, Promise<number>> = new Map(); // 按trace_id的序列锁
 
   constructor(database: DatabaseManager) {
     this.database = database;
+  }
+
+  /**
+   * 原子性获取下一个序列号
+   */
+  private async getNextSequenceAtomic(traceId: string): Promise<number> {
+    // 检查是否已经有同一个trace_id的操作在进行
+    const existingLock = this.sequenceLocks.get(traceId);
+    if (existingLock) {
+      // 等待之前的操作完成，然后递增
+      const prevSequence = await existingLock;
+      return prevSequence + 1;
+    }
+
+    // 创建新的原子操作
+    const sequencePromise = this.database.executeQuery(`
+      SELECT COALESCE(MAX(call_sequence), 0) + 1 as next_sequence 
+      FROM llm_call_logs 
+      WHERE trace_id = ?
+    `, [traceId]).then(result => {
+      return result[0]?.next_sequence || 1;
+    }).finally(() => {
+      // 操作完成后清理锁
+      this.sequenceLocks.delete(traceId);
+    });
+
+    this.sequenceLocks.set(traceId, sequencePromise);
+    return await sequencePromise;
   }
 
   /**
@@ -162,13 +206,19 @@ export class LoggingService {
    */
   async logLLMCall(data: LLMCallLogData): Promise<number> {
     try {
-      // 获取或更新调用序号
-      const currentSequence = this.callSequenceMap.get(data.traceId) || 0;
-      const callSequence = data.callSequence || currentSequence + 1;
-      this.callSequenceMap.set(data.traceId, callSequence);
+      // 使用内存锁和数据库确保序列号的原子性
+      let callSequence: number;
+      if (data.callSequence) {
+        // 如果指定了序列号，直接使用
+        callSequence = data.callSequence;
+      } else {
+        // 使用synchronized方式获取序列号
+        callSequence = await this.getNextSequenceAtomic(data.traceId);
+      }
 
       const logData = {
         trace_id: data.traceId,
+        conversation_id: data.conversationId || null,
         session_id: data.sessionId || null,
         call_sequence: callSequence,
         agent_type: data.agentType,
@@ -194,21 +244,24 @@ export class LoggingService {
 
       const sql = `
         INSERT INTO llm_call_logs (
-          trace_id, session_id, call_sequence, agent_type, model_name, model_provider,
+          trace_id, conversation_id, session_id, call_sequence, agent_type, model_name, model_provider,
           prompt_template, input_prompt, input_tokens, model_config, raw_response,
           processed_response, output_tokens, api_call_time_ms, processing_time_ms,
-          status, error_message, error_code, cost_estimate, token_usage,
+          timestamp, status, error_message, error_code, cost_estimate, token_usage,
           user_id, context_summary
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
+      // 🔥 使用应用程序层面的高精度时间戳，确保毫秒精度
+      const preciseTimestamp = new Date();
+
       const values = [
-        logData.trace_id, logData.session_id, logData.call_sequence,
+        logData.trace_id, logData.conversation_id || null, logData.session_id, logData.call_sequence,
         logData.agent_type, logData.model_name, logData.model_provider,
         logData.prompt_template, logData.input_prompt, logData.input_tokens,
         logData.model_config, logData.raw_response, logData.processed_response,
         logData.output_tokens, logData.api_call_time_ms, logData.processing_time_ms,
-        logData.status, logData.error_message, logData.error_code,
+        preciseTimestamp, logData.status, logData.error_message, logData.error_code,
         logData.cost_estimate, logData.token_usage, logData.user_id,
         logData.context_summary
       ];
@@ -565,7 +618,7 @@ export class LoggingService {
    * 清理CallSequence缓存（定期调用）
    */
   clearCallSequenceCache(): void {
-    this.callSequenceMap.clear();
+    // 序列号现在使用数据库原子操作管理，无需手动清理
     this.moduleLogger.info('Call sequence cache cleared');
   }
 
@@ -598,5 +651,121 @@ export class LoggingService {
       this.moduleLogger.error('Failed to get logging statistics', { error: error instanceof Error ? error.message : String(error), hours });
       throw error;
     }
+  }
+
+  /**
+   * 记录时间线事件
+   */
+  async logTimelineEvent(data: TimelineEventData): Promise<number> {
+    try {
+      const eventTime = data.eventTime || new Date();
+
+      const sql = `
+        INSERT INTO timeline_events (
+          trace_id, conversation_id, event_type, event_name, event_phase,
+          event_time, duration_ms, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const values = [
+        data.traceId,
+        data.conversationId || null,
+        data.eventType,
+        data.eventName,
+        data.eventPhase || 'instant',
+        eventTime,
+        data.durationMs || null,
+        data.metadata ? JSON.stringify(data.metadata) : null
+      ];
+
+      const result = await this.database.executeQuery(sql, values);
+      const eventId = (result as any).insertId;
+
+      this.moduleLogger.debug('Timeline event logged', {
+        eventId,
+        traceId: data.traceId,
+        eventType: data.eventType,
+        eventName: data.eventName,
+        eventPhase: data.eventPhase,
+        eventTime: eventTime.toISOString()
+      });
+
+      return eventId;
+    } catch (error: unknown) {
+      this.moduleLogger.error('Failed to log timeline event', {
+        error: error instanceof Error ? error.message : String(error),
+        data
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * 获取指定trace_id的时间线事件
+   */
+  async getTimelineEvents(traceId: string): Promise<any[]> {
+    try {
+      const sql = `
+        SELECT * FROM timeline_events
+        WHERE trace_id = ?
+        ORDER BY event_time ASC
+      `;
+
+      const result = await this.database.executeQuery(sql, [traceId]);
+      return Array.isArray(result) ? result : [];
+    } catch (error: unknown) {
+      this.moduleLogger.error('Failed to get timeline events', {
+        error: error instanceof Error ? error.message : String(error),
+        traceId
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * 便捷方法：记录事件开始
+   */
+  async logEventStart(traceId: string, eventType: string, eventName: string, conversationId?: string, metadata?: any): Promise<number> {
+    return this.logTimelineEvent({
+      traceId,
+      conversationId,
+      eventType,
+      eventName,
+      eventPhase: 'start',
+      metadata
+    });
+  }
+
+  /**
+   * 便捷方法：记录事件结束（带耗时）
+   */
+  async logEventEnd(traceId: string, eventType: string, eventName: string, startTime: Date, conversationId?: string, metadata?: any): Promise<number> {
+    const endTime = new Date();
+    const durationMs = endTime.getTime() - startTime.getTime();
+
+    return this.logTimelineEvent({
+      traceId,
+      conversationId,
+      eventType,
+      eventName,
+      eventPhase: 'end',
+      eventTime: endTime,
+      durationMs,
+      metadata
+    });
+  }
+
+  /**
+   * 便捷方法：记录瞬时事件
+   */
+  async logInstantEvent(traceId: string, eventType: string, eventName: string, conversationId?: string, metadata?: any): Promise<number> {
+    return this.logTimelineEvent({
+      traceId,
+      conversationId,
+      eventType,
+      eventName,
+      eventPhase: 'instant',
+      metadata
+    });
   }
 }

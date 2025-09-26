@@ -46,7 +46,7 @@ export class TokenManager {
   private async loadHealthConfig(): Promise<void> {
     try {
       const result = await this.database.executeQuery<TokenHealthConfig>(
-        "SELECT * FROM token_health_config WHERE enabled = TRUE LIMIT 1"
+        "SELECT * FROM api_token_health_config WHERE enabled = TRUE LIMIT 1"
       );
       
       if (result.length > 0) {
@@ -149,6 +149,76 @@ export class TokenManager {
     } catch (error) {
       this.moduleLogger.error('Failed to get next token', { error });
       return null;
+    }
+  }
+
+  /**
+   * 获取指定模型的下一个可用Token - 支持模型特定的Token管理
+   * @param modelName 模型名称 (如: gemini-2.5-flash, gemini-1.5-pro)
+   * @returns 可用的Token字符串，如果没有可用Token则返回null
+   */
+  public async getNextTokenForModel(modelName: string): Promise<string | null> {
+    try {
+      await this.cleanupBlacklist();
+      await this.resetDailyUsageIfNeeded();
+
+      // 首先尝试查找支持特定模型的Token
+      // 查询agent_prompts表中允许的token_ids，然后匹配api_tokens
+      const modelSpecificQuery = `
+        SELECT DISTINCT t.* FROM api_tokens t
+        INNER JOIN agent_prompts ap ON JSON_CONTAINS(ap.allowed_token_ids, CAST(t.id AS JSON), '$')
+        WHERE ap.model_name = ?
+          AND (t.blacklisted_until IS NULL OR t.blacklisted_until <= NOW())
+          AND t.daily_used < t.daily_limit
+        ORDER BY
+          t.priority ASC,
+          (t.daily_used / t.daily_limit) ASC,
+          t.last_used ASC,
+          t.weight DESC
+        LIMIT 1
+      `;
+
+      this.moduleLogger.debug('Executing model-specific token query', {
+        modelName,
+        query: modelSpecificQuery.replace(/\s+/g, ' ').trim()
+      });
+
+      const modelSpecificTokens = await this.database.executeQuery<ApiTokenData>(
+        modelSpecificQuery,
+        [modelName]
+      );
+
+      if (modelSpecificTokens.length > 0) {
+        const selectedToken = modelSpecificTokens[0];
+
+        // 更新使用统计
+        await this.database.executeUpdate(`
+          UPDATE api_tokens SET
+            last_used = NOW(),
+            daily_used = daily_used + 1,
+            total_used = total_used + 1
+          WHERE id = ?
+        `, [selectedToken.id]);
+
+        this.moduleLogger.debug('Selected model-specific token', {
+          modelName,
+          tokenId: selectedToken.id,
+          project: selectedToken.project_name,
+          dailyUsed: selectedToken.daily_used + 1,
+          dailyLimit: selectedToken.daily_limit
+        });
+
+        return selectedToken.token;
+      }
+
+      // 如果没有模型特定的Token，回退到通用Token选择
+      this.moduleLogger.debug('No model-specific tokens found, falling back to general token selection', { modelName });
+      return await this.getNextToken();
+
+    } catch (error) {
+      this.moduleLogger.error('Failed to get model-specific token', { modelName, error });
+      // 回退到通用Token选择
+      return await this.getNextToken();
     }
   }
 

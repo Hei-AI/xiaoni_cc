@@ -111,7 +111,14 @@ const buildTimelineNodes = (llmFlowData: LLMFlowResponse): TimelineNode[] => {
     });
   }
 
-  return nodes.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  // 🔥 防御性排序：处理时间戳异常和确保稳定排序
+  return nodes.sort((a, b) => {
+    const timeDiff = a.timestamp.getTime() - b.timestamp.getTime();
+    if (timeDiff !== 0) return timeDiff;
+
+    // 时间戳相同时，按照ID排序确保稳定性
+    return a.id.localeCompare(b.id);
+  });
 };
 
 // Calculate timeline summary (with new API flow_summary support)

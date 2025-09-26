@@ -136,7 +136,7 @@ export class ContextManager {
     historyMessages: ConversationData[]
   ): string {
     if (historyMessages.length === 0) {
-      return `用户${currentMessage.sender.nickname}发起了新对话`;
+      return `用户${currentMessage.sender?.nickname || `用户${currentMessage.user_id}`}发起了新对话`;
     }
 
     const recentCount = Math.min(historyMessages.length, 5);
@@ -244,11 +244,11 @@ export class ContextManager {
     // 基本信息
     if (context.currentMessage.message_type === 'private') {
       prompt += `对话类型: 私聊\n`;
-      prompt += `用户: ${context.currentMessage.sender.nickname} (ID: ${context.currentMessage.user_id})\n`;
+      prompt += `用户: ${context.currentMessage.sender?.nickname || `用户${context.currentMessage.user_id}`} (ID: ${context.currentMessage.user_id})\n`;
     } else {
       prompt += `对话类型: 群聊\n`;
       prompt += `群ID: ${context.currentMessage.group_id}\n`;
-      prompt += `发言人: ${context.currentMessage.sender.nickname} (ID: ${context.currentMessage.user_id})\n`;
+      prompt += `发言人: ${context.currentMessage.sender?.nickname || `用户${context.currentMessage.user_id}`} (ID: ${context.currentMessage.user_id})\n`;
     }
 
     // 用户统计信息
@@ -289,7 +289,7 @@ export class ContextManager {
 
     // 当前消息
     prompt += `=== 当前消息 ===\n`;
-    prompt += `${context.currentMessage.sender.nickname}: ${context.currentMessage.raw_message}\n`;
+    prompt += `${context.currentMessage.sender?.nickname || `用户${context.currentMessage.user_id}`}: ${context.currentMessage.raw_message}\n`;
 
     return prompt;
   }

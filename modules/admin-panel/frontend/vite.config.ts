@@ -14,35 +14,20 @@ export default defineConfig({
     port: 3003,
     cors: true,
     proxy: {
-      // Admin Panel API (port 9080)
-      '/api/tokens': {
+      // 全局API代理到Admin Panel Backend (port 9080)
+      '/api': {
         target: 'http://localhost:9080',
-        changeOrigin: true
-      },
-      '/api/conversations': {
-        target: 'http://localhost:9080',
-        changeOrigin: true
-      },
-      '/api/logs': {
-        target: 'http://localhost:9080',
-        changeOrigin: true
-      },
-      '/api/config': {
-        target: 'http://localhost:9080',
-        changeOrigin: true
-      },
-      '/api/dashboard': {
-        target: 'http://localhost:9080',
-        changeOrigin: true
-      },
-      // Debug API moved to Admin Backend (port 9080)
-      '/api/debug': {
-        target: 'http://localhost:9080',
-        changeOrigin: true
-      },
-      '/api/test': {
-        target: 'http://localhost:8081',
-        changeOrigin: true
+        changeOrigin: true,
+        secure: false,
+        timeout: 60000,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('Proxy error:', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('Proxying request:', req.method, req.url);
+          });
+        }
       }
     }
   },

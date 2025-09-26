@@ -2,6 +2,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConversationTimelinePage } from './pages/ConversationTimelinePage';
+import { ConversationsPage } from './pages/ConversationsPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { GroupManagementPage } from './pages/GroupManagementPage';
 import { GroupChatDetailPage } from './pages/GroupChatDetailPage';
@@ -37,6 +38,7 @@ function App() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/conversation/:conversationId/timeline" element={<ConversationTimelinePage />} />
+            <Route path="/conversations" element={<ConversationsPage />} />
             <Route path="/groups" element={<GroupManagementPage />} />
             <Route path="/groups/:groupId" element={<GroupChatDetailPage />} />
             <Route path="/private-chats" element={<PrivateChatManagementPage />} />
@@ -47,6 +49,8 @@ function App() {
             <Route path="/prompts/:promptId/edit" element={<PromptEditPage />} />
             <Route path="/prompts/:promptId/debug" element={<PromptDebugPage />} />
             <Route path="/queue-monitor" element={<SimpleQueueMonitorPage />} />
+            <Route path="/monitoring" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/settings" element={<Navigate to="/prompts" replace />} />
           </Routes>
         </Layout>
       </Router>

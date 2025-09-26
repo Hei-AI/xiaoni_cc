@@ -67,7 +67,8 @@ class QQBot {
       database: this.database,
       websocketClient: this.websocketClient,
       debugService: this.debugService,
-      qqBot: this // Pass QQBot instance for test endpoints
+      qqBot: this, // Pass QQBot instance for test endpoints
+      aiService: this.aiService // 🔥 新增：传递AI服务用于内部LLM调试
     });
     
     // Clear group settings cache to pick up any recent database changes
@@ -263,18 +264,21 @@ class QQBot {
         const handled = await this.handleGroupManagementCommand(userId, userMessage);
         if (handled) return;
 
+        // 需求分析模块已暂时隔离
+        /*
         // 根据Decision Engine和Session类型决策处理消息
-        if (decision.suggestedService === 'requirement' || 
-            (sessionContext.session_type === 'requirement' || 
+        if (decision.suggestedService === 'requirement' ||
+            (sessionContext.session_type === 'requirement' ||
             (sessionContext.session_type === 'chat' && userMessage.length > 100))) {
           // 分析是否为需求
           const intent = await this.aiService.analyzeIntent(userMessage, userId, traceId);
-          
-          if (intent && intent.isRequirement && intent.confidence > 60) {
+
+          if (intent && intent.confidence > 60 && intent.intent === 'requirement') {
             await this.handleRequirement(userId, userMessage, intent, message, sessionContext.session_id);
             return;
           }
         }
+        */
       }
 
       // Stage 1: Enhanced AI conversation with PersonaEngine
@@ -926,14 +930,12 @@ class QQBot {
       
       // 现在我们不再创建新的conversation，而是调用AI服务并更新已存在的记录
       const aiResponse = await this.aiService.generateResponseForExistingConversation(
-        userMessage,
         fullPrompt,
-        userId,
+        conversationId || '', // 确保是string类型
+        messageContext,
         'chat_bot',
         'enhanced_chat',
-        traceId,
-        conversationId, // 传递现有conversationId
-        sessionId
+        traceId
       );
       
       // 如果AI服务返回null（错误时），更新conversation状态为failed
@@ -951,15 +953,15 @@ class QQBot {
       
       // Enhance response with PersonaEngine
       const personaResponse = await this.personaEngine.enhanceResponse(
-        aiResponse.ai_response, // Pass AI response for enhancement
+        aiResponse, // Pass AI response for enhancement
         userMessage,
         responseContext,
         traceId,
         sessionId // Pass session ID for LLM tracking
       );
-      
+
       this.moduleLogger.info('PersonaEngine enhanced response', {
-        originalLength: aiResponse.ai_response.length,
+        originalLength: aiResponse.length,
         enhancedLength: personaResponse.content.length,
         selectedPersona: personaResponse.selectedPersona,
         confidence: personaResponse.confidence,
@@ -992,9 +994,9 @@ class QQBot {
           undefined, // no error
           finalResponse, // AI response
           responseTime,
-          aiResponse.model_name,
+          'gemini-2.5-flash',
           JSON.stringify({
-            baseResponse: aiResponse.ai_response,
+            baseResponse: aiResponse,
             personaResponse: personaResponse,
             messageContext: {
               contextSummary: messageContext.contextSummary,
@@ -1179,6 +1181,20 @@ class QQBot {
   }
 
   /**
+   * Simple version of simulatePrivateMessage for HTTP API
+   */
+  public async simulatePrivateMessageSimple(message: QQMessage, eventData: any): Promise<void> {
+    return await this.handlePrivateMessage(message, eventData);
+  }
+
+  /**
+   * Simple version of simulateGroupMessage for HTTP API
+   */
+  public async simulateGroupMessageSimple(message: QQMessage, eventData: any): Promise<void> {
+    return await this.handleGroupMessage(message, eventData);
+  }
+
+  /**
    * Get current time of day for context
    */
   private getTimeOfDay(): 'morning' | 'afternoon' | 'evening' | 'night' {
@@ -1227,12 +1243,10 @@ class QQBot {
       const conversation = await this.aiService.generateResponseWithContext(
         message, // Original user message for database
         fullPrompt, // Full context prompt for AI
-        userId, 
-        'chat_bot', 
-        'basic_chat', 
-        traceId,
-        originalMessage, // Pass original message for raw_request
-        sessionId // Pass session ID for LLM tracking
+        userId,
+        'chat_bot',
+        'basic_chat',
+        traceId
       );
       
       // 如果AI服务返回null（错误时），不发送任何消息，只记录日志

@@ -282,17 +282,42 @@ docker rmi qqbot-qqbot-core qqbot-http-api qqbot-admin-backend qqbot-admin-front
 ## 开发调试
 
 ### 开发环境运行
-开发时建议直接使用npm命令，生产环境使用Docker：
+
+**🐳 推荐做法 - 全面Docker化开发**：
+所有开发和生产都使用Docker，保证环境一致性：
 
 ```bash
-# 开发环境
-npm run dev:qqbot-core
-npm run dev:http-api
-npm run dev:admin-backend
-npm run dev:admin-frontend
+# 开发环境 (推荐)
+./scripts/docker-deploy.sh all build
+./scripts/docker-deploy.sh all run
 
-# 生产环境
-docker run ... (见上述命令)
+# 实时查看日志进行开发调试
+docker logs -f qqbot-qqbot-core
+docker logs -f qqbot-http-api
+
+# 代码热重载开发 (挂载源码目录)
+docker run -d \
+  --name qqbot-qqbot-core-dev \
+  --network host \
+  -v "$(pwd)/modules/qqbot-core/src:/app/src" \
+  -v "$(pwd)/logs/qqbot-core:/app/logs" \
+  qqbot-qqbot-core
+```
+
+**📋 架构说明**：
+
+本项目采用Docker容器化架构，所有服务通过容器部署：
+
+```text
+🐳 Docker部署优势:
+  ✓ 开发生产环境完全一致
+  ✓ 一键部署，零配置冲突
+  ✓ 隔离性好，环境干净
+  ✓ 支持完整的微服务架构
+  ✓ 便于团队协作和CI/CD
+  ✓ 宿主机网络架构优化
+
+所有开发和生产工作都在Docker容器内进行
 ```
 
 ### 调试容器
