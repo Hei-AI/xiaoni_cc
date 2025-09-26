@@ -81,17 +81,30 @@ const fetchPrompt = async (promptId: string): Promise<{ success: boolean; data: 
   return response.json();
 };
 
-// 调试API调用
-const debugPrompt = async (promptId: string, messages: DebugMessage[], userInput: string) => {
-  const response = await fetch('/api/prompts/debug', {
+// 调试API调用 - 使用debug-v2端点调用Bot Core
+const debugPrompt = async (promptId: string, _messages: DebugMessage[], userInput: string) => {
+  // 获取prompt配置以获取系统指令
+  const promptResponse = await fetch(`/api/prompts/${promptId}`);
+  if (!promptResponse.ok) {
+    throw new Error('Failed to fetch prompt configuration');
+  }
+  const promptData = await promptResponse.json();
+  const prompt = promptData.data;
+
+  const systemPrompt = Array.isArray(prompt.system_instructions)
+    ? prompt.system_instructions.join('\n')
+    : prompt.system_instructions || 'You are a helpful AI assistant.';
+
+  const response = await fetch('/api/debug/prompt-v2', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      promptId,
-      messages,
-      userInput
+      systemPrompt,
+      userInput,
+      model: prompt.model_name || 'gemini-2.5-flash',
+      conversation_id: promptId
     }),
   });
 
@@ -128,7 +141,7 @@ const saveDebugSession = async (promptId: string, sessionName: string, messages:
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      sessionName,
+      session_name: sessionName,
       messages
     }),
   });
@@ -242,11 +255,16 @@ export const PromptDebugPage: React.FC = () => {
     try {
       const response = await debugPrompt(promptId, messages, newUserMessage.content);
 
-      // 解析响应中的思考过程
+      // 处理新的API响应格式
       let thought = '';
       let actualContent = '';
 
-      if (response.candidates && response.candidates[0]) {
+      if (response.success) {
+        // 新的API格式: { success: true, response: "...", thinking: "...", model: "..." }
+        actualContent = response.response || '';
+        thought = response.thinking || '';
+      } else if (response.candidates && response.candidates[0]) {
+        // 兼容旧的Gemini API格式
         const parts = response.candidates[0].content?.parts || [];
 
         // 查找思考过程和实际回复
@@ -267,7 +285,7 @@ export const PromptDebugPage: React.FC = () => {
         timestamp: new Date(),
         metadata: {
           model: response.model || 'unknown',
-          tokensUsed: response.usageMetadata?.totalTokenCount,
+          tokensUsed: response.usage?.totalTokenCount || response.usageMetadata?.totalTokenCount,
           processingTime: response.processingTime
         }
       };

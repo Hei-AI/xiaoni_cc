@@ -73,187 +73,6 @@ export function createPromptRoutes(database: DatabaseManager, logger: winston.Lo
   });
 
   // Prompt调试API - 调用Gemini API进行测试
-  router.post('/prompts/debug', async (req, res) => {
-    try {
-      const { promptId, messages, userInput } = req.body;
-
-      if (!promptId || !userInput) {
-        return res.status(400).json({
-          success: false,
-          error: 'Missing required fields: promptId and userInput',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      // 获取Prompt配置
-      const prompt = await database.executeQuery(
-        'SELECT * FROM agent_prompts WHERE id = ? AND is_active = true',
-        [promptId]
-      );
-
-      if (prompt.length === 0) {
-        return res.status(404).json({
-          success: false,
-          error: 'Prompt not found or inactive',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      const promptConfig = prompt[0] as any;
-      const modelName = promptConfig.model_name || 'gemini-2.5-flash';
-
-      // 获取系统指令
-      const systemInstructions = promptConfig.system_instructions || 'You are a helpful AI assistant.';
-
-      // 构建对话历史
-      const conversationHistory = [];
-
-      // 添加历史消息（如果有）
-      if (messages && Array.isArray(messages)) {
-        messages.forEach((msg: any) => {
-          if (msg.role === 'user') {
-            conversationHistory.push({
-              role: 'user',
-              parts: [{ text: msg.content }]
-            });
-          } else if (msg.role === 'assistant') {
-            conversationHistory.push({
-              role: 'model',
-              parts: [{ text: msg.content }]
-            });
-          }
-        });
-      }
-
-      // 添加当前用户输入
-      conversationHistory.push({
-        role: 'user',
-        parts: [{ text: userInput }]
-      });
-
-      // 获取可用的Token
-      const availableTokens = await database.executeQuery<{
-        id: number;
-        token: string;
-        project_name: string;
-        model_blacklist: string | null;
-        daily_used: number;
-        daily_limit: number;
-      }>(
-        `SELECT id, token, project_name, model_blacklist, daily_used, daily_limit
-         FROM api_tokens
-         WHERE (blacklisted_until IS NULL OR blacklisted_until <= NOW())
-           AND daily_used < daily_limit
-         ORDER BY priority ASC, (daily_used / daily_limit) ASC, weight DESC
-         LIMIT 1`
-      );
-
-      if (availableTokens.length === 0) {
-        return res.status(503).json({
-          success: false,
-          error: 'No available API tokens',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      const apiToken = availableTokens[0].token;
-
-      // 构建Gemini API请求体
-      const requestBody = {
-        contents: conversationHistory,
-        generationConfig: {
-          thinkingConfig: {
-            thinkingBudget: -1,
-            includeThoughts: true
-          },
-          ...(promptConfig.model_config || {}),
-          temperature: promptConfig.model_config?.temperature || 1.0,
-          topK: promptConfig.model_config?.topK || 40,
-          topP: promptConfig.model_config?.topP || 0.95,
-          maxOutputTokens: promptConfig.model_config?.maxOutputTokens || 65536
-        },
-        safetySettings: promptConfig.advanced_config?.safetySettings || [
-          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
-        ],
-        system_instruction: {
-          parts: [
-            {
-              text: Array.isArray(systemInstructions)
-                ? systemInstructions.join('\n')
-                : systemInstructions
-            }
-          ]
-        }
-      };
-
-      // 调用Gemini API
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiToken}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(requestBody)
-        }
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('Gemini API error', {
-          status: response.status,
-          statusText: response.statusText,
-          response: errorText,
-          promptId,
-          modelName
-        });
-
-        return res.status(response.status).json({
-          success: false,
-          error: `Gemini API error: ${response.statusText}`,
-          details: errorText,
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      const apiResult = await response.json() as any;
-
-      // 更新Token使用统计
-      await database.executeUpdate(
-        'UPDATE api_tokens SET daily_used = daily_used + 1, total_used = total_used + 1, last_used = NOW() WHERE id = ?',
-        [availableTokens[0].id]
-      );
-
-      // 提取响应内容
-      const aiResponse = apiResult.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated';
-      const thinkingContent = apiResult.candidates?.[0]?.content?.parts?.find((part: any) => part.thought)?.thought || null;
-
-      res.json({
-        success: true,
-        response: aiResponse,
-        thinking: thinkingContent,
-        model: modelName,
-        token_used: {
-          id: availableTokens[0].id,
-          project_name: availableTokens[0].project_name
-        },
-        usage: apiResult.usageMetadata || null,
-        timestamp: new Date().toISOString()
-      });
-
-    } catch (error) {
-      logger.error('Prompt debug failed', { error, promptId: req.body.promptId });
-      res.status(500).json({
-        success: false,
-        error: 'Failed to execute prompt debug',
-        message: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
-      });
-    }
-  });
 
   // 创建新Prompt
   router.post('/prompts', async (req, res) => {
@@ -506,8 +325,9 @@ export function createPromptRoutes(database: DatabaseManager, logger: winston.Lo
         input_count: number;
         created_at: string;
         updated_at: string;
+        messages: any;
       }>(
-        `SELECT id, session_name, input_count, created_at, updated_at
+        `SELECT id, session_name, input_count, created_at, updated_at, messages
          FROM prompt_debug_sessions
          WHERE prompt_id = ?
          ORDER BY updated_at DESC
@@ -522,10 +342,40 @@ export function createPromptRoutes(database: DatabaseManager, logger: winston.Lo
       );
       const total = totalResult[0]?.total || 0;
 
+      // 为每个会话计算消息总数
+      const sessionsWithMessageCount = sessions.map(session => {
+        let messageCount = 0;
+        try {
+          if (session.messages) {
+            if (Array.isArray(session.messages)) {
+              messageCount = session.messages.length;
+            } else if (typeof session.messages === 'string') {
+              const parsedMessages = JSON.parse(session.messages);
+              messageCount = Array.isArray(parsedMessages) ? parsedMessages.length : 0;
+            }
+          }
+        } catch (error) {
+          logger.warn('Failed to parse messages for message count', {
+            sessionId: session.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          messageCount = session.input_count; // 回退到input_count
+        }
+
+        return {
+          id: session.id,
+          session_name: session.session_name,
+          input_count: session.input_count,
+          message_count: messageCount, // 添加总消息数量
+          created_at: session.created_at,
+          updated_at: session.updated_at
+        };
+      });
+
       res.json({
         success: true,
         data: {
-          sessions,
+          sessions: sessionsWithMessageCount,
           pagination: {
             total,
             limit,
@@ -553,6 +403,15 @@ export function createPromptRoutes(database: DatabaseManager, logger: winston.Lo
       const promptId = req.params.promptId;
       const { session_name, messages = [] } = req.body;
 
+      // 🔍 Debug logging
+      logger.info('Save debug session called', {
+        promptId,
+        session_name,
+        session_name_type: typeof session_name,
+        session_name_trimmed: session_name?.trim(),
+        messages_count: Array.isArray(messages) ? messages.length : 0
+      });
+
       // 检查Prompt是否存在
       const prompt = await database.executeQuery(
         'SELECT id FROM agent_prompts WHERE id = ?',
@@ -577,7 +436,9 @@ export function createPromptRoutes(database: DatabaseManager, logger: winston.Lo
         [
           sessionId,
           promptId,
-          session_name || `Debug Session ${new Date().toLocaleString()}`,
+          session_name !== undefined && session_name !== null && session_name.trim() !== ''
+            ? session_name.trim()
+            : `Debug Session ${new Date().toLocaleString()}`,
           JSON.stringify(messages),
           inputCount
         ]
@@ -588,7 +449,9 @@ export function createPromptRoutes(database: DatabaseManager, logger: winston.Lo
         data: {
           id: sessionId,
           prompt_id: promptId,
-          session_name: session_name || `Debug Session ${new Date().toLocaleString()}`,
+          session_name: session_name !== undefined && session_name !== null && session_name.trim() !== ''
+            ? session_name.trim()
+            : `Debug Session ${new Date().toLocaleString()}`,
           input_count: inputCount
         },
         message: 'Debug session created successfully',
@@ -634,13 +497,47 @@ export function createPromptRoutes(database: DatabaseManager, logger: winston.Lo
 
       const sessionData = session[0];
 
-      // 解析JSON消息
+      // 处理messages字段 - MySQL驱动已经自动解析了JSON
       let messages = [];
-      try {
-        messages = JSON.parse(sessionData.messages);
-      } catch (parseError) {
-        logger.warn('Failed to parse session messages', { sessionId, parseError });
+
+      // 简化处理逻辑：MySQL2驱动已经自动解析JSON字段
+      if (Array.isArray(sessionData.messages)) {
+        // MySQL驱动已经将JSON解析为数组，直接使用
+        messages = sessionData.messages;
+        logger.info('Messages loaded successfully', {
+          sessionId,
+          messageCount: messages.length,
+          messagesType: 'array'
+        });
+      } else if (sessionData.messages === null || sessionData.messages === undefined) {
+        // 处理null/undefined情况
         messages = [];
+        logger.info('Messages field is null/undefined', { sessionId });
+      } else {
+        // 其他情况记录详细信息
+        logger.warn('Unexpected messages data structure', {
+          sessionId,
+          messagesType: typeof sessionData.messages,
+          messagesIsArray: Array.isArray(sessionData.messages),
+          messagesValue: sessionData.messages
+        });
+
+        // 尝试其他处理方式
+        try {
+          if (typeof sessionData.messages === 'string') {
+            messages = JSON.parse(sessionData.messages);
+          } else if (typeof sessionData.messages === 'object') {
+            messages = [sessionData.messages];
+          } else {
+            messages = [];
+          }
+        } catch (parseError) {
+          logger.error('Failed to parse messages', {
+            sessionId,
+            parseError: parseError instanceof Error ? parseError.message : String(parseError)
+          });
+          messages = [];
+        }
       }
 
       res.json({
