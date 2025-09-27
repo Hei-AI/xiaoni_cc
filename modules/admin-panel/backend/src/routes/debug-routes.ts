@@ -2,6 +2,57 @@ import express from 'express';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
 
+// 🔥 上下文变量处理和模板替换功能
+function processContextVariables(
+  template: string,
+  contextVariables: any = {},
+  runtimeVariables: any = {}
+): string {
+  if (!template || typeof template !== 'string') {
+    return template || '';
+  }
+
+  let processedTemplate = template;
+
+  // 🔥 合并上下文变量和运行时变量
+  const allVariables = {
+    ...contextVariables,
+    ...runtimeVariables
+  };
+
+  // 🔥 替换 {{variable}} 格式的变量
+  processedTemplate = processedTemplate.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+    if (allVariables.hasOwnProperty(varName)) {
+      const value = allVariables[varName];
+      return typeof value === 'string' ? value : JSON.stringify(value);
+    }
+    return match; // 保留未找到的变量
+  });
+
+  // 🔥 替换 ${variable} 格式的变量
+  processedTemplate = processedTemplate.replace(/\$\{(\w+)\}/g, (match, varName) => {
+    if (allVariables.hasOwnProperty(varName)) {
+      const value = allVariables[varName];
+      return typeof value === 'string' ? value : JSON.stringify(value);
+    }
+    return match; // 保留未找到的变量
+  });
+
+  // 🔥 处理动态日期时间变量
+  processedTemplate = processedTemplate.replace(/\{\{now\.(\w+)\}\}/g, (match, format) => {
+    const now = new Date();
+    switch (format) {
+      case 'iso': return now.toISOString();
+      case 'date': return now.toDateString();
+      case 'time': return now.toTimeString();
+      case 'locale': return now.toLocaleString('zh-CN');
+      default: return now.toISOString();
+    }
+  });
+
+  return processedTemplate;
+}
+
 // 创建调试相关路由
 export function createDebugRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
@@ -115,46 +166,148 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
     }
   });
 
-  // 🔥 新的简化Debug prompt endpoint - 使用Bot Core内部接口
+  // 🔥 增强的Debug prompt endpoint - 支持完整prompt配置和多轮对话
   router.post('/debug/prompt-v2', async (req, res) => {
     try {
       const {
-        systemPrompt = '',     // 系统提示词
-        userInput,            // 用户输入
+        prompt_id,            // 🔥 新增: Prompt ID用于加载完整配置
+        messages = [],        // 🔥 新增: 多轮对话历史
+        systemPrompt,         // 向后兼容
+        userInput,           // 向后兼容
         parameters = {},
-        model = 'gemini-2.5-flash',
+        model,
         conversation_id
       } = req.body;
 
       // 参数验证
-      if (!userInput || typeof userInput !== 'string') {
+      if (!prompt_id && !userInput) {
         return res.status(400).json({
           success: false,
-          error: 'userInput is required and must be a string',
+          error: 'Either prompt_id with messages or userInput is required',
           timestamp: new Date().toISOString()
         });
       }
 
-      logger.info('Debug Prompt V2 called', {
-        hasSystemPrompt: !!systemPrompt,
-        userInputLength: userInput.length,
-        model,
-        conversation_id
+      let promptConfig: any = null;
+      let finalSystemPrompt = systemPrompt || '';
+      let finalMessages = messages;
+      let finalModel = model || 'gemini-2.5-flash';
+      let finalParameters = parameters;
+
+      // 🔥 如果提供了prompt_id，从数据库加载完整配置
+      if (prompt_id) {
+        try {
+          const promptQuery = `
+            SELECT id, agent_type, prompt_name, system_instructions,
+                   user_prompt_template, context_variables, model_config,
+                   advanced_config, model_name, allowed_token_ids, is_active
+            FROM agent_prompts
+            WHERE id = ? AND is_active = 1
+          `;
+          const promptResults = await database.executeQuery(promptQuery, [prompt_id]);
+
+          if (!promptResults || promptResults.length === 0) {
+            return res.status(404).json({
+              success: false,
+              error: `Prompt not found or inactive: ${prompt_id}`,
+              timestamp: new Date().toISOString()
+            });
+          }
+
+          promptConfig = promptResults[0];
+
+          // 🔥 加载完整的系统指令
+          let rawSystemPrompt = Array.isArray(promptConfig.system_instructions)
+            ? promptConfig.system_instructions.join('\n')
+            : promptConfig.system_instructions || '';
+
+          // 🔥 处理上下文变量和模板替换
+          finalSystemPrompt = processContextVariables(rawSystemPrompt, promptConfig.context_variables, {
+            conversation_id: conversation_id || prompt_id,
+            timestamp: new Date().toISOString(),
+            model: promptConfig.model_name || model || 'gemini-2.5-flash'
+          });
+
+          // 🔥 使用prompt配置的模型
+          finalModel = promptConfig.model_name || model || 'gemini-2.5-flash';
+
+          // 🔥 合并配置参数
+          finalParameters = {
+            ...parameters,
+            model_config: promptConfig.model_config,
+            advanced_config: promptConfig.advanced_config,
+            context_variables: promptConfig.context_variables,
+            allowed_token_ids: promptConfig.allowed_token_ids
+          };
+
+          logger.info('Loaded prompt configuration', {
+            prompt_id,
+            prompt_name: promptConfig.prompt_name,
+            model: finalModel,
+            hasAdvancedConfig: !!promptConfig.advanced_config,
+            hasContextVariables: !!promptConfig.context_variables,
+            allowedTokenIds: promptConfig.allowed_token_ids
+          });
+
+        } catch (dbError) {
+          logger.error('Failed to load prompt configuration', { error: dbError, prompt_id });
+          return res.status(500).json({
+            success: false,
+            error: 'Failed to load prompt configuration',
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+
+      // 🔥 向后兼容：如果没有messages但有userInput，构造简单消息
+      if (!messages.length && userInput) {
+        finalMessages = [{ role: 'user', content: userInput }];
+      }
+
+      // 🔥 处理用户消息模板替换（如果配置了user_prompt_template）
+      if (promptConfig && promptConfig.user_prompt_template) {
+        finalMessages = finalMessages.map((msg: any) => {
+          if (msg.role === 'user') {
+            const templateContext = {
+              user_input: msg.content,
+              conversation_id: conversation_id || prompt_id,
+              timestamp: new Date().toISOString()
+            };
+            const processedContent = processContextVariables(
+              promptConfig.user_prompt_template,
+              promptConfig.context_variables,
+              templateContext
+            );
+            return { ...msg, content: processedContent };
+          }
+          return msg;
+        });
+      }
+
+      logger.info('Debug Prompt V2 called with enhanced config', {
+        prompt_id,
+        hasSystemPrompt: !!finalSystemPrompt,
+        messageCount: finalMessages.length,
+        model: finalModel,
+        conversation_id,
+        hasAdvancedConfig: !!finalParameters.advanced_config
       });
 
-      // 🔥 调用Bot Core的内部LLM调试接口
+      // 🔥 调用Bot Core的内部LLM调试接口，传递完整配置
+      const internalApiPayload = {
+        systemPrompt: finalSystemPrompt,
+        messages: finalMessages,        // 🔥 传递多轮对话
+        parameters: finalParameters,    // 🔥 传递完整配置
+        model: finalModel,
+        conversation_id: conversation_id || prompt_id
+      };
+
       const internalApiResponse = await fetch('http://localhost:8081/api/internal/llm/debug', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          systemPrompt,
-          userInput,
-          parameters,
-          model,
-          conversation_id
-        })
+        body: JSON.stringify(internalApiPayload)
       });
 
       if (!internalApiResponse.ok) {
@@ -162,7 +315,8 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
         logger.error('Bot Core internal API failed', {
           status: internalApiResponse.status,
           statusText: internalApiResponse.statusText,
-          response: errorText
+          response: errorText,
+          payload: internalApiPayload
         });
 
         return res.status(internalApiResponse.status).json({
@@ -178,20 +332,27 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
       logger.info('Debug Prompt V2 succeeded via Bot Core', {
         hasResponse: !!apiResult.response,
         model: apiResult.model,
-        conversation_id
+        conversation_id: conversation_id || prompt_id,
+        prompt_id
       });
 
       res.json({
         success: true,
         response: apiResult.response,
+        thinking: apiResult.thinking,           // 🔥 支持思考过程
         token_used: apiResult.token_used,
         model: apiResult.model,
         performance: apiResult.performance,
+        prompt_config: promptConfig ? {         // 🔥 返回使用的配置信息
+          prompt_name: promptConfig.prompt_name,
+          agent_type: promptConfig.agent_type,
+          model_name: promptConfig.model_name
+        } : null,
         timestamp: new Date().toISOString()
       });
 
     } catch (error) {
-      logger.error('Debug Prompt V2 failed', { error });
+      logger.error('Debug Prompt V2 failed', { error, prompt_id: req.body.prompt_id });
       res.status(500).json({
         success: false,
         error: 'Failed to execute debug prompt via Bot Core',

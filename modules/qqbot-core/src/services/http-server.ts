@@ -199,25 +199,39 @@ class HttpServer {
       }
     });
 
-    // 🔥 新增：内部LLM调试接口 - 复用企业级AIService
+    // 🔥 增强的内部LLM调试接口 - 支持多轮对话和完整配置
     this.app.post('/api/internal/llm/debug', async (req: Request, res: Response) => {
       try {
-        const { systemPrompt, userInput, parameters = {}, model = 'gemini-2.5-flash', conversation_id } = req.body;
+        const {
+          systemPrompt,
+          userInput,          // 向后兼容单条消息
+          messages = [],      // 🔥 新增: 多轮对话消息数组
+          parameters = {},
+          model = 'gemini-2.5-flash',
+          conversation_id
+        } = req.body;
 
-        // 参数验证
-        if (!userInput || typeof userInput !== 'string') {
+        // 🔥 参数验证: 支持messages数组或单个userInput
+        let finalMessages = [];
+        if (messages && Array.isArray(messages) && messages.length > 0) {
+          finalMessages = messages;
+        } else if (userInput && typeof userInput === 'string') {
+          // 向后兼容: 单个userInput转换为messages格式
+          finalMessages = [{ role: 'user', content: userInput }];
+        } else {
           return res.status(400).json({
             success: false,
-            error: 'userInput is required and must be a string',
+            error: 'Either messages array or userInput string is required',
             timestamp: new Date().toISOString()
           });
         }
 
         this.moduleLogger.info('Internal LLM Debug API called', {
           hasSystemPrompt: !!systemPrompt,
-          userInputLength: userInput.length,
+          messageCount: finalMessages.length,
           model,
-          conversation_id
+          conversation_id,
+          isMultiTurn: finalMessages.length > 1
         });
 
         // 🔥 复用企业级AIService，而非重复实现Token管理
@@ -229,7 +243,7 @@ class HttpServer {
           });
         }
 
-        // 🔥 直接调用TokenManager和AI API，避免依赖agent配置
+        // 🔥 直接调用TokenManager和AI API，支持Token限制过滤
         const tokenManager = this.services.aiService.tokenManager;
         if (!tokenManager) {
           return res.status(503).json({
@@ -239,8 +253,20 @@ class HttpServer {
           });
         }
 
-        // 获取可用Token
-        const tokenInfo = await tokenManager.getTokenWithRetry(3);
+        // 🔥 获取可用Token (支持allowed_token_ids限制)
+        let tokenInfo;
+        if (parameters.allowed_token_ids && Array.isArray(parameters.allowed_token_ids) && parameters.allowed_token_ids.length > 0) {
+          // TODO: 实现TokenManager.getSpecificToken方法以支持token ID过滤
+          // 当前使用默认策略，未来需要在TokenManager中添加此功能
+          this.moduleLogger.warn('allowed_token_ids specified but getSpecificToken not implemented yet', {
+            allowed_token_ids: parameters.allowed_token_ids
+          });
+          tokenInfo = await tokenManager.getTokenWithRetry(3);
+        } else {
+          // 使用默认token获取策略
+          tokenInfo = await tokenManager.getTokenWithRetry(3);
+        }
+
         if (!tokenInfo) {
           return res.status(503).json({
             success: false,
@@ -249,20 +275,28 @@ class HttpServer {
           });
         }
 
-        // 构建Gemini API请求
+        // 🔥 构建Gemini API多轮对话请求
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${tokenInfo.token}`;
 
+        // 🔥 转换消息格式为Gemini API格式
+        const contents = finalMessages.map(msg => ({
+          role: msg.role === 'assistant' ? 'model' : msg.role,
+          parts: [{ text: msg.content }]
+        }));
+
+        // 🔥 支持高级配置和参数合并
+        const advancedConfig = parameters.advanced_config || {};
+        const modelConfig = parameters.model_config || {};
+
         const requestBody: any = {
-          contents: [{
-            parts: [{ text: userInput }]
-          }],
+          contents,
           generationConfig: {
-            temperature: parameters.temperature || 0.7,
-            maxOutputTokens: parameters.maxOutputTokens || parameters.max_output_tokens || 1000,
-            topP: parameters.top_p || 0.95,
-            topK: parameters.top_k || 40
+            temperature: advancedConfig.temperature || modelConfig.temperature || parameters.temperature || 0.7,
+            maxOutputTokens: advancedConfig.maxOutputTokens || modelConfig.maxOutputTokens || parameters.maxOutputTokens || parameters.max_output_tokens || 1000,
+            topP: advancedConfig.topP || modelConfig.topP || parameters.top_p || 0.95,
+            topK: advancedConfig.topK || modelConfig.topK || parameters.top_k || 40
           },
-          safetySettings: [
+          safetySettings: advancedConfig.safetySettings || [
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
             { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
             { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
@@ -270,6 +304,12 @@ class HttpServer {
             { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_NONE" }
           ]
         };
+
+        // 🔥 支持思考模式配置
+        if (advancedConfig.thinkingConfig && model.includes('2.5-flash-thinking')) {
+          requestBody.generationConfig.responseSchema = advancedConfig.thinkingConfig.responseSchema;
+          requestBody.tools = advancedConfig.thinkingConfig.tools;
+        }
 
         // 添加系统指令
         if (systemPrompt) {
@@ -301,21 +341,44 @@ class HttpServer {
 
         const geminiData = await geminiResponse.json() as any;
         const responseTime = Date.now() - startTime;
-        const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated';
+
+        // 🔥 支持思考模式响应解析
+        let aiResponse = '';
+        let thinking = '';
+
+        if (geminiData.candidates?.[0]?.content?.parts) {
+          const parts = geminiData.candidates[0].content.parts;
+          for (const part of parts) {
+            if (part.thought) {
+              // 思考部分
+              thinking += part.text || '';
+            } else {
+              // 实际回复部分
+              aiResponse += part.text || '';
+            }
+          }
+        }
+
+        // 如果没有找到分离的内容，使用第一个part作为回复
+        if (!aiResponse && !thinking) {
+          aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated';
+        }
 
         // 报告Token使用成功
         await tokenManager.reportSuccess(tokenInfo.token, responseTime);
 
         const result = {
-          ai_response: aiResponse,
+          ai_response: aiResponse.trim(),
+          thinking: thinking.trim() || undefined,
           model_name: model,
           response_time: responseTime / 1000
         };
 
-        // 响应成功，返回结果
+        // 🔥 响应成功，返回增强结果
         res.json({
           success: true,
           response: result.ai_response,
+          thinking: result.thinking,          // 🔥 支持思考过程
           token_used: {
             id: tokenInfo.tokenId,
             project_name: tokenInfo.projectName || 'Debug Token'
@@ -324,6 +387,7 @@ class HttpServer {
           performance: {
             processing_time_ms: result.response_time * 1000
           },
+          usage: geminiData.usageMetadata,    // 🔥 返回使用统计
           timestamp: new Date().toISOString()
         });
 

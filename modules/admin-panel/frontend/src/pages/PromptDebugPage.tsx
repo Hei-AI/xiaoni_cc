@@ -82,18 +82,19 @@ const fetchPrompt = async (promptId: string): Promise<{ success: boolean; data: 
 };
 
 // 调试API调用 - 使用debug-v2端点调用Bot Core
-const debugPrompt = async (promptId: string, _messages: DebugMessage[], userInput: string) => {
-  // 获取prompt配置以获取系统指令
-  const promptResponse = await fetch(`/api/prompts/${promptId}`);
-  if (!promptResponse.ok) {
-    throw new Error('Failed to fetch prompt configuration');
-  }
-  const promptData = await promptResponse.json();
-  const prompt = promptData.data;
+const debugPrompt = async (promptId: string, messages: DebugMessage[], userInput: string) => {
+  // 🔥 修复: 传递完整的对话历史和prompt ID，而不是单独的userInput
+  // 将前端的DebugMessage格式转换为LLM API需要的格式
+  const conversationHistory = messages.map(msg => ({
+    role: msg.role === 'assistant' ? 'model' : msg.role, // 转换为Gemini API格式
+    content: msg.content
+  }));
 
-  const systemPrompt = Array.isArray(prompt.system_instructions)
-    ? prompt.system_instructions.join('\n')
-    : prompt.system_instructions || 'You are a helpful AI assistant.';
+  // 添加当前用户输入
+  conversationHistory.push({
+    role: 'user',
+    content: userInput
+  });
 
   const response = await fetch('/api/debug/prompt-v2', {
     method: 'POST',
@@ -101,9 +102,8 @@ const debugPrompt = async (promptId: string, _messages: DebugMessage[], userInpu
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      systemPrompt,
-      userInput,
-      model: prompt.model_name || 'gemini-2.5-flash',
+      prompt_id: promptId,                    // 🔥 传递prompt ID而不是手动获取配置
+      messages: conversationHistory,          // 🔥 传递完整对话历史
       conversation_id: promptId
     }),
   });

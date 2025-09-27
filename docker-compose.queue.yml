@@ -1,0 +1,97 @@
+# QQ Bot 消息队列系统 Docker Compose
+# 包含：Redis、Bull Board UI、队列监控
+version: '3.8'
+
+services:
+  # Redis 消息队列存储
+  redis:
+    image: redis:7-alpine
+    container_name: qqbot-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-qqbot123}
+    networks:
+      - qqbot-queue-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Bull Board - 队列监控界面
+  bull-board:
+    image: deadly0/bull-board:latest
+    container_name: qqbot-bull-board
+    restart: unless-stopped
+    ports:
+      - "3005:3000"  # 队列监控界面端口
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-qqbot123}
+      - REDIS_DB=0
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - qqbot-queue-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.bull-board.rule=Host(`queue.qqbot.local`)"
+
+  # Redis Commander - Redis数据库管理界面
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: qqbot-redis-commander
+    restart: unless-stopped
+    ports:
+      - "3006:8081"  # Redis管理界面端口
+    environment:
+      - REDIS_HOSTS=local:redis:6379:0:${REDIS_PASSWORD:-qqbot123}
+      - HTTP_USER=${REDIS_ADMIN_USER:-admin}
+      - HTTP_PASSWORD=${REDIS_ADMIN_PASSWORD:-admin123}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - qqbot-queue-network
+
+  # 队列统计和监控服务
+  queue-monitor:
+    build:
+      context: ./modules/queue-monitor
+      dockerfile: Dockerfile
+    container_name: qqbot-queue-monitor
+    restart: unless-stopped
+    ports:
+      - "3007:3000"  # 自定义队列监控API
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-qqbot123}
+      - MONITOR_INTERVAL=10000  # 10秒监控间隔
+      - LOG_LEVEL=info
+    volumes:
+      - ./logs/queue-monitor:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - qqbot-queue-network
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  qqbot-queue-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16

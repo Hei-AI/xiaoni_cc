@@ -8,7 +8,6 @@ import {
   Clock,
   Search,
   ExternalLink,
-  Loader2,
   RefreshCw,
   Filter,
   Download,
@@ -230,11 +229,6 @@ export const ConversationsPage: React.FC = () => {
                           <Badge variant={conversation.ai_response ? "default" : "secondary"}>
                             {conversation.ai_response ? "已响应" : "未响应"}
                           </Badge>
-                          {conversation.conversation_type && (
-                            <Badge variant="outline" className="text-xs">
-                              {conversation.conversation_type === 'private' ? '私聊' : '群聊'}
-                            </Badge>
-                          )}
                         </div>
 
                         {/* Messages */}
