@@ -44,19 +44,25 @@ check_docker() {
     fi
 }
 
-# 创建日志目录
+# 创建日志目录和Docker网络
 create_log_dirs() {
     info "创建日志目录..."
 
     # 只创建不存在的目录，不修改已存在文件的权限
-    for dir in logs logs/http-api logs/qqbot-core logs/admin-backend logs/admin-frontend; do
+    for dir in logs logs/http-api logs/qqbot-core logs/admin-backend logs/admin-frontend logs/http-traffic-monitor; do
         if [ ! -d "$dir" ]; then
             mkdir -p "$dir"
             chmod 755 "$dir" 2>/dev/null || true
         fi
     done
 
-    success "日志目录就绪"
+    # 创建Docker网络（如果不存在）
+    if ! docker network ls | grep -q "qq_bot_network"; then
+        info "创建Docker bridge网络: qq_bot_network"
+        docker network create --driver bridge qq_bot_network
+    fi
+
+    success "日志目录和网络就绪"
 }
 
 # 构建镜像
@@ -78,6 +84,13 @@ build_image() {
         "admin-frontend")
             build_dir="modules/admin-panel/frontend"
             ;;
+        "http-traffic-monitor")
+            build_dir="modules/http-traffic-monitor"
+            ;;
+        "qqbot-core-traffic-monitor"|"qqbot-http-api-traffic-monitor"|"qqbot-admin-backend-traffic-monitor"|"qqbot-admin-frontend-traffic-monitor")
+            build_dir="modules/http-traffic-monitor"
+            image_name="qqbot-http-traffic-monitor"
+            ;;
         *)
             error "未知模块: $module"
             return 1
@@ -90,7 +103,28 @@ build_image() {
     fi
     
     info "构建 $module 镜像..."
-    docker build -t "$image_name" "$build_dir"
+
+    # 对于sidecar流量监控容器，使用Dockerfile.sidecar
+    if [[ "$module" == *"traffic-monitor" ]] && [[ "$module" != "http-traffic-monitor" ]]; then
+        docker build \
+            --build-arg HTTP_PROXY= \
+            --build-arg HTTPS_PROXY= \
+            --build-arg http_proxy= \
+            --build-arg https_proxy= \
+            --build-arg NO_PROXY= \
+            --build-arg no_proxy= \
+            -f "$build_dir/Dockerfile.sidecar" -t "$image_name" "$build_dir"
+    else
+        docker build \
+            --build-arg HTTP_PROXY= \
+            --build-arg HTTPS_PROXY= \
+            --build-arg http_proxy= \
+            --build-arg https_proxy= \
+            --build-arg NO_PROXY= \
+            --build-arg no_proxy= \
+            -t "$image_name" "$build_dir"
+    fi
+
     success "$module 镜像构建完成"
 }
 
@@ -111,21 +145,27 @@ run_container() {
         "http-api")
             docker run -d \
                 --name "$container_name" \
-                --network host \
+                --network qq_bot_network \
+                -p 8080:8080 \
                 -v "$(pwd)/logs/http-api:/app/logs" \
-                -e QQBOT_CORE_URL=http://localhost:8081 \
+                -e QQBOT_CORE_URL=http://qqbot-core:8081 \
                 -e HTTP_PORT=8080 \
                 -e LOG_LEVEL=info \
+                -e NODE_TLS_REJECT_UNAUTHORIZED=0 \
                 --restart unless-stopped \
                 "$image_name"
             ;;
         "qqbot-core")
             docker run -d \
                 --name "$container_name" \
-                --network host \
+                --network qq_bot_network \
+                --dns 8.8.8.8 \
+                --dns 1.1.1.1 \
+                -p 8081:8081 \
                 -v "$(pwd)/logs/qqbot-core:/app/logs" \
                 -v "$(pwd)/modules/qqbot-core/resources/config:/app/resources/config" \
-                -e MYSQL_HOST=localhost \
+                -v "$(pwd)/modules/http-traffic-monitor/transparent-proxy/certs:/certs:ro" \
+                -e MYSQL_HOST=qqbot-mysql \
                 -e MYSQL_PORT=3306 \
                 -e MYSQL_USER=${MYSQL_USER:-qqbot_user} \
                 -e MYSQL_PASSWORD=${MYSQL_PASSWORD:-qqbot_password} \
@@ -137,34 +177,139 @@ run_container() {
                 -e WEBSOCKET_ACCESS_TOKEN=${WEBSOCKET_ACCESS_TOKEN:-w@123456} \
                 -e HTTP_PORT=8081 \
                 -e LOG_LEVEL=info \
+                -e NODE_TLS_REJECT_UNAUTHORIZED=0 \
                 --restart unless-stopped \
                 "$image_name"
             ;;
         "admin-backend")
             docker run -d \
                 --name "$container_name" \
-                --network host \
+                --network qq_bot_network \
+                -p 9080:9080 \
                 -v "$(pwd)/logs/admin-backend:/app/logs" \
                 -v "$(pwd)/modules/admin-panel/backend/resources/uploads:/app/resources/uploads" \
-                -e DB_HOST=localhost \
+                -e DB_HOST=qqbot-mysql \
                 -e DB_PORT=3306 \
                 -e DB_USER=${DB_USER:-qqbot_user} \
                 -e DB_PASSWORD=${DB_PASSWORD:-qqbot_password} \
                 -e DB_NAME=${DB_NAME:-qqbot_db} \
                 -e ADMIN_PORT=9080 \
-                -e QQBOT_CORE_URL=http://localhost:8081 \
+                -e QQBOT_CORE_URL=http://qqbot-core:8081 \
                 -e LOG_LEVEL=info \
+                -e NODE_TLS_REJECT_UNAUTHORIZED=0 \
                 --restart unless-stopped \
                 "$image_name"
             ;;
         "admin-frontend")
             docker run -d \
                 --name "$container_name" \
-                --network host \
+                --network qq_bot_network \
+                -p 3003:3003 \
                 -v "$(pwd)/logs/admin-frontend:/var/log/nginx" \
-                -e VITE_API_BASE_URL=http://localhost:9080 \
+                -e VITE_API_BASE_URL=http://admin-backend:9080 \
                 --restart unless-stopped \
                 "$image_name"
+            ;;
+        "http-traffic-monitor")
+            docker run -d \
+                --name "$container_name" \
+                --network qq_bot_network \
+                -p 8888:8888 \
+                -p 9090:9090 \
+                -v "$(pwd)/logs/http-traffic-monitor:/app/logs" \
+                -v "$(pwd)/modules/http-traffic-monitor/mitmproxy:/app/mitmproxy" \
+                -e DB_HOST=qqbot-mysql \
+                -e DB_PORT=3306 \
+                -e DB_USER=${DB_USER:-qqbot_user} \
+                -e DB_PASSWORD=${DB_PASSWORD:-qqbot_password} \
+                -e DB_NAME=${DB_NAME:-qqbot_db} \
+                -e PROXY_PORT=8888 \
+                -e API_PORT=9090 \
+                -e ENABLE_TRAFFIC_LOGGING=true \
+                -e ENABLE_RESPONSE_BODY_LOGGING=true \
+                -e LOG_LEVEL=info \
+                --restart unless-stopped \
+                "$image_name"
+            ;;
+        "qqbot-core-traffic-monitor")
+            docker run -d \
+                --name "$container_name" \
+                --network qq_bot_network \
+                -p 8888:8888 \
+                -v "$(pwd)/logs/http-traffic:/app/logs" \
+                -e LISTEN_PORT=8888 \
+                -e CONTAINER_NAME=qqbot-core \
+                -e DB_HOST=qqbot-mysql \
+                -e DB_USER=${DB_USER:-qqbot_user} \
+                -e DB_PASSWORD=${DB_PASSWORD:-qqbot_password} \
+                -e DB_NAME=${DB_NAME:-qqbot_db} \
+                -e MAX_BODY_SIZE=10240 \
+                -e ENABLE_WEB_UI=false \
+                -e PYTHONHTTPSVERIFY=0 \
+                -e SSL_VERIFY=false \
+                -e MITMPROXY_SSL_INSECURE=1 \
+                --restart unless-stopped \
+                qqbot-http-traffic-monitor
+            ;;
+        "qqbot-http-api-traffic-monitor")
+            docker run -d \
+                --name "$container_name" \
+                --network qq_bot_network \
+                -p 8889:8888 \
+                -v "$(pwd)/logs/http-traffic:/app/logs" \
+                -e LISTEN_PORT=8888 \
+                -e CONTAINER_NAME=qqbot-http-api \
+                -e DB_HOST=qqbot-mysql \
+                -e DB_USER=${DB_USER:-qqbot_user} \
+                -e DB_PASSWORD=${DB_PASSWORD:-qqbot_password} \
+                -e DB_NAME=${DB_NAME:-qqbot_db} \
+                -e MAX_BODY_SIZE=10240 \
+                -e ENABLE_WEB_UI=false \
+                -e PYTHONHTTPSVERIFY=0 \
+                -e SSL_VERIFY=false \
+                -e MITMPROXY_SSL_INSECURE=1 \
+                --restart unless-stopped \
+                qqbot-http-traffic-monitor
+            ;;
+        "qqbot-admin-backend-traffic-monitor")
+            docker run -d \
+                --name "$container_name" \
+                --network qq_bot_network \
+                -p 8891:8888 \
+                -v "$(pwd)/logs/http-traffic:/app/logs" \
+                -e LISTEN_PORT=8888 \
+                -e CONTAINER_NAME=qqbot-admin-backend \
+                -e DB_HOST=qqbot-mysql \
+                -e DB_USER=${DB_USER:-qqbot_user} \
+                -e DB_PASSWORD=${DB_PASSWORD:-qqbot_password} \
+                -e DB_NAME=${DB_NAME:-qqbot_db} \
+                -e MAX_BODY_SIZE=10240 \
+                -e ENABLE_WEB_UI=false \
+                -e PYTHONHTTPSVERIFY=0 \
+                -e SSL_VERIFY=false \
+                -e MITMPROXY_SSL_INSECURE=1 \
+                --restart unless-stopped \
+                qqbot-http-traffic-monitor
+            ;;
+        "qqbot-admin-frontend-traffic-monitor")
+            docker run -d \
+                --name "$container_name" \
+                --network qq_bot_network \
+                -p 8892:8888 \
+                -v "$(pwd)/logs/http-traffic:/app/logs" \
+                -e LISTEN_PORT=8888 \
+                -e CONTAINER_NAME=qqbot-admin-frontend \
+                -e DB_HOST=qqbot-mysql \
+                -e DB_USER=${DB_USER:-qqbot_user} \
+                -e DB_PASSWORD=${DB_PASSWORD:-qqbot_password} \
+                -e DB_NAME=${DB_NAME:-qqbot_db} \
+                -e MAX_BODY_SIZE=10240 \
+                -e ENABLE_WEB_UI=false \
+                -e PYTHONHTTPSVERIFY=0 \
+                -e SSL_VERIFY=false \
+                -e MITMPROXY_SSL_INSECURE=1 \
+                --restart unless-stopped \
+                qqbot-http-traffic-monitor
             ;;
     esac
     
@@ -230,24 +375,73 @@ show_status() {
 # 处理所有模块
 handle_all() {
     local action=$1
+    # 先运行sidecar流量监控容器（它们是其他容器的依赖）
+    local sidecar_modules=("qqbot-core-traffic-monitor" "qqbot-http-api-traffic-monitor" "qqbot-admin-backend-traffic-monitor" "qqbot-admin-frontend-traffic-monitor")
+    # 然后运行主要业务容器
     local modules=("http-api" "qqbot-core" "admin-backend" "admin-frontend")
-    
-    for module in "${modules[@]}"; do
-        case $action in
-            "build")
-                build_image "$module"
-                ;;
-            "run")
-                run_container "$module"
-                ;;
-            "stop")
-                stop_container "$module"
-                ;;
-            "remove")
-                remove_container "$module"
-                ;;
-        esac
-    done
+
+    # 处理顺序：build/run时先sidecar后主容器，stop/remove时先主容器后sidecar
+    if [[ "$action" == "build" || "$action" == "run" ]]; then
+        # 先处理sidecar容器（它们是依赖）
+        for sidecar in "${sidecar_modules[@]}"; do
+            case $action in
+                "build")
+                    build_image "$sidecar"
+                    ;;
+                "run")
+                    run_container "$sidecar"
+                    ;;
+            esac
+        done
+
+        # 等待sidecar容器启动完成
+        if [[ "$action" == "run" ]]; then
+            info "等待sidecar容器启动完成..."
+            sleep 5
+        fi
+
+        # 然后处理主要容器
+        for module in "${modules[@]}"; do
+            case $action in
+                "build")
+                    build_image "$module"
+                    ;;
+                "run")
+                    run_container "$module"
+                    ;;
+            esac
+        done
+    else
+        # stop/remove时先处理主要容器
+        for module in "${modules[@]}"; do
+            case $action in
+                "stop")
+                    stop_container "$module"
+                    ;;
+                "remove")
+                    remove_container "$module"
+                    ;;
+            esac
+        done
+
+        # 然后处理sidecar容器
+        for sidecar in "${sidecar_modules[@]}"; do
+            case $action in
+                "stop")
+                    if docker ps --format '{{.Names}}' | grep -q "^${sidecar}$"; then
+                        info "停止Sidecar容器: $sidecar"
+                        docker stop "$sidecar" 2>/dev/null || true
+                    fi
+                    ;;
+                "remove")
+                    if docker ps -a --format '{{.Names}}' | grep -q "^${sidecar}$"; then
+                        info "删除Sidecar容器: $sidecar"
+                        docker rm "$sidecar" 2>/dev/null || true
+                    fi
+                    ;;
+            esac
+        done
+    fi
 }
 
 # 🆕 初始化数据库 (支持实时LLM配置)
@@ -355,11 +549,16 @@ show_help() {
     echo "用法: $0 [module] [action]"
     echo
     echo "模块 (module):"
-    echo "  http-api       - HTTP API Gateway"
-    echo "  qqbot-core     - QQBot Core Service"
-    echo "  admin-backend  - Admin Panel Backend"
-    echo "  admin-frontend - Admin Panel Frontend"
-    echo "  all            - 所有模块"
+    echo "  http-api                            - HTTP API Gateway"
+    echo "  qqbot-core                          - QQBot Core Service"
+    echo "  admin-backend                       - Admin Panel Backend"
+    echo "  admin-frontend                      - Admin Panel Frontend"
+    echo "  http-traffic-monitor                - HTTP流量监控模块 🆕"
+    echo "  qqbot-core-traffic-monitor          - QQBot Core流量监控Sidecar 🆕"
+    echo "  qqbot-http-api-traffic-monitor      - HTTP API流量监控Sidecar 🆕"
+    echo "  qqbot-admin-backend-traffic-monitor - Admin Backend流量监控Sidecar 🆕"
+    echo "  qqbot-admin-frontend-traffic-monitor- Admin Frontend流量监控Sidecar 🆕"
+    echo "  all                                 - 所有模块（包含Sidecar容器）"
     echo
     echo "动作 (action):"
     echo "  build       - 构建Docker镜像"
@@ -373,12 +572,15 @@ show_help() {
     echo "  test-config   - 测试LLM配置API 🆕"
     echo
     echo "示例:"
-    echo "  $0 qqbot-core build     # 构建QQBot Core镜像"
-    echo "  $0 all run              # 运行所有容器"
-    echo "  $0 http-api logs        # 查看HTTP API日志"
-    echo "  $0 all init-db          # 初始化数据库 (包含LLM配置) 🆕"
-    echo "  $0 all update-config    # 更新LLM配置 🆕"
-    echo "  $0 all test-config      # 测试LLM配置API 🆕"
+    echo "  $0 qqbot-core build                      # 构建QQBot Core镜像"
+    echo "  $0 all run                               # 运行所有容器（推荐）"
+    echo "  $0 http-api logs                         # 查看HTTP API日志"
+    echo "  $0 qqbot-core-traffic-monitor build     # 构建Core流量监控Sidecar 🆕"
+    echo "  $0 qqbot-core-traffic-monitor run       # 启动Core流量监控Sidecar 🆕"
+    echo "  $0 qqbot-core-traffic-monitor logs      # 查看Core流量监控日志 🆕"
+    echo "  $0 all init-db                           # 初始化数据库 (包含LLM配置) 🆕"
+    echo "  $0 all update-config                     # 更新LLM配置 🆕"
+    echo "  $0 all test-config                       # 测试LLM配置API 🆕"
     echo
     echo "环境变量:"
     echo "  DB_USER, DB_PASSWORD, DB_NAME"
