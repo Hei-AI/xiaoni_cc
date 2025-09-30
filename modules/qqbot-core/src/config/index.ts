@@ -15,7 +15,7 @@ export const config: AppConfig = {
   },
   
   websocket: {
-    host: process.env.WEBSOCKET_HOST || '127.0.0.1',
+    host: process.env.WEBSOCKET_HOST || 'host.docker.internal',
     port: parseInt(process.env.WEBSOCKET_PORT || '3001', 10),
     access_token: process.env.WEBSOCKET_ACCESS_TOKEN || 'w@123456',
     get uri() {

@@ -1,0 +1,15 @@
+# mitmproxy HTTP流量监控插件依赖 (文件日志版本)
+mitmproxy==10.1.6
+ujson==5.8.0
+python-dateutil==2.8.2
+certifi==2023.7.22
+
+# 日志处理
+loguru==0.7.2
+
+# 配置管理
+PyYAML==6.0.1
+python-dotenv==1.0.0
+
+# HTTP客户端（用于健康检查等）
+httpx==0.25.2

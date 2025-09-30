@@ -2,6 +2,9 @@ import express from 'express';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
 
+// QQBot Core服务地址配置 (支持容器间通信)
+const QQBOT_CORE_URL = process.env.QQBOT_CORE_URL || 'http://qqbot-core:8081';
+
 // 🔥 上下文变量处理和模板替换功能
 function processContextVariables(
   template: string,
@@ -302,7 +305,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
         conversation_id: conversation_id || prompt_id
       };
 
-      const internalApiResponse = await fetch('http://localhost:8081/api/internal/llm/debug', {
+      const internalApiResponse = await fetch(`${QQBOT_CORE_URL}/api/internal/llm/debug`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

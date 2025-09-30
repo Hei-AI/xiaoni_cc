@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+# **开发时遵循奥卡姆剃刀原则,KISS**
+
 # QQ智能机器人 - 4模块微服务架构
 
 ## 项目概述
@@ -28,8 +30,6 @@ modules/
 - **database.ts**: MySQL数据库管理，连接池优化，调用链追踪
 - **websocket-client.ts**: OneBot WebSocket连接，Trace ID生成
 - **context-manager.ts**: 对话上下文维护，消息历史管理
-- **logging-service.ts**: 结构化日志系统，Trace ID支持
-- **human-like-message-processor.ts**: 人性化消息处理架构
 
 ## 常用命令
 
@@ -49,90 +49,127 @@ docker logs -f qqbot-qqbot-core
 # 容器内调试和测试
 docker exec -it qqbot-qqbot-core /bin/sh
 docker exec qqbot-qqbot-core npm test
-docker exec qqbot-qqbot-core npm run lint
-```
-
-### Python脚本管理 (备用方式)
-```bash
-# 安装依赖并启动所有模块
-npm run start
-
-# 单独管理模块
-npm run dev:qqbot-core
-npm run build:all
-npm run test:all
 ```
 
 ## 数据库架构
 
-### 数据库连接
-- **主机**: localhost:3306
-- **数据库**: qqbot_db
-- **用户**: qqbot_user/qqbot_password
-
 ### 核心表结构
 - **conversations**: AI对话历史，trace_id关联
 - **api_tokens**: Gemini API Token管理，model_blacklist JSON字段
-- **agent_prompts**: AI Agent提示词配置，model_name和allowed_token_ids
+- **agent_prompts**: AI Agent提示词配置，advanced_config JSON字段
 - **websocket_logs**: WebSocket消息追踪，trace_id关联
 - **llm_call_logs**: LLM调用日志，性能指标
 
-## 开发工作流
+连接: `qqbot_user:qqbot_password@localhost:3306/qqbot_db`
 
-### 架构特点
-- **完全Docker化**: 开发和生产都使用Docker部署，环境一致
-- **宿主机网络**: 容器直接使用localhost通信，零延迟
-- **消息队列**: 支持异步处理和批量优化
-- **Trace ID追踪**: 完整的消息处理链路标识
+## 网络架构
 
-### 调试方法
-- **日志查看**: `docker logs -f qqbot-qqbot-core`
-- **容器调试**: `docker exec -it qqbot-qqbot-core /bin/sh`
-- **前端调试**: Playwright自动化测试 + F12开发者工具
-- **API测试**: `GET /health` 健康检查端点
+```
+Docker Bridge Network: qq_bot_network (172.20.0.0/16)
+├── qqbot-mysql → 3306
+├── qqbot-qqbot-core → 8081
+├── qqbot-http-api → 8080
+├── qqbot-admin-backend → 9080
+├── qqbot-admin-frontend → 3003
+└── napcat → 3001 (WebSocket)
+```
 
-## 配置管理
+**关键网络通信**:
+- **数据库**: qqbot-core → qqbot-mysql:3306
+- **QQ协议**: qqbot-core → napcat:3001 (WebSocket)
+- 使用容器名作为主机名，自动DNS解析
 
-### 环境变量
-- **数据库**: DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
-- **QQ机器人**: BOT_QQ_NUMBER, ONEBOT_WS_URL
-- **AI服务**: GEMINI_API_KEY, AI_MODEL_NAME
+## HTTP流量监控 - 透明代理
 
-### 端口规划
-- 8080: HTTP API Gateway
-- 8081: QQBot Core
-- 9080: Admin Backend API
-- 3003: Admin Frontend
-- 3306: MySQL Database
+基于mitmproxy的透明代理，通过iptables实现零侵入式流量监控。
 
-## 核心特性
+### 快速使用
+```bash
+# 启动mitmproxy (端口15001)
+bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh
 
-### AI智能对话
-- **模型**: Google Gemini (2.5-flash/1.5-pro)
-- **Token管理**: Model-aware选择，健康检查，5分钟黑名单
-- **智能引擎**: 决策引擎、人格引擎、上下文引擎
-- **链路追踪**: Trace ID完整追踪，性能监控
+# 应用iptables规则（WSL2重启后需要）
+sudo bash modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh
+
+# 停止服务
+bash modules/http-traffic-monitor/transparent-proxy/stop-mitmproxy-daemon.sh
+
+# 查看日志
+tail -f modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmproxy-*.log
+```
+
+**数据流**: `容器 → iptables (80/443→15001) → mitmproxy → Clash (7890) → Internet`
+
+**详细文档**: `@docs/MITMPROXY_STARTUP_GUIDE.md`
+
+## AI功能配置
+
+### 实时LLM参数配置系统
+支持通过管理界面实时调整AI参数，配置立即生效，无需重启服务。
+
+**核心配置**:
+- **generationConfig**: temperature, topP, maxOutputTokens
+- **thinkingConfig**: thinkingBudget, includeThoughts
+- **toolsConfig**: 预定义工具选择
+- **googleSearchConfig**: 实时搜索集成
+
+**管理API**: `http://localhost:9080/api/llm-config/`
+
+**相关文档**:
+- `@docs/REALTIME_LLM_CONFIG_GUIDE.md` - 实时配置使用指南
+- `@docs/CONFIGURABLE_LLM_GUIDE.md` - 完整LLM功能说明
+- `@docs/DOCKER_LLM_CONFIG_DEPLOY.md` - Docker部署指南
 
 ## 开发规范
 
-### 消息流程API验证
-- **规范文档**: `MESSAGE_FLOW_API_SPECIFICATION.md`
+### 消息处理API规范
+- **规范文档**: `@docs/MESSAGE_FLOW_API_SPECIFICATION.md`
 - **验证脚本**: `docker exec qqbot-qqbot-core node test_message_flow_api_complete.js`
-- **强制要求**: 所有消息处理相关开发必须先读规范，后验证
+- 所有消息处理相关开发必须遵循规范并验证
 
-### 关键文件和路径
-- **完整部署指南**: `@DOCKER.md`
-- **模块子文档**: `@modules/*/CLAUDE.md`
-- **日志目录**: `modules/*/resources/logs/`
+### 架构文档
+- **PlantUML架构图**: `@docs/ARCHITECTURE_PLANTUML.md` (完整系统架构、流程图、数据流)
+- **部署指南**: `@DOCKER.md`
+- **设计文档**: `@docs/CONVERSATION_MONITORING_DESIGN.md`, `@docs/GROUP_CHAT_BOT_MEMORY_DESIGN.md`
 
-### 故障排除
+### 调试和故障排除
 ```bash
-# 环境重置
-./scripts/docker-deploy.sh all stop && ./scripts/docker-deploy.sh all clean
-./scripts/docker-deploy.sh all build && ./scripts/docker-deploy.sh all run
+# 查看容器状态
+docker ps
+docker logs qqbot-qqbot-core
 
-# 常见问题
-docker ps                           # 检查容器状态
-docker logs qqbot-qqbot-core       # 查看服务日志
-curl http://localhost:8080/health  # 测试服务健康
+# 网络连接验证
+./scripts/verify-network.sh
+docker exec qqbot-qqbot-core nslookup napcat
+
+# 健康检查
+curl http://localhost:8080/health
+curl http://localhost:8081/health
+curl http://localhost:9080/api/health
+
+# 环境重置
+./scripts/docker-deploy.sh all stop
+./scripts/docker-deploy.sh all clean
+./scripts/docker-deploy.sh all build && ./scripts/docker-deploy.sh all run
 ```
+
+### WSL2特殊问题
+**Docker TLS证书验证失败**:
+```bash
+# 临时绕过TLS验证
+docker pull --disable-content-trust hello-world
+docker build --disable-content-trust -t image-name .
+
+# 永久设置
+export DOCKER_CONTENT_TRUST=0
+export DOCKER_TLS_VERIFY=0
+```
+
+## 模块文档
+
+每个模块都有独立的CLAUDE.md文档：
+- `modules/qqbot-core/CLAUDE.md` - 核心服务详细文档
+- `modules/http-api/CLAUDE.md` - API网关文档
+- `modules/admin-panel/backend/CLAUDE.md` - 管理后端文档
+- `modules/admin-panel/frontend/CLAUDE.md` - 管理前端文档
+- `modules/http-traffic-monitor/CLAUDE.md` - 流量监控模块文档

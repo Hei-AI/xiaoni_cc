@@ -1,0 +1,112 @@
+# mitmproxy配置文件
+# HTTP流量监控代理服务器配置
+
+# 监听配置
+listen_host: "0.0.0.0"
+listen_port: 8888
+
+# 代理模式
+mode: "regular"  # regular proxy mode
+
+# SSL/TLS配置 - 强制跳过证书验证
+ssl_insecure: true
+ssl_verify_upstream_trusted: false
+ignore_upstream_cert: true
+upstream_cert: false
+add_upstream_certs_to_client_chain: false
+
+# 证书配置 - 简化处理
+confdir: "/app/mitmproxy"
+# 不强制要求证书文件，让mitmproxy自动生成
+
+# 日志配置
+verbosity: 1  # 0=error, 1=warn, 2=info, 3=debug
+terminal_log_verbosity: 1
+
+# 性能配置
+flow_detail: 1
+stream_large_bodies: "3m"  # 大于3MB的响应体使用流式处理
+
+# 脚本配置
+scripts:
+  - "/app/mitmproxy/addon.py"
+
+# Web界面配置（可选）
+web_host: "0.0.0.0"
+web_port: 8081
+web_open_browser: false
+
+# 过滤配置
+ignore_hosts:
+  # 内部健康检查
+  - "localhost"
+  - "127.0.0.1"
+  - "health"
+
+# 上游代理配置（如果需要）
+# upstream_proxy: "http://corporate-proxy:8080"
+
+# 连接配置
+tcp_keep_alive: true
+websocket: true
+
+# 内容修改配置
+modify_body: false
+modify_headers: false
+
+# 安全配置 - 强制放宽安全限制
+block_global_dns: false
+block_private: false
+allow_remote: true
+ssl_version_client: "all"
+ssl_version_server: "all"
+
+# 调试配置
+dump_destination: "/app/logs/mitmproxy-dump.log"
+save_stream_file: "/app/logs/mitmproxy-stream.log"
+
+# 自定义配置
+custom:
+  # 数据库配置
+  database:
+    host: "qqbot-mysql"
+    port: 3306
+    user: "qqbot_user"
+    password: "qqbot_password"
+    database: "qqbot_db"
+
+  # SSL/TLS绕过配置
+  ssl_bypass:
+    ignore_cert_errors: true
+    accept_all_certs: true
+    disable_cert_verification: true
+    skip_cert_verify: true
+
+  # 功能开关
+  features:
+    enable_logging: true
+    enable_response_body_logging: true
+    enable_binary_logging: false
+    enable_statistics: true
+
+  # 性能配置
+  performance:
+    max_body_size: 1048576  # 1MB
+    batch_size: 50
+    flush_interval: 5000    # 5秒
+    connection_pool_size: 10
+
+  # AI API检测配置
+  ai_apis:
+    gemini:
+      - "generativelanguage.googleapis.com"
+      - "ai.google.dev"
+    openai:
+      - "api.openai.com"
+      - "openai.azure.com"
+    claude:
+      - "api.anthropic.com"
+    cohere:
+      - "api.cohere.ai"
+    huggingface:
+      - "api-inference.huggingface.co"

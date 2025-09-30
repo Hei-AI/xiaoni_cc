@@ -1,0 +1,36 @@
+[Unit]
+Description=mitmproxy Transparent Proxy for QQ Bot
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=liahua
+WorkingDirectory=/home/liahua/IdeaProject/qq_bot
+Environment="PATH=/home/liahua/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="MITMPROXY_DIR=/home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/mitmproxy-data"
+Environment="FAKE_IP_RANGE=198.18.0.0/15"
+
+# 自动检测Clash代理地址
+ExecStartPre=/bin/bash -c 'DEFAULT_GATEWAY=$(ip route | grep "^default" | awk "{print \$3}"); echo "DEFAULT_GATEWAY=$DEFAULT_GATEWAY" > /tmp/mitmproxy-gateway.env'
+
+# 启动mitmproxy
+ExecStart=/bin/bash -c 'source /tmp/mitmproxy-gateway.env && export UPSTREAM_HTTP="http://${DEFAULT_GATEWAY}:7890" && /home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh'
+
+# 停止时清理
+ExecStop=/usr/bin/pkill -f "mitmdump.*transparent"
+
+# 应用iptables规则（需要sudo权限）
+ExecStartPost=/bin/sleep 3
+ExecStartPost=/bin/bash -c 'echo liahua | sudo -S /home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh'
+
+# 停止时移除iptables规则
+ExecStopPost=/bin/bash -c 'echo liahua | sudo -S /home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/remove-iptables.sh'
+
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

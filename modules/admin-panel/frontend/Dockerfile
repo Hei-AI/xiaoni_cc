@@ -63,7 +63,7 @@ server {
     
     # API代理到后端
     location /api/ {
-        proxy_pass http://localhost:9080/api/;
+        proxy_pass http://qqbot-admin-backend:9080/api/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

@@ -10,7 +10,7 @@ const router = express.Router();
 
 // 数据库连接配置
 const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
+  host: process.env.DB_HOST || 'qqbot-mysql',
   port: parseInt(process.env.DB_PORT || '3306'),
   user: process.env.DB_USER || 'qqbot_user',
   password: process.env.DB_PASSWORD || 'qqbot_password',

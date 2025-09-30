@@ -177,7 +177,7 @@ See `src/types/index.ts` for complete type definitions.
 ## 📋 功能验证和开发规范
 
 ### 消息流程API规范文档
-- **规范文档**: `/MESSAGE_FLOW_API_SPECIFICATION.md`
+- **规范文档**: `/docs/MESSAGE_FLOW_API_SPECIFICATION.md`
 - **验证脚本**: `/test_message_flow_api_complete.js`
 
 **重要**：所有涉及消息处理流程的开发都必须：
@@ -186,7 +186,7 @@ See `src/types/index.ts` for complete type definitions.
 3. 更新文档和脚本以适应变更
 
 ### 新功能开发检查清单
-- [ ] 是否影响消息流程？如影响，更新`MESSAGE_FLOW_API_SPECIFICATION.md`
+- [ ] 是否影响消息流程？如影响，更新`/docs/MESSAGE_FLOW_API_SPECIFICATION.md`
 - [ ] 是否添加新的LLM调用？如是，确保调用`loggingService.logLLMCall()`
 - [ ] 是否修改API响应？如是，更新TypeScript接口定义
 - [ ] 运行`node test_message_flow_api_complete.js`验证功能完整性

@@ -12,6 +12,8 @@ import { PromptManagementPage } from './pages/PromptManagementPage';
 import { PromptEditPage } from './pages/PromptEditPage';
 import { PromptDebugPage } from './pages/PromptDebugPage';
 import SimpleQueueMonitorPage from './pages/SimpleQueueMonitorPage';
+import { HttpTrafficMonitorPage } from './pages/HttpTrafficMonitorPage';
+import { HttpTrafficDetailPage } from './pages/HttpTrafficDetailPage';
 import { Layout } from './components/Layout';
 import './globals.css';
 
@@ -49,6 +51,8 @@ function App() {
             <Route path="/prompts/:promptId/edit" element={<PromptEditPage />} />
             <Route path="/prompts/:promptId/debug" element={<PromptDebugPage />} />
             <Route path="/queue-monitor" element={<SimpleQueueMonitorPage />} />
+            <Route path="/traffic" element={<HttpTrafficMonitorPage />} />
+            <Route path="/traffic/:id" element={<HttpTrafficDetailPage />} />
             <Route path="/monitoring" element={<Navigate to="/dashboard" replace />} />
             <Route path="/settings" element={<Navigate to="/prompts" replace />} />
           </Routes>

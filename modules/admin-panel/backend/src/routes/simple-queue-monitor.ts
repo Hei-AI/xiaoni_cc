@@ -9,8 +9,8 @@ import { logger } from '../utils/logger';
 const router = express.Router();
 const moduleLogger = logger.createModuleLogger('simple-queue-monitor');
 
-// QQBot Core服务地址
-const QQBOT_CORE_URL = process.env.QQBOT_CORE_URL || 'http://localhost:8081';
+// QQBot Core服务地址 (支持容器间通信)
+const QQBOT_CORE_URL = process.env.QQBOT_CORE_URL || 'http://qqbot-core:8081';
 
 /**
  * 代理到QQBot Core的队列API

@@ -165,6 +165,11 @@ docker exec qqbot-admin-backend npm test
 - `tsconfig.json` - TypeScript配置
 - `Dockerfile` - 容器化配置
 
+## 📚 延伸阅读
+
+- [HTTP流量监控模块说明](modules/http-traffic-monitor/README.md)
+- [WSL2 透明代理部署流程](docs/TRANSPARENT_PROXY_IMPLEMENTATION.md)
+
 ## 🤝 贡献指南
 
 1. Fork项目

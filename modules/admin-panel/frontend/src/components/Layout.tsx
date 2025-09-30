@@ -14,7 +14,8 @@ import {
   Layers,
   ChevronLeft,
   ChevronRight,
-  Menu
+  Menu,
+  Network
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -63,9 +64,15 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     },
     {
       href: '/conversations',
-      label: '对话管理', 
+      label: '对话管理',
       icon: MessageCircle,
       active: location.pathname.startsWith('/conversation')
+    },
+    {
+      href: '/traffic',
+      label: 'HTTP流量监控',
+      icon: Network,
+      active: location.pathname.startsWith('/traffic')
     },
     {
       href: '/monitoring',

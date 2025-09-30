@@ -40,6 +40,12 @@ export class AIService {
     this.loggingService = loggingService;
     this.tokenManager = getTokenManager(database);
 
+    // axios会自动读取HTTP_PROXY和HTTPS_PROXY环境变量，无需显式配置
+    const proxy = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
+    if (proxy) {
+      this.moduleLogger.info(`HTTP client will use proxy from environment: ${proxy}`);
+    }
+
     this.moduleLogger.info('Simplified AI Service initialized with unified configuration');
 
     // 预热常用配置
@@ -401,7 +407,7 @@ export class AIService {
         }))
       };
 
-      // 3. 执行API调用
+      // 3. 执行API调用（axios自动使用HTTP_PROXY环境变量）
       const response = await axios.post(
         `${this.baseURL}/${config.model.name}:generateContent?key=${tokenInfo.token}`,
         requestBody,

@@ -1,14 +1,38 @@
 version: '3.8'
 
+# ======================================================================
+# QQ智能机器人 - 主业务服务配置
+#
+# 注意: NapCat服务已独立管理，不包含在此配置中
+# NapCat管理: ./scripts/napcat-manage.sh
+# NapCat配置: ./docker-compose.napcat.yml
+# ======================================================================
+
 services:
+  # HTTP Traffic Monitor Gateway
+  traffic-monitor:
+    build: ./modules/http-traffic-monitor
+    container_name: qqbot-traffic-monitor
+    ports:
+      - "8888:8888"
+    environment:
+      - UPSTREAM_PROXY=${HTTP_PROXY:-${HTTPS_PROXY}}
+      - LISTEN_PORT=8888
+      - LOG_DIR=/app/logs
+    volumes:
+      - ./logs/traffic-monitor:/app/logs
+    networks:
+      - qq_bot_network
+    restart: unless-stopped
+
   # Shared MySQL Database
   mysql:
     image: mysql:8.0
-    container_name: qq_bot_mysql
+    container_name: qqbot-mysql
     environment:
       MYSQL_ROOT_PASSWORD: root_password
       MYSQL_DATABASE: qqbot_db
-      MYSQL_USER: qqbot
+      MYSQL_USER: qqbot_user
       MYSQL_PASSWORD: qqbot_password
     ports:
       - "3306:3306"
@@ -25,13 +49,15 @@ services:
   # HTTP API Gateway
   http-api:
     build: ./modules/http-api
-    container_name: qq_bot_http_api
+    container_name: qqbot-http-api
     ports:
       - "8080:8080"
     environment:
       - HTTP_PORT=8080
       - QQBOT_CORE_URL=http://qqbot-core:8081
       - LOG_LEVEL=info
+      # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
@@ -39,25 +65,33 @@ services:
       retries: 3
     restart: unless-stopped
     depends_on:
+      - traffic-monitor
       - qqbot-core
     networks:
       - qq_bot_network
 
-  # QQBot Core Service  
+  # QQBot Core Service
   qqbot-core:
     build: ./modules/qqbot-core
-    container_name: qq_bot_core
+    container_name: qqbot-core
     ports:
       - "8081:8081"
     environment:
-      - DB_HOST=mysql
-      - DB_PORT=3306
-      - DB_USER=qqbot
-      - DB_PASSWORD=qqbot_password
-      - DB_NAME=qqbot_db
+      - MYSQL_HOST=qqbot-mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=qqbot_user
+      - MYSQL_PASSWORD=qqbot_password
+      - MYSQL_DATABASE=qqbot_db
       - INTERNAL_HTTP_PORT=8081
       - LOG_LEVEL=info
+      # WebSocket连接配置 - 直接连接napcat容器
+      - WEBSOCKET_HOST=napcat
+      - WEBSOCKET_PORT=3001
+      - WEBSOCKET_ACCESS_TOKEN=w@123456
+      # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
     depends_on:
+      - traffic-monitor
       - mysql
     volumes:
       - ./modules/qqbot-core/resources/napcat_qq_data:/app/resources/napcat_qq_data
@@ -68,30 +102,33 @@ services:
   # Admin Panel Backend
   admin-backend:
     build: ./modules/admin-panel/backend
-    container_name: qq_bot_admin_backend
+    container_name: qqbot-admin-backend
     ports:
       - "9080:9080"
     environment:
-      - DB_HOST=mysql
+      - DB_HOST=qqbot-mysql
       - DB_PORT=3306
-      - DB_USER=qqbot
+      - DB_USER=qqbot_user
       - DB_PASSWORD=qqbot_password
       - DB_NAME=qqbot_db
       - HTTP_PORT=9080
       - LOG_LEVEL=info
+      # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
     depends_on:
+      - traffic-monitor
       - mysql
     networks:
       - qq_bot_network
 
   # Admin Panel Frontend
   admin-frontend:
-    image: nginx:alpine
-    container_name: qq_bot_admin_frontend
+    build: ./modules/admin-panel/frontend
+    container_name: qqbot-admin-frontend
     ports:
-      - "3000:80"
-    volumes:
-      - ./modules/admin-panel/frontend/public:/usr/share/nginx/html
+      - "3003:3003"
+    environment:
+      - VITE_API_BASE_URL=http://qqbot-admin-backend:9080
     depends_on:
       - admin-backend
     networks:
@@ -100,3 +137,4 @@ services:
 networks:
   qq_bot_network:
     driver: bridge
+    external: false

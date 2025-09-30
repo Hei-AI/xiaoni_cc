@@ -30,11 +30,14 @@ export class DatabaseManager {
         // 连接池配置优化
         connectionLimit: 10,           // 最大连接数
         queueLimit: 20,               // 等待队列限制
-        
+
+        // 连接超时配置
+        connectTimeout: 30000,        // 连接超时30秒
+
         // 连接保持活跃
         idleTimeout: 300000,          // 空闲超时5分钟
         maxIdle: 5,                   // 最大空闲连接数
-        
+
         // 其他优化设置
         dateStrings: false,           // 返回原生Date对象
         supportBigNumbers: true,      // 支持大数字

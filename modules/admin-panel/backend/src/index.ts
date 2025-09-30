@@ -16,6 +16,7 @@ import { createPromptRoutes } from './routes/prompt-routes';
 import { createChatRoutes } from './routes/chat-routes';
 import { createAgentRoutes } from './routes/agent-routes';
 import { createUserRoutes } from './routes/user-routes';
+import { createTrafficMonitorRoutes } from './routes/traffic-monitor-routes';
 
 // Load environment variables
 config();
@@ -46,7 +47,7 @@ let database: DatabaseManager;
 async function initializeDatabase() {
   try {
     database = new DatabaseManager({
-      host: process.env.DB_HOST || 'localhost',
+      host: process.env.DB_HOST || 'qqbot-mysql',
       port: parseInt(process.env.DB_PORT || '3306', 10),
       user: process.env.DB_USER || 'qqbot_user',
       password: process.env.DB_PASSWORD || 'qqbot_password',
@@ -79,7 +80,8 @@ app.use(helmet({
 app.use(cors({
   origin: [
     'http://localhost:3003',
-    'http://127.0.0.1:3003'
+    'http://127.0.0.1:3003',
+    'http://qqbot-admin-frontend:3003'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -128,6 +130,8 @@ async function startServer() {
   app.use('/api', createAgentRoutes(database, logger));         // Agent types
   logger.info('🔧 Registering user routes...');
   app.use('/api', createUserRoutes(database, logger));          // User profiles
+  logger.info('🔧 Registering traffic monitor routes...');
+  app.use('/api', createTrafficMonitorRoutes(database, logger)); // HTTP traffic monitoring
 
   // 现有的专用路由
   logger.info('🔧 Registering simple-queue routes...');

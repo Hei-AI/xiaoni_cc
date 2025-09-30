@@ -10,6 +10,9 @@ config();
 const app = express();
 const PORT = process.env.HTTP_PORT || 8080;
 
+// QQBot Core服务地址配置 (支持容器间通信)
+const QQBOT_CORE_URL = process.env.QQBOT_CORE_URL || 'http://qqbot-core:8081';
+
 // Configure logging
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
@@ -69,7 +72,7 @@ app.post('/api/send_private', async (req, res) => {
   
   try {
     // Forward request to QQBot Core internal API
-    const response = await axios.post('http://localhost:8081/api/internal/send_private', {
+    const response = await axios.post(`${QQBOT_CORE_URL}/api/internal/send_private`, {
       user_id,
       message
     }, {
@@ -132,7 +135,7 @@ app.post('/api/send_group', async (req, res) => {
   
   try {
     // Forward request to QQBot Core internal API
-    const response = await axios.post('http://localhost:8081/api/internal/send_group', {
+    const response = await axios.post(`${QQBOT_CORE_URL}/api/internal/send_group`, {
       group_id,
       message
     }, {
@@ -182,7 +185,7 @@ app.post('/api/send_group', async (req, res) => {
 // Bot status endpoint (aggregates information from QQBot Core)
 app.get('/api/bot/status', async (req, res) => {
   try {
-    const response = await axios.get('http://localhost:8081/api/status', {
+    const response = await axios.get(`${QQBOT_CORE_URL}/api/status`, {
       timeout: 5000
     });
     
