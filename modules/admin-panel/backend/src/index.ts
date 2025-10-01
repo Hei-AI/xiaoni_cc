@@ -17,6 +17,8 @@ import { createChatRoutes } from './routes/chat-routes';
 import { createAgentRoutes } from './routes/agent-routes';
 import { createUserRoutes } from './routes/user-routes';
 import { createTrafficMonitorRoutes } from './routes/traffic-monitor-routes';
+import { createTemplateRoutes } from './routes/template-routes';
+import { TrafficLogWatcher, DEFAULT_WATCHER_CONFIG } from './services/traffic-log-watcher';
 
 // Load environment variables
 config();
@@ -132,6 +134,8 @@ async function startServer() {
   app.use('/api', createUserRoutes(database, logger));          // User profiles
   logger.info('🔧 Registering traffic monitor routes...');
   app.use('/api', createTrafficMonitorRoutes(database, logger)); // HTTP traffic monitoring
+  logger.info('🔧 Registering template routes...');
+  app.use('/api', createTemplateRoutes(database, logger));      // Traffic replay templates
 
   // 现有的专用路由
   logger.info('🔧 Registering simple-queue routes...');
@@ -142,6 +146,12 @@ async function startServer() {
   app.use('/api/llm-config', llmConfigRoutes);
 
   logger.info('✅ All routes registered successfully');
+
+  // 启动流量日志监听服务
+  logger.info('🔧 Starting traffic log watcher...');
+  const logWatcher = new TrafficLogWatcher(database, logger, DEFAULT_WATCHER_CONFIG);
+  await logWatcher.start();
+  logger.info('✅ Traffic log watcher started successfully');
 
   // Error handling middleware (must be AFTER routes)
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

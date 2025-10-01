@@ -115,6 +115,13 @@ services:
       - LOG_LEVEL=info
       # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
       - NODE_TLS_REJECT_UNAUTHORIZED=0
+    volumes:
+      # 挂载流量日志目录用于导入（只读）
+      - ./logs/qqbot-traffic:/app/logs/traffic:ro
+      # 挂载自身日志目录
+      - ./logs/admin-backend:/app/logs/admin-backend
+      # 挂载资源上传目录
+      - ./modules/admin-panel/backend/resources/uploads:/app/resources/uploads
     depends_on:
       - traffic-monitor
       - mysql
