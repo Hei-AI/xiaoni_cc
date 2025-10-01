@@ -391,7 +391,7 @@ npm run test:api
 
 ```bash
 # 启动完整环境
-docker-compose up -d
+docker compose up -d
 
 # 运行E2E测试
 npm run test:e2e

@@ -50,11 +50,26 @@
   ```
 - **日志与存储**：复用现有 `modules/http-traffic-monitor/mitmproxy/addon.py` 记录 JSONL / MySQL；可在启动命令中加 `--scripts addon.py`，并挂载日志目录。
 
+**Python CLI工具方式（推荐）**:
+```bash
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables
+```
+
 ### 3. iptables 自动化脚本
-- **脚本职责**：
-  1. 读取目标 Docker 网络 CIDR：`docker network inspect qq_bot_network`。
-  2. 清理旧规则，新增 NAT/Filter 规则，实现 80/443 流量重定向。
-  3. 启用 IP 转发。
+
+**Python CLI工具**:
+```bash
+# 应用规则
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py apply-iptables
+
+# 移除规则
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py remove-iptables
+```
+
+**脚本职责**:
+1. 读取目标 Docker 网络 CIDR：`docker network inspect qq_bot_network`。
+2. 清理旧规则，新增 NAT/Filter 规则，实现 80/443 流量重定向。
+3. 启用 IP 转发。
 
 - **关键命令示例**：
   ```bash
@@ -161,21 +176,16 @@
    - 版本：mitmproxy 11.0.2
    - 位置：`~/.local/bin/mitmdump`
 
-2. **✅ 修改启动脚本获取 WSL2 代理地址**
-   - 文件：`modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh`
-   - 修改：自动从环境变量 `$HTTP_PROXY` 获取上游代理地址
-   - 当前值：`172.26.144.1:53862` (Clash代理)
-   - 验证：`curl` 测试代理可用
+2. **✅ 创建Python CLI管理工具**
+   - 文件：`modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py`
+   - 功能：统一管理启动、停止、iptables配置、状态查询
+   - 命令：`python3 mitmproxy_manager.py start/stop/status/apply-iptables/remove-iptables`
 
 3. **✅ 启动 mitmproxy 并生成 CA 证书**
-   - 命令：`MITMPROXY_DIR="$PWD/modules/http-traffic-monitor/transparent-proxy/mitmproxy-data" TRAFFIC_LOG_DIR="$MITMPROXY_DIR/logs" bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh &`
+   - 命令：`python3 mitmproxy_manager.py start --iptables`
    - 状态：后台运行中（监听端口 15001）
    - 证书位置：`modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem`
    - 日志位置：`modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/`
-   - 修复问题：
-     - 安装缺失依赖 `ujson`、`loguru`
-     - 修正 REPO_ROOT 路径计算（从 `../..` 改为 `../../..`）
-     - 修正 addon.py 日志路径使用可配置目录
 
 4. **✅ 复制证书到项目目录**
    - 源：`modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem`
@@ -193,11 +203,8 @@
 
 1. **应用 iptables 规则**
    ```bash
-   # 先干运行测试
-   sudo bash modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh DRY_RUN=1
-
-   # 正式应用
-   sudo bash modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh
+   # 应用规则
+   python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py apply-iptables
    ```
 
 2. **安装 mitmproxy CA 证书到 WSL2 系统**
@@ -244,14 +251,14 @@
 ### 🔄 启动 mitmproxy 的完整命令
 
 ```bash
-# 从项目根目录执行
-export PATH="$HOME/.local/bin:$PATH"
-export MITMPROXY_DIR="$PWD/modules/http-traffic-monitor/transparent-proxy/mitmproxy-data"
-export TRAFFIC_LOG_DIR="$MITMPROXY_DIR/logs"
-bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh &
+# 从项目根目录执行（Python CLI方式）
+cd /home/liahua/IdeaProject/qq_bot
 
-# 检查运行状态
-ps aux | grep mitmdump
+# 启动mitmproxy并应用iptables规则
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables
+
+# 查看运行状态
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py status
 
 # 查看实时日志
 tail -f modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmproxy-*.log
@@ -344,9 +351,9 @@ docker exec container sh -c 'unset HTTP_PROXY && curl -k https://httpbin.org/get
 **解决方案**：
 ```bash
 # 临时移除iptables规则再构建
-sudo bash modules/http-traffic-monitor/transparent-proxy/remove-iptables.sh
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py remove-iptables
 docker build ...
-sudo bash modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py apply-iptables
 ```
 
 ### 🎯 核心成果
@@ -449,7 +456,7 @@ sudo bash modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh
 
 #### 尝试 #1: 添加 upstream_cert=false ❌
 **目的**: 绕过 mitmproxy 对上游 Clash 代理的证书验证
-**修改**: 在 `start-mitmproxy.sh` 添加 `--set upstream_cert=false`
+**修改**: 在 Python CLI工具中添加 `--set upstream_cert=false`
 **结果**: 仍然失败，问题不在证书验证而在于 fake-ip 解析
 **日志**: `error establishing server connection: [Errno 111] Connect call failed`
 
@@ -671,8 +678,7 @@ dns:
 ### 关键文件和日志位置
 
 **配置文件**:
-- mitmproxy 启动脚本: `/home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh`
-- iptables 脚本: `/home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh`
+- Python CLI工具: `/home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py`
 - Docker 部署脚本: `/home/liahua/IdeaProject/qq_bot/scripts/docker-deploy.sh` (第162-163行添加了DNS配置)
 - Clash 配置: `/mnt/c/Users/a8517/.config/clash/config.yaml`
 
@@ -749,8 +755,8 @@ from mitmproxy.connection import Address
 #### 2. 修复启动脚本环境变量传递
 **问题**: addon.py 的 fake-ip 处理逻辑需要环境变量，但启动脚本未导出
 
-**修复**: ([start-mitmproxy.sh:92-134](../../modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh#L92-L134))
-```bash
+**修复**: ([mitmproxy_manager.py](../../modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py))
+```python
 # 导出必要的环境变量给 addon.py
 export TRAFFIC_LOG_DIR="$LOG_DIR"
 export FAKE_IP_RANGE="${FAKE_IP_RANGE:-198.18.0.0/15}"
@@ -793,7 +799,7 @@ export CLASH_PROXY_PORT="${BASH_REMATCH[2]}"
 
 **1. 应用 iptables 规则**
 ```bash
-sudo bash /home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh
+python3 /home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py apply-iptables
 ```
 
 **2. 从容器内测试**
@@ -807,9 +813,9 @@ docker exec qqbot-qqbot-core curl -v https://httpbin.org/get
 
 ### 📚 相关文档
 
-- **下一步执行指令**: [NEXT_STEPS.md](../../NEXT_STEPS.md)
-- **完整测试指南**: [TRANSPARENT_PROXY_TEST_GUIDE.md](../../TRANSPARENT_PROXY_TEST_GUIDE.md)
-- **管理脚本**: [start-mitmproxy-daemon.sh](../../start-mitmproxy-daemon.sh)
+- **下一步执行指令**: [MITMPROXY_STARTUP_GUIDE.md](MITMPROXY_STARTUP_GUIDE.md)
+- **完整测试指南**: [TRANSPARENT_PROXY_FINAL_STATUS.md](TRANSPARENT_PROXY_FINAL_STATUS.md)
+- **Python CLI工具**: [mitmproxy_manager.py](../modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py)
 
 ### 🔑 技术要点
 

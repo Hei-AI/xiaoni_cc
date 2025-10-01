@@ -83,20 +83,28 @@ Docker Bridge Network: qq_bot_network (172.20.0.0/16)
 
 基于mitmproxy的透明代理，通过iptables实现零侵入式流量监控。
 
-### 快速使用
+### ⭐ 推荐使用Python CLI工具
 ```bash
-# 启动mitmproxy (端口15001)
-bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh
+# 安装依赖（首次使用）
+pip3 install click colorama
 
-# 应用iptables规则（WSL2重启后需要）
-sudo bash modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh
+# 查看状态
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py status
 
-# 停止服务
-bash modules/http-traffic-monitor/transparent-proxy/stop-mitmproxy-daemon.sh
+# 启动mitmproxy + 应用iptables（推荐）
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables
+
+# 停止mitmproxy + 清理iptables（推荐）
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py stop --cleanup
+
+# 重启服务
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py restart
 
 # 查看日志
 tail -f modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmproxy-*.log
 ```
+
+**优点**: 解决字符集问题、统一命令入口、彩色输出、配置持久化
 
 **数据流**: `容器 → iptables (80/443→15001) → mitmproxy → Clash (7890) → Internet`
 

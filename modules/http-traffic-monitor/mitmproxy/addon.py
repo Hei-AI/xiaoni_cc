@@ -17,6 +17,7 @@ from urllib.parse import urlparse, parse_qs
 import os
 import re
 from ipaddress import ip_address, ip_network
+import subprocess
 
 from mitmproxy import http, ctx
 from mitmproxy.script import concurrent
@@ -73,6 +74,12 @@ class HTTPTrafficLogger:
         # 配置日志 - 使用同一日志目录
         mitmproxy_log_path = os.path.join(self.config['log_dir'], "mitmproxy.log")
         logger.add(mitmproxy_log_path, rotation="100 MB", retention="30 days")
+
+        # 加载容器 IP 到名称的映射
+        self.container_ip_mapping = self._load_container_ip_mapping()
+        logger.info(f"加载到 {len(self.container_ip_mapping)} 个容器IP映射")
+        for ip, name in self.container_ip_mapping.items():
+            logger.info(f"  {ip} -> {name}")
 
         # fake-ip 支持配置
         fake_ip_range = os.getenv('FAKE_IP_RANGE', '198.18.0.0/15')
@@ -163,6 +170,65 @@ class HTTPTrafficLogger:
 
         self.current_log_file = log_file_path
         logger.info(f"日志文件初始化: {log_file_path}")
+
+    def _load_container_ip_mapping(self) -> Dict[str, str]:
+        """从 Docker 网络加载容器 IP 到名称的映射"""
+        try:
+            network_name = os.getenv('DOCKER_NETWORK_NAME', 'qq_bot_network')
+
+            # 使用 docker network inspect 获取容器信息
+            cmd = ['docker', 'network', 'inspect', network_name, '--format', '{{json .Containers}}']
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+
+            if result.returncode == 0:
+                containers = json.loads(result.stdout)
+                mapping = {}
+                for container_id, info in containers.items():
+                    container_name = info.get('Name', 'unknown')
+                    ipv4_addr = info.get('IPv4Address', '')
+                    if ipv4_addr:
+                        # 提取 IP 地址（去掉 /24 等后缀）
+                        ip = ipv4_addr.split('/')[0]
+                        mapping[ip] = container_name
+                        logger.debug(f"发现容器: {container_name} @ {ip}")
+                return mapping
+            else:
+                logger.warning(f"无法获取 Docker 网络 {network_name} 信息: {result.stderr}")
+                return {}
+        except subprocess.TimeoutExpired:
+            logger.error("Docker 命令执行超时")
+            return {}
+        except Exception as e:
+            logger.error(f"加载容器 IP 映射失败: {e}")
+            logger.error(traceback.format_exc())
+            return {}
+
+    def _get_container_name_from_client_ip(self, flow: http.HTTPFlow) -> str:
+        """从客户端 IP 获取容器名称"""
+        try:
+            # 获取客户端连接信息
+            client_address = flow.client_conn.peername
+            if client_address:
+                client_ip = client_address[0]
+
+                # 查询映射表
+                if client_ip in self.container_ip_mapping:
+                    container_name = self.container_ip_mapping[client_ip]
+                    logger.debug(f"识别容器: {client_ip} -> {container_name}")
+                    return container_name
+                else:
+                    logger.debug(f"未找到 IP {client_ip} 的容器映射")
+                    return 'unknown'
+        except Exception as e:
+            logger.debug(f"从客户端 IP 获取容器名失败: {e}")
+
+        # 备用方案：从环境变量读取（如果 mitmproxy 在容器内运行）
+        env_container = os.getenv('CONTAINER_NAME')
+        if env_container:
+            return env_container
+
+        return 'unknown'
+
 
     @concurrent
     def request(self, flow: http.HTTPFlow) -> None:
@@ -312,7 +378,7 @@ class HTTPTrafficLogger:
             # 基础标识
             'request_id': flow.metadata.get('request_id'),
             'trace_id': flow.metadata.get('trace_id'),
-            'container_name': os.getenv('CONTAINER_NAME', 'qqbot-core'),
+            'container_name': self._get_container_name_from_client_ip(flow),
             'service_name': os.getenv('SERVICE_NAME', 'http-traffic-monitor'),
 
             # 请求信息

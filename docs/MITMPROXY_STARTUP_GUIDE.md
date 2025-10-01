@@ -2,41 +2,45 @@
 
 ## 📋 快速启动
 
-### 方式1: 一键启动脚本（推荐）
+### 方式1: Python CLI启动（推荐）
 
 ```bash
 cd /home/liahua/IdeaProject/qq_bot
-bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh
+
+# 启动mitmproxy并自动应用iptables规则
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables
+
+# 或仅启动mitmproxy（不配置iptables）
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start
 ```
 
 **输出示例**:
 ```
-✅ 自动检测到Clash代理: http://172.26.144.1:7890
-mitmproxy 已启动，PID: 123456
-✅ mitmproxy 运行正常
+[INFO] 正在启动mitmproxy...
+[INFO] 上游代理: http://172.26.144.1:7890
+✅ mitmproxy已启动, PID: 123456
+[INFO] 正在应用iptables规则...
+✅ iptables规则已应用
 ```
 
-### 方式2: 手动启动
+### 方式2: 后台启动
 
 ```bash
 cd /home/liahua/IdeaProject/qq_bot
 
-# 设置环境变量
-export PATH="$HOME/.local/bin:$PATH"
-export MITMPROXY_DIR="$PWD/modules/http-traffic-monitor/transparent-proxy/mitmproxy-data"
-export UPSTREAM_HTTP="http://172.26.144.1:7890"  # 自动检测的Clash地址
-
-# 后台启动
-bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh &
+# 后台启动（输出重定向到日志文件）
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables > /tmp/mitm_start.log 2>&1 &
 ```
 
 ---
 
 ## 🔧 配置iptables规则（首次或重启后需要）
 
+如果使用 `--iptables` 参数启动，规则会自动应用。手动应用：
+
 ```bash
-# 应用重定向规则
-sudo bash modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh
+# 手动应用规则（需要sudo权限）
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py apply-iptables
 ```
 
 **验证规则是否生效**:
@@ -79,14 +83,11 @@ cat modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/traffic-$
 ## 🛑 停止服务
 
 ```bash
-# 方式1: 使用pkill
-pkill -f "mitmdump.*transparent"
+# 停止mitmproxy并清理iptables规则
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py stop --cleanup
 
-# 方式2: 使用PID文件
-kill $(cat /tmp/mitmproxy.pid)
-
-# 移除iptables规则（可选）
-sudo bash modules/http-traffic-monitor/transparent-proxy/remove-iptables.sh
+# 或仅停止mitmproxy（保留iptables规则）
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py stop
 ```
 
 ---
@@ -119,31 +120,33 @@ tail -20 modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitm
 **自定义配置示例**:
 ```bash
 # 使用不同的Clash端口
-CLASH_PORT=7891 bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh
+CLASH_PORT=7891 python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables
 
 # 完全自定义代理地址
-UPSTREAM_HTTP="http://192.168.1.100:8080" bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh
+UPSTREAM_HTTP="http://192.168.1.100:8080" python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables
 ```
 
 ---
 
 ## 🔄 WSL2重启后的启动流程
 
-每次WSL2重启后，需要执行以下步骤：
+每次WSL2重启后，一键启动：
 
 ```bash
-# 1. 启动mitmproxy
 cd /home/liahua/IdeaProject/qq_bot
-bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables
+```
 
-# 2. 配置iptables规则
-sudo bash modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh
+或查看状态：
 
-# 3. 验证状态
-pgrep -fa mitmdump
+```bash
+# 查看运行状态
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py status
+
+# 验证iptables规则
 sudo iptables -t nat -L PREROUTING -n -v | grep 15001
 
-# 4. 测试流量
+# 测试流量
 docker exec qqbot-mysql curl http://www.google.com
 ```
 
@@ -158,7 +161,7 @@ docker exec qqbot-mysql curl http://www.google.com
 netstat -tlnp | grep 15001
 
 # 查看详细日志
-bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start
 # (前台运行，观察错误信息)
 ```
 
@@ -172,8 +175,8 @@ sudo iptables -t nat -L PREROUTING -n -v --line-numbers
 docker network inspect qq_bot_network -f '{{(index .IPAM.Config 0).Subnet}}'
 
 # 重新应用规则
-sudo bash modules/http-traffic-monitor/transparent-proxy/remove-iptables.sh
-sudo bash modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py remove-iptables
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py apply-iptables
 ```
 
 ### 问题3: 无法连接到Clash
@@ -193,10 +196,10 @@ curl -x http://${DEFAULT_GATEWAY}:7890 http://www.google.com
 
 ## 📝 注意事项
 
-1. **手动启动**: mitmproxy不会自动启动，WSL2重启后需要手动执行启动脚本
-2. **iptables规则**: 重启后需要重新应用iptables规则（需要sudo权限）
+1. **Python CLI工具**: 使用统一的Python CLI工具 `mitmproxy_manager.py` 管理所有操作
+2. **iptables规则**: WSL2重启后需要重新应用iptables规则（使用 `--iptables` 参数）
 3. **Clash依赖**: 需要Windows侧Clash正在运行且监听7890端口
-4. **网关地址**: `modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh` 会自动检测WSL2网关地址
+4. **网关地址**: 工具会自动检测WSL2网关地址
 5. **日志轮转**: 日志按天自动轮转，旧日志保留30天
 
 ---

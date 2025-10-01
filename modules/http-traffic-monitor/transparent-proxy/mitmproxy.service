@@ -8,24 +8,13 @@ Type=simple
 User=liahua
 WorkingDirectory=/home/liahua/IdeaProject/qq_bot
 Environment="PATH=/home/liahua/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-Environment="MITMPROXY_DIR=/home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/mitmproxy-data"
-Environment="FAKE_IP_RANGE=198.18.0.0/15"
+Environment="PYTHONPATH=/usr/local/lib/python3.10/dist-packages:/usr/lib/python3/dist-packages"
 
-# 自动检测Clash代理地址
-ExecStartPre=/bin/bash -c 'DEFAULT_GATEWAY=$(ip route | grep "^default" | awk "{print \$3}"); echo "DEFAULT_GATEWAY=$DEFAULT_GATEWAY" > /tmp/mitmproxy-gateway.env'
+# 启动mitmproxy（使用Python CLI工具）
+ExecStart=/usr/bin/python3 /home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables
 
-# 启动mitmproxy
-ExecStart=/bin/bash -c 'source /tmp/mitmproxy-gateway.env && export UPSTREAM_HTTP="http://${DEFAULT_GATEWAY}:7890" && /home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh'
-
-# 停止时清理
-ExecStop=/usr/bin/pkill -f "mitmdump.*transparent"
-
-# 应用iptables规则（需要sudo权限）
-ExecStartPost=/bin/sleep 3
-ExecStartPost=/bin/bash -c 'echo liahua | sudo -S /home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh'
-
-# 停止时移除iptables规则
-ExecStopPost=/bin/bash -c 'echo liahua | sudo -S /home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/remove-iptables.sh'
+# 停止mitmproxy（使用Python CLI工具）
+ExecStop=/usr/bin/python3 /home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py stop --cleanup
 
 Restart=always
 RestartSec=10

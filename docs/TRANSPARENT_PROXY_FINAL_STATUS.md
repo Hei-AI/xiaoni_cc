@@ -174,7 +174,7 @@ RUN update-ca-certificates
 ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/mitmproxy-ca.crt
 
 # 3. 重新构建容器
-docker-compose build qqbot-core qqbot-mysql
+docker compose build qqbot-core qqbot-mysql
 
 # 4. 测试HTTPS
 docker exec qqbot-mysql curl https://www.google.com
@@ -206,23 +206,19 @@ docker exec qqbot-mysql curl https://www.google.com
 ### 启动透明代理
 
 ```bash
-# 方法1: 使用daemon wrapper
-bash /home/liahua/IdeaProject/qq_bot/start-mitmproxy-daemon.sh
-
-# 方法2: 直接启动
+# 方法1: Python CLI工具（推荐）
 cd /home/liahua/IdeaProject/qq_bot
-export PATH="$HOME/.local/bin:$PATH"
-export MITMPROXY_DIR="$PWD/modules/http-traffic-monitor/transparent-proxy/mitmproxy-data"
-export UPSTREAM_HTTP="http://172.26.144.1:7890"
-bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh &
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables
+
+# 方法2: 仅启动mitmproxy（手动配置iptables）
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start
 ```
 
 ### 配置iptables规则
 
 ```bash
-# 添加重定向规则
-sudo iptables -t nat -I PREROUTING 2 -s 172.20.0.0/16 -p tcp --dport 80 -j REDIRECT --to-port 15001
-sudo iptables -t nat -I PREROUTING 3 -s 172.20.0.0/16 -p tcp --dport 443 -j REDIRECT --to-port 15001
+# 单独应用规则
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py apply-iptables
 
 # 验证规则
 sudo iptables -t nat -L PREROUTING -n -v --line-numbers | grep 15001
@@ -287,7 +283,7 @@ cat modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/traffic-2
 
 ### 4. 关键配置文件
 - **addon**: `modules/http-traffic-monitor/mitmproxy/addon.py`
-- **启动脚本**: `modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh`
+- **Python CLI工具**: `modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py`
 - **日志目录**: `modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/`
 - **证书目录**: `~/.mitmproxy/` (首次启动自动生成)
 
