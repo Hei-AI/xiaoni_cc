@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { Alert, AlertDescription } from '../components/ui/alert';
+import { Checkbox } from '../components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -32,9 +33,13 @@ import {
   AlertTriangle,
   CheckCircle,
   XCircle,
-  Zap
+  Zap,
+  Play,
+  PlayCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { BatchReplayDialog } from '../components/BatchReplayDialog';
+import type { BatchReplayResult } from '../types/traffic-replay';
 
 interface TrafficLog {
   id: number;
@@ -95,22 +100,23 @@ interface TrafficStats {
   time_range: string;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:9080/api';
-
 export function HttpTrafficMonitorPage() {
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({
-    method: '',
+    method: 'all',
     host: '',
-    status: '',
-    is_ai_request: '',
+    status: 'all',
+    is_ai_request: 'all',
     api_type: '',
+    container_name: '',
     search: '',
     start_time: '',
     end_time: ''
   });
   const [timeRange, setTimeRange] = useState('24h');
   const [showFilters, setShowFilters] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showBatchReplayDialog, setShowBatchReplayDialog] = useState(false);
 
   // 获取流量记录
   const { data: trafficData, isLoading: trafficLoading, refetch: refetchTraffic } = useQuery({
@@ -120,11 +126,11 @@ export function HttpTrafficMonitorPage() {
         page: page.toString(),
         limit: '50',
         ...Object.fromEntries(
-          Object.entries(filters).filter(([_, value]) => value !== '')
+          Object.entries(filters).filter(([_, value]) => value !== '' && value !== 'all')
         )
       });
 
-      const response = await fetch(`${API_BASE_URL}/traffic/logs?${params}`);
+      const response = await fetch(`/api/traffic/logs?${params}`);
       if (!response.ok) throw new Error('Failed to fetch traffic logs');
       return response.json();
     },
@@ -135,7 +141,7 @@ export function HttpTrafficMonitorPage() {
   const { data: statsData, isLoading: statsLoading, refetch: refetchStats } = useQuery({
     queryKey: ['traffic-stats', timeRange],
     queryFn: async () => {
-      const response = await fetch(`${API_BASE_URL}/traffic/stats?range=${timeRange}`);
+      const response = await fetch(`/api/traffic/stats?range=${timeRange}`);
       if (!response.ok) throw new Error('Failed to fetch traffic stats');
       return response.json();
     },
@@ -160,7 +166,7 @@ export function HttpTrafficMonitorPage() {
         include_body: 'false'
       });
 
-      const response = await fetch(`${API_BASE_URL}/traffic/export?${params}`);
+      const response = await fetch(`/api/traffic/export?${params}`);
       if (!response.ok) throw new Error('Failed to export data');
 
       const blob = await response.blob();
@@ -219,6 +225,54 @@ export function HttpTrafficMonitorPage() {
   const stats: TrafficStats | undefined = statsData?.data;
   const logs: TrafficLog[] = trafficData?.data || [];
   const pagination = trafficData?.pagination;
+
+  // 选择处理函数
+  const handleSelectAll = () => {
+    if (selectedIds.size === logs.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(logs.map(log => log.id)));
+    }
+  };
+
+  const handleToggleSelect = (id: number) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedIds(newSet);
+  };
+
+  // 快速重放单个请求
+  const handleQuickReplay = async (logId: number) => {
+    try {
+      const response = await fetch(`/api/traffic/replay/${logId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modifications: {} })
+      });
+
+      if (!response.ok) throw new Error('快速重放失败');
+
+      // 可选：显示成功提示
+      alert('重放成功！');
+      refetchTraffic();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '重放失败');
+    }
+  };
+
+  // 批量重放完成处理
+  const handleBatchReplayComplete = (results: BatchReplayResult) => {
+    setShowBatchReplayDialog(false);
+    setSelectedIds(new Set());
+    refetchTraffic();
+    alert(`批量重放完成！成功: ${results.successful}, 失败: ${results.failed}`);
+  };
+
+  const selectedLogs = logs.filter(log => selectedIds.has(log.id));
 
   return (
     <div className="space-y-6">
@@ -363,7 +417,7 @@ export function HttpTrafficMonitorPage() {
                     <SelectValue placeholder="选择方法" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">全部</SelectItem>
+                    <SelectItem value="all">全部</SelectItem>
                     <SelectItem value="GET">GET</SelectItem>
                     <SelectItem value="POST">POST</SelectItem>
                     <SelectItem value="PUT">PUT</SelectItem>
@@ -380,7 +434,7 @@ export function HttpTrafficMonitorPage() {
                     <SelectValue placeholder="选择状态" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">全部</SelectItem>
+                    <SelectItem value="all">全部</SelectItem>
                     <SelectItem value="200">200 成功</SelectItem>
                     <SelectItem value="400">400 请求错误</SelectItem>
                     <SelectItem value="401">401 未授权</SelectItem>
@@ -397,11 +451,20 @@ export function HttpTrafficMonitorPage() {
                     <SelectValue placeholder="选择类型" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">全部</SelectItem>
+                    <SelectItem value="all">全部</SelectItem>
                     <SelectItem value="true">仅AI请求</SelectItem>
                     <SelectItem value="false">非AI请求</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-1 block">容器名称</label>
+                <Input
+                  placeholder="输入容器名称..."
+                  value={filters.container_name}
+                  onChange={(e) => handleFilterChange('container_name', e.target.value)}
+                />
               </div>
 
               <div>
@@ -425,8 +488,34 @@ export function HttpTrafficMonitorPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>HTTP流量记录</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              HTTP流量记录
+              {selectedIds.size > 0 && (
+                <Badge variant="secondary">
+                  已选择 {selectedIds.size} 条
+                </Badge>
+              )}
+            </CardTitle>
             <div className="flex items-center gap-2">
+              {selectedIds.size > 0 && (
+                <>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => setShowBatchReplayDialog(true)}
+                  >
+                    <PlayCircle className="h-4 w-4 mr-2" />
+                    批量重放
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedIds(new Set())}
+                  >
+                    取消选择
+                  </Button>
+                </>
+              )}
               <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
                 <Download className="h-4 w-4 mr-2" />
                 导出CSV
@@ -456,7 +545,14 @@ export function HttpTrafficMonitorPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">
+                      <Checkbox
+                        checked={selectedIds.size > 0 && selectedIds.size === logs.length}
+                        onCheckedChange={handleSelectAll}
+                      />
+                    </TableHead>
                     <TableHead>时间</TableHead>
+                    <TableHead>容器</TableHead>
                     <TableHead>方法</TableHead>
                     <TableHead>URL</TableHead>
                     <TableHead>状态</TableHead>
@@ -469,15 +565,26 @@ export function HttpTrafficMonitorPage() {
                 <TableBody>
                   {logs.map((log) => (
                     <TableRow key={log.id}>
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(log.id)}
+                          onCheckedChange={() => handleToggleSelect(log.id)}
+                        />
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {new Date(log.timestamp).toLocaleString('zh-CN')}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        <Badge variant="outline" className="text-xs">
+                          {log.container_name || 'qqbot-core'}
+                        </Badge>
                       </TableCell>
                       <TableCell>
                         <Badge className={getMethodColor(log.method)}>{log.method}</Badge>
                       </TableCell>
                       <TableCell className="max-w-xs">
                         <div className="flex items-center gap-2">
-                          {log.is_ai_request && <Zap className="h-3 w-3 text-purple-500" />}
+                          {Boolean(log.is_ai_request) && <Zap className="h-3 w-3 text-purple-500" />}
                           <span className="truncate" title={log.url}>{log.url}</span>
                         </div>
                       </TableCell>
@@ -499,11 +606,21 @@ export function HttpTrafficMonitorPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Link to={`/traffic/${log.id}`}>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleQuickReplay(log.id)}
+                            title="快速重放"
+                          >
+                            <Play className="h-4 w-4" />
                           </Button>
-                        </Link>
+                          <Link to={`/traffic/${log.id}`}>
+                            <Button variant="ghost" size="sm" title="查看详情">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -543,6 +660,14 @@ export function HttpTrafficMonitorPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* 批量重放对话框 */}
+      <BatchReplayDialog
+        selectedLogs={selectedLogs}
+        open={showBatchReplayDialog}
+        onClose={() => setShowBatchReplayDialog(false)}
+        onComplete={handleBatchReplayComplete}
+      />
     </div>
   );
 }

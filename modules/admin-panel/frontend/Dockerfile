@@ -34,7 +34,7 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # 复制nginx配置
 COPY <<'EOF' /etc/nginx/conf.d/default.conf
 server {
-    listen 3003;
+    listen 80;
     server_name localhost;
     
     # 启用gzip压缩
@@ -84,11 +84,11 @@ server {
 EOF
 
 # 暴露端口
-EXPOSE 3003
+EXPOSE 80
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3003/health || exit 1
+  CMD curl -f http://localhost/health || exit 1
 
 # 启动nginx
 CMD ["nginx", "-g", "daemon off;"]
