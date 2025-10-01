@@ -29,6 +29,7 @@ logs/
 backend/resources/logs/
 modules/*/resources/logs/
 **/*.log
+modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/
 
 # Python cache
 __pycache__/

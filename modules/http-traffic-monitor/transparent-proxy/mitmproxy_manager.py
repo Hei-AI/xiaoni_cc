@@ -22,6 +22,7 @@ init(autoreset=True)
 # 项目路径配置
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 MITMPROXY_DIR = PROJECT_ROOT / "modules/http-traffic-monitor/transparent-proxy/mitmproxy-data"
+TRAFFIC_LOG_DIR = PROJECT_ROOT / "logs/qqbot-traffic"  # 流量日志统一输出目录
 PID_FILE = Path("/tmp/mitmproxy.pid")
 CONFIG_FILE = PROJECT_ROOT / "modules/http-traffic-monitor/transparent-proxy/config.json"
 
@@ -221,8 +222,8 @@ class MitmproxyManager:
 
         # 确保目录存在
         self.mitmproxy_dir.mkdir(parents=True, exist_ok=True)
-        log_dir = self.mitmproxy_dir / "logs"
-        log_dir.mkdir(exist_ok=True)
+        log_dir = TRAFFIC_LOG_DIR
+        log_dir.mkdir(parents=True, exist_ok=True)
 
         # 生成带时间戳的日志文件
         from datetime import datetime
@@ -572,7 +573,7 @@ class MitmproxyManager:
 
     def get_latest_log(self) -> Optional[Path]:
         """获取最新的日志文件"""
-        log_dir = self.mitmproxy_dir / "logs"
+        log_dir = TRAFFIC_LOG_DIR
         if not log_dir.exists():
             return None
 
