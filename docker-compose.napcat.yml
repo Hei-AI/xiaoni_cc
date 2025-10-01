@@ -1,0 +1,58 @@
+# NapCat独立部署配置
+# 用于稳定的QQ协议适配器服务，与主业务服务分离管理
+version: '3.8'
+
+services:
+  # NapCat QQ协议适配器
+  napcat:
+    image: mlikiowa/napcat-docker:v4.8.113
+    container_name: napcat
+    restart: always
+    ports:
+      - "3000:3000"  # NapCat HTTP API
+      - "3001:3001"  # NapCat WebSocket
+      - "6099:6099"  # QQ客户端端口
+    volumes:
+      # NapCat配置和数据持久化
+      - ./resource/napcat_config:/app/napcat/config
+      - ./resource/napcat_qq_data:/app/.config/QQ
+      - ./logs/napcat:/app/logs
+    environment:
+      # NapCat基础配置
+      - NAPCAT_GID=0
+      - NAPCAT_UID=0
+      - NAPCAT_TRACE=0
+    networks:
+      - qq_bot_network
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "QQ"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # 添加资源限制确保稳定性
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+networks:
+  # 独立网络，但可以被其他compose文件引用
+  qqbot-napcat-network:
+    driver: bridge
+    external: false
+
+  # 引用主业务网络
+  qq_bot_network:
+    external: true
+
+# Volumes for persistent data
+volumes:
+  napcat_config:
+    driver: local
+  napcat_qq_data:
+    driver: local
