@@ -58,3 +58,12 @@ coverage/
 resource/napcat_qq_data
 resource/napcat_qq_data2
 .idea
+
+### Example user template template
+### Example user template
+
+# IntelliJ project files
+out
+gen
+.vscode
+.playwright-mcp
