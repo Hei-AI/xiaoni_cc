@@ -33,9 +33,8 @@ __tests__/
 *.spec.ts
 
 # Development files
-.env.local
-.env.development
-.env.test
+.env
+.env.*
 *.local
 
 # IDE

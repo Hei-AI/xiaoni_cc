@@ -41,12 +41,7 @@ services:
           memory: 1G
 
 networks:
-  # 独立网络，但可以被其他compose文件引用
-  qqbot-napcat-network:
-    driver: bridge
-    external: false
-
-  # 引用主业务网络
+  # 使用共享的qq_bot_network网络
   qq_bot_network:
     external: true
 

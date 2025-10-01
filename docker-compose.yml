@@ -136,5 +136,4 @@ services:
 
 networks:
   qq_bot_network:
-    driver: bridge
-    external: false
+    external: true
