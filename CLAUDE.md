@@ -130,6 +130,29 @@ tail -f modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmp
 
 ## 开发规范
 
+### Git提交规范
+提交代码时必须遵循.gitignore配置，避免提交不必要的文件。
+
+**重要规则**:
+- 使用 `git add` 添加特定文件，而不是 `git add .`
+- 提交前检查 `git status` 确保不包含以下内容：
+  - `resource/napcat_qq_data/` (QQ数据文件，权限敏感)
+  - `logs/` 目录下的日志文件
+  - `node_modules/`, `dist/`, `build/` 等构建产物
+  - `.env` 等环境配置文件
+
+**推荐提交流程**:
+```bash
+# 1. 查看变更状态
+git status
+
+# 2. 仅添加相关文件
+git add <specific-files>
+
+# 3. 提交（自动包含Claude Code标识）
+git commit -m "feat: 描述变更内容"
+```
+
 ### 消息处理API规范
 - **规范文档**: `@docs/MESSAGE_FLOW_API_SPECIFICATION.md`
 - **验证脚本**: `docker exec qqbot-qqbot-core node test_message_flow_api_complete.js`
