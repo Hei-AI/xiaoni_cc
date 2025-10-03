@@ -781,24 +781,78 @@ export class TokenManager {
         };
 
       } catch (error) {
-        this.moduleLogger.warn(`Model-aware token retrieval failed on attempt ${attempt + 1}`, { 
+        this.moduleLogger.warn(`Model-aware token retrieval failed on attempt ${attempt + 1}`, {
           error,
           modelName,
           agentType,
           promptName
         });
-        
+
         if (attempt === maxRetries - 1) {
-          this.moduleLogger.error('All model-aware token retrieval attempts failed', {
+          this.moduleLogger.warn('All model-aware token retrieval attempts failed, falling back to general token selection', {
             modelName,
             agentType,
             promptName
           });
+
+          // 回退到通用Token选择
+          const fallbackToken = await this.getNextToken();
+          if (fallbackToken) {
+            // 获取token详细信息
+            const tokenInfo = await this.database.executeQuery<ApiTokenData>(
+              'SELECT id, project_name FROM api_tokens WHERE token = ? LIMIT 1',
+              [fallbackToken]
+            );
+
+            if (tokenInfo.length > 0) {
+              this.moduleLogger.info('Fallback to general token successful', {
+                tokenId: tokenInfo[0].id,
+                projectName: tokenInfo[0].project_name,
+                modelName
+              });
+
+              return {
+                token: fallbackToken,
+                tokenId: tokenInfo[0].id,
+                projectName: tokenInfo[0].project_name
+              };
+            }
+          }
+
           return null;
         }
       }
     }
-    
+
+    // 所有重试失败后，尝试回退到通用Token选择
+    this.moduleLogger.warn('No model-specific tokens found after retries, attempting fallback', {
+      modelName,
+      agentType,
+      promptName
+    });
+
+    const fallbackToken = await this.getNextToken();
+    if (fallbackToken) {
+      const tokenInfo = await this.database.executeQuery<ApiTokenData>(
+        'SELECT id, project_name FROM api_tokens WHERE token = ? LIMIT 1',
+        [fallbackToken]
+      );
+
+      if (tokenInfo.length > 0) {
+        this.moduleLogger.info('Fallback to general token successful', {
+          tokenId: tokenInfo[0].id,
+          projectName: tokenInfo[0].project_name,
+          modelName
+        });
+
+        return {
+          token: fallbackToken,
+          tokenId: tokenInfo[0].id,
+          projectName: tokenInfo[0].project_name
+        };
+      }
+    }
+
     return null;
   }
   
