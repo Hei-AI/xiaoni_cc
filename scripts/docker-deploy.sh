@@ -129,6 +129,7 @@ run_container() {
                 --network qq_bot_network \
                 -p 8080:8080 \
                 -v "$(pwd)/logs/http-api:/app/logs" \
+                -v "$(pwd)/modules/http-traffic-monitor/transparent-proxy/certs:/certs:ro" \
                 -e QQBOT_CORE_URL=http://qqbot-qqbot-core:8081 \
                 -e HTTP_PORT=8080 \
                 -e LOG_LEVEL=info \
@@ -145,6 +146,7 @@ run_container() {
                 -p 8081:8081 \
                 -v "$(pwd)/logs/qqbot-core:/app/logs" \
                 -v "$(pwd)/modules/qqbot-core/resources/config:/app/resources/config" \
+                -v "$(pwd)/modules/http-traffic-monitor/transparent-proxy/certs:/certs:ro" \
                 -e MYSQL_HOST=qqbot-mysql \
                 -e MYSQL_PORT=3306 \
                 -e MYSQL_USER=${MYSQL_USER:-qqbot_user} \
@@ -173,6 +175,7 @@ run_container() {
                 -p 9080:9080 \
                 -v "$(pwd)/logs/admin-backend:/app/logs" \
                 -v "$(pwd)/modules/admin-panel/backend/resources/uploads:/app/resources/uploads" \
+                -v "$(pwd)/modules/http-traffic-monitor/transparent-proxy/certs:/certs:ro" \
                 -e DB_HOST=qqbot-mysql \
                 -e DB_PORT=3306 \
                 -e DB_USER=${DB_USER:-qqbot_user} \
