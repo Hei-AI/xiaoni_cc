@@ -72,7 +72,7 @@ export interface LLMFlowResponse {
   trace_id: string;
 
   // 新规范字段 (MESSAGE_FLOW_API_SPECIFICATION.md)
-  message_input: {
+  message_input?: {
     user_id: number;
     message: string;
     message_type: 'private' | 'group';
@@ -90,7 +90,7 @@ export interface LLMFlowResponse {
     };
   };
 
-  message_output: {
+  message_output?: {
     content: string;
     response_time_ms: number;
     model_used: string;
@@ -101,11 +101,11 @@ export interface LLMFlowResponse {
     delivery_latency_ms?: number;
   };
 
-  llm_call_chain: LLMCallRecord[];
+  llm_call_chain?: LLMCallRecord[];
 
-  processing_events: ProcessingEvent[];
+  processing_events?: ProcessingEvent[];
 
-  flow_summary: {
+  flow_summary?: {
     total_processing_time_ms: number;
     queue_wait_time_ms: number;
     llm_processing_time_ms: number;
@@ -120,7 +120,7 @@ export interface LLMFlowResponse {
     efficiency_score: number;
   };
 
-  debug_info: {
+  debug_info?: {
     data_completeness: {
       conversation_record: 'complete' | 'partial' | 'missing';
       llm_call_logs: 'complete' | 'partial' | 'missing';
@@ -134,15 +134,20 @@ export interface LLMFlowResponse {
   };
 
   // 向后兼容字段 (保留支持)
-  websocket_input: OneBot11Message;
-  websocket_output: {
+  websocket_input?: OneBot11Message;
+  websocket_output?: {
     content: string;
     response_time_ms: string | number;
     model: string;
     timestamp: string;
   };
-  llm_trace: LLMTrace[];
-  timeline_events: TimelineEvent[];
+  llm_trace?: LLMTrace[];
+  timeline_events?: TimelineEvent[];
+
+  // Legacy兼容字段
+  llm_calls?: any[];
+  websocket_logs?: any[];
+  conversation?: any;
 }
 
 export interface OneBot11Message {
