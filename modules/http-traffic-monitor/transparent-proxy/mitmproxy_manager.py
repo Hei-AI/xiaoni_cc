@@ -416,6 +416,9 @@ class MitmproxyManager:
             # 启用IP转发
             self._sudo_run(sudo_pwd, ["sysctl", "-w", "net.ipv4.ip_forward=1"])
 
+            # 清理旧网段残留规则，避免网段迁移后出现重复条目
+            self._cleanup_stale_redirect_rules(sudo_pwd, listen_port, cidr)
+
             # 清理旧规则（如果存在）
             self._remove_iptables_rule(sudo_pwd, "nat", "PREROUTING",
                 ["-s", cidr, "-p", "tcp", "--dport", "80",
@@ -463,6 +466,9 @@ class MitmproxyManager:
         sudo_pwd = self.config['sudo_password']
 
         try:
+            # 清理旧网段残留规则，防止历史规则影响当前网络
+            self._cleanup_stale_redirect_rules(sudo_pwd, listen_port, cidr)
+
             # 删除HTTP重定向规则
             Colors.info("清理HTTP(80)重定向规则...")
             self._remove_iptables_rule(sudo_pwd, "nat", "PREROUTING",
@@ -528,6 +534,40 @@ class MitmproxyManager:
             count += 1
             if count > 10:
                 raise Exception("删除规则失败（循环次数过多）")
+
+    def _cleanup_stale_redirect_rules(self, password: str, listen_port: int, current_cidr: Optional[str]):
+        """清理旧网段残留的HTTP/HTTPS重定向规则"""
+        try:
+            output = self._sudo_run(password, ["iptables", "-t", "nat", "-S", "PREROUTING"])
+        except Exception as e:
+            Colors.warn(f"无法读取iptables规则: {e}")
+            return
+
+        for line in output.splitlines():
+            if "REDIRECT" not in line or f"--to-ports {listen_port}" not in line:
+                continue
+
+            tokens = line.split()
+            if len(tokens) < 3 or tokens[0] != "-A" or tokens[1] != "PREROUTING":
+                continue
+
+            # 跳过当前CIDR对应的规则
+            rule_cidr = None
+            if "-s" in tokens:
+                try:
+                    rule_cidr = tokens[tokens.index("-s") + 1]
+                except IndexError:
+                    rule_cidr = None
+
+            if current_cidr and rule_cidr == current_cidr:
+                continue
+
+            rule_spec = tokens[2:]
+            try:
+                self._sudo_run(password, ["iptables", "-t", "nat", "-D", "PREROUTING"] + rule_spec)
+                Colors.info(f"已清理过期规则: iptables -t nat -D PREROUTING {' '.join(rule_spec)}")
+            except Exception as err:
+                Colors.warn(f"删除旧规则失败: {err}")
 
     def status(self):
         """显示运行状态"""
