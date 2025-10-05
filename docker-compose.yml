@@ -2,7 +2,7 @@
 # QQ智能机器人 - 主业务服务配置
 #
 # 注意: NapCat服务已独立管理，不包含在此配置中
-# NapCat管理: ./scripts/napcat-manage.sh
+# NapCat运行: docker compose -f docker-compose.napcat.yml up -d
 # NapCat配置: ./docker-compose.napcat.yml
 #
 # ⚠️ 使用 Docker Compose v2 CLI (`docker compose ...`)，旧版 `docker-compose` 命令会忽略部分配置

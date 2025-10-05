@@ -1,5 +1,5 @@
 import { DatabaseManager } from './database';
-import { QQMessage, ConversationData } from '../types';
+import { QQMessage, ConversationData, ConversationBatch } from '../types';
 import { logger } from '../utils/logger';
 
 /**
@@ -266,7 +266,7 @@ export class DebugService {
   public searchDebugInfo(keyword: string, limit: number = 20): ConversationDebugInfo[] {
     const results: ConversationDebugInfo[] = [];
     const lowercaseKeyword = keyword.toLowerCase();
-    
+
     for (const debugInfo of this.conversationCache.values()) {
       // 搜索原始消息
       if (debugInfo.original_message.raw_message?.toLowerCase().includes(lowercaseKeyword) ||
@@ -274,7 +274,7 @@ export class DebugService {
         results.push(debugInfo);
         continue;
       }
-      
+
       // 搜索跟踪记录
       for (const trace of debugInfo.traces) {
         const traceJson = JSON.stringify(trace.content).toLowerCase();
@@ -283,12 +283,202 @@ export class DebugService {
           break;
         }
       }
-      
+
       if (results.length >= limit) {
         break;
       }
     }
-    
+
     return results.sort((a, b) => b.start_time.getTime() - a.start_time.getTime());
+  }
+
+  /**
+   * 查询批次处理记录（通过 batchId）
+   */
+  public async getConversationsByBatchId(batchId: string): Promise<ConversationData[]> {
+    try {
+      const query = `
+        SELECT * FROM conversations
+        WHERE batch_id = ?
+        ORDER BY created_at ASC
+      `;
+
+      const conversations = await this.database.executeQuery<ConversationData>(query, [batchId]);
+
+      this.moduleLogger.info('Retrieved conversations by batchId', {
+        batchId,
+        count: conversations.length
+      });
+
+      return conversations;
+    } catch (error) {
+      this.moduleLogger.error('Failed to get conversations by batchId', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        batchId
+      });
+      return [];
+    }
+  }
+
+  /**
+   * 获取批次处理统计信息
+   */
+  public async getBatchStats(sourceKey?: string, hours: number = 24): Promise<{
+    total_batches: number;
+    completed_batches: number;
+    failed_batches: number;
+    avg_processing_time: number;
+    total_messages: number;
+    batches_by_trigger: Record<string, number>;
+  }> {
+    try {
+      const timeThreshold = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+      let query = `
+        SELECT
+          COUNT(*) as total_batches,
+          SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_batches,
+          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_batches,
+          AVG(processing_time) as avg_processing_time,
+          SUM(message_count) as total_messages,
+          trigger_type,
+          COUNT(*) as count_by_trigger
+        FROM conversation_batches
+        WHERE created_at >= ?
+      `;
+
+      const params: any[] = [timeThreshold];
+
+      if (sourceKey) {
+        query += ` AND source_key = ?`;
+        params.push(sourceKey);
+      }
+
+      query += ` GROUP BY trigger_type`;
+
+      const results = await this.database.executeQuery<any>(query, params);
+
+      // 聚合统计
+      let total = 0;
+      let completed = 0;
+      let failed = 0;
+      let totalMessages = 0;
+      let totalProcessingTime = 0;
+      let batchCount = 0;
+      const batchesByTrigger: Record<string, number> = {};
+
+      for (const row of results) {
+        total += row.total_batches || 0;
+        completed += row.completed_batches || 0;
+        failed += row.failed_batches || 0;
+        totalMessages += row.total_messages || 0;
+        totalProcessingTime += (row.avg_processing_time || 0) * (row.count_by_trigger || 0);
+        batchCount += row.count_by_trigger || 0;
+        batchesByTrigger[row.trigger_type] = row.count_by_trigger || 0;
+      }
+
+      return {
+        total_batches: total,
+        completed_batches: completed,
+        failed_batches: failed,
+        avg_processing_time: batchCount > 0 ? Math.round(totalProcessingTime / batchCount) : 0,
+        total_messages: totalMessages,
+        batches_by_trigger: batchesByTrigger
+      };
+    } catch (error) {
+      this.moduleLogger.error('Failed to get batch stats', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+
+      return {
+        total_batches: 0,
+        completed_batches: 0,
+        failed_batches: 0,
+        avg_processing_time: 0,
+        total_messages: 0,
+        batches_by_trigger: {}
+      };
+    }
+  }
+
+  /**
+   * 获取最近的批次记录
+   */
+  public async getRecentBatches(limit: number = 20, sourceKey?: string): Promise<any[]> {
+    try {
+      let query = `
+        SELECT
+          id,
+          source_key,
+          source_type,
+          trigger_type,
+          message_count,
+          start_time,
+          end_time,
+          processing_time,
+          status,
+          error_message,
+          created_at
+        FROM conversation_batches
+      `;
+
+      const params: any[] = [];
+
+      if (sourceKey) {
+        query += ` WHERE source_key = ?`;
+        params.push(sourceKey);
+      }
+
+      query += ` ORDER BY created_at DESC LIMIT ?`;
+      params.push(limit);
+
+      const batches = await this.database.executeQuery<any>(query, params);
+
+      this.moduleLogger.info('Retrieved recent batches', {
+        count: batches.length,
+        sourceKey
+      });
+
+      return batches;
+    } catch (error) {
+      this.moduleLogger.error('Failed to get recent batches', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return [];
+    }
+  }
+
+  /**
+   * 获取批次详情（包含关联的所有对话）
+   */
+  public async getBatchDetails(batchId: string): Promise<{
+    batch: any;
+    conversations: ConversationData[];
+  } | null> {
+    try {
+      // 获取批次信息
+      const batchQuery = `
+        SELECT * FROM conversation_batches WHERE id = ?
+      `;
+      const batches = await this.database.executeQuery<any>(batchQuery, [batchId]);
+
+      if (batches.length === 0) {
+        return null;
+      }
+
+      // 获取关联的对话记录
+      const conversations = await this.getConversationsByBatchId(batchId);
+
+      return {
+        batch: batches[0],
+        conversations
+      };
+    } catch (error) {
+      this.moduleLogger.error('Failed to get batch details', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        batchId
+      });
+      return null;
+    }
   }
 }

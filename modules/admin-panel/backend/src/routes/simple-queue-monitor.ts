@@ -220,49 +220,16 @@ router.post('/simulate/private', async (req, res) => {
     });
   }
 
-  try {
-    const simulationId = `sim_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  moduleLogger.info('Private message simulation requested', {
+    user_id,
+    message: message.substring(0, 50),
+    priority,
+    userAgent: req.get('User-Agent'),
+    ip: req.ip
+  });
 
-    moduleLogger.info('Private message simulation requested', {
-      simulationId,
-      user_id,
-      message: message.substring(0, 50),
-      priority,
-      userAgent: req.get('User-Agent'),
-      ip: req.ip
-    });
-
-    // 模拟处理延迟
-    await new Promise(resolve => setTimeout(resolve, 200));
-
-    const result = {
-      simulation_id: simulationId,
-      type: 'private_message',
-      user_id: parseInt(user_id),
-      message: message,
-      priority: priority || 'normal',
-      status: 'queued',
-      estimated_processing_time: '2.3s',
-      partition_key: `private_chat_${user_id}`,
-      queue_position: Math.floor(Math.random() * 5) + 1,
-      created_at: new Date().toISOString()
-    };
-
-    res.json({
-      success: true,
-      data: result,
-      message: 'Private message simulation queued successfully',
-      timestamp: new Date().toISOString(),
-      note: "Demo simulation - shows message queuing functionality"
-    });
-  } catch (error: any) {
-    moduleLogger.error('Private message simulation failed', { error: error.message, user_id, message });
-    res.status(500).json({
-      success: false,
-      error: 'Message simulation failed',
-      details: error.message
-    });
-  }
+  // 转发到 qqbot-core 真实处理
+  await proxyToQQBotCore(req, res, '/simulate/private');
 });
 
 /**
@@ -279,59 +246,18 @@ router.post('/simulate/group', async (req, res) => {
     });
   }
 
-  try {
-    const simulationId = `sim_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  moduleLogger.info('Group message simulation requested', {
+    user_id,
+    group_id,
+    message: message.substring(0, 50),
+    atBot,
+    priority,
+    userAgent: req.get('User-Agent'),
+    ip: req.ip
+  });
 
-    moduleLogger.info('Group message simulation requested', {
-      simulationId,
-      user_id,
-      group_id,
-      message: message.substring(0, 50),
-      atBot,
-      priority,
-      userAgent: req.get('User-Agent'),
-      ip: req.ip
-    });
-
-    // 模拟处理延迟
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    const result = {
-      simulation_id: simulationId,
-      type: 'group_message',
-      user_id: parseInt(user_id),
-      group_id: parseInt(group_id),
-      message: message,
-      at_bot: !!atBot,
-      priority: priority || 'normal',
-      status: 'queued',
-      estimated_processing_time: atBot ? '3.1s' : '1.8s',
-      partition_key: `group_chat_${group_id}`,
-      queue_position: Math.floor(Math.random() * 8) + 1,
-      processing_priority: atBot ? 'high' : priority || 'normal',
-      created_at: new Date().toISOString()
-    };
-
-    res.json({
-      success: true,
-      data: result,
-      message: 'Group message simulation queued successfully',
-      timestamp: new Date().toISOString(),
-      note: "Demo simulation - shows group message handling functionality"
-    });
-  } catch (error: any) {
-    moduleLogger.error('Group message simulation failed', {
-      error: error.message,
-      user_id,
-      group_id,
-      message: message?.substring(0, 50)
-    });
-    res.status(500).json({
-      success: false,
-      error: 'Group message simulation failed',
-      details: error.message
-    });
-  }
+  // 转发到 qqbot-core 真实处理
+  await proxyToQQBotCore(req, res, '/simulate/group');
 });
 
 /**

@@ -12,6 +12,10 @@
 - 分发与执行：`FunctionCallDispatcher` 负责 search/invoke/静态工具，`ToolRegistryService` 管理动态工具。
 - AI 调用：`AIService.generateContent()` 封装 Gemini 请求、日志与 token 管理。
 
+### HTTP 流量监控
+- `modules/http-traffic-monitor` 通过 mitmproxy 输出 `traffic-*.jsonl` 日志。
+- admin-backend 内置 `traffic-log-watcher`，实时监听 JSONL 变动并写入数据库（详见 `modules/http-traffic-monitor/README.md`）。
+
 ## 本次修复背景
 - 文档依据：`docs/HUMAN_LIKE_PROCESSOR_FLOW.md`、`docs/HUMAN_LIKE_PROCESSOR_FLOW_LLM_TOOLS.md`、`docs/LLM_TOOL_EXECUTION_DESIGN.md`。
 - 目标：
@@ -71,6 +75,24 @@
 
 > 备注（2025-10-04）：所有核心功能已实现并通过完整验证，包括Token管理的智能回退机制。系统已具备完整的LLM工具调用能力。
 
+## 完成事项（2025-10-09）
+
+| 方向 | 问题 | 状态 | 完成时间 |
+| --- | --- | --- | --- |
+| Prompt 管理 | 无法为指定用户/群绑定 agent prompt，且默认 prompt 名称不一致。 | ✅ 已实现 | 2025-10-09 |
+| Prompt 回退 | 未绑定 prompt 时仅依赖单一 `enhanced_chat` 配置，缺少容灾回退。 | ✅ 已实现 | 2025-10-09 |
+| Admin UI | 群聊详情页缺少 prompt 选择器，测试人员无法直接变更配置。 | ✅ 已实现 | 2025-10-09 |
+
+### 背景说明
+- 运营反馈默认 persona 应为 `echance_chat`，但服务端硬编码为 `enhanced_chat`，导致首次对话与预期不符。
+- 群聊 prompt 只能通过手动 SQL 修改，缺乏前端入口，回归测试效率低。
+- Admin 后端 `/group-chats/:groupId/settings` 仍为占位实现，无法真正更新数据库记录。
+
+### 代码改动摘要
+- `modules/qqbot-core/src/index.ts`：引入 `['echance_chat','enhanced_chat','default_chat']` 候选链，`resolvePromptConfiguration()` 会依序尝试并暴露命中 prompt 的 ID/名称。
+- `modules/admin-panel/backend/src/routes/chat-routes.ts`：群聊设置接口改为白名单字段更新，调用 `updateGroupChatSettings()` 落库并返回最新记录。
+- `modules/admin-panel/frontend/src/pages/GroupChatDetailPage.tsx`：新增“Prompt 配置”卡片，可在 UI 中绑定/解绑 prompt，并根据候选链展示“默认（xxx）”标签。
+
 ## 自验证流程
 
 > 验收通过标准：下列测试全部成功，日志与数据库中的数据均符合预期。
@@ -127,7 +149,70 @@ MYSQL_DATABASE=qqbot_db \
 4. 检查 `logs/qqbot-core.log` 是否出现 `LLM Job response sent`，并确认 WebSocket 发送调用或实际回复。
 5. 人为制造错误（例如传入无效 `method_id`），确认 `job_failed` 事件触发且 `conversations` 状态更新为 `failed`。
 
+### C. Prompt 绑定与默认回退
+1. **默认回退验证**
+   1. 将目标用户/群的 `agent_prompt_id` 置为 `NULL`。
+   2. 发送一条私聊消息，或在群聊 @ 机器人。
+   3. 查看 `conversations.raw_request`，`promptName` 应为 `echance_chat`；若该配置不存在，则依次回退到 `enhanced_chat`、`default_chat`。
+   4. 检查 qqbot-core 日志，确认记录实际命中的 `promptId`。
+2. **私聊绑定自定义 prompt**
+   1. 在 Admin “私聊详情”页选择一个 active prompt（例如 `basic_chat`）。
+   2. 刷新页面确保下拉框保持选中状态。
+   3. 发送消息并验证 `private_chat_settings.agent_prompt_id` 以及 `conversations.raw_request.configId` 与所选 prompt 一致。
+3. **群聊绑定自定义 prompt**
+   1. 在 Admin “群聊详情”页 -> “Prompt 配置”卡片选择新 prompt。
+   2. 查询 `group_chat_settings.agent_prompt_id`，应更新为新 ID。
+   3. 群内 @ 机器人，日志与 `conversations.raw_request.promptId` 应为该 ID。
+4. **恢复默认**
+   1. 在前端选择“默认（xxx）”。
+   2. 数据库中的 `agent_prompt_id` 置空，再次发送消息时重新命中候选链首个可用 prompt。
+
+通过标准：上述 4 项均成功落库并在日志/对话记录中体现正确的 prompt 名称与 ID。
+
+## 测试用例设计（Prompt 绑定场景）
+
+| 编号 | 场景 | 前置条件 | 操作步骤 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| P01 | 默认回退链 | `agent_prompts` 表存在 `echance_chat`、`enhanced_chat`、`default_chat`；目标 user/group 未绑定 prompt | ① 清空绑定；② 发送消息；③ 检查 `conversations.raw_request` 与 qqbot-core 日志 | `promptName=echance_chat`; 日志显示命中 `echance_chat`；若缺失则按顺序回退至下一项 |
+| P02 | 私聊绑定新 prompt | 管理后台可访问；存在 active prompt（如 `basic_chat`） | ① 私聊详情页绑定 `basic_chat`; ② 刷新页面；③ 再次发送消息 | 下拉框保持 `basic_chat`; `private_chat_settings.agent_prompt_id` 与 `conversations.raw_request.configId` 均为所选 ID |
+| P03 | 私聊解绑恢复默认 | 已完成 P02，用户绑定 `basic_chat` | ① 在前端选择“默认”; ② 发消息; ③ 查 DB/日志 | `agent_prompt_id` 置空；新的对话 `promptName` 使用候选链首项；日志出现回退提示 |
+| P04 | 群聊绑定生效 | 群聊存在 active prompt（如 `persona_chat`） | ① 群聊详情页选择 `persona_chat`; ② 校验 DB；③ 群内 @bot 发消息 | `group_chat_settings.agent_prompt_id` 更新；群聊回复与 `conversations.raw_request.promptId` 均为该 ID |
+| P05 | 群聊设置接口容错 | Admin 后端可访问 | ① 调用 `/group-chats/:groupId/settings`，传入非法字段；② 观察响应 | 返回 400 `No valid fields to update`；数据库无变更 |
+| P06 | UI 默认标签一致 | 任意无绑定群聊 | ① 打开群聊详情页面；② 查看“Prompt 配置”卡片 | “当前使用” badge 与下拉默认项显示“默认（echance_chat）”（若该 prompt 不存在则展示下一回退名称） |
+
+执行上述用例时，请同步记录：
+- admin-backend 日志是否输出 `Group settings updated successfully` 或 `Group settings unchanged`；
+- qqbot-core 日志内的 `promptId`/`promptName` 命中信息；
+- MySQL 中 `agent_prompt_id` 字段的前后差异；
+- Admin UI 页面刷新后下拉框状态与数据库是否一致。
+
 若上述流程全部通过，则视作本轮修复验收完成。若出现异常，请对照相关日志与数据库记录定位问题，并回滚或追加修复后重新执行测试。
+
+## 完成事项（2025-10-10）
+
+| 方向 | 问题 | 状态 | 完成时间 |
+| --- | --- | --- | --- |
+| LLM 工具 | 工具链 LLM 调用未继承 Prompt 模型 / Token 约束 | ✅ 已实现 | 2025-10-10 |
+
+### 完成详情
+
+- **代码改动**
+  - `modules/qqbot-core/src/index.ts`: 创建 LLM Job 时同步写入 `model.name`、`agentType`、`promptName` 等元数据。
+  - `modules/qqbot-core/src/services/llm-job-worker.ts`: 调用 LLM 前优先解析 Job 中的模型配置并透传给 `AIService.generateContent`。
+  - `modules/qqbot-core/src/services/ai-service.ts`: `generateContent` 支持结构化 `options`，按 `options.modelName → request.model → 环境默认` 的顺序确定模型，TokenManager 与日志均使用真实的 `agentType/promptName`。
+
+- **验证结果**
+  1. **容器重建**：`docker compose build qqbot-core` + `docker compose up -d`，确保新镜像生效。
+  2. **模拟请求**：`curl http://localhost:8081/api/test/simulate-message` 触发工具链，生成 Trace `test_1759650180602_...`。
+  3. **数据校验**：
+     - `llm_jobs` 最新记录 `config_json.model.name = gemini-2.5-flash`，`metadata.modelName = gemini-2.5-flash`。
+     - `conversations` 对应行 `model_name = gemini-2.5-flash`。
+     - `llm_call_logs` 最新记录展示 `model_name = gemini-2.5-flash / agent_type = chat_bot / prompt_template = basic_chat`。
+  4. **脚本复核**：`node scripts/database/checks/check_model_config.js` 显示最近 2 小时模型使用仅 `gemini-2.5-flash`。
+
+- **已有约束 / 后续改进**
+  - 容器内 `npm test` 仍受 Jest 配置 (`/app/tests` 缺失) 限制，未能完成单测；需后续修复测试配置。
+  - 若未来需要 Prompt 级别的备用模型，可在 `metadata.modelName` 中覆盖并沿用本次透传链路。
 
 ## 文档参考
 - `docs/HUMAN_LIKE_PROCESSOR_FLOW.md`

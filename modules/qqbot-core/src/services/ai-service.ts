@@ -4,7 +4,7 @@
  */
 
 import axios from 'axios';
-import {
+import { 
   AIConfig,
   ConversationData,
   UnifiedLLMConfig,
@@ -17,6 +17,18 @@ import { CacheManagerFactory } from '../utils/cache-manager';
 import { errorHandler, createLLMAPIError, safeExecuteWithRetry } from '../utils/error-handler';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
+
+interface GenerateResponseOptions {
+  promptId?: string;
+  configOverride?: UnifiedLLMConfig;
+}
+
+interface GenerateContentOptions {
+  modelName?: string;
+  agentType?: string;
+  promptName?: string;
+  promptId?: string;
+}
 
 export class AIService {
   private database: DatabaseManager;
@@ -64,7 +76,8 @@ export class AIService {
     userId: number,
     agentType: string = 'chat_bot',
     promptName?: string,
-    traceId?: string
+    traceId?: string,
+    options?: GenerateResponseOptions
   ): Promise<ConversationData | null> {
     const conversationId = uuidv4();
     const timestamp = new Date();
@@ -72,9 +85,12 @@ export class AIService {
     const result = await safeExecuteWithRetry(
       async () => {
         // 1. 获取统一配置
-        const config = await this.getConfiguration(agentType, promptName);
+        const config = options?.configOverride
+          ?? (options?.promptId
+                ? await this.getConfigurationByPromptId(options.promptId)
+                : await this.getConfiguration(agentType, promptName));
         if (!config) {
-          throw new Error(`Configuration not found for ${agentType}/${promptName}`);
+          throw new Error(`Configuration not found for ${agentType}/${promptName || options?.promptId || 'default'}`);
         }
 
         // 2. 执行LLM调用 (🔥 传入conversationId以建立关联)
@@ -138,7 +154,8 @@ export class AIService {
     userId: number,
     agentType: string = 'chat_bot',
     promptName?: string,
-    traceId?: string
+    traceId?: string,
+    options?: GenerateResponseOptions
   ): Promise<ConversationData | null> {
     // 使用上下文提示词调用核心方法
     return await this.generateResponse(
@@ -146,7 +163,8 @@ export class AIService {
       userId,
       agentType,
       promptName,
-      traceId
+      traceId,
+      options
     );
   }
 
@@ -240,6 +258,47 @@ export class AIService {
     );
 
     return result || null;
+  }
+
+  public async getConfigurationByPromptId(promptId: string): Promise<UnifiedLLMConfig | null> {
+    if (!promptId) {
+      return null;
+    }
+
+    const cacheKey = `id:${promptId}`;
+    const cached = this.configCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const agentPrompt = await this.database.getAgentPromptById(promptId);
+    if (!agentPrompt) {
+      return null;
+    }
+
+    if (typeof agentPrompt.system_instructions === 'string') {
+      try {
+        agentPrompt.system_instructions = JSON.parse(agentPrompt.system_instructions);
+      } catch (error) {
+        this.moduleLogger.warn('Failed to parse system instructions JSON', { error, promptId });
+      }
+    }
+
+    if (typeof agentPrompt.model_config === 'string') {
+      try {
+        agentPrompt.model_config = JSON.parse(agentPrompt.model_config);
+      } catch (error) {
+        this.moduleLogger.warn('Failed to parse model config JSON', { error, promptId });
+      }
+    }
+
+    const config = this.convertToUnifiedConfig(agentPrompt);
+    this.configCache.set(cacheKey, config, undefined, [agentPrompt.agent_type]);
+    return config;
+  }
+
+  public async getConfigurationForAgent(agentType: string, promptName?: string): Promise<UnifiedLLMConfig | null> {
+    return this.getConfiguration(agentType, promptName);
   }
 
   /**
@@ -578,6 +637,264 @@ export class AIService {
     return error.status === 401 || error.status === 403 || error.status === 429;
   }
 
+  /**
+   * 🔥 直接调用 Gemini generateContent API
+   * 用于 LLMJobWorker 的工具编排系统
+   *
+   * @param request - Gemini API 请求体 {contents, tools, generationConfig, safetySettings, ...}
+   * @param traceId - 追踪ID
+   * @param options - 可选配置（模型、agent、prompt 等信息）
+   * @returns Gemini API 原始响应
+   */
+  public async generateContent(
+    request: {
+      contents: any[];
+      tools?: any[];
+      generationConfig?: any;
+      safetySettings?: any;
+      systemInstruction?: any;
+      model?: { name: string };
+      [key: string]: any;
+    },
+    traceId?: string,
+    options?: GenerateContentOptions | string
+  ): Promise<any> {
+    const callStartTime = Date.now();
+    const llmCallId = uuidv4();
+
+    const normalizedOptions: GenerateContentOptions = typeof options === 'string'
+      ? { modelName: options }
+      : (options || {});
+
+    const defaultModel = process.env.AI_MODEL_NAME || 'gemini-2.5-flash';
+    const targetModel = normalizedOptions.modelName
+      || request?.model?.name
+      || defaultModel;
+
+    if (!request.model && targetModel) {
+      request.model = { name: targetModel };
+    }
+
+    this.moduleLogger.debug('Starting direct LLM generateContent call', {
+      modelName: targetModel,
+      traceId,
+      llmCallId,
+      contentCount: request.contents?.length || 0,
+      hasTools: !!request.tools,
+      agentType: normalizedOptions.agentType,
+      promptName: normalizedOptions.promptName,
+      promptId: normalizedOptions.promptId
+    });
+
+    const resolvedAgentType = normalizedOptions.agentType || 'tool_system';
+    const resolvedPromptName = normalizedOptions.promptName || 'direct_call';
+
+    try {
+      // 1. 获取Token
+      const tokenInfo = await this.tokenManager.getTokenForModel(
+        targetModel,
+        resolvedAgentType,
+        resolvedPromptName
+      );
+
+      if (!tokenInfo) {
+        throw new Error(`No available tokens for model ${targetModel}`);
+      }
+
+      // 2. 构建请求体
+      const requestBody: any = {
+        contents: request.contents
+      };
+
+      if (request.tools && request.tools.length > 0) {
+        requestBody.tools = request.tools;
+      }
+
+      if (request.generationConfig) {
+        requestBody.generationConfig = request.generationConfig;
+      } else {
+        requestBody.generationConfig = {
+          temperature: 1.0,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 8192
+        };
+      }
+
+      if (request.safetySettings) {
+        requestBody.safetySettings = request.safetySettings;
+      }
+
+      if (request.systemInstruction) {
+        requestBody.systemInstruction = request.systemInstruction;
+      }
+
+      // 3. 执行API调用
+      const response = await axios.post(
+        `${this.baseURL}/${targetModel}:generateContent?key=${tokenInfo.token}`,
+        requestBody,
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: this.defaultTimeout
+        }
+      );
+
+      const processingTimeMs = Date.now() - callStartTime;
+
+      // 4. 估算token使用
+      const inputTokens = this.estimateTokens(request.contents);
+      const outputTokens = this.estimateTokensFromResponse(response.data);
+
+      // 5. 记录日志
+      if (traceId && this.loggingService) {
+        try {
+          await this.loggingService.logLLMCall({
+            traceId,
+            conversationId: undefined,
+            sessionId: undefined,
+            agentType: resolvedAgentType,
+            modelName: targetModel,
+            modelProvider: 'google',
+            promptTemplate: resolvedPromptName,
+            inputPrompt: JSON.stringify(request.contents),
+            inputTokens,
+            modelConfig: JSON.stringify(requestBody.generationConfig),
+            rawResponse: JSON.stringify(response.data),
+            processedResponse: this.extractTextFromResponse(response.data),
+            outputTokens,
+            apiCallTimeMs: processingTimeMs,
+            processingTimeMs,
+            status: 'SUCCESS',
+            contextSummary: `Tool system call with ${request.tools?.length || 0} tools`
+          });
+        } catch (logError) {
+          this.moduleLogger.error('Failed to log generateContent call', {
+            traceId,
+            error: logError instanceof Error ? logError.message : 'Unknown error'
+          });
+        }
+      }
+
+      this.moduleLogger.info('Direct LLM generateContent call successful', {
+        modelName: targetModel,
+        processingTimeMs,
+        tokenId: tokenInfo.tokenId,
+        hasTools: !!request.tools,
+        toolCount: request.tools?.length || 0,
+        agentType: resolvedAgentType,
+        promptName: resolvedPromptName
+      });
+
+      return response.data;
+
+    } catch (error: any) {
+      const processingTimeMs = Date.now() - callStartTime;
+
+      if (traceId && this.loggingService) {
+        try {
+          await this.loggingService.logLLMCall({
+            traceId,
+            conversationId: undefined,
+            sessionId: undefined,
+            agentType: resolvedAgentType,
+            modelName: targetModel,
+            modelProvider: 'google',
+            promptTemplate: resolvedPromptName,
+            inputPrompt: JSON.stringify(request.contents),
+            inputTokens: 0,
+            modelConfig: JSON.stringify(request.generationConfig || {}),
+            rawResponse: undefined,
+            processedResponse: undefined,
+            outputTokens: 0,
+            apiCallTimeMs: processingTimeMs,
+            processingTimeMs,
+            status: 'ERROR',
+            errorMessage: error.message,
+            errorCode: error.status?.toString() || 'UNKNOWN',
+            contextSummary: 'Tool system call failed'
+          });
+        } catch (logError) {
+          this.moduleLogger.error('Failed to log failed generateContent call', {
+            traceId,
+            error: logError instanceof Error ? logError.message : 'Unknown error'
+          });
+        }
+      }
+
+      if (this.isTokenError(error)) {
+        await this.tokenManager.reportError(targetModel, error.message);
+      }
+
+      this.moduleLogger.error('Direct LLM generateContent call failed', {
+        modelName: targetModel,
+        error: error.message,
+        status: error.status,
+        agentType: resolvedAgentType,
+        promptName: resolvedPromptName,
+        traceId,
+        hasTools: !!request.tools,
+        toolCount: request.tools?.length || 0
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * 估算输入内容的 token 数量
+   */
+  private estimateTokens(contents: any[]): number {
+    let totalChars = 0;
+    for (const content of contents) {
+      if (content.parts) {
+        for (const part of content.parts) {
+          if (part.text) {
+            totalChars += part.text.length;
+          } else if (part.functionResponse) {
+            totalChars += JSON.stringify(part.functionResponse).length;
+          }
+        }
+      }
+    }
+    return Math.ceil(totalChars / 4);
+  }
+
+  /**
+   * 估算响应的 token 数量
+   */
+  private estimateTokensFromResponse(response: any): number {
+    if (!response?.candidates?.[0]?.content?.parts) {
+      return 0;
+    }
+
+    let totalChars = 0;
+    for (const part of response.candidates[0].content.parts) {
+      if (part.text) {
+        totalChars += part.text.length;
+      } else if (part.functionCall) {
+        totalChars += JSON.stringify(part.functionCall).length;
+      }
+    }
+    return Math.ceil(totalChars / 4);
+  }
+
+  /**
+   * 从响应中提取文本内容
+   */
+  private extractTextFromResponse(response: any): string {
+    if (!response?.candidates?.[0]?.content?.parts) {
+      return '';
+    }
+
+    const textParts: string[] = [];
+    for (const part of response.candidates[0].content.parts) {
+      if (part.text) {
+        textParts.push(part.text);
+      }
+    }
+    return textParts.join(' ');
+  }
+
   // ============================================================================
   // 📊 管理和监控接口
   // ============================================================================
@@ -713,7 +1030,8 @@ export class AIService {
     messageContext: any,
     agentType?: string,
     promptName?: string,
-    traceId?: string
+    traceId?: string,
+    options?: GenerateResponseOptions
   ): Promise<string> {
     if (!conversationId) {
       this.moduleLogger.error('conversationId is required for generateResponseForExistingConversation');
@@ -727,7 +1045,8 @@ export class AIService {
       userId,
       agentType || 'chat_bot',
       promptName,
-      traceId
+      traceId,
+      options
     );
 
     // 返回AI响应内容

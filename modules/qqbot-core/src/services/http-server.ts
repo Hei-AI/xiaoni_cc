@@ -521,7 +521,7 @@ class HttpServer {
     this.app.post('/api/queue/simulate/private', async (req: Request, res: Response) => {
       try {
         const { user_id, message, priority } = req.body;
-        
+
         if (!user_id || !message) {
           return res.status(400).json({
             success: false,
@@ -529,11 +529,26 @@ class HttpServer {
           });
         }
 
-        const traceId = await this.services.simpleQueue.simulatePrivateMessage({
+        const qqMessage = {
+          message_type: 'private' as const,
           user_id,
           message,
-          priority
-        });
+          raw_message: message,
+          message_id: Date.now(),
+          time: Math.floor(Date.now() / 1000),
+          self_id: 1129974489,
+          sender: {
+            user_id,
+            nickname: `TestUser${user_id}`,
+            sex: 'unknown' as const
+          },
+          font: 14,
+          sub_type: 'friend' as const,
+          post_type: 'message' as const
+        };
+
+        const traceId = `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        await this.services.qqBot.simulatePrivateMessageSimple(qqMessage, { traceId });
 
         this.moduleLogger.info('Private message simulated via API', { user_id, traceId });
 
@@ -559,7 +574,7 @@ class HttpServer {
     this.app.post('/api/queue/simulate/group', async (req: Request, res: Response) => {
       try {
         const { user_id, group_id, message, atBot, priority } = req.body;
-        
+
         if (!user_id || !group_id || !message) {
           return res.status(400).json({
             success: false,
@@ -567,13 +582,29 @@ class HttpServer {
           });
         }
 
-        const traceId = await this.services.simpleQueue.simulateGroupMessage({
+        const qqMessage = {
+          message_type: 'group' as const,
           user_id,
           group_id,
-          message,
-          atBot,
-          priority
-        });
+          message: atBot ? `[CQ:at,qq=1129974489] ${message}` : message,
+          raw_message: atBot ? `[CQ:at,qq=1129974489] ${message}` : message,
+          message_id: Date.now(),
+          time: Math.floor(Date.now() / 1000),
+          self_id: 1129974489,
+          sender: {
+            user_id,
+            nickname: `TestUser${user_id}`,
+            card: `TestCard${user_id}`,
+            sex: 'unknown' as const,
+            role: 'member' as const
+          },
+          font: 14,
+          sub_type: 'normal' as const,
+          post_type: 'message' as const
+        };
+
+        const traceId = `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        await this.services.qqBot.simulateGroupMessageSimple(qqMessage, { traceId });
 
         this.moduleLogger.info('Group message simulated via API', { user_id, group_id, traceId });
 

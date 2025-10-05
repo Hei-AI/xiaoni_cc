@@ -255,7 +255,7 @@ describe('AI Service & Session Management Integration', () => {
       databaseManager.execute = originalExecute;
     });
 
-    test('should handle AI service failures with fallback responses', async () => {
+    test('should mark conversation as failed when AI service throws', async () => {
       // 模拟Gemini API失败
       const originalGenerateResponse = aiService.generateResponse;
       aiService.generateResponse = jest.fn().mockRejectedValue(new Error('Gemini API unavailable'));
@@ -265,16 +265,17 @@ describe('AI Service & Session Management Integration', () => {
         message: '测试AI服务故障恢复'
       });
 
-      // 应该发送fallback响应而不是抛出错误
-      await bot.handlePrivateMessage(message);
+      await expect(bot.handlePrivateMessage(message)).resolves.not.toThrow();
 
-      // 验证conversation记录了fallback响应
+      // 验证conversation被标记为失败且不产生兜底回复
       const conversations = await databaseManager.getConversations(85178516, 1);
       expect(conversations).toHaveLength(1);
-      expect(conversations[0].ai_response).toContain('服务暂时不可用');
+      expect(conversations[0].status).toBe('failed');
+      expect(conversations[0].ai_response).toBeNull();
+      expect(conversations[0].error_reason).toContain('Enhanced AI conversation error');
 
       // 恢复原方法
-      aiService.generateResponse = originalExecute;
+      aiService.generateResponse = originalGenerateResponse;
     });
 
     test('should handle timestamp type errors from cache', async () => {

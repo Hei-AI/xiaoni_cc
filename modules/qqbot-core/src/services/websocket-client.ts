@@ -381,9 +381,21 @@ export class WebSocketClient extends EventEmitter {
 
   public async sendMessage(data: any, traceId?: string): Promise<void> {
     const startTime = Date.now();
-    
+
     if (!this.isConnected()) {
-      throw new Error('WebSocket is not connected');
+      this.moduleLogger.warn('WebSocket not ready when sending message, waiting for reconnection', {
+        traceId,
+        action: data?.action,
+        params: data?.params
+      });
+
+      await this.waitUntilConnected().catch(error => {
+        throw new Error(
+          `WebSocket is not connected and reconnection failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      });
     }
 
     try {
@@ -461,6 +473,64 @@ export class WebSocketClient extends EventEmitter {
       params: {
         user_id: userId,
         message: message
+      }
+    });
+  }
+
+  public async waitUntilConnected(timeoutMs: number = 10000): Promise<void> {
+    if (this.isConnected()) {
+      return;
+    }
+
+    if (!this.isConnecting) {
+      try {
+        await this.connect();
+      } catch (error) {
+        throw new Error(
+          `Failed to initiate WebSocket connection: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const onConnected = () => {
+        cleanup();
+        resolve();
+      };
+
+      const onError = (err: unknown) => {
+        cleanup();
+        reject(err instanceof Error ? err : new Error(String(err)));
+      };
+
+      const onDisconnected = (data: any) => {
+        cleanup();
+        const code = data?.code ?? 'unknown';
+        const reason = data?.reason ?? 'no-reason';
+        reject(new Error(`WebSocket disconnected while waiting: ${code} ${reason}`));
+      };
+
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Timed out waiting for WebSocket connection'));
+      }, timeoutMs);
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        this.removeListener('connected', onConnected);
+        this.removeListener('error', onError);
+        this.removeListener('disconnected', onDisconnected);
+      };
+
+      this.once('connected', onConnected);
+      this.once('error', onError);
+      this.once('disconnected', onDisconnected);
+
+      if (this.isConnected()) {
+        cleanup();
+        resolve();
       }
     });
   }

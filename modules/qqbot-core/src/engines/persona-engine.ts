@@ -144,28 +144,15 @@ export class PersonaEngine {
           contextSummary: 'PersonaEngine processing failed'
         });
       }
-      
-      this.moduleLogger.error('Persona enhancement failed, returning original AI response', {
+
+      this.moduleLogger.error('Persona enhancement failed', {
         traceId,
         error: error instanceof Error ? error.message : 'Unknown error',
         contextType: context.messageType,
         originalLength: aiResponse.length
       });
-      
-      // 错误时返回原始AI回复，确保用户能收到完整响应
-      return {
-        content: aiResponse, // 保留原始AI回复而非空内容
-        selectedPersona: 'casual_companion',
-        appliedAspects: [],
-        confidence: 70, // 给予中等置信度
-        processingTime: Date.now() - startTime,
-        metadata: {
-          originalResponse: aiResponse,
-          adjustmentsMade: ['fallback_to_original'],
-          emojiCount: this.countEmojis(aiResponse),
-          sentimentScore: 0.5
-        }
-      };
+
+      throw (error instanceof Error ? error : new Error(String(error)));
     }
   }
 

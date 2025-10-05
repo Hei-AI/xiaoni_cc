@@ -1,5 +1,7 @@
 # NapCat独立部署配置
 # 用于稳定的QQ协议适配器服务，与主业务服务分离管理
+# 启动: docker compose -f docker-compose.napcat.yml up -d
+# 停止: docker compose -f docker-compose.napcat.yml down
 version: '3.8'
 
 services:
@@ -13,7 +15,7 @@ services:
       - "3001:3001"  # NapCat WebSocket
       - "6099:6099"  # QQ客户端端口
     volumes:
-      # NapCat配置和数据持久化
+      # NapCat配置和数据持久化（启动前确保这些目录已创建）
       - ./resource/napcat_config:/app/napcat/config
       - ./resource/napcat_qq_data:/app/.config/QQ
       - ./logs/napcat:/app/logs

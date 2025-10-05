@@ -172,15 +172,16 @@ describe('DecisionEngine', () => {
       expect(decision.suggestedService).toMatch(/chat|requirement/);
     });
 
-    test('should handle LLM service failures gracefully', async () => {
-      mockAIService.setShouldFailResponseGeneration(true);
+    test('should surface errors when LLM decision step fails', async () => {
+      const analysisSpy = jest
+        .spyOn(decisionEngine as any, 'performAIAnalysis')
+        .mockRejectedValue(new Error('Mock decision failure'));
 
-      const decision = await decisionEngine.analyzeMessage(mockContexts.casualContext);
-      
-      // Should fall back to rule-based decision
-      expect(decision.shouldRespond).toBeDefined();
-      expect(decision.confidence).toBeGreaterThan(0);
-      expect(decision.reason).toContain('规则判断');
+      await expect(decisionEngine.analyzeMessage(mockContexts.casualContext)).rejects.toThrow(
+        'Mock decision failure'
+      );
+
+      analysisSpy.mockRestore();
     });
   });
 

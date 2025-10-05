@@ -4,75 +4,248 @@ import { DatabaseManager, getDatabaseManager } from './services/database';
 import WebSocketClient from './services/websocket-client';
 import HttpServer from './services/http-server';
 import AIService from './services/ai-service';
-import RemoteClaudeService from './services/remote-claude-service';
 import { SessionManager } from './services/session-manager';
 import { LoggingService } from './services/logging-service';
 import { ContextManager } from './services/context-manager';
 import { DebugService } from './services/debug-service';
+import MessageQueueService, { DrainedMessage } from './services/message-queue-service';
+import DirectNotifier, { BatchHandler, TriggerType } from './services/direct-notifier';
+import ScheduleDispatcher from './services/schedule-dispatcher';
 import DecisionEngine from './engines/decision-engine';
 import PersonaEngine from './engines/persona-engine';
 import ContextEngine from './engines/context-engine';
-import { 
-  QQMessage, 
-  QQNotice, 
-  QQRequest, 
-  ConversationData, 
-  RequirementData, 
+// 🛠️ LLM 工具系统组件
+import { ToolRegistryService } from './services/tool-registry-service';
+import { FunctionCallDispatcher } from './services/function-call-dispatcher';
+import { LLMJobWorker } from './services/llm-job-worker';
+import { STATIC_TOOLS } from './tools/static-tools';
+import {
+  QQMessage,
+  QQNotice,
+  QQRequest,
+  ConversationData,
   MessageContext,
   DecisionResult,
   PersonaResponse,
-  ResponseContext 
+  ResponseContext,
+  GroupChatSettings,
+  PrivateChatSettings,
+  UnifiedLLMConfig
 } from './types';
 import { v4 as uuidv4 } from 'uuid';
 
-class QQBot {
+class QQBot implements BatchHandler {
   private database: DatabaseManager;
   private websocketClient: WebSocketClient;
   private httpServer: HttpServer;
   private aiService: AIService;
-  private remoteClaudeService: RemoteClaudeService;
   private sessionManager: SessionManager;
   private loggingService: LoggingService;
   private contextManager: ContextManager;
   private debugService: DebugService;
-  
+
   // Stage 1 Engines
   private decisionEngine: DecisionEngine;
   private personaEngine: PersonaEngine;
   private contextEngine: ContextEngine;
-  
+
+  // Human-like Processing Components
+  private messageQueueService: MessageQueueService;
+  private directNotifier: DirectNotifier;
+  private scheduleDispatcher: ScheduleDispatcher;
+  private enableHumanLikeProcessing: boolean;
+
+  // 🛠️ LLM 工具系统组件
+  private toolRegistryService: ToolRegistryService;
+  private functionCallDispatcher: FunctionCallDispatcher;
+  private llmJobWorker: LLMJobWorker;
+  private enableLLMTools: boolean;
+
   private moduleLogger = logger.createModuleLogger('main');
-  
+
   // 群聊管理状态 - 使用数据库存储的设置
   private groupReplyEnabled: boolean = true;
   private allowedGroups: Set<number> = new Set();
   private groupSettingsCache: Map<number, boolean> = new Map(); // 群聊启用状态缓存
+  private readonly defaultChatPromptCandidates: string[] = ['echance_chat', 'enhanced_chat', 'default_chat'];
 
   constructor() {
     this.database = getDatabaseManager(config.database);
     this.loggingService = new LoggingService(this.database);
     this.websocketClient = new WebSocketClient(config.websocket, this.loggingService);
     this.aiService = new AIService(config.ai, this.database, this.loggingService);
-    this.remoteClaudeService = new RemoteClaudeService(this.database);
     this.sessionManager = new SessionManager(this.database);
     this.contextManager = new ContextManager(this.database);
     this.debugService = new DebugService(this.database);
-    
+
     // Initialize Stage 1 Engines
     this.contextEngine = new ContextEngine(this.database);
     this.decisionEngine = new DecisionEngine(this.aiService, config.ai);
     this.personaEngine = new PersonaEngine(this.aiService);
-    
+
+    // Initialize Human-like Processing
+    this.enableHumanLikeProcessing = process.env.ENABLE_HUMAN_LIKE_PROCESSING === 'true';
+    this.messageQueueService = new MessageQueueService(
+      config.ai.authorized_user_id,
+      config.ai.bot_qq_number
+    );
+    this.directNotifier = new DirectNotifier(this); // Pass self as BatchHandler
+    this.scheduleDispatcher = new ScheduleDispatcher(this.messageQueueService, this);
+
+    // 监听消息入队事件，触发调度
+    this.messageQueueService.on('message_queued', ({ sourceKey, priority }) => {
+      if (this.enableHumanLikeProcessing) {
+        // 拟人化模式：调度处理
+        this.scheduleDispatcher.schedule(sourceKey, priority).catch(error => {
+          this.moduleLogger.error('Failed to schedule message', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            sourceKey,
+            priority
+          });
+        });
+      }
+      // 直连模式已在 handlePrivateMessage/handleGroupMessage 中处理
+    });
+
+    // 🛠️ Initialize LLM Tools System
+    this.enableLLMTools = process.env.ENABLE_LLM_TOOLS === 'true';
+    this.toolRegistryService = new ToolRegistryService(this.database);
+    this.functionCallDispatcher = new FunctionCallDispatcher(this.toolRegistryService);
+
+    // 注册静态工具
+    this.functionCallDispatcher.registerStaticTools(STATIC_TOOLS);
+
+    // 初始化 LLMJobWorker
+    this.llmJobWorker = new LLMJobWorker(
+      this.database,
+      this.functionCallDispatcher,
+      this.aiService,
+      {
+        maxConcurrentJobs: parseInt(process.env.LLM_MAX_CONCURRENT_JOBS || '5'),
+        pollIntervalMs: parseInt(process.env.LLM_POLL_INTERVAL_MS || '1000'),
+        jobTimeoutMs: parseInt(process.env.LLM_JOB_TIMEOUT_MS || '300000'),
+        retryDelayMs: parseInt(process.env.LLM_RETRY_DELAY_MS || '5000')
+      }
+    );
+
+    // 🛠️ 监听 LLMJobWorker 事件
+    this.llmJobWorker.on('job_completed', async (event: {
+      jobId: string;
+      traceId: string;
+      finalResponse: string;
+      metadata?: any;
+    }) => {
+      try {
+        const { metadata, finalResponse } = event;
+
+        if (!metadata || !finalResponse) {
+          this.moduleLogger.warn('Job completed but missing metadata or response', { jobId: event.jobId });
+          return;
+        }
+
+        const {
+          userId,
+          groupId,
+          messageId,
+          messageType,
+          conversationId,
+          modelName: jobModelName
+        } = metadata;
+
+        // 更新 conversation 状态为完成
+        if (conversationId) {
+          await this.database.updateConversationStatus(
+            conversationId,
+            'completed',
+            undefined,
+            finalResponse,
+            0, // responseTime will be calculated by database
+            jobModelName || 'gemini-2.5-flash'
+          );
+        }
+
+        // 发送响应给用户
+        if (messageType === 'group' && groupId) {
+          // 检查群聊自动回复开关
+          const groupSettings = await this.database.getGroupChatSettingById(groupId);
+          if (groupSettings && !groupSettings.auto_reply_enabled) {
+            this.moduleLogger.debug('Group auto reply disabled, skip sending response', { groupId });
+            return;
+          }
+
+          await this.database.updateGroupActivity(groupId, 0, 1);
+          await this.websocketClient.sendGroupMessage(groupId, finalResponse);
+        } else if (messageType === 'private' && userId) {
+          // 检查私聊自动回复开关
+          const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
+          if (privateChatSettings && !privateChatSettings.auto_reply_enabled) {
+            this.moduleLogger.debug('Private auto reply disabled, skip sending response', { userId });
+            return;
+          }
+
+          await this.websocketClient.sendPrivateMessage(userId, finalResponse);
+        }
+
+        this.moduleLogger.info('LLM Job response sent', {
+          jobId: event.jobId,
+          messageType,
+          userId,
+          groupId,
+          conversationId,
+          modelName: jobModelName || 'unknown'
+        });
+      } catch (error) {
+        const normalizedError =
+          error instanceof Error
+            ? { message: error.message, stack: error.stack }
+            : { message: String(error) };
+
+        this.moduleLogger.error('Failed to send LLM Job response', {
+          error: normalizedError,
+          event
+        });
+      }
+    });
+
+    this.llmJobWorker.on('job_failed', async (event: {
+      jobId: string;
+      traceId: string;
+      error: string;
+      metadata?: any;
+    }) => {
+      try {
+        this.moduleLogger.error('LLM Job failed', event);
+
+        // 更新 conversation 状态为失败
+        if (event.metadata?.conversationId) {
+          await this.database.updateConversationStatus(
+            event.metadata.conversationId,
+            'failed',
+            `LLM Job failed: ${event.error}`
+          );
+        }
+
+        // 可选：发送错误通知给用户（暂时不实现）
+      } catch (error) {
+        this.moduleLogger.error('Failed to handle job_failed event', { error, event });
+      }
+    });
+
     this.httpServer = new HttpServer(config.http_server, {
       database: this.database,
       websocketClient: this.websocketClient,
       debugService: this.debugService,
       qqBot: this, // Pass QQBot instance for test endpoints
+      simpleQueue: this.messageQueueService, // 传递消息队列服务用于模拟端点
       aiService: this.aiService // 🔥 新增：传递AI服务用于内部LLM调试
     });
-    
+
     // Clear group settings cache to pick up any recent database changes
     this.groupSettingsCache.clear();
+
+    this.moduleLogger.info('QQBot initialized', {
+      enableHumanLikeProcessing: this.enableHumanLikeProcessing
+    });
   }
 
   public async start(): Promise<void> {
@@ -96,6 +269,22 @@ class QQBot {
       // 连接到WebSocket服务器
       await this.websocketClient.connect();
       this.moduleLogger.info('✅ WebSocket client connected');
+
+      // 启动调度器（如果启用拟人化处理）
+      if (this.enableHumanLikeProcessing) {
+        this.scheduleDispatcher.start();
+        this.moduleLogger.info('✅ ScheduleDispatcher started (human-like mode)');
+      } else {
+        this.moduleLogger.info('ℹ️ DirectNotifier mode (low latency)');
+      }
+
+      // 🛠️ 启动 LLM Job Worker (如果启用工具系统)
+      if (this.enableLLMTools) {
+        this.llmJobWorker.start();
+        this.moduleLogger.info('✅ LLMJobWorker started (tools enabled)', {
+          maxConcurrentJobs: this.llmJobWorker.getStats().maxConcurrentJobs
+        });
+      }
 
       // 更新机器人状态
       await this.database.updateBotStatus(
@@ -143,12 +332,246 @@ class QQBot {
     this.websocketClient.on('message_sent', this.handleMessageSent.bind(this));
   }
 
-  private async handlePrivateMessage(message: QQMessage, eventData?: any): Promise<void> {
-    const traceId = eventData?.traceId;
-    const conversationId = uuidv4();
-    
+  /**
+   * BatchHandler 接口实现 - 批量处理私聊消息
+   * 从队列 drain 后批量处理消息
+   */
+  public async handlePrivateMessageBatch(sourceKey: string, messages: DrainedMessage[], triggerType: TriggerType): Promise<void> {
+    // 生成批次ID
+    const batchId = uuidv4();
+    const startTime = new Date();
+    const sourceType = sourceKey.startsWith('user_') ? 'private' : 'group';
+    const traceIds = messages.map(m => m.traceId);
+    const messageIds = messages.map(m => m.id);
+
+    this.moduleLogger.info('Processing private message batch', {
+      batchId,
+      sourceKey,
+      messageCount: messages.length,
+      triggerType,
+      traceIds
+    });
+
+    // 记录批次开始
     try {
-      this.moduleLogger.info('Received private message', {
+      await this.database.createConversationBatchRecord({
+        id: batchId,
+        sourceKey,
+        sourceType,
+        triggerType,
+        messageCount: messages.length,
+        startTime,
+        metadata: {
+          traceIds,
+          messageIds,
+          triggerType
+        }
+      });
+
+      await this.database.createMessageConsumptionRecord({
+        id: batchId,
+        sourceKey,
+        batchSize: messages.length,
+        triggerReason: triggerType,
+        traceId: traceIds[0],
+        startedAt: startTime
+      });
+    } catch (error) {
+      this.moduleLogger.error('Failed to log private message batch start', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        batchId,
+        sourceKey
+      });
+    }
+
+    try {
+      // 遍历处理每条消息，传递 batchId
+      for (const drained of messages) {
+        await this._processSinglePrivateMessage(
+          drained.message as QQMessage,
+          drained.eventData,
+          drained.traceId,
+          batchId
+        );
+      }
+
+      const processingTime = Date.now() - startTime.getTime();
+
+      this.moduleLogger.info('Private message batch completed', {
+        batchId,
+        sourceKey,
+        messageCount: messages.length,
+        processingTime,
+        status: 'completed'
+      });
+
+      await this.database.updateConversationBatchRecord({
+        id: batchId,
+        status: 'completed',
+        endTime: new Date(),
+        processingTimeMs: processingTime
+      });
+
+      await this.database.updateMessageConsumptionRecord({
+        id: batchId,
+        status: 'completed',
+        processingDurationMs: processingTime
+      });
+
+    } catch (error) {
+      const processingTime = Date.now() - startTime.getTime();
+
+      this.moduleLogger.error('Private message batch failed', {
+        batchId,
+        sourceKey,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        messageCount: messages.length,
+        processingTime,
+        status: 'failed'
+      });
+
+      await this.database.updateConversationBatchRecord({
+        id: batchId,
+        status: 'failed',
+        endTime: new Date(),
+        processingTimeMs: processingTime,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+
+      await this.database.updateMessageConsumptionRecord({
+        id: batchId,
+        status: 'failed',
+        processingDurationMs: processingTime,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * BatchHandler 接口实现 - 批量处理群聊消息
+   */
+  public async handleGroupMessageBatch(sourceKey: string, messages: DrainedMessage[], triggerType: TriggerType): Promise<void> {
+    // 生成批次ID
+    const batchId = uuidv4();
+    const startTime = new Date();
+    const sourceType = sourceKey.startsWith('user_') ? 'private' : 'group';
+    const traceIds = messages.map(m => m.traceId);
+    const messageIds = messages.map(m => m.id);
+
+    this.moduleLogger.info('Processing group message batch', {
+      batchId,
+      sourceKey,
+      messageCount: messages.length,
+      triggerType,
+      traceIds
+    });
+
+    try {
+      await this.database.createConversationBatchRecord({
+        id: batchId,
+        sourceKey,
+        sourceType,
+        triggerType,
+        messageCount: messages.length,
+        startTime,
+        metadata: {
+          traceIds,
+          messageIds,
+          triggerType
+        }
+      });
+
+      await this.database.createMessageConsumptionRecord({
+        id: batchId,
+        sourceKey,
+        batchSize: messages.length,
+        triggerReason: triggerType,
+        traceId: traceIds[0],
+        startedAt: startTime
+      });
+    } catch (error) {
+      this.moduleLogger.error('Failed to log group message batch start', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        batchId,
+        sourceKey
+      });
+    }
+
+    try {
+      // 遍历处理每条消息，传递 batchId
+      for (const drained of messages) {
+        await this._processSingleGroupMessage(
+          drained.message as QQMessage,
+          drained.eventData,
+          drained.traceId,
+          batchId
+        );
+      }
+
+      const processingTime = Date.now() - startTime.getTime();
+
+      this.moduleLogger.info('Group message batch completed', {
+        batchId,
+        sourceKey,
+        messageCount: messages.length,
+        processingTime,
+        status: 'completed'
+      });
+
+      await this.database.updateConversationBatchRecord({
+        id: batchId,
+        status: 'completed',
+        endTime: new Date(),
+        processingTimeMs: processingTime
+      });
+
+      await this.database.updateMessageConsumptionRecord({
+        id: batchId,
+        status: 'completed',
+        processingDurationMs: processingTime
+      });
+
+    } catch (error) {
+      const processingTime = Date.now() - startTime.getTime();
+
+      this.moduleLogger.error('Group message batch failed', {
+        batchId,
+        sourceKey,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        messageCount: messages.length,
+        processingTime,
+        status: 'failed'
+      });
+
+      await this.database.updateConversationBatchRecord({
+        id: batchId,
+        status: 'failed',
+        endTime: new Date(),
+        processingTimeMs: processingTime,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+
+      await this.database.updateMessageConsumptionRecord({
+        id: batchId,
+        status: 'failed',
+        processingDurationMs: processingTime,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * 处理单条私聊消息（核心逻辑）
+   */
+  private async _processSinglePrivateMessage(message: QQMessage, eventData?: any, traceId?: string, batchId?: string): Promise<void> {
+    const conversationId = uuidv4();
+
+    try {
+      this.moduleLogger.info('Processing single private message', {
         traceId,
         conversationId,
         user_id: message.user_id,
@@ -168,53 +591,54 @@ class QQBot {
         response_time: 0,
         raw_request: JSON.stringify(message), // 保存完整的WebSocket消息数据
         status: 'pending', // 初始状态为pending
+        batch_id: batchId, // 关联批次ID
         created_at: new Date(),
         updated_at: new Date()
       };
 
       await this.database.saveConversation(initialConversation);
-      this.moduleLogger.info('Initial conversation record created', { conversationId, status: 'pending' });
+      this.moduleLogger.info('Initial conversation record created', { conversationId, batchId, status: 'pending' });
 
       // 检查私聊设置（2层过滤控制 - private_chat_settings表没有receive_events字段）
       const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
-      
+
       // 第1层：检查是否启用LLM处理（is_enabled）
       if (privateChatSettings && privateChatSettings.is_enabled === false) {
         this.moduleLogger.debug('Private chat LLM processing disabled', { user_id: userId });
-        
+
         // 🔥 FIX: Update conversation status for traceability instead of early return
         await this.database.updateConversationStatus(conversationId, 'filtered_disabled', 'Private chat LLM processing disabled');
-        this.moduleLogger.info('Conversation updated for filtered private message', { 
-          conversationId, 
+        this.moduleLogger.info('Conversation updated for filtered private message', {
+          conversationId,
           reason: 'llm_processing_disabled',
-          traceId 
+          traceId
         });
-        
+
         return; // 不调用LLM处理
       }
-      
+
       // 记录通过检查
-      this.moduleLogger.debug('Private chat passed initial checks', { 
+      this.moduleLogger.debug('Private chat passed initial checks', {
         user_id: userId,
         is_enabled: privateChatSettings?.is_enabled ?? true,
         auto_reply_enabled: privateChatSettings?.auto_reply_enabled ?? true
       });
 
-      this.moduleLogger.info('DEBUG: About to call buildMessageContext', { 
-        userId, 
+      this.moduleLogger.info('DEBUG: About to call buildMessageContext', {
+        userId,
         messageType: message.message_type,
         hasContextManager: !!this.contextManager,
         conversationId
       });
-      
+
       // 更新状态为processing
       await this.database.updateConversationStatus(conversationId, 'processing');
-      
+
       // 构建消息上下文（前20条消息）
       const messageContext = await this.contextManager.buildMessageContext(message, 20);
-      
+
       this.moduleLogger.info('DEBUG: buildMessageContext completed', { userId });
-      
+
       this.moduleLogger.info('Message context built', {
         traceId,
         historyCount: messageContext.historyMessages.length,
@@ -224,7 +648,7 @@ class QQBot {
 
       // Stage 1: Use DecisionEngine for intelligent response decision
       const decision = await this.decisionEngine.analyzeMessage(messageContext, traceId);
-      
+
       this.moduleLogger.info('Decision engine result', {
         shouldRespond: decision.shouldRespond,
         confidence: decision.confidence,
@@ -235,24 +659,24 @@ class QQBot {
 
       // If decision engine says don't respond, update conversation status and exit
       if (!decision.shouldRespond) {
-        this.moduleLogger.info('Decision engine determined not to respond', { 
-          userId, 
-          reason: decision.reason 
+        this.moduleLogger.info('Decision engine determined not to respond', {
+          userId,
+          reason: decision.reason
         });
-        
+
         // 🔥 FIX: Update conversation status for traceability
         await this.database.updateConversationStatus(
           conversationId,
           'filtered_no_response',
           `Decision engine: ${decision.reason}`
         );
-        
+
         return;
       }
 
       // 使用SessionManager处理消息
       const sessionContext = await this.sessionManager.processIncomingMessage(message);
-      
+
       this.moduleLogger.info('Session processing result', {
         sessionId: sessionContext.session_id,
         sessionType: sessionContext.session_type,
@@ -263,97 +687,60 @@ class QQBot {
       if (this.aiService.isAuthorizedUser(userId)) {
         const handled = await this.handleGroupManagementCommand(userId, userMessage);
         if (handled) return;
-
-        // 需求分析模块已暂时隔离
-        /*
-        // 根据Decision Engine和Session类型决策处理消息
-        if (decision.suggestedService === 'requirement' ||
-            (sessionContext.session_type === 'requirement' ||
-            (sessionContext.session_type === 'chat' && userMessage.length > 100))) {
-          // 分析是否为需求
-          const intent = await this.aiService.analyzeIntent(userMessage, userId, traceId);
-
-          if (intent && intent.confidence > 60 && intent.intent === 'requirement') {
-            await this.handleRequirement(userId, userMessage, intent, message, sessionContext.session_id);
-            return;
-          }
-        }
-        */
       }
 
       // Stage 1: Enhanced AI conversation with PersonaEngine
       await this.handleEnhancedAIConversation(
-        userId, 
-        userMessage, 
-        message, 
-        messageContext, 
+        userId,
+        userMessage,
+        message,
+        messageContext,
         sessionContext.session_id,
         traceId,
         conversationId // 传递已创建的conversationId
       );
 
     } catch (error) {
-      this.moduleLogger.error('Error handling private message', { 
+      this.moduleLogger.error('Error processing private message', {
         error: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
         userId: message.user_id,
         conversationId,
         messagePreview: typeof message.message === 'string' ? message.message.substring(0, 50) : JSON.stringify(message.message)?.substring(0, 50)
       });
-      
+
       // 更新conversation状态为失败
       await this.database.updateConversationStatus(
-        conversationId, 
-        'failed', 
+        conversationId,
+        'failed',
         `Processing error: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
-      
-      // 不再发送错误消息给用户，只记录日志
     }
   }
 
-  private async handleGroupMessage(message: QQMessage, eventData?: any): Promise<void> {
-    const traceId = eventData?.traceId;
-    
-    console.log('🚨 EMERGENCY DEBUG: handleGroupMessage CALLED!', message.group_id, message.user_id);
-    this.moduleLogger.info('🎯 handleGroupMessage called', {
-      traceId,
-      group_id: message.group_id,
-      user_id: message.user_id,
-      message_type: message.message_type,
-      message: typeof message.message === 'string' ? message.message.substring(0, 100) : JSON.stringify(message.message).substring(0, 100)
-    });
-    
+  /**
+   * 处理单条群聊消息（核心逻辑）
+   */
+  private async _processSingleGroupMessage(message: QQMessage, eventData?: any, traceId?: string, batchId?: string): Promise<void> {
+    const conversationId = uuidv4();
+
     try {
+      this.moduleLogger.info('Processing single group message', {
+        traceId,
+        conversationId,
+        group_id: message.group_id,
+        user_id: message.user_id,
+        message: typeof message.message === 'string' ? message.message.substring(0, 100) : JSON.stringify(message.message).substring(0, 100)
+      });
+
       // 只处理@机器人的消息
       const botQQ = this.aiService.getBotQQNumber();
-      this.moduleLogger.info('📍 Bot QQ number:', { botQQ });
-      
+
       // 检测@机器人：同时支持消息段数组格式和字符串CQ码格式
       let isAtBot = false;
-      
+
       if (Array.isArray(message.message)) {
-        // 消息段数组格式检测 - 增强调试
-        this.moduleLogger.info('🔍 Debug @bot detection (Array format):', {
-          messageSegments: message.message,
-          botQQ,
-          botQQString: botQQ.toString(),
-          botQQType: typeof botQQ
-        });
-        
-        for (const segment of message.message) {
-          if (segment.type === 'at') {
-            this.moduleLogger.info('🎯 Found AT segment:', {
-              segment,
-              segmentQQ: segment.data?.qq,
-              segmentQQType: typeof segment.data?.qq,
-              botQQString: botQQ.toString(),
-              match: segment.data?.qq === botQQ.toString()
-            });
-          }
-        }
-        
-        isAtBot = message.message.some((segment: any) => 
+        isAtBot = message.message.some((segment: any) =>
           segment.type === 'at' && segment.data?.qq === botQQ.toString()
         );
       } else if (typeof message.message === 'string') {
@@ -361,23 +748,18 @@ class QQBot {
         const atPattern = new RegExp(`\\[CQ:at,qq=${botQQ}\\]`);
         isAtBot = atPattern.test(message.message);
       }
-      
-      this.moduleLogger.info('📍 AT检测:', { 
-        messageType: typeof message.message,
-        messageIsArray: Array.isArray(message.message),
-        messageSegments: JSON.stringify(message.message).substring(0, 200),
+
+      this.moduleLogger.info('AT检测:', {
         isAtBot,
         groupReplyEnabled: this.groupReplyEnabled,
-        botQQ,
-        botQQStr: botQQ.toString()
+        botQQ
       });
 
       // Stage 1: Only skip if group reply is completely disabled
-      // Let DecisionEngine handle @/non-@ logic intelligently
       if (!this.groupReplyEnabled) {
-        this.moduleLogger.info('❌ Skipping group message: Group reply disabled', { 
-          isAtBot, 
-          groupReplyEnabled: this.groupReplyEnabled 
+        this.moduleLogger.info('❌ Skipping group message: Group reply disabled', {
+          isAtBot,
+          groupReplyEnabled: this.groupReplyEnabled
         });
         return;
       }
@@ -385,13 +767,12 @@ class QQBot {
       // 检查群聊设置（3层过滤控制）
       if (message.group_id) {
         const groupSettings = await this.database.getGroupChatSettingById(message.group_id);
-        
+
         // 第1层：检查是否接收事件（receive_events）
         if (groupSettings && !groupSettings.receive_events) {
           this.moduleLogger.debug('Group chat events disabled', { group_id: message.group_id });
-          
+
           // 🔥 FIX: Save filtered conversation record for traceability
-          const conversationId = uuidv4();
           const filteredConversation: ConversationData = {
             id: conversationId,
             trace_id: traceId,
@@ -406,23 +787,22 @@ class QQBot {
             created_at: new Date(),
             updated_at: new Date()
           };
-          
+
           await this.database.saveConversation(filteredConversation);
-          this.moduleLogger.info('Filtered conversation saved for traceability', { 
-            conversationId, 
+          this.moduleLogger.info('Filtered conversation saved for traceability', {
+            conversationId,
             reason: 'receive_events_disabled',
-            traceId 
+            traceId
           });
-          
+
           return; // 直接忽略，不做任何处理
         }
-        
+
         // 第2层：检查是否启用LLM处理（is_enabled）
         if (groupSettings && !groupSettings.is_enabled) {
           this.moduleLogger.debug('Group chat LLM processing disabled', { group_id: message.group_id });
-          
-          // 🔥 FIX: Save filtered conversation record for traceability  
-          const conversationId = uuidv4();
+
+          // 🔥 FIX: Save filtered conversation record for traceability
           const filteredConversation: ConversationData = {
             id: conversationId,
             trace_id: traceId,
@@ -437,19 +817,19 @@ class QQBot {
             created_at: new Date(),
             updated_at: new Date()
           };
-          
+
           await this.database.saveConversation(filteredConversation);
-          this.moduleLogger.info('Filtered conversation saved for traceability', { 
-            conversationId, 
+          this.moduleLogger.info('Filtered conversation saved for traceability', {
+            conversationId,
             reason: 'llm_processing_disabled',
-            traceId 
+            traceId
           });
-          
+
           return; // 不调用LLM处理
         }
-        
+
         // 记录通过前两层检查
-        this.moduleLogger.debug('Group chat passed initial checks', { 
+        this.moduleLogger.debug('Group chat passed initial checks', {
           group_id: message.group_id,
           receive_events: groupSettings?.receive_events ?? true,
           is_enabled: groupSettings?.is_enabled ?? true
@@ -464,7 +844,7 @@ class QQBot {
 
       // 清理消息内容（移除@信息）
       let cleanMessage = '';
-      
+
       if (typeof message.message === 'string') {
         // 字符串格式：移除CQ码和@信息
         cleanMessage = message.message
@@ -484,7 +864,7 @@ class QQBot {
         // 获取群聊设置中的欢迎消息
         const groupSetting = await this.database.getGroupChatSettingById(message.group_id!);
         const welcomeMessage = groupSetting?.welcome_message || '您好！我是智能助手，有什么可以帮助您的吗？';
-        
+
         await this.websocketClient.sendGroupMessage(
           message.group_id!,
           welcomeMessage
@@ -495,16 +875,15 @@ class QQBot {
       // 构建群聊消息上下文（前20条消息）
       const messageWithCleanContent = { ...message, message: cleanMessage };
       const messageContext = await this.contextManager.buildMessageContext(messageWithCleanContent, 20);
-      
+
       this.moduleLogger.info('Group message context built', {
         traceId,
         historyCount: messageContext.historyMessages.length,
         hasGroupInfo: !!messageContext.groupInfo,
         groupId: message.group_id
       });
-      
+
       // 🔥 FIX: Create conversation record for group messages early for traceability
-      const conversationId = uuidv4();
       const groupConversation: ConversationData = {
         id: conversationId,
         trace_id: traceId,
@@ -515,16 +894,17 @@ class QQBot {
         response_time: 0,
         raw_request: JSON.stringify(message),
         status: 'pending',
+        batch_id: batchId, // 关联批次ID
         created_at: new Date(),
         updated_at: new Date()
       };
-      
+
       await this.database.saveConversation(groupConversation);
-      this.moduleLogger.info('Group conversation record created', { conversationId, groupId: message.group_id, traceId });
+      this.moduleLogger.info('Group conversation record created', { conversationId, batchId, groupId: message.group_id, traceId });
 
       // Stage 1: Use DecisionEngine for group message decisions
       const decision = await this.decisionEngine.analyzeMessage(messageContext, traceId);
-      
+
       this.moduleLogger.info('Group message decision engine result', {
         shouldRespond: decision.shouldRespond,
         confidence: decision.confidence,
@@ -535,19 +915,19 @@ class QQBot {
 
       // If decision engine says don't respond, update conversation status and exit
       if (!decision.shouldRespond) {
-        this.moduleLogger.info('Decision engine determined not to respond to group message', { 
+        this.moduleLogger.info('Decision engine determined not to respond to group message', {
           groupId: message.group_id,
           userId: message.user_id,
-          reason: decision.reason 
+          reason: decision.reason
         });
-        
+
         // 🔥 FIX: Update conversation status for traceability
         await this.database.updateConversationStatus(
           conversationId,
           'filtered_no_response',
           `Decision engine: ${decision.reason}`
         );
-        
+
         return;
       }
 
@@ -562,18 +942,62 @@ class QQBot {
       // Stage 1: Enhanced AI conversation for group messages
       const sessionContext = await this.sessionManager.processIncomingMessage(message);
       await this.handleEnhancedAIConversation(
-        message.user_id, 
-        cleanMessage, 
-        messageWithCleanContent, 
-        messageContext, 
+        message.user_id,
+        cleanMessage,
+        messageWithCleanContent,
+        messageContext,
         sessionContext.session_id,
         traceId,
         conversationId // 🔥 FIX: Pass conversationId for error handling
       );
 
     } catch (error) {
-      this.moduleLogger.error('Error handling group message', { error, message });
+      this.moduleLogger.error('Error processing group message', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        groupId: message.group_id,
+        userId: message.user_id,
+        conversationId,
+        messagePreview: typeof message.message === 'string' ? message.message.substring(0, 50) : JSON.stringify(message.message)?.substring(0, 50)
+      });
+
+      // 更新conversation状态为失败
+      await this.database.updateConversationStatus(
+        conversationId,
+        'failed',
+        `Processing error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
+  }
+
+  private async handlePrivateMessage(message: QQMessage, eventData?: any): Promise<void> {
+    const traceId = eventData?.traceId || `trace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // 入队消息
+    await this.messageQueueService.enqueue(message, { ...eventData, traceId });
+
+    // 如果不启用人类化处理，立即触发 DirectNotifier
+    if (!this.enableHumanLikeProcessing) {
+      const sourceKey = `user_${message.user_id}`;
+      const messages = await this.messageQueueService.drain(sourceKey);
+      await this.directNotifier.notify(sourceKey, messages);
+    }
+    // 否则等待调度器触发
+  }
+
+  private async handleGroupMessage(message: QQMessage, eventData?: any): Promise<void> {
+    const traceId = eventData?.traceId || `trace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // 入队消息
+    await this.messageQueueService.enqueue(message, { ...eventData, traceId });
+
+    // 如果不启用人类化处理，立即触发 DirectNotifier
+    if (!this.enableHumanLikeProcessing) {
+      const sourceKey = `group_${message.group_id}`;
+      const messages = await this.messageQueueService.drain(sourceKey);
+      await this.directNotifier.notify(sourceKey, messages);
+    }
+    // 否则等待调度器触发
   }
 
   private async handleGroupManagementCommand(userId: number, message: string): Promise<boolean> {
@@ -725,151 +1149,8 @@ class QQBot {
     this.moduleLogger.debug('Group settings cache cleared');
   }
 
-  private async handleRequirement(
-    userId: number,
-    message: string,
-    intent: any,
-    originalMessage: QQMessage,
-    sessionId?: string
-  ): Promise<void> {
-    const requirementId = uuidv4();
-    
-    try {
-      this.moduleLogger.info('Processing requirement', {
-        requirementId,
-        userId,
-        message,
-        intent
-      });
-
-      // 保存需求到数据库
-      const requirementData: RequirementData = {
-        id: requirementId,
-        user_id: userId,
-        message: message,
-        user_message: message,  // Add alias for compatibility
-        status: 'received',
-        created_at: new Date(),
-        updated_at: new Date(),
-        session_id: sessionId  // 关联Session ID
-      };
-
-      await this.database.saveRequirement(requirementData);
-
-      // 发送确认消息
-      let responseMessage = `🔧 已识别为开发需求 (${intent.category}, ${intent.complexity})\n`;
-      responseMessage += `📋 需求ID: ${requirementId}\n`;
-      responseMessage += `⏳ 正在处理中...`;
-
-      if (intent.complexity === '复杂') {
-        responseMessage += '\n\n💡 检测到复杂需求，将启用标准化TDD/BDD多Agent协作模式进行处理。';
-      }
-
-      // 发送确认消息 - 如果是回复链的一部分，使用回复功能
-      const shouldSendReply = sessionId && originalMessage.message_id && 
-                             (sessionId.includes('reply') || sessionId.includes('chain'));
-
-      if (shouldSendReply && originalMessage.message_id) {
-        await this.websocketClient.sendReplyMessage(originalMessage.message_id, responseMessage);
-      } else {
-        await this.websocketClient.sendPrivateMessage(userId, responseMessage);
-      }
-
-      // 异步处理需求 - 使用Remote Claude Service
-      this.processRequirementAsync(requirementData, userId).catch(error => {
-        this.moduleLogger.error('Async requirement processing failed', { 
-          error, 
-          requirementId 
-        });
-      });
-
-    } catch (error) {
-      this.moduleLogger.error('Failed to process requirement', { error, requirementId });
-      
-      await this.database.updateRequirementStatus(
-        requirementId,
-        'failed',
-        {
-          error_message: error instanceof Error ? error.message : 'Unknown error',
-          processing_end_time: new Date()
-        }
-      );
-
-      await this.websocketClient.sendPrivateMessage(
-        userId,
-        `❌ 需求处理失败: ${requirementId}\n\n错误信息: ${error instanceof Error ? error.message : '未知错误'}`
-      );
-    }
-  }
-
   /**
-   * 异步处理需求逻辑
-   */
-  private async processRequirementAsync(
-    requirementData: RequirementData,
-    userId: number
-  ): Promise<void> {
-    const { id: requirementId, message } = requirementData;
-    
-    try {
-      // 检查Remote Claude会话状态
-      const sessionExists = await this.remoteClaudeService.checkRemoteSession();
-      if (!sessionExists) {
-        await this.websocketClient.sendPrivateMessage(
-          userId,
-          `❌ 需求 ${requirementId} 处理失败\n\n错误：Claude Code远程会话未启动\n请联系管理员运行：./scripts/setup_remote_claude.sh`
-        );
-        return;
-      }
-
-      // 发送开始处理通知
-      await this.websocketClient.sendPrivateMessage(
-        userId,
-        `🚀 需求 ${requirementId} 开始处理\n💡 正在通过Claude Code进行自动化开发...`
-      );
-
-      // 实际处理需求
-      await this.remoteClaudeService.processRequirement(requirementData);
-
-      // 获取处理结果
-      const result = await this.database.getRequirementById(requirementId);
-      
-      if (result && result.status === 'completed') {
-        let successMessage = `✅ 需求 ${requirementId} 处理完成！\n\n`;
-        
-        if (result.claude_code_output && result.claude_code_output.length > 0) {
-          const output = result.claude_code_output.substring(0, 800);
-          successMessage += `📝 处理结果摘要:\n${output}`;
-          
-          if (result.claude_code_output.length > 800) {
-            successMessage += '\n\n...(输出较长，完整日志请查看系统记录)';
-          }
-        }
-        
-        successMessage += `\n\n🕒 处理时间: ${this.formatProcessingTime(result.processing_start_time, result.processing_end_time)}`;
-        
-        await this.websocketClient.sendPrivateMessage(userId, successMessage);
-      } else if (result && result.status === 'failed') {
-        const errorMessage = `❌ 需求 ${requirementId} 处理失败\n\n错误信息: ${result.error_message || '未知错误'}`;
-        await this.websocketClient.sendPrivateMessage(userId, errorMessage);
-      }
-
-    } catch (error) {
-      this.moduleLogger.error('Failed to process requirement async', { 
-        error, 
-        requirementId, 
-        userId 
-      });
-
-      await this.websocketClient.sendPrivateMessage(
-        userId,
-        `❌ 需求 ${requirementId} 处理异常\n\n错误: ${error instanceof Error ? error.message : '未知错误'}`
-      );
-    }
-  }
-
-  /**
-   * Build comprehensive message context using ContextManager  
+   * Build comprehensive message context using ContextManager
    */
   private async buildMessageContext(message: QQMessage, traceId?: string): Promise<MessageContext> {
     try {
@@ -898,6 +1179,70 @@ class QQBot {
     }
   }
 
+  private async resolvePromptConfiguration(
+    message: QQMessage,
+    userId: number
+  ): Promise<{
+    config: UnifiedLLMConfig;
+    agentType: string;
+    promptName: string;
+    promptId?: string;
+    groupSettings?: GroupChatSettings | null;
+    privateSettings?: PrivateChatSettings | null;
+  }> {
+    let promptId: string | null | undefined;
+    let groupSettings: GroupChatSettings | null = null;
+    let privateSettings: PrivateChatSettings | null = null;
+
+    if (message.message_type === 'group' && message.group_id) {
+      groupSettings = await this.database.getGroupChatSettingById(message.group_id);
+      promptId = groupSettings?.agent_prompt_id ?? null;
+    } else {
+      privateSettings = await this.database.getPrivateChatSettingById(userId);
+      promptId = privateSettings?.agent_prompt_id ?? null;
+    }
+
+    let config: UnifiedLLMConfig | null = null;
+    let resolvedPromptName: string | undefined;
+
+    if (promptId) {
+      config = await this.aiService.getConfigurationByPromptId(promptId);
+      resolvedPromptName = config?.name;
+    }
+
+    if (!config) {
+      for (const candidate of this.defaultChatPromptCandidates) {
+        if (!candidate) continue;
+        const candidateConfig = await this.aiService.getConfigurationForAgent('chat_bot', candidate);
+        if (candidateConfig) {
+          config = candidateConfig;
+          resolvedPromptName = candidateConfig.name ?? candidate;
+          break;
+        }
+      }
+    }
+
+    if (!config) {
+      config = await this.aiService.getConfigurationForAgent('chat_bot');
+      resolvedPromptName = config?.name;
+    }
+
+    if (!config) {
+      throw new Error('Failed to resolve chat prompt configuration');
+    }
+
+    const effectivePromptId = promptId || config.id || undefined;
+
+    return {
+      config,
+      agentType: config.category || 'chat_bot',
+      promptName: resolvedPromptName || config.name || 'enhanced_chat',
+      promptId: effectivePromptId,
+      groupSettings,
+      privateSettings
+    };
+  }
+
   /**
    * Stage 1: Enhanced AI conversation with PersonaEngine
    */
@@ -913,6 +1258,96 @@ class QQBot {
     const startTime = Date.now();
 
     try {
+      const promptSelection = await this.resolvePromptConfiguration(originalMessage, userId);
+      const {
+        config: promptConfig,
+        agentType: promptAgentType,
+        promptName,
+        promptId,
+        groupSettings: resolvedGroupSettings,
+        privateSettings: resolvedPrivateSettings
+      } = promptSelection;
+
+      let cachedGroupSettings = resolvedGroupSettings;
+      let cachedPrivateSettings = resolvedPrivateSettings;
+
+      const contextPrompt = this.contextManager.formatContextForAI(messageContext);
+      const fullPrompt = `${contextPrompt}\n\n=== 当前需要回复的消息 ===\n${userMessage}`;
+
+      // 🛠️ 如果启用工具系统，使用 LLMJob 异步处理
+      if (this.enableLLMTools) {
+        const sourceKey = originalMessage.message_type === 'group'
+          ? `group_${originalMessage.group_id}`
+          : `user_${userId}`;
+
+        const sourceType = originalMessage.message_type === 'group' ? 'group' : 'private';
+        const contents = [
+          {
+            role: 'user',
+            parts: [{ text: fullPrompt }]
+          }
+        ];
+
+        const jobConfig: Record<string, any> = {
+          generationConfig: {
+            temperature: promptConfig.generation.temperature,
+            topK: promptConfig.generation.topK,
+            topP: promptConfig.generation.topP,
+            maxOutputTokens: promptConfig.generation.maxOutputTokens,
+            stopSequences: promptConfig.generation.stopSequences
+          },
+          safetySettings: promptConfig.safety.map(safety => ({
+            category: safety.category,
+            threshold: safety.threshold
+          }))
+        };
+
+        if (promptConfig.model?.name) {
+          jobConfig.model = { name: promptConfig.model.name };
+        }
+
+        if (promptConfig.context.systemInstruction) {
+          jobConfig.systemInstruction = {
+            role: 'system',
+            parts: [{ text: promptConfig.context.systemInstruction }]
+          };
+        }
+
+        // 创建 LLM Job
+        const jobId = await this.llmJobWorker.createJob({
+          traceId: traceId || `trace-${Date.now()}`,
+          sourceKey,
+          sourceType,
+          contents,
+          config: jobConfig,
+          metadata: {
+            conversationId,
+            userId,
+            groupId: originalMessage.group_id,
+            sessionId,
+            messageId: originalMessage.message_id,
+            messageType: originalMessage.message_type,
+            promptId: promptId || null,
+            promptName,
+            agentType: promptAgentType,
+            modelName: promptConfig.model?.name || null
+          }
+        });
+
+        this.moduleLogger.info('LLM Job created for message', {
+          jobId,
+          conversationId,
+          traceId,
+          sourceKey,
+          messageType: originalMessage.message_type
+        });
+
+        // 异步处理，不阻塞返回
+        // Job 完成后会通过事件监听器发送响应
+        return;
+      }
+
+      // 原有逻辑：直接调用 AI 服务
       // Build response context for PersonaEngine
       const responseContext: ResponseContext = {
         messageType: originalMessage.message_type,
@@ -925,17 +1360,18 @@ class QQBot {
       };
 
       // Generate base AI response with context
-      const contextPrompt = this.contextManager.formatContextForAI(messageContext);
-      const fullPrompt = `${contextPrompt}\n\n=== 当前需要回复的消息 ===\n${userMessage}`;
-      
       // 现在我们不再创建新的conversation，而是调用AI服务并更新已存在的记录
       const aiResponse = await this.aiService.generateResponseForExistingConversation(
         fullPrompt,
         conversationId || '', // 确保是string类型
         messageContext,
-        'chat_bot',
-        'enhanced_chat',
-        traceId
+        promptAgentType,
+        promptName,
+        traceId,
+        {
+          promptId,
+          configOverride: promptConfig
+        }
       );
       
       // 如果AI服务返回null（错误时），更新conversation状态为failed
@@ -994,7 +1430,7 @@ class QQBot {
           undefined, // no error
           finalResponse, // AI response
           responseTime,
-          'gemini-2.5-flash',
+          promptConfig.model?.name || 'gemini-2.5-flash',
           JSON.stringify({
             baseResponse: aiResponse,
             personaResponse: personaResponse,
@@ -1014,7 +1450,8 @@ class QQBot {
 
       if (originalMessage.message_type === 'group' && originalMessage.group_id) {
         // 第3层：检查群聊自动回复是否开启（auto_reply_enabled）
-        const groupSettings = await this.database.getGroupChatSettingById(originalMessage.group_id);
+        const groupSettings = cachedGroupSettings ?? await this.database.getGroupChatSettingById(originalMessage.group_id);
+        cachedGroupSettings = groupSettings;
         if (groupSettings && !groupSettings.auto_reply_enabled) {
           this.moduleLogger.debug('Group chat auto reply disabled, skipping message send', { 
             group_id: originalMessage.group_id 
@@ -1038,7 +1475,8 @@ class QQBot {
         }
       } else {
         // 第3层：检查私聊自动回复是否开启（auto_reply_enabled）
-        const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
+        const privateChatSettings = cachedPrivateSettings ?? await this.database.getPrivateChatSettingById(userId);
+        cachedPrivateSettings = privateChatSettings;
         if (privateChatSettings && !privateChatSettings.auto_reply_enabled) {
           this.moduleLogger.debug('Private chat auto reply disabled, skipping message send', { 
             user_id: userId 
@@ -1441,6 +1879,19 @@ class QQBot {
   public async stop(): Promise<void> {
     try {
       this.moduleLogger.info('🛑 Stopping QQ Bot...');
+
+      // 🛠️ 停止 LLM Job Worker (如果启用工具系统)
+      if (this.enableLLMTools && this.llmJobWorker) {
+        this.moduleLogger.info('Stopping LLMJobWorker...');
+        await this.llmJobWorker.stop();
+        this.moduleLogger.info('✅ LLMJobWorker stopped');
+      }
+
+      // 停止调度器（如果启用）
+      if (this.enableHumanLikeProcessing) {
+        this.scheduleDispatcher.stop();
+        this.moduleLogger.info('✅ ScheduleDispatcher stopped');
+      }
 
       // 更新机器人状态
       await this.database.updateBotStatus(

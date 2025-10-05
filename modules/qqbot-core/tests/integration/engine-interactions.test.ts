@@ -112,7 +112,7 @@ describe('Engine Interactions Integration', () => {
       };
 
       const personaResponse = await personaEngine.generateResponse('asdfghjkl', responseContext);
-      expect(personaResponse.content).toBeDefined(); // Should have fallback response
+      expect(personaResponse.content).toBeDefined();
     });
   });
 
@@ -205,18 +205,7 @@ describe('Engine Interactions Integration', () => {
       expect(personaResponse.content).toBeDefined();
     });
 
-    test('should handle AI service failures across engines', async () => {
-      mockAIService.setShouldFailResponseGeneration(true);
-      const messageId = 'ai_failure_123';
-      
-      const context = await contextEngine.buildContext(messageId);
-      
-      // Decision engine should fall back to rule-based decisions
-      const decision = await decisionEngine.analyzeMessage(context);
-      expect(decision.shouldRespond).toBeDefined();
-      expect(decision.reason).toContain('规则判断');
-      
-      // Persona engine should provide fallback response
+    test('should bubble up persona errors when enhancement fails', async () => {
       const responseContext = {
         messageType: 'private' as const,
         userRelation: 'occasional',
@@ -226,27 +215,32 @@ describe('Engine Interactions Integration', () => {
         isUrgent: false,
       };
 
-      const personaResponse = await personaEngine.generateResponse('测试', responseContext);
-      expect(personaResponse.content).toBeDefined();
-      expect(personaResponse.content).toContain('抱歉');
+      const filterSpy = jest
+        .spyOn(personaEngine as any, 'applyPersonalityFilters')
+        .mockImplementation(() => {
+          throw new Error('Mock persona failure');
+        });
+
+      await expect(personaEngine.generateResponse('测试', responseContext)).rejects.toThrow(
+        'Mock persona failure'
+      );
+
+      filterSpy.mockRestore();
     });
 
-    test('should maintain system stability when all external services fail', async () => {
+    test('should propagate errors when all external services fail', async () => {
       mockDatabase.setShouldFail(true);
-      mockAIService.setShouldFailResponseGeneration(true);
-      mockAIService.setShouldFailIntentAnalysis(true);
 
       const messageId = 'total_failure_123';
-      
-      // Should still be able to process with all fallbacks
       const context = await contextEngine.buildContext(messageId);
-      const decision = await decisionEngine.analyzeMessage(context);
-      
-      expect(context).toBeDefined();
-      expect(decision).toBeDefined();
-      expect(decision.shouldRespond).toBeDefined();
-      
-      // System should remain responsive even with all failures
+
+      const analysisSpy = jest
+        .spyOn(decisionEngine as any, 'performAIAnalysis')
+        .mockRejectedValue(new Error('Mock total failure'));
+
+      await expect(decisionEngine.analyzeMessage(context)).rejects.toThrow('Mock total failure');
+      analysisSpy.mockRestore();
+
       const responseContext = {
         messageType: 'private' as const,
         userRelation: 'new',
@@ -256,8 +250,17 @@ describe('Engine Interactions Integration', () => {
         isUrgent: false,
       };
 
-      const personaResponse = await personaEngine.generateResponse('测试', responseContext);
-      expect(personaResponse.content).toBeDefined();
+      const filterSpy = jest
+        .spyOn(personaEngine as any, 'applyPersonalityFilters')
+        .mockImplementation(() => {
+          throw new Error('Mock persona failure');
+        });
+
+      await expect(personaEngine.generateResponse('测试', responseContext)).rejects.toThrow(
+        'Mock persona failure'
+      );
+
+      filterSpy.mockRestore();
     });
   });
 

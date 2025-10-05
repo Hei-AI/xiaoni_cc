@@ -199,8 +199,8 @@ echo "  3. 使用预定义工具增强功能"
 echo "  4. 监控LLM调用性能和效果"
 echo
 echo "💡 使用提示:"
-echo "  ./scripts/docker-deploy.sh all status     # 查看容器状态"
-echo "  ./scripts/docker-deploy.sh all logs       # 查看日志"
-echo "  ./scripts/docker-deploy.sh all test-config # 测试配置API"
+echo "  docker compose ps                       # 查看容器状态"
+echo "  docker compose logs -f qqbot-qqbot-core # 查看核心日志"
+echo "  docker compose exec qqbot-qqbot-core npm test # 在容器内跑测试"
 
 success "验证脚本执行完成！"

@@ -110,6 +110,24 @@ export interface ConversationData {
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'filtered_receive_events' | 'filtered_disabled' | 'filtered_no_response'; // 扩展状态字段支持过滤状态
   error_reason?: string; // 新增错误原因字段
   group_id?: number; // 群聊ID，用于群聊消息记录
+  batch_id?: string; // 关联的批次ID（用于批处理追踪）
+  created_at: Date;
+  updated_at: Date;
+}
+
+// 批次处理记录
+export interface ConversationBatch {
+  id: string; // UUID
+  source_key: string; // user_123 或 group_456
+  source_type: 'private' | 'group';
+  trigger_type: 'direct' | 'scheduled' | 'manual';
+  message_count: number;
+  start_time: Date;
+  end_time?: Date;
+  processing_time?: number; // 毫秒
+  status: 'processing' | 'completed' | 'failed';
+  error_message?: string;
+  metadata?: Record<string, any>; // JSON 元数据
   created_at: Date;
   updated_at: Date;
 }
@@ -485,6 +503,7 @@ export interface GroupChatSettings {
   receive_events: boolean;
   welcome_message?: string;
   admin_user_id?: number;
+  agent_prompt_id?: string | null;
   created_at: Date;
   updated_at: Date;
   last_activity?: Date;
@@ -499,6 +518,7 @@ export interface PrivateChatSettings {
   auto_reply_enabled: boolean;
   welcome_message?: string;
   user_notes?: string;
+  agent_prompt_id?: string | null;
   created_at: Date;
   updated_at: Date;
   last_activity?: Date;
@@ -1470,4 +1490,249 @@ export interface HumanLikeProcessorOptions {
   loggingService: any; // LoggingService类型
   contextManager: any; // ContextManager类型
   config?: Partial<HumanLikeProcessingConfig>;
+}
+
+// ============================================================================
+// 🛠️ LLM 工具编排系统类型定义
+// ============================================================================
+
+/**
+ * LLM 任务状态
+ */
+export type LLMJobStatus =
+  | 'pending'        // 等待处理
+  | 'calling'        // 正在调用LLM
+  | 'awaiting_tool'  // 等待工具执行
+  | 'completed'      // 已完成
+  | 'failed';        // 失败
+
+/**
+ * LLM 任务
+ */
+export interface LLMJob {
+  id: string; // UUID
+  trace_id: string;
+  source_key: string; // user_xxx / group_xxx
+  source_type: 'private' | 'group';
+
+  // 状态管理
+  status: LLMJobStatus;
+  retry_count: number;
+  max_retries: number;
+  next_retry_at?: Date;
+
+  // 请求数据
+  contents_json: any[]; // Gemini contents 数组
+  tools_json?: any[]; // 工具声明数组
+  config_json?: any; // LLM 配置参数
+
+  // 执行状态
+  pending_tool?: string; // 当前等待的工具名
+  current_turn: number;
+  max_turns: number;
+
+  // 结果与错误
+  final_response?: string;
+  error_message?: string;
+
+  // 元数据
+  metadata?: Record<string, any>;
+  created_at: Date;
+  updated_at: Date;
+  completed_at?: Date;
+}
+
+/**
+ * 工具执行模式
+ */
+export type ToolExecutionMode = 'returnable' | 'fire-and-forget';
+
+/**
+ * 工具类型
+ */
+export type ToolType = 'static' | 'dynamic';
+
+/**
+ * 动态工具定义
+ */
+export interface LLMTool {
+  id: number;
+  method_id: string; // 唯一标识符
+  name: string;
+  description: string;
+
+  // 参数定义
+  params_schema: any; // JSON Schema
+
+  // 分类与标签
+  category?: string; // system/user/external
+  tags?: string[]; // 标签数组
+
+  // 执行配置
+  side_effect: boolean;
+  expect_response: boolean;
+  timeout_ms: number;
+
+  // 权限与状态
+  enabled: boolean;
+  required_permission?: string;
+
+  // 版本与审计
+  version: string;
+  created_by?: string;
+  updated_by?: string;
+
+  // 执行统计
+  total_calls: number;
+  success_calls: number;
+  failed_calls: number;
+  avg_duration_ms?: number;
+
+  created_at: Date;
+  updated_at: Date;
+}
+
+/**
+ * 工具执行上下文
+ */
+export interface ToolContext {
+  trace_id: string;
+  job_id?: string;
+  user_id?: number;
+  group_id?: number;
+  source_key: string;
+  arguments: any;
+  metadata?: Record<string, any>;
+}
+
+/**
+ * 工具执行结果
+ */
+export interface ToolResult {
+  success: boolean;
+  data?: any;
+  error?: string;
+  duration_ms?: number;
+  side_effects?: string[]; // 副作用描述
+}
+
+/**
+ * 静态工具定义
+ */
+export interface StaticTool {
+  name: string;
+  description: string;
+  parameters: any; // JSON Schema
+  mode: ToolExecutionMode;
+  handler: (ctx: ToolContext) => Promise<ToolResult>;
+}
+
+/**
+ * 工具执行日志
+ */
+export interface ToolExecutionLog {
+  id: number;
+
+  // 关联
+  trace_id: string;
+  job_id?: string;
+  tool_type: ToolType;
+  tool_name: string;
+  method_id?: string;
+
+  // 执行信息
+  arguments: any;
+  result?: any;
+
+  // 状态与性能
+  status: 'success' | 'failed' | 'timeout';
+  error_message?: string;
+  duration_ms?: number;
+
+  // 执行模式
+  execution_mode: ToolExecutionMode;
+  side_effect: boolean;
+
+  // 时间戳
+  started_at: Date;
+  completed_at?: Date;
+}
+
+/**
+ * 工具搜索参数
+ */
+export interface ToolSearchParams {
+  query: string;
+  tags?: string[];
+  side_effect?: boolean;
+  max_results?: number;
+  category?: string;
+}
+
+/**
+ * 工具搜索结果
+ */
+export interface ToolSearchResult {
+  tools: Array<{
+    method_id: string;
+    name: string;
+    description: string;
+    params_schema: any;
+    side_effect: boolean;
+    expect_response: boolean;
+  }>;
+  total: number;
+}
+
+/**
+ * Gemini 函数调用
+ */
+export interface GeminiFunctionCall {
+  name: string;
+  args: any;
+}
+
+/**
+ * Gemini 函数响应
+ */
+export interface GeminiFunctionResponse {
+  name: string;
+  response: {
+    name: string;
+    content: any;
+  };
+}
+
+/**
+ * 批处理触发类型
+ */
+export type TriggerType = 'direct' | 'scheduled' | 'manual';
+
+/**
+ * 批处理Handler接口
+ */
+export interface BatchHandler {
+  handlePrivateMessageBatch(
+    sourceKey: string,
+    messages: DrainedMessage[],
+    triggerType: TriggerType
+  ): Promise<void>;
+
+  handleGroupMessageBatch(
+    sourceKey: string,
+    messages: DrainedMessage[],
+    triggerType: TriggerType
+  ): Promise<void>;
+}
+
+/**
+ * 已消费的消息
+ */
+export interface DrainedMessage {
+  id: string;
+  message: QQMessage;
+  eventData?: any;
+  arrivalTime: Date;
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  traceId: string;
 }

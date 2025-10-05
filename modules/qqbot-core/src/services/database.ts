@@ -1146,6 +1146,160 @@ export class DatabaseManager {
     return await this.getSessionByIdFromConversations(sessionId);
   }
 
+  // ---------------------------------------------------------------------------
+  // 人类化处理批次记录
+  // ---------------------------------------------------------------------------
+
+  public async createConversationBatchRecord(params: {
+    id: string;
+    sourceKey: string;
+    sourceType: 'private' | 'group';
+    triggerType: 'direct' | 'scheduled' | 'manual';
+    messageCount: number;
+    startTime: Date;
+    metadata?: Record<string, any>;
+  }): Promise<void> {
+    const query = `
+      INSERT INTO conversation_batches (
+        id, source_key, source_type, trigger_type,
+        message_count, start_time, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const metadataJson = params.metadata ? JSON.stringify(params.metadata) : null;
+
+    try {
+      await this.executeUpdate(query, [
+        params.id,
+        params.sourceKey,
+        params.sourceType,
+        params.triggerType,
+        params.messageCount,
+        params.startTime,
+        metadataJson
+      ]);
+    } catch (error) {
+      this.moduleLogger.error('Failed to create conversation batch record', {
+        error,
+        batchId: params.id,
+        sourceKey: params.sourceKey
+      });
+    }
+  }
+
+  public async updateConversationBatchRecord(params: {
+    id: string;
+    status: 'processing' | 'completed' | 'failed';
+    endTime?: Date;
+    processingTimeMs?: number;
+    errorMessage?: string | null;
+    metadata?: Record<string, any>;
+  }): Promise<void> {
+    const metadataJson = params.metadata ? JSON.stringify(params.metadata) : null;
+
+    const query = `
+      UPDATE conversation_batches SET
+        status = ?,
+        end_time = ?,
+        processing_time = ?,
+        error_message = ?,
+        metadata = CASE WHEN ? IS NULL THEN metadata ELSE ? END,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `;
+
+    try {
+      await this.executeUpdate(query, [
+        params.status,
+        params.endTime || null,
+        params.processingTimeMs ?? null,
+        params.errorMessage || null,
+        metadataJson,
+        metadataJson,
+        params.id
+      ]);
+    } catch (error) {
+      this.moduleLogger.error('Failed to update conversation batch record', {
+        error,
+        batchId: params.id,
+        status: params.status
+      });
+    }
+  }
+
+  public async createMessageConsumptionRecord(params: {
+    id: string;
+    sourceKey: string;
+    batchSize: number;
+    triggerReason: string;
+    traceId?: string;
+    startedAt: Date;
+  }): Promise<void> {
+    const query = `
+      INSERT INTO message_consumptions (
+        id, source_key, batch_size, trigger_reason,
+        consumption_timestamp, trace_id, status
+      ) VALUES (?, ?, ?, ?, ?, ?, 'started')
+      ON DUPLICATE KEY UPDATE
+        source_key = VALUES(source_key),
+        batch_size = VALUES(batch_size),
+        trigger_reason = VALUES(trigger_reason),
+        consumption_timestamp = VALUES(consumption_timestamp),
+        trace_id = VALUES(trace_id),
+        status = 'started',
+        error_message = NULL,
+        processing_duration_ms = NULL
+    `;
+
+    try {
+      await this.executeUpdate(query, [
+        params.id,
+        params.sourceKey,
+        params.batchSize,
+        params.triggerReason,
+        params.startedAt,
+        params.traceId || null
+      ]);
+    } catch (error) {
+      this.moduleLogger.error('Failed to create message consumption record', {
+        error,
+        batchId: params.id,
+        sourceKey: params.sourceKey
+      });
+    }
+  }
+
+  public async updateMessageConsumptionRecord(params: {
+    id: string;
+    status: 'completed' | 'failed';
+    processingDurationMs?: number;
+    errorMessage?: string | null;
+  }): Promise<void> {
+    const query = `
+      UPDATE message_consumptions SET
+        status = ?,
+        processing_duration_ms = ?,
+        error_message = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `;
+
+    try {
+      await this.executeUpdate(query, [
+        params.status,
+        params.processingDurationMs ?? null,
+        params.errorMessage || null,
+        params.id
+      ]);
+    } catch (error) {
+      this.moduleLogger.error('Failed to update message consumption record', {
+        error,
+        batchId: params.id,
+        status: params.status
+      });
+    }
+  }
+
   private async getSessionByIdFromConversations(sessionId: string): Promise<any | null> {
     try {
       // Extract user_id and date from session_id format: session_{user_id}_{date}
@@ -1511,7 +1665,7 @@ export class DatabaseManager {
     try {
       const query = `
         SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
-               created_at, updated_at, last_activity
+               agent_prompt_id, created_at, updated_at, last_activity
         FROM private_chat_settings 
         WHERE user_id = ?
       `;
@@ -1522,7 +1676,7 @@ export class DatabaseManager {
       return null;
     }
   }
-  
+
   /**
    * 保存或更新群聊设置
    */
@@ -1531,14 +1685,15 @@ export class DatabaseManager {
       const query = `
         INSERT INTO group_chat_settings (
           group_id, group_name, is_enabled, auto_reply_enabled, 
-          welcome_message, admin_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          welcome_message, admin_user_id, agent_prompt_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           group_name = VALUES(group_name),
           is_enabled = VALUES(is_enabled),
           auto_reply_enabled = VALUES(auto_reply_enabled),
           welcome_message = VALUES(welcome_message),
           admin_user_id = VALUES(admin_user_id),
+          agent_prompt_id = VALUES(agent_prompt_id),
           updated_at = VALUES(updated_at)
       `;
       
@@ -1549,6 +1704,7 @@ export class DatabaseManager {
         settings.auto_reply_enabled,
         settings.welcome_message || null,
         settings.admin_user_id || null,
+        settings.agent_prompt_id || null,
         settings.created_at || new Date(),
         new Date()
       ];
@@ -1562,6 +1718,62 @@ export class DatabaseManager {
       return false;
     } catch (error) {
       this.moduleLogger.error('Failed to save group chat settings', { error, settings });
+      return false;
+    }
+  }
+
+  /**
+   * 更新私聊 prompt 绑定
+   */
+  public async updatePrivateChatPrompt(userId: number, promptId: string | null): Promise<boolean> {
+    try {
+      const query = `
+        INSERT INTO private_chat_settings (
+          user_id, agent_prompt_id, is_enabled, auto_reply_enabled, created_at, updated_at
+        ) VALUES (?, ?, TRUE, TRUE, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+          agent_prompt_id = VALUES(agent_prompt_id),
+          updated_at = NOW()
+      `;
+
+      const affectedRows = await this.executeUpdate(query, [userId, promptId]);
+
+      if (affectedRows > 0) {
+        this.moduleLogger.info('Private chat prompt mapping updated', { userId, promptId });
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      this.moduleLogger.error('Failed to update private chat prompt', { error, userId, promptId });
+      return false;
+    }
+  }
+
+  /**
+   * 更新群聊 prompt 绑定
+   */
+  public async updateGroupChatPrompt(groupId: number, promptId: string | null): Promise<boolean> {
+    try {
+      const query = `
+        INSERT INTO group_chat_settings (
+          group_id, agent_prompt_id, is_enabled, auto_reply_enabled, receive_events, created_at, updated_at
+        ) VALUES (?, ?, TRUE, TRUE, TRUE, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+          agent_prompt_id = VALUES(agent_prompt_id),
+          updated_at = NOW()
+      `;
+
+      const affectedRows = await this.executeUpdate(query, [groupId, promptId]);
+
+      if (affectedRows > 0) {
+        this.moduleLogger.info('Group chat prompt mapping updated', { groupId, promptId });
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      this.moduleLogger.error('Failed to update group chat prompt', { error, groupId, promptId });
       return false;
     }
   }

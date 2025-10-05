@@ -8,7 +8,6 @@ import { QQMessage } from '../src/types';
 jest.mock('../src/services/database');
 jest.mock('../src/services/websocket-client');
 jest.mock('../src/services/ai-service');
-jest.mock('../src/services/remote-claude-service');
 jest.mock('../src/services/http-server');
 
 describe('Session Integration Tests', () => {

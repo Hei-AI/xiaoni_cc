@@ -202,16 +202,19 @@ describe('PersonaEngine', () => {
   });
 
   describe('Error Handling and Fallback', () => {
-    test('should handle AI service failures gracefully', async () => {
-      mockAIService.setShouldFailResponseGeneration(true);
+    test('should surface errors instead of sending fallback content', async () => {
       const context = createResponseContext();
+      const filterSpy = jest
+        .spyOn(personaEngine as any, 'applyPersonalityFilters')
+        .mockImplementation(() => {
+          throw new Error('Mock persona failure');
+        });
 
-      const response = await personaEngine.generateResponse('测试消息', context);
+      await expect(personaEngine.generateResponse('测试消息', context)).rejects.toThrow(
+        'Mock persona failure'
+      );
 
-      expect(response.content).toBeDefined();
-      expect(response.selectedPersona).toBeDefined();
-      expect(response.confidence).toBeGreaterThan(0);
-      expect(response.content).toContain('抱歉'); // Fallback response
+      filterSpy.mockRestore();
     });
 
     test('should handle empty or invalid messages', async () => {

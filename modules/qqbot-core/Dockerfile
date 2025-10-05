@@ -15,6 +15,7 @@ RUN npm install --include=dev
 COPY src/ ./src/
 COPY tsconfig.json ./
 COPY jest.config.js ./
+COPY tests/ ./tests/
 
 # 全局安装ts-node用于生产运行
 RUN npm install -g ts-node typescript
@@ -27,7 +28,7 @@ ENV DB_USER=qqbot_user
 ENV DB_PASSWORD=qqbot_password
 ENV DB_NAME=qqbot_db
 ENV BOT_QQ_NUMBER=1129974489
-ENV WEBSOCKET_HOST=host.docker.internal
+ENV WEBSOCKET_HOST=napcat
 ENV WEBSOCKET_PORT=3001
 ENV WEBSOCKET_ACCESS_TOKEN=w@123456
 ENV AI_MODEL_NAME=gemini-2.5-flash

@@ -99,21 +99,8 @@ export class DecisionEngine {
         error: error instanceof Error ? error.message : 'Unknown error',
         messageId: context.currentMessage.message_id
       });
-      
-      // 发生错误时的保守策略：仅回复明确的@和私聊
-      return {
-        shouldRespond: context.currentMessage.message_type === 'private',
-        confidence: 50,
-        reason: 'Error occurred, using conservative fallback',
-        suggestedService: context.currentMessage.message_type === 'private' ? 'chat' : 'ignore',
-        metadata: {
-          isDirectMention: false,
-          containsQuestionWords: false,
-          isFromAuthorizedUser: this.isAuthorizedUser(context.currentMessage.user_id),
-          hasKeywords: false,
-          contextualScore: 50
-        }
-      };
+
+      throw (error instanceof Error ? error : new Error(String(error)));
     }
   }
 
