@@ -1,5 +1,6 @@
 import express from 'express';
 import { DatabaseManager } from '../services/database';
+import { TrafficReplayService } from '../services/traffic-replay-service';
 import winston from 'winston';
 
 /**
@@ -8,6 +9,9 @@ import winston from 'winston';
  */
 export function createTrafficMonitorRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
+
+  // 初始化流量重放服务
+  const replayService = new TrafficReplayService(database);
 
   // 获取HTTP流量记录列表
   router.get('/traffic/logs', async (req, res) => {
@@ -45,6 +49,11 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
         params.push(req.query.api_type);
       }
 
+      if (req.query.container_name) {
+        filters.push('container_name = ?');
+        params.push(req.query.container_name);
+      }
+
       if (req.query.trace_id) {
         filters.push('trace_id = ?');
         params.push(req.query.trace_id);
@@ -73,7 +82,8 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
         `SELECT
           id, request_id, trace_id, container_name, service_name,
           method, url, host, path,
-          response_status, duration_ms, request_timestamp,
+          response_status, duration_ms,
+          request_timestamp as timestamp,
           is_ai_request, api_type, api_version,
           client_ip, user_agent,
           request_size, response_size,
@@ -135,6 +145,11 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
       }
 
       const log = logs[0];
+
+      // 添加timestamp字段以保持前端兼容性
+      if (log.request_timestamp && !log.timestamp) {
+        log.timestamp = log.request_timestamp;
+      }
 
       // 解析JSON字段
       try {
@@ -475,6 +490,158 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
       res.status(500).json({
         success: false,
         error: 'Failed to export traffic data',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // ==================== 流量重放API ====================
+
+  // 重放单个请求
+  router.post('/traffic/replay/:id', async (req, res) => {
+    try {
+      const logId = parseInt(req.params.id);
+
+      if (isNaN(logId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid log ID',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const replayConfig = {
+        originalLogId: logId,
+        modifications: req.body.modifications,
+        timeout: req.body.timeout,
+        followRedirects: req.body.followRedirects !== false,
+        validateSSL: req.body.validateSSL !== false
+      };
+
+      const result = await replayService.replayRequest(replayConfig);
+
+      res.json({
+        success: true,
+        data: result,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      logger.error('Failed to replay request', { error, logId: req.params.id });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to replay request',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // 批量重放请求
+  router.post('/traffic/replay/batch', async (req, res) => {
+    try {
+      const { logIds, modifications, concurrency, timeout } = req.body;
+
+      if (!Array.isArray(logIds) || logIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid logIds array',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // 限制批量数量
+      if (logIds.length > 100) {
+        return res.status(400).json({
+          success: false,
+          error: 'Maximum 100 requests allowed per batch',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const result = await replayService.batchReplay(
+        logIds,
+        modifications,
+        Math.min(concurrency || 5, 10)  // 最大并发10
+      );
+
+      res.json({
+        success: true,
+        data: result,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      logger.error('Failed to batch replay requests', { error });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to batch replay requests',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // 使用模板重放
+  router.post('/traffic/replay/:id/with-template', async (req, res) => {
+    try {
+      const logId = parseInt(req.params.id);
+      const { templateId } = req.body;
+
+      if (isNaN(logId) || !templateId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid log ID or template ID',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const result = await replayService.replayWithTemplate(logId, templateId);
+
+      res.json({
+        success: true,
+        data: result,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      logger.error('Failed to replay with template', { error, logId: req.params.id });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to replay with template',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // 获取重放历史
+  router.get('/traffic/replay/history/:originalId', async (req, res) => {
+    try {
+      const originalId = parseInt(req.params.originalId);
+
+      if (isNaN(originalId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid original log ID',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const history = await replayService.getReplayHistory(originalId);
+
+      res.json({
+        success: true,
+        data: history,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      logger.error('Failed to get replay history', { error, originalId: req.params.originalId });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get replay history',
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString()
       });

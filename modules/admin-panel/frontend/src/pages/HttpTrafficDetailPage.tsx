@@ -18,8 +18,13 @@ import {
   XCircle,
   AlertTriangle,
   Zap,
-  RefreshCw
+  RefreshCw,
+  Play
 } from 'lucide-react';
+import { TrafficReplayEditor } from '../components/TrafficReplayEditor';
+import { ReplayResultComparison } from '../components/ReplayResultComparison';
+import { ReplayHistoryList } from '../components/ReplayHistoryList';
+import type { ReplayModifications, ReplayResult, ReplayHistory } from '../types/traffic-replay';
 
 interface TrafficLogDetail {
   id: number;
@@ -67,19 +72,21 @@ interface TrafficLogDetail {
   session_id?: string;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:9080/api';
-
 export function HttpTrafficDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
+  const [showReplayEditor, setShowReplayEditor] = useState(false);
+  const [replayResult, setReplayResult] = useState<ReplayResult | null>(null);
+  const [isReplaying, setIsReplaying] = useState(false);
+  const [replayError, setReplayError] = useState<string>('');
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['traffic-detail', id],
     queryFn: async () => {
       if (!id) throw new Error('Missing traffic log ID');
 
-      const response = await fetch(`${API_BASE_URL}/traffic/logs/${id}`);
+      const response = await fetch(`/api/traffic/logs/${id}`);
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error('Traffic log not found');
@@ -91,8 +98,62 @@ export function HttpTrafficDetailPage() {
     enabled: !!id,
   });
 
+  // 获取重放历史
+  const { data: replayHistoryData, refetch: refetchHistory } = useQuery({
+    queryKey: ['replay-history', id],
+    queryFn: async () => {
+      if (!id) return { data: [] };
+
+      const response = await fetch(`/api/traffic/replay/history/${id}`);
+      if (!response.ok) return { data: [] };
+
+      return response.json();
+    },
+    enabled: !!id,
+  });
+
+  const replayHistory: ReplayHistory[] = replayHistoryData?.data || [];
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
+  };
+
+  // 执行重放
+  const handleReplay = async (modifications: ReplayModifications) => {
+    if (!id) return;
+
+    setIsReplaying(true);
+    setReplayError('');
+
+    try {
+      const response = await fetch(`/api/traffic/replay/${id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ modifications }),
+      });
+
+      if (!response.ok) {
+        throw new Error('重放请求失败');
+      }
+
+      const result = await response.json();
+
+      if (result.success) {
+        setReplayResult(result.data);
+        // 刷新重放历史
+        refetchHistory();
+      } else {
+        throw new Error(result.error || '重放失败');
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : '重放失败';
+      setReplayError(errorMsg);
+      throw err;
+    } finally {
+      setIsReplaying(false);
+    }
   };
 
   const handleDownloadRaw = () => {
@@ -320,13 +381,16 @@ export function HttpTrafficDetailPage() {
       <Card>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <CardHeader>
-            <TabsList className="grid w-full grid-cols-6">
+            <TabsList className="grid w-full grid-cols-7">
               <TabsTrigger value="overview">概览</TabsTrigger>
               <TabsTrigger value="request">请求</TabsTrigger>
               <TabsTrigger value="response">响应</TabsTrigger>
               <TabsTrigger value="headers">请求头</TabsTrigger>
               <TabsTrigger value="response-headers">响应头</TabsTrigger>
               <TabsTrigger value="metadata">元数据</TabsTrigger>
+              <TabsTrigger value="replay">
+                重放 {replayHistory.length > 0 && `(${replayHistory.length})`}
+              </TabsTrigger>
             </TabsList>
           </CardHeader>
 
@@ -541,7 +605,7 @@ export function HttpTrafficDetailPage() {
                     </Button>
                   </div>
                   <div className="p-3 bg-muted rounded-md max-h-96 overflow-auto">
-                    {log.is_truncated && (
+                    {Boolean(log.is_truncated) && (
                       <div className="mb-2 text-sm text-yellow-600 bg-yellow-50 p-2 rounded">
                         ⚠️ 响应体过大，已截断显示
                       </div>
@@ -646,6 +710,68 @@ export function HttpTrafficDetailPage() {
                   </div>
                 </div>
               </div>
+            </TabsContent>
+
+            {/* 重放 Tab */}
+            <TabsContent value="replay" className="space-y-4">
+              {!showReplayEditor ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold">流量重放</h3>
+                    <Button onClick={() => setShowReplayEditor(true)}>
+                      <Play className="h-4 w-4 mr-2" />
+                      开始重放
+                    </Button>
+                  </div>
+
+                  {replayHistory.length > 0 ? (
+                    <ReplayHistoryList history={replayHistory} />
+                  ) : (
+                    <Alert>
+                      <AlertDescription>
+                        暂无重放记录，点击"开始重放"按钮进行流量重放测试
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold">流量重放</h3>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setShowReplayEditor(false);
+                        setReplayResult(null);
+                        setReplayError('');
+                      }}
+                    >
+                      返回历史
+                    </Button>
+                  </div>
+
+                  <TrafficReplayEditor
+                    originalLog={log}
+                    onReplay={handleReplay}
+                    isReplaying={isReplaying}
+                    error={replayError}
+                  />
+
+                  {replayResult && (
+                    <ReplayResultComparison
+                      original={{
+                        status: log.response_status || 0,
+                        headers: log.response_headers || {},
+                        body: log.response_body || '',
+                        duration: log.duration_ms || 0,
+                        size: log.response_size || 0,
+                      }}
+                      replayed={replayResult.replayResponse}
+                      comparison={replayResult.comparison}
+                    />
+                  )}
+                </div>
+              )}
             </TabsContent>
           </CardContent>
         </Tabs>

@@ -36,31 +36,37 @@ COPY <<'EOF' /etc/nginx/conf.d/default.conf
 server {
     listen 80;
     server_name localhost;
-    
+
     # 启用gzip压缩
     gzip on;
     gzip_vary on;
     gzip_min_length 1024;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
-    
-    # 静态资源缓存 - 开发环境使用较短的缓存
+
+    # 静态资源完全禁用缓存
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
         root /usr/share/nginx/html;
-        expires 5m;
-        add_header Cache-Control "public, max-age=300";
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
     }
-    
-    # SPA路由处理
+
+    # SPA路由处理 - HTML 完全禁用缓存
     location / {
         root /usr/share/nginx/html;
         try_files $uri $uri/ /index.html;
-        
+
+        # 完全禁用缓存
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+
         # 安全头
         add_header X-Frame-Options DENY;
         add_header X-Content-Type-Options nosniff;
         add_header X-XSS-Protection "1; mode=block";
     }
-    
+
     # API代理到后端
     location /api/ {
         proxy_pass http://qqbot-admin-backend:9080/api/;
@@ -69,14 +75,14 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
-    
+
     # 健康检查端点
     location /health {
         access_log off;
         return 200 "healthy\n";
         add_header Content-Type text/plain;
     }
-    
+
     # 访问日志
     access_log /var/log/nginx/access.log;
     error_log /var/log/nginx/error.log;
