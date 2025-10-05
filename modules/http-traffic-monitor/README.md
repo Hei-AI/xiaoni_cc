@@ -65,36 +65,45 @@ http-traffic-monitor/
 
 ```bash
 pip install --user mitmproxy==11.0.2
+pip install --user -r modules/http-traffic-monitor/transparent-proxy/requirements.txt
 ```
 
 ### 启动透明代理
 
-#### 方法1: 一键启动（推荐）
+#### 方法1: Python CLI（推荐）
 
 ```bash
 # 项目根目录
 cd /home/liahua/IdeaProject/qq_bot
 
-# 启动mitmproxy（自动检测Clash地址）
-bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh
+# 启动mitmproxy并自动应用iptables
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables
+
+# 查看状态或实时日志（可选）
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py status
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py logs -f
 ```
 
-#### 方法2: 手动启动
+该 CLI 会自动探测 Clash 网关、创建 `logs/qqbot-traffic/` 日志目录，并把必要环境变量注入 mitmproxy。
+
+#### 方法2: 传统脚本（备用）
+
+仍可使用历史 bash 脚本（如 CI 临时场景）：
 
 ```bash
 cd /home/liahua/IdeaProject/qq_bot
 
-export PATH="$HOME/.local/bin:$PATH"
-export MITMPROXY_DIR="$PWD/modules/http-traffic-monitor/transparent-proxy/mitmproxy-data"
-export UPSTREAM_HTTP="http://172.26.144.1:7890"
-
-bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh &
+bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh
+# 或手动 export 变量后执行 start-mitmproxy.sh &
 ```
 
 ### 配置iptables规则
 
 ```bash
-# 自动应用重定向规则
+# 自动应用重定向规则（优先使用CLI）
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py iptables apply
+
+# 若未配置sudo密码或需要手动操作
 sudo bash modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh
 ```
 
@@ -119,14 +128,14 @@ docker exec qqbot-mysql curl http://www.google.com
 docker exec qqbot-qqbot-core curl https://www.google.com
 
 # 查看日志
-tail -f modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmproxy-*.log
+tail -f logs/qqbot-traffic/mitmproxy-*.log
 ```
 
 ## 📊 日志格式
 
 ### JSONL流量日志
 
-位置: `transparent-proxy/mitmproxy-data/logs/traffic-YYYY-MM-DD.jsonl`
+位置: `logs/qqbot-traffic/traffic-YYYY-MM-DD.jsonl`
 
 ```json
 {
@@ -149,13 +158,25 @@ tail -f modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmp
 
 ### mitmproxy运行日志
 
-位置: `transparent-proxy/mitmproxy-data/logs/mitmproxy-TIMESTAMP.log`
+位置: `logs/qqbot-traffic/mitmproxy-TIMESTAMP.log`
 
 包含mitmproxy和addon.py的运行日志，Fake-IP检测信息等。
+
+### 日志入库
+
+`modules/admin-panel/backend` 内置了 `traffic-log-watcher` 服务，会通过 chokidar 监听上述 `traffic-*.jsonl` 文件并将新增记录写入数据库。
+
+- 代码位置：`modules/admin-panel/backend/src/services/traffic-log-watcher.ts`
+- 默认监听参数：容器路径 `/app/logs/traffic`（宿主机同步 `logs/qqbot-traffic/`），文件模式 `traffic-*.jsonl`。
+- 服务随 admin-backend 同步启动，无需额外脚本；如需要独立运行，可在容器内执行 `npm run watch:traffic`（若定义）。
+
+确保日志目录挂载到 admin-backend 容器且具备读取权限，新增流量记录即可实时追加到 `http_traffic_logs`（或相应表）中。
 
 ## ⚙️ 配置说明
 
 ### 环境变量
+
+Python CLI 会根据 `config.json` 自动注入以下环境变量，手动运行脚本时可参考：
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -164,19 +185,22 @@ tail -f modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmp
 | `CLASH_PORT` | 7890 | Clash端口 |
 | `FAKE_IP_RANGE` | 198.18.0.0/15 | Clash Fake-IP范围 |
 | `MITMPROXY_DIR` | 项目路径 | mitmproxy数据目录 |
-| `TRAFFIC_LOG_DIR` | 自动设置 | 流量日志目录 |
+| `TRAFFIC_LOG_DIR` | `logs/qqbot-traffic` | 流量日志目录（映射到容器 `/app/logs/traffic`） |
 
 ### 自定义配置
 
 ```bash
 # 自定义Clash端口
-CLASH_PORT=7891 bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py config set clash_port 7891
 
-# 自定义代理地址
-UPSTREAM_HTTP="http://192.168.1.100:8080" bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh
+# 自定义上游代理地址
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py config set upstream_http http://192.168.1.100:8080
 
 # 自定义监听端口
-LISTEN_PORT=16000 bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py config set listen_port 16000
+
+# 更新配置后重启服务
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py restart
 ```
 
 ## 🔧 核心组件
@@ -223,7 +247,7 @@ if target_ip in self.fake_ip_network:  # 198.18.0.0/15
 
 ```bash
 # 查看今天的Gemini请求
-cat transparent-proxy/mitmproxy-data/logs/traffic-$(date +%Y-%m-%d).jsonl | \
+cat logs/qqbot-traffic/traffic-$(date +%Y-%m-%d).jsonl | \
   jq 'select(.is_ai_request == true and .api_type == "gemini")'
 ```
 
@@ -233,7 +257,7 @@ cat transparent-proxy/mitmproxy-data/logs/traffic-$(date +%Y-%m-%d).jsonl | \
 
 ```bash
 # 计算平均响应时间
-cat transparent-proxy/mitmproxy-data/logs/traffic-*.jsonl | \
+cat logs/qqbot-traffic/traffic-*.jsonl | \
   jq -s 'map(.duration_ms) | add / length'
 ```
 
@@ -243,18 +267,18 @@ cat transparent-proxy/mitmproxy-data/logs/traffic-*.jsonl | \
 
 ```bash
 # 查看4xx/5xx错误
-cat transparent-proxy/mitmproxy-data/logs/traffic-$(date +%Y-%m-%d).jsonl | \
+cat logs/qqbot-traffic/traffic-$(date +%Y-%m-%d).jsonl | \
   jq 'select(.response_status >= 400)'
 ```
 
 ## 🛑 停止服务
 
 ```bash
-# 停止mitmproxy
-pkill -f "mitmdump.*transparent"
+# 停止mitmproxy并清理iptables
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py stop --cleanup
 
-# 清理iptables规则
-sudo bash modules/http-traffic-monitor/transparent-proxy/remove-iptables.sh
+# 如需仅停止服务但保留iptables
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py stop
 ```
 
 ## 🐛 故障排除
@@ -266,7 +290,7 @@ sudo bash modules/http-traffic-monitor/transparent-proxy/remove-iptables.sh
 netstat -tlnp | grep 15001
 
 # 前台运行查看错误
-bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --foreground
 ```
 
 ### 流量未被拦截
@@ -276,8 +300,8 @@ bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy.sh
 sudo iptables -t nat -L PREROUTING -n -v --line-numbers
 
 # 重新应用规则
-sudo bash modules/http-traffic-monitor/transparent-proxy/remove-iptables.sh
-sudo bash modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py iptables remove
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py iptables apply
 ```
 
 ### HTTPS证书错误
