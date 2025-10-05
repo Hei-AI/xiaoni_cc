@@ -427,6 +427,137 @@ export class DatabaseManager {
     }
   }
 
+  // Prompt binding methods
+  public async getAgentPromptById(id: string): Promise<any | null> {
+    const query = 'SELECT * FROM agent_prompts WHERE id = ?';
+    try {
+      const results = await this.executeQuery<any>(query, [id]);
+      if (results.length > 0) {
+        const prompt = results[0];
+        // Parse JSON fields
+        if (typeof prompt.system_instructions === 'string') {
+          prompt.system_instructions = JSON.parse(prompt.system_instructions);
+        }
+        if (typeof prompt.context_variables === 'string') {
+          prompt.context_variables = JSON.parse(prompt.context_variables);
+        }
+        if (typeof prompt.model_config === 'string') {
+          prompt.model_config = JSON.parse(prompt.model_config);
+        }
+        return prompt;
+      }
+      return null;
+    } catch (error) {
+      this.logger.error('Failed to get agent prompt by id', { error, id });
+      return null;
+    }
+  }
+
+  public async updatePrivateChatPrompt(userId: number, promptId: string | null): Promise<boolean> {
+    try {
+      const query = `
+        INSERT INTO private_chat_settings (
+          user_id, agent_prompt_id, is_enabled, auto_reply_enabled, created_at, updated_at
+        ) VALUES (?, ?, TRUE, TRUE, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+          agent_prompt_id = VALUES(agent_prompt_id),
+          updated_at = NOW()
+      `;
+
+      const affectedRows = await this.executeUpdate(query, [userId, promptId]);
+
+      if (affectedRows > 0) {
+        this.logger.info('Private chat prompt mapping updated', { userId, promptId });
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      this.logger.error('Failed to update private chat prompt', { error, userId, promptId });
+      return false;
+    }
+  }
+
+  public async updateGroupChatPrompt(groupId: number, promptId: string | null): Promise<boolean> {
+    try {
+      const query = `
+        INSERT INTO group_chat_settings (
+          group_id, agent_prompt_id, is_enabled, auto_reply_enabled, receive_events, created_at, updated_at
+        ) VALUES (?, ?, TRUE, TRUE, TRUE, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+          agent_prompt_id = VALUES(agent_prompt_id),
+          updated_at = NOW()
+      `;
+
+      const affectedRows = await this.executeUpdate(query, [groupId, promptId]);
+
+      if (affectedRows > 0) {
+        this.logger.info('Group chat prompt mapping updated', { groupId, promptId });
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      this.logger.error('Failed to update group chat prompt', { error, groupId, promptId });
+      return false;
+    }
+  }
+
+  public async updateGroupChatSettings(groupId: number, updates: Record<string, any>): Promise<boolean> {
+    try {
+      const updateFields: string[] = [];
+      const updateValues: any[] = [];
+
+      // Build SET clause from updates object
+      Object.entries(updates).forEach(([key, value]) => {
+        updateFields.push(`${key} = ?`);
+        updateValues.push(value);
+      });
+
+      if (updateFields.length === 0) {
+        return false;
+      }
+
+      // Add updated_at
+      updateFields.push('updated_at = NOW()');
+
+      const query = `
+        UPDATE group_chat_settings
+        SET ${updateFields.join(', ')}
+        WHERE group_id = ?
+      `;
+
+      updateValues.push(groupId);
+      const affectedRows = await this.executeUpdate(query, updateValues);
+
+      if (affectedRows > 0) {
+        this.logger.info('Group chat settings updated', { groupId, updates });
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      this.logger.error('Failed to update group chat settings', { error, groupId, updates });
+      return false;
+    }
+  }
+
+  public async getGroupChatSettingById(groupId: number): Promise<any | null> {
+    try {
+      const query = `
+        SELECT group_id, group_name, is_enabled, auto_reply_enabled, welcome_message,
+               admin_user_id, agent_prompt_id, last_activity, receive_events, created_at, updated_at
+        FROM group_chat_settings
+        WHERE group_id = ?
+      `;
+      const results = await this.executeQuery<any>(query, [groupId]);
+      return results[0] || null;
+    } catch (error) {
+      this.logger.error('Failed to get group chat settings', { error, groupId });
+      return null;
+    }
+  }
+
   public async close(): Promise<void> {
     if (this.pool) {
       await this.pool.end();

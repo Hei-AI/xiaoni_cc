@@ -13,6 +13,8 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { Input } from '../components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { usePromptTemplates } from '../hooks/usePromptTemplates';
 import { 
   ArrowLeft, 
   RefreshCw, 
@@ -53,6 +55,7 @@ interface UserSettings {
   auto_reply_enabled: number;
   welcome_message: string | null;
   user_notes: string | null;
+   agent_prompt_id: string | null;
   last_activity: string | null;
 }
 
@@ -130,6 +133,22 @@ const updateUserSettings = async (userId: string, settings: Partial<UserSettings
   return response.json();
 };
 
+const updateUserPrompt = async (userId: string, promptId: string | null) => {
+  const response = await fetch(`/api/private-chats/${userId}/prompt`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ prompt_id: promptId }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to update user prompt');
+  }
+
+  return response.json();
+};
+
 export const PrivateChatDetailPage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
@@ -193,6 +212,41 @@ export const PrivateChatDetailPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['private-chat-details', userId] });
     },
   });
+
+  const { data: promptTemplates = [], isLoading: promptLoading } = usePromptTemplates();
+  const chatPrompts = React.useMemo(
+    () => promptTemplates.filter(template => template.agent_type === 'chat_bot' && template.is_active),
+    [promptTemplates]
+  );
+
+  const defaultPromptName = React.useMemo(() => {
+    const candidates = ['echance_chat', 'enhanced_chat', 'default_chat'];
+    for (const candidate of candidates) {
+      const match = chatPrompts.find(prompt => prompt.prompt_name === candidate);
+      if (match) {
+        return match.prompt_name;
+      }
+    }
+    return chatPrompts[0]?.prompt_name || 'enhanced_chat';
+  }, [chatPrompts]);
+
+  const defaultPromptLabel = React.useMemo(() => {
+    return defaultPromptName ? `默认（${defaultPromptName}）` : '默认配置';
+  }, [defaultPromptName]);
+
+  const updatePromptMutation = useMutation({
+    mutationFn: (promptId: string | null) => updateUserPrompt(userId, promptId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['private-chat-details', userId] });
+    },
+  });
+
+  const currentPrompt = React.useMemo(() => {
+    if (!conversationData?.data.user_settings.agent_prompt_id) {
+      return null;
+    }
+    return chatPrompts.find(prompt => prompt.id === conversationData.data.user_settings.agent_prompt_id) || null;
+  }, [conversationData, chatPrompts]);
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('zh-CN');
@@ -310,6 +364,38 @@ export const PrivateChatDetailPage: React.FC = () => {
                     {conversationData.data.user_settings.auto_reply_enabled ? '开启' : '关闭'}
                   </Button>
                 </div>
+              </div>
+              <div className="space-y-2">
+                <span className="text-sm font-medium">自定义 Prompt:</span>
+                <div className="mb-2">
+                  <span className="text-xs text-muted-foreground">当前使用: </span>
+                  <Badge variant="outline">
+                    {currentPrompt ? currentPrompt.prompt_name : defaultPromptLabel}
+                  </Badge>
+                </div>
+                <Select
+                  value={conversationData.data.user_settings.agent_prompt_id || 'default'}
+                  onValueChange={(value) => {
+                    const promptValue = value === 'default' ? null : value;
+                    updatePromptMutation.mutate(promptValue);
+                  }}
+                  disabled={promptLoading || updatePromptMutation.isPending}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={promptLoading ? '加载中...' : '选择 Prompt'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">{defaultPromptLabel}</SelectItem>
+                    {chatPrompts.map(prompt => (
+                      <SelectItem key={prompt.id} value={prompt.id}>
+                        {prompt.prompt_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-2">
+                  选择特定 Prompt 将覆盖默认配置；选择"默认"会恢复到 {defaultPromptLabel}。
+                </p>
               </div>
             </CardContent>
           </Card>

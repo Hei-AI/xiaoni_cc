@@ -2,6 +2,30 @@ import express from 'express';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
 
+// Type interfaces for database query results
+interface PrivateChatSettingRow {
+  user_id: number;
+  username: string | null;
+  is_enabled: number;
+  auto_reply_enabled: number;
+  welcome_message: string | null;
+  user_notes: string | null;
+  agent_prompt_id: string | null;
+  last_activity: string | null;
+}
+
+interface GroupChatSettingRow {
+  group_id: number;
+  group_name: string | null;
+  is_enabled: number;
+  auto_reply_enabled: number;
+  welcome_message: string | null;
+  admin_user_id: number | null;
+  agent_prompt_id: string | null;
+  last_activity: string | null;
+  receive_events: number;
+}
+
 // 创建聊天管理相关路由
 export function createChatRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
@@ -46,6 +70,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           g.auto_reply_enabled,
           g.welcome_message,
           g.admin_user_id,
+          g.agent_prompt_id,
           g.last_activity,
           g.created_at,
           g.updated_at,
@@ -181,11 +206,12 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           END as avg_response_time,
           COALESCE(pcs.is_enabled, 1) as is_enabled,
           COALESCE(pcs.auto_reply_enabled, 1) as auto_reply_enabled,
-          pcs.user_notes
+          pcs.user_notes,
+          pcs.agent_prompt_id
         FROM conversations c
         LEFT JOIN private_chat_settings pcs ON c.user_id = pcs.user_id
         WHERE ${whereClause}
-        GROUP BY c.user_id, pcs.username, pcs.is_enabled, pcs.auto_reply_enabled, pcs.user_notes
+        GROUP BY c.user_id, pcs.username, pcs.is_enabled, pcs.auto_reply_enabled, pcs.user_notes, pcs.agent_prompt_id
         ORDER BY last_conversation_time DESC
         LIMIT ${limit} OFFSET ${offset}
       `, queryParams);
@@ -262,15 +288,24 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
 
       const whereClause = whereConditions.join(' AND ');
 
-      // 获取用户设置 (模拟数据，实际应从private_chat_settings表获取)
+      // 获取用户设置
+      const userSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
+        SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
+               agent_prompt_id, last_activity
+        FROM private_chat_settings
+        WHERE user_id = ?
+      `, [userId]);
+
+      const userSettingRow = userSettingsRows[0];
       const userSettings = {
         user_id: userId,
-        nickname: `用户${userId}`,
-        is_enabled: 1,
-        auto_reply_enabled: 1,
-        welcome_message: null,
-        user_notes: null,
-        last_activity: new Date().toISOString()
+        nickname: userSettingRow?.username || `用户${userId}`,
+        is_enabled: userSettingRow?.is_enabled ?? 1,
+        auto_reply_enabled: userSettingRow?.auto_reply_enabled ?? 1,
+        welcome_message: userSettingRow?.welcome_message || null,
+        user_notes: userSettingRow?.user_notes || null,
+        agent_prompt_id: userSettingRow?.agent_prompt_id || null,
+        last_activity: userSettingRow?.last_activity || null
       };
 
       // 获取今日统计
@@ -658,15 +693,25 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
 
       const whereClause = whereConditions.join(' AND ');
 
-      // 获取群聊设置 (模拟数据，实际应从group_chat_settings表获取)
+      // 获取群聊设置
+      const groupSettingsRows = await database.executeQuery<GroupChatSettingRow>(`
+        SELECT group_id, group_name, is_enabled, auto_reply_enabled, welcome_message,
+               admin_user_id, agent_prompt_id, last_activity, receive_events
+        FROM group_chat_settings
+        WHERE group_id = ?
+      `, [groupId]);
+
+      const groupSettingsRow = groupSettingsRows[0];
       const groupSettings = {
         group_id: groupId,
-        group_name: `群聊${groupId}`,
-        is_enabled: 1,
-        auto_reply_enabled: 1,
-        welcome_message: null,
-        admin_user_id: null,
-        last_activity: new Date().toISOString()
+        group_name: groupSettingsRow?.group_name || `群聊${groupId}`,
+        is_enabled: groupSettingsRow?.is_enabled ?? 1,
+        auto_reply_enabled: groupSettingsRow?.auto_reply_enabled ?? 1,
+        welcome_message: groupSettingsRow?.welcome_message || null,
+        admin_user_id: groupSettingsRow?.admin_user_id || null,
+        agent_prompt_id: groupSettingsRow?.agent_prompt_id || null,
+        receive_events: groupSettingsRow?.receive_events ?? 1,
+        last_activity: groupSettingsRow?.last_activity || null
       };
 
       // 获取今日统计
@@ -738,7 +783,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
   router.put('/group-chats/:groupId/settings', async (req, res) => {
     try {
       const groupId = parseInt(req.params.groupId);
-      const updates = req.body;
+      const updates = req.body as Record<string, any>;
 
       if (!groupId || isNaN(groupId)) {
         return res.status(400).json({
@@ -748,14 +793,46 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         });
       }
 
-      // 这里应该更新group_chat_settings表，目前返回成功响应
-      // TODO: 实现实际的数据库更新逻辑
-      logger.info('Group settings update requested', { groupId, updates });
+      const allowedFields = new Set(['group_name', 'is_enabled', 'auto_reply_enabled', 'welcome_message', 'admin_user_id']);
+      const sanitizedUpdates: Record<string, any> = {};
+
+      Object.entries(updates || {}).forEach(([key, value]) => {
+        if (allowedFields.has(key) && value !== undefined) {
+          sanitizedUpdates[key] = value;
+        }
+      });
+
+      if (Object.keys(sanitizedUpdates).length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'No valid fields to update',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const success = await database.updateGroupChatSettings(groupId, sanitizedUpdates);
+      const updatedSettings = await database.getGroupChatSettingById(groupId);
+
+      if (!success) {
+        const hasMismatch = updatedSettings
+          ? Object.entries(sanitizedUpdates).some(([key, value]) => {
+              return (updatedSettings as Record<string, any>)[key] !== value;
+            })
+          : true;
+
+        if (hasMismatch) {
+          return res.status(500).json({
+            success: false,
+            error: 'Failed to update group settings',
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
 
       res.json({
         success: true,
-        message: 'Group settings updated successfully',
-        data: { group_id: groupId, ...updates },
+        message: success ? 'Group settings updated successfully' : 'Group settings unchanged',
+        data: updatedSettings || { group_id: groupId, ...sanitizedUpdates },
         timestamp: new Date().toISOString()
       });
 
@@ -769,6 +846,125 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       });
     }
   });
+
+  // 更新私聊用户的 Prompt 绑定
+  router.put('/private-chats/:userId/prompt', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const { prompt_id } = req.body;
+
+      if (!userId || isNaN(userId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid user ID',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // prompt_id can be null (to unbind) or a valid UUID string
+      const promptId = prompt_id === null ? null : String(prompt_id);
+
+      // Validate prompt exists if not null
+      if (promptId !== null) {
+        const prompt = await database.getAgentPromptById(promptId);
+        if (!prompt) {
+          return res.status(404).json({
+            success: false,
+            error: 'Prompt not found',
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+
+      const success = await database.updatePrivateChatPrompt(userId, promptId);
+
+      if (success) {
+        logger.info('Private chat prompt updated', { userId, promptId });
+        res.json({
+          success: true,
+          message: 'Prompt binding updated successfully',
+          data: { user_id: userId, agent_prompt_id: promptId },
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: 'Failed to update prompt binding',
+          timestamp: new Date().toISOString()
+        });
+      }
+    } catch (error) {
+      logger.error('Failed to update private chat prompt', { error, userId: req.params.userId });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update prompt binding',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // 更新群聊的 Prompt 绑定
+  router.put('/group-chats/:groupId/prompt', async (req, res) => {
+    try {
+      const groupId = parseInt(req.params.groupId);
+      const { prompt_id } = req.body;
+
+      if (!groupId || isNaN(groupId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid group ID',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // prompt_id can be null (to unbind) or a valid UUID string
+      const promptId = prompt_id === null ? null : String(prompt_id);
+
+      // Validate prompt exists if not null
+      if (promptId !== null) {
+        const prompt = await database.getAgentPromptById(promptId);
+        if (!prompt) {
+          return res.status(404).json({
+            success: false,
+            error: 'Prompt not found',
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+
+      const success = await database.updateGroupChatPrompt(groupId, promptId);
+
+      if (success) {
+        logger.info('Group chat prompt updated', { groupId, promptId });
+        res.json({
+          success: true,
+          message: 'Prompt binding updated successfully',
+          data: { group_id: groupId, agent_prompt_id: promptId },
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: 'Failed to update prompt binding',
+          timestamp: new Date().toISOString()
+        });
+      }
+    } catch (error) {
+      logger.error('Failed to update group chat prompt', { error, groupId: req.params.groupId });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update prompt binding',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // TODO: Prompt binding routes - temporarily disabled due to build errors
+  // These routes are implemented in qqbot-core and can be accessed via direct database updates for now
+  // router.put('/private-chats/:userId/prompt', async (req, res) => { ... });
+  // router.put('/group-chats/:groupId/prompt', async (req, res) => { ... });
 
   return router;
 }
