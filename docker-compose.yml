@@ -1,30 +1,22 @@
-version: '3.8'
-
 # ======================================================================
 # QQ智能机器人 - 主业务服务配置
 #
 # 注意: NapCat服务已独立管理，不包含在此配置中
 # NapCat管理: ./scripts/napcat-manage.sh
 # NapCat配置: ./docker-compose.napcat.yml
+#
+# ⚠️ 使用 Docker Compose v2 CLI (`docker compose ...`)，旧版 `docker-compose` 命令会忽略部分配置
 # ======================================================================
 
-services:
-  # HTTP Traffic Monitor Gateway
-  traffic-monitor:
-    build: ./modules/http-traffic-monitor
-    container_name: qqbot-traffic-monitor
-    ports:
-      - "8888:8888"
-    environment:
-      - UPSTREAM_PROXY=${HTTP_PROXY:-${HTTPS_PROXY}}
-      - LISTEN_PORT=8888
-      - LOG_DIR=/app/logs
-    volumes:
-      - ./logs/traffic-monitor:/app/logs
-    networks:
-      - qq_bot_network
-    restart: unless-stopped
+x-build-no-proxy: &build_no_proxy
+  HTTP_PROXY: ""
+  HTTPS_PROXY: ""
+  http_proxy: ""
+  https_proxy: ""
+  NO_PROXY: ""
+  no_proxy: ""
 
+services:
   # Shared MySQL Database
   mysql:
     image: mysql:8.0
@@ -48,13 +40,16 @@ services:
 
   # HTTP API Gateway
   http-api:
-    build: ./modules/http-api
+    image: qqbot-http-api
+    build:
+      context: ./modules/http-api
+      args: *build_no_proxy
     container_name: qqbot-http-api
     ports:
       - "8080:8080"
     environment:
       - HTTP_PORT=8080
-      - QQBOT_CORE_URL=http://qqbot-core:8081
+      - QQBOT_CORE_URL=http://qqbot-qqbot-core:8081
       - LOG_LEVEL=info
       # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
       - NODE_TLS_REJECT_UNAUTHORIZED=0
@@ -65,15 +60,19 @@ services:
       retries: 3
     restart: unless-stopped
     depends_on:
-      - traffic-monitor
       - qqbot-core
     networks:
       - qq_bot_network
+    volumes:
+      - ./logs/http-api:/app/logs
 
   # QQBot Core Service
   qqbot-core:
-    build: ./modules/qqbot-core
-    container_name: qqbot-core
+    image: qqbot-qqbot-core
+    build:
+      context: ./modules/qqbot-core
+      args: *build_no_proxy
+    container_name: qqbot-qqbot-core
     ports:
       - "8081:8081"
     environment:
@@ -82,6 +81,7 @@ services:
       - MYSQL_USER=qqbot_user
       - MYSQL_PASSWORD=qqbot_password
       - MYSQL_DATABASE=qqbot_db
+      - HTTP_PORT=8081
       - INTERNAL_HTTP_PORT=8081
       - LOG_LEVEL=info
       # WebSocket连接配置 - 直接连接napcat容器
@@ -90,18 +90,30 @@ services:
       - WEBSOCKET_ACCESS_TOKEN=w@123456
       # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
       - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - ENABLE_LLM_TOOLS=true
+      - LLM_MAX_CONCURRENT_JOBS=5
+      - LLM_POLL_INTERVAL_MS=1000
+      - LLM_JOB_TIMEOUT_MS=300000
+      - LLM_RETRY_DELAY_MS=5000
     depends_on:
-      - traffic-monitor
       - mysql
+    restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
+      - ./logs/qqbot-core:/app/logs
+      - ./modules/qqbot-core/resources/config:/app/resources/config
       - ./modules/qqbot-core/resources/napcat_qq_data:/app/resources/napcat_qq_data
-      - ./modules/qqbot-core/resources/logs:/app/resources/logs
     networks:
       - qq_bot_network
 
   # Admin Panel Backend
   admin-backend:
-    build: ./modules/admin-panel/backend
+    image: qqbot-admin-backend
+    build:
+      context: ./modules/admin-panel/backend
+      args: *build_no_proxy
     container_name: qqbot-admin-backend
     ports:
       - "9080:9080"
@@ -111,36 +123,94 @@ services:
       - DB_USER=qqbot_user
       - DB_PASSWORD=qqbot_password
       - DB_NAME=qqbot_db
+      - ADMIN_PORT=9080
       - HTTP_PORT=9080
+      - QQBOT_CORE_URL=http://qqbot-qqbot-core:8081
       - LOG_LEVEL=info
       # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
       - NODE_TLS_REJECT_UNAUTHORIZED=0
     volumes:
-      # 挂载流量日志目录用于导入（只读）
+      - ./logs/admin-backend:/app/logs
       - ./logs/qqbot-traffic:/app/logs/traffic:ro
-      # 挂载自身日志目录
-      - ./logs/admin-backend:/app/logs/admin-backend
-      # 挂载资源上传目录
       - ./modules/admin-panel/backend/resources/uploads:/app/resources/uploads
     depends_on:
-      - traffic-monitor
       - mysql
+      - qqbot-core
+    restart: unless-stopped
     networks:
       - qq_bot_network
 
   # Admin Panel Frontend
   admin-frontend:
-    build: ./modules/admin-panel/frontend
+    image: qqbot-admin-frontend
+    build:
+      context: ./modules/admin-panel/frontend
+      args: *build_no_proxy
     container_name: qqbot-admin-frontend
     ports:
-      - "3003:3003"
+      - "3003:80"
     environment:
       - VITE_API_BASE_URL=http://qqbot-admin-backend:9080
     depends_on:
       - admin-backend
+    restart: unless-stopped
     networks:
       - qq_bot_network
+    volumes:
+      - ./logs/admin-frontend:/var/log/nginx
+
+  # Operational one-off tasks (invoke with: docker compose --profile ops run --rm <service>)
+  init-db:
+    image: mysql:8.0
+    profiles: ["ops"]
+    command: ["sh", "-c", "mysql -hmysql -uroot < /scripts/init.sql"]
+    environment:
+      MYSQL_PWD: ${MYSQL_ROOT_PASSWORD:-root_password}
+    volumes:
+      - ./scripts/init-database-docker.sql:/scripts/init.sql:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - qq_bot_network
+    restart: "no"
+
+  update-llm-config:
+    image: mysql:8.0
+    profiles: ["ops"]
+    command: ["sh", "-c", "mysql -hmysql -uqqbot_user qqbot_db < /scripts/update.sql"]
+    environment:
+      MYSQL_PWD: ${MYSQL_PASSWORD:-qqbot_password}
+    volumes:
+      - ./database/migrations/005_extend_agent_prompts_advanced_configs.sql:/scripts/update.sql:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - qq_bot_network
+    restart: "no"
+
+  test-llm-config:
+    image: node:18-alpine
+    profiles: ["ops"]
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      set -e;
+      apk add --no-cache curl jq;
+      BASE_URL="http://qqbot-admin-backend:9080";
+      curl -sf "$$BASE_URL/api/llm-config/agents" | jq . >/dev/null;
+      curl -sf "$$BASE_URL/api/llm-config/pipelines" | jq . >/dev/null;
+      curl -sf "$$BASE_URL/api/llm-config/tools" | jq . >/dev/null;
+      echo "LLM configuration endpoints responded successfully."
+    depends_on:
+      admin-backend:
+        condition: service_healthy
+    networks:
+      - qq_bot_network
+    restart: "no"
 
 networks:
   qq_bot_network:
-    external: true
+    name: qq_bot_network
+    driver: bridge
+    attachable: true

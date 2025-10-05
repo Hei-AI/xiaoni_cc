@@ -43,7 +43,9 @@ services:
 networks:
   # 使用共享的qq_bot_network网络
   qq_bot_network:
-    external: true
+    name: qq_bot_network
+    driver: bridge
+    attachable: true
 
 # Volumes for persistent data
 volumes:
