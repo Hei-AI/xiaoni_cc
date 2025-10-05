@@ -218,8 +218,8 @@ python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py remo
 3. **重建容器并测试**
    ```bash
    # 重建容器
-   ./scripts/docker-deploy.sh admin-backend build
-   ./scripts/docker-deploy.sh admin-backend run
+   docker compose build admin-backend
+   docker compose up -d admin-backend
 
    # 容器内测试
    docker exec qqbot-admin-backend curl -v https://httpbin.org/get
@@ -679,7 +679,7 @@ dns:
 
 **配置文件**:
 - Python CLI工具: `/home/liahua/IdeaProject/qq_bot/modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py`
-- Docker 部署脚本: `/home/liahua/IdeaProject/qq_bot/scripts/docker-deploy.sh` (第162-163行添加了DNS配置)
+- Docker Compose 配置: `/home/liahua/IdeaProject/qq_bot/docker-compose.yml`（服务级 DNS 在 qqbot-core 节点定义）
 - Clash 配置: `/mnt/c/Users/a8517/.config/clash/config.yaml`
 
 **日志和证书**:

@@ -1,212 +1,63 @@
-# CLAUDE.md
+# CLAUDE.md — qqbot-core
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+面向协作助手的快速参考，保持方案简洁，尽量复用现有代码与脚本。
 
-## QQ智能机器人 - 4模块微服务架构
+## 1. 模块概述
+- 位置：`modules/qqbot-core`，提供 QQ 消息接入、消息队列、AI 调度和发送等核心能力。
+- 关键依赖：TypeScript、Node.js、MySQL（参见 [database/migrations/](../../database/migrations/)）、Gemini API。
+- 上下文：整体服务架构与近期状态请参考仓库根目录的 [CLAUDE.md](../../CLAUDE.md) 以及 [项目状态](../../docs/PROJECT_STATUS.md)。
 
-This is a sophisticated QQ bot system built with a microservices architecture, implementing intelligent AI conversation features with advanced decision-making engines.
+## 2. 代码结构速览
+```
+src/
+├── engines/             # 决策/人格/上下文引擎
+├── services/            # AI、数据库、队列、调度器等服务
+├── tools/               # LLM 静态工具实现
+├── types/               # 统一类型定义
+├── index.ts             # 服务入口与消息处理
+└── tests/               # Jest 单元与集成测试
+```
 
-## 🔥 最新更新 - Token-Model绑定架构
+### 核心引擎
+- `engines/decision-engine.ts`：判断是否回复及选用策略。
+- `engines/persona-engine.ts`：根据上下文调整措辞与人格。
+- `engines/context-engine.ts`：构建消息上下文。
 
-**核心增强 (2025-09-11):**
-- **Model-aware Token管理**: TokenManager支持按模型选择Token
-- **被动健康检查**: 移除定时器，改为使用时被动更新
-- **5分钟黑名单**: 429/403/401错误自动5分钟黑名单
-- **数据库连接池优化**: 修复连接泄露，优化配置参数
-- **调用链追踪**: 修复websocket_logs和conversations表关联
+### 重要服务
+- `services/message-queue-service.ts`：分区队列与优先级管理。
+- `services/schedule-dispatcher.ts`、`services/direct-notifier.ts`：拟人化调度与直连模式触发。
+- `services/llm-job-worker.ts`、`services/function-call-dispatcher.ts`、`services/tool-registry-service.ts`：LLM Function Calling 与工具分发。
+- `services/ai-service.ts`：Gemini 调用封装，包含 `generateContent` 等接口。
 
-## Development Commands (🐳 Docker-First Architecture)
+完整实现说明见 [HUMAN_LIKE_PROCESSOR_FLOW.md](../../docs/HUMAN_LIKE_PROCESSOR_FLOW.md) 与 [LLM_TOOL_EXECUTION_DESIGN.md](../../docs/LLM_TOOL_EXECUTION_DESIGN.md)。
 
-### 🚀 Docker 部署命令 (推荐方式)
+## 3. 常用命令
 ```bash
-# 构建和启动所有服务
-./scripts/docker-deploy.sh all build   # 构建所有镜像
-./scripts/docker-deploy.sh all run     # 启动所有容器服务
-./scripts/docker-deploy.sh all status  # 检查服务状态
-./scripts/docker-deploy.sh all stop    # 停止所有服务
-
-# 单个服务管理
-./scripts/docker-deploy.sh qqbot-core build
-./scripts/docker-deploy.sh qqbot-core run
-./scripts/docker-deploy.sh qqbot-core stop
-
-# 容器调试和日志查看
-docker logs -f qqbot-qqbot-core        # 实时日志
-docker exec -it qqbot-qqbot-core /bin/sh  # 进入容器调试
+npm install                # 初始化依赖（容器内已装可跳过）
+npm run lint               # Lint
+npm test                   # 单元/集成测试
+npm run build              # 构建
 ```
+通常通过 Docker 统一管理：`docker compose up -d qqbot-core`，日志查看 `docker logs -f qqbot-qqbot-core`。
 
-### 🔧 容器内开发调试
-```bash
-# ✅ 推荐的容器内开发调试方式
-# 在Docker容器内执行所有开发任务
+## 4. 配置与环境
+- `.env` / 配置中心：见 [src/config/index.ts](./src/config/index.ts)，优先使用环境变量注入。
+- 数据库连接：由 [services/database.ts](./src/services/database.ts) 和 `DatabaseManager` 维护。
+- 队列与调度开关：`ENABLE_HUMAN_LIKE_PROCESSING` 控制拟人化调度；`ENABLE_LLM_TOOLS` 控制异步工具链。自验证步骤记录在 [项目状态](../../docs/PROJECT_STATUS.md)。
 
-# 容器内测试和构建
-docker exec qqbot-qqbot-core npm test      # 运行测试
-docker exec qqbot-qqbot-core npm run lint  # 代码检查
-docker exec qqbot-qqbot-core npm run build # 构建验证
+## 5. 消息处理流程摘要
+1. WebSocket 消息进入 `handlePrivateMessage`/`handleGroupMessage`。
+2. 统一入队 `MessageQueueService`，由 `DirectNotifier` 或 `ScheduleDispatcher` 触发批量处理。
+3. `_processSingle*` 负责上下文加载、决策、AI 调用、Persona 增强与最终发送。
+4. LLM 工具系统启用时，通过 `LLMJobWorker` 异步处理，回调逻辑参见 [src/index.ts](./src/index.ts) 和 [项目状态](../../docs/PROJECT_STATUS.md) 中的修复清单。
 
-# 热重载开发 (挂载源码目录)
-docker run -d \
-  --name qqbot-dev \
-  --network host \
-  -v "$(pwd)/modules/qqbot-core/src:/app/src" \
-  -v "$(pwd)/logs/qqbot-core:/app/logs" \
-  qqbot-qqbot-core
+## 6. 测试与调试
+- 单元/集成测试：`npm test` 或 `npm run test:watch`。
+- LLM 工具专用测试：[llm-tools-integration.test.ts](./tests/llm-tools-integration.test.ts)。
+- 模拟消息：[src/index.ts](./src/index.ts) 中暴露的 `simulatePrivateMessage*`、`simulateGroupMessage*` 方法，或通过 [modules/http-api](../http-api) 提供的 HTTP 接口。
 
-# CI/CD 流程构建验证
-npm run build:all    # 仅在CI环境使用
-npm run test:all     # 仅在CI环境使用
-npm run lint:all     # 仅在CI环境使用
+## 7. 提交注意
+- 不要提交 `logs/`、`dist/`、`node_modules/`、`resource/napcat_qq_data/` 等目录。
+- 使用 `git status` 确认修改，按需 `git add <files>`，确保提交说明清晰。
 
-# 📝 本项目采用Docker容器化架构
-```
-
-### 🏥 健康检查和监控
-```bash
-# 容器健康状态检查
-docker ps --format "table {{.Names}}\t{{.Status}}"
-
-# 服务端点健康检查
-curl http://localhost:8081/health       # QQBot Core
-curl http://localhost:8080/health       # HTTP API Gateway
-curl http://localhost:9080/api/health   # Admin Backend
-
-# 容器资源监控
-docker stats qqbot-qqbot-core qqbot-http-api
-```
-
-## Architecture Overview
-
-### Core Components
-
-**QQBot Core Service** (`modules/qqbot-core/`)
-- Main bot logic and message handling
-- **Stage 1 Intelligence Engines**:
-  - `DecisionEngine`: Determines whether to respond to messages using rule-based + AI analysis
-  - `PersonaEngine`: Adapts response style based on context and user relationship
-  - `ContextEngine`: Manages conversation context and message history
-- WebSocket client for QQ message handling (OneBot 11 protocol)
-- Database integration with comprehensive conversation tracking
-- AI service integration (Gemini API with token management)
-
-**HTTP API Gateway** (`modules/http-api/`)
-- External API interface for the bot system
-- RESTful endpoints for bot management and data access
-
-**Admin Panel** (`modules/admin-panel/`)
-- **Backend**: Express.js API server for admin functionality
-- **Frontend**: React-based dashboard for bot administration
-
-### Key Architectural Patterns
-
-**Service Layer Pattern**: Each major functionality is encapsulated in service classes:
-- `DatabaseManager`: MySQL database operations with **优化连接池** (修复泄露问题)
-- `AIService`: Gemini API integration with **Model-aware Token管理**
-- `TokenManager`: **被动健康检查**, Model-specific token选择与黑名单管理
-- `WebSocketClient`: OneBot 11 protocol implementation with **Trace ID生成**
-- `SessionManager`: Conversation session tracking and management
-- `ContextManager`: Builds comprehensive message context from chat history
-
-**Intelligence Engine Architecture** (Stage 1):
-```
-Message → DecisionEngine → PersonaEngine → ContextEngine → Response
-    ↓           ↓              ↓             ↓
-Rule-based   AI Analysis    Style         Context
-filtering    for intent    adaptation    awareness
-```
-
-**Multi-Database Strategy**:
-- Core conversations and bot data in MySQL
-- Rich type definitions in `src/types/index.ts` covering all database schemas
-- Comprehensive API response types for frontend integration
-
-## Database Schema (🔥 更新)
-
-The system uses a sophisticated database schema with tables for:
-- **Core**: `conversations` (🆕 trace_id), `requirements`, `user_profiles`, `group_chat_settings`
-- **Token Management**: `api_tokens` (🆕 model_blacklist JSON), `agent_prompts` (🆕 model_name, allowed_token_ids)  
-- **Session Management**: `sessions`, `session_transitions`
-- **Context**: `conversation_windows`, `window_messages`, `user_context`
-- **Monitoring**: `websocket_logs` (关联trace_id), `debug_logs`, `message_chains`
-
-**重要字段更新:**
-- `conversations.trace_id`: 关联WebSocket日志的追踪ID
-- `api_tokens.model_blacklist`: JSON字段，按模型存储黑名单时间
-- `agent_prompts.model_name`: 绑定的模型名称 (如gemini-2.5-flash)
-- `agent_prompts.allowed_token_ids`: JSON数组，允许使用的token ID
-
-See `src/types/index.ts` for complete type definitions.
-
-## Development Guidelines
-
-### Configuration Management
-- Environment-based configuration pattern used throughout
-- No hardcoded credentials (uses environment variables and config files)
-- Token health checking and automatic rotation system
-
-### Message Processing Flow
-1. **WebSocket Event Reception**: OneBot 11 protocol messages received
-2. **Decision Engine Analysis**: Rule-based + AI-powered decision on whether to respond
-3. **Context Building**: Previous 20 messages + user/group information gathered
-4. **Persona Enhancement**: Response style adapted based on user relationship and time context
-5. **Database Persistence**: All conversations logged with metadata
-
-### AI Integration Best Practices (🔥 更新)
-- **Model-aware Token System**: 按模型独立选择和管理Token
-- **被动健康检查**: Token使用时自动更新状态，无定时器开销
-- **5分钟快速黑名单**: 429/403/401错误自动5分钟黑名单，快速恢复
-- **架构分离**: QQ Bot被动更新，Admin Panel主动检查
-- **连接池优化**: 修复数据库连接泄露，优化配置参数
-- Graceful fallback when AI services are unavailable
-- Context-aware prompt engineering for different conversation types
-
-### Testing Strategy
-- Jest testing framework configured across all modules
-- Integration tests for AI service and database operations
-- End-to-end testing capabilities for full conversation flows
-
-## Important Files
-
-- `src/index.ts`: Main bot orchestration and message handling
-- `src/engines/`: Stage 1 intelligence engines for smart response decisions
-- `src/services/`: Core service layer implementations
-- `src/types/index.ts`: Comprehensive type definitions for entire system
-- `scripts/start_modules.py`: Python orchestration script for multi-service startup
-- `package.json`: Workspace configuration with module management commands
-
-## 📋 功能验证和开发规范
-
-### 消息流程API规范文档
-- **规范文档**: `/docs/MESSAGE_FLOW_API_SPECIFICATION.md`
-- **验证脚本**: `/test_message_flow_api_complete.js`
-
-**重要**：所有涉及消息处理流程的开发都必须：
-1. 先参考规范文档设计
-2. 使用验证脚本测试
-3. 更新文档和脚本以适应变更
-
-### 新功能开发检查清单
-- [ ] 是否影响消息流程？如影响，更新`/docs/MESSAGE_FLOW_API_SPECIFICATION.md`
-- [ ] 是否添加新的LLM调用？如是，确保调用`loggingService.logLLMCall()`
-- [ ] 是否修改API响应？如是，更新TypeScript接口定义
-- [ ] 运行`node test_message_flow_api_complete.js`验证功能完整性
-
-### 重构项目检查清单
-- [ ] 运行验证脚本记录重构前基准
-- [ ] 更新相关TypeScript接口和数据库查询
-- [ ] 修改验证脚本适应新架构
-- [ ] 确保向后兼容性或提供迁移方案
-
-## Stage 1 Intelligence Features
-
-The bot implements a sophisticated "Stage 1" intelligence system:
-
-**Smart Response Decisions**: Analyzes @mentions, private messages, and contextual conversations to determine appropriate responses.
-
-**Persona Adaptation**: Dynamically adjusts response tone and style based on:
-- User relationship (new/occasional/frequent)
-- Time of day context
-- Conversation topic and urgency
-- Group vs private message context
-
-**Contextual Awareness**: Maintains conversation windows with 20-message history, user profiles, and group activity tracking for more informed responses.
+若需深入理解某部分逻辑，请先查阅上方提到的设计文档；遇到与现实实现不符的地方，以 [项目状态](../../docs/PROJECT_STATUS.md) 的最新描述为准。必要时与维护者确认后再调整。EOF

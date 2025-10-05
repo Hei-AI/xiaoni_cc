@@ -5,8 +5,7 @@
 ## 1. 目录与脚本
 - `docker-compose.yml`：主业务服务（HTTP API、qqbot-core、admin-backend、admin-frontend、mysql、traffic-monitor）。
 - `docker-compose.napcat.yml`：NapCat 单独部署配置。
-- `scripts/docker-deploy.sh`：构建/启动/停止常用封装。
-- `scripts/napcat-manage.sh`：NapCat 服务管理辅助脚本。
+- Docker Compose CLI：使用 `docker compose` 构建、启动与停止核心服务。
 
 ## 2. 服务概览
 | 服务 | 容器名 | 端口映射 | 说明 |
@@ -49,7 +48,7 @@ docker compose logs -f qqbot-qqbot-core
 docker compose down
 ```
 - 需要一键执行数据库或 LLM 辅助任务时，可使用 `docker compose --profile ops run --rm init-db`、`update-llm-config`、`test-llm-config`。
-- NapCat 独立栈：`docker compose -f docker-compose.napcat.yml up -d`，停止时改用 `down`。
+- NapCat 独立栈：首次运行前执行 `mkdir -p resource/napcat_config resource/napcat_qq_data logs/napcat`，随后使用 `docker compose -f docker-compose.napcat.yml up -d` 启动，需要停止时改用 `down`。
 
 ## 5. 常见配置项
 主要环境变量集中在 compose 文件中，可根据环境修改：
