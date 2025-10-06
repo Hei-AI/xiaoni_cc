@@ -2,45 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import Redis from 'ioredis';
-import Queue from 'bull';
 import winston from 'winston';
 
-/**
- * QQ Bot 队列监控服务
- * 功能：
- * 1. 实时监控所有队列状态
- * 2. 提供REST API查询未消费消息
- * 3. 队列性能统计和报警
- * 4. 与管理面板集成
- */
-
-// 日志配置
-const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.errors({ stack: true }),
-    winston.format.json()
-  ),
-  transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: '/app/logs/queue-monitor.log' })
-  ]
-});
-
-// Redis连接配置
-const redisConfig = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  password: process.env.REDIS_PASSWORD,
-  db: parseInt(process.env.REDIS_DB || '0'),
-  retryDelayOnFailover: 100,
-  enableReadyCheck: false,
-  maxRetriesPerRequest: null
-};
-
-// 队列信息接口
 interface QueueInfo {
   name: string;
   type: 'private' | 'group';
@@ -52,40 +15,63 @@ interface QueueInfo {
   failed: number;
   delayed: number;
   paused: boolean;
-  lastJobAt?: Date;
+  lastJobAt?: string;
 }
 
-interface UnconsumedMessage {
-  id: string;
-  traceId: string;
-  type: string;
-  data: any;
-  opts: any;
-  timestamp: Date;
-  priority: number;
-  attempts: number;
-  delay: number;
-  queueName: string;
-  state: 'waiting' | 'active' | 'delayed';
+interface QueueStats {
+  totalQueues: number;
+  totalMessages: number;
+  totalUnconsumed: number;
+  lastUpdated: string;
+}
+
+interface SimpleQueuePartition {
+  partition_key: string;
+  type: 'private' | 'group';
+  queue_size: number;
+  last_activity: string | null;
+  processing?: number;
+  status?: string;
+}
+
+interface SimpleQueuePartitionSnapshot {
+  partitionKey: string;
+  type: 'user' | 'group';
+  messageCount: number;
+  lastProcessedAt: string | null;
+  messages: Array<{
+    id: string;
+    traceId: string;
+    type: string;
+    priority?: string;
+    timestamp: string;
+    source?: string;
+  }>;
 }
 
 class QueueMonitorService {
   private app: express.Application;
-  private redis: Redis;
-  private queues = new Map<string, Queue.Queue>();
-  private stats = {
-    totalQueues: 0,
-    totalMessages: 0,
-    totalUnconsumed: 0,
-    lastUpdated: new Date()
-  };
+  private readonly logger: winston.Logger;
+  private readonly coreUrl: string;
 
   constructor() {
     this.app = express();
-    this.redis = new Redis(redisConfig);
+    this.coreUrl = process.env.QQBOT_CORE_URL || 'http://qqbot-qqbot-core:8081';
+    this.logger = winston.createLogger({
+      level: process.env.LOG_LEVEL || 'info',
+      format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.errors({ stack: true }),
+        winston.format.json()
+      ),
+      transports: [
+        new winston.transports.Console(),
+        new winston.transports.File({ filename: '/app/logs/queue-monitor.log' })
+      ]
+    });
+
     this.setupMiddleware();
     this.setupRoutes();
-    this.startMonitoring();
   }
 
   private setupMiddleware(): void {
@@ -95,11 +81,10 @@ class QueueMonitorService {
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: true }));
 
-    // 请求日志
-    this.app.use((req, res, next) => {
-      logger.info('Request received', {
+    this.app.use((req, _res, next) => {
+      this.logger.debug('Request received', {
         method: req.method,
-        url: req.url,
+        url: req.originalUrl,
         ip: req.ip
       });
       next();
@@ -107,430 +92,327 @@ class QueueMonitorService {
   }
 
   private setupRoutes(): void {
-    // 健康检查
-    this.app.get('/health', (req, res) => {
-      res.json({
-        status: 'ok',
-        timestamp: new Date(),
-        redis: this.redis.status,
-        uptime: process.uptime()
-      });
+    this.app.get('/health', async (_req, res) => {
+      try {
+        const stats = await this.fetchSimpleQueueStats();
+        res.json({
+          success: true,
+          simpleQueue: stats,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        this.logger.error('Health check failed', { error: (error as Error).message });
+        res.status(503).json({
+          success: false,
+          error: 'Simple queue service is unavailable',
+          details: (error as Error).message
+        });
+      }
     });
 
-    // 获取所有队列状态
-    this.app.get('/api/queues', async (req, res) => {
+    this.app.get('/api/queues', async (_req, res) => {
       try {
-        const queues = await this.getAllQueuesInfo();
+        const [partitions, statsData] = await Promise.all([
+          this.fetchSimpleQueuePartitions(),
+          this.fetchSimpleQueueStats().catch(() => undefined)
+        ]);
+
+        const queues = partitions.map((partition) => this.transformPartition(partition));
+        const stats = this.computeStats(queues, statsData);
+
         res.json({
           success: true,
           data: queues,
-          stats: this.stats
+          stats
         });
       } catch (error) {
-        logger.error('Failed to get queues info', { error });
+        this.logger.error('Failed to list queues', { error: (error as Error).message });
         res.status(500).json({
           success: false,
-          error: 'Internal server error'
+          error: 'Failed to list queues',
+          details: (error as Error).message
         });
       }
     });
 
-    // 获取未消费消息
     this.app.get('/api/queues/:queueName/unconsumed', async (req, res) => {
-      try {
-        const { queueName } = req.params;
-        const limit = parseInt(req.query.limit as string) || 100;
-        const offset = parseInt(req.query.offset as string) || 0;
+      const { queueName } = req.params;
+      const limit = Number.parseInt((req.query.limit as string) || '20', 10);
 
-        const messages = await this.getUnconsumedMessages(queueName, limit, offset);
+      try {
+        const snapshot = await this.fetchPartitionSnapshot(queueName);
+        const messages = this.transformSnapshotMessages(queueName, snapshot, limit);
+
         res.json({
           success: true,
           data: messages,
-          total: messages.length
+          total: snapshot.messageCount
         });
-      } catch (error) {
-        logger.error('Failed to get unconsumed messages', { error, queueName: req.params.queueName });
+      } catch (error: any) {
+        if (error?.status === 404) {
+          return res.status(404).json({ success: false, error: 'Queue not found' });
+        }
+
+        this.logger.error('Failed to load unconsumed messages', {
+          queueName,
+          error: (error as Error).message
+        });
+
         res.status(500).json({
           success: false,
-          error: 'Internal server error'
+          error: 'Failed to load unconsumed messages',
+          details: (error as Error).message
         });
       }
     });
 
-    // 获取队列详细信息
     this.app.get('/api/queues/:queueName', async (req, res) => {
-      try {
-        const { queueName } = req.params;
-        const queue = await this.getQueue(queueName);
-        
-        if (!queue) {
-          return res.status(404).json({
-            success: false,
-            error: 'Queue not found'
-          });
-        }
+      const { queueName } = req.params;
 
-        const info = await this.getQueueDetailInfo(queue);
+      try {
+        const snapshot = await this.fetchPartitionSnapshot(queueName);
+        const queue = this.transformSnapshot(queueName, snapshot);
+
         res.json({
           success: true,
-          data: info
+          data: queue
         });
-      } catch (error) {
-        logger.error('Failed to get queue info', { error, queueName: req.params.queueName });
+      } catch (error: any) {
+        if (error?.status === 404) {
+          return res.status(404).json({ success: false, error: 'Queue not found' });
+        }
+
+        this.logger.error('Failed to load queue detail', {
+          queueName,
+          error: (error as Error).message
+        });
+
         res.status(500).json({
           success: false,
-          error: 'Internal server error'
+          error: 'Failed to load queue detail',
+          details: (error as Error).message
         });
       }
     });
 
-    // 清空队列
     this.app.delete('/api/queues/:queueName', async (req, res) => {
-      try {
-        const { queueName } = req.params;
-        const queue = await this.getQueue(queueName);
-        
-        if (!queue) {
-          return res.status(404).json({
-            success: false,
-            error: 'Queue not found'
-          });
-        }
+      const { queueName } = req.params;
 
-        await queue.empty();
-        logger.info('Queue cleared', { queueName });
-        
+      try {
+        await this.requestCore(`/api/simple-queue/partitions/${encodeURIComponent(queueName)}`, {
+          method: 'DELETE'
+        });
+
         res.json({
           success: true,
           message: 'Queue cleared successfully'
         });
-      } catch (error) {
-        logger.error('Failed to clear queue', { error, queueName: req.params.queueName });
+      } catch (error: any) {
+        this.logger.error('Failed to clear queue', {
+          queueName,
+          error: (error as Error).message
+        });
+
         res.status(500).json({
           success: false,
-          error: 'Internal server error'
+          error: 'Failed to clear queue',
+          details: (error as Error).message
         });
       }
     });
 
-    // 暂停/恢复队列
-    this.app.patch('/api/queues/:queueName/pause', async (req, res) => {
+    this.app.patch('/api/queues/:queueName/pause', (_req, res) => {
+      res.status(501).json({
+        success: false,
+        error: 'Simple queue does not support pause/resume operations'
+      });
+    });
+
+    this.app.get('/api/stats', async (_req, res) => {
       try {
-        const { queueName } = req.params;
-        const { paused } = req.body;
-        const queue = await this.getQueue(queueName);
-        
-        if (!queue) {
-          return res.status(404).json({
-            success: false,
-            error: 'Queue not found'
-          });
-        }
-
-        if (paused) {
-          await queue.pause();
-        } else {
-          await queue.resume();
-        }
-
-        logger.info('Queue pause state changed', { queueName, paused });
-        
-        res.json({
-          success: true,
-          message: `Queue ${paused ? 'paused' : 'resumed'} successfully`
-        });
+        const stats = await this.fetchSimpleQueueStats();
+        res.json({ success: true, data: stats });
       } catch (error) {
-        logger.error('Failed to change queue pause state', { error, queueName: req.params.queueName });
-        res.status(500).json({
-          success: false,
-          error: 'Internal server error'
-        });
+        this.logger.error('Failed to load stats', { error: (error as Error).message });
+        res.status(500).json({ success: false, error: 'Failed to load stats' });
       }
     });
 
-    // 获取统计信息
-    this.app.get('/api/stats', (req, res) => {
-      res.json({
-        success: true,
-        data: this.stats
+    this.app.post('/api/batch-operations', (_req, res) => {
+      res.status(501).json({
+        success: false,
+        error: 'Batch operations are not supported for simple queue'
       });
     });
   }
 
-  private async startMonitoring(): Promise<void> {
-    const interval = parseInt(process.env.MONITOR_INTERVAL || '10000');
-    
-    setInterval(async () => {
-      try {
-        await this.updateStats();
-      } catch (error) {
-        logger.error('Failed to update stats', { error });
-      }
-    }, interval);
+  private async fetchSimpleQueuePartitions(): Promise<SimpleQueuePartition[]> {
+    const response = await this.requestCore<{ success: boolean; data: SimpleQueuePartition[] }>(
+      '/api/simple-queue/partitions'
+    );
 
-    logger.info('Queue monitoring started', { interval });
-  }
-
-  private async getAllQueuesInfo(): Promise<QueueInfo[]> {
-    const queueNames = await this.getQueueNames();
-    const queuesInfo: QueueInfo[] = [];
-
-    for (const queueName of queueNames) {
-      try {
-        const queue = await this.getQueue(queueName);
-        if (queue) {
-          const info = await this.getQueueInfo(queue, queueName);
-          queuesInfo.push(info);
-        }
-      } catch (error) {
-        logger.warn('Failed to get queue info', { queueName, error });
-      }
+    if (!response.success) {
+      throw new Error('Failed to load partitions from qqbot-core');
     }
 
-    return queuesInfo;
+    return response.data || [];
   }
 
-  private async getQueueNames(): Promise<string[]> {
-    const keys = await this.redis.keys('bull:*');
-    const queueNames = new Set<string>();
+  private async fetchSimpleQueueStats(): Promise<any> {
+    const response = await this.requestCore<{ success: boolean; data: any }>(
+      '/api/simple-queue/stats'
+    );
 
-    for (const key of keys) {
-      const parts = key.split(':');
-      if (parts.length >= 2) {
-        queueNames.add(parts[1]);
-      }
+    if (!response.success) {
+      throw new Error('Failed to load stats from qqbot-core');
     }
 
-    return Array.from(queueNames);
+    return response.data;
   }
 
-  private async getQueue(queueName: string): Promise<Queue.Queue | null> {
-    if (!this.queues.has(queueName)) {
-      try {
-        const queue = new Queue(queueName, {
-          redis: redisConfig
-        });
-        this.queues.set(queueName, queue);
-      } catch (error) {
-        logger.error('Failed to create queue instance', { queueName, error });
-        return null;
-      }
+  private async fetchPartitionSnapshot(queueName: string): Promise<SimpleQueuePartitionSnapshot> {
+    const response = await this.requestCore<{ success: boolean; data: SimpleQueuePartitionSnapshot }>(
+      `/api/simple-queue/partitions/${encodeURIComponent(queueName)}`
+    );
+
+    if (!response.success) {
+      const error = new Error('Partition not found');
+      (error as any).status = 404;
+      throw error;
     }
 
-    return this.queues.get(queueName) || null;
+    return response.data;
   }
 
-  private async getQueueInfo(queue: Queue.Queue, queueName: string): Promise<QueueInfo> {
-    const [waiting, active, completed, failed, delayed] = await Promise.all([
-      queue.getWaiting(),
-      queue.getActive(),
-      queue.getCompleted(),
-      queue.getFailed(),
-      queue.getDelayed()
-    ]);
+  private transformPartition(partition: SimpleQueuePartition): QueueInfo {
+    const { userId, groupId } = this.extractIdentifiers(partition.partition_key);
 
-    const isPaused = await queue.isPaused();
-    
-    // 解析队列名称获取类型和ID
-    const { type, userId, groupId } = this.parseQueueName(queueName);
-    
-    // 获取最后一个任务的时间
-    const recentJobs = await queue.getJobs(['completed', 'failed'], 0, 0);
-    const lastJobAt = recentJobs.length > 0 ? new Date(recentJobs[0].timestamp) : undefined;
+    return {
+      name: partition.partition_key,
+      type: partition.type === 'group' ? 'group' : 'private',
+      userId,
+      groupId,
+      waiting: partition.queue_size,
+      active: partition.processing ?? 0,
+      completed: 0,
+      failed: 0,
+      delayed: 0,
+      paused: partition.status === 'paused',
+      lastJobAt: partition.last_activity ?? undefined
+    };
+  }
+
+  private transformSnapshot(queueName: string, snapshot: SimpleQueuePartitionSnapshot) {
+    const normalizedType = snapshot.type === 'group' ? 'group' : 'private';
+    const { userId, groupId } = this.extractIdentifiers(queueName);
 
     return {
       name: queueName,
-      type,
+      type: normalizedType,
       userId,
       groupId,
-      waiting: waiting.length,
-      active: active.length,
-      completed: completed.length,
-      failed: failed.length,
-      delayed: delayed.length,
-      paused: isPaused,
-      lastJobAt
+      waiting: snapshot.messageCount,
+      active: 0,
+      completed: 0,
+      failed: 0,
+      delayed: 0,
+      paused: false,
+      lastJobAt: snapshot.lastProcessedAt ?? undefined,
+      messages: snapshot.messages || []
     };
   }
 
-  private async getQueueDetailInfo(queue: Queue.Queue): Promise<any> {
-    const basicInfo = await this.getQueueInfo(queue, queue.name);
-    
-    // 获取最近的失败任务
-    const failedJobs = await queue.getFailed(0, 9);
-    const recentFailures = failedJobs.map(job => ({
-      id: job.id,
-      data: job.data,
-      failedReason: job.failedReason,
-      processedOn: job.processedOn,
-      finishedOn: job.finishedOn
-    }));
-
-    // 获取性能统计
-    const stats = await this.getQueueStats(queue);
-
-    return {
-      ...basicInfo,
-      recentFailures,
-      stats
+  private transformSnapshotMessages(
+    queueName: string,
+    snapshot: SimpleQueuePartitionSnapshot,
+    limit: number
+  ) {
+    const priorityMap: Record<string, number> = {
+      HIGH: 3,
+      MEDIUM: 2,
+      LOW: 1
     };
-  }
 
-  private async getQueueStats(queue: Queue.Queue): Promise<any> {
-    const completed = await queue.getCompleted(0, 99);
-    
-    if (completed.length === 0) {
-      return {
-        avgProcessingTime: 0,
-        throughput: 0,
-        errorRate: 0
-      };
-    }
-
-    // 计算平均处理时间
-    const processingTimes = completed
-      .filter(job => job.processedOn && job.finishedOn)
-      .map(job => job.finishedOn! - job.processedOn!);
-    
-    const avgProcessingTime = processingTimes.length > 0 
-      ? processingTimes.reduce((a, b) => a + b, 0) / processingTimes.length 
-      : 0;
-
-    // 计算吞吐量（最近1小时的完成任务数）
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    const recentCompleted = completed.filter(job => 
-      job.finishedOn && job.finishedOn > oneHourAgo
-    );
-    
-    const throughput = recentCompleted.length;
-
-    // 计算错误率
-    const failed = await queue.getFailed(0, 99);
-    const recentFailed = failed.filter(job => 
-      job.finishedOn && job.finishedOn > oneHourAgo
-    );
-    
-    const errorRate = (recentCompleted.length + recentFailed.length) > 0
-      ? recentFailed.length / (recentCompleted.length + recentFailed.length)
-      : 0;
-
-    return {
-      avgProcessingTime,
-      throughput,
-      errorRate: Math.round(errorRate * 100) / 100
-    };
-  }
-
-  private async getUnconsumedMessages(queueName: string, limit: number, offset: number): Promise<UnconsumedMessage[]> {
-    const queue = await this.getQueue(queueName);
-    if (!queue) return [];
-
-    const [waiting, active, delayed] = await Promise.all([
-      queue.getWaiting(offset, offset + limit - 1),
-      queue.getActive(0, -1),
-      queue.getDelayed(0, -1)
-    ]);
-
-    const messages: UnconsumedMessage[] = [];
-
-    // 处理等待中的消息
-    for (const job of waiting) {
-      messages.push({
-        id: job.id?.toString() || '',
-        traceId: job.data.traceId,
-        type: job.data.type,
-        data: job.data,
-        opts: job.opts,
-        timestamp: new Date(job.timestamp),
-        priority: job.opts.priority || 0,
-        attempts: job.attemptsMade,
-        delay: job.opts.delay || 0,
-        queueName,
-        state: 'waiting'
-      });
-    }
-
-    // 处理处理中的消息
-    for (const job of active) {
-      messages.push({
-        id: job.id?.toString() || '',
-        traceId: job.data.traceId,
-        type: job.data.type,
-        data: job.data,
-        opts: job.opts,
-        timestamp: new Date(job.timestamp),
-        priority: job.opts.priority || 0,
-        attempts: job.attemptsMade,
+    return (snapshot.messages || [])
+      .slice(0, Math.max(limit, 0))
+      .map((message) => ({
+        id: message.id,
+        traceId: message.traceId,
+        type: message.type,
+        data: message,
+        timestamp: message.timestamp,
+        priority: priorityMap[message.priority || ''] ?? 0,
+        attempts: 0,
         delay: 0,
         queueName,
-        state: 'active'
-      });
-    }
-
-    // 处理延迟的消息
-    for (const job of delayed) {
-      messages.push({
-        id: job.id?.toString() || '',
-        traceId: job.data.traceId,
-        type: job.data.type,
-        data: job.data,
-        opts: job.opts,
-        timestamp: new Date(job.timestamp),
-        priority: job.opts.priority || 0,
-        attempts: job.attemptsMade,
-        delay: job.opts.delay || 0,
-        queueName,
-        state: 'delayed'
-      });
-    }
-
-    return messages.sort((a, b) => b.priority - a.priority);
+        state: 'waiting' as const
+      }));
   }
 
-  private parseQueueName(queueName: string): { type: 'private' | 'group', userId?: number, groupId?: number } {
-    if (queueName.startsWith('private_')) {
-      return {
-        type: 'private',
-        userId: parseInt(queueName.replace('private_', ''))
-      };
-    } else if (queueName.startsWith('group_')) {
-      return {
-        type: 'group',
-        groupId: parseInt(queueName.replace('group_', ''))
-      };
-    }
-    
-    return { type: 'private' };
+  private computeStats(queues: QueueInfo[], statsData?: any): QueueStats {
+    const totalQueues = statsData?.partition_count ?? queues.length;
+    const totalMessages =
+      statsData?.total_messages ?? queues.reduce((sum, queue) => sum + queue.waiting + queue.active, 0);
+    const totalUnconsumed = queues.reduce((sum, queue) => sum + queue.waiting, 0);
+    const lastUpdated = statsData?.last_updated ?? new Date().toISOString();
+
+    return {
+      totalQueues,
+      totalMessages,
+      totalUnconsumed,
+      lastUpdated
+    };
   }
 
-  private async updateStats(): Promise<void> {
-    try {
-      const queuesInfo = await this.getAllQueuesInfo();
-      
-      this.stats.totalQueues = queuesInfo.length;
-      this.stats.totalMessages = queuesInfo.reduce((sum, queue) => 
-        sum + queue.waiting + queue.active + queue.delayed, 0
-      );
-      this.stats.totalUnconsumed = queuesInfo.reduce((sum, queue) => 
-        sum + queue.waiting + queue.delayed, 0
-      );
-      this.stats.lastUpdated = new Date();
-
-      logger.debug('Stats updated', this.stats);
-    } catch (error) {
-      logger.error('Failed to update stats', { error });
+  private extractIdentifiers(partitionKey: string): { userId?: number; groupId?: number } {
+    const match = partitionKey.match(/(user|group)_(\d+)/);
+    if (!match) {
+      return {};
     }
+
+    const value = Number.parseInt(match[2], 10);
+    if (Number.isNaN(value)) {
+      return {};
+    }
+
+    if (match[1] === 'group') {
+      return { groupId: value };
+    }
+
+    return { userId: value };
+  }
+
+  private async requestCore<T>(path: string, init?: RequestInit): Promise<T> {
+    const url = `${this.coreUrl}${path}`;
+
+    const response = await fetch(url, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(init?.headers || {})
+      }
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      const error = new Error(`Request to qqbot-core failed: ${response.status} ${response.statusText}`);
+      (error as any).status = response.status;
+      (error as any).body = errorBody;
+      throw error;
+    }
+
+    return response.json() as Promise<T>;
   }
 
   public start(port: number = 3000): void {
     this.app.listen(port, () => {
-      logger.info(`Queue monitor service started on port ${port}`);
+      this.logger.info('Queue monitor service started', { port, coreUrl: this.coreUrl });
     });
   }
 }
 
-// 启动服务
-const monitor = new QueueMonitorService();
-monitor.start(parseInt(process.env.PORT || '3000'));
+const service = new QueueMonitorService();
+service.start(Number.parseInt(process.env.PORT || '3000', 10));
 
 export default QueueMonitorService;
