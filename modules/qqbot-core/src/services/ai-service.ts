@@ -3,8 +3,15 @@
  * 移除Legacy配置系统，采用单一现代化配置架构
  */
 
-import axios from 'axios';
-import { 
+import {
+  GoogleGenAI,
+  HarmCategory,
+  HarmBlockThreshold,
+  type GenerateContentConfig,
+  type GenerateContentResponse
+} from '@google/genai';
+import { ProxyAgent, setGlobalDispatcher } from 'undici';
+import {
   AIConfig,
   ConversationData,
   UnifiedLLMConfig,
@@ -31,6 +38,7 @@ interface GenerateContentOptions {
 }
 
 export class AIService {
+  private static proxyConfigured = false;
   private database: DatabaseManager;
   private loggingService: LoggingService;
   private tokenManager: ReturnType<typeof getTokenManager>;
@@ -44,7 +52,6 @@ export class AIService {
   });
 
   // API配置
-  private baseURL = 'https://generativelanguage.googleapis.com/v1beta/models';
   private defaultTimeout = 30000;
 
   constructor(config: AIConfig, database: DatabaseManager, loggingService: LoggingService) {
@@ -52,10 +59,9 @@ export class AIService {
     this.loggingService = loggingService;
     this.tokenManager = getTokenManager(database);
 
-    // axios会自动读取HTTP_PROXY和HTTPS_PROXY环境变量，无需显式配置
     const proxy = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
     if (proxy) {
-      this.moduleLogger.info(`HTTP client will use proxy from environment: ${proxy}`);
+      this.configureGlobalProxy(proxy);
     }
 
     this.moduleLogger.info('Simplified AI Service initialized with unified configuration');
@@ -440,53 +446,34 @@ export class AIService {
         throw new Error(`No available tokens for model ${config.model.name}`);
       }
 
-      // 2. 构建请求
-      const requestBody = {
-        contents: [
-          {
-            parts: [
-              {
-                text: config.context.systemInstruction
-                  ? `${config.context.systemInstruction}\n\n${prompt}`
-                  : prompt
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: config.generation.temperature,
-          topK: config.generation.topK,
-          topP: config.generation.topP,
-          maxOutputTokens: config.generation.maxOutputTokens,
-          stopSequences: config.generation.stopSequences
-        },
-        safetySettings: config.safety.map(safety => ({
-          category: safety.category,
-          threshold: safety.threshold
-        }))
-      };
-
-      // 3. 执行API调用（axios自动使用HTTP_PROXY环境变量）
-      const response = await axios.post(
-        `${this.baseURL}/${config.model.name}:generateContent?key=${tokenInfo.token}`,
-        requestBody,
-        {
-          headers: { 'Content-Type': 'application/json' },
+      // 2. 构建SDK请求
+      const genAIClient = new GoogleGenAI({
+        apiKey: tokenInfo.token,
+        httpOptions: {
           timeout: config.performance.timeout
         }
-      );
+      });
 
-      // 4. 处理响应
-      if (!response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      const contents = this.buildContents(prompt, config.context.systemInstruction);
+      const sdkConfig = this.buildGenerateContentConfig(config);
+
+      // 3. 执行SDK调用
+      const response = await genAIClient.models.generateContent({
+        model: config.model.name,
+        contents,
+        config: sdkConfig
+      });
+
+      const responseText = response.text ?? this.extractTextFromResponse(response);
+      if (!responseText) {
         throw new Error('Invalid response format from LLM API');
       }
 
-      const responseText = response.data.candidates[0].content.parts[0].text;
       const processingTimeMs = Date.now() - callStartTime;
-
-      // 估算token使用
-      const inputTokens = Math.ceil(prompt.length / 4);
-      const outputTokens = Math.ceil(responseText.length / 4);
+      const usage = response.usageMetadata;
+      const inputTokens = usage?.promptTokenCount ?? this.estimateTokens(contents);
+      const outputTokens = usage?.candidatesTokenCount ?? Math.ceil(responseText.length / 4);
+      const plainResponse = this.cloneResponse(response);
 
       // 埋点：LLM调用成功
       if (traceId && this.loggingService) {
@@ -500,13 +487,12 @@ export class AIService {
         });
       }
 
-      // 🔥 核心修复：记录LLM调用到llm_call_logs表
       if (traceId && this.loggingService) {
         try {
           await this.loggingService.logLLMCall({
             traceId: traceId,
             conversationId: conversationId || undefined,
-            sessionId: undefined, // 暂时不设置session_id
+            sessionId: undefined,
             agentType: config.category || 'unknown',
             modelName: config.model.name,
             modelProvider: 'google',
@@ -517,16 +503,17 @@ export class AIService {
               temperature: config.generation.temperature,
               topK: config.generation.topK,
               topP: config.generation.topP,
-              maxOutputTokens: config.generation.maxOutputTokens
+              maxOutputTokens: config.generation.maxOutputTokens,
+              stopSequences: config.generation.stopSequences
             }),
-            rawResponse: JSON.stringify(response.data),
+            rawResponse: JSON.stringify(plainResponse),
             processedResponse: responseText,
             outputTokens: outputTokens,
             apiCallTimeMs: processingTimeMs,
             processingTimeMs: processingTimeMs,
             status: 'SUCCESS',
             userId: userId || undefined,
-            contextSummary: prompt.length > 200 ? prompt.substring(0, 200) + '...' : prompt
+            contextSummary: prompt.length > 200 ? `${prompt.substring(0, 200)}...` : prompt
           });
 
           this.moduleLogger.debug('LLM call logged successfully', {
@@ -541,7 +528,6 @@ export class AIService {
             conversationId,
             error: logError instanceof Error ? logError.message : 'Unknown error'
           });
-          // 不抛出错误，避免影响主要功能
         }
       }
 
@@ -555,7 +541,7 @@ export class AIService {
 
       return {
         response: responseText,
-        rawResponse: response.data,
+        rawResponse: plainResponse,
         modelName: config.model.name,
         metrics: {
           inputTokens,
@@ -593,7 +579,8 @@ export class AIService {
               temperature: config.generation.temperature,
               topK: config.generation.topK,
               topP: config.generation.topP,
-              maxOutputTokens: config.generation.maxOutputTokens
+              maxOutputTokens: config.generation.maxOutputTokens,
+              stopSequences: config.generation.stopSequences
             }),
             rawResponse: undefined,
             processedResponse: undefined,
@@ -635,6 +622,35 @@ export class AIService {
 
   private isTokenError(error: any): boolean {
     return error.status === 401 || error.status === 403 || error.status === 429;
+  }
+
+  private configureGlobalProxy(proxyUrl: string): void {
+    if (AIService.proxyConfigured) {
+      return;
+    }
+
+    let maskedProxy = proxyUrl;
+    try {
+      const parsed = new URL(proxyUrl);
+      const port = parsed.port ? `:${parsed.port}` : '';
+      maskedProxy = `${parsed.protocol}//${parsed.hostname}${port}`;
+    } catch {
+      maskedProxy = proxyUrl.includes('@')
+        ? proxyUrl.split('@').pop() || proxyUrl
+        : proxyUrl;
+    }
+
+    try {
+      const agent = new ProxyAgent(proxyUrl);
+      setGlobalDispatcher(agent);
+      AIService.proxyConfigured = true;
+      this.moduleLogger.info('HTTP client configured to use proxy', { proxy: maskedProxy });
+    } catch (error) {
+      this.moduleLogger.error('Failed to configure HTTP proxy for Google GenAI client', {
+        proxy: maskedProxy,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
   }
 
   /**
@@ -689,6 +705,8 @@ export class AIService {
     const resolvedAgentType = normalizedOptions.agentType || 'tool_system';
     const resolvedPromptName = normalizedOptions.promptName || 'direct_call';
 
+    let sdkConfig: GenerateContentConfig | undefined;
+
     try {
       // 1. 获取Token
       const tokenInfo = await this.tokenManager.getTokenForModel(
@@ -700,52 +718,31 @@ export class AIService {
       if (!tokenInfo) {
         throw new Error(`No available tokens for model ${targetModel}`);
       }
-
-      // 2. 构建请求体
-      const requestBody: any = {
-        contents: request.contents
-      };
-
-      if (request.tools && request.tools.length > 0) {
-        requestBody.tools = request.tools;
-      }
-
-      if (request.generationConfig) {
-        requestBody.generationConfig = request.generationConfig;
-      } else {
-        requestBody.generationConfig = {
-          temperature: 1.0,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 8192
-        };
-      }
-
-      if (request.safetySettings) {
-        requestBody.safetySettings = request.safetySettings;
-      }
-
-      if (request.systemInstruction) {
-        requestBody.systemInstruction = request.systemInstruction;
-      }
-
-      // 3. 执行API调用
-      const response = await axios.post(
-        `${this.baseURL}/${targetModel}:generateContent?key=${tokenInfo.token}`,
-        requestBody,
-        {
-          headers: { 'Content-Type': 'application/json' },
+      // 2. 创建SDK客户端并构造配置
+      const genAIClient = new GoogleGenAI({
+        apiKey: tokenInfo.token,
+        httpOptions: {
           timeout: this.defaultTimeout
         }
-      );
+      });
+
+      const contents = request.contents || [];
+      sdkConfig = this.buildGenerateContentConfigFromRequest(request);
+
+      // 3. 执行SDK调用
+      const response = await genAIClient.models.generateContent({
+        model: targetModel,
+        contents,
+        config: sdkConfig
+      });
 
       const processingTimeMs = Date.now() - callStartTime;
+      const usage = response.usageMetadata;
+      const inputTokens = usage?.promptTokenCount ?? this.estimateTokens(contents);
+      const outputTokens = usage?.candidatesTokenCount ?? this.estimateTokensFromResponse(response);
+      const processedResponse = this.extractTextFromResponse(response);
+      const plainResponse = this.cloneResponse(response);
 
-      // 4. 估算token使用
-      const inputTokens = this.estimateTokens(request.contents);
-      const outputTokens = this.estimateTokensFromResponse(response.data);
-
-      // 5. 记录日志
       if (traceId && this.loggingService) {
         try {
           await this.loggingService.logLLMCall({
@@ -756,11 +753,11 @@ export class AIService {
             modelName: targetModel,
             modelProvider: 'google',
             promptTemplate: resolvedPromptName,
-            inputPrompt: JSON.stringify(request.contents),
+            inputPrompt: JSON.stringify(contents),
             inputTokens,
-            modelConfig: JSON.stringify(requestBody.generationConfig),
-            rawResponse: JSON.stringify(response.data),
-            processedResponse: this.extractTextFromResponse(response.data),
+            modelConfig: JSON.stringify(sdkConfig),
+            rawResponse: JSON.stringify(plainResponse),
+            processedResponse,
             outputTokens,
             apiCallTimeMs: processingTimeMs,
             processingTimeMs,
@@ -785,7 +782,7 @@ export class AIService {
         promptName: resolvedPromptName
       });
 
-      return response.data;
+      return plainResponse;
 
     } catch (error: any) {
       const processingTimeMs = Date.now() - callStartTime;
@@ -800,9 +797,9 @@ export class AIService {
             modelName: targetModel,
             modelProvider: 'google',
             promptTemplate: resolvedPromptName,
-            inputPrompt: JSON.stringify(request.contents),
+            inputPrompt: JSON.stringify(request.contents || []),
             inputTokens: 0,
-            modelConfig: JSON.stringify(request.generationConfig || {}),
+            modelConfig: JSON.stringify(sdkConfig || request.generationConfig || {}),
             rawResponse: undefined,
             processedResponse: undefined,
             outputTokens: 0,
@@ -810,7 +807,7 @@ export class AIService {
             processingTimeMs,
             status: 'ERROR',
             errorMessage: error.message,
-            errorCode: error.status?.toString() || 'UNKNOWN',
+            errorCode: (error.status ?? error.statusCode ?? error.code ?? 'UNKNOWN').toString(),
             contextSummary: 'Tool system call failed'
           });
         } catch (logError) {
@@ -840,10 +837,140 @@ export class AIService {
     }
   }
 
+  private buildContents(prompt: string, systemInstruction?: string): any[] {
+    const contents: any[] = [];
+
+    if (systemInstruction && systemInstruction.trim().length > 0) {
+      contents.push({
+        role: 'system',
+        parts: [{ text: systemInstruction }]
+      });
+    }
+
+    contents.push({
+      role: 'user',
+      parts: [{ text: prompt }]
+    });
+
+    return contents;
+  }
+
+  private buildGenerateContentConfig(config: UnifiedLLMConfig): GenerateContentConfig {
+    const generation = config.generation || {};
+    const sdkConfig: GenerateContentConfig = {};
+
+    if (generation.temperature !== undefined) sdkConfig.temperature = generation.temperature;
+    if (generation.topK !== undefined) sdkConfig.topK = generation.topK;
+    if (generation.topP !== undefined) sdkConfig.topP = generation.topP;
+    if (generation.maxOutputTokens !== undefined) sdkConfig.maxOutputTokens = generation.maxOutputTokens;
+    if (generation.stopSequences) sdkConfig.stopSequences = generation.stopSequences;
+    if (generation.responseMimeType) sdkConfig.responseMimeType = generation.responseMimeType;
+    if (generation.responseSchema) sdkConfig.responseSchema = generation.responseSchema;
+
+    if (config.safety?.length) {
+      sdkConfig.safetySettings = config.safety.map(safety => ({
+        category: safety.category as HarmCategory,
+        threshold: safety.threshold as HarmBlockThreshold
+      }));
+    }
+
+    if (config.thinking?.includeThoughts !== undefined) {
+      sdkConfig.thinkingConfig = {
+        includeThoughts: config.thinking.includeThoughts,
+        thinkingBudget: config.thinking.thinkingBudget
+      } as any;
+    } else if (config.thinking?.thinkingBudget !== undefined) {
+      sdkConfig.thinkingConfig = {
+        thinkingBudget: config.thinking.thinkingBudget
+      } as any;
+    }
+
+    return sdkConfig;
+  }
+
+  private buildGenerateContentConfigFromRequest(request: any): GenerateContentConfig {
+    const sdkConfig: GenerateContentConfig = {};
+
+    if (request.generationConfig && typeof request.generationConfig === 'object') {
+      Object.assign(sdkConfig, request.generationConfig);
+    } else {
+      sdkConfig.temperature = 1.0;
+      sdkConfig.topK = 40;
+      sdkConfig.topP = 0.95;
+      sdkConfig.maxOutputTokens = 8192;
+    }
+
+    if (request.safetySettings) {
+      sdkConfig.safetySettings = request.safetySettings;
+    }
+
+    const normalizedInstruction = this.normalizeSystemInstruction(request.systemInstruction);
+    if (normalizedInstruction) {
+      sdkConfig.systemInstruction = normalizedInstruction;
+    }
+
+    if (request.tools && request.tools.length > 0) {
+      sdkConfig.tools = request.tools;
+    }
+
+    if (request.toolConfig) {
+      sdkConfig.toolConfig = request.toolConfig;
+    }
+
+    if (request.thinkingConfig) {
+      sdkConfig.thinkingConfig = request.thinkingConfig as any;
+    }
+
+    return sdkConfig;
+  }
+
+  private normalizeSystemInstruction(systemInstruction: any): any {
+    if (!systemInstruction) {
+      return undefined;
+    }
+
+    if (typeof systemInstruction === 'string') {
+      return {
+        role: 'system',
+        parts: [{ text: systemInstruction }]
+      };
+    }
+
+    return systemInstruction;
+  }
+
+  private cloneResponse<T>(response: T): T {
+    if (response === null || response === undefined) {
+      return response;
+    }
+
+    const globalRef = global as typeof global & {
+      structuredClone?: <K>(value: K) => K;
+    };
+    const structuredCloneFn = globalRef.structuredClone;
+
+    try {
+      if (typeof structuredCloneFn === 'function') {
+        return structuredCloneFn(response);
+      }
+    } catch {
+      // ignore and fallback to JSON serialization
+    }
+
+    try {
+      return JSON.parse(JSON.stringify(response));
+    } catch {
+      return response;
+    }
+  }
+
   /**
    * 估算输入内容的 token 数量
    */
   private estimateTokens(contents: any[]): number {
+    if (!Array.isArray(contents) || contents.length === 0) {
+      return 0;
+    }
     let totalChars = 0;
     for (const content of contents) {
       if (content.parts) {
@@ -863,12 +990,22 @@ export class AIService {
    * 估算响应的 token 数量
    */
   private estimateTokensFromResponse(response: any): number {
-    if (!response?.candidates?.[0]?.content?.parts) {
+    if (!response) {
+      return 0;
+    }
+
+    const usage = response.usageMetadata || response?.data?.usageMetadata;
+    if (usage?.candidatesTokenCount !== undefined) {
+      return usage.candidatesTokenCount;
+    }
+
+    const candidates = response.candidates || response?.data?.candidates;
+    if (!candidates?.[0]?.content?.parts) {
       return 0;
     }
 
     let totalChars = 0;
-    for (const part of response.candidates[0].content.parts) {
+    for (const part of candidates[0].content.parts) {
       if (part.text) {
         totalChars += part.text.length;
       } else if (part.functionCall) {
@@ -882,12 +1019,22 @@ export class AIService {
    * 从响应中提取文本内容
    */
   private extractTextFromResponse(response: any): string {
-    if (!response?.candidates?.[0]?.content?.parts) {
+    if (!response) {
+      return '';
+    }
+
+    const textValue = (response as GenerateContentResponse).text;
+    if (typeof textValue === 'string' && textValue.length > 0) {
+      return textValue;
+    }
+
+    const candidates = response.candidates || response?.data?.candidates;
+    if (!candidates?.[0]?.content?.parts) {
       return '';
     }
 
     const textParts: string[] = [];
-    for (const part of response.candidates[0].content.parts) {
+    for (const part of candidates[0].content.parts) {
       if (part.text) {
         textParts.push(part.text);
       }
