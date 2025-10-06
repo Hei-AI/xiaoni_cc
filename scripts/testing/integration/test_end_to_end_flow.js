@@ -83,19 +83,19 @@ async function testEndToEndFlow() {
   
   console.log('✅ Step 3: AI服务失败，状态更新为failed，记录失败原因');
 
-  // 测试场景3: PersonaEngine失败的处理流程
-  console.log('\n=== 场景3: PersonaEngine失败处理 ===');
-  const personaFailedConvId = uuidv4();
+  // 测试场景3: AI响应为空的处理流程
+  console.log('\n=== 场景3: 空响应处理 ===');
+  const emptyResponseConvId = uuidv4();
   
-  // 模拟PersonaEngine返回空content的情况
+  // 模拟AI返回空内容的情况
   await connection.execute(`
     INSERT INTO conversations (
       id, user_id, user_message, timestamp, response_time, 
       status, error_reason, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `, [personaFailedConvId, 85178516, '测试PersonaEngine失败', new Date(), 1800, 'failed', 'PersonaEngine returned empty content', new Date(), new Date()]);
+  `, [emptyResponseConvId, 85178516, '测试空响应', new Date(), 1800, 'failed', 'AI response was empty', new Date(), new Date()]);
   
-  console.log('✅ 模拟PersonaEngine失败场景记录');
+  console.log('✅ 模拟空响应失败场景记录');
 
   // 验证修复效果
   console.log('\n=== 🔍 修复效果验证 ===');
@@ -106,7 +106,7 @@ async function testEndToEndFlow() {
     FROM conversations 
     WHERE id IN (?, ?, ?)
     ORDER BY created_at
-  `, [normalConvId, failedConvId, personaFailedConvId]);
+  `, [normalConvId, failedConvId, emptyResponseConvId]);
   
   console.log('📊 测试记录汇总:');
   testRecords.forEach((record, index) => {
@@ -183,7 +183,7 @@ async function testEndToEndFlow() {
   // 清理测试数据
   await connection.execute(`
     DELETE FROM conversations WHERE id IN (?, ?, ?)
-  `, [normalConvId, failedConvId, personaFailedConvId]);
+  `, [normalConvId, failedConvId, emptyResponseConvId]);
   
   console.log('\n🧹 清理测试数据完成');
 

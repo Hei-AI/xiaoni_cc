@@ -41,7 +41,7 @@ test_qqbot_core_queue_api() {
     log_info "测试QQBot Core队列API..."
     
     # 测试队列统计API
-    if curl -f http://localhost:8081/api/queue/stats &>/dev/null; then
+    if curl -f http://localhost:8081/api/simple-queue/stats &>/dev/null; then
         log_success "QQBot Core队列统计API通过"
     else
         log_error "QQBot Core队列统计API失败"
@@ -49,7 +49,7 @@ test_qqbot_core_queue_api() {
     fi
     
     # 测试分区列表API
-    if curl -f http://localhost:8081/api/queue/partitions &>/dev/null; then
+    if curl -f http://localhost:8081/api/simple-queue/partitions &>/dev/null; then
         log_success "QQBot Core分区列表API通过"
     else
         log_error "QQBot Core分区列表API失败"
@@ -150,7 +150,7 @@ show_api_details() {
     
     echo ""
     echo "=== QQBot Core队列统计 ==="
-    curl -s http://localhost:8081/api/queue/stats | jq '.' 2>/dev/null || echo "需要安装jq查看JSON格式"
+    curl -s http://localhost:8081/api/simple-queue/stats | jq '.' 2>/dev/null || echo "需要安装jq查看JSON格式"
     
     echo ""
     echo "=== 管理面板队列统计代理 ==="

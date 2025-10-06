@@ -47,7 +47,7 @@ const testScenarios = [
       },
       self_id: 987654321
     },
-    expectedEngines: ['decision', 'context', 'persona', 'main_chat'],
+    expectedEngines: ['decision', 'context', 'main_chat'],
     shouldReply: true
   },
   {
@@ -75,7 +75,7 @@ const testScenarios = [
       },
       self_id: 987654321
     },
-    expectedEngines: ['decision', 'context', 'persona', 'requirement'],
+    expectedEngines: ['decision', 'context', 'main_chat', 'requirement'],
     shouldReply: true,
     isRequirement: true
   },
@@ -380,12 +380,6 @@ async function simulateEngine(connection, engineType, scenario, sessionId, conve
       prompt = `基于历史消息分析用户意图...历史消息数量: ${context.historyMessages.length}`;
       response = `用户意图分析：${scenario.isRequirement ? '开发需求' : '普通对话'}`;
       tokens = { prompt: 150, completion: 80, total: 230 };
-      break;
-      
-    case 'persona':
-      prompt = `根据用户关系调整回复风格...用户昵称: ${context.userInfo?.nickname}`;
-      response = '使用友好专业的回复风格';
-      tokens = { prompt: 80, completion: 40, total: 120 };
       break;
       
     case 'main_chat':

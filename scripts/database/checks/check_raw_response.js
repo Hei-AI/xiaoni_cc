@@ -46,7 +46,7 @@ async function checkRawResponse() {
                             // 分析是否包含上下文
                             const hasHistory = promptText.includes('历史对话') || promptText.includes('最近') && promptText.includes('条');
                             const hasContextKeyword = promptText.includes('上下文') || promptText.includes('对话上下文');
-                            const hasUserHistory = promptText.includes('用户:') && promptText.includes('阿正:');
+                            const hasUserHistory = promptText.includes('用户:') && promptText.includes('助手:');
                             const hasTimeFormat = promptText.includes('[') && promptText.includes(':') && promptText.includes(']');
                             
                             console.log(`\n📊 上下文分析结果:`);

@@ -85,7 +85,7 @@ async function testContextDirectly() {
                 const time = new Date(msg.timestamp).toLocaleTimeString();
                 aiContext += `${i + 1}. [${time}] 用户: ${msg.user_message}\n`;
                 if (msg.ai_response) {
-                    aiContext += `   阿正: ${msg.ai_response}\n`;
+                    aiContext += `   助手: ${msg.ai_response}\n`;
                 }
                 aiContext += `\n`;
             });

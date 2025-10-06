@@ -45,7 +45,7 @@ async function checkLLMRequest() {
                         
                         // 分析prompt是否包含上下文
                         const hasContext = promptContent.includes('历史对话') || promptContent.includes('上下文') || promptContent.includes('最近') || promptContent.includes('之前');
-                        const hasHistory = promptContent.includes('[') && promptContent.includes('用户:') && promptContent.includes('阿正:');
+                        const hasHistory = promptContent.includes('[') && promptContent.includes('用户:') && promptContent.includes('助手:');
                         const tokenCount = promptContent.length;
                         
                         console.log(`\n📊 Prompt 分析:`);

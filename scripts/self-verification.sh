@@ -119,7 +119,7 @@ verify_message_queue() {
 
     # 3. 查看队列统计
     log_info "查询队列统计..."
-    local stats=$(curl -s "${QQBOT_CORE_URL}/api/queue/stats")
+    local stats=$(curl -s "${QQBOT_CORE_URL}/api/simple-queue/stats")
 
     if echo "$stats" | grep -q "totalMessages"; then
         log_info "✅ 队列统计查询成功"
