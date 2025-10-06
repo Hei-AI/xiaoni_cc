@@ -50,9 +50,10 @@
 - ✅ 验证通过：LLMJobWorker正常启动，Job正常创建和重试
 
 **Admin Panel代理架构**
-- ✅ `simple-queue-monitor.ts` 已修改为代理模式，转发请求到qqbot-core
+- ✅ `queue-monitor.ts` 直接调用 qqbot-core `/api/simple-queue/*` 接口，移除独立 sidecar
+- ✅ 保持 `/api/queue-monitor/*` 响应结构不变，前端无缝刷新队列列表
 - ✅ 修复了容器名称解析问题（qqbot-core -> qqbot-qqbot-core）
-- ✅ 修复了http-server中simulate端点实现（使用qqBot.simulateXXXSimple方法）
+- ✅ 修复了 http-server 中 simulate 端点实现（使用 qqBot.simulateXXXSimple 方法）
 - ✅ 验证通过：代理成功，消息正常处理
 
 **环境配置优化**

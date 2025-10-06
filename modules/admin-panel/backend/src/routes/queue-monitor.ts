@@ -4,68 +4,207 @@ import { logger } from '../utils/logger';
 
 /**
  * 队列监控API路由
- * 作为管理后端的队列监控代理，转发请求到独立的队列监控服务
+ * 直接从 qqbot-core simple queue 接口获取数据
  */
 
 const router = express.Router();
 const moduleLogger = logger.createModuleLogger('queue-monitor-api');
 
-// 队列监控服务地址
-const QUEUE_MONITOR_URL = process.env.QUEUE_MONITOR_URL || 'http://localhost:3007';
+const QQBOT_CORE_URL = process.env.QQBOT_CORE_URL || 'http://qqbot-qqbot-core:8081';
 
-/**
- * 创建代理请求函数
- */
-const proxyRequest = async (req: express.Request, res: express.Response, endpoint: string) => {
-  try {
-    const url = `${QUEUE_MONITOR_URL}/api${endpoint}`;
-    
-    moduleLogger.info('Proxying queue monitor request', {
-      originalUrl: req.originalUrl,
-      proxyUrl: url,
-      method: req.method
-    });
-
-    const response = await axios({
-      method: req.method,
-      url,
-      data: req.body,
-      params: req.query,
-      timeout: 30000
-    });
-
-    res.status(response.status).json(response.data);
-  } catch (error: any) {
-    moduleLogger.error('Queue monitor proxy error', {
-      endpoint,
-      error: error.message,
-      status: error.response?.status
-    });
-
-    if (error.response) {
-      res.status(error.response.status).json(error.response.data);
-    } else if (error.code === 'ECONNREFUSED') {
-      res.status(503).json({
-        success: false,
-        error: '队列监控服务不可用',
-        details: '请确认队列监控服务已启动'
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        error: '内部服务器错误',
-        details: error.message
-      });
-    }
+const coreClient = axios.create({
+  baseURL: QQBOT_CORE_URL,
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json',
+    Accept: 'application/json'
   }
+});
+
+interface SimpleQueuePartition {
+  partition_key: string;
+  type: 'private' | 'group';
+  queue_size: number;
+  last_activity: string | null;
+  processing?: number;
+  status?: string;
+}
+
+interface SimpleQueuePartitionSnapshot {
+  partitionKey: string;
+  type: 'user' | 'group';
+  messageCount: number;
+  lastProcessedAt: string | null;
+  messages: Array<{
+    id: string;
+    traceId: string;
+    type: string;
+    priority?: string;
+    timestamp: string;
+    source?: string;
+  }>;
+}
+
+interface QueueInfo {
+  name: string;
+  type: 'private' | 'group';
+  userId?: number;
+  groupId?: number;
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+  paused: boolean;
+  lastJobAt?: string;
+}
+
+interface QueueStats {
+  totalQueues: number;
+  totalMessages: number;
+  totalUnconsumed: number;
+  lastUpdated: string;
+}
+
+const priorityMap: Record<string, number> = {
+  HIGH: 3,
+  MEDIUM: 2,
+  LOW: 1
+};
+
+const fetchSimpleQueuePartitions = async (): Promise<SimpleQueuePartition[]> => {
+  const { data } = await coreClient.get<{ success: boolean; data: SimpleQueuePartition[] }>('/api/simple-queue/partitions');
+
+  if (!data.success) {
+    throw new Error('Failed to load simple queue partitions');
+  }
+
+  return data.data || [];
+};
+
+const fetchSimpleQueueStats = async (): Promise<any> => {
+  const { data } = await coreClient.get<{ success: boolean; data: any }>('/api/simple-queue/stats');
+
+  if (!data.success) {
+    throw new Error('Failed to load simple queue stats');
+  }
+
+  return data.data;
+};
+
+const fetchPartitionSnapshot = async (queueName: string): Promise<SimpleQueuePartitionSnapshot> => {
+  const { data } = await coreClient.get<{ success: boolean; data: SimpleQueuePartitionSnapshot }>(
+    `/api/simple-queue/partitions/${encodeURIComponent(queueName)}`
+  );
+
+  if (!data.success) {
+    const error = new Error('Partition not found');
+    (error as any).status = 404;
+    throw error;
+  }
+
+  return data.data;
+};
+
+const extractIdentifiers = (partitionKey: string): { userId?: number; groupId?: number } => {
+  const match = partitionKey.match(/(user|group)_(\d+)/);
+  if (!match) return {};
+
+  const value = Number.parseInt(match[2], 10);
+  if (Number.isNaN(value)) return {};
+
+  return match[1] === 'group' ? { groupId: value } : { userId: value };
+};
+
+const transformPartition = (partition: SimpleQueuePartition): QueueInfo => {
+  const { userId, groupId } = extractIdentifiers(partition.partition_key);
+
+  return {
+    name: partition.partition_key,
+    type: partition.type === 'group' ? 'group' : 'private',
+    userId,
+    groupId,
+    waiting: partition.queue_size,
+    active: partition.processing ?? 0,
+    completed: 0,
+    failed: 0,
+    delayed: 0,
+    paused: partition.status === 'paused',
+    lastJobAt: partition.last_activity ?? undefined
+  };
+};
+
+const computeStats = (queues: QueueInfo[], statsData?: any): QueueStats => {
+  const totalQueues = statsData?.partition_count ?? queues.length;
+  const totalMessages = statsData?.total_messages ?? queues.reduce((sum, queue) => sum + queue.waiting + queue.active, 0);
+  const totalUnconsumed = queues.reduce((sum, queue) => sum + queue.waiting, 0);
+  const lastUpdated = statsData?.last_updated ?? new Date().toISOString();
+
+  return {
+    totalQueues,
+    totalMessages,
+    totalUnconsumed,
+    lastUpdated
+  };
+};
+
+const transformSnapshotMessages = (
+  queueName: string,
+  snapshot: SimpleQueuePartitionSnapshot,
+  limit: number
+) => {
+  return (snapshot.messages || [])
+    .slice(0, Math.max(limit, 0))
+    .map((message) => ({
+      id: message.id,
+      traceId: message.traceId,
+      type: message.type,
+      data: message,
+      timestamp: message.timestamp,
+      priority: priorityMap[message.priority || ''] ?? 0,
+      attempts: 0,
+      delay: 0,
+      queueName,
+      state: 'waiting' as const
+    }));
 };
 
 /**
  * 获取所有队列状态
  * GET /api/queue-monitor/queues
  */
-router.get('/queues', async (req, res) => {
-  await proxyRequest(req, res, '/queues');
+router.get('/queues', async (_req, res) => {
+  try {
+    const [partitions, statsData] = await Promise.all([
+      fetchSimpleQueuePartitions(),
+      fetchSimpleQueueStats().catch((error) => {
+        moduleLogger.warn('Failed to load simple queue stats, fallback to computed values', {
+          error: error instanceof Error ? error.message : error
+        });
+        return undefined;
+      })
+    ]);
+
+    const queues = partitions.map(transformPartition);
+    const stats = computeStats(queues, statsData);
+
+    res.json({
+      success: true,
+      data: queues,
+      stats
+    });
+  } catch (error: any) {
+    moduleLogger.error('Failed to load queue list', {
+      error: error.message,
+      stack: error.stack
+    });
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load queue list',
+      details: error.message
+    });
+  }
 });
 
 /**
@@ -74,7 +213,34 @@ router.get('/queues', async (req, res) => {
  */
 router.get('/queues/:queueName/unconsumed', async (req, res) => {
   const { queueName } = req.params;
-  await proxyRequest(req, res, `/queues/${queueName}/unconsumed`);
+  const limit = Number.parseInt((req.query.limit as string) || '100', 10);
+
+  try {
+    const snapshot = await fetchPartitionSnapshot(queueName);
+    const messages = transformSnapshotMessages(queueName, snapshot, limit);
+
+    res.json({
+      success: true,
+      data: messages,
+      total: snapshot.messageCount
+    });
+  } catch (error: any) {
+    if (error?.status === 404) {
+      return res.status(404).json({ success: false, error: 'Queue not found' });
+    }
+
+    moduleLogger.error('Failed to load unconsumed messages', {
+      queueName,
+      error: error.message,
+      stack: error.stack
+    });
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load unconsumed messages',
+      details: error.message
+    });
+  }
 });
 
 /**
@@ -83,7 +249,45 @@ router.get('/queues/:queueName/unconsumed', async (req, res) => {
  */
 router.get('/queues/:queueName', async (req, res) => {
   const { queueName } = req.params;
-  await proxyRequest(req, res, `/queues/${queueName}`);
+
+  try {
+    const snapshot = await fetchPartitionSnapshot(queueName);
+    const { userId, groupId } = extractIdentifiers(queueName);
+
+    res.json({
+      success: true,
+      data: {
+        name: queueName,
+        type: snapshot.type === 'group' ? 'group' : 'private',
+        userId,
+        groupId,
+        waiting: snapshot.messageCount,
+        active: 0,
+        completed: 0,
+        failed: 0,
+        delayed: 0,
+        paused: false,
+        lastJobAt: snapshot.lastProcessedAt ?? undefined,
+        messages: snapshot.messages || []
+      }
+    });
+  } catch (error: any) {
+    if (error?.status === 404) {
+      return res.status(404).json({ success: false, error: 'Queue not found' });
+    }
+
+    moduleLogger.error('Failed to load queue detail', {
+      queueName,
+      error: error.message,
+      stack: error.stack
+    });
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load queue detail',
+      details: error.message
+    });
+  }
 });
 
 /**
@@ -92,63 +296,111 @@ router.get('/queues/:queueName', async (req, res) => {
  */
 router.delete('/queues/:queueName', async (req, res) => {
   const { queueName } = req.params;
-  
+
   moduleLogger.info('Queue clear requested', {
     queueName,
     userAgent: req.get('User-Agent'),
     ip: req.ip
   });
-  
-  await proxyRequest(req, res, `/queues/${queueName}`);
+
+  try {
+    await coreClient.delete(`/api/simple-queue/partitions/${encodeURIComponent(queueName)}`);
+
+    res.json({
+      success: true,
+      message: 'Queue cleared successfully'
+    });
+  } catch (error: any) {
+    moduleLogger.error('Failed to clear queue', {
+      queueName,
+      error: error.message,
+      stack: error.stack
+    });
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to clear queue',
+      details: error.message
+    });
+  }
 });
 
 /**
  * 暂停/恢复队列
  * PATCH /api/queue-monitor/queues/:queueName/pause
  */
-router.patch('/queues/:queueName/pause', async (req, res) => {
+router.patch('/queues/:queueName/pause', (req, res) => {
   const { queueName } = req.params;
   const { paused } = req.body;
-  
-  moduleLogger.info('Queue pause state change requested', {
+
+  moduleLogger.info('Queue pause/resume requested but unsupported in simple queue', {
     queueName,
     paused,
     userAgent: req.get('User-Agent'),
     ip: req.ip
   });
-  
-  await proxyRequest(req, res, `/queues/${queueName}/pause`);
+
+  res.status(501).json({
+    success: false,
+    error: 'Simple queue does not support pause/resume operations'
+  });
 });
 
 /**
  * 获取队列统计信息
  * GET /api/queue-monitor/stats
  */
-router.get('/stats', async (req, res) => {
-  await proxyRequest(req, res, '/stats');
+router.get('/stats', async (_req, res) => {
+  try {
+    const stats = await fetchSimpleQueueStats();
+
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error: any) {
+    moduleLogger.error('Failed to load simple queue stats', {
+      error: error.message,
+      stack: error.stack
+    });
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load stats',
+      details: error.message
+    });
+  }
 });
 
 /**
  * 获取队列监控服务健康状态
  * GET /api/queue-monitor/health
  */
-router.get('/health', async (req, res) => {
+router.get('/health', async (_req, res) => {
   try {
-    const response = await axios.get(`${QUEUE_MONITOR_URL}/health`, {
-      timeout: 5000
-    });
-    
+    const [coreHealth, stats] = await Promise.all([
+      coreClient
+        .get('/health')
+        .then((response) => response.data)
+        .catch((error) => ({ success: false, error: error.message })),
+      fetchSimpleQueueStats().catch((error) => ({ success: false, error: error.message }))
+    ]);
+
     res.json({
       success: true,
-      queueMonitorService: response.data,
+      qqbotCore: coreHealth,
+      simpleQueue: stats,
       proxyStatus: 'healthy'
     });
   } catch (error: any) {
-    moduleLogger.error('Queue monitor health check failed', { error: error.message });
-    
+    moduleLogger.error('Queue monitor health check failed', {
+      error: error.message,
+      stack: error.stack
+    });
+
     res.status(503).json({
       success: false,
-      error: '队列监控服务健康检查失败',
+      error: 'Simple queue health check failed',
       details: error.message,
       proxyStatus: 'unhealthy'
     });
@@ -159,104 +411,17 @@ router.get('/health', async (req, res) => {
  * 批量操作接口
  * POST /api/queue-monitor/batch-operations
  */
-router.post('/batch-operations', async (req, res) => {
+router.post('/batch-operations', (req, res) => {
   const { operations } = req.body;
-  
-  if (!Array.isArray(operations)) {
-    return res.status(400).json({
-      success: false,
-      error: '无效的批量操作请求'
-    });
-  }
 
-  moduleLogger.info('Batch operations requested', {
-    operationCount: operations.length,
-    operations: operations.map(op => ({ queueName: op.queueName, action: op.action }))
+  moduleLogger.info('Batch operations requested but unsupported in simple queue', {
+    operationCount: Array.isArray(operations) ? operations.length : 0,
+    operations
   });
 
-  const results = [];
-  
-  for (const operation of operations) {
-    try {
-      const { queueName, action } = operation;
-      let endpoint = '';
-      let method = 'PATCH';
-      let data = null;
-
-      switch (action) {
-        case 'pause':
-          endpoint = `/queues/${queueName}/pause`;
-          data = { paused: true };
-          break;
-        case 'resume':
-          endpoint = `/queues/${queueName}/pause`;
-          data = { paused: false };
-          break;
-        case 'clear':
-          endpoint = `/queues/${queueName}`;
-          method = 'DELETE';
-          break;
-        default:
-          throw new Error(`Unknown action: ${action}`);
-      }
-
-      const response = await axios({
-        method,
-        url: `${QUEUE_MONITOR_URL}/api${endpoint}`,
-        data,
-        timeout: 30000
-      });
-
-      results.push({
-        queueName,
-        action,
-        success: true,
-        result: response.data
-      });
-    } catch (error: any) {
-      results.push({
-        queueName: operation.queueName,
-        action: operation.action,
-        success: false,
-        error: error.message
-      });
-    }
-  }
-
-  const successCount = results.filter(r => r.success).length;
-  const failureCount = results.length - successCount;
-
-  res.json({
-    success: failureCount === 0,
-    results,
-    summary: {
-      total: results.length,
-      success: successCount,
-      failure: failureCount
-    }
-  });
-});
-
-/**
- * 获取队列监控配置信息
- * GET /api/queue-monitor/config
- */
-router.get('/config', (req, res) => {
-  res.json({
-    success: true,
-    config: {
-      queueMonitorUrl: QUEUE_MONITOR_URL,
-      features: {
-        realTimeUpdates: true,
-        batchOperations: true,
-        statisticsTracking: true,
-        messageInspection: true
-      },
-      limits: {
-        maxUnconsumedMessagesPerQuery: 1000,
-        maxBatchOperations: 50
-      }
-    }
+  res.status(501).json({
+    success: false,
+    error: 'Batch operations are not supported for simple queue'
   });
 });
 

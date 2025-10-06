@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Core services live in `modules/`: `http-api` (OneBot ingress, 8080), `qqbot-core` (AI engines, 8081), and `admin-panel/{backend,frontend}` (operator APIs/UI, 9080/3003). Observability sidecars sit in `modules/http-traffic-monitor` and `modules/queue-monitor`. Shared scripts are under `scripts/`, Napcat assets in `resource/`, and schema migrations plus seeds in `database/`. Tests mirror sources within each module, while cross-service harnesses reside in `scripts/testing/`. Review each module's `CLAUDE.md` before touching pipelines or interfaces.
+Core services live in `modules/`: `http-api` (OneBot ingress, 8080), `qqbot-core` (AI engines, 8081), and `admin-panel/{backend,frontend}` (operator APIs/UI, 9080/3003). Observability sidecars sit in `modules/http-traffic-monitor`, while queue monitoring now ships inside the admin backend. Shared scripts are under `scripts/`, Napcat assets in `resource/`, and schema migrations plus seeds in `database/`. Tests mirror sources within each module, while cross-service harnesses reside in `scripts/testing/`. Review each module's `CLAUDE.md` before touching pipelines or interfaces.
 
 ## Build, Test, and Development Commands
 Use Docker as the source of truth: run `docker compose build` to rebuild the stack, followed by `docker compose up -d`. Use `docker compose ps`, `docker compose stop`, or scope with `docker compose up -d qqbot-core` when iterating. Tail logs with `docker logs -f qqbot-qqbot-core` and enter containers using `docker exec -it <service> /bin/sh`. Local smoke passes remain available via `npm run dev:<module>`.
