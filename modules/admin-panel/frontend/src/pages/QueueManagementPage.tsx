@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -7,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Progress } from '../components/ui/progress';
 import { Switch } from '../components/ui/switch';
 import { ScrollArea } from '../components/ui/scroll-area';
+import QueueSimulationPanel, { QueueSimulationOption } from '../components/QueueSimulationPanel';
 import { 
   Play, 
   Pause, 
@@ -68,6 +70,39 @@ interface QueueStats {
   totalUnconsumed: number;
   lastUpdated: string;
 }
+
+const PRIVATE_OPTIONS_LIMIT = 200;
+const GROUP_OPTIONS_LIMIT = 200;
+
+const fetchPrivateChatOptions = async (): Promise<QueueSimulationOption[]> => {
+  const response = await fetch(`/api/private-chats?page=1&limit=${PRIVATE_OPTIONS_LIMIT}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch private chat options');
+  }
+
+  const payload = await response.json();
+  const users: Array<{ user_id: number; nickname?: string }> = payload?.data ?? [];
+
+  return users.map((user) => ({
+    value: user.user_id,
+    label: user.nickname ? `${user.nickname} (${user.user_id})` : `用户 ${user.user_id}`,
+  }));
+};
+
+const fetchGroupChatOptions = async (): Promise<QueueSimulationOption[]> => {
+  const response = await fetch(`/api/group-chats?page=1&limit=${GROUP_OPTIONS_LIMIT}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch group chat options');
+  }
+
+  const payload = await response.json();
+  const groups: Array<{ group_id: number; group_name?: string }> = payload?.data ?? [];
+
+  return groups.map((group) => ({
+    value: group.group_id,
+    label: group.group_name ? `${group.group_name} (${group.group_id})` : `群组 ${group.group_id}`,
+  }));
+};
 
 const QueueManagementPage: React.FC = () => {
   const [queues, setQueues] = useState<QueueInfo[]>([]);
@@ -188,6 +223,65 @@ const QueueManagementPage: React.FC = () => {
   const formatProcessingTime = (ms: number): string => {
     if (ms < 1000) return `${ms}ms`;
     return `${(ms / 1000).toFixed(1)}s`;
+  };
+
+  const selectedQueueData = queues.find((queue) => queue.name === selectedQueue) || null;
+
+  const { data: privateChatOptions = [] } = useQuery({
+    queryKey: ['queue-simulation-private-options'],
+    queryFn: fetchPrivateChatOptions,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: groupChatOptions = [] } = useQuery({
+    queryKey: ['queue-simulation-group-options'],
+    queryFn: fetchGroupChatOptions,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const availableUserOptions = useMemo(() => {
+    if (!selectedQueueData?.userId) {
+      return privateChatOptions;
+    }
+
+    const existsInOptions = privateChatOptions.some((option) => option.value === selectedQueueData.userId);
+    if (existsInOptions) {
+      return privateChatOptions;
+    }
+
+    return [
+      {
+        value: selectedQueueData.userId,
+        label: `用户 ${selectedQueueData.userId}`,
+      },
+      ...privateChatOptions,
+    ];
+  }, [privateChatOptions, selectedQueueData?.userId]);
+
+  const availableGroupOptions = useMemo(() => {
+    if (!selectedQueueData?.groupId) {
+      return groupChatOptions;
+    }
+
+    const existsInOptions = groupChatOptions.some((option) => option.value === selectedQueueData.groupId);
+    if (existsInOptions) {
+      return groupChatOptions;
+    }
+
+    return [
+      {
+        value: selectedQueueData.groupId,
+        label: `群组 ${selectedQueueData.groupId}`,
+      },
+      ...groupChatOptions,
+    ];
+  }, [groupChatOptions, selectedQueueData?.groupId]);
+
+  const handleSimulationCompleted = async () => {
+    await fetchQueues();
+    if (selectedQueue) {
+      await fetchUnconsumedMessages(selectedQueue);
+    }
   };
 
   if (loading) {
@@ -360,42 +454,37 @@ const QueueManagementPage: React.FC = () => {
                   </div>
                   
                   <div className="flex space-x-2">
-                    {(() => {
-                      const queue = queues.find(q => q.name === selectedQueue);
-                      if (!queue) return null;
-                      
-                      return (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleQueueAction(selectedQueue, queue.paused ? 'resume' : 'pause')}
-                          >
-                            {queue.paused ? (
-                              <>
-                                <Play className="w-4 h-4 mr-1" />
-                                恢复
-                              </>
-                            ) : (
-                              <>
-                                <Pause className="w-4 h-4 mr-1" />
-                                暂停
-                              </>
-                            )}
-                          </Button>
-                          
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleQueueAction(selectedQueue, 'clear')}
-                            disabled={queue.waiting === 0 && queue.active === 0}
-                          >
-                            <Trash2 className="w-4 h-4 mr-1" />
-                            清空
-                          </Button>
-                        </>
-                      );
-                    })()}
+                    {selectedQueueData && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleQueueAction(selectedQueue, selectedQueueData.paused ? 'resume' : 'pause')}
+                        >
+                          {selectedQueueData.paused ? (
+                            <>
+                              <Play className="w-4 h-4 mr-1" />
+                              恢复
+                            </>
+                          ) : (
+                            <>
+                              <Pause className="w-4 h-4 mr-1" />
+                              暂停
+                            </>
+                          )}
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleQueueAction(selectedQueue, 'clear')}
+                          disabled={selectedQueueData.waiting === 0 && selectedQueueData.active === 0}
+                        >
+                          <Trash2 className="w-4 h-4 mr-1" />
+                          清空
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               </CardHeader>
@@ -465,57 +554,53 @@ const QueueManagementPage: React.FC = () => {
                   </TabsContent>
                   
                   <TabsContent value="stats">
-                    {(() => {
-                      const queue = queues.find(q => q.name === selectedQueue);
-                      if (!queue?.stats) {
-                        return (
-                          <div className="text-center py-8 text-gray-500">
-                            <AlertCircle className="w-12 h-12 mx-auto mb-2" />
-                            <p>暂无统计数据</p>
-                          </div>
-                        );
-                      }
+                    {selectedQueueData?.stats ? (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">平均处理时间</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-2xl font-bold">
+                              {formatProcessingTime(selectedQueueData.stats.avgProcessingTime)}
+                            </div>
+                          </CardContent>
+                        </Card>
 
-                      return (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">平均处理时间</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="text-2xl font-bold">
-                                {formatProcessingTime(queue.stats.avgProcessingTime)}
-                              </div>
-                            </CardContent>
-                          </Card>
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">小时吞吐量</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-2xl font-bold">
+                              {selectedQueueData.stats.throughput}
+                            </div>
+                          </CardContent>
+                        </Card>
 
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">小时吞吐量</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="text-2xl font-bold">
-                                {queue.stats.throughput}
-                              </div>
-                            </CardContent>
-                          </Card>
-
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">错误率</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <div className={`text-2xl font-bold ${
-                                queue.stats.errorRate > 0.1 ? 'text-red-600' : 'text-green-600'
-                              }`}>
-                                {(queue.stats.errorRate * 100).toFixed(1)}%
-                              </div>
-                            </CardContent>
-                          </Card>
-                        </div>
-                      );
-                    })()}
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">错误率</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div
+                              className={`text-2xl font-bold ${
+                                selectedQueueData.stats.errorRate > 0.1 ? 'text-red-600' : 'text-green-600'
+                              }`}
+                            >
+                              {(selectedQueueData.stats.errorRate * 100).toFixed(1)}%
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        <AlertCircle className="w-12 h-12 mx-auto mb-2" />
+                        <p>暂无统计数据</p>
+                      </div>
+                    )}
                   </TabsContent>
+
                 </Tabs>
               </CardContent>
             </Card>
@@ -529,6 +614,27 @@ const QueueManagementPage: React.FC = () => {
               </CardContent>
             </Card>
           )}
+          <Card>
+            <CardHeader>
+              <CardTitle>消息模拟器</CardTitle>
+              <CardDescription>
+                模拟私聊或群聊消息，选中左侧队列可自动填充目标字段
+              </CardDescription>
+            </CardHeader>
+          <CardContent>
+            <QueueSimulationPanel
+              selectedQueue={selectedQueueData ? {
+                name: selectedQueueData.name,
+                type: selectedQueueData.type,
+                userId: selectedQueueData.userId,
+                groupId: selectedQueueData.groupId,
+              } : null}
+              availableUsers={availableUserOptions}
+              availableGroups={availableGroupOptions}
+              onMessageSent={handleSimulationCompleted}
+            />
+          </CardContent>
+        </Card>
         </div>
       </div>
     </div>

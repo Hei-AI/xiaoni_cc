@@ -11,7 +11,7 @@ import {
   Users,
   User,
   FileText,
-  Layers,
+  ClipboardList,
   ChevronLeft,
   ChevronRight,
   Menu,
@@ -57,10 +57,10 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       active: location.pathname.startsWith('/prompts')
     },
     {
-      href: '/queue-monitor',
-      label: '队列监控', 
-      icon: Layers,
-      active: location.pathname === '/queue-monitor'
+      href: '/queue-management',
+      label: '队列管理', 
+      icon: ClipboardList,
+      active: location.pathname === '/queue-management'
     },
     {
       href: '/conversations',

@@ -11,7 +11,7 @@ import { PrivateChatDetailPage } from './pages/PrivateChatDetailPage';
 import { PromptManagementPage } from './pages/PromptManagementPage';
 import { PromptEditPage } from './pages/PromptEditPage';
 import { PromptDebugPage } from './pages/PromptDebugPage';
-import SimpleQueueMonitorPage from './pages/SimpleQueueMonitorPage';
+import QueueManagementPage from './pages/QueueManagementPage';
 import { HttpTrafficMonitorPage } from './pages/HttpTrafficMonitorPage';
 import { HttpTrafficDetailPage } from './pages/HttpTrafficDetailPage';
 import { Layout } from './components/Layout';
@@ -50,7 +50,8 @@ function App() {
             <Route path="/prompts/:promptId" element={<PromptRedirect />} />
             <Route path="/prompts/:promptId/edit" element={<PromptEditPage />} />
             <Route path="/prompts/:promptId/debug" element={<PromptDebugPage />} />
-            <Route path="/queue-monitor" element={<SimpleQueueMonitorPage />} />
+            <Route path="/queue-monitor" element={<Navigate to="/queue-management" replace />} />
+            <Route path="/queue-management" element={<QueueManagementPage />} />
             <Route path="/traffic" element={<HttpTrafficMonitorPage />} />
             <Route path="/traffic/:id" element={<HttpTrafficDetailPage />} />
             <Route path="/monitoring" element={<Navigate to="/dashboard" replace />} />

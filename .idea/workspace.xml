@@ -5,60 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="e289a57b-6024-485c-8211-1bbd342ce7af" name="Changes" comment="fix: add gitgnore">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/HUMAN_LIKE_PROCESSOR_FLOW_LLM_TOOLS.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/HUMAN_LIKE_PROCESSOR_FLOW_LLM_TOOLS.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/types/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/types/index.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/CLAUDE.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/engines/context-engine.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/engines/context-engine.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/engines/decision-engine-v2.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/engines/decision-engine.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/engines/decision-engine.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/engines/persona-engine.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/index.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/queue-integration.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/scripts/create-trace-tables.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/scripts/create-trace-tables.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/__tests__/tool-registry-service.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/ai-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/ai-service.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/attention-service.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/config-converter.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/config-converter.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/context-manager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/context-manager.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/http-server.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/http-server.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/human-like-message-processor.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/life-rhythm-manager.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/logging-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/logging-service.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-aggregation-manager.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-arrival-handler.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-consumer.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-consumption-trigger.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-queue-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-queue-service.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-queue.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-queue.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/session-manager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/session-manager.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/simple-message-queue.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/simple-queue-integration.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/types/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/types/index.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/utils/timeline-tracker.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/utils/timeline-tracker.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/ai-service-cache-fix.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/end-to-end-conversation.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/integration/ai-service-session-integration.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/integration/engine-interactions.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/integration/session-api.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/llm-tools-integration.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/performance-stress.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/session-api-handlers.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/session-integration.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/session-manager.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/token-http-api.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/token-management.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/unit/engines/context-engine.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/unit/engines/decision-engine.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/unit/engines/persona-engine.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/utf8-encoding.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/websocket-message-simulator.test.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/scripts/database/checks/check_llm_request.js" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/database/checks/check_llm_request.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scripts/database/checks/check_raw_response.js" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/database/checks/check_raw_response.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scripts/testing/integration/test_end_to_end_flow.js" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/testing/integration/test_end_to_end_flow.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scripts/testing/integration/test_integration_flow.js" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/testing/integration/test_integration_flow.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scripts/testing/unit/test_context_simple.js" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/testing/unit/test_context_simple.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/App.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/components/Layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/components/Layout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/QueueManagementPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/QueueManagementPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/SimpleQueueMonitorPage.tsx" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
