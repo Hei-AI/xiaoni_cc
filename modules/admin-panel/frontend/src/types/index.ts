@@ -282,7 +282,7 @@ export interface ConversationTimelineData {
 export const ENGINE_NAMES: Record<string, string> = {
   'decision': 'DecisionEngine分析',
   'context': 'ContextEngine上下文',
-  'persona': 'PersonaEngine风格',
+  'persona': '风格处理(历史)',
   'main_chat': 'MainChat回复生成',
   'user_relationship_analyzer': '用户关系分析',
   'chat_bot': '智能对话生成',

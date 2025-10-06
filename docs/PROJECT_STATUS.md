@@ -129,11 +129,11 @@ MYSQL_DATABASE=qqbot_db \
 1. 启动 `qqbot-core`（默认 `ENABLE_HUMAN_LIKE_PROCESSING=false` 验证直连模式，可再切换为 true 验证调度模式）。
 2. 发送模拟消息：
    ```bash
-   curl -X POST http://localhost:9080/api/queue/simulate/private \
+   curl -X POST http://localhost:9080/api/simple-queue/simulate/private \
      -H 'Content-Type: application/json' \
      -d '{"user_id":123456,"message":"测试消息"}'
    ```
-3. 查看统计与分区：`curl http://localhost:9080/api/queue/stats`、`curl http://localhost:9080/api/queue/partitions/user_123456`。
+3. 查看统计与分区：`curl http://localhost:9080/api/simple-queue/stats`、`curl http://localhost:9080/api/simple-queue/partitions/user_123456`。
 4. 在数据库确认 `conversations` / `message_consumptions` 状态，检查 `logs/qqbot-core.log` 中批处理日志。
 5. 查询 `conversation_batches` 表应能看到新批次记录（含 `trigger_type`、`message_count`、`status` 等字段）。
 

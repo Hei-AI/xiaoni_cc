@@ -18,8 +18,8 @@ const QQBOT_CORE_URL = process.env.QQBOT_CORE_URL || 'http://qqbot-core:8081';
 const proxyToQQBotCore = async (req: express.Request, res: express.Response, endpoint: string) => {
   try {
     const axios = require('axios');
-    const url = `${QQBOT_CORE_URL}/api/queue${endpoint}`;
-    
+    const url = `${QQBOT_CORE_URL}/api/simple-queue${endpoint}`;
+
     moduleLogger.info('Proxying to QQBot Core', {
       originalUrl: req.originalUrl,
       proxyUrl: url,
@@ -30,6 +30,7 @@ const proxyToQQBotCore = async (req: express.Request, res: express.Response, end
       method: req.method,
       url,
       data: req.method !== 'GET' ? req.body : undefined,
+      params: req.query,
       headers: {
         'Content-Type': 'application/json',
       },
