@@ -371,7 +371,7 @@ export class AIService {
    * 预热配置缓存
    */
   private async preloadConfigurations(): Promise<void> {
-    const commonAgentTypes = ['chat_bot', 'intent_analyzer', 'decision_engine', 'persona_engine'];
+    const commonAgentTypes = ['chat_bot', 'intent_analyzer', 'decision_engine'];
 
     const preloadPromises = commonAgentTypes.map(async (agentType) => {
       try {

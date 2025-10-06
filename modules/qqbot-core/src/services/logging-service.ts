@@ -77,6 +77,8 @@ export interface SessionTraceUpdateData {
   llmCallLogIds?: number[];
   decisionResult?: any;
   contextResult?: any;
+  styleResult?: any;
+  /** @deprecated legacy persona result field */
   personaResult?: any;
   finalResponse?: string;
   totalProcessingTimeMs?: number;
@@ -341,9 +343,9 @@ export class LoggingService {
         updateFields.push('context_result = ?');
         values.push(JSON.stringify(data.contextResult));
       }
-      if (data.personaResult !== undefined) {
+      if (data.styleResult !== undefined || data.personaResult !== undefined) {
         updateFields.push('persona_result = ?');
-        values.push(JSON.stringify(data.personaResult));
+        values.push(JSON.stringify(data.styleResult ?? data.personaResult));
       }
       if (data.finalResponse !== undefined) {
         updateFields.push('final_response = ?');

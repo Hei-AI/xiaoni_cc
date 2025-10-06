@@ -129,6 +129,7 @@ export class ConfigConverter {
     const mapping: Record<string, LLMConfigCategory> = {
       'chat_bot': 'chat_bot',
       'decision_engine': 'decision_engine',
+      // legacy compatibility for historical persona configs
       'persona_engine': 'persona_chat',
       'context_engine': 'custom',
       'intent_analyzer': 'intent_analyzer',

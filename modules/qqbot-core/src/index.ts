@@ -12,7 +12,6 @@ import MessageQueueService, { DrainedMessage } from './services/message-queue-se
 import DirectNotifier, { BatchHandler, TriggerType } from './services/direct-notifier';
 import ScheduleDispatcher from './services/schedule-dispatcher';
 import DecisionEngine from './engines/decision-engine';
-import PersonaEngine from './engines/persona-engine';
 import ContextEngine from './engines/context-engine';
 // 🛠️ LLM 工具系统组件
 import { ToolRegistryService } from './services/tool-registry-service';
@@ -26,8 +25,6 @@ import {
   ConversationData,
   MessageContext,
   DecisionResult,
-  PersonaResponse,
-  ResponseContext,
   GroupChatSettings,
   PrivateChatSettings,
   UnifiedLLMConfig
@@ -46,7 +43,6 @@ class QQBot implements BatchHandler {
 
   // Stage 1 Engines
   private decisionEngine: DecisionEngine;
-  private personaEngine: PersonaEngine;
   private contextEngine: ContextEngine;
 
   // Human-like Processing Components
@@ -81,7 +77,6 @@ class QQBot implements BatchHandler {
     // Initialize Stage 1 Engines
     this.contextEngine = new ContextEngine(this.database);
     this.decisionEngine = new DecisionEngine(this.aiService, config.ai);
-    this.personaEngine = new PersonaEngine(this.aiService);
 
     // Initialize Human-like Processing
     this.enableHumanLikeProcessing = process.env.ENABLE_HUMAN_LIKE_PROCESSING === 'true';
@@ -236,8 +231,8 @@ class QQBot implements BatchHandler {
       websocketClient: this.websocketClient,
       debugService: this.debugService,
       qqBot: this, // Pass QQBot instance for test endpoints
-      simpleQueue: this.messageQueueService, // 传递消息队列服务用于模拟端点
-      aiService: this.aiService // 🔥 新增：传递AI服务用于内部LLM调试
+      aiService: this.aiService,
+      messageQueueService: this.messageQueueService
     });
 
     // Clear group settings cache to pick up any recent database changes
@@ -689,7 +684,7 @@ class QQBot implements BatchHandler {
         if (handled) return;
       }
 
-      // Stage 1: Enhanced AI conversation with PersonaEngine
+      // Stage 1: Enhanced AI conversation pipeline
       await this.handleEnhancedAIConversation(
         userId,
         userMessage,
@@ -1244,7 +1239,7 @@ class QQBot implements BatchHandler {
   }
 
   /**
-   * Stage 1: Enhanced AI conversation with PersonaEngine
+   * Stage 1: Enhanced AI conversation pipeline
    */
   private async handleEnhancedAIConversation(
     userId: number,
@@ -1348,16 +1343,14 @@ class QQBot implements BatchHandler {
       }
 
       // 原有逻辑：直接调用 AI 服务
-      // Build response context for PersonaEngine
-      const responseContext: ResponseContext = {
-        messageType: originalMessage.message_type,
-        userRelation: (messageContext.userInfo?.message_count || 0) > 10 ? 'frequent' : 'occasional' as 'new' | 'occasional' | 'frequent',
-        conversationTopic: [], // Extract from contextSummary if needed
-        previousResponses: [], // Stage 1 limitation
-        timeOfDay: this.getTimeOfDay(),
-        isUrgent: userMessage.includes('紧急') || userMessage.includes('急'),
-        conversationId: conversationId // 传递conversationId给PersonaEngine
-      };
+      const inferredUserRelation: 'new' | 'occasional' | 'frequent' = (() => {
+        const historyCount = messageContext.userInfo?.message_count || 0;
+        if (historyCount > 10) return 'frequent';
+        if (historyCount === 0) return 'new';
+        return 'occasional';
+      })();
+
+      const isUrgentMessage = userMessage.includes('紧急') || userMessage.includes('急');
 
       // Generate base AI response with context
       // 现在我们不再创建新的conversation，而是调用AI服务并更新已存在的记录
@@ -1387,39 +1380,20 @@ class QQBot implements BatchHandler {
         return;
       }
       
-      // Enhance response with PersonaEngine
-      const personaResponse = await this.personaEngine.enhanceResponse(
-        aiResponse, // Pass AI response for enhancement
-        userMessage,
-        responseContext,
-        traceId,
-        sessionId // Pass session ID for LLM tracking
-      );
+      const finalResponse = aiResponse?.trim();
 
-      this.moduleLogger.info('PersonaEngine enhanced response', {
-        originalLength: aiResponse.length,
-        enhancedLength: personaResponse.content.length,
-        selectedPersona: personaResponse.selectedPersona,
-        confidence: personaResponse.confidence,
-        processingTime: personaResponse.processingTime
-      });
-
-      // Use persona-enhanced response
-      const finalResponse = personaResponse.content;
-      
-      // 如果PersonaEngine返回空content，标记为失败
-      if (!finalResponse || finalResponse.trim() === '') {
-        this.moduleLogger.info('PersonaEngine returned empty content, marking conversation as failed');
+      if (!finalResponse) {
+        this.moduleLogger.info('AI service returned empty response after trimming, marking conversation as failed');
         if (conversationId) {
           await this.database.updateConversationStatus(
             conversationId,
             'failed',
-            'PersonaEngine returned empty content'
+            'AI response was empty'
           );
         }
         return;
       }
-      
+
       const responseTime = Date.now() - startTime;
 
       // 更新conversation记录为完成状态
@@ -1432,12 +1406,11 @@ class QQBot implements BatchHandler {
           responseTime,
           promptConfig.model?.name || 'gemini-2.5-flash',
           JSON.stringify({
-            baseResponse: aiResponse,
-            personaResponse: personaResponse,
+            aiResponse,
             messageContext: {
               contextSummary: messageContext.contextSummary,
-              userRelation: responseContext.userRelation,
-              selectedPersona: personaResponse.selectedPersona,
+              userRelation: inferredUserRelation,
+              isUrgent: isUrgentMessage,
               historyCount: messageContext.historyMessages.length
             }
           })
@@ -1501,7 +1474,8 @@ class QQBot implements BatchHandler {
         conversationId: conversationId,
         userId,
         responseTime,
-        personaUsed: personaResponse.selectedPersona,
+        responseLength: finalResponse.length,
+        inferredUserRelation,
         isGroupMessage: originalMessage.message_type === 'group'
       });
 
@@ -1660,122 +1634,6 @@ class QQBot implements BatchHandler {
     }
   }
 
-  private async handleAIConversation(
-    userId: number,
-    message: string,
-    originalMessage: QQMessage,
-    sessionId?: string,
-    traceId?: string
-  ): Promise<void> {
-    const startTime = Date.now();
-
-    try {
-      // 构建消息上下文
-      const messageContext = await this.contextManager.buildMessageContext(originalMessage, 20);
-      
-      // 生成包含上下文的AI响应
-      const contextPrompt = this.contextManager.formatContextForAI(messageContext);
-      const fullPrompt = `${contextPrompt}\n\n=== 当前需要回复的消息 ===\n${message}`;
-      
-      // Pass original user message and context prompt separately
-      const conversation = await this.aiService.generateResponseWithContext(
-        message, // Original user message for database
-        fullPrompt, // Full context prompt for AI
-        userId,
-        'chat_bot',
-        'basic_chat',
-        traceId
-      );
-      
-      // 如果AI服务返回null（错误时），不发送任何消息，只记录日志
-      if (!conversation) {
-        this.moduleLogger.info('AI service returned null, no message will be sent to user');
-        return;
-      }
-      
-      const responseTime = Date.now() - startTime;
-
-      // 更新响应时间和Session关联
-      conversation.response_time = responseTime;
-      conversation.message_id = originalMessage.message_id;
-      conversation.session_id = sessionId;  // 关联Session ID
-
-      // 保存对话到数据库
-      await this.database.saveConversation(conversation);
-
-      // 发送响应 - 如果有session上下文且是回复链的一部分，使用回复功能
-      const shouldSendReply = sessionId && originalMessage.message_id && 
-                             (sessionId.includes('reply') || sessionId.includes('chain'));
-
-      if (originalMessage.message_type === 'group' && originalMessage.group_id) {
-        // 更新群聊AI回复活跃度
-        await this.database.updateGroupActivity(originalMessage.group_id, 0, 1);
-        
-        // 第3层检查：是否允许发送自动回复
-        const groupSettings = await this.database.getGroupChatSettingById(originalMessage.group_id);
-        const canAutoReply = groupSettings?.auto_reply_enabled ?? true; // 默认允许回复
-        
-        if (!canAutoReply) {
-          this.moduleLogger.debug('Group auto reply disabled, AI response generated but not sent', { 
-            group_id: originalMessage.group_id,
-            has_response: !!conversation.ai_response
-          });
-          return; // LLM已处理，但不发送回复
-        }
-        
-        // 通过所有检查，发送回复
-        if (shouldSendReply && originalMessage.message_id && conversation.ai_response) {
-          await this.websocketClient.sendReplyMessage(
-            originalMessage.message_id,
-            conversation.ai_response
-          );
-        } else if (conversation.ai_response) {
-          await this.websocketClient.sendGroupMessage(
-            originalMessage.group_id,
-            conversation.ai_response
-          );
-        }
-      } else {
-        // 私聊消息 - 检查私聊设置的auto_reply_enabled
-        const privateSettings = await this.database.getPrivateChatSettingById(userId);
-        const canAutoReply = privateSettings?.auto_reply_enabled ?? true; // 默认允许回复
-        
-        if (!canAutoReply) {
-          this.moduleLogger.debug('Private chat auto reply disabled, AI response generated but not sent', { 
-            user_id: userId,
-            has_response: !!conversation.ai_response
-          });
-          return; // LLM已处理，但不发送回复
-        }
-        
-        // 通过检查，发送回复
-        if (shouldSendReply && originalMessage.message_id && conversation.ai_response) {
-          await this.websocketClient.sendReplyMessage(
-            originalMessage.message_id,
-            conversation.ai_response
-          );
-        } else if (conversation.ai_response) {
-          await this.websocketClient.sendPrivateMessage(
-            userId,
-            conversation.ai_response
-          );
-        }
-      }
-
-      this.moduleLogger.info('AI conversation completed', {
-        conversationId: conversation.id,
-        userId,
-        responseTime,
-        isGroupMessage: originalMessage.message_type === 'group'
-      });
-
-    } catch (error) {
-      this.moduleLogger.error('Failed to handle AI conversation', { error, userId });
-      
-      // 不再发送错误消息给用户，只记录日志
-    }
-  }
-
   private async handleNotice(notice: QQNotice, eventData?: any): Promise<void> {
     this.moduleLogger.debug('Received notice', notice);
     
@@ -1826,7 +1684,7 @@ class QQBot implements BatchHandler {
 
 🧠 Stage 1 新特性:
 ✅ 智能决策引擎: 自动判断是否需要回复
-✅ 人格化引擎: 根据场景选择合适的回复风格
+✅ Prompt 配置驱动: LLM 调用内完成风格化处理
 ✅ 上下文引擎: 理解对话历史和用户信息
 
 🤖 机器人信息:

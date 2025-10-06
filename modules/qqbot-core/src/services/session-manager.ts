@@ -43,16 +43,6 @@ export interface ReplyInfo {
   segments: OB11Segment[];
 }
 
-export interface IntentResult {
-  session_type: 'chat' | 'requirement';
-  confidence: number;
-  method: string;
-  reasoning?: string;
-  keywords: string[];
-  requires_confirmation?: boolean;
-  confirmation_options?: string[];
-}
-
 /**
  * 消息引用解析器
  */

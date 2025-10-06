@@ -138,7 +138,7 @@ export interface LLMCallTrace {
   session_id: string;
   conversation_id?: string;
   call_sequence: number;
-  engine_type: 'decision' | 'context' | 'persona' | 'main_chat' | 'requirement';
+  engine_type: 'decision' | 'context' | 'style' | 'persona' | 'main_chat' | 'requirement';
   model_name?: string;
   request?: string;
   response?: string;
@@ -152,11 +152,6 @@ export interface LLMCallTrace {
   created_at?: Date;
   gemini_request?: any;
   gemini_response?: any;
-}
-
-// 扩展的消息上下文，包含LLM追踪信息
-export interface MessageContextWithTraces extends MessageContext {
-  llmCallHistory: LLMCallTrace[];
 }
 
 // Session LLM 分析结果
@@ -1053,57 +1048,6 @@ export interface GroupInfo {
   current_topic_hint?: string;
 }
 
-// PersonaEngine types
-export interface PersonaConfig {
-  primaryPersona: PersonaType;
-  secondaryAspects: PersonaAspect[];
-  responseStyle: ResponseStyle;
-  contextAdaptation: boolean;
-}
-
-export type PersonaType = 
-  | 'technical_expert'
-  | 'empathetic_friend'
-  | 'professional_assistant'
-  | 'casual_companion'
-  | 'creative_helper';
-
-export interface PersonaAspect {
-  aspect: 'humor' | 'formality' | 'enthusiasm' | 'patience' | 'creativity';
-  weight: number;
-}
-
-export interface ResponseStyle {
-  verbosity: 'concise' | 'balanced' | 'detailed';
-  tone: 'friendly' | 'professional' | 'casual' | 'warm';
-  useEmojis: boolean;
-  includeExamples: boolean;
-}
-
-export interface ResponseContext {
-  messageType: 'private' | 'group';
-  userRelation: 'new' | 'occasional' | 'frequent';
-  conversationTopic: string[];
-  previousResponses: string[];
-  timeOfDay: 'morning' | 'afternoon' | 'evening' | 'night';
-  isUrgent: boolean;
-  conversationId?: string;
-}
-
-export interface PersonaResponse {
-  content: string;
-  selectedPersona: PersonaType;
-  appliedAspects: PersonaAspect[];
-  confidence: number;
-  processingTime: number;
-  metadata?: {
-    originalResponse?: string;
-    adjustmentsMade?: string[];
-    emojiCount?: number;
-    sentimentScore?: number;
-  };
-}
-
 // 🔥 新增：可配置LLM参数系统 - 支持所有Gemini高级功能
 
 // 基础生成配置参数
@@ -1373,125 +1317,6 @@ export interface AggregationWindow {
 /**
  * 消息聚合管理器配置
  */
-export interface MessageAggregationConfig {
-  aggregationWindowMs: number; // 聚合窗口时间（毫秒）
-  maxQueueSize: number; // 单队列最大消息数
-  enableWindowExtension: boolean; // 是否启用窗口延长
-  maxWindowExtensions: number; // 最大延长次数
-}
-
-/**
- * 生活节奏管理器配置
- */
-export interface LifeRhythmConfig {
-  enabled: boolean;
-  baseCheckInterval: number; // 基础检查间隔（毫秒）
-  workHoursProbability: number; // 工作时间检查概率 (0-1)
-  restHoursProbability: number; // 休息时间检查概率 (0-1)
-  sleepHoursProbability: number; // 睡眠时间检查概率 (0-1)
-  workHoursStart: number; // 工作时间开始（小时）
-  workHoursEnd: number; // 工作时间结束（小时）
-  restHoursStart: number; // 休息时间开始（小时）
-  restHoursEnd: number; // 休息时间结束（小时）
-}
-
-/**
- * 人类化消息处理器配置
- */
-export interface HumanLikeProcessingConfig {
-  enabled: boolean;
-  aggregation: MessageAggregationConfig;
-  lifeRhythm: LifeRhythmConfig;
-  debug: boolean;
-}
-
-/**
- * 消息消费触发原因
- */
-export type ConsumptionTriggerReason =
-  | 'window_timeout'           // 聚合窗口超时
-  | 'queue_size_limit'         // 队列大小限制
-  | 'life_rhythm_check'        // 生活节奏检查
-  | 'manual_trigger'           // 手动触发
-  | 'system_shutdown';         // 系统关闭
-
-/**
- * 消息到达事件数据
- */
-export interface MessageArrivalEvent {
-  messageId: string;
-  sourceKey: string;
-  arrivalTime: Date;
-  traceId: string;
-  eventData?: any;
-}
-
-/**
- * 消息消费事件数据
- */
-export interface MessageConsumptionEvent {
-  batchId: string;
-  sourceKey: string;
-  messageIds: string[];
-  batchSize: number;
-  triggerReason: ConsumptionTriggerReason;
-  consumptionTime: Date;
-  processingDuration?: number;
-  traceId: string;
-  status: 'started' | 'completed' | 'failed';
-  errorMessage?: string;
-}
-
-/**
- * 人类化处理统计信息
- */
-export interface HumanLikeProcessingStats {
-  // 消息到达统计
-  totalMessagesArrived: number;
-  totalBatchesProcessed: number;
-  averageBatchSize: number;
-
-  // 聚合窗口统计
-  aggregationWindowsCreated: number;
-  averageWindowDuration: number;
-  windowTimeoutRate: number;
-
-  // 生活节奏统计
-  rhythmChecksPerformed: number;
-  rhythmChecksSkipped: number;
-  messagesProcessedByRhythm: number;
-  currentRhythmProbability: number;
-
-  // 性能指标
-  averageProcessingDelay: number;
-  totalProcessingTime: number;
-  errorRate: number;
-
-  // 队列状态
-  activeQueues: number;
-  totalQueuedMessages: number;
-  maxQueueSize: number;
-}
-
-/**
- * 原始处理器句柄接口
- */
-export interface OriginalMessageHandlers {
-  handlePrivateMessage: (message: QQMessage, eventData?: any) => Promise<void>;
-  handleGroupMessage: (message: QQMessage, eventData?: any) => Promise<void>;
-}
-
-/**
- * 人类化消息处理器初始化选项
- */
-export interface HumanLikeProcessorOptions {
-  originalHandlers: OriginalMessageHandlers;
-  database: any; // DatabaseManager类型
-  loggingService: any; // LoggingService类型
-  contextManager: any; // ContextManager类型
-  config?: Partial<HumanLikeProcessingConfig>;
-}
-
 // ============================================================================
 // 🛠️ LLM 工具编排系统类型定义
 // ============================================================================

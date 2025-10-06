@@ -66,7 +66,11 @@ export class MessageQueueService extends EventEmitter {
    * @param message QQ消息
    * @param eventData WebSocket 事件数据（包含 traceId）
    */
-  async enqueue(message: QQMessage | QQNotice | QQRequest, eventData?: any): Promise<string> {
+  async enqueue(
+    message: QQMessage | QQNotice | QQRequest,
+    eventData?: any,
+    source: 'websocket' | 'simulation' | 'api' = 'websocket'
+  ): Promise<string> {
     const sourceKey = this.generateSourceKey(message);
     const priority = this.getPriority(message);
     const traceId = eventData?.traceId || `trace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -76,7 +80,7 @@ export class MessageQueueService extends EventEmitter {
       traceId,
       type: this.getMessageType(message),
       payload: message,
-      source: 'websocket',
+      source,
       timestamp: new Date(),
       priority,
       partitionKey: sourceKey
@@ -155,6 +159,178 @@ export class MessageQueueService extends EventEmitter {
    */
   getStats() {
     return this.queue.getStats();
+  }
+
+  getAllPartitions() {
+    return this.queue.getAllPartitions();
+  }
+
+  getPartitionSnapshot(partitionKey: string, peekLimit: number = 10) {
+    const info = this.queue.getPartitionInfo(partitionKey);
+    if (!info) return null;
+
+    const messages = this.queue.peekPartition(partitionKey, peekLimit).map((msg) => ({
+      id: msg.id,
+      traceId: msg.traceId,
+      type: msg.type,
+      priority: msg.priority,
+      timestamp: msg.timestamp.toISOString(),
+      source: msg.source
+    }));
+
+    return {
+      partitionKey: info.partitionKey,
+      type: info.type,
+      messageCount: info.messageCount,
+      lastProcessedAt: info.lastProcessedAt ? info.lastProcessedAt.toISOString() : null,
+      messages
+    };
+  }
+
+  clearPartition(partitionKey: string): number {
+    return this.queue.clearPartition(partitionKey);
+  }
+
+  getRuntimeConfig() {
+    return {
+      performance: {
+        pollIntervalMs: 100,
+        batchSize: 10
+      },
+      limits: {
+        maxRetries: 3,
+        maxPartitions: 1000
+      }
+    };
+  }
+
+  async simulatePrivateMessage(params: {
+    user_id: number;
+    message: string;
+    priority?: 'HIGH' | 'MEDIUM' | 'LOW';
+  }): Promise<{ traceId: string; messageId: string }> {
+    const { user_id, message, priority } = params;
+
+    const qqMessage: QQMessage = {
+      message_type: 'private',
+      user_id,
+      message,
+      raw_message: message,
+      message_id: Date.now(),
+      time: Math.floor(Date.now() / 1000),
+      self_id: this.botQQNumber,
+      sender: {
+        user_id,
+        nickname: `模拟用户${user_id}`,
+        sex: 'unknown'
+      },
+      font: 14,
+      sub_type: 'friend',
+      post_type: 'message'
+    };
+
+    const traceId = `sim-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const selectedPriority = priority || this.getPriority(qqMessage);
+
+    const queuedMessage: QueuedMessage = {
+      id: uuidv4(),
+      traceId,
+      type: 'private_message',
+      payload: qqMessage,
+      source: 'api',
+      timestamp: new Date(),
+      priority: selectedPriority,
+      partitionKey: this.generateSourceKey(qqMessage)
+    };
+
+    await this.queue.push(queuedMessage);
+
+    return { traceId, messageId: queuedMessage.id };
+  }
+
+  async simulateGroupMessage(params: {
+    user_id: number;
+    group_id: number;
+    message: string;
+    atBot?: boolean;
+    priority?: 'HIGH' | 'MEDIUM' | 'LOW';
+  }): Promise<{ traceId: string; messageId: string }> {
+    const { user_id, group_id, message, atBot, priority } = params;
+
+    const content = atBot
+      ? [
+          { type: 'at', data: { qq: String(this.botQQNumber) } },
+          { type: 'text', data: { text: ` ${message}` } }
+        ]
+      : message;
+
+    const qqMessage: QQMessage = {
+      message_type: 'group',
+      user_id,
+      group_id,
+      message: content as any,
+      raw_message: atBot ? `[CQ:at,qq=${this.botQQNumber}] ${message}` : message,
+      message_id: Date.now(),
+      time: Math.floor(Date.now() / 1000),
+      self_id: this.botQQNumber,
+      sender: {
+        user_id,
+        nickname: `模拟用户${user_id}`,
+        card: `测试成员${user_id}`,
+        sex: 'unknown',
+        role: 'member'
+      },
+      font: 14,
+      sub_type: 'normal',
+      post_type: 'message'
+    };
+
+    const traceId = `sim-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const selectedPriority = priority || this.getPriority(qqMessage);
+
+    const queuedMessage: QueuedMessage = {
+      id: uuidv4(),
+      traceId,
+      type: 'group_message',
+      payload: qqMessage,
+      source: 'api',
+      timestamp: new Date(),
+      priority: selectedPriority,
+      partitionKey: this.generateSourceKey(qqMessage)
+    };
+
+    await this.queue.push(queuedMessage);
+
+    return { traceId, messageId: queuedMessage.id };
+  }
+
+  async simulateBatch(messages: Array<{
+    type: 'private' | 'group';
+    user_id: number;
+    group_id?: number;
+    message: string;
+    priority?: 'HIGH' | 'MEDIUM' | 'LOW';
+    atBot?: boolean;
+  }>): Promise<string[]> {
+    const traceIds: string[] = [];
+
+    for (const msg of messages) {
+      if (msg.type === 'private') {
+        const { traceId } = await this.simulatePrivateMessage(msg);
+        traceIds.push(traceId);
+      } else if (msg.type === 'group' && msg.group_id !== undefined) {
+        const { traceId } = await this.simulateGroupMessage({
+          user_id: msg.user_id,
+          group_id: msg.group_id,
+          message: msg.message,
+          priority: msg.priority,
+          atBot: msg.atBot
+        });
+        traceIds.push(traceId);
+      }
+    }
+
+    return traceIds;
   }
 
   /**

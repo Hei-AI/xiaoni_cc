@@ -129,7 +129,7 @@ const CREATE_TABLES_SQL = [
     -- 处理结果
     decision_result JSON NULL COMMENT '决策引擎结果',
     context_result JSON NULL COMMENT '上下文引擎结果',  
-    persona_result JSON NULL COMMENT '人格化引擎结果',
+    persona_result JSON NULL COMMENT '风格处理结果 (legacy)',
     final_response TEXT NULL COMMENT '最终回复内容',
     
     -- 性能统计

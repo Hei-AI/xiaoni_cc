@@ -1,5 +1,5 @@
 import { DatabaseManager } from './database';
-import { QQMessage, ConversationData, MessageContextWithTraces, LLMCallTrace } from '../types';
+import { QQMessage, ConversationData } from '../types';
 import { logger } from '../utils/logger';
 
 /**
@@ -264,7 +264,7 @@ export class ContextManager {
           const time = new Date(msg.timestamp).toLocaleTimeString();
           prompt += `${index + 1}. [${time}] 用户: ${msg.user_message}\n`;
           if (msg.ai_response) {
-            prompt += `   阿正: ${msg.ai_response}\n`;
+            prompt += `   助手: ${msg.ai_response}\n`;
           }
           prompt += `\n`;
         });
@@ -277,7 +277,7 @@ export class ContextManager {
           const senderNickname = this.extractSenderFromConversation(msg);
           prompt += `${index + 1}. [${time}] ${senderNickname}: ${msg.user_message}\n`;
           if (msg.ai_response) {
-            prompt += `   阿正: ${msg.ai_response}\n`;
+            prompt += `   助手: ${msg.ai_response}\n`;
           }
           prompt += `\n`;
         });
@@ -324,114 +324,4 @@ export class ContextManager {
     return `用户${conversation.user_id}`;
   }
 
-  /**
-   * 构建包含 LLM 追踪信息的消息上下文
-   * @param message 当前消息
-   * @param contextLimit 上下文消息数量限制
-   * @returns 包含LLM追踪的完整消息上下文对象
-   */
-  public async buildMessageContextWithLLMTraces(
-    message: QQMessage, 
-    contextLimit: number = 20
-  ): Promise<MessageContextWithTraces> {
-    try {
-      // 获取基本上下文
-      const basicContext = await this.buildMessageContext(message, contextLimit);
-      
-      // 获取历史对话相关的LLM调用记录
-      const llmTraces: LLMCallTrace[] = [];
-      
-      for (const conversation of basicContext.historyMessages) {
-        try {
-          const traces = await this.database.getConversationLLMTraces(conversation.id);
-          llmTraces.push(...traces);
-        } catch (error) {
-          this.moduleLogger.warn('Failed to get LLM traces for conversation', {
-            conversationId: conversation.id,
-            error: error instanceof Error ? error.message : 'Unknown error'
-          });
-        }
-      }
-      
-      // 按时间排序LLM调用记录
-      llmTraces.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-      
-      this.moduleLogger.info('Built message context with LLM traces', {
-        historyCount: basicContext.historyMessages.length,
-        llmTracesCount: llmTraces.length
-      });
-      
-      return {
-        ...basicContext,
-        llmCallHistory: llmTraces
-      };
-      
-    } catch (error) {
-      this.moduleLogger.error('Failed to build message context with LLM traces', {
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-      
-      // 降级到基本上下文
-      const basicContext = await this.buildMessageContext(message, contextLimit);
-      return {
-        ...basicContext,
-        llmCallHistory: []
-      };
-    }
-  }
-
-  /**
-   * 格式化包含LLM追踪信息的上下文为AI Prompt
-   * @param context 包含LLM追踪的消息上下文
-   * @returns 格式化后的prompt文本
-   */
-  public formatContextWithLLMTracesForAI(context: MessageContextWithTraces): string {
-    let prompt = this.formatContextForAI(context);
-    
-    // 添加LLM调用历史信息
-    if (context.llmCallHistory && context.llmCallHistory.length > 0) {
-      prompt += `\n=== LLM调用历史 ===\n`;
-      prompt += `最近${context.llmCallHistory.length}次AI调用记录:\n`;
-      
-      // 只显示最近5次调用以避免prompt过长
-      const recentTraces = context.llmCallHistory.slice(-5);
-      
-      recentTraces.forEach((trace, index) => {
-        const time = trace.timestamp.toLocaleTimeString();
-        const engineType = this.translateEngineType(trace.engine_type);
-        const success = trace.success ? '✅' : '❌';
-        
-        prompt += `${index + 1}. [${time}] ${engineType} ${success}\n`;
-        prompt += `   响应时间: ${trace.response_time}ms`;
-        
-        if (trace.total_tokens && trace.total_tokens > 0) {
-          prompt += `, Tokens: ${trace.total_tokens}`;
-        }
-        
-        if (!trace.success && trace.error_message) {
-          prompt += `\n   错误: ${trace.error_message.substring(0, 100)}`;
-        }
-        
-        prompt += `\n`;
-      });
-      
-      prompt += `\n`;
-    }
-    
-    return prompt;
-  }
-
-  /**
-   * 翻译引擎类型为中文
-   */
-  private translateEngineType(engineType: string): string {
-    switch (engineType) {
-      case 'decision': return '决策引擎';
-      case 'context': return '上下文引擎';  
-      case 'persona': return '人格引擎';
-      case 'main_chat': return '主对话引擎';
-      case 'requirement': return '需求分析引擎';
-      default: return `${engineType}引擎`;
-    }
-  }
 }

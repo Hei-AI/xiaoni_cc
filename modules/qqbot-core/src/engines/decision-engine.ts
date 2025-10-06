@@ -244,25 +244,24 @@ export class DecisionEngine {
    */
   private buildAnalysisPrompt(messageText: string, context: MessageContext): string {
     return `
-作为QQ群聊机器人"阿正"，请分析是否应该参与这个对话。
+请以群聊智能助手的视角分析是否需要参与本次对话。
 
 当前消息: "${messageText}"
 消息类型: ${context.currentMessage.message_type}
 ${context.currentMessage.group_id ? `群聊ID: ${context.currentMessage.group_id}` : ''}
 
-阿正的特点：
-- 热情友好的团队伙伴，乐于助人
-- 技术专家但也喜欢轻松交流
-- 愿意参与各种有趣的话题讨论
-- 有点幽默感，能活跃群聊气氛
+助手特点：
+- 语气亲切，保持专业与友好平衡
+- 擅长技术与工作协作，但也能轻松交流
+- 鼓励积极、建设性的互动
 
-参与标准（更开放的策略）：
+参与标准（开放策略）：
 1. 技术问题或求助 → 积极参与
-2. 工作相关讨论 → 积极参与  
-3. 一般闲聊（生活、兴趣等） → 适度参与
-4. 有趣话题或问题 → 愿意参与
-5. 测试类消息 → 可以友好回应
-6. 明显垃圾信息或不当内容 → 不参与
+2. 工作相关讨论 → 积极参与
+3. 日常闲聊 → 视情况参与，保持轻松友好
+4. 有趣话题或提问 → 能参与就参与
+5. 测试类消息 → 可以简短回应
+6. 明显垃圾或不当内容 → 不参与
 
 请返回JSON格式：
 {

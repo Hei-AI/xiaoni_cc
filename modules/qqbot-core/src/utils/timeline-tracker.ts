@@ -218,7 +218,7 @@ export const TIMELINE_EVENTS = {
   },
   ENGINE: {
     DECISION_V2: 'decision_engine_v2',
-    PERSONA: 'persona_engine',
+    STYLE: 'style_engine',
     CONTEXT: 'context_engine'
   }
 } as const;

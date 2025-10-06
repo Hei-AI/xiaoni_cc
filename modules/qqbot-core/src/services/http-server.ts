@@ -1,6 +1,7 @@
 import express, { Express, Request, Response } from 'express';
 import { logger } from '../utils/logger';
 import { config } from '../config';
+import MessageQueueService from './message-queue-service';
 
 interface HttpServerConfig {
   port?: number;
@@ -12,8 +13,8 @@ interface HttpServerServices {
   websocketClient?: any;
   debugService?: any;
   qqBot?: any;
-  simpleQueue?: any; // 简单队列集成
   aiService?: any; // 🔥 新增：AI服务，用于内部LLM调试
+  messageQueueService?: MessageQueueService;
 }
 
 class HttpServer {
@@ -411,8 +412,9 @@ class HttpServer {
       }
     });
 
-    // 简单队列监控API
-    this.setupQueueRoutes();
+    if (this.services.messageQueueService) {
+      this.setupSimpleQueueRoutes();
+    }
 
     // NOTE: Debug and test endpoints have been moved to Admin Panel Backend
     // This separation improves module responsibility and security
@@ -420,261 +422,163 @@ class HttpServer {
 
   }
 
-  private setupQueueRoutes(): void {
-    this.moduleLogger.info('Setting up queue routes...', { 
-      hasSimpleQueue: !!this.services.simpleQueue,
-      servicesKeys: Object.keys(this.services)
-    });
-    
-    if (!this.services.simpleQueue) {
-      this.moduleLogger.warn('Simple queue not available, skipping queue routes', {
-        services: Object.keys(this.services)
-      });
-      return;
-    }
+  private setupSimpleQueueRoutes(): void {
+    const queueService = this.services.messageQueueService;
+    if (!queueService) return;
 
-    // 获取队列统计
-    this.app.get('/api/queue/stats', (req: Request, res: Response) => {
+    this.moduleLogger.info('Registering simple queue monitor endpoints');
+
+    this.app.get('/api/simple-queue/stats', (req: Request, res: Response) => {
       try {
-        const stats = this.services.simpleQueue.getStats();
-        res.json({
-          success: true,
-          data: stats
-        });
-      } catch (error) {
-        this.moduleLogger.error('Failed to get queue stats', { error });
-        res.status(500).json({
-          success: false,
-          error: 'Failed to get queue statistics'
-        });
-      }
-    });
-
-    // 获取活跃分区
-    this.app.get('/api/queue/partitions', (req: Request, res: Response) => {
-      try {
-        const partitions = this.services.simpleQueue.getActivePartitions();
-        res.json({
-          success: true,
-          data: partitions
-        });
-      } catch (error) {
-        this.moduleLogger.error('Failed to get active partitions', { error });
-        res.status(500).json({
-          success: false,
-          error: 'Failed to get active partitions'
-        });
-      }
-    });
-
-    // 获取指定分区详情
-    this.app.get('/api/queue/partitions/:partitionKey', (req: Request, res: Response) => {
-      try {
-        const { partitionKey } = req.params;
-        const info = this.services.simpleQueue.getPartitionInfo(partitionKey);
-        
-        if (!info) {
-          return res.status(404).json({
-            success: false,
-            error: 'Partition not found'
-          });
-        }
-
-        res.json({
-          success: true,
-          data: info
-        });
-      } catch (error) {
-        this.moduleLogger.error('Failed to get partition info', { error });
-        res.status(500).json({
-          success: false,
-          error: 'Failed to get partition information'
-        });
-      }
-    });
-
-    // 清空指定分区
-    this.app.delete('/api/queue/partitions/:partitionKey', (req: Request, res: Response) => {
-      try {
-        const { partitionKey } = req.params;
-        const clearedCount = this.services.simpleQueue.clearPartition(partitionKey);
-        
-        this.moduleLogger.info('Partition cleared via API', { partitionKey, clearedCount });
-        
+        const stats = queueService.getStats();
         res.json({
           success: true,
           data: {
-            partitionKey,
-            clearedMessages: clearedCount
+            partition_count: stats.totalPartitions ?? stats.partitionCount ?? 0,
+            active_partitions: stats.activePartitions ?? 0,
+            total_messages: stats.totalMessages ?? 0,
+            processed_messages: stats.processedMessages ?? 0,
+            avg_messages_per_partition: stats.avgMessagesPerPartition ?? 0,
+            last_cleanup_at: stats.lastCleanupAt ? new Date(stats.lastCleanupAt).toISOString() : null
+          }
+        });
+      } catch (error) {
+        this.moduleLogger.error('Failed to load queue stats', { error });
+        res.status(500).json({ success: false, error: 'Failed to load queue statistics' });
+      }
+    });
+
+    this.app.get('/api/simple-queue/config', (req: Request, res: Response) => {
+      try {
+        const configSnapshot = queueService.getRuntimeConfig();
+        res.json({ success: true, config: configSnapshot });
+      } catch (error) {
+        this.moduleLogger.error('Failed to load queue config', { error });
+        res.status(500).json({ success: false, error: 'Failed to load queue config' });
+      }
+    });
+
+    this.app.get('/api/simple-queue/partitions', (req: Request, res: Response) => {
+      try {
+        const partitions = queueService.getAllPartitions().map((partition) => ({
+          partition_key: partition.partitionKey,
+          type: partition.type === 'user' ? 'private' : 'group',
+          queue_size: partition.messageCount,
+          last_activity: partition.lastProcessedAt ? partition.lastProcessedAt.toISOString() : null,
+          processing: 0,
+          status: partition.messageCount > 0 ? 'pending' : 'idle'
+        }));
+
+        res.json({ success: true, data: partitions });
+      } catch (error) {
+        this.moduleLogger.error('Failed to list queue partitions', { error });
+        res.status(500).json({ success: false, error: 'Failed to list queue partitions' });
+      }
+    });
+
+    this.app.get('/api/simple-queue/partitions/:partitionKey', (req: Request, res: Response) => {
+      try {
+        const snapshot = queueService.getPartitionSnapshot(req.params.partitionKey, 20);
+        if (!snapshot) {
+          return res.status(404).json({ success: false, error: 'Partition not found' });
+        }
+
+        res.json({ success: true, data: snapshot });
+      } catch (error) {
+        this.moduleLogger.error('Failed to load partition snapshot', { error });
+        res.status(500).json({ success: false, error: 'Failed to load partition information' });
+      }
+    });
+
+    this.app.delete('/api/simple-queue/partitions/:partitionKey', (req: Request, res: Response) => {
+      try {
+        const cleared = queueService.clearPartition(req.params.partitionKey);
+        res.json({
+          success: true,
+          data: {
+            partitionKey: req.params.partitionKey,
+            clearedMessages: cleared
           }
         });
       } catch (error) {
         this.moduleLogger.error('Failed to clear partition', { error });
-        res.status(500).json({
-          success: false,
-          error: 'Failed to clear partition'
-        });
+        res.status(500).json({ success: false, error: 'Failed to clear partition' });
       }
     });
 
-    // 模拟私聊消息
-    this.app.post('/api/queue/simulate/private', async (req: Request, res: Response) => {
+    this.app.post('/api/simple-queue/simulate/private', async (req: Request, res: Response) => {
       try {
         const { user_id, message, priority } = req.body;
 
-        if (!user_id || !message) {
-          return res.status(400).json({
-            success: false,
-            error: 'Missing required fields: user_id, message'
-          });
+        if (user_id === undefined || !message) {
+          return res.status(400).json({ success: false, error: 'Missing user_id or message' });
         }
 
-        const qqMessage = {
-          message_type: 'private' as const,
-          user_id,
-          message,
-          raw_message: message,
-          message_id: Date.now(),
-          time: Math.floor(Date.now() / 1000),
-          self_id: 1129974489,
-          sender: {
-            user_id,
-            nickname: `TestUser${user_id}`,
-            sex: 'unknown' as const
-          },
-          font: 14,
-          sub_type: 'friend' as const,
-          post_type: 'message' as const
-        };
-
-        const traceId = `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        await this.services.qqBot.simulatePrivateMessageSimple(qqMessage, { traceId });
-
-        this.moduleLogger.info('Private message simulated via API', { user_id, traceId });
-
-        res.json({
-          success: true,
-          data: {
-            traceId,
-            user_id,
-            message: message.substring(0, 100),
-            priority: priority || 'HIGH'
-          }
+        const result = await queueService.simulatePrivateMessage({
+          user_id: Number(user_id),
+          message: String(message),
+          priority
         });
+
+        res.json({ success: true, data: result });
       } catch (error) {
         this.moduleLogger.error('Failed to simulate private message', { error });
-        res.status(500).json({
-          success: false,
-          error: 'Failed to simulate private message'
-        });
+        res.status(500).json({ success: false, error: 'Failed to simulate private message' });
       }
     });
 
-    // 模拟群聊消息
-    this.app.post('/api/queue/simulate/group', async (req: Request, res: Response) => {
+    this.app.post('/api/simple-queue/simulate/group', async (req: Request, res: Response) => {
       try {
         const { user_id, group_id, message, atBot, priority } = req.body;
 
-        if (!user_id || !group_id || !message) {
-          return res.status(400).json({
-            success: false,
-            error: 'Missing required fields: user_id, group_id, message'
-          });
+        if (user_id === undefined || group_id === undefined || !message) {
+          return res.status(400).json({ success: false, error: 'Missing user_id, group_id or message' });
         }
 
-        const qqMessage = {
-          message_type: 'group' as const,
-          user_id,
-          group_id,
-          message: atBot ? `[CQ:at,qq=1129974489] ${message}` : message,
-          raw_message: atBot ? `[CQ:at,qq=1129974489] ${message}` : message,
-          message_id: Date.now(),
-          time: Math.floor(Date.now() / 1000),
-          self_id: 1129974489,
-          sender: {
-            user_id,
-            nickname: `TestUser${user_id}`,
-            card: `TestCard${user_id}`,
-            sex: 'unknown' as const,
-            role: 'member' as const
-          },
-          font: 14,
-          sub_type: 'normal' as const,
-          post_type: 'message' as const
-        };
-
-        const traceId = `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        await this.services.qqBot.simulateGroupMessageSimple(qqMessage, { traceId });
-
-        this.moduleLogger.info('Group message simulated via API', { user_id, group_id, traceId });
-
-        res.json({
-          success: true,
-          data: {
-            traceId,
-            user_id,
-            group_id,
-            message: message.substring(0, 100),
-            atBot: !!atBot,
-            priority: priority || 'MEDIUM'
-          }
+        const result = await queueService.simulateGroupMessage({
+          user_id: Number(user_id),
+          group_id: Number(group_id),
+          message: String(message),
+          atBot: Boolean(atBot),
+          priority
         });
+
+        res.json({ success: true, data: result });
       } catch (error) {
         this.moduleLogger.error('Failed to simulate group message', { error });
-        res.status(500).json({
-          success: false,
-          error: 'Failed to simulate group message'
-        });
+        res.status(500).json({ success: false, error: 'Failed to simulate group message' });
       }
     });
 
-    // 批量模拟消息
-    this.app.post('/api/queue/simulate/batch', async (req: Request, res: Response) => {
+    this.app.post('/api/simple-queue/simulate/batch', async (req: Request, res: Response) => {
       try {
         const { messages } = req.body;
-        
+
         if (!Array.isArray(messages) || messages.length === 0) {
-          return res.status(400).json({
-            success: false,
-            error: 'Invalid messages array'
-          });
+          return res.status(400).json({ success: false, error: 'messages must be a non-empty array' });
         }
 
-        if (messages.length > 50) {
-          return res.status(400).json({
-            success: false,
-            error: 'Too many messages (max 50)'
-          });
-        }
-
-        const traceIds = await this.services.simpleQueue.simulateBatch(messages);
-
-        this.moduleLogger.info('Batch messages simulated via API', { 
-          count: messages.length,
-          traceIds: traceIds.slice(0, 5) // 只记录前5个
-        });
+        const traceIds = await queueService.simulateBatch(messages.map((msg: any) => ({
+          type: msg.type,
+          user_id: Number(msg.user_id),
+          group_id: msg.group_id !== undefined ? Number(msg.group_id) : undefined,
+          message: String(msg.message),
+          priority: msg.priority,
+          atBot: msg.atBot
+        })));
 
         res.json({
           success: true,
           data: {
-            messageCount: messages.length,
             traceIds,
-            summary: {
-              privateMessages: messages.filter(m => m.type === 'private').length,
-              groupMessages: messages.filter(m => m.type === 'group').length
-            }
+            messageCount: traceIds.length
           }
         });
       } catch (error) {
         this.moduleLogger.error('Failed to simulate batch messages', { error });
-        res.status(500).json({
-          success: false,
-          error: 'Failed to simulate batch messages'
-        });
+        res.status(500).json({ success: false, error: 'Failed to simulate messages' });
       }
     });
-
-    this.moduleLogger.info('Queue API routes registered');
   }
 
   public start(): Promise<void> {
