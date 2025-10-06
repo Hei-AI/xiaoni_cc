@@ -4,14 +4,61 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="e289a57b-6024-485c-8211-1bbd342ce7af" name="Changes" comment="save token.properties">
+    <list default="true" id="e289a57b-6024-485c-8211-1bbd342ce7af" name="Changes" comment="fix: add gitgnore">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/admin-panel/backend/src/routes/prompt-routes.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/backend/src/routes/prompt-routes.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/ConversationsPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/ConversationsPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/PromptDebugPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/PromptDebugPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db-shm" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db-shm" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db-wal" beforeDir="false" afterPath="$PROJECT_DIR$/resource/napcat_qq_data/nt_qq_7c09b6055ff92a5f5bc09e5363d3e04f/nt_db/nt_msg.db-wal" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/HUMAN_LIKE_PROCESSOR_FLOW_LLM_TOOLS.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/HUMAN_LIKE_PROCESSOR_FLOW_LLM_TOOLS.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/types/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/types/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/CLAUDE.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/engines/context-engine.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/engines/context-engine.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/engines/decision-engine-v2.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/engines/decision-engine.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/engines/decision-engine.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/engines/persona-engine.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/queue-integration.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/scripts/create-trace-tables.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/scripts/create-trace-tables.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/__tests__/tool-registry-service.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/ai-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/ai-service.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/attention-service.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/config-converter.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/config-converter.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/context-manager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/context-manager.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/http-server.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/http-server.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/human-like-message-processor.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/life-rhythm-manager.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/logging-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/logging-service.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-aggregation-manager.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-arrival-handler.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-consumer.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-consumption-trigger.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-queue-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-queue-service.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-queue.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-queue.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/session-manager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/session-manager.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/simple-message-queue.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/simple-queue-integration.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/types/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/types/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/utils/timeline-tracker.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/utils/timeline-tracker.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/ai-service-cache-fix.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/end-to-end-conversation.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/integration/ai-service-session-integration.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/integration/engine-interactions.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/integration/session-api.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/llm-tools-integration.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/performance-stress.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/session-api-handlers.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/session-integration.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/session-manager.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/token-http-api.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/token-management.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/unit/engines/context-engine.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/unit/engines/decision-engine.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/unit/engines/persona-engine.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/utf8-encoding.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/tests/websocket-message-simulator.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/database/checks/check_llm_request.js" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/database/checks/check_llm_request.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/database/checks/check_raw_response.js" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/database/checks/check_raw_response.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/testing/integration/test_end_to_end_flow.js" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/testing/integration/test_end_to_end_flow.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/testing/integration/test_integration_flow.js" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/testing/integration/test_integration_flow.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/testing/unit/test_context_simple.js" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/testing/unit/test_context_simple.js" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -52,40 +99,40 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "HTTP Request.rest-api | #1.executor": "Run",
-    "HTTP Request.rest-api_1 | #1.executor": "Run",
-    "HTTP Request.rest-api_1 | #2.executor": "Run",
-    "HTTP Request.rest-api_1 | #3.executor": "Run",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.main.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "SHELLCHECK.PATH": "C:\\Users\\a8517\\AppData\\Roaming\\JetBrains\\IntelliJIdea2025.2\\plugins\\Shell Script\\linux\\amd64\\shellcheck",
-    "git-widget-placeholder": "master",
-    "ignore.virus.scanning.warn.message": "true",
-    "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "//wsl.localhost/Ubuntu-22.04/home/liahua/IdeaProject/qq_bot",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "project.structure.last.edited": "Modules",
-    "project.structure.proportion": "0.0",
-    "project.structure.side.proportion": "0.2",
-    "settings.editor.selected.configurable": "Docker",
-    "ts.external.directory.path": "\\\\wsl.localhost\\Ubuntu-22.04\\home\\liahua\\IdeaProject\\qq_bot\\node_modules\\typescript\\lib",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;HTTP Request.rest-api | #1.executor&quot;: &quot;Run&quot;,
+    &quot;HTTP Request.rest-api_1 | #1.executor&quot;: &quot;Run&quot;,
+    &quot;HTTP Request.rest-api_1 | #2.executor&quot;: &quot;Run&quot;,
+    &quot;HTTP Request.rest-api_1 | #3.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.main.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;SHELLCHECK.PATH&quot;: &quot;C:\\Users\\a8517\\AppData\\Roaming\\JetBrains\\IntelliJIdea2025.2\\plugins\\Shell Script\\linux\\amd64\\shellcheck&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;//wsl.localhost/Ubuntu-22.04/home/liahua/IdeaProject/qq_bot&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;project.structure.last.edited&quot;: &quot;Modules&quot;,
+    &quot;project.structure.proportion&quot;: &quot;0.0&quot;,
+    &quot;project.structure.side.proportion&quot;: &quot;0.2&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;Docker&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;\\\\wsl.localhost\\Ubuntu-22.04\\home\\liahua\\IdeaProject\\qq_bot\\node_modules\\typescript\\lib&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   },
-  "keyToStringList": {
-    "DatabaseDriversLRU": [
-      "mysql"
+  &quot;keyToStringList&quot;: {
+    &quot;DatabaseDriversLRU&quot;: [
+      &quot;mysql&quot;
     ]
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="\\wsl.localhost\Ubuntu-22.04\home\liahua\IdeaProject\qq_bot\docs" />
@@ -173,7 +220,15 @@
       <option name="project" value="LOCAL" />
       <updated>1756816117872</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="fix: add gitgnore">
+      <option name="closed" value="true" />
+      <created>1759664917231</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1759664917231</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -205,7 +260,8 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="save token.properties" />
     <MESSAGE value="add: gitignore" />
-    <option name="LAST_COMMIT_MESSAGE" value="add: gitignore" />
+    <MESSAGE value="fix: add gitgnore" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix: add gitgnore" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

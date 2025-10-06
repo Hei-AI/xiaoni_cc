@@ -10,7 +10,7 @@
 ## 2. 代码结构速览
 ```
 src/
-├── engines/             # 决策/人格/上下文引擎
+├── engines/             # 决策与上下文引擎
 ├── services/            # AI、数据库、队列、调度器等服务
 ├── tools/               # LLM 静态工具实现
 ├── types/               # 统一类型定义
@@ -20,7 +20,6 @@ src/
 
 ### 核心引擎
 - `engines/decision-engine.ts`：判断是否回复及选用策略。
-- `engines/persona-engine.ts`：根据上下文调整措辞与人格。
 - `engines/context-engine.ts`：构建消息上下文。
 
 ### 重要服务
@@ -48,7 +47,7 @@ npm run build              # 构建
 ## 5. 消息处理流程摘要
 1. WebSocket 消息进入 `handlePrivateMessage`/`handleGroupMessage`。
 2. 统一入队 `MessageQueueService`，由 `DirectNotifier` 或 `ScheduleDispatcher` 触发批量处理。
-3. `_processSingle*` 负责上下文加载、决策、AI 调用、Persona 增强与最终发送。
+3. `_processSingle*` 负责上下文加载、决策、AI 调用与最终发送。
 4. LLM 工具系统启用时，通过 `LLMJobWorker` 异步处理，回调逻辑参见 [src/index.ts](./src/index.ts) 和 [项目状态](../../docs/PROJECT_STATUS.md) 中的修复清单。
 
 ## 6. 测试与调试

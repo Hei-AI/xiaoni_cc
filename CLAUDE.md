@@ -18,8 +18,8 @@ modules/
 
 ### 核心引擎与服务
 - `modules/qqbot-core/src/engines/decision-engine.ts`：判断是否响应以及选用何种服务。
-- `modules/qqbot-core/src/engines/persona-engine.ts`：对最终回复做人格化润色。
 - `modules/qqbot-core/src/engines/context-engine.ts`：聚合上下文。
+- Prompt agent 在配置中负责语气/人设，详见 `modules/qqbot-core/src/services/ai-service.ts` 的配置加载逻辑。
 - `modules/qqbot-core/src/services/ai-service.ts`：Gemini 调用、token 轮换与日志。
 - 其他服务（`database.ts`、`websocket-client.ts`、`context-manager.ts`）封装数据库访问与 WebSocket 通道。
 

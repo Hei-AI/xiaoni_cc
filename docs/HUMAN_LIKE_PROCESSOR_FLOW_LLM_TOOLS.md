@@ -26,7 +26,6 @@ graph LR
   subgraph AIPipeline[AI 处理链]
     CtxMgr[ContextManager]
     Decision[DecisionEngine]
-    Persona[PersonaEngine]
     AI[AIService -> Gemini]
     SessionMgr[SessionManager]
   end
@@ -44,7 +43,6 @@ graph LR
   SD -->|schedule| QQBot
   QQBot --> CtxMgr
   QQBot --> Decision
-  QQBot --> Persona
   QQBot --> AI
   AI --> DB
   QQBot --> SessionMgr
@@ -112,7 +110,7 @@ sequenceDiagram
 2. 调用 `ContextManager.buildMessageContext` 拉取最近历史与用户信息。
 3. `DecisionEngine.analyzeMessage` 判断是否需要回复，不回复时写入 `filtered_*` 状态后返回。
 4. 更新 session `SessionManager.processIncomingMessage` 并执行群管命令检测。
-5. `handleEnhancedAIConversation` → `PersonaEngine` + `AIService.callLLMAPI` 调用 Gemini；响应写入数据库、日志、最终通过 `WebSocketClient` 发送。
+5. `handleEnhancedAIConversation` 通过 `AIService` 调用 Gemini，使用 prompt agent 完成风格化；响应写入数据库、日志、最终通过 `WebSocketClient` 发送。
 6. 失败会更新 `conversation` 状态为 `failed` 并记录错误。
 
 群聊路径 `_processSingleGroupMessage` 逻辑类似，但增加了 @机器人、群配置与净化消息等步骤。
