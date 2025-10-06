@@ -54,6 +54,7 @@
 - ✅ 保持 `/api/queue-monitor/*` 响应结构不变，前端无缝刷新队列列表
 - ✅ 修复了容器名称解析问题（qqbot-core -> qqbot-qqbot-core）
 - ✅ 修复了 http-server 中 simulate 端点实现（使用 qqBot.simulateXXXSimple 方法）
+- ✅ 前端“队列管理”页取代旧版队列监控，集成消息模拟器并自动预填当前队列对应的用户/群参数
 - ✅ 验证通过：代理成功，消息正常处理
 
 **环境配置优化**
@@ -135,8 +136,9 @@ MYSQL_DATABASE=qqbot_db \
      -d '{"user_id":123456,"message":"测试消息"}'
    ```
 3. 查看统计与分区：`curl http://localhost:9080/api/simple-queue/stats`、`curl http://localhost:9080/api/simple-queue/partitions/user_123456`。
-4. 在数据库确认 `conversations` / `message_consumptions` 状态，检查 `logs/qqbot-core.log` 中批处理日志。
-5. 查询 `conversation_batches` 表应能看到新批次记录（含 `trigger_type`、`message_count`、`status` 等字段）。
+4. 打开 Admin Panel -> “队列管理”(`/queue-management`) 页面，确认导航文案更新且消息模拟器会根据选中队列自动填充用户/群字段；通过页面发送模拟消息后，队列列表与未消费详情应自动刷新。
+5. 在数据库确认 `conversations` / `message_consumptions` 状态，检查 `logs/qqbot-core.log` 中批处理日志。
+6. 查询 `conversation_batches` 表应能看到新批次记录（含 `trigger_type`、`message_count`、`status` 等字段）。
 
 ### B. LLM Function Calling
 1. 设置 `ENABLE_LLM_TOOLS=true` 并启动服务，确保日志出现 `LLMJobWorker started`。
