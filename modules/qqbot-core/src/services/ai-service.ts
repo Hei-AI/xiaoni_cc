@@ -7,6 +7,7 @@ import {
   GoogleGenAI,
   HarmCategory,
   HarmBlockThreshold,
+  Type,
   type GenerateContentConfig,
   type GenerateContentResponse
 } from '@google/genai';
@@ -15,6 +16,7 @@ import {
   AIConfig,
   ConversationData,
   UnifiedLLMConfig,
+  UnifiedToolConfig,
   TokenStats
 } from '../types';
 import { getTokenManager } from '../utils/token-manager';
@@ -313,6 +315,8 @@ export class AIService {
   private convertToUnifiedConfig(agentPrompt: any): UnifiedLLMConfig {
     const now = new Date();
 
+    const toolsConfig = this.buildToolsConfig(agentPrompt);
+
     return {
       id: agentPrompt.id,
       name: agentPrompt.prompt_name,
@@ -341,10 +345,7 @@ export class AIService {
         { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
       ],
 
-      tools: agentPrompt.advanced_config?.toolsConfig || {
-        functionCalling: { enabled: false },
-        predefinedTools: { enabledTools: [], callingMode: 'AUTO' }
-      },
+      tools: toolsConfig,
 
       context: {
         systemInstruction: Array.isArray(agentPrompt.system_instructions)
@@ -371,6 +372,75 @@ export class AIService {
         isActive: agentPrompt.is_active !== false
       }
     };
+  }
+
+  /**
+   * 构建工具配置，确保functionCalling和自定义工具同步
+   */
+  private buildToolsConfig(agentPrompt: any): UnifiedToolConfig {
+    const defaultConfig: UnifiedToolConfig = {
+      functionCalling: {
+        mode: 'NONE'
+      },
+      predefinedTools: {
+        enabledTools: [],
+        callingMode: 'AUTO'
+      },
+      customTools: []
+    };
+
+    if (!agentPrompt?.advanced_config) {
+      return defaultConfig;
+    }
+
+    try {
+      const advancedConfig = typeof agentPrompt.advanced_config === 'string'
+        ? JSON.parse(agentPrompt.advanced_config)
+        : agentPrompt.advanced_config;
+
+      const toolsConfig = advancedConfig?.toolsConfig;
+      if (!toolsConfig) {
+        return defaultConfig;
+      }
+
+      const customTools: Array<{
+        id: string;
+        name: string;
+        description: string;
+        parameters: Record<string, any>;
+      }> = Array.isArray(toolsConfig.customTools)
+        ? toolsConfig.customTools.map((tool: any) => ({
+            id: tool.id || tool.name,
+            name: tool.name || tool.id,
+            description: tool.description || '',
+            parameters: tool.parameters || {}
+          }))
+        : [];
+
+      const functionCalling = {
+        mode: toolsConfig.functionCalling?.mode || 'AUTO',
+        allowedFunctionNames: toolsConfig.functionCalling?.allowedFunctionNames
+          || customTools.map((tool) => tool.name)
+      };
+
+      return {
+        functionCalling,
+        predefinedTools: toolsConfig.predefinedTools || {
+          enabledTools: [],
+          callingMode: 'AUTO'
+        },
+        customTools,
+        googleSearch: toolsConfig.googleSearch,
+        urlContext: toolsConfig.urlContext,
+        structuredOutput: toolsConfig.structuredOutput
+      };
+    } catch (error) {
+      this.moduleLogger.warn('Failed to parse tools configuration from agent prompt', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        promptId: agentPrompt?.id
+      });
+      return defaultConfig;
+    }
   }
 
   /**
@@ -909,8 +979,15 @@ export class AIService {
       sdkConfig.systemInstruction = normalizedInstruction;
     }
 
-    if (request.tools && request.tools.length > 0) {
-      sdkConfig.tools = request.tools;
+    if (Array.isArray(request.tools) && request.tools.length > 0) {
+      const normalizedTools = this.normalizeToolsForSDK(request.tools);
+      if (normalizedTools) {
+        sdkConfig.tools = normalizedTools as any;
+      } else {
+        this.moduleLogger.warn('Skipping tool injection due to invalid tool definitions', {
+          providedToolCount: request.tools.length
+        });
+      }
     }
 
     if (request.toolConfig) {
@@ -937,6 +1014,221 @@ export class AIService {
     }
 
     return systemInstruction;
+  }
+
+  private normalizeToolsForSDK(tools: any[]): any[] | undefined {
+    if (!Array.isArray(tools) || tools.length === 0) {
+      return undefined;
+    }
+
+    const isGeminiToolObject = (tool: any): boolean => {
+      if (!tool || typeof tool !== 'object') {
+        return false;
+      }
+
+      if (Array.isArray(tool.functionDeclarations)) {
+        return true;
+      }
+
+      const knownKeys = ['googleSearch', 'codeExecution', 'vertexAISearch', 'retrieval', 'grounding', 'speechModel', 'textModel'];
+      return knownKeys.some((key) => key in tool);
+    };
+
+    const normalizeDeclaration = (decl: any) => this.normalizeFunctionDeclarationForSDK(decl);
+
+    const geminiTools: any[] = [];
+    const declarationCandidates: any[] = [];
+
+    for (const tool of tools) {
+      if (isGeminiToolObject(tool)) {
+        geminiTools.push(tool);
+      } else {
+        declarationCandidates.push(tool);
+      }
+    }
+
+    const normalizedGeminiTools = geminiTools.map((tool) => {
+      if (!tool || typeof tool !== 'object') {
+        return tool;
+      }
+
+      if (!Array.isArray(tool.functionDeclarations)) {
+        return { ...tool };
+      }
+
+      const normalizedDeclarations = tool.functionDeclarations
+        .map(normalizeDeclaration)
+        .filter(Boolean);
+
+      return {
+        ...tool,
+        functionDeclarations: normalizedDeclarations
+      };
+    }).filter((tool) => {
+      if (!tool || typeof tool !== 'object') {
+        return true;
+      }
+
+      if (Array.isArray((tool as any).functionDeclarations)) {
+        return (tool as any).functionDeclarations.length > 0;
+      }
+
+      return true;
+    });
+
+    const normalizedDeclarations = declarationCandidates
+      .map(normalizeDeclaration)
+      .filter(Boolean) as Array<Record<string, any>>;
+
+    const result: any[] = [...normalizedGeminiTools];
+
+    if (normalizedDeclarations.length > 0) {
+      result.push({ functionDeclarations: normalizedDeclarations });
+    }
+
+    return result.length > 0 ? result : undefined;
+  }
+
+  private normalizeFunctionDeclarationForSDK(input: any): Record<string, any> | null {
+    if (!input) {
+      return null;
+    }
+
+    let declaration: Record<string, any>;
+
+    if (typeof input === 'string') {
+      try {
+        const parsed = JSON.parse(input);
+        if (!parsed || typeof parsed !== 'object') {
+          return null;
+        }
+        declaration = { ...parsed };
+      } catch (error) {
+        this.moduleLogger.warn('Failed to parse function declaration string', {
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        return null;
+      }
+    } else if (typeof input === 'object') {
+      declaration = { ...input };
+    } else {
+      return null;
+    }
+
+    const name = declaration.name || declaration.id;
+    if (!name || typeof name !== 'string') {
+      return null;
+    }
+
+    const normalized: Record<string, any> = {
+      ...declaration,
+      name,
+      description: declaration.description || ''
+    };
+
+    if (declaration.parameters) {
+      const rawParameters = typeof declaration.parameters === 'string'
+        ? this.safeJsonParse(declaration.parameters)
+        : declaration.parameters;
+
+      if (rawParameters && typeof rawParameters === 'object') {
+        normalized.parameters = this.normalizeSchemaForSDK(rawParameters);
+      }
+    }
+
+    if (declaration.response) {
+      const rawResponse = typeof declaration.response === 'string'
+        ? this.safeJsonParse(declaration.response)
+        : declaration.response;
+
+      if (rawResponse && typeof rawResponse === 'object') {
+        normalized.response = this.normalizeSchemaForSDK(rawResponse);
+      }
+    }
+
+    delete normalized.id;
+
+    return normalized;
+  }
+
+  private normalizeSchemaForSDK(schema: any): any {
+    if (!schema || typeof schema !== 'object') {
+      return schema;
+    }
+
+    if (Array.isArray(schema)) {
+      return schema.map((item) => this.normalizeSchemaForSDK(item));
+    }
+
+    const normalized: Record<string, any> = { ...schema };
+
+    const mappedType = this.mapSchemaType(schema.type);
+    if (mappedType) {
+      normalized.type = mappedType;
+    }
+
+    if (schema.properties && typeof schema.properties === 'object') {
+      normalized.properties = Object.entries(schema.properties).reduce<Record<string, any>>((acc, [key, value]) => {
+        acc[key] = this.normalizeSchemaForSDK(value);
+        return acc;
+      }, {});
+    }
+
+    if (schema.items) {
+      normalized.items = this.normalizeSchemaForSDK(schema.items);
+    }
+
+    if (Array.isArray(schema.anyOf)) {
+      normalized.anyOf = schema.anyOf.map((item: any) => this.normalizeSchemaForSDK(item));
+    }
+
+    if (Array.isArray(schema.oneOf)) {
+      normalized.oneOf = schema.oneOf.map((item: any) => this.normalizeSchemaForSDK(item));
+    }
+
+    if (Array.isArray(schema.allOf)) {
+      normalized.allOf = schema.allOf.map((item: any) => this.normalizeSchemaForSDK(item));
+    }
+
+    return normalized;
+  }
+
+  private mapSchemaType(typeValue: any): Type | undefined {
+    if (typeof typeValue !== 'string') {
+      return undefined;
+    }
+
+    const normalized = typeValue.toUpperCase();
+
+    switch (normalized) {
+      case 'OBJECT':
+        return Type.OBJECT;
+      case 'ARRAY':
+        return Type.ARRAY;
+      case 'STRING':
+        return Type.STRING;
+      case 'NUMBER':
+        return Type.NUMBER;
+      case 'INTEGER':
+        return Type.INTEGER;
+      case 'BOOLEAN':
+        return Type.BOOLEAN;
+      case 'TYPE_UNSPECIFIED':
+        return Type.TYPE_UNSPECIFIED;
+      default:
+        return undefined;
+    }
+  }
+
+  private safeJsonParse(payload: string): any | null {
+    try {
+      return JSON.parse(payload);
+    } catch (error) {
+      this.moduleLogger.warn('Failed to parse JSON payload for tool schema', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return null;
+    }
   }
 
   private cloneResponse<T>(response: T): T {

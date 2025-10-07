@@ -1,64 +1,70 @@
 #!/usr/bin/env node
 
-// Simulate private message to test the context building
-const WebSocket = require('ws');
+// Queue simulator regression tests powered by Playwright MCP
+const { request } = require('playwright');
 
-function sendTestPrivateMessage() {
-  // Simulate the private message that was causing issues
-  const testMessage = {
-    post_type: 'message',
-    message_type: 'private',
-    sub_type: 'friend',
-    message_id: Date.now(),
-    user_id: 85178516, // Same user ID from the logs
-    message: '我们之前说到哪了 debug test',
-    raw_message: '我们之前说到哪了 debug test',
-    font: 0,
-    sender: {
-      user_id: 85178516,
-      nickname: 'TestUser',
-      sex: 'unknown',
-      age: 0
-    },
-    time: Math.floor(Date.now() / 1000)
+const ADMIN_BASE_URL = process.env.ADMIN_BASE_URL || 'http://localhost:9080';
+const PRIVATE_SIMULATE_PATH = '/api/simple-queue/simulate/private';
+const GROUP_SIMULATE_PATH = '/api/simple-queue/simulate/group';
+
+async function simulatePrivateMessage(api) {
+  const payload = {
+    user_id: 85178516,
+    message: `Playwright MCP 私聊回归校验 ${new Date().toISOString()}`,
+    priority: 'HIGH'
   };
 
-  console.log('Sending test private message to bot at ws://localhost:8081/ws');
-  console.log('Message:', JSON.stringify(testMessage, null, 2));
+  const response = await api.post(PRIVATE_SIMULATE_PATH, { data: payload });
+  const body = await response.json();
 
-  // Don't actually send via WebSocket since it's complex to set up
-  // Instead, let's directly call the QQBot Core API
-  const http = require('http');
-  
-  const postData = JSON.stringify(testMessage);
-  
-  const options = {
-    hostname: 'localhost',
-    port: 8081,
-    path: '/api/test/private-message',
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(postData)
-    }
-  };
+  if (!response.ok() || !body?.success) {
+    const errorDetail = body?.error || response.statusText();
+    throw new Error(`模拟私聊消息失败 (status=${response.status()}, detail=${errorDetail})`);
+  }
 
-  const req = http.request(options, (res) => {
-    console.log(`Status: ${res.statusCode}`);
-    res.on('data', (chunk) => {
-      console.log('Response:', chunk.toString());
-    });
-  });
-
-  req.on('error', (e) => {
-    console.error(`Request error: ${e.message}`);
-    console.log('This is expected since the endpoint might not exist. Check logs instead.');
-  });
-
-  req.write(postData);
-  req.end();
-  
-  console.log('Test message sent. Check the qqbot-core logs for debugging output.');
+  console.log('✅ 已通过队列管理模拟器发送私聊消息');
+  console.log('   • Trace ID:', body?.data?.traceId || '未知');
+  console.log('   • Payload:', JSON.stringify(payload));
 }
 
-setTimeout(sendTestPrivateMessage, 2000);
+async function simulateGroupMessage(api) {
+  const payload = {
+    user_id: 85178516,
+    group_id: 1019235326,
+    message: `Playwright MCP 群聊回归校验 ${new Date().toISOString()}`,
+    atBot: true,
+    priority: 'MEDIUM'
+  };
+
+  const response = await api.post(GROUP_SIMULATE_PATH, { data: payload });
+  const body = await response.json();
+
+  if (!response.ok() || !body?.success) {
+    const errorDetail = body?.error || response.statusText();
+    throw new Error(`模拟群聊消息失败 (status=${response.status()}, detail=${errorDetail})`);
+  }
+
+  console.log('✅ 已通过队列管理模拟器发送群聊消息');
+  console.log('   • Trace ID:', body?.data?.traceId || '未知');
+  console.log('   • Payload:', JSON.stringify(payload));
+}
+
+async function runQueueSimulatorUseCases() {
+  console.log('🚀 使用 Playwright MCP 触发队列管理消息模拟器...');
+  console.log(`   • Admin API: ${ADMIN_BASE_URL}`);
+
+  const api = await request.newContext({ baseURL: ADMIN_BASE_URL });
+
+  try {
+    await simulatePrivateMessage(api);
+    await simulateGroupMessage(api);
+    console.log('\n🎉 队列消息模拟用例执行完成');
+  } finally {
+    await api.dispose();
+  }
+}
+
+runQueueSimulatorUseCases().catch((error) => {
+  console.error('❌ 队列消息模拟用例执行失败:', error);
+  process.exitCode = 1;
+});
