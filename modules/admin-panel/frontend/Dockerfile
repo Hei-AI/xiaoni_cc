@@ -37,6 +37,10 @@ server {
     listen 80;
     server_name localhost;
 
+    # Enable Docker DNS re-resolution to avoid stale upstream IPs
+    resolver 127.0.0.11 valid=30s;
+    resolver_timeout 5s;
+
     # 启用gzip压缩
     gzip on;
     gzip_vary on;
@@ -69,7 +73,9 @@ server {
 
     # API代理到后端
     location /api/ {
-        proxy_pass http://qqbot-admin-backend:9080/api/;
+        # Use variable-based proxy_pass so Docker DNS is re-resolved
+        set $admin_backend http://qqbot-admin-backend:9080;
+        proxy_pass $admin_backend;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
