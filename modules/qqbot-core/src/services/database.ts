@@ -382,7 +382,7 @@ export class DatabaseManager {
   // 新增：更新conversation状态的专用方法
   public async updateConversationStatus(
     conversationId: string,
-    status: 'pending' | 'processing' | 'completed' | 'failed' | 'filtered_receive_events' | 'filtered_disabled' | 'filtered_no_response',
+    status: 'pending' | 'processing' | 'completed' | 'failed' | 'filtered_receive_events' | 'filtered_disabled' | 'filtered_no_response' | 'filtered_empty_content',
     errorReason?: string,
     aiResponse?: string,
     responseTime?: number,

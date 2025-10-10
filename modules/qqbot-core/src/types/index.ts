@@ -107,7 +107,7 @@ export interface ConversationData {
   reply_to_message_id?: number;
   reply_to_text?: string;
   session_id?: string;  // Session管理支持
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'filtered_receive_events' | 'filtered_disabled' | 'filtered_no_response'; // 扩展状态字段支持过滤状态
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'filtered_receive_events' | 'filtered_disabled' | 'filtered_no_response' | 'filtered_empty_content'; // 扩展状态字段支持过滤状态
   error_reason?: string; // 新增错误原因字段
   group_id?: number; // 群聊ID，用于群聊消息记录
   batch_id?: string; // 关联的批次ID（用于批处理追踪）
@@ -1310,7 +1310,7 @@ export interface AggregationWindow {
   messages: QueuedMessage[];
   firstMessageTime: Date;
   status: 'aggregating' | 'ready_for_consumption' | 'consumed';
-  windowTimer: NodeJS.Timeout | null;
+  windowTimer: ReturnType<typeof setTimeout> | null;
   windowId?: string;
 }
 

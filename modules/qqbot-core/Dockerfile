@@ -17,8 +17,11 @@ COPY tsconfig.json ./
 COPY jest.config.js ./
 COPY tests/ ./tests/
 
-# 全局安装ts-node用于生产运行
-RUN npm install -g ts-node typescript
+# 全局安装ts-node用于生产运行（使用镜像源提高稳定性）
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+RUN npm config set registry ${NPM_REGISTRY} \
+  && npm install -g ts-node typescript \
+  && npm config delete registry
 
 # 设置环境变量
 ENV NODE_ENV=production
@@ -48,11 +51,9 @@ ENV SLEEP_HOURS_PROBABILITY=0.05
 # 暴露端口
 EXPOSE 8081
 
-# 健康检查 (安装curl)
-RUN apk add --no-cache curl
-
+# 健康检查（使用Node内置fetch避免额外依赖）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:8081/health || exit 1
+  CMD node -e "fetch('http://localhost:8081/health',{cache:'no-store'}).then(res=>{if(!res.ok){process.exit(1);}return res.text();}).then(()=>process.exit(0)).catch(()=>process.exit(1));"
 
 # 直接启动应用（代理配置通过docker-compose.yml环境变量注入）
 CMD ["ts-node", "src/index.ts"]
