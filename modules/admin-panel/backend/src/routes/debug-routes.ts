@@ -56,6 +56,23 @@ function processContextVariables(
   return processedTemplate;
 }
 
+function parseJsonField<T>(value: any, fallback: T): T {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      return fallback;
+    }
+  }
+  if (typeof value === 'object') {
+    return value as T;
+  }
+  return fallback;
+}
+
 // 创建调试相关路由
 export function createDebugRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
@@ -218,6 +235,19 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
           }
 
           promptConfig = promptResults[0];
+
+          const parsedContextVariables = parseJsonField<Record<string, unknown>>(promptConfig.context_variables, {});
+          const parsedModelConfig = parseJsonField<Record<string, unknown>>(promptConfig.model_config, {});
+          const parsedAdvancedConfig = parseJsonField<Record<string, unknown>>(promptConfig.advanced_config, {});
+          const parsedAllowedTokenIds = parseJsonField<any[]>(promptConfig.allowed_token_ids, []);
+
+          promptConfig = {
+            ...promptConfig,
+            context_variables: parsedContextVariables,
+            model_config: parsedModelConfig,
+            advanced_config: parsedAdvancedConfig,
+            allowed_token_ids: Array.isArray(parsedAllowedTokenIds) ? parsedAllowedTokenIds : []
+          };
 
           // 🔥 加载完整的系统指令
           let rawSystemPrompt = Array.isArray(promptConfig.system_instructions)

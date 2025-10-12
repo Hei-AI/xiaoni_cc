@@ -19,7 +19,8 @@ export default defineConfig({
         target: 'http://localhost:9080',
         changeOrigin: true,
         secure: false,
-        timeout: 60000,
+        timeout: 600000,
+        proxyTimeout: 600000,
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
             console.log('Proxy error:', err);

@@ -49,8 +49,16 @@ import {
   SlidersHorizontal,
   ShieldCheck,
   Navigation,
-  ChevronRight
+  ChevronRight,
+  History,
+  Clock
 } from 'lucide-react';
+import {
+  fetchDebugSessions,
+  fetchDebugSession,
+  saveDebugSession,
+  deleteDebugSession
+} from '../lib/promptDebugApi';
 
 interface AgentPrompt {
   id: string;
@@ -86,8 +94,12 @@ interface DebugMessage {
   showThought?: boolean;
   metadata?: {
     model?: string;
-    tokensUsed?: number;
+    tokensUsed?: number | string;
     processingTime?: number;
+    tokenInfo?: {
+      projectName?: string;
+      tokenId?: string;
+    };
   };
 }
 
@@ -486,6 +498,92 @@ const rowsToContextObject = (rows: PromptVariableRow[]): Record<string, any> => 
   }, {});
 };
 
+const normalizeSessionMessage = (raw: any, index: number): DebugMessage => {
+  const timestamp = raw?.timestamp ? new Date(raw.timestamp) : new Date();
+  const rawRole = raw?.role === 'model' ? 'assistant' : raw?.role;
+  const role: DebugMessage['role'] = rawRole === 'user' || rawRole === 'assistant' ? rawRole : 'assistant';
+
+  const metadataSource = raw?.metadata ?? {};
+  let tokenInfo = metadataSource?.tokenInfo;
+
+  if (!tokenInfo) {
+    const tokenSource = metadataSource?.token_used ?? raw?.token_used;
+    if (tokenSource && typeof tokenSource === 'object') {
+      const tokenIdValue =
+        tokenSource.id ??
+        tokenSource.tokenId ??
+        tokenSource.token_id ??
+        tokenSource.tokenID;
+      tokenInfo = {
+        projectName:
+          tokenSource.project_name ?? tokenSource.projectName ?? undefined,
+        tokenId: typeof tokenIdValue === 'undefined' ? undefined : String(tokenIdValue)
+      };
+    }
+  }
+
+  const tokensUsed =
+    metadataSource?.tokensUsed ??
+    metadataSource?.totalTokenCount ??
+    metadataSource?.totalTokens ??
+    (typeof raw?.token_used === 'number' || typeof raw?.token_used === 'string'
+      ? raw.token_used
+      : raw?.token_used?.total ??
+        raw?.token_used?.totalTokens ??
+        raw?.token_used?.totalTokenCount);
+
+  const processingTime =
+    metadataSource?.processingTime ??
+    metadataSource?.processing_time ??
+    metadataSource?.processing_time_ms ??
+    raw?.processingTime ??
+    raw?.performance?.duration_ms ??
+    raw?.performance?.processing_time_ms;
+
+  const model = metadataSource?.model ?? raw?.model;
+
+  const metadata =
+    model ||
+    typeof tokensUsed !== 'undefined' ||
+    typeof processingTime !== 'undefined' ||
+    tokenInfo
+      ? {
+          model,
+          tokensUsed,
+          processingTime,
+          tokenInfo,
+        }
+      : undefined;
+
+  const thoughtValue = raw?.thought;
+  const thought =
+    typeof thoughtValue === 'string'
+      ? thoughtValue
+      : Array.isArray(thoughtValue)
+      ? thoughtValue.join('\n')
+      : undefined;
+
+  return {
+    id: raw?.id ?? `session-${index}`,
+    role,
+    content: typeof raw?.content === 'string' ? raw.content : '',
+    thought,
+    timestamp,
+    showThought: false,
+    metadata,
+  };
+};
+
+const serializeMessagesForSave = (messages: DebugMessage[]): any[] =>
+  messages.map((msg) => {
+    const { showThought, ...rest } = msg;
+    return {
+      ...rest,
+      timestamp:
+        msg.timestamp instanceof Date ? msg.timestamp.toISOString() : msg.timestamp,
+    };
+  });
+
 const variableValueToString = (value: any): string => {
   if (value === null || value === undefined) {
     return '';
@@ -634,6 +732,9 @@ export const PromptEditPage: React.FC = () => {
   const [getCodeCopied, setGetCodeCopied] = useState(false);
   const [systemInstructionsCopied, setSystemInstructionsCopied] = useState(false);
   const [isSafetyDialogOpen, setIsSafetyDialogOpen] = useState(false);
+  const [isHistorySheetOpen, setIsHistorySheetOpen] = useState(false);
+  const [isSaveSessionDialogOpen, setIsSaveSessionDialogOpen] = useState(false);
+  const [saveSessionName, setSaveSessionName] = useState('');
   const prevEditingRef = useRef<boolean>(isEditing);
   const playgroundCardRef = useRef<HTMLDivElement | null>(null);
   const [playgroundMinHeight, setPlaygroundMinHeight] = useState<number | null>(null);
@@ -643,6 +744,7 @@ export const PromptEditPage: React.FC = () => {
   const [activePromptSection, setActivePromptSection] = useState<'system' | 'user' | 'preview'>('system');
   const [isConfigDrawerOpen, setIsConfigDrawerOpen] = useState(false);
   const [activeDrawerKey, setActiveDrawerKey] = useState<DrawerSectionKey | null>(null);
+  const canUseSessionFeatures = !isNew && !!promptId && promptId !== 'new';
 
   // 查询现有 Prompt 数据（仅编辑模式）
   const {
@@ -661,6 +763,16 @@ export const PromptEditPage: React.FC = () => {
     queryFn: fetchAgentTypes,
   });
 
+  const {
+    data: debugSessionsData,
+    isLoading: isLoadingSessions,
+    refetch: refetchDebugSessions
+  } = useQuery({
+    queryKey: ['debugSessions', promptId],
+    queryFn: () => fetchDebugSessions(promptId!),
+    enabled: canUseSessionFeatures
+  });
+
   // 保存 Prompt mutation
   const saveMutation = useMutation({
     mutationFn: (data: any) => savePrompt(isNew ? null : promptId!, data),
@@ -672,6 +784,37 @@ export const PromptEditPage: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: ['prompt', promptId] });
         setIsEditing(false);
       }
+    },
+  });
+
+  const saveSessionMutation = useMutation({
+    mutationFn: ({ sessionName, messages: messagesToSave }: { sessionName: string; messages: any[] }) =>
+      saveDebugSession(promptId!, sessionName, messagesToSave),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['debugSessions', promptId] });
+      setIsSaveSessionDialogOpen(false);
+      setSaveSessionName('');
+    },
+  });
+
+  const loadSessionMutation = useMutation({
+    mutationFn: fetchDebugSession,
+    onSuccess: (data) => {
+      if (data.success) {
+        const loadedMessages = Array.isArray(data.data.messages)
+          ? data.data.messages.map((msg, index) => normalizeSessionMessage(msg, index))
+          : [];
+        setMessages(loadedMessages);
+        setUserInput('');
+        setIsHistorySheetOpen(false);
+      }
+    },
+  });
+
+  const deleteSessionMutation = useMutation({
+    mutationFn: deleteDebugSession,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['debugSessions', promptId] });
     },
   });
 
@@ -800,6 +943,20 @@ export const PromptEditPage: React.FC = () => {
       ...formData.advanced_config,
       toolsConfig: sanitizedToolsConfig
     });
+
+    const maxOutputTokensValue = Number(formData.model_config.maxOutputTokens);
+    if (!Number.isNaN(maxOutputTokensValue) && maxOutputTokensValue > 0) {
+      submitAdvancedConfig.maxOutputTokens = maxOutputTokensValue;
+      submitAdvancedConfig.generationConfig = {
+        ...(submitAdvancedConfig.generationConfig || {}),
+        maxOutputTokens: maxOutputTokensValue
+      };
+    } else {
+      delete submitAdvancedConfig.maxOutputTokens;
+      if (submitAdvancedConfig.generationConfig) {
+        delete submitAdvancedConfig.generationConfig.maxOutputTokens;
+      }
+    }
 
     const submitData = {
       ...formData,
@@ -1082,6 +1239,57 @@ export const PromptEditPage: React.FC = () => {
         throw new Error(response.error || '调试请求失败');
       }
 
+      const rawTokenUsed = response.token_used;
+      const normalizedTokenInfo =
+        rawTokenUsed && typeof rawTokenUsed === 'object'
+          ? (() => {
+              const projectName =
+                (rawTokenUsed.project_name ?? rawTokenUsed.projectName) || undefined;
+              const tokenIdRaw =
+                rawTokenUsed.id ??
+                rawTokenUsed.tokenId ??
+                rawTokenUsed.token_id ??
+                rawTokenUsed.tokenID;
+
+              return {
+                projectName,
+                tokenId: typeof tokenIdRaw === 'undefined' ? undefined : String(tokenIdRaw)
+              };
+            })()
+          : undefined;
+
+      const resolvedTokenUsage = (() => {
+        if (typeof rawTokenUsed === 'number' || typeof rawTokenUsed === 'string') {
+          return rawTokenUsed;
+        }
+
+        if (rawTokenUsed && typeof rawTokenUsed === 'object') {
+          const { total, totalTokens, totalTokenCount } = rawTokenUsed as Record<string, any>;
+          if (typeof total === 'number') {
+            return total;
+          }
+          if (typeof totalTokens === 'number') {
+            return totalTokens;
+          }
+          if (typeof totalTokenCount === 'number') {
+            return totalTokenCount;
+          }
+        }
+
+        const usage =
+          response.usage?.totalTokenCount ??
+          response.usageMetadata?.totalTokenCount;
+
+        return typeof usage === 'number' ? usage : undefined;
+      })();
+
+      const resolvedProcessingTime =
+        response.performance?.duration_ms ??
+        response.performance?.durationMs ??
+        response.performance?.processing_time_ms ??
+        response.performance?.processingTimeMs ??
+        response.processingTime;
+
       const assistantMessage: DebugMessage = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
@@ -1090,14 +1298,9 @@ export const PromptEditPage: React.FC = () => {
         timestamp: new Date(),
         metadata: {
           model: response.model || formData.model_name,
-          tokensUsed:
-            response.token_used ||
-            response.usage?.totalTokenCount ||
-            response.usageMetadata?.totalTokenCount,
-          processingTime:
-            response.performance?.duration_ms ||
-            response.performance?.durationMs ||
-            response.processingTime
+          tokensUsed: resolvedTokenUsage,
+          processingTime: resolvedProcessingTime,
+          tokenInfo: normalizedTokenInfo
         }
       };
 
@@ -1127,6 +1330,63 @@ export const PromptEditPage: React.FC = () => {
           : message
       )
     );
+  };
+
+  const generateSessionName = () => {
+    const firstUserMessage = messages.find((msg) => msg.role === 'user');
+    if (firstUserMessage) {
+      const content = firstUserMessage.content.trim();
+      if (content.length > 20) {
+        return `${content.slice(0, 20)}...`;
+      }
+      if (content.length > 0) {
+        return content;
+      }
+    }
+    return `调试会话 ${new Date().toLocaleDateString()}`;
+  };
+
+  const openHistoryPanel = () => {
+    if (!canUseSessionFeatures) {
+      return;
+    }
+    setIsHistorySheetOpen(true);
+    refetchDebugSessions();
+  };
+
+  const openSaveSessionDialog = () => {
+    if (!canUseSessionFeatures || !messages.length) {
+      return;
+    }
+    setSaveSessionName(generateSessionName());
+    setIsSaveSessionDialogOpen(true);
+  };
+
+  const handleSaveSession = () => {
+    if (!canUseSessionFeatures || !messages.length || !saveSessionName.trim()) {
+      return;
+    }
+    const payloadMessages = serializeMessagesForSave(messages);
+    saveSessionMutation.mutate({
+      sessionName: saveSessionName.trim(),
+      messages: payloadMessages
+    });
+  };
+
+  const handleLoadSession = (sessionId: string) => {
+    if (!canUseSessionFeatures) {
+      return;
+    }
+    loadSessionMutation.mutate(sessionId);
+  };
+
+  const handleDeleteSession = (sessionId: string) => {
+    if (!canUseSessionFeatures) {
+      return;
+    }
+    if (confirm('确定要删除这个调试会话吗？')) {
+      deleteSessionMutation.mutate(sessionId);
+    }
   };
 
   const focusPromptSection = (section: 'system' | 'user' | 'preview') => {
@@ -1433,6 +1693,12 @@ export const PromptEditPage: React.FC = () => {
     });
   };
 
+  useEffect(() => {
+    if (location.hash === '#playground') {
+      scrollToSection(playgroundCardRef);
+    }
+  }, [location.hash]);
+
   const isDraftMode = isNew ? true : useDraftConfig;
   const selectedModelOption = MODEL_OPTIONS.find((option) => option.value === formData.model_name);
   const modelBadgeLabel = selectedModelOption
@@ -1443,6 +1709,8 @@ export const PromptEditPage: React.FC = () => {
     !isDebugging &&
     !contextVariablesError &&
     Boolean(formData.system_instructions.trim());
+  const historyButtonLoading =
+    loadSessionMutation.isPending || (isHistorySheetOpen && isLoadingSessions);
   const customTools = toolsConfig.customTools;
   const allowedFunctionNames = toolsConfig.functionCalling.allowedFunctionNames || [];
   const functionCallingMode = toolsConfig.functionCalling.mode;
@@ -2887,13 +3155,13 @@ export const PromptEditPage: React.FC = () => {
                 className="flex min-h-0 flex-col bg-card/60 shadow-sm"
                 style={playgroundMinHeight ? { minHeight: `${playgroundMinHeight}px` } : undefined}
               >
-                <CardHeader className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
+              <CardHeader className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <CardTitle className="flex items-center gap-2 text-base font-semibold">
                     <MessageSquare className="h-4 w-4" />
                     Prompt Playground
                   </CardTitle>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Badge variant={isDraftMode ? 'default' : 'secondary'}>
                       {isDraftMode ? '草稿配置' : '已保存配置'}
                     </Badge>
@@ -2903,9 +3171,7 @@ export const PromptEditPage: React.FC = () => {
                 <CardDescription>
                   不离开页面即可调试提示词，实时查看模型回复与思考过程。
                 </CardDescription>
-              </CardHeader>
-              <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-muted/50 bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
+                <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
                   <div className="flex items-center gap-2">
                     <Switch
                       id="draft-mode"
@@ -2916,20 +3182,56 @@ export const PromptEditPage: React.FC = () => {
                     <label htmlFor="draft-mode" className="cursor-pointer text-xs font-medium">
                       使用草稿配置调试
                     </label>
+                    {isNew && (
+                      <span className="rounded-full bg-primary/10 px-2 py-[2px] text-[10px] font-medium text-primary">
+                        新建提示默认启用
+                      </span>
+                    )}
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={clearMessages}
-                    disabled={!messages.length}
-                    className="h-7 px-2 text-xs"
-                  >
-                    <Trash2 className="mr-1 h-3 w-3" />
-                    清空对话
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={openHistoryPanel}
+                      disabled={!canUseSessionFeatures || historyButtonLoading}
+                    >
+                      {historyButtonLoading ? (
+                        <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <History className="mr-2 h-3.5 w-3.5" />
+                      )}
+                      调试历史
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={openSaveSessionDialog}
+                      disabled={!canUseSessionFeatures || !messages.length}
+                    >
+                      {saveSessionMutation.isPending ? (
+                        <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="mr-2 h-3.5 w-3.5" />
+                      )}
+                      保存会话
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearMessages}
+                      disabled={!messages.length}
+                      className="h-7 px-2 text-xs"
+                    >
+                      <Trash2 className="mr-1 h-3 w-3" />
+                      清空对话
+                    </Button>
+                  </div>
                 </div>
-
+              </CardHeader>
+              <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
                 {isNew && (
                   <div className="rounded-xl border border-dashed border-muted/50 bg-background/80 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
                     草稿模式默认开启，填写左侧信息并保存后即可验证最新版本。
@@ -3028,6 +3330,17 @@ export const PromptEditPage: React.FC = () => {
                                       <span>{message.metadata.tokensUsed}</span>
                                     </div>
                                   )}
+                                  {message.metadata.tokenInfo && (
+                                    <div className="flex items-center justify-between">
+                                      <span>Token</span>
+                                      <span>
+                                        {message.metadata.tokenInfo.projectName || '未识别'}
+                                        {message.metadata.tokenInfo.tokenId
+                                          ? ` (ID: ${message.metadata.tokenInfo.tokenId})`
+                                          : ''}
+                                      </span>
+                                    </div>
+                                  )}
                                   {typeof message.metadata.processingTime !== 'undefined' && (
                                     <div className="flex items-center justify-between">
                                       <span>耗时</span>
@@ -3048,8 +3361,15 @@ export const PromptEditPage: React.FC = () => {
                         value={userInput}
                         onChange={(e) => setUserInput(e.target.value)}
                         placeholder="向模型发送一条调试消息..."
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && !event.shiftKey) {
+                            event.preventDefault();
+                            handleSendMessage();
+                          }
+                        }}
                         rows={3}
                         className="flex-1 resize-none bg-background/70"
+                        disabled={isDebugging}
                       />
                       <div className="flex w-full justify-center sm:w-auto sm:justify-end">
                         <Button
@@ -3067,6 +3387,9 @@ export const PromptEditPage: React.FC = () => {
                         </Button>
                       </div>
                     </div>
+                    <p className="mx-auto mt-2 w-full max-w-3xl text-right text-xs text-muted-foreground">
+                      按 Enter 发送，Shift + Enter 换行
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -3148,6 +3471,129 @@ export const PromptEditPage: React.FC = () => {
         </div>
       </div>
     </div>
+
+      <Sheet
+        open={isHistorySheetOpen}
+        onOpenChange={(open) => {
+          setIsHistorySheetOpen(open);
+          if (open && canUseSessionFeatures) {
+            refetchDebugSessions();
+          }
+        }}
+      >
+        <SheetContent side="right" className="w-[320px] sm:w-[420px] border-l bg-background">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2 text-base">
+              <History className="h-4 w-4" />
+              调试历史
+            </SheetTitle>
+            <SheetDescription>
+              查询并加载已保存的调试会话，点击条目即可恢复对话内容。
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-3">
+            {historyButtonLoading && (
+              <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-muted/40 p-6 text-sm text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>加载历史记录...</span>
+              </div>
+            )}
+            {!historyButtonLoading &&
+              (!debugSessionsData?.data?.sessions ||
+                debugSessionsData.data.sessions.length === 0) && (
+                <div className="rounded-lg border border-dashed border-muted/40 p-6 text-center text-sm text-muted-foreground">
+                  暂无调试历史，保存一次对话后会显示在这里。
+                </div>
+              )}
+            {!historyButtonLoading &&
+              debugSessionsData?.data.sessions?.map((session) => (
+                <div
+                  key={session.id}
+                  className="group rounded-lg border border-muted/40 bg-background/80 p-3 transition hover:border-primary/50 hover:bg-primary/5"
+                  onClick={() => handleLoadSession(session.id)}
+                  role="button"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-sm font-medium text-foreground">
+                        {session.session_name || '未命名会话'}
+                      </h3>
+                      <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5" />
+                        <span>
+                          {new Date(session.updated_at ?? session.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                    <Badge variant="secondary" className="shrink-0 text-[11px] font-normal">
+                      {(session.message_count ?? 0).toString()} 条
+                    </Badge>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>输入消息: {session.input_count ?? session.message_count ?? 0}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs text-red-500 hover:text-red-600 group-hover:opacity-100"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleDeleteSession(session.id);
+                      }}
+                      disabled={deleteSessionMutation.isPending}
+                    >
+                      <Trash2 className="mr-1 h-3 w-3" />
+                      删除
+                    </Button>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Dialog open={isSaveSessionDialogOpen} onOpenChange={setIsSaveSessionDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>保存调试会话</DialogTitle>
+            <DialogDescription>
+              将当前对话记录保存为会话，方便下次继续调试。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="debug-session-name">会话名称</Label>
+              <Input
+                id="debug-session-name"
+                value={saveSessionName}
+                onChange={(e) => setSaveSessionName(e.target.value)}
+                placeholder="例如：客服开场白调试"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              将保存当前 {messages.length} 条消息，包含模型思考过程与元数据。
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsSaveSessionDialogOpen(false)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSaveSession}
+              disabled={saveSessionMutation.isPending || !saveSessionName.trim()}
+            >
+              {saveSessionMutation.isPending && (
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Sheet open={isConfigDrawerOpen} onOpenChange={handleDrawerOpenChange}>
         <SheetContent side="right" className="w-full max-w-3xl border-l bg-background/95 backdrop-blur px-0">

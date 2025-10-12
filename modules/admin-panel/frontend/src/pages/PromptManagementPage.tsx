@@ -474,7 +474,7 @@ export const PromptManagementPage: React.FC = () => {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => navigate(`/prompts/${prompt.id}/debug`)}
+                            onClick={() => navigate(`/prompts/${prompt.id}/edit#playground`)}
                             title="调试对话"
                             className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
                           >

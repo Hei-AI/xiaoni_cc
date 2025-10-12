@@ -24,6 +24,12 @@ import {
   History,
   Clock
 } from 'lucide-react';
+import {
+  fetchDebugSessions,
+  fetchDebugSession,
+  saveDebugSession,
+  deleteDebugSession
+} from '../lib/promptDebugApi';
 
 interface DebugMessage {
   id: string;
@@ -56,16 +62,6 @@ interface AgentPrompt {
   version: number;
   created_by: string;
   description?: string | null;
-}
-
-interface DebugSession {
-  id: string;
-  prompt_id: string;
-  session_name: string;
-  messages: DebugMessage[];
-  created_at: string;
-  created_by: string;
-  message_count?: number;
 }
 
 // 获取单个 Prompt
@@ -110,57 +106,6 @@ const debugPrompt = async (promptId: string, messages: DebugMessage[], userInput
 
   if (!response.ok) {
     throw new Error('Debug request failed');
-  }
-
-  return response.json();
-};
-
-// 获取调试历史
-const fetchDebugSessions = async (promptId: string): Promise<{ success: boolean; data: { sessions: DebugSession[], pagination: any } }> => {
-  const response = await fetch(`/api/prompts/${promptId}/debug-sessions`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch debug sessions');
-  }
-  return response.json();
-};
-
-// 获取特定调试会话
-const fetchDebugSession = async (sessionId: string): Promise<{ success: boolean; data: DebugSession }> => {
-  const response = await fetch(`/api/debug-sessions/${sessionId}`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch debug session');
-  }
-  return response.json();
-};
-
-// 保存调试会话
-const saveDebugSession = async (promptId: string, sessionName: string, messages: DebugMessage[]) => {
-  const response = await fetch(`/api/prompts/${promptId}/debug-sessions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      session_name: sessionName,
-      messages
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to save debug session');
-  }
-
-  return response.json();
-};
-
-// 删除调试会话
-const deleteDebugSession = async (sessionId: string) => {
-  const response = await fetch(`/api/debug-sessions/${sessionId}`, {
-    method: 'DELETE',
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to delete debug session');
   }
 
   return response.json();
