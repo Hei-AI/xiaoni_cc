@@ -1,19 +1,31 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Core services live in `modules/`: `http-api` (OneBot ingress, 8080), `qqbot-core` (AI engines, 8081), and `admin-panel/{backend,frontend}` (operator APIs/UI, 9080/3003). Observability sidecars sit in `modules/http-traffic-monitor`, while queue monitoring now ships inside the admin backend. Shared scripts are under `scripts/`, Napcat assets in `resource/`, and schema migrations plus seeds in `database/`. Tests mirror sources within each module, while cross-service harnesses reside in `scripts/testing/`. Review each module's `CLAUDE.md` before touching pipelines or interfaces.
+- Core behavior lives in `modules/`: `http-api` (OneBot ingress, port 8080), `qqbot-core` (AI engines, 8081), and `admin-panel/{backend,frontend}` (operator APIs/UI, 9080/3003).
+- Observability tooling sits in `modules/http-traffic-monitor`. Shared scripts live under `scripts/`, Napcat assets in `resource/`, and database migrations plus seeds in `database/`.
+- Service-specific tests sit beside their sources, while cross-service harnesses live in `scripts/testing/`. Review each module’s `CLAUDE.md` before modifying public interfaces or pipelines.
 
 ## Build, Test, and Development Commands
-Use Docker as the source of truth: run `docker compose build` to rebuild the stack, followed by `docker compose up -d`. Use `docker compose ps`, `docker compose stop`, or scope with `docker compose up -d qqbot-core` when iterating. Tail logs with `docker logs -f qqbot-qqbot-core` and enter containers using `docker exec -it <service> /bin/sh`. Local smoke passes remain available via `npm run dev:<module>`.
+- `docker compose build` then `docker compose up -d`: rebuild and launch the full stack; scope with `docker compose up -d qqbot-core` during feature work.
+- `docker compose ps`, `docker compose stop`: inspect or stop running services; combine with `docker logs -f qqbot-qqbot-core` for live traces.
+- `npm run dev:<module>`: local smoke runs for individual services (e.g., `npm run dev:qqbot-core`).
+- `docker exec qqbot-qqbot-core npm test`: execute Jest tests in the core container; adjust service name as needed.
 
 ## Coding Style & Naming Conventions
-Favor TypeScript with two-space indentation and modern ES modules. Classes use PascalCase, functions and variables use camelCase, and environment variables remain in SCREAMING_SNAKE_CASE. Import shared logger utilities instead of `console.log`, and keep changes incremental—avoid speculative abstractions.
+- Prefer TypeScript with two-space indentation and modern ES modules. Classes use PascalCase, functions and variables camelCase, environment variables SCREAMING_SNAKE_CASE.
+- Import shared logger utilities instead of `console.log`; keep commits incremental and avoid speculative abstractions.
+- Follow existing lint settings (`npm run lint:all`) before submitting changes.
 
 ## Testing Guidelines
-Jest drives unit tests. Name specs beside sources (e.g., `foo.service.test.ts`). Run `docker exec qqbot-qqbot-core npm test` or `npm run test:<module>` before raising a PR. Update mocks in `modules/qqbot-core/tests/mocks/` when APIs shift, and execute `node scripts/testing/integration/test_end_to_end_flow.js` after major pipeline or schema edits.
+- Jest drives unit tests; name files like `foo.service.test.ts` adjacent to the code under test.
+- Update mocks in `modules/qqbot-core/tests/mocks/` when APIs change and re-run `npm run test:<module>` or `docker exec <service> npm test`.
+- After major pipeline or schema edits, execute `node scripts/testing/integration/test_end_to_end_flow.js` to validate cross-service behavior.
 
 ## Commit & Pull Request Guidelines
-Stage intentionally (`git status`, `git add <file>`). Prefix commits with scopes like `feat:`, `fix:`, or `add:` and document schema or config impacts in the body. PRs should attach lint and test outputs (`npm run lint:all`, `npm run test:all`), link relevant READMEs or docs, and include admin-panel UI screenshots when updated.
+- Prefix commit messages with scopes such as `feat:`, `fix:`, or `add:`; document schema or config impacts in the body.
+- For PRs, attach outputs from `npm run lint:all` and `npm run test:all`, link relevant docs or READMEs, and include admin-panel UI screenshots when applicable.
+- Stage intentionally (`git status`, `git add <file>`), and double-check health endpoints (`8080/health`, `8081/health`, `9080/api/health`) after changes touching deployments.
 
 ## Operations & Configuration Tips
-Monitor health endpoints at `8080/health`, `8081/health`, and `9080/api/health`. Manage the transparent proxy via `python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables`. Keep Napcat configuration synchronized in `resource/`, and run database migrations before deployment; if environments drift, reset with `docker compose down -v` followed by `docker compose build` and `docker compose up -d`.
+- Manage the transparent proxy via `python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables`.
+- Keep Napcat configuration in sync under `resource/`, and run database migrations before deployment; if environments drift, reset with `docker compose down -v` followed by rebuild and `docker compose up -d`.
