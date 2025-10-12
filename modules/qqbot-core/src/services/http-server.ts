@@ -207,10 +207,12 @@ class HttpServer {
           systemPrompt,
           userInput,          // 向后兼容单条消息
           messages = [],      // 🔥 新增: 多轮对话消息数组
-          parameters = {},
+          parameters: incomingParameters = {},
           model = 'gemini-2.5-flash',
           conversation_id
         } = req.body;
+
+        const parameters = this.normalizeDebugParameters(incomingParameters);
 
         // 🔥 参数验证: 支持messages数组或单个userInput
         let finalMessages = [];
@@ -288,28 +290,122 @@ class HttpServer {
         // 🔥 支持高级配置和参数合并
         const advancedConfig = parameters.advanced_config || {};
         const modelConfig = parameters.model_config || {};
+        const advancedGenerationConfig =
+          (advancedConfig.generationConfig && typeof advancedConfig.generationConfig === 'object')
+            ? advancedConfig.generationConfig
+            : {};
+        const inlineGenerationConfig =
+          (parameters.generationConfig && typeof parameters.generationConfig === 'object')
+            ? parameters.generationConfig
+            : {};
+
+        const mergedGenerationConfig = {
+          ...advancedGenerationConfig,
+          ...inlineGenerationConfig
+        };
+
+        const selectFirstDefined = <T>(...values: Array<T | undefined | null>): T | undefined => {
+          for (const value of values) {
+            if (value !== undefined && value !== null) {
+              return value;
+            }
+          }
+          return undefined;
+        };
+
+        const generationConfig: any = {
+          ...mergedGenerationConfig,
+          temperature: selectFirstDefined(
+            mergedGenerationConfig.temperature,
+            advancedConfig.temperature,
+            modelConfig.temperature,
+            parameters.temperature
+          ) ?? 0.7,
+          maxOutputTokens: selectFirstDefined(
+            mergedGenerationConfig.maxOutputTokens,
+            advancedConfig.maxOutputTokens,
+            modelConfig.maxOutputTokens,
+            parameters.maxOutputTokens,
+            (parameters as any).max_output_tokens
+          ) ?? 1000,
+          topP: selectFirstDefined(
+            mergedGenerationConfig.topP,
+            advancedConfig.topP,
+            modelConfig.topP,
+            parameters.topP,
+            (parameters as any).top_p
+          ) ?? 0.95,
+          topK: selectFirstDefined(
+            mergedGenerationConfig.topK,
+            advancedConfig.topK,
+            modelConfig.topK,
+            parameters.topK,
+            (parameters as any).top_k
+          ) ?? 40
+        };
+
+        const resolvedStopSequences = selectFirstDefined(
+          mergedGenerationConfig.stopSequences,
+          advancedConfig.stopSequences,
+          modelConfig.stopSequences,
+          parameters.stopSequences,
+          (parameters as any).stop_sequences
+        );
+
+        if (resolvedStopSequences !== undefined) {
+          generationConfig.stopSequences = resolvedStopSequences;
+        }
+
+        const rawThinkingConfig = selectFirstDefined(
+          mergedGenerationConfig.thinkingConfig,
+          advancedConfig.thinkingConfig,
+          parameters.thinkingConfig
+        );
+
+        let normalizedThinkingConfig: any;
+        if (rawThinkingConfig && typeof rawThinkingConfig === 'object') {
+          normalizedThinkingConfig = {};
+          if (typeof rawThinkingConfig.includeThoughts === 'boolean') {
+            normalizedThinkingConfig.includeThoughts = rawThinkingConfig.includeThoughts;
+          }
+          if (
+            typeof rawThinkingConfig.thinkingBudget === 'number' &&
+            !Number.isNaN(rawThinkingConfig.thinkingBudget)
+          ) {
+            normalizedThinkingConfig.thinkingBudget = rawThinkingConfig.thinkingBudget;
+          }
+          if (Object.keys(normalizedThinkingConfig).length === 0) {
+            normalizedThinkingConfig = undefined;
+          }
+        }
+
+        const safetySettings = Array.isArray(advancedConfig.safetySettings) && advancedConfig.safetySettings.length > 0
+          ? advancedConfig.safetySettings
+          : [
+              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+              { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_NONE" }
+            ];
 
         const requestBody: any = {
           contents,
-          generationConfig: {
-            temperature: advancedConfig.temperature || modelConfig.temperature || parameters.temperature || 0.7,
-            maxOutputTokens: advancedConfig.maxOutputTokens || modelConfig.maxOutputTokens || parameters.maxOutputTokens || parameters.max_output_tokens || 1000,
-            topP: advancedConfig.topP || modelConfig.topP || parameters.top_p || 0.95,
-            topK: advancedConfig.topK || modelConfig.topK || parameters.top_k || 40
-          },
-          safetySettings: advancedConfig.safetySettings || [
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_NONE" }
-          ]
+          generationConfig,
+          safetySettings
         };
 
-        // 🔥 支持思考模式配置
-        if (advancedConfig.thinkingConfig && model.includes('2.5-flash-thinking')) {
-          requestBody.generationConfig.responseSchema = advancedConfig.thinkingConfig.responseSchema;
-          requestBody.tools = advancedConfig.thinkingConfig.tools;
+        if (normalizedThinkingConfig) {
+          requestBody.generationConfig.thinkingConfig = normalizedThinkingConfig;
+        }
+
+        if (rawThinkingConfig && typeof rawThinkingConfig === 'object') {
+          if (!requestBody.generationConfig.responseSchema && rawThinkingConfig.responseSchema) {
+            requestBody.generationConfig.responseSchema = rawThinkingConfig.responseSchema;
+          }
+          if (!requestBody.tools && rawThinkingConfig.tools) {
+            requestBody.tools = rawThinkingConfig.tools;
+          }
         }
 
         // 添加系统指令
@@ -360,6 +456,14 @@ class HttpServer {
           }
         }
 
+        if (!thinking && Array.isArray((geminiData as any).thoughts)) {
+          for (const thoughtEntry of (geminiData as any).thoughts) {
+            if (thoughtEntry && typeof thoughtEntry.text === 'string' && thoughtEntry.text.trim().length > 0) {
+              thinking += `\n${thoughtEntry.text}`;
+            }
+          }
+        }
+
         // 如果没有找到分离的内容，使用第一个part作为回复
         if (!aiResponse && !thinking) {
           aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated';
@@ -389,6 +493,7 @@ class HttpServer {
             processing_time_ms: result.response_time * 1000
           },
           usage: geminiData.usageMetadata,    // 🔥 返回使用统计
+          thinking_tokens: geminiData.usageMetadata?.thoughtsTokenCount,
           timestamp: new Date().toISOString()
         });
 

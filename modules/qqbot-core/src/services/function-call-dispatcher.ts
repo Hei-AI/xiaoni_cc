@@ -10,7 +10,8 @@ import {
   ToolContext,
   ToolResult,
   GeminiFunctionCall,
-  GeminiFunctionResponse
+  GeminiFunctionResponse,
+  ToolExecutionMode
 } from '../types';
 
 const moduleLogger = logger.createModuleLogger('function-dispatcher');
@@ -24,6 +25,9 @@ export interface DispatchResult {
 
   // 最终文本响应 (fire-and-forget或完成)
   finalResponse?: string;
+
+  // 是否需要抑制发送最终回复 (例如工具已直接向用户发消息)
+  suppressAutoReply?: boolean;
 
   // 搜索到的工具 (search_tools结果)
   searchedTools?: any[];
@@ -71,6 +75,7 @@ export class FunctionCallDispatcher {
       userId?: number;
       groupId?: number;
       sourceKey: string;
+      metadata?: Record<string, any>;
     }
   ): Promise<DispatchResult> {
     const { name, args } = functionCall;
@@ -131,7 +136,9 @@ export class FunctionCallDispatcher {
       query,
       tags,
       side_effect,
-      max_results
+      max_results,
+      traceId: context.traceId,
+      jobId: context.jobId
     });
 
     const searchResult = await this.toolRegistry.search({
@@ -210,9 +217,11 @@ export class FunctionCallDispatcher {
       return {
         shouldContinue: false,
         finalResponse: result.success
-          ? 'Tool executed successfully (no response expected)'
-          : `Tool execution failed: ${result.error}`,
-        isCompleted: true
+          ? (typeof args?.message === 'string' ? args.message : '')
+          : (result.error || 'Tool execution failed'),
+        suppressAutoReply: true,
+        isCompleted: true,
+        error: result.success ? undefined : result.error
       };
     }
   }
@@ -229,6 +238,7 @@ export class FunctionCallDispatcher {
       userId?: number;
       groupId?: number;
       sourceKey: string;
+      metadata?: Record<string, any>;
     }
   ): Promise<DispatchResult> {
     moduleLogger.info(`[FunctionCallDispatcher] Executing static tool: ${tool.name}`);
@@ -239,13 +249,14 @@ export class FunctionCallDispatcher {
       user_id: context.userId,
       group_id: context.groupId,
       source_key: context.sourceKey,
-      arguments: args
+      arguments: args,
+      metadata: context.metadata
     };
 
     const result: ToolResult = await tool.handler(toolContext);
 
     // 记录执行日志
-    await this.logStaticToolExecution(tool.name, toolContext, result);
+    await this.logStaticToolExecution(tool.name, tool.mode, toolContext, result);
 
     // 根据模式决定返回值
     if (tool.mode === 'returnable') {
@@ -265,9 +276,13 @@ export class FunctionCallDispatcher {
       return {
         shouldContinue: false,
         finalResponse: result.success
-          ? 'Tool executed successfully (no response expected)'
-          : `Tool execution failed: ${result.error}`,
-        isCompleted: true
+          ? (result.data && typeof result.data.message === 'string'
+              ? result.data.message
+              : '')
+          : (result.error || 'Tool execution failed'),
+        suppressAutoReply: true,
+        isCompleted: true,
+        error: result.success ? undefined : result.error
       };
     }
   }
@@ -277,6 +292,7 @@ export class FunctionCallDispatcher {
    */
   private async logStaticToolExecution(
     toolName: string,
+    executionMode: ToolExecutionMode,
     context: ToolContext,
     result: ToolResult
   ): Promise<void> {
@@ -289,7 +305,7 @@ export class FunctionCallDispatcher {
           trace_id, job_id, tool_type, tool_name,
           arguments, result, status, error_message, duration_ms,
           execution_mode, side_effect, started_at, completed_at
-        ) VALUES (?, ?, 'static', ?, ?, ?, ?, ?, ?, 'returnable', false, NOW(), NOW())`,
+        ) VALUES (?, ?, 'static', ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
         [
           context.trace_id,
           context.job_id || null,
@@ -298,7 +314,9 @@ export class FunctionCallDispatcher {
           result.data ? JSON.stringify(result.data) : null,
           result.success ? 'success' : 'failed',
           result.error || null,
-          result.duration_ms || null
+          result.duration_ms || null,
+          executionMode,
+          false
         ]
       );
     } catch (error) {

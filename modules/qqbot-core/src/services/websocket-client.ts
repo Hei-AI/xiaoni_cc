@@ -3,8 +3,7 @@ import { EventEmitter } from 'events';
 import { WebSocketConfig, QQMessage, QQNotice, QQRequest, WebSocketEvent } from '../types';
 import { logger } from '../utils/logger';
 import { LoggingService } from './logging-service';
-import { TraceIdGenerator, ExecutionContext, createExecutionContext } from '../utils/trace-id';
-import { TraceStrategyManager, createEventContext } from '../utils/trace-strategy';
+import { createEventContext } from '../utils/trace-strategy';
 
 interface WebSocketMessage extends WebSocketEvent {
   message?: string;
@@ -126,7 +125,7 @@ export class WebSocketClient extends EventEmitter {
 
       // 检查是否是API响应消息
       if (this.isApiResponse(message)) {
-        await this.handleApiResponse(message as any, traceId);
+        await this.handleApiResponse(message as any);
         return;
       }
 
@@ -153,7 +152,7 @@ export class WebSocketClient extends EventEmitter {
           await this.handleQQRequest(message as unknown as QQRequest, eventData);
           break;
         case 'meta_event':
-          await this.handleQQMetaEvent(message as unknown as any, eventData);
+          await this.handleQQMetaEvent(message as unknown as any);
           break;
         default:
           this.moduleLogger.warn('Unknown message type', { 
@@ -276,7 +275,7 @@ export class WebSocketClient extends EventEmitter {
     }
   }
 
-  private async handleQQMetaEvent(metaEvent: any, eventData?: any): Promise<void> {
+  private async handleQQMetaEvent(metaEvent: any): Promise<void> {
     // 处理元事件（心跳、生命周期等）
     this.moduleLogger.debug('Received meta event', {
       meta_event_type: metaEvent.meta_event_type,
@@ -319,7 +318,7 @@ export class WebSocketClient extends EventEmitter {
     );
   }
 
-  private async handleApiResponse(response: any, traceId?: string | null): Promise<void> {
+  private async handleApiResponse(response: any): Promise<void> {
     // 处理API响应消息
     this.moduleLogger.debug('Received API response', {
       status: response.status,

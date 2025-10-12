@@ -99,8 +99,8 @@ export class CacheManager<T = any> extends EventEmitter {
   private accessOrder: string[] = [];
 
   // 定时器
-  private cleanupTimer: NodeJS.Timeout | null = null;
-  private compactionTimer: NodeJS.Timeout | null = null;
+  private cleanupTimer: ReturnType<typeof setTimeout> | null = null;
+  private compactionTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(name: string, config: Partial<CacheConfig> = {}) {
     super();
@@ -795,7 +795,7 @@ export class CacheManagerFactory {
    * 销毁所有缓存管理器
    */
   public static destroyAll(): void {
-    for (const [name, instance] of this.instances) {
+    for (const [, instance] of this.instances) {
       instance.destroy();
     }
     this.instances.clear();

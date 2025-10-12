@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * 创建链路追踪相关的数据库表
  * 使用现有的数据库服务来执行SQL

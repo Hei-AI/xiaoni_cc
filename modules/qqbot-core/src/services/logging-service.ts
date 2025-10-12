@@ -5,8 +5,6 @@
 
 import { DatabaseManager } from './database';
 import { logger } from '../utils/logger';
-import { TraceIdGenerator } from '../utils/trace-id';
-import { TraceStrategyManager } from '../utils/trace-strategy';
 
 /**
  * WebSocket日志记录数据接口

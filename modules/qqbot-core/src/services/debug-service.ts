@@ -1,5 +1,5 @@
 import { DatabaseManager } from './database';
-import { QQMessage, ConversationData, ConversationBatch } from '../types';
+import { QQMessage, ConversationData } from '../types';
 import { logger } from '../utils/logger';
 
 /**

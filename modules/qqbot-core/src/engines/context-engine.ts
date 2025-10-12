@@ -79,8 +79,7 @@ export class ContextEngine {
 
       // 第五步：生成对话摘要（Stage 1简化版）
       const conversationSummary = await this.generateConversationSummary(
-        recentMessages, 
-        currentMessage
+        recentMessages
       );
 
       // 第六步：提取话题关键词
@@ -127,7 +126,9 @@ export class ContextEngine {
   private async getCurrentMessage(messageId: string): Promise<QQMessage | null> {
     // 这里需要从数据库获取消息，目前先返回null
     // TODO: 实现真实的消息查询
-    this.moduleLogger.warn('getCurrentMessage not implemented, returning null');
+    this.moduleLogger.warn('getCurrentMessage not implemented, returning null', {
+      messageId
+    });
     return null;
   }
 
@@ -139,19 +140,18 @@ export class ContextEngine {
       const timeWindowMs = this.TIME_WINDOW_MINUTES * 60 * 1000;
       const cutoffTime = new Date(Date.now() - timeWindowMs);
 
-      // 构建查询条件
-      const searchContext = {
-        user_id: currentMessage.user_id,
-        group_id: currentMessage.group_id,
-        after_time: cutoffTime,
-        limit: this.MAX_RECENT_MESSAGES
-      };
-
       // TODO: 实现真实的历史消息查询
       // const messages = await this.database.getRecentMessages(searchContext);
       
       // Stage 1临时实现：返回空数组
-      this.moduleLogger.debug('Recent messages query not implemented, returning empty array');
+      this.moduleLogger.debug(
+        'Recent messages query not implemented, returning empty array',
+        {
+          userId: currentMessage.user_id,
+          groupId: currentMessage.group_id,
+          cutoffTime: cutoffTime.toISOString()
+        }
+      );
       const messages: QQMessage[] = [];
 
       // 按时间排序（最新的在前）
@@ -231,8 +231,7 @@ export class ContextEngine {
    * 生成对话摘要（Stage 1简化版）
    */
   private async generateConversationSummary(
-    recentMessages: QQMessage[], 
-    currentMessage: QQMessage
+    recentMessages: QQMessage[]
   ): Promise<string> {
     
     if (recentMessages.length === 0) {

@@ -1,5 +1,5 @@
 import { DatabaseManager } from './database';
-import { QQMessage, ConversationData } from '../types';
+import { QQMessage, ConversationData, OB11Segment } from '../types';
 import { logger } from '../utils/logger';
 
 /**
@@ -238,90 +238,408 @@ export class ContextManager {
    * @param context 消息上下文
    * @returns 格式化后的prompt文本
    */
-  public formatContextForAI(context: MessageContext): string {
-    let prompt = `=== 对话上下文 ===\n`;
+  public formatContextForAI(
+    context: MessageContext,
+    currentUserInput?: string
+  ): string {
+    const nicknameMap = new Map<number, string>();
 
-    // 基本信息
-    if (context.currentMessage.message_type === 'private') {
-      prompt += `对话类型: 私聊\n`;
-      prompt += `用户: ${context.currentMessage.sender?.nickname || `用户${context.currentMessage.user_id}`} (ID: ${context.currentMessage.user_id})\n`;
-    } else {
-      prompt += `对话类型: 群聊\n`;
-      prompt += `群ID: ${context.currentMessage.group_id}\n`;
-      prompt += `发言人: ${context.currentMessage.sender?.nickname || `用户${context.currentMessage.user_id}`} (ID: ${context.currentMessage.user_id})\n`;
-    }
-
-    // 用户统计信息
     if (context.userInfo) {
-      prompt += `用户历史消息数: ${context.userInfo.message_count}条\n`;
+      nicknameMap.set(
+        context.userInfo.user_id,
+        context.userInfo.nickname || `用户${context.userInfo.user_id}`
+      );
     }
 
-    // 历史对话
-    if (context.historyMessages.length > 0) {
-      if (context.currentMessage.message_type === 'private') {
-        prompt += `\n=== 与该用户的最近${context.historyMessages.length}条私聊历史 ===\n`;
-        context.historyMessages.forEach((msg, index) => {
-          const time = new Date(msg.timestamp).toLocaleTimeString();
-          prompt += `${index + 1}. [${time}] 用户: ${msg.user_message}\n`;
-          if (msg.ai_response) {
-            prompt += `   助手: ${msg.ai_response}\n`;
-          }
-          prompt += `\n`;
-        });
-      } else {
-        prompt += `\n=== 该群最近${context.historyMessages.length}条消息历史 ===\n`;
-        prompt += `注意：这是群聊环境，包含多个用户的对话\n`;
-        context.historyMessages.forEach((msg, index) => {
-          const time = new Date(msg.timestamp).toLocaleTimeString();
-          // 尝试从raw_request中获取发言者信息
-          const senderNickname = this.extractSenderFromConversation(msg);
-          prompt += `${index + 1}. [${time}] ${senderNickname}: ${msg.user_message}\n`;
-          if (msg.ai_response) {
-            prompt += `   助手: ${msg.ai_response}\n`;
-          }
-          prompt += `\n`;
-        });
+    context.historyMessages.forEach(historyMessage => {
+      const profile = this.extractSenderProfileFromConversation(historyMessage);
+      if (profile.userId) {
+        const resolvedNickname =
+          profile.nickname || `用户${profile.userId}`;
+        nicknameMap.set(profile.userId, resolvedNickname);
       }
-    } else {
-      const contextType = context.currentMessage.message_type === 'private' ? '私聊' : '群聊';
-      prompt += `\n=== 历史对话 ===\n这是新的${contextType}对话开始\n\n`;
+    });
+
+    const currentSenderProfile = this.extractSenderProfileFromMessage(
+      context.currentMessage
+    );
+
+    if (currentSenderProfile.userId) {
+      const currentNickname =
+        currentSenderProfile.nickname ||
+        context.currentMessage.sender?.nickname ||
+        `用户${currentSenderProfile.userId}`;
+      nicknameMap.set(currentSenderProfile.userId, currentNickname);
     }
 
-    // 当前消息
-    prompt += `=== 当前消息 ===\n`;
-    prompt += `${context.currentMessage.sender?.nickname || `用户${context.currentMessage.user_id}`}: ${context.currentMessage.raw_message}\n`;
+    const historyEntries = context.historyMessages.map(historyMessage =>
+      this.buildHistoryEntry(historyMessage, nicknameMap)
+    );
 
-    return prompt;
+    const unreadEntries = [
+      this.buildUnreadEntry(
+        context.currentMessage,
+        nicknameMap,
+        currentUserInput
+      )
+    ];
+
+    const payload: Record<string, any> = {
+      history: historyEntries,
+      unread: unreadEntries
+    };
+
+    return JSON.stringify(payload, null, 2);
   }
 
-  /**
-   * 从对话记录中提取发言者昵称
-   * @param conversation 对话记录
-   * @returns 发言者昵称
-   */
-  private extractSenderFromConversation(conversation: ConversationData): string {
+  private buildHistoryEntry(
+    conversation: ConversationData,
+    nicknameMap: Map<number, string>
+  ): Record<string, any> {
+    const senderProfile = this.extractSenderProfileFromConversation(conversation);
+    const userId = senderProfile.userId ?? conversation.user_id;
+    const nickname = this.resolveNickname(userId, senderProfile.nickname, nicknameMap);
+    const mentions = this.extractMentionsFromConversation(conversation, nicknameMap);
+
+    return {
+      qq_id: userId ? String(userId) : '',
+      user_nick: nickname,
+      message: conversation.user_message ?? '',
+      at_qq_id: mentions,
+      received_time: this.toIsoString(conversation.timestamp) ?? ''
+    };
+  }
+
+  private buildUnreadEntry(
+    message: QQMessage,
+    nicknameMap: Map<number, string>,
+    currentUserInput?: string
+  ): Record<string, any> {
+    const senderProfile = this.extractSenderProfileFromMessage(message);
+    const userId = senderProfile.userId ?? message.user_id;
+    const nickname = this.resolveNickname(
+      userId,
+      senderProfile.nickname || message.sender?.nickname,
+      nicknameMap
+    );
+
+    const messageText =
+      typeof currentUserInput === 'string' && currentUserInput.length > 0
+        ? currentUserInput
+        : this.extractMessageText(message);
+
+    const mentions = this.extractMentionsFromMessage(
+      message,
+      nicknameMap,
+      messageText
+    );
+
+    return {
+      qq_id: userId ? String(userId) : '',
+      user_nick: nickname,
+      message: messageText,
+      at_qq_id: mentions,
+      received_time:
+        this.toIsoString(
+          message.time ? message.time * 1000 : undefined
+        ) ?? ''
+    };
+  }
+
+  private resolveNickname(
+    userId: number | undefined,
+    preferredNickname: string | undefined,
+    nicknameMap: Map<number, string>
+  ): string {
+    if (userId && preferredNickname) {
+      nicknameMap.set(userId, preferredNickname);
+      return preferredNickname;
+    }
+
+    if (userId) {
+      const existing = nicknameMap.get(userId);
+      if (existing) {
+        return existing;
+      }
+      const fallback = `用户${userId}`;
+      nicknameMap.set(userId, fallback);
+      return fallback;
+    }
+
+    return preferredNickname || '';
+  }
+
+  private extractMentionsFromConversation(
+    conversation: ConversationData,
+    nicknameMap: Map<number, string>
+  ): Array<{ qq_id: string; nick_name: string }> {
     try {
       if (conversation.raw_request) {
-        const requestData = typeof conversation.raw_request === 'string' 
-          ? JSON.parse(conversation.raw_request)
-          : conversation.raw_request;
-        
-        // 尝试获取群聊中的发言者昵称
-        if (requestData.sender && requestData.sender.nickname) {
-          return requestData.sender.nickname;
-        }
-        
-        // 如果没有昵称，使用用户ID
-        if (requestData.user_id) {
-          return `用户${requestData.user_id}`;
+        const parsed = this.parseRawRequest(conversation.raw_request);
+        if (parsed) {
+          const messagePayload =
+            Array.isArray(parsed.message) || typeof parsed.message === 'string'
+              ? parsed.message
+              : parsed.raw_message;
+
+          const mentions = this.extractMentionsFromPayload(
+            messagePayload,
+            conversation.user_message,
+            nicknameMap
+          );
+
+          if (mentions.length > 0) {
+            return mentions;
+          }
         }
       }
     } catch (error) {
-      this.moduleLogger.warn('Failed to extract sender from conversation', { error });
+      this.moduleLogger.warn('Failed to extract mentions from conversation', {
+        error,
+        conversationId: conversation.id
+      });
     }
-    
-    // 默认返回用户ID
-    return `用户${conversation.user_id}`;
+
+    return this.extractMentionsFromPayload(
+      undefined,
+      conversation.user_message,
+      nicknameMap
+    );
+  }
+
+  private extractMentionsFromMessage(
+    message: QQMessage,
+    nicknameMap: Map<number, string>,
+    fallbackText?: string
+  ): Array<{ qq_id: string; nick_name: string }> {
+    const payload =
+      typeof message.message === 'string' || Array.isArray(message.message)
+        ? message.message
+        : message.raw_message;
+
+    const defaultText =
+      typeof fallbackText === 'string' && fallbackText.length > 0
+        ? fallbackText
+        : typeof message.raw_message === 'string'
+        ? message.raw_message
+        : undefined;
+
+    return this.extractMentionsFromPayload(payload, defaultText, nicknameMap);
+  }
+
+  private extractMentionsFromPayload(
+    payload: string | OB11Segment[] | undefined,
+    fallbackText: string | undefined,
+    nicknameMap: Map<number, string>
+  ): Array<{ qq_id: string; nick_name: string }> {
+    const mentions: Array<{ qq_id: string; nick_name: string }> = [];
+
+    const addMention = (qq: string | number | undefined, nickname?: string) => {
+      if (!qq && qq !== 0) {
+        return;
+      }
+      const qqString = String(qq);
+      if (!qqString || qqString === 'all' || qqString === 'here') {
+        return;
+      }
+
+      if (mentions.some(item => item.qq_id === qqString)) {
+        return;
+      }
+
+      const resolvedNickname = this.resolveMentionNickname(
+        qqString,
+        nicknameMap,
+        nickname
+      );
+
+      mentions.push({
+        qq_id: qqString,
+        nick_name: resolvedNickname
+      });
+    };
+
+    if (Array.isArray(payload)) {
+      payload.forEach(segment => {
+        if (segment.type === 'at') {
+          addMention(segment.data?.qq, segment.data?.name);
+        }
+      });
+    } else if (typeof payload === 'string') {
+      const cqRegex = /\[CQ:at,qq=([0-9]+)(?:,[^\]]*?name=([^,\]]+))?/g;
+      let match: RegExpExecArray | null;
+      while ((match = cqRegex.exec(payload)) !== null) {
+        addMention(match[1], match[2]);
+      }
+    }
+
+    if (typeof fallbackText === 'string' && fallbackText.length > 0) {
+      const inlineRegex = /@([0-9]{5,})/g;
+      let match: RegExpExecArray | null;
+      while ((match = inlineRegex.exec(fallbackText)) !== null) {
+        addMention(match[1]);
+      }
+    }
+
+    return mentions;
+  }
+
+  private resolveMentionNickname(
+    qqId: string,
+    nicknameMap: Map<number, string>,
+    explicit?: string
+  ): string {
+    if (explicit) {
+      return explicit;
+    }
+
+    const numericId = Number(qqId);
+    if (!Number.isNaN(numericId)) {
+      const existing = nicknameMap.get(numericId);
+      if (existing) {
+        return existing;
+      }
+      const fallback = `用户${qqId}`;
+      nicknameMap.set(numericId, fallback);
+      return fallback;
+    }
+
+    return '';
+  }
+
+  private extractMessageText(message: QQMessage): string {
+    if (typeof message.message === 'string') {
+      return message.message
+        .replace(/\[CQ:at,qq=([0-9]+)(?:,[^\]]*?name=([^,\]]+))?\]/g, (_, qq, name) =>
+          `@${name || qq}`
+        )
+        .trim();
+    }
+
+    if (Array.isArray(message.message)) {
+      return message.message
+        .map(segment => {
+          if (segment.type === 'text') {
+            return segment.data?.text || '';
+          }
+          if (segment.type === 'at') {
+            const name = segment.data?.name || segment.data?.qq;
+            return name ? `@${name}` : '@';
+          }
+          return '';
+        })
+        .join('')
+        .trim();
+    }
+
+    if (typeof message.raw_message === 'string') {
+      return message.raw_message.trim();
+    }
+
+    return '';
+  }
+
+  private extractSenderProfileFromConversation(conversation: ConversationData): {
+    userId?: number;
+    nickname?: string;
+    source: 'parsed' | 'fallback';
+  } {
+    try {
+      if (conversation.raw_request) {
+        const parsed = this.parseRawRequest(conversation.raw_request);
+
+        if (parsed?.sender) {
+          return {
+            userId: parsed.sender.user_id ?? conversation.user_id,
+            nickname: parsed.sender.nickname,
+            source: 'parsed'
+          };
+        }
+
+        if (parsed?.user_id) {
+          return {
+            userId: parsed.user_id,
+            nickname: parsed.nickname,
+            source: 'parsed'
+          };
+        }
+      }
+    } catch (error) {
+      this.moduleLogger.warn('Failed to parse conversation raw_request', {
+        error,
+        conversationId: conversation.id
+      });
+    }
+
+    return {
+      userId: conversation.user_id,
+      nickname: undefined,
+      source: 'fallback'
+    };
+  }
+
+  private extractSenderProfileFromMessage(message: QQMessage): {
+    userId?: number;
+    nickname?: string;
+  } {
+    try {
+      if (typeof message === 'object' && message.sender) {
+        return {
+          userId: message.sender.user_id ?? message.user_id,
+          nickname: message.sender.nickname
+        };
+      }
+    } catch (error) {
+      this.moduleLogger.warn('Failed to extract sender profile from message', {
+        error
+      });
+    }
+
+    return {
+      userId: message.user_id,
+      nickname: undefined
+    };
+  }
+
+  private parseRawRequest(rawRequest: any): any {
+    if (!rawRequest) {
+      return null;
+    }
+
+    if (typeof rawRequest === 'string') {
+      try {
+        return JSON.parse(rawRequest);
+      } catch (error) {
+        this.moduleLogger.warn('Failed to parse raw_request JSON', { error });
+        return null;
+      }
+    }
+
+    return rawRequest;
+  }
+
+  private toIsoString(
+    value: Date | string | number | undefined
+  ): string | undefined {
+    if (!value) {
+      return undefined;
+    }
+
+    let date: Date;
+
+    if (value instanceof Date) {
+      date = value;
+    } else if (typeof value === 'number') {
+      date = new Date(value);
+    } else {
+      date = new Date(value);
+    }
+
+    if (isNaN(date.getTime())) {
+      return undefined;
+    }
+
+    return date.toISOString();
   }
 
 }

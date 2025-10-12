@@ -1,6 +1,6 @@
 /**
- * 静态工具定义
- * 这些工具在系统启动时加载,可以直接被 LLM 调用
+ * 静态工具集合
+ * 目前仅提供依赖运行时 WebSocket 客户端的私聊/群聊发送工具。
  */
 
 import { StaticTool, ToolContext, ToolResult } from '../types';
@@ -8,187 +8,181 @@ import { logger } from '../utils/logger';
 
 const moduleLogger = logger.createModuleLogger('static-tools');
 
-/**
- * 获取当前时间工具
- */
-export const getCurrentTimeTool: StaticTool = {
-  name: 'get_current_time',
-  description: '获取当前的日期和时间信息',
-  mode: 'returnable',
-  parameters: {
-    type: 'object',
-    properties: {
-      timezone: {
-        type: 'string',
-        description: '时区 (例如: Asia/Shanghai, UTC)',
-        default: 'Asia/Shanghai'
-      },
-      format: {
-        type: 'string',
-        description: '时间格式 (iso, unix, readable)',
-        enum: ['iso', 'unix', 'readable'],
-        default: 'readable'
-      }
-    }
-  },
-  handler: async (ctx: ToolContext): Promise<ToolResult> => {
-    try {
-      const { timezone = 'Asia/Shanghai', format = 'readable' } = ctx.arguments;
-      const now = new Date();
+// ============================================================================
+// 📨 Messaging tools
+// ============================================================================
 
-      let timeString: string;
-      switch (format) {
-        case 'iso':
-          timeString = now.toISOString();
-          break;
-        case 'unix':
-          timeString = String(Math.floor(now.getTime() / 1000));
-          break;
-        case 'readable':
-        default:
-          timeString = now.toLocaleString('zh-CN', {
-            timeZone: timezone,
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: false
-          });
-      }
+export interface MessagingToolDependencies {
+  sendPrivateMessage: (userId: number, message: string) => Promise<void>;
+  sendGroupMessage: (groupId: number, message: string) => Promise<void>;
+  sendAtMessage: (groupId: number, userId: number, message: string) => Promise<void>;
+}
 
-      return {
-        success: true,
-        data: {
-          current_time: timeString,
-          timezone,
-          format,
-          day_of_week: now.toLocaleString('zh-CN', {
-            timeZone: timezone,
-            weekday: 'long'
-          })
-        }
-      };
-    } catch (error: any) {
-      moduleLogger.error('[get_current_time] Error:', { error });
-      return {
-        success: false,
-        error: error.message
-      };
-    }
+const validateNumericId = (value: unknown, fieldName: string): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${fieldName} must be a valid number`);
   }
+  return value;
 };
 
-/**
- * 计算工具 (示例)
- */
-export const calculateTool: StaticTool = {
-  name: 'calculate',
-  description: '执行简单的数学计算',
-  mode: 'returnable',
-  parameters: {
-    type: 'object',
-    properties: {
-      expression: {
-        type: 'string',
-        description: '数学表达式 (例如: 2 + 2, 10 * 5)'
-      }
-    },
-    required: ['expression']
-  },
-  handler: async (ctx: ToolContext): Promise<ToolResult> => {
-    try {
-      const { expression } = ctx.arguments;
-
-      // 简单安全检查:只允许数字和基本运算符
-      if (!/^[\d\s+\-*/.()]+$/.test(expression)) {
-        return {
-          success: false,
-          error: 'Invalid expression: only numbers and operators (+, -, *, /, .) are allowed'
-        };
-      }
-
-      // 使用 Function 构造函数求值 (注意:生产环境应使用更安全的方法)
-      const result = eval(expression);
-
-      return {
-        success: true,
-        data: {
-          expression,
-          result
-        }
-      };
-    } catch (error: any) {
-      moduleLogger.error('[calculate] Error:', { error });
-      return {
-        success: false,
-        error: error.message
-      };
-    }
+const validateMessage = (value: unknown): string => {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error('message must be a non-empty string');
   }
+  return value.trim();
 };
 
-/**
- * 记录备忘录工具 (fire-and-forget示例)
- */
-export const logMemoTool: StaticTool = {
-  name: 'log_memo',
-  description: '记录一条备忘信息到日志中 (不返回结果)',
+const createPrivateMessageTool = (
+  deps: MessagingToolDependencies
+): StaticTool => ({
+  name: 'send_private_chat_message',
+  description: '向指定QQ用户发送一条私聊消息。',
   mode: 'fire-and-forget',
   parameters: {
     type: 'object',
     properties: {
-      memo: {
-        type: 'string',
-        description: '备忘内容'
+      user_id: {
+        type: 'integer',
+        description: '接收消息的QQ用户ID。'
       },
-      priority: {
+      message: {
         type: 'string',
-        description: '优先级',
-        enum: ['low', 'medium', 'high'],
-        default: 'medium'
+        description: '要发送的消息内容。'
       }
     },
-    required: ['memo']
+    required: ['user_id', 'message']
   },
   handler: async (ctx: ToolContext): Promise<ToolResult> => {
-    try {
-      const { memo, priority = 'medium' } = ctx.arguments;
+    const start = Date.now();
 
-      // 记录到日志
-      moduleLogger.info(`[MEMO] [${priority.toUpperCase()}] ${memo}`, {
-        trace_id: ctx.trace_id,
-        user_id: ctx.user_id,
-        source_key: ctx.source_key
-      });
+    try {
+      const { user_id, message } = ctx.arguments || {};
+      const normalizedUserId = validateNumericId(user_id, 'user_id');
+      const normalizedMessage = validateMessage(message);
+
+      await deps.sendPrivateMessage(normalizedUserId, normalizedMessage);
 
       return {
         success: true,
-        side_effects: [`Logged memo with priority: ${priority}`]
+        data: {
+          status: 'sent',
+          user_id: normalizedUserId,
+          message: normalizedMessage,
+          duration_ms: Date.now() - start
+        }
       };
     } catch (error: any) {
-      moduleLogger.error('[log_memo] Error:', { error });
+      moduleLogger.error('[send_private_chat_message] Error:', {
+        error: error?.message || error,
+        trace_id: ctx.trace_id,
+        arguments: ctx.arguments
+      });
+
       return {
         success: false,
-        error: error.message
+        error: error?.message || 'Failed to send private message',
+        duration_ms: Date.now() - start
       };
     }
   }
-};
+});
 
-/**
- * 汇总所有静态工具
- */
-export const STATIC_TOOLS: StaticTool[] = [
-  getCurrentTimeTool,
-  calculateTool,
-  logMemoTool
+const createGroupMessageTool = (
+  deps: MessagingToolDependencies
+): StaticTool => ({
+  name: 'send_group_chat_message',
+  description: '向指定QQ群发送消息，可选@指定成员。',
+  mode: 'fire-and-forget',
+  parameters: {
+    type: 'object',
+    properties: {
+      group_id: {
+        type: 'integer',
+        description: '目标QQ群ID。'
+      },
+      message: {
+        type: 'string',
+        description: '要发送的消息内容。'
+      },
+      should_at: {
+        type: 'boolean',
+        description: '是否需要@某个群成员。',
+        default: false
+      },
+      at_user_id: {
+        type: 'integer',
+        description: '当should_at为true时，需要@的QQ号。'
+      }
+    },
+    required: ['group_id', 'message']
+  },
+  handler: async (ctx: ToolContext): Promise<ToolResult> => {
+    const start = Date.now();
+
+    try {
+      const {
+        group_id,
+        message,
+        should_at = false,
+        at_user_id = null
+      } = ctx.arguments || {};
+
+      const normalizedGroupId = validateNumericId(group_id, 'group_id');
+      const normalizedMessage = validateMessage(message);
+      const normalizedShouldAt = Boolean(should_at);
+
+      if (normalizedShouldAt) {
+        const normalizedAtUserId = validateNumericId(at_user_id, 'at_user_id');
+        await deps.sendAtMessage(normalizedGroupId, normalizedAtUserId, normalizedMessage);
+
+        return {
+          success: true,
+          data: {
+            status: 'sent',
+            group_id: normalizedGroupId,
+            message: normalizedMessage,
+            mention: {
+              enabled: true,
+              user_id: normalizedAtUserId
+            },
+            duration_ms: Date.now() - start
+          }
+        };
+      }
+
+      await deps.sendGroupMessage(normalizedGroupId, normalizedMessage);
+
+      return {
+        success: true,
+        data: {
+          status: 'sent',
+          group_id: normalizedGroupId,
+          message: normalizedMessage,
+          mention: {
+            enabled: false
+          },
+          duration_ms: Date.now() - start
+        }
+      };
+    } catch (error: any) {
+      moduleLogger.error('[send_group_chat_message] Error:', {
+        error: error?.message || error,
+        trace_id: ctx.trace_id,
+        arguments: ctx.arguments
+      });
+
+      return {
+        success: false,
+        error: error?.message || 'Failed to send group message',
+        duration_ms: Date.now() - start
+      };
+    }
+  }
+});
+
+export const createMessagingTools = (
+  deps: MessagingToolDependencies
+): StaticTool[] => [
+  createPrivateMessageTool(deps),
+  createGroupMessageTool(deps)
 ];
-
-/**
- * 根据名称获取静态工具
- */
-export function getStaticTool(name: string): StaticTool | undefined {
-  return STATIC_TOOLS.find(tool => tool.name === name);
-}

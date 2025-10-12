@@ -16,7 +16,7 @@
  */
 
 import { logger } from '../utils/logger';
-import { MessageQueueService, DrainedMessage } from './message-queue-service';
+import { MessageQueueService } from './message-queue-service';
 import { BatchHandler, TriggerType } from './direct-notifier';
 
 interface ScheduleEntry {
@@ -44,7 +44,7 @@ export class ScheduleDispatcher {
   private scheduleQueue: Map<string, ScheduleEntry> = new Map();
 
   // tick 循环控制
-  private tickTimer?: NodeJS.Timeout;
+  private tickTimer?: ReturnType<typeof setTimeout>;
   private isRunning = false;
 
   // 统计信息

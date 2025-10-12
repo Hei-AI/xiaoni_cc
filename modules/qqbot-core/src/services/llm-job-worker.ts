@@ -9,9 +9,22 @@ import { DatabaseManager } from './database';
 import { FunctionCallDispatcher } from './function-call-dispatcher';
 import { AIService } from './ai-service';
 import { logger } from '../utils/logger';
-import { LLMJob, LLMJobStatus, GeminiFunctionCall } from '../types';
+import { LLMJob, LLMJobStatus, GeminiFunctionCall, FunctionCallingMode } from '../types';
 
 const moduleLogger = logger.createModuleLogger('llm-job-worker');
+
+const normalizeFunctionCallingMode = (mode: unknown): FunctionCallingMode => {
+  if (typeof mode !== 'string') {
+    return 'ANY';
+  }
+
+  const upper = mode.toUpperCase();
+  if (upper === 'AUTO' || upper === 'NONE' || upper === 'ANY') {
+    return upper as FunctionCallingMode;
+  }
+
+  return 'ANY';
+};
 
 export interface LLMJobWorkerConfig {
   maxConcurrentJobs: number;
@@ -23,6 +36,7 @@ export interface LLMJobWorkerConfig {
 export interface JobResult {
   success: boolean;
   finalResponse?: string;
+  suppressAutoReply?: boolean;
   error?: string;
 }
 
@@ -34,7 +48,7 @@ export class LLMJobWorker extends EventEmitter {
 
   private isRunning: boolean = false;
   private activeJobs: Set<string> = new Set();
-  private pollTimer?: NodeJS.Timeout;
+  private pollTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     database: DatabaseManager,
@@ -228,6 +242,7 @@ export class LLMJobWorker extends EventEmitter {
           jobId: job.id,
           traceId: job.trace_id,
           finalResponse: result.finalResponse,
+          suppressAutoReply: result.suppressAutoReply || false,
           metadata: job.metadata || null
         });
       } else {
@@ -266,7 +281,23 @@ export class LLMJobWorker extends EventEmitter {
    */
   private async executeJob(job: LLMJob): Promise<JobResult> {
     let contents = job.contents_json;
-    let tools = job.tools_json || [];
+    const jobMetadata = job.metadata || {};
+
+    const toolMap = new Map<string, any>();
+    const registerTool = (declaration?: any) => {
+      if (declaration && typeof declaration === 'object' && declaration.name) {
+        toolMap.set(declaration.name, declaration);
+      }
+    };
+
+    this.dispatcher.getStaticToolDeclarations().forEach(registerTool);
+    registerTool(this.dispatcher.getSearchToolsDeclaration());
+
+    if (Array.isArray(job.tools_json)) {
+      job.tools_json.forEach(registerTool);
+    }
+
+    let tools = Array.from(toolMap.values());
     let currentTurn = job.current_turn;
 
     moduleLogger.info('Executing job', {
@@ -287,7 +318,8 @@ export class LLMJobWorker extends EventEmitter {
         const finalText = this.extractTextFromResponse(response);
         return {
           success: true,
-          finalResponse: finalText
+          finalResponse: finalText,
+          suppressAutoReply: false
         };
       }
 
@@ -304,14 +336,18 @@ export class LLMJobWorker extends EventEmitter {
         const dispatchResult = await this.dispatcher.dispatch(functionCall, {
           traceId: job.trace_id,
           jobId: job.id,
-          sourceKey: job.source_key
+          sourceKey: job.source_key,
+          userId: jobMetadata.userId,
+          groupId: jobMetadata.groupId,
+          metadata: jobMetadata
         });
 
         if (dispatchResult.isCompleted) {
           // 工具执行完成,无需继续
           return {
             success: true,
-            finalResponse: dispatchResult.finalResponse
+            finalResponse: dispatchResult.finalResponse,
+            suppressAutoReply: dispatchResult.suppressAutoReply || false
           };
         }
 
@@ -329,7 +365,8 @@ export class LLMJobWorker extends EventEmitter {
           const invokeDeclaration = this.dispatcher.getInvokeDeclaration(
             dispatchResult.searchedTools
           );
-          tools = [...tools, invokeDeclaration];
+          registerTool(invokeDeclaration);
+          tools = Array.from(toolMap.values());
         }
       }
 
@@ -378,6 +415,21 @@ export class LLMJobWorker extends EventEmitter {
         tools: tools.length > 0 ? tools : undefined,
         ...(job.config_json || {})
       };
+
+      if (!request.toolConfig || typeof request.toolConfig !== 'object') {
+        request.toolConfig = {
+          functionCallingConfig: {
+            mode: 'ANY'
+          }
+        };
+      } else {
+        const fc = request.toolConfig.functionCallingConfig;
+        if (!fc || typeof fc !== 'object') {
+          request.toolConfig.functionCallingConfig = { mode: 'ANY' };
+        } else {
+          request.toolConfig.functionCallingConfig.mode = normalizeFunctionCallingMode(fc.mode);
+        }
+      }
 
       const metadata = job.metadata || {};
       const modelNameFromConfig = (job.config_json && (job.config_json as any).model?.name)

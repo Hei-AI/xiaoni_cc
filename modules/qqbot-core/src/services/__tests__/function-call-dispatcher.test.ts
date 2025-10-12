@@ -124,7 +124,8 @@ describe('FunctionCallDispatcher', () => {
 
       expect(result.shouldContinue).toBe(false);
       expect(result.isCompleted).toBe(true);
-      expect(result.finalResponse).toContain('executed successfully');
+      expect(result.finalResponse).toBe('');
+      expect(result.suppressAutoReply).toBe(true);
     });
 
     it('should handle static tool errors', async () => {
@@ -279,15 +280,16 @@ describe('FunctionCallDispatcher', () => {
         }
       };
 
-      const result = await dispatcher.dispatch(functionCall, {
-        traceId: 'trace-123',
-        sourceKey: 'user_123'
-      });
-
-      expect(result.shouldContinue).toBe(false);
-      expect(result.isCompleted).toBe(true);
-      expect(result.finalResponse).toContain('executed successfully');
+    const result = await dispatcher.dispatch(functionCall, {
+      traceId: 'trace-123',
+      sourceKey: 'user_123'
     });
+
+    expect(result.shouldContinue).toBe(false);
+    expect(result.isCompleted).toBe(true);
+    expect(result.finalResponse).toBe('');
+    expect(result.suppressAutoReply).toBe(true);
+  });
 
     it('should handle invoke errors', async () => {
       mockToolRegistry.invoke.mockResolvedValue({

@@ -130,7 +130,7 @@ export class TimelineTracker {
  */
 class TimelineTrackerManager {
   private trackers: Map<string, TimelineTracker> = new Map();
-  private cleanupInterval: NodeJS.Timeout | null = null;
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     // 定期清理超过1小时的追踪器

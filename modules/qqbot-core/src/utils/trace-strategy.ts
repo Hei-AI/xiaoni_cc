@@ -242,8 +242,8 @@ export class TraceStrategyManager {
    */
   static getTraceableEvents(): string[] {
     return Object.entries(EVENT_STRATEGIES)
-      .filter(([_, strategy]) => strategy.shouldGenerateTrace)
-      .map(([eventType, _]) => eventType);
+      .filter(([, strategy]) => strategy.shouldGenerateTrace)
+      .map(([eventType]) => eventType);
   }
 
   /**

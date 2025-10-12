@@ -68,7 +68,7 @@ export class DecisionEngine {
       }
       
       // 第二步：需要AI分析的情况（主要是群聊消息）
-      const aiResult = await this.performAIAnalysis(context, traceId);
+      const aiResult = await this.performAIAnalysis(context);
       const analysisTime = Date.now() - startTime;
       
       this.moduleLogger.info('AI-based decision made', {
@@ -202,7 +202,7 @@ export class DecisionEngine {
     
     // 过滤明显无关的内容
     const irrelevantPatterns = [
-      /^[\.。…]+$/, // 只有标点符号
+      /^[.。…]+$/, // 只有标点符号
       /^[哈呵嘿嘻]{2,}$/, // 纯笑声
       /^[0-9\s]+$/, // 纯数字
       /^\[CQ:image/, // 纯图片消息
@@ -216,18 +216,17 @@ export class DecisionEngine {
    * AI分析：对需要智能判断的消息进行分析
    * 临时版本：跳过LLM调用，默认返回需要回复
    */
-  private async performAIAnalysis(context: MessageContext, traceId?: string): Promise<{
+  private async performAIAnalysis(context: MessageContext): Promise<{
     shouldRespond: boolean;
     confidence: number;
     source: 'ai_analysis';
     reasoning: string;
     suggestedService?: 'chat' | 'requirement' | 'ignore';
   }> {
-
-    const message = context.currentMessage;
-    const messageText = typeof message.message === 'string' ? message.message : '';
-
-    this.moduleLogger.info('AI analysis skipped, using default positive decision');
+    this.moduleLogger.info('AI analysis skipped, using default positive decision', {
+      userId: context.currentMessage.user_id,
+      messageType: context.currentMessage.message_type
+    });
 
     // 临时跳过AI调用，默认返回需要回复
     return {
@@ -287,8 +286,8 @@ ${context.currentMessage.group_id ? `群聊ID: ${context.currentMessage.group_id
       const cleanedResponse = response
         .replace(/```json\n?/g, '')
         .replace(/```\n?/g, '')
-        .replace(/^[^\{]*/, '') // 移除JSON前的文本
-        .replace(/[^\}]*$/, '') // 移除JSON后的文本
+        .replace(/^[^{]*/, '') // 移除JSON前的文本
+        .replace(/[^}]*$/, '') // 移除JSON后的文本
         .trim();
       
       const parsed = JSON.parse(cleanedResponse);
@@ -491,7 +490,7 @@ ${context.currentMessage.group_id ? `群聊ID: ${context.currentMessage.group_id
   /**
    * 获取决策统计信息（用于监控和调优）
    */
-  async getDecisionStats(timeWindow: number = 24 * 60 * 60 * 1000): Promise<{
+  async getDecisionStats(): Promise<{
     totalDecisions: number;
     responseRate: number;
     averageConfidence: number;

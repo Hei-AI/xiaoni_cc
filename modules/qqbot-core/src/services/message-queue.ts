@@ -132,8 +132,8 @@ export class PartitionedMessageQueue extends EventEmitter {
    */
   getActivePartitions(): string[] {
     return Array.from(this.partitions.entries())
-      .filter(([_, messages]) => messages.length > 0)
-      .map(([partitionKey, _]) => partitionKey);
+      .filter(([, messages]) => messages.length > 0)
+      .map(([partitionKey]) => partitionKey);
   }
 
   /**

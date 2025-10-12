@@ -17,7 +17,7 @@ import ContextEngine from './engines/context-engine';
 import { ToolRegistryService } from './services/tool-registry-service';
 import { FunctionCallDispatcher } from './services/function-call-dispatcher';
 import { LLMJobWorker } from './services/llm-job-worker';
-import { STATIC_TOOLS } from './tools/static-tools';
+import { createMessagingTools } from './tools/static-tools';
 import {
   QQMessage,
   QQNotice,
@@ -107,8 +107,13 @@ class QQBot implements BatchHandler {
     this.toolRegistryService = new ToolRegistryService(this.database);
     this.functionCallDispatcher = new FunctionCallDispatcher(this.toolRegistryService);
 
-    // 注册静态工具
-    this.functionCallDispatcher.registerStaticTools(STATIC_TOOLS);
+    const messagingTools = createMessagingTools({
+      sendPrivateMessage: this.websocketClient.sendPrivateMessage.bind(this.websocketClient),
+      sendGroupMessage: this.websocketClient.sendGroupMessage.bind(this.websocketClient),
+      sendAtMessage: this.websocketClient.sendAtMessage.bind(this.websocketClient)
+    });
+
+    this.functionCallDispatcher.registerStaticTools(messagingTools);
 
     // 初始化 LLMJobWorker
     this.llmJobWorker = new LLMJobWorker(
@@ -128,10 +133,11 @@ class QQBot implements BatchHandler {
       jobId: string;
       traceId: string;
       finalResponse: string;
+      suppressAutoReply?: boolean;
       metadata?: any;
     }) => {
       try {
-        const { metadata, finalResponse } = event;
+        const { metadata, finalResponse, suppressAutoReply } = event;
 
         if (!metadata || !finalResponse) {
           this.moduleLogger.warn('Job completed but missing metadata or response', { jobId: event.jobId });
@@ -160,7 +166,14 @@ class QQBot implements BatchHandler {
         }
 
         // 发送响应给用户
-        if (messageType === 'group' && groupId) {
+        if (suppressAutoReply) {
+          this.moduleLogger.debug('Auto reply suppressed by tool execution', {
+            jobId: event.jobId,
+            messageType,
+            groupId,
+            userId
+          });
+        } else if (messageType === 'group' && groupId) {
           // 检查群聊自动回复开关
           const groupSettings = await this.database.getGroupChatSettingById(groupId);
           if (groupSettings && !groupSettings.auto_reply_enabled) {
@@ -837,33 +850,60 @@ class QQBot implements BatchHandler {
         message: message.message
       });
 
-      // 清理消息内容（移除@信息）
+      // 清理消息内容（保留@信息以便区分消息目标）
       let cleanMessage = '';
 
       if (typeof message.message === 'string') {
-        // 字符串格式：移除CQ码和@信息
+        // 字符串格式：保留@信息，并将CQ at标记转换为易读形式
         cleanMessage = message.message
-          .replace(/\[CQ:at,qq=\d+\]/g, '')
-          .replace(/@\d+/g, '')
+          .replace(/\[CQ:at,qq=(\d+)(?:,[^\]]*)?\]/g, (_, qq) => `@${qq}`)
           .trim();
       } else if (Array.isArray(message.message)) {
-        // 消息段数组格式：提取文本内容，跳过at段
+        // 消息段数组格式：提取文本内容并保留@信息
         cleanMessage = message.message
-          .filter((segment: any) => segment.type === 'text')
-          .map((segment: any) => segment.data?.text || '')
+          .map((segment: any) => {
+            if (segment.type === 'text') {
+              return segment.data?.text || '';
+            }
+            if (segment.type === 'at') {
+              const mentionName = segment.data?.name || segment.data?.qq;
+              return mentionName ? `@${mentionName}` : '@';
+            }
+            return '';
+          })
           .join('')
           .trim();
       }
 
       if (!cleanMessage) {
-        // 获取群聊设置中的欢迎消息
-        const groupSetting = await this.database.getGroupChatSettingById(message.group_id!);
-        const welcomeMessage = groupSetting?.welcome_message || '您好！我是智能助手，有什么可以帮助您的吗？';
+        // 记录空消息以便排查，但不发送兜底消息
+        this.moduleLogger.info('Skipped group message with empty content after normalization', {
+          traceId,
+          conversationId,
+          groupId: message.group_id,
+          userId: message.user_id
+        });
 
-        await this.websocketClient.sendGroupMessage(
-          message.group_id!,
-          welcomeMessage
-        );
+        const filteredConversation: ConversationData = {
+          id: conversationId,
+          trace_id: traceId,
+          user_id: message.user_id,
+          group_id: message.group_id,
+          user_message:
+            typeof message.message === 'string'
+              ? message.message
+              : JSON.stringify(message.message),
+          timestamp: new Date(),
+          response_time: 0,
+          raw_request: JSON.stringify(message),
+          status: 'filtered_empty_content',
+          error_reason: 'Empty content after normalization',
+          batch_id: batchId,
+          created_at: new Date(),
+          updated_at: new Date()
+        };
+
+        await this.database.saveConversation(filteredConversation);
         return;
       }
 
@@ -1266,8 +1306,11 @@ class QQBot implements BatchHandler {
       let cachedGroupSettings = resolvedGroupSettings;
       let cachedPrivateSettings = resolvedPrivateSettings;
 
-      const contextPrompt = this.contextManager.formatContextForAI(messageContext);
-      const fullPrompt = `${contextPrompt}\n\n=== 当前需要回复的消息 ===\n${userMessage}`;
+      const contextPrompt = this.contextManager.formatContextForAI(
+        messageContext,
+        userMessage
+      );
+      const fullPrompt = contextPrompt;
 
       // 🛠️ 如果启用工具系统，使用 LLMJob 异步处理
       if (this.enableLLMTools) {
@@ -1308,12 +1351,52 @@ class QQBot implements BatchHandler {
           };
         }
 
+        const customTools = promptConfig.tools?.customTools || [];
+        const functionDeclarations = customTools
+          .map(tool => {
+            const name = tool.name || tool.id;
+            if (!name) {
+              return null;
+            }
+            return {
+              name,
+              description: tool.description || '',
+              parameters: tool.parameters || {}
+            };
+          })
+          .filter(Boolean) as Array<{ name: string; description: string; parameters: any }>;
+
+        if (functionDeclarations.length > 0) {
+          jobConfig.tools = functionDeclarations;
+
+          const rawFunctionCallingMode = promptConfig.tools?.functionCalling?.mode;
+          const normalizedFunctionCallingMode = (() => {
+            if (typeof rawFunctionCallingMode !== 'string') {
+              return 'ANY';
+            }
+
+            const upper = rawFunctionCallingMode.toUpperCase();
+            const allowedModes = new Set(['AUTO', 'ANY', 'NONE']);
+            return allowedModes.has(upper) ? upper : 'ANY';
+          })();
+          const allowedNames = promptConfig.tools?.functionCalling?.allowedFunctionNames
+            || functionDeclarations.map(item => item.name);
+
+          jobConfig.toolConfig = {
+            functionCallingConfig: {
+              mode: normalizedFunctionCallingMode,
+              allowedFunctionNames: allowedNames
+            }
+          };
+        }
+
         // 创建 LLM Job
         const jobId = await this.llmJobWorker.createJob({
           traceId: traceId || `trace-${Date.now()}`,
           sourceKey,
           sourceType,
           contents,
+          tools: functionDeclarations,
           config: jobConfig,
           metadata: {
             conversationId,

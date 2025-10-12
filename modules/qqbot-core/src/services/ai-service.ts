@@ -504,9 +504,15 @@ export class AIService {
       });
     }
 
+    let tokenInfo: {
+      token: string;
+      tokenId: number;
+      projectName: string;
+    } | null = null;
+
     try {
       // 1. 获取Token
-      const tokenInfo = await this.tokenManager.getTokenForModel(
+      tokenInfo = await this.tokenManager.getTokenForModel(
         config.model.name,
         config.category,
         config.name
@@ -516,9 +522,11 @@ export class AIService {
         throw new Error(`No available tokens for model ${config.model.name}`);
       }
 
+      const activeToken = tokenInfo;
+
       // 2. 构建SDK请求
       const genAIClient = new GoogleGenAI({
-        apiKey: tokenInfo.token,
+        apiKey: activeToken.token,
         httpOptions: {
           timeout: config.performance.timeout
         }
@@ -601,11 +609,13 @@ export class AIService {
         }
       }
 
+      await this.tokenManager.reportSuccess(activeToken.token);
+
       this.moduleLogger.info('LLM API call successful', {
         modelName: config.model.name,
         configId: config.id,
         processingTimeMs,
-        tokenId: tokenInfo.tokenId,
+        tokenId: activeToken.tokenId,
         responseLength: responseText.length
       });
 
@@ -681,17 +691,67 @@ export class AIService {
 
       errorHandler.handleError(standardizedError);
 
-      // 如果是Token错误，报告给TokenManager
-      if (this.isTokenError(error)) {
-        await this.tokenManager.reportError(config.model.name, error.message);
+      if (tokenInfo) {
+        await this.handleTokenFailure(tokenInfo, config.model.name, error, 'callLLMAPI');
       }
 
       throw standardizedError;
     }
   }
 
+  private async handleTokenFailure(
+    tokenInfo: {
+      token: string;
+      tokenId: number;
+      projectName: string;
+    },
+    modelName: string,
+    error: any,
+    context: string
+  ): Promise<void> {
+    if (!this.isTokenError(error)) {
+      return;
+    }
+
+    const statusCode = this.getErrorStatusCode(error);
+
+    if (statusCode === 429) {
+      await this.tokenManager.markTokenFailedForModel(tokenInfo.token, modelName, error, context);
+      return;
+    }
+
+    if (statusCode === 401 || statusCode === 403) {
+      await this.tokenManager.reportError(tokenInfo.token, error.message);
+    }
+  }
+
   private isTokenError(error: any): boolean {
-    return error.status === 401 || error.status === 403 || error.status === 429;
+    const statusCode = this.getErrorStatusCode(error);
+    return statusCode === 401 || statusCode === 403 || statusCode === 429;
+  }
+
+  private getErrorStatusCode(error: any): number | undefined {
+    if (!error) {
+      return undefined;
+    }
+
+    if (typeof error.status === 'number') {
+      return error.status;
+    }
+
+    if (typeof error.statusCode === 'number') {
+      return error.statusCode;
+    }
+
+    if (error.response && typeof error.response.status === 'number') {
+      return error.response.status;
+    }
+
+    if (error.originalError) {
+      return this.getErrorStatusCode(error.originalError);
+    }
+
+    return undefined;
   }
 
   private configureGlobalProxy(proxyUrl: string): void {
@@ -747,6 +807,11 @@ export class AIService {
   ): Promise<any> {
     const callStartTime = Date.now();
     const llmCallId = uuidv4();
+    let tokenInfo: {
+      token: string;
+      tokenId: number;
+      projectName: string;
+    } | null = null;
 
     const normalizedOptions: GenerateContentOptions = typeof options === 'string'
       ? { modelName: options }
@@ -779,7 +844,7 @@ export class AIService {
 
     try {
       // 1. 获取Token
-      const tokenInfo = await this.tokenManager.getTokenForModel(
+      tokenInfo = await this.tokenManager.getTokenForModel(
         targetModel,
         resolvedAgentType,
         resolvedPromptName
@@ -788,9 +853,11 @@ export class AIService {
       if (!tokenInfo) {
         throw new Error(`No available tokens for model ${targetModel}`);
       }
+
+      const activeToken = tokenInfo;
       // 2. 创建SDK客户端并构造配置
       const genAIClient = new GoogleGenAI({
-        apiKey: tokenInfo.token,
+        apiKey: activeToken.token,
         httpOptions: {
           timeout: this.defaultTimeout
         }
@@ -842,10 +909,12 @@ export class AIService {
         }
       }
 
+      await this.tokenManager.reportSuccess(activeToken.token);
+
       this.moduleLogger.info('Direct LLM generateContent call successful', {
         modelName: targetModel,
         processingTimeMs,
-        tokenId: tokenInfo.tokenId,
+        tokenId: activeToken.tokenId,
         hasTools: !!request.tools,
         toolCount: request.tools?.length || 0,
         agentType: resolvedAgentType,
@@ -888,8 +957,8 @@ export class AIService {
         }
       }
 
-      if (this.isTokenError(error)) {
-        await this.tokenManager.reportError(targetModel, error.message);
+      if (tokenInfo) {
+        await this.handleTokenFailure(tokenInfo, targetModel, error, 'generateContent');
       }
 
       this.moduleLogger.error('Direct LLM generateContent call failed', {

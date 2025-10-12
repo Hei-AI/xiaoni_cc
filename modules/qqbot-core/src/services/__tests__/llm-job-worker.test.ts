@@ -58,7 +58,9 @@ describe('LLMJobWorker', () => {
     // Mock dispatcher
     mockDispatcher = {
       dispatch: jest.fn(),
-      getInvokeDeclaration: jest.fn()
+      getInvokeDeclaration: jest.fn(),
+      getStaticToolDeclarations: jest.fn().mockReturnValue([]),
+      getSearchToolsDeclaration: jest.fn().mockReturnValue(undefined)
     };
 
     worker = new LLMJobWorker(mockDatabase, mockDispatcher, mockAIService, {
@@ -236,6 +238,7 @@ describe('LLMJobWorker', () => {
         jobId: 'job-123',
         traceId: 'trace-123',
         finalResponse: 'Hello! How can I help you?',
+        suppressAutoReply: false,
         metadata: mockJob.metadata
       }));
     });
@@ -249,11 +252,11 @@ describe('LLMJobWorker', () => {
         status: 'pending',
         retry_count: 0,
         max_retries: 3,
-        contents_json: [{ role: 'user', parts: [{ text: 'What time is it?' }] }],
+        contents_json: [{ role: 'user', parts: [{ text: '帮我给朋友发一条消息' }] }],
         tools_json: [
           {
-            name: 'get_current_time',
-            description: 'Get current time',
+            name: 'send_private_chat_message',
+            description: 'Send private message',
             parameters: { type: 'object' }
           }
         ],
@@ -273,8 +276,8 @@ describe('LLMJobWorker', () => {
               parts: [
                 {
                   functionCall: {
-                    name: 'get_current_time',
-                    args: { format: 'readable' }
+                    name: 'send_private_chat_message',
+                    args: { user_id: 123456, message: '你好呀～' }
                   }
                 }
               ]
@@ -303,10 +306,14 @@ describe('LLMJobWorker', () => {
         shouldContinue: true,
         isCompleted: false,
         functionResponse: {
-          name: 'get_current_time',
+          name: 'send_private_chat_message',
           response: {
-            name: 'get_current_time',
-            content: { current_time: '10:30 AM' }
+            name: 'send_private_chat_message',
+            content: {
+              status: 'sent',
+              user_id: 123456,
+              message: '你好呀～'
+            }
           }
         }
       });
@@ -322,12 +329,16 @@ describe('LLMJobWorker', () => {
       await (worker as any).processJob(mockJob);
 
       expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
-        { name: 'get_current_time', args: { format: 'readable' } },
+        {
+          name: 'send_private_chat_message',
+          args: { user_id: 123456, message: '你好呀～' }
+        },
         expect.objectContaining({ jobId: 'job-123' })
       );
       expect(completedSpy).toHaveBeenCalledWith(expect.objectContaining({
         jobId: 'job-123',
         traceId: 'trace-123',
+        suppressAutoReply: false,
         metadata: mockJob.metadata
       }));
     });

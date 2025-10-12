@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { logger } from './logger';
 import { DatabaseManager, getDatabaseManager } from '../services/database';
 import { config } from '../config';
@@ -226,9 +225,8 @@ export class TokenManager {
    * 报告Token使用成功
    * @param token 使用的Token
    * @param responseTimeMs 响应时间（毫秒）
-   * @param geminiUsage Gemini API使用统计
    */
-  public async reportSuccess(token: string, responseTimeMs?: number, geminiUsage?: Record<string, any>): Promise<void> {
+  public async reportSuccess(token: string, responseTimeMs?: number): Promise<void> {
     try {
       // 重置错误计数，更新健康状态
       await this.database.executeUpdate(`
@@ -294,7 +292,8 @@ export class TokenManager {
       if (updateResult > 0) {
         this.moduleLogger.warn('Token error reported', { 
           error,
-          tokenPrefix: token.substring(0, 8) + '...'
+          tokenPrefix: token.substring(0, 8) + '...',
+          responseTime: responseTimeMs
         });
       }
     } catch (error) {
@@ -507,11 +506,25 @@ export class TokenManager {
       let errorMessage = '';
       let shouldBlacklist = false;
 
+      let status: number | undefined;
+      let statusText: string | undefined;
+
       if (error?.response) {
-        const status = error.response.status;
-        const statusText = error.response.statusText || '';
-        errorMessage = `[${context}][${modelName}] HTTP ${status}: ${statusText}`;
-        
+        status = error.response.status;
+        statusText = error.response.statusText;
+      } else if (typeof error?.status === 'number' || typeof error?.statusCode === 'number') {
+        status = typeof error.status === 'number' ? error.status : error.statusCode;
+        statusText = typeof error.statusText === 'string' ? error.statusText : undefined;
+      }
+
+      if (status !== undefined) {
+        const messageSuffix = statusText
+          ? `: ${statusText}`
+          : error?.message
+            ? `: ${error.message}`
+            : '';
+        errorMessage = `[${context}][${modelName}] HTTP ${status}${messageSuffix}`;
+
         // 429/403/401 自动5分钟模型级黑名单
         if (status === 429 || status === 403 || status === 401) {
           shouldBlacklist = true;
