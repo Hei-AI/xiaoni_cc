@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/ui/button';
@@ -13,6 +13,7 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { usePromptTemplates } from '../hooks/usePromptTemplates';
 import { 
@@ -55,8 +56,11 @@ interface UserSettings {
   auto_reply_enabled: number;
   welcome_message: string | null;
   user_notes: string | null;
-   agent_prompt_id: string | null;
+  agent_prompt_id: string | null;
   last_activity: string | null;
+  human_like_scan_interval_ms: number | null;
+  human_like_min_interval_ms: number | null;
+  human_like_max_interval_ms: number | null;
 }
 
 interface TodayStats {
@@ -157,6 +161,11 @@ export const PrivateChatDetailPage: React.FC = () => {
   const [timeRange, setTimeRange] = useState('all');
   const queryClient = useQueryClient();
   const limit = 20;
+  const [intervalForm, setIntervalForm] = useState({
+    human_like_scan_interval_ms: '',
+    human_like_min_interval_ms: '',
+    human_like_max_interval_ms: ''
+  });
 
   if (!userId) {
     return <Navigate to="/private-chats" replace />;
@@ -258,6 +267,13 @@ export const PrivateChatDetailPage: React.FC = () => {
     return `${(duration / 1000).toFixed(1)}s`;
   };
 
+  const formatInterval = (value?: number | null) => {
+    if (value === null || value === undefined) {
+      return '默认';
+    }
+    return formatDuration(value);
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'completed':
@@ -278,6 +294,66 @@ export const PrivateChatDetailPage: React.FC = () => {
     updateSettingsMutation.mutate({
       [field]: !currentValue
     });
+  };
+
+  useEffect(() => {
+    if (conversationData?.data.user_settings) {
+      setIntervalForm({
+        human_like_scan_interval_ms: conversationData.data.user_settings.human_like_scan_interval_ms?.toString() ?? '',
+        human_like_min_interval_ms: conversationData.data.user_settings.human_like_min_interval_ms?.toString() ?? '',
+        human_like_max_interval_ms: conversationData.data.user_settings.human_like_max_interval_ms?.toString() ?? ''
+      });
+    }
+  }, [conversationData?.data.user_settings]);
+
+  const handleIntervalFormChange = (field: keyof typeof intervalForm, value: string) => {
+    setIntervalForm(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleIntervalSubmit = () => {
+    const payload: Partial<UserSettings> = {};
+
+    (['human_like_scan_interval_ms', 'human_like_min_interval_ms', 'human_like_max_interval_ms'] as const).forEach(field => {
+      const rawValue = intervalForm[field];
+      if (rawValue === '') {
+        payload[field] = null as any;
+        return;
+      }
+      const numericValue = parseInt(rawValue, 10);
+      if (Number.isFinite(numericValue) && numericValue > 0) {
+        payload[field] = numericValue as any;
+      }
+    });
+
+    if (Object.keys(payload).length === 0) {
+      return;
+    }
+
+    const minValue = payload.human_like_min_interval_ms ?? conversationData?.data.user_settings.human_like_min_interval_ms ?? null;
+    const maxValue = payload.human_like_max_interval_ms ?? conversationData?.data.user_settings.human_like_max_interval_ms ?? null;
+    let scanValue = payload.human_like_scan_interval_ms ?? conversationData?.data.user_settings.human_like_scan_interval_ms ?? null;
+
+    if (minValue !== null && maxValue !== null && minValue > maxValue) {
+      window.alert('最小间隔不能大于最大间隔');
+      return;
+    }
+
+    if (scanValue !== null && minValue !== null && scanValue < minValue) {
+      scanValue = minValue;
+    }
+
+    if (scanValue !== null && maxValue !== null && scanValue > maxValue) {
+      scanValue = maxValue;
+    }
+
+    if (scanValue !== null) {
+      payload.human_like_scan_interval_ms = scanValue as any;
+    }
+
+    updateSettingsMutation.mutate(payload);
   };
 
   return (
@@ -396,6 +472,63 @@ export const PrivateChatDetailPage: React.FC = () => {
                 <p className="text-xs text-muted-foreground mt-2">
                   选择特定 Prompt 将覆盖默认配置；选择"默认"会恢复到 {defaultPromptLabel}。
                 </p>
+              </div>
+              <div className="border-t pt-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">拟人化调度配置</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleIntervalSubmit}
+                    disabled={updateSettingsMutation.isPending}
+                  >
+                    {updateSettingsMutation.isPending ? '保存中...' : '保存调度'}
+                  </Button>
+                </div>
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <Label htmlFor="user_scan_interval">扫描间隔 (毫秒)</Label>
+                    <Input
+                      id="user_scan_interval"
+                      type="number"
+                      min={500}
+                      value={intervalForm.human_like_scan_interval_ms}
+                      onChange={(e) => handleIntervalFormChange('human_like_scan_interval_ms', e.target.value)}
+                      placeholder="留空使用默认 8000"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      当前：{formatInterval(conversationData.data.user_settings.human_like_scan_interval_ms)}
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="user_min_interval">最小间隔 (毫秒)</Label>
+                    <Input
+                      id="user_min_interval"
+                      type="number"
+                      min={100}
+                      value={intervalForm.human_like_min_interval_ms}
+                      onChange={(e) => handleIntervalFormChange('human_like_min_interval_ms', e.target.value)}
+                      placeholder="留空使用默认 3000"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      当前：{formatInterval(conversationData.data.user_settings.human_like_min_interval_ms)}
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="user_max_interval">最大间隔 (毫秒)</Label>
+                    <Input
+                      id="user_max_interval"
+                      type="number"
+                      min={1000}
+                      value={intervalForm.human_like_max_interval_ms}
+                      onChange={(e) => handleIntervalFormChange('human_like_max_interval_ms', e.target.value)}
+                      placeholder="留空使用默认 30000"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      当前：{formatInterval(conversationData.data.user_settings.human_like_max_interval_ms)}
+                    </p>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>

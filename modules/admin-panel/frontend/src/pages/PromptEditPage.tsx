@@ -59,6 +59,11 @@ import {
   saveDebugSession,
   deleteDebugSession
 } from '../lib/promptDebugApi';
+import {
+  fetchFunctionRegistryFunctions,
+  fetchPromptFunctionBindings,
+  RegistryFunctionDefinition
+} from '../lib/functionRegistryApi';
 
 interface AgentPrompt {
   id: string;
@@ -118,12 +123,18 @@ interface CustomToolConfigState {
   name: string;
   description: string;
   parameters: Record<string, any>;
+  origin?: 'registry' | 'manual';
+  category?: string;
+  tags?: string[];
+  invokeMethod?: string;
+  sideEffect?: boolean;
 }
 
 interface ToolsConfigState {
   functionCalling: {
     mode: FunctionCallingModeOption;
     allowedFunctionNames: string[];
+    allowedFunctionIds: string[];
   };
   predefinedTools: {
     enabledTools: string[];
@@ -294,14 +305,28 @@ const normalizeCustomTool = (tool: any, index: number): CustomToolConfigState =>
     id,
     name: providedName,
     description: typeof tool?.description === 'string' ? tool.description : '',
-    parameters
+    parameters,
+    origin: 'manual'
   };
 };
+
+const registryFunctionToCustomTool = (fn: RegistryFunctionDefinition): CustomToolConfigState => ({
+  id: fn.id,
+  name: fn.name,
+  description: fn.description || fn.displayName || '',
+  parameters: fn.parametersSchema || createDefaultFunctionParameters(),
+  origin: 'registry',
+  category: fn.category,
+  tags: fn.tags,
+  invokeMethod: fn.invokeMethod,
+  sideEffect: fn.sideEffect
+});
 
 const createDefaultToolsConfig = (): ToolsConfigState => ({
   functionCalling: {
     mode: 'NONE',
-    allowedFunctionNames: []
+    allowedFunctionNames: [],
+    allowedFunctionIds: []
   },
   predefinedTools: {
     enabledTools: [],
@@ -322,10 +347,26 @@ const normalizeToolsConfig = (rawConfig: any): ToolsConfigState => {
 
   const rawAllowedNames = rawConfig.functionCalling?.allowedFunctionNames;
   const allowedFunctionNames = Array.isArray(rawAllowedNames)
-    ? rawAllowedNames
-        .filter((name: unknown): name is string => typeof name === 'string')
-        .map((name) => name.trim())
-        .filter((name) => name.length > 0)
+    ? Array.from(
+        new Set(
+          rawAllowedNames
+            .filter((name: unknown): name is string => typeof name === 'string')
+            .map((name) => name.trim())
+            .filter((name) => name.length > 0)
+        )
+      )
+    : undefined;
+
+  const rawAllowedIds = rawConfig.functionCalling?.allowedFunctionIds;
+  const allowedFunctionIds = Array.isArray(rawAllowedIds)
+    ? Array.from(
+        new Set(
+          rawAllowedIds
+            .filter((id: unknown): id is string => typeof id === 'string')
+            .map((id) => id.trim())
+            .filter((id) => id.length > 0)
+        )
+      )
     : undefined;
 
   const functionCallingMode = normalizeFunctionCallingMode(
@@ -343,7 +384,13 @@ const normalizeToolsConfig = (rawConfig: any): ToolsConfigState => {
           ? allowedFunctionNames
           : customTools
               .map((tool: CustomToolConfigState) => tool.name)
-              .filter((name: string) => name && name.length > 0)
+              .filter((name: string) => name && name.length > 0),
+      allowedFunctionIds:
+        allowedFunctionIds !== undefined
+          ? allowedFunctionIds
+          : customTools
+              .map((tool: CustomToolConfigState) => tool.id)
+              .filter((id: string) => id && id.length > 0)
     },
     predefinedTools: {
       enabledTools: Array.isArray(predefinedTools.enabledTools)
@@ -667,11 +714,13 @@ export const PromptEditPage: React.FC = () => {
   // Check if we're on the "new" route by looking at the path
   const isNew = location.pathname === '/prompts/new' || promptId === 'new';
   const [isEditing, setIsEditing] = useState(isNew);
+  const [hasAppliedFunctionBindings, setHasAppliedFunctionBindings] = useState(false);
 
   // 响应路由参数变化，更新编辑状态
   useEffect(() => {
     const newIsNew = location.pathname === '/prompts/new' || promptId === 'new';
     setIsEditing(newIsNew);
+    setHasAppliedFunctionBindings(false);
   }, [promptId, location.pathname]);
 
   useEffect(() => {
@@ -773,6 +822,17 @@ export const PromptEditPage: React.FC = () => {
     enabled: canUseSessionFeatures
   });
 
+  const { data: functionRegistryData } = useQuery({
+    queryKey: ['function-registry', 'functions'],
+    queryFn: fetchFunctionRegistryFunctions
+  });
+
+  const { data: promptFunctionBindingData } = useQuery({
+    queryKey: ['function-registry', 'prompt', promptId],
+    queryFn: () => fetchPromptFunctionBindings(promptId!),
+    enabled: !isNew && !!promptId && promptId !== 'new'
+  });
+
   // 保存 Prompt mutation
   const saveMutation = useMutation({
     mutationFn: (data: any) => savePrompt(isNew ? null : promptId!, data),
@@ -782,8 +842,10 @@ export const PromptEditPage: React.FC = () => {
         navigate(`/prompts/${response.data.id}/edit`, { replace: true });
       } else {
         queryClient.invalidateQueries({ queryKey: ['prompt', promptId] });
+        queryClient.invalidateQueries({ queryKey: ['function-registry', 'prompt', promptId] });
         setIsEditing(false);
       }
+      setHasAppliedFunctionBindings(false);
     },
   });
 
@@ -899,6 +961,71 @@ export const PromptEditPage: React.FC = () => {
   }, [promptData]);
 
   useEffect(() => {
+    if (isNew) {
+      return;
+    }
+    if (!promptFunctionBindingData || !promptFunctionBindingData.functions) {
+      return;
+    }
+    if (hasAppliedFunctionBindings) {
+      return;
+    }
+
+    setFormData((prev) => {
+      const normalizedAdvanced = ensureAdvancedConfigDefaults(prev.advanced_config);
+      const currentTools = normalizeToolsConfig(normalizedAdvanced.toolsConfig);
+
+      const registryTools = promptFunctionBindingData.functions.map((fn: RegistryFunctionDefinition) => ({
+        id: fn.id,
+        name: fn.name,
+        description: fn.description || fn.displayName || '',
+        parameters: fn.parametersSchema || {},
+        origin: 'registry' as const,
+        category: fn.category,
+        tags: fn.tags,
+        invokeMethod: fn.invokeMethod,
+        sideEffect: fn.sideEffect
+      }));
+
+      const mergedToolsMap = new Map<string, CustomToolConfigState>();
+      currentTools.customTools.forEach((tool) => {
+        mergedToolsMap.set(tool.id, tool);
+      });
+      registryTools.forEach((tool) => {
+        mergedToolsMap.set(tool.id, tool);
+      });
+
+      const mergedTools = Array.from(mergedToolsMap.values());
+      const allowedNames = registryTools.map((tool) => tool.name).filter((name) => name && name.length > 0);
+      const allowedIds = registryTools.map((tool) => tool.id).filter((id) => id && id.length > 0);
+
+      const nextToolsConfig: ToolsConfigState = {
+        ...currentTools,
+        customTools: mergedTools,
+        functionCalling: {
+          ...currentTools.functionCalling,
+          allowedFunctionNames: allowedNames,
+          allowedFunctionIds: allowedIds
+        }
+      };
+
+      return {
+        ...prev,
+        advanced_config: {
+          ...normalizedAdvanced,
+          toolsConfig: nextToolsConfig
+        }
+      };
+    });
+
+    setHasAppliedFunctionBindings(true);
+  }, [
+    hasAppliedFunctionBindings,
+    isNew,
+    promptFunctionBindingData
+  ]);
+
+  useEffect(() => {
     if (isNew && contextVariableRows.length === 0) {
       const rows = [createContextVariableRow()];
       setContextVariableRows(rows);
@@ -935,7 +1062,10 @@ export const PromptEditPage: React.FC = () => {
         ...normalizedToolsConfig.functionCalling,
         allowedFunctionNames: Array.from(
           new Set(normalizedToolsConfig.functionCalling.allowedFunctionNames || [])
-        ).filter((name) => name && name.length > 0)
+        ).filter((name) => name && name.length > 0),
+        allowedFunctionIds: Array.from(
+          new Set(normalizedToolsConfig.functionCalling.allowedFunctionIds || [])
+        ).filter((id) => id && id.length > 0)
       }
     };
 
@@ -943,6 +1073,21 @@ export const PromptEditPage: React.FC = () => {
       ...formData.advanced_config,
       toolsConfig: sanitizedToolsConfig
     });
+
+    const registryAllowedIdSet = new Set(
+      sanitizedToolsConfig.customTools
+        .filter((tool) => tool.origin === 'registry')
+        .map((tool) => tool.id)
+    );
+
+    const filteredRegistryIds = sanitizedToolsConfig.functionCalling.allowedFunctionIds.filter((id) =>
+      registryAllowedIdSet.has(id)
+    );
+
+    const functionBindingsPayload = {
+      functionIds: filteredRegistryIds,
+      actor: formData.created_by || 'admin'
+    };
 
     const maxOutputTokensValue = Number(formData.model_config.maxOutputTokens);
     if (!Number.isNaN(maxOutputTokensValue) && maxOutputTokensValue > 0) {
@@ -969,6 +1114,8 @@ export const PromptEditPage: React.FC = () => {
         : undefined,
       user_prompt_template: formData.user_prompt_template.trim() || undefined,
       advanced_config: submitAdvancedConfig,
+      function_bindings:
+        functionBindingsPayload.functionIds.length > 0 ? functionBindingsPayload : undefined
     };
 
     saveMutation.mutate(submitData);
@@ -1527,18 +1674,60 @@ export const PromptEditPage: React.FC = () => {
     }));
   };
 
-  const handleAllowedFunctionToggle = (toolName: string, enabled: boolean) => {
+  const handleAllowedFunctionToggle = (tool: CustomToolConfigState, enabled: boolean) => {
     updateToolsConfig((prevTools) => {
       const currentAllowed = Array.isArray(prevTools.functionCalling.allowedFunctionNames)
         ? [...prevTools.functionCalling.allowedFunctionNames]
         : [];
-      const withoutTarget = currentAllowed.filter((name) => name !== toolName);
-      const nextAllowed = enabled ? [...withoutTarget, toolName] : withoutTarget;
+      const currentAllowedIds = Array.isArray(prevTools.functionCalling.allowedFunctionIds)
+        ? [...prevTools.functionCalling.allowedFunctionIds]
+        : [];
+
+      const withoutTargetNames = currentAllowed.filter((name) => name !== tool.name);
+      const withoutTargetIds = currentAllowedIds.filter((id) => id !== tool.id);
+
+      const nextNames = enabled ? [...withoutTargetNames, tool.name] : withoutTargetNames;
+      const nextIds = enabled ? [...withoutTargetIds, tool.id] : withoutTargetIds;
+
       return {
         ...prevTools,
         functionCalling: {
           ...prevTools.functionCalling,
-          allowedFunctionNames: nextAllowed.filter((name) => name && name.length > 0)
+          allowedFunctionNames: nextNames
+            .filter((name) => name && name.length > 0),
+          allowedFunctionIds: nextIds
+            .filter((id) => id && id.length > 0)
+        }
+      };
+    });
+  };
+
+  const handleRegistryFunctionToggle = (registryFn: RegistryFunctionDefinition, enabled: boolean) => {
+    updateToolsConfig((prevTools) => {
+      const existingTool = prevTools.customTools.find((tool) => tool.id === registryFn.id);
+      let nextCustomTools = [...prevTools.customTools];
+
+      if (enabled && !existingTool) {
+        nextCustomTools = [...nextCustomTools, registryFunctionToCustomTool(registryFn)];
+      } else if (!enabled && existingTool) {
+        nextCustomTools = nextCustomTools.filter((tool) => tool.id !== registryFn.id);
+      }
+
+      const nextNames = enabled
+        ? Array.from(new Set([...(prevTools.functionCalling.allowedFunctionNames || []), registryFn.name]))
+        : (prevTools.functionCalling.allowedFunctionNames || []).filter((name) => name !== registryFn.name);
+
+      const nextIds = enabled
+        ? Array.from(new Set([...(prevTools.functionCalling.allowedFunctionIds || []), registryFn.id]))
+        : (prevTools.functionCalling.allowedFunctionIds || []).filter((id) => id !== registryFn.id);
+
+      return {
+        ...prevTools,
+        customTools: nextCustomTools,
+        functionCalling: {
+          ...prevTools.functionCalling,
+          allowedFunctionNames: nextNames,
+          allowedFunctionIds: nextIds
         }
       };
     });
@@ -1546,15 +1735,20 @@ export const PromptEditPage: React.FC = () => {
 
   const handleToolFieldChange = (toolId: string, field: 'name' | 'description', value: string) => {
     updateToolsConfig((prevTools) => {
+      const targetTool = prevTools.customTools.find((tool) => tool.id === toolId);
+      if (targetTool?.origin === 'registry') {
+        return prevTools;
+      }
+
       const updatedCustomTools = prevTools.customTools.map((tool) =>
         tool.id === toolId ? { ...tool, [field]: value } : tool
       );
 
-      let updatedAllowed = prevTools.functionCalling.allowedFunctionNames || [];
+      let updatedAllowedNames = prevTools.functionCalling.allowedFunctionNames || [];
       if (field === 'name') {
         const previousTool = prevTools.customTools.find((tool) => tool.id === toolId);
         if (previousTool && previousTool.name !== value) {
-          updatedAllowed = updatedAllowed.map((name) => (name === previousTool.name ? value : name));
+          updatedAllowedNames = updatedAllowedNames.map((name) => (name === previousTool.name ? value : name));
         }
       }
 
@@ -1563,13 +1757,18 @@ export const PromptEditPage: React.FC = () => {
         customTools: updatedCustomTools,
         functionCalling: {
           ...prevTools.functionCalling,
-          allowedFunctionNames: (updatedAllowed || []).filter((name) => name && name.length > 0)
+          allowedFunctionNames: (updatedAllowedNames || []).filter((name) => name && name.length > 0)
         }
       };
     });
   };
 
   const handleParametersChange = (toolId: string, value: string) => {
+    const targetTool = toolsConfig.customTools.find((tool) => tool.id === toolId);
+    if (targetTool?.origin === 'registry') {
+      return;
+    }
+
     let parsedParameters: Record<string, any> | null = null;
     let error: string | undefined;
     const trimmed = value.trim();
@@ -1617,7 +1816,8 @@ export const PromptEditPage: React.FC = () => {
       id: newToolId,
       name: candidateName,
       description: 'Describe what this function does',
-      parameters: defaultParameters
+      parameters: defaultParameters,
+      origin: 'manual'
     };
 
     updateToolsConfig((prevTools) => {
@@ -1625,13 +1825,20 @@ export const PromptEditPage: React.FC = () => {
       const existingAllowed = Array.isArray(prevTools.functionCalling.allowedFunctionNames)
         ? prevTools.functionCalling.allowedFunctionNames
         : [];
-      const allowed = existingAllowed.length > 0 ? existingAllowed : updatedCustomTools.map((tool) => tool.name);
+      const existingAllowedIds = Array.isArray(prevTools.functionCalling.allowedFunctionIds)
+        ? prevTools.functionCalling.allowedFunctionIds
+        : [];
+      const defaultAllowedNames = updatedCustomTools.map((tool) => tool.name);
+      const defaultAllowedIds = updatedCustomTools.map((tool) => tool.id);
+      const allowedNames = existingAllowed.length > 0 ? existingAllowed : defaultAllowedNames;
+      const allowedIds = existingAllowedIds.length > 0 ? existingAllowedIds : defaultAllowedIds;
       return {
         ...prevTools,
         customTools: updatedCustomTools,
         functionCalling: {
           ...prevTools.functionCalling,
-          allowedFunctionNames: allowed
+          allowedFunctionNames: allowedNames,
+          allowedFunctionIds: allowedIds
         }
       };
     });
@@ -1645,17 +1852,23 @@ export const PromptEditPage: React.FC = () => {
   const handleRemoveCustomTool = (toolId: string) => {
     updateToolsConfig((prevTools) => {
       const toolToRemove = prevTools.customTools.find((tool) => tool.id === toolId);
+      if (toolToRemove?.origin === 'registry') {
+        return prevTools;
+      }
       const remainingTools = prevTools.customTools.filter((tool) => tool.id !== toolId);
-      let updatedAllowed = prevTools.functionCalling.allowedFunctionNames || [];
+      let updatedAllowedNames = prevTools.functionCalling.allowedFunctionNames || [];
+      let updatedAllowedIds = prevTools.functionCalling.allowedFunctionIds || [];
       if (toolToRemove) {
-        updatedAllowed = updatedAllowed.filter((name) => name !== toolToRemove.name);
+        updatedAllowedNames = updatedAllowedNames.filter((name) => name !== toolToRemove.name);
+        updatedAllowedIds = updatedAllowedIds.filter((id) => id !== toolToRemove.id);
       }
       return {
         ...prevTools,
         customTools: remainingTools,
         functionCalling: {
           ...prevTools.functionCalling,
-          allowedFunctionNames: updatedAllowed
+          allowedFunctionNames: updatedAllowedNames,
+          allowedFunctionIds: updatedAllowedIds
         }
       };
     });
@@ -1713,6 +1926,8 @@ export const PromptEditPage: React.FC = () => {
     loadSessionMutation.isPending || (isHistorySheetOpen && isLoadingSessions);
   const customTools = toolsConfig.customTools;
   const allowedFunctionNames = toolsConfig.functionCalling.allowedFunctionNames || [];
+  const allowedFunctionIds = toolsConfig.functionCalling.allowedFunctionIds || [];
+  const availableRegistryFunctions = functionRegistryData?.items || [];
   const functionCallingMode = toolsConfig.functionCalling.mode;
   const isFunctionCallingDisabled = functionCallingMode === 'NONE';
   const contextVariablesPreview = JSON.stringify(rowsToContextObject(contextVariableRows), null, 2);
@@ -2325,6 +2540,64 @@ export const PromptEditPage: React.FC = () => {
 
           <div className="mt-6 space-y-6">
             <div className="rounded-2xl border bg-muted/20 p-4">
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">函数库</Label>
+              <div className="mt-3 space-y-3">
+                {availableRegistryFunctions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">尚未注册任何函数。请在函数注册中心中创建后再进行绑定。</p>
+                ) : (
+                  availableRegistryFunctions.map((fn) => {
+                    const isSelected = customTools.some((tool) => tool.id === fn.id);
+                    return (
+                      <div
+                        key={fn.id}
+                        className={`flex flex-col gap-2 rounded-xl border px-4 py-3 transition sm:flex-row sm:items-center sm:justify-between ${
+                          isSelected ? 'border-primary/60 bg-primary/5' : 'border-muted/40 bg-background'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">{fn.name}</span>
+                            {fn.invokeMethod && (
+                              <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                                {fn.invokeMethod}
+                              </Badge>
+                            )}
+                            {fn.sideEffect && (
+                              <Badge variant="destructive" className="text-[10px] uppercase tracking-wide">
+                                Side Effect
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {fn.description || '未提供描述'}
+                          </p>
+                          {fn.tags && fn.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {fn.tags.map((tag) => (
+                                <Badge key={tag} variant="secondary" className="text-[10px]">
+                                  #{tag}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={isSelected ? 'default' : 'outline'}
+                          disabled={!isEditing}
+                          onClick={() => handleRegistryFunctionToggle(fn, !isSelected)}
+                        >
+                          {isSelected ? '已绑定' : '绑定函数'}
+                        </Button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border bg-muted/20 p-4">
               <Label className="text-xs uppercase tracking-wide text-muted-foreground">调用模式</Label>
               <div className="mt-3 flex flex-wrap gap-2">
                 {[
@@ -2361,8 +2634,8 @@ export const PromptEditPage: React.FC = () => {
                 <div>
                   <p className="text-sm font-semibold text-foreground">允许调用的函数</p>
                   <p className="text-xs text-muted-foreground">
-                    {allowedFunctionNames.length > 0
-                      ? '已选择自定义函数，模型将限制在这些函数中调用。'
+                    {allowedFunctionIds.length > 0
+                      ? `已选择 ${allowedFunctionIds.length} 个函数，模型将限制在这些函数中调用。`
                       : '暂未指定允许函数，自动模式下将尝试调用全部函数。'}
                   </p>
                 </div>
@@ -2390,7 +2663,7 @@ export const PromptEditPage: React.FC = () => {
                         }`}
                         onClick={() => {
                           if (!isEditing) return;
-                          handleAllowedFunctionToggle(tool.name, !selected);
+                          handleAllowedFunctionToggle(tool, !selected);
                         }}
                         disabled={!isEditing}
                       >
@@ -2419,11 +2692,12 @@ export const PromptEditPage: React.FC = () => {
               </div>
               {customTools.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-muted/40 bg-muted/10 px-4 py-6 text-center text-sm text-muted-foreground">
-                  尚未添加自定义函数。点击“新增函数”创建函数声明，指导模型触发外部工具。
+                  尚未绑定任何函数。可在上方函数库中选择已注册函数，或点击“新增函数”创建自定义声明。
                 </div>
               ) : (
                 <div className="space-y-4">
                   {customTools.map((tool) => {
+                    const isRegistry = tool.origin === 'registry';
                     const editor = customToolEditors[tool.id] ?? { json: JSON.stringify(tool.parameters, null, 2) };
                     const hasError = Boolean(editor.error);
                     return (
@@ -2432,6 +2706,18 @@ export const PromptEditPage: React.FC = () => {
                           <div>
                             <CardTitle className="text-base font-semibold">{tool.name}</CardTitle>
                             <CardDescription>{tool.description || '未填写描述'}</CardDescription>
+                            {isRegistry && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                                  Registry Function
+                                </Badge>
+                                {tool.invokeMethod && (
+                                  <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
+                                    {tool.invokeMethod}
+                                  </Badge>
+                                )}
+                              </div>
+                            )}
                           </div>
                           {isEditing && (
                             <div className="flex gap-2">
@@ -2451,14 +2737,16 @@ export const PromptEditPage: React.FC = () => {
                                   </pre>
                                 </DialogContent>
                               </Dialog>
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => handleRemoveCustomTool(tool.id)}
-                              >
-                                删除
-                              </Button>
+                              {!isRegistry && (
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => handleRemoveCustomTool(tool.id)}
+                                >
+                                  删除
+                                </Button>
+                              )}
                             </div>
                           )}
                         </CardHeader>
@@ -2470,7 +2758,7 @@ export const PromptEditPage: React.FC = () => {
                                 <Input
                                   value={tool.name}
                                   onChange={(e) => handleToolFieldChange(tool.id, 'name', e.target.value)}
-                                  disabled={!isEditing}
+                                  disabled={!isEditing || isRegistry}
                                 />
                               </div>
                               <div>
@@ -2480,7 +2768,7 @@ export const PromptEditPage: React.FC = () => {
                                   onChange={(e) =>
                                     handleToolFieldChange(tool.id, 'description', e.target.value)
                                   }
-                                  disabled={!isEditing}
+                                  disabled={!isEditing || isRegistry}
                                 />
                               </div>
                             </div>
@@ -2492,7 +2780,7 @@ export const PromptEditPage: React.FC = () => {
                                 className={`h-48 font-mono text-xs ${
                                   hasError ? 'border-destructive' : 'border-muted'
                                 }`}
-                                disabled={!isEditing}
+                                disabled={!isEditing || isRegistry}
                               />
                               {hasError ? (
                                 <p className="mt-2 text-xs text-destructive">JSON 格式错误，请检查后再试。</p>
@@ -2500,6 +2788,10 @@ export const PromptEditPage: React.FC = () => {
                                 <p className="mt-2 text-xs text-muted-foreground">
                                   JSON Schema 应包含 type、properties 等字段，用于声明函数参数结构。
                                 </p>
+                              )}
+                              {isRegistry && (
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  函数由注册中心维护，参数定义仅供查看。</p>
                               )}
                             </div>
                           </div>
