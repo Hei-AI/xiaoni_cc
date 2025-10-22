@@ -34,7 +34,7 @@ services:
     networks:
       - qq_bot_network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uqqbot_user", "-pqqbot_password"]
       timeout: 20s
       retries: 10
 
@@ -51,6 +51,11 @@ services:
       - HTTP_PORT=8080
       - QQBOT_CORE_URL=http://qqbot-qqbot-core:8081
       - LOG_LEVEL=info
+      - MYSQL_HOST=qqbot-mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=qqbot_user
+      - MYSQL_PASSWORD=qqbot_password
+      - MYSQL_DATABASE=qqbot_db
       # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
       - NODE_TLS_REJECT_UNAUTHORIZED=0
     healthcheck:
@@ -88,6 +93,9 @@ services:
       - WEBSOCKET_HOST=napcat
       - WEBSOCKET_PORT=3001
       - WEBSOCKET_ACCESS_TOKEN=w@123456
+      - ENABLE_FUNCTION_REGISTRY=true
+      - FUNCTION_REGISTRY_BASE_URL=http://qqbot-http-api:8080/v1
+      - FUNCTION_REGISTRY_TIMEOUT_MS=5000
       # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - ENABLE_LLM_TOOLS=true
