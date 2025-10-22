@@ -417,6 +417,15 @@ export class TrafficReplayService {
       ...(modifications?.headers || {})
     };
 
+    // 重放请求由 Axios 自动计算内容长度；复制原有 Content-Length 等长度相关头会导致
+    // 实际 body 长度与声明不一致，进而让上游服务解析出错（常见表现是 JSON 提前截断）。
+    for (const headerName of Object.keys(headers)) {
+      const normalized = headerName.toLowerCase();
+      if (normalized === 'content-length' || normalized === 'transfer-encoding') {
+        delete headers[headerName];
+      }
+    }
+
     // Body
     const body = modifications?.body !== undefined
       ? modifications.body

@@ -2,10 +2,60 @@ import express from 'express';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
 import * as crypto from 'crypto';
+import axios, { AxiosInstance } from 'axios';
 
 // 创建Prompt管理相关路由
-export function createPromptRoutes(database: DatabaseManager, logger: winston.Logger) {
+export function createPromptRoutes(
+  database: DatabaseManager,
+  logger: winston.Logger,
+  functionRegistryBaseUrl?: string
+) {
   const router = express.Router();
+  const functionRegistryClient: AxiosInstance | null = functionRegistryBaseUrl
+    ? axios.create({ baseURL: functionRegistryBaseUrl, timeout: 5000 })
+    : null;
+
+  const normalizeFunctionBindings = (input: any) => {
+    if (!input || typeof input !== 'object') {
+      return null;
+    }
+
+    const rawIds = Array.isArray(input.functionIds)
+      ? input.functionIds
+      : Array.isArray(input.function_ids)
+        ? input.function_ids
+        : [];
+
+    const functionIds = (rawIds as unknown[])
+      .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      .map((id: string) => id.trim());
+
+    if (functionIds.length === 0) {
+      return null;
+    }
+
+    const actor = typeof input.actor === 'string' ? input.actor : undefined;
+
+    return {
+      functionIds,
+      actor
+    };
+  };
+
+  const syncFunctionBindings = async (promptId: string, bindings: any) => {
+    if (!functionRegistryClient || !bindings) {
+      return;
+    }
+
+    try {
+      await functionRegistryClient.patch(`/prompts/${promptId}/functions`, bindings);
+    } catch (error: any) {
+      logger.error('Failed to sync function bindings with registry', {
+        promptId,
+        error: error?.message || error
+      });
+    }
+  };
 
   // 获取所有Prompt模板
   router.get('/prompts', async (req, res) => {
@@ -130,6 +180,10 @@ export function createPromptRoutes(database: DatabaseManager, logger: winston.Lo
         ]
       );
 
+      const functionBindings = normalizeFunctionBindings(
+        req.body?.function_bindings || req.body?.functionBindings
+      );
+
       res.json({
         success: true,
         data: {
@@ -141,6 +195,10 @@ export function createPromptRoutes(database: DatabaseManager, logger: winston.Lo
         message: 'Prompt created successfully',
         timestamp: new Date().toISOString()
       });
+
+      if (functionBindings) {
+        await syncFunctionBindings(promptId, functionBindings);
+      }
 
     } catch (error) {
       logger.error('Failed to create prompt', { error, body: req.body });
@@ -167,7 +225,9 @@ export function createPromptRoutes(database: DatabaseManager, logger: winston.Lo
         advanced_config,
         model_name,
         description,
-        is_active
+        is_active,
+        function_bindings,
+        functionBindings
       } = req.body;
 
       if (!prompt_name || !system_instructions) {
@@ -219,6 +279,8 @@ export function createPromptRoutes(database: DatabaseManager, logger: winston.Lo
         ]
       );
 
+      const normalizedBindings = normalizeFunctionBindings(function_bindings || functionBindings);
+
       res.json({
         success: true,
         data: {
@@ -230,6 +292,10 @@ export function createPromptRoutes(database: DatabaseManager, logger: winston.Lo
         message: 'Prompt updated successfully',
         timestamp: new Date().toISOString()
       });
+
+      if (normalizedBindings) {
+        await syncFunctionBindings(promptId, normalizedBindings);
+      }
 
     } catch (error) {
       logger.error('Failed to update prompt', { error, promptId: req.params.id, body: req.body });

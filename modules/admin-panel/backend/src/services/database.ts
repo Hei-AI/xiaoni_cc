@@ -542,11 +542,45 @@ export class DatabaseManager {
     }
   }
 
+  public async upsertPrivateChatSettings(userId: number, updates: Record<string, any>): Promise<boolean> {
+    try {
+      const fields = Object.keys(updates);
+      if (fields.length === 0) {
+        return false;
+      }
+
+      const columns = ['user_id', ...fields];
+      const placeholders = ['?', ...fields.map(() => '?')];
+      const params = [userId, ...fields.map(field => updates[field])];
+      const updateAssignments = fields.map(field => `${field} = VALUES(${field})`);
+      updateAssignments.push('updated_at = NOW()');
+
+      const query = `
+        INSERT INTO private_chat_settings (${columns.join(', ')})
+        VALUES (${placeholders.join(', ')})
+        ON DUPLICATE KEY UPDATE ${updateAssignments.join(', ')}
+      `;
+
+      const affectedRows = await this.executeUpdate(query, params);
+
+      if (affectedRows > 0) {
+        this.logger.info('Private chat settings upserted', { userId, updates });
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      this.logger.error('Failed to upsert private chat settings', { error, userId, updates });
+      return false;
+    }
+  }
+
   public async getGroupChatSettingById(groupId: number): Promise<any | null> {
     try {
       const query = `
         SELECT group_id, group_name, is_enabled, auto_reply_enabled, welcome_message,
-               admin_user_id, agent_prompt_id, last_activity, receive_events, created_at, updated_at
+               admin_user_id, agent_prompt_id, last_activity, receive_events, created_at, updated_at,
+               human_like_scan_interval_ms, human_like_min_interval_ms, human_like_max_interval_ms
         FROM group_chat_settings
         WHERE group_id = ?
       `;

@@ -12,6 +12,9 @@ interface PrivateChatSettingRow {
   user_notes: string | null;
   agent_prompt_id: string | null;
   last_activity: string | null;
+  human_like_scan_interval_ms: number | null;
+  human_like_min_interval_ms: number | null;
+  human_like_max_interval_ms: number | null;
 }
 
 interface GroupChatSettingRow {
@@ -24,6 +27,9 @@ interface GroupChatSettingRow {
   agent_prompt_id: string | null;
   last_activity: string | null;
   receive_events: number;
+  human_like_scan_interval_ms: number | null;
+  human_like_min_interval_ms: number | null;
+  human_like_max_interval_ms: number | null;
 }
 
 // 创建聊天管理相关路由
@@ -68,6 +74,10 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           g.group_name,
           g.is_enabled,
           g.auto_reply_enabled,
+          g.receive_events,
+          g.human_like_scan_interval_ms,
+          g.human_like_min_interval_ms,
+          g.human_like_max_interval_ms,
           g.welcome_message,
           g.admin_user_id,
           g.agent_prompt_id,
@@ -291,7 +301,8 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       // 获取用户设置
       const userSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
         SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
-               agent_prompt_id, last_activity
+               agent_prompt_id, last_activity,
+               human_like_scan_interval_ms, human_like_min_interval_ms, human_like_max_interval_ms
         FROM private_chat_settings
         WHERE user_id = ?
       `, [userId]);
@@ -305,7 +316,10 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         welcome_message: userSettingRow?.welcome_message || null,
         user_notes: userSettingRow?.user_notes || null,
         agent_prompt_id: userSettingRow?.agent_prompt_id || null,
-        last_activity: userSettingRow?.last_activity || null
+        last_activity: userSettingRow?.last_activity || null,
+        human_like_scan_interval_ms: userSettingRow?.human_like_scan_interval_ms ?? null,
+        human_like_min_interval_ms: userSettingRow?.human_like_min_interval_ms ?? null,
+        human_like_max_interval_ms: userSettingRow?.human_like_max_interval_ms ?? null
       };
 
       // 获取今日统计
@@ -532,7 +546,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
   router.put('/private-chats/:userId/settings', async (req, res) => {
     try {
       const userId = parseInt(req.params.userId);
-      const updates = req.body;
+      const updates = req.body as Record<string, any>;
 
       if (!userId || isNaN(userId)) {
         return res.status(400).json({
@@ -542,14 +556,104 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         });
       }
 
-      // 这里应该更新private_chat_settings表，目前返回成功响应
-      // TODO: 实现实际的数据库更新逻辑
-      logger.info('User settings update requested', { userId, updates });
+      const allowedFields = new Set([
+        'username',
+        'is_enabled',
+        'auto_reply_enabled',
+        'welcome_message',
+        'user_notes',
+        'agent_prompt_id',
+        'human_like_scan_interval_ms',
+        'human_like_min_interval_ms',
+        'human_like_max_interval_ms'
+      ]);
+      const sanitizedUpdates: Record<string, any> = {};
+      let validationError: string | null = null;
+
+      Object.entries(updates || {}).forEach(([key, value]) => {
+        if (!allowedFields.has(key) || value === undefined) {
+          return;
+        }
+
+        if (key.endsWith('_ms')) {
+          if (value === null || value === '') {
+            sanitizedUpdates[key] = null;
+            return;
+          }
+
+          const numericValue = Number(value);
+          if (!Number.isFinite(numericValue) || numericValue <= 0) {
+            validationError = `Invalid value for ${key}`;
+            return;
+          }
+          sanitizedUpdates[key] = Math.round(numericValue);
+          return;
+        }
+
+        if (key === 'is_enabled' || key === 'auto_reply_enabled') {
+          sanitizedUpdates[key] = value ? 1 : 0;
+          return;
+        }
+
+        sanitizedUpdates[key] = value;
+      });
+
+      if (validationError) {
+        return res.status(400).json({
+          success: false,
+          error: validationError,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      if (Object.keys(sanitizedUpdates).length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'No valid fields to update',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const hasMin = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'human_like_min_interval_ms');
+      const hasMax = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'human_like_max_interval_ms');
+      const hasScan = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'human_like_scan_interval_ms');
+
+      const minValue = hasMin ? sanitizedUpdates.human_like_min_interval_ms : undefined;
+      const maxValue = hasMax ? sanitizedUpdates.human_like_max_interval_ms : undefined;
+      const scanValue = hasScan ? sanitizedUpdates.human_like_scan_interval_ms : undefined;
+
+      if (minValue !== undefined && maxValue !== undefined && minValue !== null && maxValue !== null && minValue > maxValue) {
+        return res.status(400).json({
+          success: false,
+          error: 'human_like_min_interval_ms must be less than or equal to human_like_max_interval_ms',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      if (scanValue !== undefined && minValue !== undefined && scanValue !== null && minValue !== null && scanValue < minValue) {
+        sanitizedUpdates.human_like_scan_interval_ms = minValue;
+      }
+
+      if (scanValue !== undefined && maxValue !== undefined && scanValue !== null && maxValue !== null && scanValue > maxValue) {
+        sanitizedUpdates.human_like_scan_interval_ms = maxValue;
+      }
+
+      const success = await database.upsertPrivateChatSettings(userId, sanitizedUpdates);
+
+      const updatedSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
+        SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
+               agent_prompt_id, last_activity,
+               human_like_scan_interval_ms, human_like_min_interval_ms, human_like_max_interval_ms
+        FROM private_chat_settings
+        WHERE user_id = ?
+      `, [userId]);
+
+      const updatedSettings = updatedSettingsRows[0] || null;
 
       res.json({
-        success: true,
-        message: 'User settings updated successfully',
-        data: { user_id: userId, ...updates },
+        success,
+        message: success ? 'User settings updated successfully' : 'User settings unchanged',
+        data: updatedSettings ? { ...updatedSettings, user_id: userId } : { user_id: userId, ...sanitizedUpdates },
         timestamp: new Date().toISOString()
       });
 
@@ -696,7 +800,8 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       // 获取群聊设置
       const groupSettingsRows = await database.executeQuery<GroupChatSettingRow>(`
         SELECT group_id, group_name, is_enabled, auto_reply_enabled, welcome_message,
-               admin_user_id, agent_prompt_id, last_activity, receive_events
+               admin_user_id, agent_prompt_id, last_activity, receive_events,
+               human_like_scan_interval_ms, human_like_min_interval_ms, human_like_max_interval_ms
         FROM group_chat_settings
         WHERE group_id = ?
       `, [groupId]);
@@ -711,7 +816,10 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         admin_user_id: groupSettingsRow?.admin_user_id || null,
         agent_prompt_id: groupSettingsRow?.agent_prompt_id || null,
         receive_events: groupSettingsRow?.receive_events ?? 1,
-        last_activity: groupSettingsRow?.last_activity || null
+        last_activity: groupSettingsRow?.last_activity || null,
+        human_like_scan_interval_ms: groupSettingsRow?.human_like_scan_interval_ms ?? null,
+        human_like_min_interval_ms: groupSettingsRow?.human_like_min_interval_ms ?? null,
+        human_like_max_interval_ms: groupSettingsRow?.human_like_max_interval_ms ?? null
       };
 
       // 获取今日统计
@@ -793,14 +901,50 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         });
       }
 
-      const allowedFields = new Set(['group_name', 'is_enabled', 'auto_reply_enabled', 'welcome_message', 'admin_user_id']);
+      const allowedFields = new Set([
+        'group_name',
+        'is_enabled',
+        'auto_reply_enabled',
+        'welcome_message',
+        'admin_user_id',
+        'receive_events',
+        'human_like_scan_interval_ms',
+        'human_like_min_interval_ms',
+        'human_like_max_interval_ms'
+      ]);
       const sanitizedUpdates: Record<string, any> = {};
+      let validationError: string | null = null;
 
       Object.entries(updates || {}).forEach(([key, value]) => {
         if (allowedFields.has(key) && value !== undefined) {
+          if (key.endsWith('_ms')) {
+            if (value === null || value === '') {
+              sanitizedUpdates[key] = null;
+              return;
+            }
+            const numericValue = Number(value);
+            if (!Number.isFinite(numericValue) || numericValue <= 0) {
+              validationError = `Invalid value for ${key}`;
+              return;
+            }
+            sanitizedUpdates[key] = Math.round(numericValue);
+            return;
+          }
+          if (key === 'receive_events') {
+            sanitizedUpdates[key] = value ? 1 : 0;
+            return;
+          }
           sanitizedUpdates[key] = value;
         }
       });
+
+      if (validationError) {
+        return res.status(400).json({
+          success: false,
+          error: validationError,
+          timestamp: new Date().toISOString()
+        });
+      }
 
       if (Object.keys(sanitizedUpdates).length === 0) {
         return res.status(400).json({
@@ -808,6 +952,30 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           error: 'No valid fields to update',
           timestamp: new Date().toISOString()
         });
+      }
+
+      const hasMin = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'human_like_min_interval_ms');
+      const hasMax = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'human_like_max_interval_ms');
+      const hasScan = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'human_like_scan_interval_ms');
+
+      const minValue = hasMin ? sanitizedUpdates.human_like_min_interval_ms : undefined;
+      const maxValue = hasMax ? sanitizedUpdates.human_like_max_interval_ms : undefined;
+      const scanValue = hasScan ? sanitizedUpdates.human_like_scan_interval_ms : undefined;
+
+      if (minValue !== undefined && maxValue !== undefined && minValue !== null && maxValue !== null && minValue > maxValue) {
+        return res.status(400).json({
+          success: false,
+          error: 'human_like_min_interval_ms must be less than or equal to human_like_max_interval_ms',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      if (scanValue !== undefined && minValue !== undefined && scanValue !== null && minValue !== null && scanValue < minValue) {
+        sanitizedUpdates.human_like_scan_interval_ms = minValue;
+      }
+
+      if (scanValue !== undefined && maxValue !== undefined && scanValue !== null && maxValue !== null && scanValue > maxValue) {
+        sanitizedUpdates.human_like_scan_interval_ms = maxValue;
       }
 
       const success = await database.updateGroupChatSettings(groupId, sanitizedUpdates);
