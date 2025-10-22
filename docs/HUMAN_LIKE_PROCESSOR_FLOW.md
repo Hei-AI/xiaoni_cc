@@ -89,6 +89,16 @@ H5 --> S2
 4. `DebugService`：支撑联表查询批次信息。
 5. 配置：`ENABLE_HUMAN_LIKE_PROCESSING` 控制模式；调度参数可通过环境变量配置。
 
+## 细粒度调度配置（群聊 / 私聊）
+- 每个 `sourceKey`（`group_${group_id}` 或 `user_${user_id}`）可在数据库中记录独立的调度窗口，字段位于 `group_chat_settings` 与 `private_chat_settings`：  
+  - `human_like_scan_interval_ms`（默认 8000ms）  
+  - `human_like_min_interval_ms`（默认 3000ms）  
+  - `human_like_max_interval_ms`（默认 30000ms）
+- 新增 `HumanLikeConfigService` 负责读取缓存 → 数据库 → 环境变量 → 硬编码默认的优先级链，以获取生效值。
+- `ScheduleDispatcher` 在调度时读取并缓存每个 source 的配置，将其写入队列条目，`calculateNextCheckTime` 与失败重试都依据该配置计算。
+- 留空或缺失字段会回落到环境变量/默认值，确保未配置的群聊/私聊继续沿用现有节奏。
+- Admin Panel / API 支持更新上述字段；写入时会刷新调度缓存，让配置变更即时生效。
+
 ## 后续优化方向
 - 可评估接入事件分离组件（`HumanLikeMessageProcessor` 等），实现更细粒度的到达/消费拆分。
 - 若需持久化队列或多实例部署，可替换 `PartitionedMessageQueue` 的存储实现。
