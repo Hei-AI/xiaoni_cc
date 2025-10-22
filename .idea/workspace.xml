@@ -6,37 +6,34 @@
   <component name="ChangeListManager">
     <list default="true" id="e289a57b-6024-485c-8211-1bbd342ce7af" name="Changes" comment="fix: add gitgnore">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/AGENTS.md" beforeDir="false" afterPath="$PROJECT_DIR$/AGENTS.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/admin-panel/backend/src/routes/debug-routes.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/backend/src/routes/debug-routes.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/Dockerfile" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/components/ui/button.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/components/ui/button.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/PromptDebugPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/PromptDebugPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docker-compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/HUMAN_LIKE_PROCESSOR_FLOW.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/HUMAN_LIKE_PROCESSOR_FLOW.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/llm_function_calling_registry_design.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/llm_function_calling_registry_design.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/backend/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/backend/src/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/backend/src/routes/chat-routes.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/backend/src/routes/chat-routes.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/backend/src/routes/prompt-routes.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/backend/src/routes/prompt-routes.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/backend/src/services/database.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/backend/src/services/database.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/backend/src/services/traffic-replay-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/backend/src/services/traffic-replay-service.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/GroupChatDetailPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/GroupChatDetailPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/PrivateChatDetailPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/PrivateChatDetailPage.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/PromptEditPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/PromptEditPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/PromptManagementPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/src/pages/PromptManagementPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/admin-panel/frontend/vite.config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/admin-panel/frontend/vite.config.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/engines/context-engine.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/engines/context-engine.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/engines/decision-engine.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/engines/decision-engine.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/http-api/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/modules/http-api/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/http-api/src/http-server.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/http-api/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/http-api/src/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/Dockerfile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/config/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/config/index.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/index.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/scripts/create-trace-tables.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/scripts/create-trace-tables.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/__tests__/ai-service-model-selection.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/__tests__/ai-service-model-selection.test.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/__tests__/function-call-dispatcher.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/__tests__/function-call-dispatcher.test.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/__tests__/llm-job-worker.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/__tests__/llm-job-worker.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/__tests__/schedule-dispatcher.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/__tests__/schedule-dispatcher.test.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/__tests__/static-tools.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/__tests__/static-tools.test.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/ai-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/ai-service.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/context-manager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/context-manager.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/debug-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/debug-service.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/database.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/database.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/function-call-dispatcher.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/function-call-dispatcher.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/http-server.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/http-server.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/llm-job-worker.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/llm-job-worker.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/logging-service.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/logging-service.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-queue.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/message-queue.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/schedule-dispatcher.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/schedule-dispatcher.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/services/websocket-client.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/services/websocket-client.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/tools/static-tools.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/tools/static-tools.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/utils/cache-manager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/utils/cache-manager.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/utils/timeline-tracker.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/utils/timeline-tracker.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/utils/token-manager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/utils/token-manager.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/utils/trace-strategy.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/utils/trace-strategy.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/modules/qqbot-core/src/types/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/qqbot-core/src/types/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -84,6 +81,7 @@
     &quot;HTTP Request.rest-api_1 | #1.executor&quot;: &quot;Run&quot;,
     &quot;HTTP Request.rest-api_1 | #2.executor&quot;: &quot;Run&quot;,
     &quot;HTTP Request.rest-api_1 | #3.executor&quot;: &quot;Run&quot;,
+    &quot;HTTP Request.rest-api_1 | #4.executor&quot;: &quot;Run&quot;,
     &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
     &quot;Python.main.executor&quot;: &quot;Run&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
@@ -127,20 +125,18 @@
             <map>
               <entry key="rest-api | #1" value="STOPPED" />
               <entry key="rest-api | #2" value="STOPPED" />
+              <entry key="rest-api_1 | #4" value="STOPPED" />
             </map>
           </value>
         </entry>
       </map>
     </option>
   </component>
-  <component name="RunManager" selected="HTTP Request.rest-api | #2">
+  <component name="RunManager" selected="HTTP Request.rest-api_1 | #4">
     <configuration name="rest-api | #1" type="HttpClient.HttpRequestRunConfigurationType" factoryName="HTTP Request" temporary="true" nameIsGenerated="true" path="$APPLICATION_CONFIG_DIR$/scratches/rest-api.http" executionIdentifier="#1" runType="Run single request">
       <method v="2" />
     </configuration>
     <configuration name="rest-api | #2" type="HttpClient.HttpRequestRunConfigurationType" factoryName="HTTP Request" temporary="true" nameIsGenerated="true" path="$APPLICATION_CONFIG_DIR$/scratches/rest-api.http" executionIdentifier="#2" index="2" runType="Run single request">
-      <method v="2" />
-    </configuration>
-    <configuration name="rest-api_1 | #1" type="HttpClient.HttpRequestRunConfigurationType" factoryName="HTTP Request" temporary="true" nameIsGenerated="true" path="$APPLICATION_CONFIG_DIR$/scratches/rest-api_1.http" executionIdentifier="#1" runType="Run single request">
       <method v="2" />
     </configuration>
     <configuration name="rest-api_1 | #2" type="HttpClient.HttpRequestRunConfigurationType" factoryName="HTTP Request" temporary="true" nameIsGenerated="true" path="$APPLICATION_CONFIG_DIR$/scratches/rest-api_1.http" executionIdentifier="#2" index="2" runType="Run single request">
@@ -149,13 +145,16 @@
     <configuration name="rest-api_1 | #3" type="HttpClient.HttpRequestRunConfigurationType" factoryName="HTTP Request" temporary="true" nameIsGenerated="true" path="$APPLICATION_CONFIG_DIR$/scratches/rest-api_1.http" executionIdentifier="#3" index="3" runType="Run single request">
       <method v="2" />
     </configuration>
+    <configuration name="rest-api_1 | #4" type="HttpClient.HttpRequestRunConfigurationType" factoryName="HTTP Request" temporary="true" nameIsGenerated="true" path="$APPLICATION_CONFIG_DIR$/scratches/rest-api_1.http" executionIdentifier="#4" index="4" runType="Run single request">
+      <method v="2" />
+    </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="HTTP Request.rest-api_1 | #4" />
         <item itemvalue="HTTP Request.rest-api | #2" />
         <item itemvalue="HTTP Request.rest-api | #1" />
         <item itemvalue="HTTP Request.rest-api_1 | #2" />
         <item itemvalue="HTTP Request.rest-api_1 | #3" />
-        <item itemvalue="HTTP Request.rest-api_1 | #1" />
       </list>
     </recent_temporary>
   </component>
@@ -184,7 +183,10 @@
       <workItem from="1756991160490" duration="338000" />
       <workItem from="1756991604503" duration="46867000" />
       <workItem from="1757503459879" duration="29351000" />
-      <workItem from="1759856323304" duration="11239000" />
+      <workItem from="1759856323304" duration="15408000" />
+      <workItem from="1760774520256" duration="3491000" />
+      <workItem from="1760870854563" duration="3267000" />
+      <workItem from="1761060180533" duration="2311000" />
     </task>
     <task id="LOCAL-00001" summary="save token.properties">
       <option name="closed" value="true" />
