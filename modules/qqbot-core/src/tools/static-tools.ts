@@ -52,6 +52,17 @@ const createPrivateMessageTool = (
     },
     required: ['user_id', 'message']
   },
+  registryMetadata: {
+    displayName: 'Send Private Chat Message',
+    category: 'messaging',
+    tags: ['qq', 'private'],
+    sideEffect: true,
+    expectResponse: false,
+    timeoutMs: 10000,
+    version: '1.0.0',
+    createdBy: 'system',
+    updatedBy: 'system'
+  },
   handler: async (ctx: ToolContext): Promise<ToolResult> => {
     const start = Date.now();
 
@@ -115,6 +126,17 @@ const createGroupMessageTool = (
       }
     },
     required: ['group_id', 'message']
+  },
+  registryMetadata: {
+    displayName: 'Send Group Chat Message',
+    category: 'messaging',
+    tags: ['qq', 'group'],
+    sideEffect: true,
+    expectResponse: false,
+    timeoutMs: 10000,
+    version: '1.0.0',
+    createdBy: 'system',
+    updatedBy: 'system'
   },
   handler: async (ctx: ToolContext): Promise<ToolResult> => {
     const start = Date.now();
@@ -180,9 +202,35 @@ const createGroupMessageTool = (
   }
 });
 
+const createEndTool = (): StaticTool => ({
+  name: 'end',
+  description: '当无需回复或执行任何操作时使用，表示当前会话结束。',
+  mode: 'fire-and-forget',
+  parameters: {
+    type: 'object',
+    properties: {},
+    additionalProperties: false
+  },
+  registryMetadata: {
+    displayName: 'End Conversation',
+    category: 'system',
+    tags: ['system', 'control'],
+    sideEffect: false,
+    expectResponse: false,
+    timeoutMs: 5000,
+    version: '1.0.0',
+    createdBy: 'system',
+    updatedBy: 'system'
+  },
+  handler: async (_ctx: ToolContext): Promise<ToolResult> => ({
+    success: true
+  })
+});
+
 export const createMessagingTools = (
   deps: MessagingToolDependencies
 ): StaticTool[] => [
   createPrivateMessageTool(deps),
-  createGroupMessageTool(deps)
+  createGroupMessageTool(deps),
+  createEndTool()
 ];

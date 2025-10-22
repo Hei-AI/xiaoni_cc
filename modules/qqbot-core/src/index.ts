@@ -11,6 +11,7 @@ import { DebugService } from './services/debug-service';
 import MessageQueueService, { DrainedMessage } from './services/message-queue-service';
 import DirectNotifier, { BatchHandler, TriggerType } from './services/direct-notifier';
 import ScheduleDispatcher from './services/schedule-dispatcher';
+import HumanLikeConfigService from './services/human-like-config-service';
 import DecisionEngine from './engines/decision-engine';
 import ContextEngine from './engines/context-engine';
 // 🛠️ LLM 工具系统组件
@@ -18,6 +19,7 @@ import { ToolRegistryService } from './services/tool-registry-service';
 import { FunctionCallDispatcher } from './services/function-call-dispatcher';
 import { LLMJobWorker } from './services/llm-job-worker';
 import { createMessagingTools } from './tools/static-tools';
+import { FunctionRegistryClient } from './services/function-registry-client';
 import {
   QQMessage,
   QQNotice,
@@ -27,7 +29,9 @@ import {
   DecisionResult,
   GroupChatSettings,
   PrivateChatSettings,
-  UnifiedLLMConfig
+  UnifiedLLMConfig,
+  FunctionCallingConfig,
+  FunctionCallingMode
 } from './types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -49,6 +53,7 @@ class QQBot implements BatchHandler {
   private messageQueueService: MessageQueueService;
   private directNotifier: DirectNotifier;
   private scheduleDispatcher: ScheduleDispatcher;
+  private humanLikeConfigService: HumanLikeConfigService;
   private enableHumanLikeProcessing: boolean;
 
   // 🛠️ LLM 工具系统组件
@@ -56,6 +61,7 @@ class QQBot implements BatchHandler {
   private functionCallDispatcher: FunctionCallDispatcher;
   private llmJobWorker: LLMJobWorker;
   private enableLLMTools: boolean;
+  private functionRegistryClient: FunctionRegistryClient;
 
   private moduleLogger = logger.createModuleLogger('main');
 
@@ -69,7 +75,8 @@ class QQBot implements BatchHandler {
     this.database = getDatabaseManager(config.database);
     this.loggingService = new LoggingService(this.database);
     this.websocketClient = new WebSocketClient(config.websocket, this.loggingService);
-    this.aiService = new AIService(config.ai, this.database, this.loggingService);
+    this.functionRegistryClient = new FunctionRegistryClient(config.function_registry);
+    this.aiService = new AIService(config.ai, this.database, this.loggingService, this.functionRegistryClient);
     this.sessionManager = new SessionManager(this.database);
     this.contextManager = new ContextManager(this.database);
     this.debugService = new DebugService(this.database);
@@ -80,12 +87,28 @@ class QQBot implements BatchHandler {
 
     // Initialize Human-like Processing
     this.enableHumanLikeProcessing = process.env.ENABLE_HUMAN_LIKE_PROCESSING === 'true';
+    const humanLikeDefaults = {
+      scanInterval: parseInt(process.env.HUMAN_LIKE_SCAN_INTERVAL || '8000', 10),
+      minInterval: parseInt(process.env.HUMAN_LIKE_MIN_INTERVAL || '3000', 10),
+      maxInterval: parseInt(process.env.HUMAN_LIKE_MAX_INTERVAL || '30000', 10)
+    };
+    const humanLikeTickInterval = parseInt(process.env.HUMAN_LIKE_TICK_INTERVAL || '1000', 10);
     this.messageQueueService = new MessageQueueService(
       config.ai.authorized_user_id,
       config.ai.bot_qq_number
     );
     this.directNotifier = new DirectNotifier(this); // Pass self as BatchHandler
-    this.scheduleDispatcher = new ScheduleDispatcher(this.messageQueueService, this);
+    this.humanLikeConfigService = new HumanLikeConfigService(
+      this.database,
+      humanLikeDefaults
+    );
+    this.scheduleDispatcher = new ScheduleDispatcher(this.messageQueueService, this, {
+      configProvider: this.humanLikeConfigService,
+      configOverrides: {
+        ...humanLikeDefaults,
+        tickInterval: humanLikeTickInterval
+      }
+    });
 
     // 监听消息入队事件，触发调度
     this.messageQueueService.on('message_queued', ({ sourceKey, priority }) => {
@@ -105,7 +128,10 @@ class QQBot implements BatchHandler {
     // 🛠️ Initialize LLM Tools System
     this.enableLLMTools = process.env.ENABLE_LLM_TOOLS === 'true';
     this.toolRegistryService = new ToolRegistryService(this.database);
-    this.functionCallDispatcher = new FunctionCallDispatcher(this.toolRegistryService);
+    this.functionCallDispatcher = new FunctionCallDispatcher(
+      this.toolRegistryService,
+      this.functionRegistryClient
+    );
 
     const messagingTools = createMessagingTools({
       sendPrivateMessage: this.websocketClient.sendPrivateMessage.bind(this.websocketClient),
@@ -113,7 +139,13 @@ class QQBot implements BatchHandler {
       sendAtMessage: this.websocketClient.sendAtMessage.bind(this.websocketClient)
     });
 
-    this.functionCallDispatcher.registerStaticTools(messagingTools);
+    void this.functionCallDispatcher
+      .registerStaticTools(messagingTools)
+      .catch(error => {
+        this.moduleLogger.error('Failed to register static tools', {
+          error: error instanceof Error ? error.message : error
+        });
+      });
 
     // 初始化 LLMJobWorker
     this.llmJobWorker = new LLMJobWorker(
@@ -1181,6 +1213,7 @@ class QQBot implements BatchHandler {
    */
   private clearGroupSettingsCache(): void {
     this.groupSettingsCache.clear();
+    this.humanLikeConfigService.invalidateAll();
     this.moduleLogger.debug('Group settings cache cleared');
   }
 
@@ -1352,11 +1385,16 @@ class QQBot implements BatchHandler {
         }
 
         const customTools = promptConfig.tools?.customTools || [];
+        const functionNameToId: Record<string, string> = {};
         const functionDeclarations = customTools
           .map(tool => {
+            const id = typeof tool.id === 'string' ? tool.id : (typeof tool.name === 'string' ? tool.name : undefined);
             const name = tool.name || tool.id;
             if (!name) {
               return null;
+            }
+            if (id) {
+              functionNameToId[name] = id;
             }
             return {
               name,
@@ -1381,13 +1419,44 @@ class QQBot implements BatchHandler {
           })();
           const allowedNames = promptConfig.tools?.functionCalling?.allowedFunctionNames
             || functionDeclarations.map(item => item.name);
+          const allowedIds =
+            promptConfig.tools?.functionCalling?.allowedFunctionIds
+              || Object.values(functionNameToId);
+
+          const functionCallingConfig: FunctionCallingConfig = {
+            mode: normalizedFunctionCallingMode as FunctionCallingMode,
+            allowedFunctionIds: allowedIds
+          };
+
+          if (
+            normalizedFunctionCallingMode === 'ANY'
+            && Array.isArray(allowedNames)
+            && allowedNames.length > 0
+          ) {
+            functionCallingConfig.allowedFunctionNames = allowedNames;
+          }
 
           jobConfig.toolConfig = {
-            functionCallingConfig: {
-              mode: normalizedFunctionCallingMode,
-              allowedFunctionNames: allowedNames
-            }
+            functionCallingConfig
           };
+        }
+
+        const jobMetadata: Record<string, any> = {
+          conversationId,
+          userId,
+          groupId: originalMessage.group_id,
+          sessionId,
+          messageId: originalMessage.message_id,
+          messageType: originalMessage.message_type,
+          promptId: promptId || null,
+          promptName,
+          agentType: promptAgentType,
+          modelName: promptConfig.model?.name || null
+        };
+
+        if (functionDeclarations.length > 0) {
+          jobMetadata.functionNameToId = functionNameToId;
+          jobMetadata.functionCallingMode = promptConfig.tools?.functionCalling?.mode || 'AUTO';
         }
 
         // 创建 LLM Job
@@ -1398,18 +1467,7 @@ class QQBot implements BatchHandler {
           contents,
           tools: functionDeclarations,
           config: jobConfig,
-          metadata: {
-            conversationId,
-            userId,
-            groupId: originalMessage.group_id,
-            sessionId,
-            messageId: originalMessage.message_id,
-            messageType: originalMessage.message_type,
-            promptId: promptId || null,
-            promptName,
-            agentType: promptAgentType,
-            modelName: promptConfig.model?.name || null
-          }
+          metadata: jobMetadata
         });
 
         this.moduleLogger.info('LLM Job created for message', {

@@ -3,6 +3,7 @@
  */
 
 import { ScheduleDispatcher } from '../schedule-dispatcher';
+import { HumanLikeConfigProvider, HumanLikeScheduleConfig } from '../human-like-config-service';
 import { MessageQueueService } from '../message-queue-service';
 import { BatchHandler, TriggerType } from '../direct-notifier';
 import { DrainedMessage } from '../message-queue-service';
@@ -55,6 +56,17 @@ describe('ScheduleDispatcher', () => {
   afterEach(() => {
     dispatcher.stop();
   });
+
+  class StaticConfigProvider implements HumanLikeConfigProvider {
+    constructor(
+      private configs: Record<string, HumanLikeScheduleConfig>,
+      private fallback: HumanLikeScheduleConfig
+    ) {}
+
+    async getConfigForSource(sourceKey: string): Promise<HumanLikeScheduleConfig> {
+      return this.configs[sourceKey] ?? this.fallback;
+    }
+  }
 
   describe('High Priority Immediate Processing', () => {
     it('should immediately process HIGH priority messages', async () => {
@@ -122,6 +134,55 @@ describe('ScheduleDispatcher', () => {
       expect(mockHandler.groupMessages).toHaveLength(1);
       expect(mockHandler.groupMessages[0].sourceKey).toBe('group_789012');
       expect(queueService.getUnreadCount('group_789012')).toBe(0);
+    });
+  });
+
+  describe('Per-source configuration', () => {
+    it('should apply different scan intervals per source key', async () => {
+      const fallbackConfig: HumanLikeScheduleConfig = {
+        scanInterval: 100,
+        minInterval: 50,
+        maxInterval: 500
+      };
+      const configProvider = new StaticConfigProvider(
+        {
+          group_1: { scanInterval: 500, minInterval: 200, maxInterval: 1000 },
+          group_2: { scanInterval: 1000, minInterval: 400, maxInterval: 2000 }
+        },
+        fallbackConfig
+      );
+
+      dispatcher.stop();
+      dispatcher = new ScheduleDispatcher(queueService, mockHandler, {
+        configProvider,
+        configOverrides: {
+          ...fallbackConfig,
+          tickInterval: 50
+        }
+      });
+
+      await dispatcher.schedule('group_1', 'MEDIUM');
+      await dispatcher.schedule('group_2', 'MEDIUM');
+
+      const entries = dispatcher.getScheduleQueue();
+      const group1Entry = entries.find(entry => entry.sourceKey === 'group_1');
+      const group2Entry = entries.find(entry => entry.sourceKey === 'group_2');
+
+      expect(group1Entry).toBeDefined();
+      expect(group2Entry).toBeDefined();
+
+      expect(group1Entry!.config.scanInterval).toBe(500);
+      expect(group2Entry!.config.scanInterval).toBe(1000);
+
+      const now = Date.now();
+      const group1Delay = group1Entry!.nextCheckTime.getTime() - now;
+      const group2Delay = group2Entry!.nextCheckTime.getTime() - now;
+
+      expect(group1Delay).toBeGreaterThanOrEqual(group1Entry!.config.minInterval - 50);
+      expect(group1Delay).toBeLessThanOrEqual(group1Entry!.config.maxInterval + 100);
+
+      expect(group2Delay).toBeGreaterThanOrEqual(group2Entry!.config.minInterval - 50);
+      expect(group2Delay).toBeLessThanOrEqual(group2Entry!.config.maxInterval + 100);
     });
   });
 

@@ -17,8 +17,10 @@ import {
   ConversationData,
   UnifiedLLMConfig,
   UnifiedToolConfig,
-  TokenStats
+  TokenStats,
+  FunctionCallingMode
 } from '../types';
+import type { GenerationConfig, ThinkingConfig } from '../types';
 import { getTokenManager } from '../utils/token-manager';
 import { DatabaseManager } from './database';
 import { LoggingService } from './logging-service';
@@ -26,6 +28,7 @@ import { CacheManagerFactory } from '../utils/cache-manager';
 import { errorHandler, createLLMAPIError, safeExecuteWithRetry } from '../utils/error-handler';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
+import { FunctionRegistryClient, PromptFunctionRegistryResponse } from './function-registry-client';
 
 interface GenerateResponseOptions {
   promptId?: string;
@@ -44,6 +47,7 @@ export class AIService {
   private database: DatabaseManager;
   private loggingService: LoggingService;
   private tokenManager: ReturnType<typeof getTokenManager>;
+  private functionRegistryClient?: FunctionRegistryClient;
   private moduleLogger = logger.createModuleLogger('ai-service');
 
   // 统一缓存管理
@@ -56,10 +60,16 @@ export class AIService {
   // API配置
   private defaultTimeout = 30000;
 
-  constructor(config: AIConfig, database: DatabaseManager, loggingService: LoggingService) {
+  constructor(
+    config: AIConfig,
+    database: DatabaseManager,
+    loggingService: LoggingService,
+    functionRegistryClient?: FunctionRegistryClient
+  ) {
     this.database = database;
     this.loggingService = loggingService;
     this.tokenManager = getTokenManager(database);
+    this.functionRegistryClient = functionRegistryClient;
 
     const proxy = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
     if (proxy) {
@@ -251,7 +261,7 @@ export class AIService {
         }
 
         // 2. 转换为统一配置
-        const config = this.convertToUnifiedConfig(agentPrompt);
+        const config = await this.convertToUnifiedConfig(agentPrompt);
 
         // 3. 缓存配置
         this.configCache.set(cacheKey, config, undefined, [agentType]);
@@ -300,7 +310,7 @@ export class AIService {
       }
     }
 
-    const config = this.convertToUnifiedConfig(agentPrompt);
+    const config = await this.convertToUnifiedConfig(agentPrompt);
     this.configCache.set(cacheKey, config, undefined, [agentPrompt.agent_type]);
     return config;
   }
@@ -312,10 +322,114 @@ export class AIService {
   /**
    * 转换AgentPromptData为UnifiedLLMConfig
    */
-  private convertToUnifiedConfig(agentPrompt: any): UnifiedLLMConfig {
+  private async convertToUnifiedConfig(agentPrompt: any): Promise<UnifiedLLMConfig> {
     const now = new Date();
 
-    const toolsConfig = this.buildToolsConfig(agentPrompt);
+    let advancedConfig: Record<string, any> | null = null;
+    if (agentPrompt?.advanced_config) {
+      try {
+        advancedConfig = typeof agentPrompt.advanced_config === 'string'
+          ? JSON.parse(agentPrompt.advanced_config)
+          : agentPrompt.advanced_config;
+      } catch (error) {
+        this.moduleLogger.warn('Failed to parse advanced_config when building unified config', {
+          promptId: agentPrompt?.id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    const toolsConfig = await this.buildToolsConfig(agentPrompt);
+
+    const selectFirstDefined = <T>(...values: Array<T | undefined | null>): T | undefined => {
+      for (const value of values) {
+        if (value !== undefined && value !== null) {
+          return value;
+        }
+      }
+      return undefined;
+    };
+
+    const modelConfig = agentPrompt.model_config || {};
+    const advancedGenerationConfig = advancedConfig?.generationConfig && typeof advancedConfig.generationConfig === 'object'
+      ? advancedConfig.generationConfig as Record<string, any>
+      : undefined;
+
+    const generation: GenerationConfig & Record<string, any> = {};
+
+    generation.temperature = selectFirstDefined(
+      advancedGenerationConfig?.temperature,
+      advancedConfig?.temperature,
+      modelConfig.temperature
+    );
+    if (generation.temperature === undefined) {
+      generation.temperature = 0.7;
+    }
+
+    generation.topK = selectFirstDefined(
+      advancedGenerationConfig?.topK,
+      advancedConfig?.topK,
+      modelConfig.topK
+    );
+    if (generation.topK === undefined) {
+      generation.topK = 40;
+    }
+
+    generation.topP = selectFirstDefined(
+      advancedGenerationConfig?.topP,
+      advancedConfig?.topP,
+      modelConfig.topP
+    );
+    if (generation.topP === undefined) {
+      generation.topP = 0.95;
+    }
+
+    generation.maxOutputTokens = selectFirstDefined(
+      advancedGenerationConfig?.maxOutputTokens,
+      advancedConfig?.maxOutputTokens,
+      modelConfig.maxOutputTokens
+    );
+    if (generation.maxOutputTokens === undefined) {
+      generation.maxOutputTokens = 2048;
+    }
+
+    const stopSequences = selectFirstDefined(
+      advancedGenerationConfig?.stopSequences,
+      advancedConfig?.stopSequences,
+      modelConfig.stopSequences
+    );
+    generation.stopSequences = Array.isArray(stopSequences) ? stopSequences : [];
+
+    const generationExtraKeys = advancedGenerationConfig
+      ? Object.keys(advancedGenerationConfig).filter((key) =>
+          !['temperature', 'topP', 'topK', 'maxOutputTokens', 'stopSequences', 'thinkingConfig'].includes(key)
+        )
+      : [];
+
+    for (const key of generationExtraKeys) {
+      generation[key] = advancedGenerationConfig![key];
+    }
+
+    let thinkingConfig: ThinkingConfig | undefined;
+    const thinkingSource = advancedGenerationConfig?.thinkingConfig
+      || advancedConfig?.thinkingConfig;
+
+    if (thinkingSource && typeof thinkingSource === 'object') {
+      const normalizedThinking: ThinkingConfig = {};
+      if (typeof thinkingSource.includeThoughts === 'boolean') {
+        normalizedThinking.includeThoughts = thinkingSource.includeThoughts;
+      }
+      if (
+        typeof thinkingSource.thinkingBudget === 'number' &&
+        !Number.isNaN(thinkingSource.thinkingBudget)
+      ) {
+        normalizedThinking.thinkingBudget = thinkingSource.thinkingBudget;
+      }
+
+      if (Object.keys(normalizedThinking).length > 0) {
+        thinkingConfig = normalizedThinking;
+      }
+    }
 
     return {
       id: agentPrompt.id,
@@ -329,13 +443,9 @@ export class AIService {
         allowedTokenIds: agentPrompt.allowed_token_ids || []
       },
 
-      generation: {
-        temperature: agentPrompt.model_config?.temperature || 0.7,
-        topK: agentPrompt.model_config?.topK || 40,
-        topP: agentPrompt.model_config?.topP || 0.95,
-        maxOutputTokens: agentPrompt.model_config?.maxOutputTokens || 2048,
-        stopSequences: agentPrompt.model_config?.stopSequences || []
-      },
+      generation,
+
+      ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
 
       safety: [
         { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
@@ -377,10 +487,11 @@ export class AIService {
   /**
    * 构建工具配置，确保functionCalling和自定义工具同步
    */
-  private buildToolsConfig(agentPrompt: any): UnifiedToolConfig {
+  private async buildToolsConfig(agentPrompt: any): Promise<UnifiedToolConfig> {
     const defaultConfig: UnifiedToolConfig = {
       functionCalling: {
-        mode: 'NONE'
+        mode: 'NONE',
+        allowedFunctionIds: []
       },
       predefinedTools: {
         enabledTools: [],
@@ -389,58 +500,138 @@ export class AIService {
       customTools: []
     };
 
-    if (!agentPrompt?.advanced_config) {
-      return defaultConfig;
-    }
+    const registryEnabled = this.functionRegistryClient?.isEnabled() ?? false;
+    let registryData: PromptFunctionRegistryResponse | null = null;
 
-    try {
-      const advancedConfig = typeof agentPrompt.advanced_config === 'string'
-        ? JSON.parse(agentPrompt.advanced_config)
-        : agentPrompt.advanced_config;
+    if (registryEnabled && agentPrompt?.id) {
+      const promptKey = typeof agentPrompt.id === 'string'
+        ? agentPrompt.id
+        : String(agentPrompt.id);
 
-      const toolsConfig = advancedConfig?.toolsConfig;
-      if (!toolsConfig) {
-        return defaultConfig;
+      if (promptKey) {
+        registryData = await this.functionRegistryClient!.getFunctionsForPrompt(promptKey);
       }
+    }
 
-      const customTools: Array<{
-        id: string;
-        name: string;
-        description: string;
-        parameters: Record<string, any>;
-      }> = Array.isArray(toolsConfig.customTools)
-        ? toolsConfig.customTools.map((tool: any) => ({
-            id: tool.id || tool.name,
-            name: tool.name || tool.id,
-            description: tool.description || '',
-            parameters: tool.parameters || {}
-          }))
-        : [];
+    let advancedConfig: any = null;
+    if (agentPrompt?.advanced_config) {
+      try {
+        advancedConfig = typeof agentPrompt.advanced_config === 'string'
+          ? JSON.parse(agentPrompt.advanced_config)
+          : agentPrompt.advanced_config;
+      } catch (error) {
+        this.moduleLogger.warn('Failed to parse advanced_config JSON for prompt', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          promptId: agentPrompt?.id
+        });
+      }
+    }
 
-      const functionCalling = {
-        mode: toolsConfig.functionCalling?.mode || 'AUTO',
-        allowedFunctionNames: toolsConfig.functionCalling?.allowedFunctionNames
-          || customTools.map((tool) => tool.name)
-      };
+    const legacyToolsConfig = advancedConfig?.toolsConfig;
 
-      return {
-        functionCalling,
-        predefinedTools: toolsConfig.predefinedTools || {
-          enabledTools: [],
-          callingMode: 'AUTO'
-        },
-        customTools,
-        googleSearch: toolsConfig.googleSearch,
-        urlContext: toolsConfig.urlContext,
-        structuredOutput: toolsConfig.structuredOutput
-      };
-    } catch (error) {
-      this.moduleLogger.warn('Failed to parse tools configuration from agent prompt', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        promptId: agentPrompt?.id
+    const customTools: Array<{
+      id: string;
+      name: string;
+      description: string;
+      parameters: Record<string, any>;
+    }> = Array.isArray(legacyToolsConfig?.customTools)
+      ? legacyToolsConfig.customTools.map((tool: any) => ({
+          id: tool.id || tool.name,
+          name: tool.name || tool.id,
+          description: tool.description || '',
+          parameters: tool.parameters || {}
+        }))
+      : [];
+
+    const toolIndexMap = new Map<string, number>();
+    customTools.forEach((tool, index) => {
+      if (tool.id) {
+        toolIndexMap.set(tool.id, index);
+      }
+    });
+
+    if (registryData && registryData.functions.length > 0) {
+      registryData.functions.forEach((fn) => {
+        const normalized = {
+          id: fn.id,
+          name: fn.name,
+          description: fn.description || '',
+          parameters: fn.parametersSchema || {}
+        };
+
+        if (toolIndexMap.has(fn.id)) {
+          const idx = toolIndexMap.get(fn.id)!;
+          customTools[idx] = normalized;
+        } else {
+          toolIndexMap.set(fn.id, customTools.length);
+          customTools.push(normalized);
+        }
       });
+    }
+
+    if (!legacyToolsConfig && customTools.length === 0) {
       return defaultConfig;
     }
+
+    const callingMode = this.normalizeFunctionCallingMode(legacyToolsConfig?.functionCalling?.mode);
+
+    const configuredAllowedIds = Array.isArray(legacyToolsConfig?.functionCalling?.allowedFunctionIds)
+      ? legacyToolsConfig.functionCalling.allowedFunctionIds
+          .filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0)
+          .map((id: string) => id.trim())
+      : undefined;
+
+    const allowedIds = configuredAllowedIds && configuredAllowedIds.length > 0
+      ? configuredAllowedIds
+      : customTools.map(tool => tool.id);
+
+    const functionCalling: {
+      mode: FunctionCallingMode;
+      allowedFunctionNames?: string[];
+      allowedFunctionIds: string[];
+    } = {
+      mode: callingMode,
+      allowedFunctionIds: allowedIds
+    };
+
+    if (callingMode === 'ANY') {
+      const configuredAllowedNames = Array.isArray(legacyToolsConfig?.functionCalling?.allowedFunctionNames)
+        ? legacyToolsConfig.functionCalling.allowedFunctionNames
+            .filter((name: unknown): name is string => typeof name === 'string' && name.trim().length > 0)
+            .map((name: string) => name.trim())
+        : undefined;
+
+      const allowedNames = configuredAllowedNames && configuredAllowedNames.length > 0
+        ? configuredAllowedNames
+        : customTools.map((tool) => tool.name);
+
+      if (Array.isArray(allowedNames) && allowedNames.length > 0) {
+        functionCalling.allowedFunctionNames = allowedNames;
+      }
+    }
+
+    return {
+      functionCalling,
+      predefinedTools: legacyToolsConfig?.predefinedTools || {
+        enabledTools: [],
+        callingMode: 'AUTO'
+      },
+      customTools,
+      googleSearch: legacyToolsConfig?.googleSearch,
+      urlContext: legacyToolsConfig?.urlContext,
+      structuredOutput: legacyToolsConfig?.structuredOutput
+    };
+  }
+
+  private normalizeFunctionCallingMode(mode: unknown): FunctionCallingMode {
+    if (typeof mode === 'string') {
+      const upper = mode.toUpperCase();
+      if (upper === 'AUTO' || upper === 'ANY' || upper === 'NONE') {
+        return upper as FunctionCallingMode;
+      }
+    }
+
+    return 'AUTO';
   }
 
   /**

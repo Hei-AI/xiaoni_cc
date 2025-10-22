@@ -18,6 +18,7 @@
 import { logger } from '../utils/logger';
 import { MessageQueueService } from './message-queue-service';
 import { BatchHandler, TriggerType } from './direct-notifier';
+import { HumanLikeConfigProvider, HumanLikeScheduleConfig } from './human-like-config-service';
 
 interface ScheduleEntry {
   sourceKey: string;
@@ -25,6 +26,7 @@ interface ScheduleEntry {
   lastProcessedTime?: Date;
   priority: 'HIGH' | 'MEDIUM' | 'LOW';
   unreadCount: number;
+  config: HumanLikeScheduleConfig;
 }
 
 interface DispatcherConfig {
@@ -34,11 +36,17 @@ interface DispatcherConfig {
   tickInterval: number; // tick 循环间隔（毫秒）
 }
 
+interface ScheduleDispatcherOptions {
+  configOverrides?: Partial<DispatcherConfig>;
+  configProvider?: HumanLikeConfigProvider;
+}
+
 export class ScheduleDispatcher {
   private moduleLogger = logger.createModuleLogger('schedule-dispatcher');
   private messageQueueService: MessageQueueService;
   private handler: BatchHandler;
   private config: DispatcherConfig;
+  private configProvider?: HumanLikeConfigProvider;
 
   // 优先级队列：sourceKey → ScheduleEntry
   private scheduleQueue: Map<string, ScheduleEntry> = new Map();
@@ -58,10 +66,18 @@ export class ScheduleDispatcher {
   constructor(
     messageQueueService: MessageQueueService,
     handler: BatchHandler,
-    config?: Partial<DispatcherConfig>
+    options?: Partial<DispatcherConfig> | ScheduleDispatcherOptions
   ) {
     this.messageQueueService = messageQueueService;
     this.handler = handler;
+
+    let overrides: Partial<DispatcherConfig> | undefined;
+    if (this.isOptionsObject(options)) {
+      overrides = options.configOverrides;
+      this.configProvider = options.configProvider;
+    } else {
+      overrides = options as Partial<DispatcherConfig> | undefined;
+    }
 
     // 默认配置
     this.config = {
@@ -69,11 +85,12 @@ export class ScheduleDispatcher {
       minInterval: parseInt(process.env.HUMAN_LIKE_MIN_INTERVAL || '3000', 10),    // 3秒
       maxInterval: parseInt(process.env.HUMAN_LIKE_MAX_INTERVAL || '30000', 10),   // 30秒
       tickInterval: parseInt(process.env.HUMAN_LIKE_TICK_INTERVAL || '1000', 10),  // 1秒
-      ...config
+      ...overrides
     };
 
     this.moduleLogger.info('ScheduleDispatcher initialized', {
-      config: this.config
+      config: this.config,
+      hasConfigProvider: !!this.configProvider
     });
   }
 
@@ -130,18 +147,21 @@ export class ScheduleDispatcher {
     this.stats.totalScheduled++;
 
     const unreadCount = this.messageQueueService.getUnreadCount(sourceKey);
+    const perSourceConfig = await this.resolveConfigForSource(sourceKey);
 
     this.moduleLogger.debug('Schedule request', {
       sourceKey,
       priority,
-      unreadCount
+      unreadCount,
+      perSourceConfig
     });
 
     // 高优先级消息立即处理
     if (priority === 'HIGH') {
       this.moduleLogger.info('High priority message detected, immediate processing', {
         sourceKey,
-        unreadCount
+        unreadCount,
+        perSourceConfig
       });
 
       await this.processSourceKey(sourceKey, 'scheduled');
@@ -157,21 +177,24 @@ export class ScheduleDispatcher {
       // 更新现有条目
       existingEntry.unreadCount = unreadCount;
       existingEntry.priority = priority;
+      existingEntry.config = perSourceConfig;
 
       this.moduleLogger.debug('Updated existing schedule entry', {
         sourceKey,
         nextCheckTime: existingEntry.nextCheckTime,
-        unreadCount
+        unreadCount,
+        perSourceConfig
       });
     } else {
       // 创建新条目
-      const nextCheckTime = this.calculateNextCheckTime(now, undefined);
+      const nextCheckTime = this.calculateNextCheckTime(now, perSourceConfig, undefined);
 
       const entry: ScheduleEntry = {
         sourceKey,
         nextCheckTime,
         priority,
-        unreadCount
+        unreadCount,
+        config: perSourceConfig
       };
 
       this.scheduleQueue.set(sourceKey, entry);
@@ -180,7 +203,8 @@ export class ScheduleDispatcher {
         sourceKey,
         nextCheckTime,
         priority,
-        unreadCount
+        unreadCount,
+        perSourceConfig
       });
     }
   }
@@ -229,6 +253,7 @@ export class ScheduleDispatcher {
       });
 
       const startTime = Date.now();
+      const perSourceConfig = await this.resolveConfigForSource(sourceKey);
 
       // Drain 消息
       const messages = await this.messageQueueService.drain(sourceKey);
@@ -263,7 +288,7 @@ export class ScheduleDispatcher {
 
       // 重新计算 nextCheckTime
       const existingEntry = this.scheduleQueue.get(sourceKey);
-      const nextCheckTime = this.calculateNextCheckTime(finishTime, finishTime);
+      const nextCheckTime = this.calculateNextCheckTime(finishTime, perSourceConfig, finishTime);
 
       // 检查是否还有未读消息
       const remainingCount = this.messageQueueService.getUnreadCount(sourceKey);
@@ -275,7 +300,8 @@ export class ScheduleDispatcher {
           nextCheckTime,
           lastProcessedTime: finishTime,
           priority: existingEntry?.priority || 'MEDIUM',
-          unreadCount: remainingCount
+          unreadCount: remainingCount,
+          config: perSourceConfig
         };
 
         this.scheduleQueue.set(sourceKey, entry);
@@ -283,7 +309,8 @@ export class ScheduleDispatcher {
         this.moduleLogger.info('Rescheduled with remaining messages', {
           sourceKey,
           remainingCount,
-          nextCheckTime
+          nextCheckTime,
+          perSourceConfig
         });
       } else {
         // 没有消息了，移除调度
@@ -304,7 +331,8 @@ export class ScheduleDispatcher {
       // 失败后延迟重试
       const entry = this.scheduleQueue.get(sourceKey);
       if (entry) {
-        const retryTime = new Date(Date.now() + this.config.minInterval);
+        const retryConfig = entry.config || (await this.resolveConfigForSource(sourceKey));
+        const retryTime = new Date(Date.now() + retryConfig.minInterval);
         entry.nextCheckTime = retryTime;
         this.scheduleQueue.set(sourceKey, entry);
 
@@ -325,12 +353,16 @@ export class ScheduleDispatcher {
    *   now + MAX_INTERVAL
    * )
    */
-  private calculateNextCheckTime(now: Date, finishTime?: Date): Date {
+  private calculateNextCheckTime(
+    now: Date,
+    config: HumanLikeScheduleConfig,
+    finishTime?: Date
+  ): Date {
     const baseTime = finishTime || now;
-    const targetTime = new Date(baseTime.getTime() + this.config.scanInterval);
+    const targetTime = new Date(baseTime.getTime() + config.scanInterval);
 
-    const minTime = new Date(now.getTime() + this.config.minInterval);
-    const maxTime = new Date(now.getTime() + this.config.maxInterval);
+    const minTime = new Date(now.getTime() + config.minInterval);
+    const maxTime = new Date(now.getTime() + config.maxInterval);
 
     // Clamp: 确保 nextCheckTime 在 [minTime, maxTime] 范围内
     let nextCheckTime = targetTime;
@@ -347,7 +379,8 @@ export class ScheduleDispatcher {
       targetTime: targetTime.toISOString(),
       minTime: minTime.toISOString(),
       maxTime: maxTime.toISOString(),
-      nextCheckTime: nextCheckTime.toISOString()
+      nextCheckTime: nextCheckTime.toISOString(),
+      config
     });
 
     return nextCheckTime;
@@ -369,6 +402,38 @@ export class ScheduleDispatcher {
       scheduleQueueSize: this.scheduleQueue.size,
       isRunning: this.isRunning
     };
+  }
+
+  private async resolveConfigForSource(sourceKey: string): Promise<HumanLikeScheduleConfig> {
+    const defaults: HumanLikeScheduleConfig = {
+      scanInterval: this.config.scanInterval,
+      minInterval: this.config.minInterval,
+      maxInterval: this.config.maxInterval
+    };
+
+    if (!this.configProvider) {
+      return { ...defaults };
+    }
+
+    try {
+      const resolved = await this.configProvider.getConfigForSource(sourceKey);
+      return resolved ?? { ...defaults };
+    } catch (error) {
+      this.moduleLogger.error('Failed to resolve per-source config, falling back to defaults', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        sourceKey
+      });
+      return { ...defaults };
+    }
+  }
+
+  private isOptionsObject(
+    options?: Partial<DispatcherConfig> | ScheduleDispatcherOptions
+  ): options is ScheduleDispatcherOptions {
+    if (!options) {
+      return false;
+    }
+    return 'configProvider' in options || 'configOverrides' in options;
   }
 
   /**

@@ -53,7 +53,7 @@ EXPOSE 8081
 
 # 健康检查（使用Node内置fetch避免额外依赖）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://localhost:8081/health',{cache:'no-store'}).then(res=>{if(!res.ok){process.exit(1);}return res.text();}).then(()=>process.exit(0)).catch(()=>process.exit(1));"
+  CMD node -e "fetch('http://127.0.0.1:8081/health',{cache:'no-store'}).then(res=>{if(!res.ok){process.exit(1);}return res.text();}).then(()=>process.exit(0)).catch(()=>process.exit(1));"
 
 # 直接启动应用（代理配置通过docker-compose.yml环境变量注入）
 CMD ["ts-node", "src/index.ts"]

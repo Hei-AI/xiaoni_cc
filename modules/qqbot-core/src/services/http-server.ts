@@ -686,6 +686,30 @@ class HttpServer {
     });
   }
 
+  private normalizeDebugParameters(parameters: any): Record<string, any> {
+    if (!parameters || typeof parameters !== 'object') {
+      return {};
+    }
+
+    const normalized: Record<string, any> = { ...parameters };
+
+    if (normalized.temperature !== undefined && typeof normalized.temperature === 'string') {
+      const parsed = Number(normalized.temperature);
+      if (!Number.isNaN(parsed)) {
+        normalized.temperature = parsed;
+      }
+    }
+
+    if (normalized.maxOutputTokens !== undefined && typeof normalized.maxOutputTokens === 'string') {
+      const parsed = Number(normalized.maxOutputTokens);
+      if (!Number.isNaN(parsed)) {
+        normalized.maxOutputTokens = parsed;
+      }
+    }
+
+    return normalized;
+  }
+
   public start(): Promise<void> {
     return new Promise((resolve, reject) => {
       const port = this.config.port || config.http_server.port || 8081;

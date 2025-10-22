@@ -20,8 +20,10 @@ describe('Messaging Static Tools', () => {
   let deps: jest.Mocked<MessagingToolDependencies>;
   let privateTool: StaticTool;
   let groupTool: StaticTool;
+  let endTool: StaticTool;
+  let toolsByName: Map<string, StaticTool>;
 
-  const buildContext = (args: Record<string, unknown>): ToolContext => ({
+  const buildContext = (args: Record<string, unknown> = {}): ToolContext => ({
     trace_id: 'trace-123',
     source_key: 'source_key',
     arguments: args
@@ -35,20 +37,26 @@ describe('Messaging Static Tools', () => {
     };
 
     const tools = createMessagingTools(deps);
-    [privateTool, groupTool] = tools;
+    toolsByName = new Map(tools.map(tool => [tool.name, tool]));
+    privateTool = toolsByName.get('send_private_chat_message')!;
+    groupTool = toolsByName.get('send_group_chat_message')!;
+    endTool = toolsByName.get('end')!;
   });
 
   it('should create both private and group messaging tools', () => {
-    const toolNames = [privateTool.name, groupTool.name];
+    const toolNames = Array.from(toolsByName.keys());
 
     expect(toolNames).toContain('send_private_chat_message');
     expect(toolNames).toContain('send_group_chat_message');
+    expect(toolNames).toContain('end');
 
-    [privateTool, groupTool].forEach(tool => {
+    toolsByName.forEach(tool => {
       expect(tool.mode).toBe('fire-and-forget');
       expect(tool.parameters.type).toBe('object');
       expect(typeof tool.handler).toBe('function');
     });
+
+    expect(toolsByName.size).toBe(3);
   });
 
   describe('send_private_chat_message', () => {
@@ -133,6 +141,19 @@ describe('Messaging Static Tools', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('at_user_id');
+      expect(deps.sendAtMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('end', () => {
+    it('should succeed without producing output or side effects', async () => {
+      const result = await endTool.handler(buildContext());
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeUndefined();
+      expect(deps.sendPrivateMessage).not.toHaveBeenCalled();
+      expect(deps.sendGroupMessage).not.toHaveBeenCalled();
       expect(deps.sendAtMessage).not.toHaveBeenCalled();
     });
   });

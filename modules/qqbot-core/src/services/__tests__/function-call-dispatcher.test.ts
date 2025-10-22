@@ -31,6 +31,7 @@ describe('FunctionCallDispatcher', () => {
     mockToolRegistry = {
       search: jest.fn(),
       invoke: jest.fn(),
+      upsertTool: jest.fn().mockResolvedValue(1),
       database: {
         getConnection: jest.fn().mockResolvedValue(mockConnection)
       }
@@ -57,11 +58,24 @@ describe('FunctionCallDispatcher', () => {
       handler: jest.fn().mockResolvedValue({
         success: true,
         data: { result: 'static tool result' }
-      })
+      }),
+      registryMetadata: {
+        displayName: 'Test Static Tool',
+        category: 'testing',
+        tags: ['unit'],
+        sideEffect: true,
+        expectResponse: true,
+        timeoutMs: 1234,
+        enabled: true,
+        requiredPermission: 'admin',
+        version: '1.2.3',
+        createdBy: 'tester',
+        updatedBy: 'tester2'
+      }
     };
 
-    beforeEach(() => {
-      dispatcher.registerStaticTool(mockStaticTool);
+    beforeEach(async () => {
+      await dispatcher.registerStaticTool(mockStaticTool);
     });
 
     it('should register static tool', () => {
@@ -69,6 +83,47 @@ describe('FunctionCallDispatcher', () => {
 
       expect(declarations).toHaveLength(1);
       expect(declarations[0].name).toBe('test_static_tool');
+      expect(mockToolRegistry.upsertTool).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method_id: 'test_static_tool',
+          name: 'Test Static Tool',
+          description: 'A test static tool',
+          params_schema: mockStaticTool.parameters,
+          category: 'testing',
+          tags: ['unit'],
+          side_effect: true,
+          expect_response: true,
+          timeout_ms: 1234,
+          enabled: true,
+          required_permission: 'admin',
+          version: '1.2.3',
+          created_by: 'tester',
+          updated_by: 'tester2'
+        })
+      );
+    });
+
+    it('should sync static tool to function registry when enabled', async () => {
+      const functionRegistryClient = {
+        isEnabled: jest.fn().mockReturnValue(true),
+        upsertFunctionDefinition: jest.fn().mockResolvedValue(null)
+      } as any;
+
+      const localDispatcher = new FunctionCallDispatcher(
+        mockToolRegistry,
+        functionRegistryClient
+      );
+
+      mockToolRegistry.upsertTool.mockClear();
+      await localDispatcher.registerStaticTool(mockStaticTool);
+
+      expect(mockToolRegistry.upsertTool).toHaveBeenCalledTimes(1);
+      expect(functionRegistryClient.upsertFunctionDefinition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'test_static_tool',
+          invokeMethod: 'INTERNAL'
+        })
+      );
     });
 
     it('should dispatch to static tool (returnable)', async () => {
@@ -110,7 +165,7 @@ describe('FunctionCallDispatcher', () => {
         })
       };
 
-      dispatcher.registerStaticTool(fireAndForgetTool);
+      await dispatcher.registerStaticTool(fireAndForgetTool);
 
       const functionCall: GeminiFunctionCall = {
         name: 'fire_and_forget_tool',
@@ -138,7 +193,7 @@ describe('FunctionCallDispatcher', () => {
         })
       };
 
-      dispatcher.registerStaticTool(errorTool);
+      await dispatcher.registerStaticTool(errorTool);
 
       const functionCall: GeminiFunctionCall = {
         name: 'error_tool',
@@ -387,7 +442,7 @@ describe('FunctionCallDispatcher', () => {
         handler: jest.fn().mockRejectedValue(new Error('Handler exception'))
       };
 
-      dispatcher.registerStaticTool(errorTool);
+      await dispatcher.registerStaticTool(errorTool);
 
       const functionCall: GeminiFunctionCall = {
         name: 'exception_tool',

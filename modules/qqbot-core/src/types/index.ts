@@ -199,6 +199,12 @@ export interface WebSocketConfig {
   uri: string;
 }
 
+export interface FunctionRegistryConfig {
+  base_url: string;
+  timeout_ms: number;
+  enabled: boolean;
+}
+
 export interface HttpServerConfig {
   host: string;
   port: number;
@@ -216,6 +222,7 @@ export interface AppConfig {
   websocket: WebSocketConfig;
   http_server: HttpServerConfig;
   ai: AIConfig;
+  function_registry: FunctionRegistryConfig;
   logging: {
     level: string;
     file_prefix: string;
@@ -499,6 +506,9 @@ export interface GroupChatSettings {
   welcome_message?: string;
   admin_user_id?: number;
   agent_prompt_id?: string | null;
+  human_like_scan_interval_ms?: number | null;
+  human_like_min_interval_ms?: number | null;
+  human_like_max_interval_ms?: number | null;
   created_at: Date;
   updated_at: Date;
   last_activity?: Date;
@@ -514,6 +524,9 @@ export interface PrivateChatSettings {
   welcome_message?: string;
   user_notes?: string;
   agent_prompt_id?: string | null;
+  human_like_scan_interval_ms?: number | null;
+  human_like_min_interval_ms?: number | null;
+  human_like_max_interval_ms?: number | null;
   created_at: Date;
   updated_at: Date;
   last_activity?: Date;
@@ -1109,6 +1122,7 @@ export interface FunctionDeclaration {
 export interface FunctionCallingConfig {
   mode: FunctionCallingMode;
   allowedFunctionNames?: string[];
+  allowedFunctionIds?: string[];
 }
 
 // 工具配置 (包含函数调用)
@@ -1450,6 +1464,19 @@ export interface StaticTool {
   parameters: any; // JSON Schema
   mode: ToolExecutionMode;
   handler: (ctx: ToolContext) => Promise<ToolResult>;
+  registryMetadata?: {
+    displayName?: string;
+    category?: string;
+    tags?: string[];
+    sideEffect?: boolean;
+    expectResponse?: boolean;
+    timeoutMs?: number;
+    enabled?: boolean;
+    requiredPermission?: string;
+    version?: string;
+    createdBy?: string;
+    updatedBy?: string;
+  };
 }
 
 /**

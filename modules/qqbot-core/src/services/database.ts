@@ -1665,7 +1665,8 @@ export class DatabaseManager {
     try {
       const query = `
         SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
-               agent_prompt_id, created_at, updated_at, last_activity
+               agent_prompt_id, created_at, updated_at, last_activity,
+               human_like_scan_interval_ms, human_like_min_interval_ms, human_like_max_interval_ms
         FROM private_chat_settings 
         WHERE user_id = ?
       `;
@@ -1684,13 +1685,18 @@ export class DatabaseManager {
     try {
       const query = `
         INSERT INTO group_chat_settings (
-          group_id, group_name, is_enabled, auto_reply_enabled, 
-          welcome_message, admin_user_id, agent_prompt_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          group_id, group_name, is_enabled, auto_reply_enabled,
+          receive_events, human_like_scan_interval_ms, human_like_min_interval_ms,
+          human_like_max_interval_ms, welcome_message, admin_user_id, agent_prompt_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           group_name = VALUES(group_name),
           is_enabled = VALUES(is_enabled),
           auto_reply_enabled = VALUES(auto_reply_enabled),
+          receive_events = VALUES(receive_events),
+          human_like_scan_interval_ms = VALUES(human_like_scan_interval_ms),
+          human_like_min_interval_ms = VALUES(human_like_min_interval_ms),
+          human_like_max_interval_ms = VALUES(human_like_max_interval_ms),
           welcome_message = VALUES(welcome_message),
           admin_user_id = VALUES(admin_user_id),
           agent_prompt_id = VALUES(agent_prompt_id),
@@ -1702,6 +1708,10 @@ export class DatabaseManager {
         settings.group_name || null,
         settings.is_enabled,
         settings.auto_reply_enabled,
+        settings.receive_events ?? true,
+        settings.human_like_scan_interval_ms ?? null,
+        settings.human_like_min_interval_ms ?? null,
+        settings.human_like_max_interval_ms ?? null,
         settings.welcome_message || null,
         settings.admin_user_id || null,
         settings.agent_prompt_id || null,
@@ -1787,8 +1797,16 @@ export class DatabaseManager {
   ): Promise<boolean> {
     try {
       const allowedFields = [
-        'group_name', 'is_enabled', 'auto_reply_enabled', 
-        'welcome_message', 'admin_user_id'
+        'group_name',
+        'is_enabled',
+        'auto_reply_enabled',
+        'receive_events',
+        'human_like_scan_interval_ms',
+        'human_like_min_interval_ms',
+        'human_like_max_interval_ms',
+        'welcome_message',
+        'admin_user_id',
+        'agent_prompt_id'
       ];
       
       const updateParts = ['updated_at = CURRENT_TIMESTAMP'];
