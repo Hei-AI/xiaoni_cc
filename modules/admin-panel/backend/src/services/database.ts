@@ -76,7 +76,7 @@ export class DatabaseManager {
         password: this.config.password,
         database: this.config.database,
         charset: 'utf8mb4',
-        timezone: '+08:00',
+        timezone: this.config.timezone || 'Z',
         connectionLimit: 10,
         queueLimit: 0
       });
@@ -115,7 +115,7 @@ export class DatabaseManager {
         password: this.config.password,
         database: this.config.database,
         charset: 'utf8mb4',
-        timezone: '+08:00'
+        timezone: this.config.timezone || 'Z'
       });
       
       await connection.ping();
@@ -138,7 +138,7 @@ export class DatabaseManager {
         password: this.config.password,
         database: this.config.database,
         charset: 'utf8mb4',
-        timezone: '+08:00'
+        timezone: this.config.timezone || 'Z'
       });
       
       try {

@@ -57,7 +57,7 @@ async function initializeDatabase() {
       password: process.env.DB_PASSWORD || 'qqbot_password',
       database: process.env.DB_NAME || 'qqbot_db',
       charset: 'utf8mb4',
-      timezone: '+08:00'
+      timezone: process.env.DB_TIMEZONE || 'Z'
     }, logger);
 
     // Test connection instead of calling initialize()
