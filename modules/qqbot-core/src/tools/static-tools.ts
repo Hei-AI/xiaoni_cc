@@ -206,11 +206,6 @@ const createEndTool = (): StaticTool => ({
   name: 'end',
   description: '当无需回复或执行任何操作时使用，表示当前会话结束。',
   mode: 'fire-and-forget',
-  parameters: {
-    type: 'object',
-    properties: {},
-    additionalProperties: false
-  },
   registryMetadata: {
     displayName: 'End Conversation',
     category: 'system',
@@ -222,7 +217,7 @@ const createEndTool = (): StaticTool => ({
     createdBy: 'system',
     updatedBy: 'system'
   },
-  handler: async (_ctx: ToolContext): Promise<ToolResult> => ({
+  handler: async (): Promise<ToolResult> => ({
     success: true
   })
 });

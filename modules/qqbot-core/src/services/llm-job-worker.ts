@@ -283,21 +283,43 @@ export class LLMJobWorker extends EventEmitter {
     let contents = job.contents_json;
     const jobMetadata = job.metadata || {};
 
-    const toolMap = new Map<string, any>();
-    const registerTool = (declaration?: any) => {
-      if (declaration && typeof declaration === 'object' && declaration.name) {
-        toolMap.set(declaration.name, declaration);
+    type ToolSource = 'job' | 'search' | 'static' | 'invoke';
+    const sourcePriority: Record<ToolSource, number> = {
+      job: 1,
+      search: 2,
+      static: 3,
+      invoke: 4
+    };
+
+    const toolMap = new Map<string, { declaration: any; priority: number }>();
+    const registerTool = (declaration?: any, source: ToolSource = 'job') => {
+      if (!declaration || typeof declaration !== 'object' || !declaration.name) {
+        return;
+      }
+
+      const priority = sourcePriority[source] ?? sourcePriority.job;
+      const existing = toolMap.get(declaration.name);
+
+      if (!existing || priority >= existing.priority) {
+        toolMap.set(declaration.name, {
+          declaration: this.sanitizeFunctionDeclaration(declaration),
+          priority
+        });
       }
     };
 
-    this.dispatcher.getStaticToolDeclarations().forEach(registerTool);
-    registerTool(this.dispatcher.getSearchToolsDeclaration());
-
     if (Array.isArray(job.tools_json)) {
-      job.tools_json.forEach(registerTool);
+      job.tools_json.forEach(item => registerTool(item, 'job'));
     }
 
-    let tools = Array.from(toolMap.values());
+    this.dispatcher.getStaticToolDeclarations().forEach(tool =>
+      registerTool(tool, 'static')
+    );
+
+    registerTool(this.dispatcher.getSearchToolsDeclaration(), 'static');
+
+    let tools = Array.from(toolMap.values()).map(entry => entry.declaration);
+    tools = this.sanitizeTools(tools);
     let currentTurn = job.current_turn;
 
     moduleLogger.info('Executing job', {
@@ -365,8 +387,8 @@ export class LLMJobWorker extends EventEmitter {
           const invokeDeclaration = this.dispatcher.getInvokeDeclaration(
             dispatchResult.searchedTools
           );
-          registerTool(invokeDeclaration);
-          tools = Array.from(toolMap.values());
+          registerTool(invokeDeclaration, 'invoke');
+          tools = Array.from(toolMap.values()).map(entry => entry.declaration);
         }
       }
 
@@ -410,9 +432,10 @@ export class LLMJobWorker extends EventEmitter {
   private async callLLM(job: LLMJob, contents: any[], tools: any[]): Promise<any> {
     try {
       // 构建请求
+      const sanitizedTools = this.sanitizeTools(tools);
       const request: Record<string, any> = {
         contents,
-        tools: tools.length > 0 ? tools : undefined,
+        tools: sanitizedTools.length > 0 ? sanitizedTools : undefined,
         ...(job.config_json || {})
       };
 
@@ -697,5 +720,88 @@ export class LLMJobWorker extends EventEmitter {
       updated_at: row.updated_at,
       completed_at: row.completed_at
     };
+  }
+
+  private sanitizeSchema(schema: any): any {
+    if (!schema || typeof schema !== 'object') {
+      return schema;
+    }
+
+    if (Array.isArray(schema)) {
+      return schema.map((item: any) => this.sanitizeSchema(item));
+    }
+
+    const cloned: Record<string, any> = { ...schema };
+    if (Object.prototype.hasOwnProperty.call(cloned, 'additionalProperties')) {
+      delete cloned.additionalProperties;
+    }
+
+    if (cloned.properties && typeof cloned.properties === 'object') {
+      cloned.properties = Object.entries(cloned.properties).reduce<Record<string, any>>(
+        (acc, [key, value]) => {
+          acc[key] = this.sanitizeSchema(value);
+          return acc;
+        },
+        {}
+      );
+    }
+
+    if (cloned.items) {
+      cloned.items = this.sanitizeSchema(cloned.items);
+    }
+
+    if (cloned.anyOf) {
+      cloned.anyOf = cloned.anyOf.map((item: any) => this.sanitizeSchema(item));
+    }
+
+    if (cloned.oneOf) {
+      cloned.oneOf = cloned.oneOf.map((item: any) => this.sanitizeSchema(item));
+    }
+
+    if (cloned.allOf) {
+      cloned.allOf = cloned.allOf.map((item: any) => this.sanitizeSchema(item));
+    }
+
+    return cloned;
+  }
+
+  private sanitizeFunctionDeclaration(declaration: any): any {
+    if (!declaration || typeof declaration !== 'object') {
+      return declaration;
+    }
+
+    const cloned: Record<string, any> = { ...declaration };
+    if (cloned.parameters !== undefined) {
+      cloned.parameters = this.sanitizeSchema(cloned.parameters);
+    }
+    if (cloned.response !== undefined) {
+      cloned.response = this.sanitizeSchema(cloned.response);
+    }
+
+    return cloned;
+  }
+
+  private sanitizeTools(tools: any[]): any[] {
+    if (!Array.isArray(tools)) {
+      return tools;
+    }
+
+    return tools.map(tool => {
+      if (!tool || typeof tool !== 'object') {
+        return tool;
+      }
+
+      const cloned: Record<string, any> = { ...tool };
+
+      if (Array.isArray(cloned.functionDeclarations)) {
+        cloned.functionDeclarations = cloned.functionDeclarations
+          .map(declaration => this.sanitizeFunctionDeclaration(declaration))
+          .filter(Boolean);
+      } else if (cloned.parameters !== undefined) {
+        cloned.parameters = this.sanitizeSchema(cloned.parameters);
+      }
+
+      return cloned;
+    });
   }
 }
