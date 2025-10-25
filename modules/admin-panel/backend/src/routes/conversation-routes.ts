@@ -110,11 +110,32 @@ export function createConversationRoutes(database: DatabaseManager, logger: wins
       try {
         llmCallChain = await database.executeQuery(
           `SELECT
-            id, conversation_id, trace_id, token_id, model, prompt, parameters,
-            response, status, created_at, updated_at, processing_time_ms, input_tokens, output_tokens
+            id,
+            conversation_id,
+            trace_id,
+            call_sequence,
+            agent_type,
+            model_name,
+            model_provider,
+            prompt_template,
+            input_prompt,
+            input_tokens,
+            model_config,
+            raw_response,
+            processed_response,
+            output_tokens,
+            api_call_time_ms,
+            processing_time_ms,
+            timestamp,
+            status,
+            error_message,
+            error_code,
+            cost_estimate,
+            token_usage,
+            context_summary
            FROM llm_call_logs
            WHERE conversation_id = ? OR trace_id = ?
-           ORDER BY created_at ASC`,
+           ORDER BY timestamp ASC`,
           [conversationId, traceId]
         );
       } catch (error) {

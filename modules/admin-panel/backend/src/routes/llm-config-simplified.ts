@@ -16,7 +16,7 @@ const dbConfig = {
   password: process.env.DB_PASSWORD || 'qqbot_password',
   database: process.env.DB_NAME || 'qqbot_db',
   charset: 'utf8mb4',
-  timezone: '+08:00'
+  timezone: process.env.DB_TIMEZONE || 'Z'
 };
 
 const database = new DatabaseManager(dbConfig, console);

@@ -115,7 +115,30 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
 
       // 获取LLM调用记录
       const llmCallsQuery = `
-        SELECT *
+        SELECT
+          id,
+          conversation_id,
+          trace_id,
+          call_sequence,
+          agent_type,
+          model_name,
+          model_provider,
+          prompt_template,
+          input_prompt,
+          input_tokens,
+          model_config,
+          raw_response,
+          processed_response,
+          output_tokens,
+          api_call_time_ms,
+          processing_time_ms,
+          timestamp,
+          status,
+          error_message,
+          error_code,
+          cost_estimate,
+          token_usage,
+          context_summary
         FROM llm_call_logs
         WHERE trace_id = ? OR conversation_id = ?
         ORDER BY timestamp ASC
