@@ -25,6 +25,7 @@ import { TrafficReplayEditor } from '../components/TrafficReplayEditor';
 import { ReplayResultComparison } from '../components/ReplayResultComparison';
 import { ReplayHistoryList } from '../components/ReplayHistoryList';
 import type { ReplayModifications, ReplayResult, ReplayHistory } from '../types/traffic-replay';
+import { formatTimestamp } from '../lib/utils';
 
 interface TrafficLogDetail {
   id: number;
@@ -402,7 +403,7 @@ export function HttpTrafficDetailPage() {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">请求时间:</span>
-                      <span>{new Date(log.timestamp).toLocaleString('zh-CN')}</span>
+                      <span>{formatTimestamp(log.timestamp)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">目标主机:</span>
@@ -581,7 +582,7 @@ export function HttpTrafficDetailPage() {
               <div className="flex items-center gap-4 mb-4">
                 <div>状态码: {getStatusBadge(log.response_status)}</div>
                 <div className="text-sm text-muted-foreground">
-                  响应时间: {new Date(log.response_timestamp || log.timestamp).toLocaleString('zh-CN')}
+                  响应时间: {formatTimestamp(log.response_timestamp || log.timestamp)}
                 </div>
               </div>
 

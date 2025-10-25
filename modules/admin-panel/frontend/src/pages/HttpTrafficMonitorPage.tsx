@@ -40,6 +40,7 @@ import {
 import { Link } from 'react-router-dom';
 import { BatchReplayDialog } from '../components/BatchReplayDialog';
 import type { BatchReplayResult } from '../types/traffic-replay';
+import { formatTimestamp } from '../lib/utils';
 
 interface TrafficLog {
   id: number;
@@ -572,7 +573,7 @@ export function HttpTrafficMonitorPage() {
                         />
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {new Date(log.timestamp).toLocaleString('zh-CN')}
+                        {formatTimestamp(log.timestamp)}
                       </TableCell>
                       <TableCell className="text-xs">
                         <Badge variant="outline" className="text-xs">
