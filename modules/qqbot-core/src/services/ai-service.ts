@@ -414,6 +414,16 @@ export class AIService {
     const thinkingSource = advancedGenerationConfig?.thinkingConfig
       || advancedConfig?.thinkingConfig;
 
+    // 🔍 Debug logging for thinking config parsing
+    this.moduleLogger.debug('Parsing thinkingConfig from advanced_config', {
+      promptId: agentPrompt.id,
+      hasAdvancedConfig: !!advancedConfig,
+      hasAdvancedGenerationConfig: !!advancedGenerationConfig,
+      advancedGenerationConfigThinking: advancedGenerationConfig?.thinkingConfig,
+      advancedConfigThinking: advancedConfig?.thinkingConfig,
+      thinkingSource
+    });
+
     if (thinkingSource && typeof thinkingSource === 'object') {
       const normalizedThinking: ThinkingConfig = {};
       if (typeof thinkingSource.includeThoughts === 'boolean') {
@@ -429,6 +439,12 @@ export class AIService {
       if (Object.keys(normalizedThinking).length > 0) {
         thinkingConfig = normalizedThinking;
       }
+
+      this.moduleLogger.debug('Normalized thinkingConfig', {
+        promptId: agentPrompt.id,
+        normalizedThinking,
+        finalThinkingConfig: thinkingConfig
+      });
     }
 
     return {
@@ -1204,15 +1220,32 @@ export class AIService {
       }));
     }
 
+    // 🔍 Debug logging for thinking config
+    this.moduleLogger.debug('Building SDK config with thinking config', {
+      configId: config.id,
+      hasThinking: !!config.thinking,
+      thinking: config.thinking,
+      includeThoughts: config.thinking?.includeThoughts,
+      thinkingBudget: config.thinking?.thinkingBudget
+    });
+
     if (config.thinking?.includeThoughts !== undefined) {
       sdkConfig.thinkingConfig = {
         includeThoughts: config.thinking.includeThoughts,
         thinkingBudget: config.thinking.thinkingBudget
       } as any;
+      this.moduleLogger.debug('Added thinkingConfig to SDK config', {
+        thinkingConfig: sdkConfig.thinkingConfig
+      });
     } else if (config.thinking?.thinkingBudget !== undefined) {
       sdkConfig.thinkingConfig = {
         thinkingBudget: config.thinking.thinkingBudget
       } as any;
+      this.moduleLogger.debug('Added thinkingBudget-only to SDK config', {
+        thinkingConfig: sdkConfig.thinkingConfig
+      });
+    } else {
+      this.moduleLogger.debug('No thinkingConfig added to SDK config');
     }
 
     return sdkConfig;

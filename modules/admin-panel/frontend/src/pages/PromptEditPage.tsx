@@ -408,6 +408,14 @@ const normalizeToolsConfig = (rawConfig: any): ToolsConfigState => {
 const ensureAdvancedConfigDefaults = (advancedConfig: any): any => {
   const base = advancedConfig && typeof advancedConfig === 'object' ? { ...advancedConfig } : {};
 
+  // 🔥 删除顶层的旧配置字段（统一迁移到 generationConfig 下）
+  delete base.thinkingConfig;
+  delete base.temperature;
+  delete base.topP;
+  delete base.topK;
+  delete base.maxOutputTokens;
+  delete base.stopSequences;
+
   if (!Array.isArray(base.safetySettings)) {
     base.safetySettings = DEFAULT_SAFETY_SETTINGS.map((setting) => ({ ...setting }));
   }
