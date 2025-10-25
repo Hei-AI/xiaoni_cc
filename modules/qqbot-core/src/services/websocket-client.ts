@@ -4,6 +4,10 @@ import { WebSocketConfig, QQMessage, QQNotice, QQRequest, WebSocketEvent } from 
 import { logger } from '../utils/logger';
 import { LoggingService } from './logging-service';
 import { createEventContext } from '../utils/trace-strategy';
+import {
+  extractAttachmentsFromSegments,
+  extractTextFromSegments
+} from '../utils/message-utils';
 
 interface WebSocketMessage extends WebSocketEvent {
   message?: string;
@@ -220,20 +224,20 @@ export class WebSocketClient extends EventEmitter {
   }
 
   private normalizeMessage(message: QQMessage): QQMessage {
-    // 只对私聊消息进行文本提取，群聊消息保持原始格式以保留@信息
-    if (Array.isArray(message.message) && message.message_type === 'private') {
-      message.message = this.extractTextFromMessageSegments(message.message as any);
-    }
-    // 群聊消息保持原始数组格式，这样@bot检测才能正常工作
-    return message;
-  }
+    if (Array.isArray(message.message)) {
+      const segments = message.message;
+      message.segments = segments;
+      const attachments = extractAttachmentsFromSegments(segments);
+      if (attachments.length > 0) {
+        message.attachments = attachments;
+      }
 
-  private extractTextFromMessageSegments(segments: any[]): string {
-    return segments
-      .filter(segment => segment.type === 'text')
-      .map(segment => segment.data?.text || '')
-      .join('')
-      .trim();
+      if (message.message_type === 'private') {
+        message.message = extractTextFromSegments(segments);
+      }
+    }
+
+    return message;
   }
 
   private async handleQQNotice(notice: QQNotice, eventData?: any): Promise<void> {

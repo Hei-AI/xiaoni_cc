@@ -34,6 +34,11 @@ import {
   FunctionCallingMode
 } from './types';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  buildAttachmentHints,
+  extractTextFromSegments,
+  resolveAttachmentsFromMessage
+} from './utils/message-utils';
 
 class QQBot implements BatchHandler {
   private database: DatabaseManager;
@@ -620,13 +625,14 @@ class QQBot implements BatchHandler {
 
       const userId = message.user_id;
       const userMessage = typeof message.message === 'string' ? message.message.trim() : '';
+      const conversationText = this.formatMessageForConversation(message);
 
       // 🔥 FIX: 立即创建conversation记录 - 改进后的架构 (移到过滤检查之前)
       const initialConversation: ConversationData = {
         id: conversationId,
         trace_id: traceId,
         user_id: userId,
-        user_message: userMessage,
+        user_message: conversationText,
         timestamp: new Date(),
         response_time: 0,
         raw_request: JSON.stringify(message), // 保存完整的WebSocket消息数据
@@ -778,6 +784,7 @@ class QQBot implements BatchHandler {
 
       // 检测@机器人：同时支持消息段数组格式和字符串CQ码格式
       let isAtBot = false;
+      const rawConversationText = this.formatMessageForConversation(message);
 
       if (Array.isArray(message.message)) {
         isAtBot = message.message.some((segment: any) =>
@@ -817,7 +824,7 @@ class QQBot implements BatchHandler {
             id: conversationId,
             trace_id: traceId,
             user_id: message.user_id,
-            user_message: typeof message.message === 'string' ? message.message : JSON.stringify(message.message),
+            user_message: rawConversationText,
             timestamp: new Date(),
             response_time: 0,
             raw_request: JSON.stringify(message),
@@ -847,7 +854,7 @@ class QQBot implements BatchHandler {
             id: conversationId,
             trace_id: traceId,
             user_id: message.user_id,
-            user_message: typeof message.message === 'string' ? message.message : JSON.stringify(message.message),
+            user_message: rawConversationText,
             timestamp: new Date(),
             response_time: 0,
             raw_request: JSON.stringify(message),
@@ -907,7 +914,13 @@ class QQBot implements BatchHandler {
           .trim();
       }
 
-      if (!cleanMessage) {
+      const messageWithCleanContent = { ...message, message: cleanMessage };
+      const conversationText = this.formatMessageForConversation(messageWithCleanContent);
+      const hasAttachments =
+        Array.isArray(messageWithCleanContent.attachments) &&
+        messageWithCleanContent.attachments.length > 0;
+
+      if (!cleanMessage && !hasAttachments) {
         // 记录空消息以便排查，但不发送兜底消息
         this.moduleLogger.info('Skipped group message with empty content after normalization', {
           traceId,
@@ -921,10 +934,7 @@ class QQBot implements BatchHandler {
           trace_id: traceId,
           user_id: message.user_id,
           group_id: message.group_id,
-          user_message:
-            typeof message.message === 'string'
-              ? message.message
-              : JSON.stringify(message.message),
+          user_message: conversationText,
           timestamp: new Date(),
           response_time: 0,
           raw_request: JSON.stringify(message),
@@ -940,7 +950,6 @@ class QQBot implements BatchHandler {
       }
 
       // 构建群聊消息上下文（前20条消息）
-      const messageWithCleanContent = { ...message, message: cleanMessage };
       const messageContext = await this.contextManager.buildMessageContext(messageWithCleanContent, 20);
 
       this.moduleLogger.info('Group message context built', {
@@ -956,7 +965,7 @@ class QQBot implements BatchHandler {
         trace_id: traceId,
         user_id: message.user_id,
         group_id: message.group_id,
-        user_message: cleanMessage,
+        user_message: conversationText,
         timestamp: new Date(),
         response_time: 0,
         raw_request: JSON.stringify(message),
@@ -1163,6 +1172,44 @@ class QQBot implements BatchHandler {
     }
 
     return false;
+  }
+
+  private formatMessageForConversation(
+    message: QQMessage,
+    fallbackText?: string
+  ): string {
+    const baseText = this.resolveMessageBaseText(message, fallbackText);
+    const attachments = resolveAttachmentsFromMessage(message);
+    const attachmentHints = buildAttachmentHints(attachments);
+
+    const parts = [baseText, ...attachmentHints].filter(
+      part => typeof part === 'string' && part.trim().length > 0
+    );
+
+    return parts.join(' ').trim();
+  }
+
+  private resolveMessageBaseText(
+    message: QQMessage,
+    providedText?: string
+  ): string {
+    if (typeof providedText === 'string' && providedText.trim().length > 0) {
+      return providedText.trim();
+    }
+
+    if (typeof message.message === 'string') {
+      return message.message.trim();
+    }
+
+    if (Array.isArray(message.message)) {
+      return extractTextFromSegments(message.message);
+    }
+
+    if (typeof message.raw_message === 'string') {
+      return message.raw_message.trim();
+    }
+
+    return '';
   }
 
   /**
@@ -1384,7 +1431,61 @@ class QQBot implements BatchHandler {
           };
         }
 
+        const sanitizeSchema = (schema: any): any => {
+          if (!schema || typeof schema !== 'object') {
+            return schema;
+          }
+
+          if (Array.isArray(schema)) {
+            return schema.map(item => sanitizeSchema(item));
+          }
+
+          const cloned: Record<string, any> = { ...schema };
+          if (Object.prototype.hasOwnProperty.call(cloned, 'additionalProperties')) {
+            delete cloned.additionalProperties;
+          }
+
+          if (cloned.properties && typeof cloned.properties === 'object') {
+            cloned.properties = Object.entries(cloned.properties).reduce<Record<string, any>>(
+              (acc, [key, value]) => {
+                acc[key] = sanitizeSchema(value);
+                return acc;
+              },
+              {}
+            );
+          }
+
+          if (cloned.items) {
+            cloned.items = sanitizeSchema(cloned.items);
+          }
+
+          if (cloned.anyOf) {
+            cloned.anyOf = cloned.anyOf.map((item: any) => sanitizeSchema(item));
+          }
+
+          if (cloned.oneOf) {
+            cloned.oneOf = cloned.oneOf.map((item: any) => sanitizeSchema(item));
+          }
+
+          if (cloned.allOf) {
+            cloned.allOf = cloned.allOf.map((item: any) => sanitizeSchema(item));
+          }
+
+          return cloned;
+        };
+
         const customTools = promptConfig.tools?.customTools || [];
+        const staticToolDeclarations = this.functionCallDispatcher
+          .getStaticToolDeclarations()
+          .reduce<Record<string, { description?: string; parameters?: any }>>((acc, decl) => {
+            if (decl && typeof decl === 'object' && decl.name) {
+              acc[decl.name] = {
+                description: decl.description,
+                parameters: decl.parameters
+              };
+            }
+            return acc;
+          }, {});
         const functionNameToId: Record<string, string> = {};
         const functionDeclarations = customTools
           .map(tool => {
@@ -1396,13 +1497,27 @@ class QQBot implements BatchHandler {
             if (id) {
               functionNameToId[name] = id;
             }
-            return {
+            const staticOverride = staticToolDeclarations[name];
+            const description = staticOverride?.description || tool.description || '';
+            const parameters = staticOverride?.parameters
+              ? sanitizeSchema(staticOverride.parameters)
+              : tool.parameters
+                ? sanitizeSchema(tool.parameters)
+                : undefined;
+
+            const declaration: any = {
               name,
-              description: tool.description || '',
-              parameters: tool.parameters || {}
+              description
             };
+
+            // 只有当 parameters 存在时才添加该字段
+            if (parameters !== undefined) {
+              declaration.parameters = parameters;
+            }
+
+            return declaration;
           })
-          .filter(Boolean) as Array<{ name: string; description: string; parameters: any }>;
+          .filter(Boolean) as Array<{ name: string; description: string; parameters?: any }>;
 
         if (functionDeclarations.length > 0) {
           jobConfig.tools = functionDeclarations;

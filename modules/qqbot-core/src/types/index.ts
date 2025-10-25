@@ -3,6 +3,12 @@ export interface OB11Segment {
   data: Record<string, any>;
 }
 
+export interface MessageAttachment {
+  type: string;
+  label: string;
+  data: Record<string, any>;
+}
+
 export interface QQMessage {
   time: number;
   post_type: 'message' | 'message_sent';
@@ -18,6 +24,8 @@ export interface QQMessage {
   self_id: number;
   target_id?: number;  // 临时会话目标
   temp_source?: number;  // 临时会话来源
+  segments?: OB11Segment[]; // 保留原始消息段
+  attachments?: MessageAttachment[]; // 解析出的附件信息
 }
 
 export interface FriendSender {
@@ -1461,7 +1469,7 @@ export interface ToolResult {
 export interface StaticTool {
   name: string;
   description: string;
-  parameters: any; // JSON Schema
+  parameters?: any; // JSON Schema (可选，如无参数可不传)
   mode: ToolExecutionMode;
   handler: (ctx: ToolContext) => Promise<ToolResult>;
   registryMetadata?: {

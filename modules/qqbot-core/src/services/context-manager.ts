@@ -1,6 +1,11 @@
 import { DatabaseManager } from './database';
 import { QQMessage, ConversationData, OB11Segment } from '../types';
 import { logger } from '../utils/logger';
+import {
+  buildAttachmentHints,
+  extractTextFromSegments,
+  resolveAttachmentsFromMessage
+} from '../utils/message-utils';
 
 /**
  * 消息上下文接口
@@ -508,35 +513,32 @@ export class ContextManager {
   }
 
   private extractMessageText(message: QQMessage): string {
+    let baseText = '';
+
     if (typeof message.message === 'string') {
-      return message.message
+      baseText = message.message
         .replace(/\[CQ:at,qq=([0-9]+)(?:,[^\]]*?name=([^,\]]+))?\]/g, (_, qq, name) =>
           `@${name || qq}`
         )
         .trim();
+    } else if (Array.isArray(message.message)) {
+      baseText = extractTextFromSegments(message.message);
+    } else if (typeof message.raw_message === 'string') {
+      baseText = message.raw_message.trim();
     }
 
-    if (Array.isArray(message.message)) {
-      return message.message
-        .map(segment => {
-          if (segment.type === 'text') {
-            return segment.data?.text || '';
-          }
-          if (segment.type === 'at') {
-            const name = segment.data?.name || segment.data?.qq;
-            return name ? `@${name}` : '@';
-          }
-          return '';
-        })
-        .join('')
-        .trim();
-    }
+    const attachments = resolveAttachmentsFromMessage(message);
+    const attachmentHints = buildAttachmentHints(attachments);
 
-    if (typeof message.raw_message === 'string') {
+    const parts = [baseText, ...attachmentHints].filter(
+      part => part && part.length > 0
+    );
+
+    if (parts.length === 0 && typeof message.raw_message === 'string') {
       return message.raw_message.trim();
     }
 
-    return '';
+    return parts.join(' ').trim();
   }
 
   private extractSenderProfileFromConversation(conversation: ConversationData): {
