@@ -424,9 +424,10 @@ export class FunctionCallDispatcher {
     context: ToolContext,
     result: ToolResult
   ): Promise<void> {
+    let connection: any;
     try {
       // 通过 toolRegistry 的数据库连接记录
-      const connection = await (this.toolRegistry as any).database.pool.getConnection();
+      connection = await (this.toolRegistry as any).database.pool.getConnection();
 
       await connection.query(
         `INSERT INTO tool_execution_logs (
@@ -449,6 +450,18 @@ export class FunctionCallDispatcher {
       );
     } catch (error) {
       moduleLogger.error('[FunctionCallDispatcher] Log static tool error:', { error });
+    } finally {
+      if (connection) {
+        try {
+          connection.release();
+        } catch (releaseError) {
+          moduleLogger.error('[FunctionCallDispatcher] Failed to release connection after logging static tool', {
+            releaseError: releaseError instanceof Error
+              ? { message: releaseError.message, stack: releaseError.stack }
+              : releaseError
+          });
+        }
+      }
     }
   }
 

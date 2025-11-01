@@ -15,6 +15,16 @@ import {
 
 const moduleLogger = logger.createModuleLogger('tool-registry');
 
+const formatError = (error: unknown) => {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      stack: error.stack
+    };
+  }
+  return error;
+};
+
 export class ToolRegistryService {
   private database: DatabaseManager;
   private toolExecutors: Map<string, (ctx: ToolContext) => Promise<ToolResult>>;
@@ -48,8 +58,9 @@ export class ToolRegistryService {
       category
     } = params;
 
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
 
       // 构建查询条件
       let sql = `
@@ -111,6 +122,16 @@ export class ToolRegistryService {
     } catch (error) {
       moduleLogger.error('[ToolRegistryService] Search error:', { error });
       throw error;
+    } finally {
+      if (connection) {
+        try {
+          connection.release();
+        } catch (releaseError) {
+          moduleLogger.error('[ToolRegistryService] Failed to release connection after search', {
+            releaseError: formatError(releaseError)
+          });
+        }
+      }
     }
   }
 
@@ -212,8 +233,9 @@ export class ToolRegistryService {
    * 获取工具定义
    */
   private async getTool(methodId: string): Promise<LLMTool | null> {
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
       const [rows] = await connection.query(
         'SELECT * FROM llm_tools WHERE method_id = ? LIMIT 1',
         [methodId]
@@ -253,6 +275,17 @@ export class ToolRegistryService {
     } catch (error) {
       moduleLogger.error('[ToolRegistryService] Get tool error:', { error });
       return null;
+    } finally {
+      if (connection) {
+        try {
+          connection.release();
+        } catch (releaseError) {
+          moduleLogger.error('[ToolRegistryService] Failed to release connection after getTool', {
+            releaseError: formatError(releaseError),
+            methodId
+          });
+        }
+      }
     }
   }
 
@@ -279,8 +312,9 @@ export class ToolRegistryService {
     success: boolean,
     durationMs: number
   ): Promise<void> {
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
 
       if (success) {
         await connection.query(
@@ -304,6 +338,17 @@ export class ToolRegistryService {
       }
     } catch (error) {
       moduleLogger.error('[ToolRegistryService] Update stats error:', { error });
+    } finally {
+      if (connection) {
+        try {
+          connection.release();
+        } catch (releaseError) {
+          moduleLogger.error('[ToolRegistryService] Failed to release connection after updateToolStats', {
+            releaseError: formatError(releaseError),
+            methodId
+          });
+        }
+      }
     }
   }
 
@@ -311,8 +356,9 @@ export class ToolRegistryService {
    * 记录工具执行日志
    */
   private async logExecution(log: Omit<any, 'id'>): Promise<void> {
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
       await connection.query(
         `INSERT INTO tool_execution_logs (
           trace_id, job_id, tool_type, tool_name, method_id,
@@ -338,6 +384,18 @@ export class ToolRegistryService {
       );
     } catch (error) {
       moduleLogger.error('[ToolRegistryService] Log execution error:', { error });
+    } finally {
+      if (connection) {
+        try {
+          connection.release();
+        } catch (releaseError) {
+          moduleLogger.error('[ToolRegistryService] Failed to release connection after logExecution', {
+            releaseError: formatError(releaseError),
+            traceId: log.trace_id,
+            methodId: log.method_id
+          });
+        }
+      }
     }
   }
 
@@ -345,8 +403,9 @@ export class ToolRegistryService {
    * 创建或更新工具
    */
   async upsertTool(tool: Omit<LLMTool, 'id' | 'created_at' | 'updated_at'>): Promise<number> {
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
 
       const [result] = await connection.query(
         `INSERT INTO llm_tools (
@@ -392,6 +451,17 @@ export class ToolRegistryService {
     } catch (error) {
       moduleLogger.error('[ToolRegistryService] Upsert tool error:', { error });
       throw error;
+    } finally {
+      if (connection) {
+        try {
+          connection.release();
+        } catch (releaseError) {
+          moduleLogger.error('[ToolRegistryService] Failed to release connection after upsertTool', {
+            releaseError: formatError(releaseError),
+            methodId: tool.method_id
+          });
+        }
+      }
     }
   }
 
@@ -399,8 +469,9 @@ export class ToolRegistryService {
    * 获取所有启用的工具
    */
   async getEnabledTools(): Promise<LLMTool[]> {
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
       const [rows] = await connection.query(
         'SELECT * FROM llm_tools WHERE enabled = true ORDER BY total_calls DESC'
       );
@@ -433,6 +504,16 @@ export class ToolRegistryService {
     } catch (error) {
       moduleLogger.error('[ToolRegistryService] Get enabled tools error:', { error });
       return [];
+    } finally {
+      if (connection) {
+        try {
+          connection.release();
+        } catch (releaseError) {
+          moduleLogger.error('[ToolRegistryService] Failed to release connection after getEnabledTools', {
+            releaseError: formatError(releaseError)
+          });
+        }
+      }
     }
   }
 }

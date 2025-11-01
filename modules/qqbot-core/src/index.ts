@@ -79,7 +79,12 @@ class QQBot implements BatchHandler {
   constructor() {
     this.database = getDatabaseManager(config.database);
     this.loggingService = new LoggingService(this.database);
-    this.websocketClient = new WebSocketClient(config.websocket, this.loggingService);
+    this.websocketClient = new WebSocketClient(
+      config.websocket,
+      this.loggingService,
+      this.database,
+      config.ai.bot_qq_number
+    );
     this.functionRegistryClient = new FunctionRegistryClient(config.function_registry);
     this.aiService = new AIService(config.ai, this.database, this.loggingService, this.functionRegistryClient);
     this.sessionManager = new SessionManager(this.database);
@@ -1420,6 +1425,11 @@ class QQBot implements BatchHandler {
           }))
         };
 
+        // 🔥 添加 thinkingConfig 支持（放在顶层，供 buildGenerateContentConfigFromRequest 使用）
+        if (promptConfig.thinking) {
+          jobConfig.thinkingConfig = promptConfig.thinking;
+        }
+
         if (promptConfig.model?.name) {
           jobConfig.model = { name: promptConfig.model.name };
         }
@@ -1677,6 +1687,21 @@ class QQBot implements BatchHandler {
       const shouldSendReply = sessionId && originalMessage.message_id && 
                              (sessionId.includes('reply') || sessionId.includes('chain'));
 
+      const sendTimestamp = new Date();
+      const rawPayload: Record<string, any> = {
+        message: finalResponse
+      };
+
+      if (shouldSendReply && originalMessage.message_id) {
+        rawPayload.reply_to = originalMessage.message_id;
+      }
+
+      const baseSendOptions = {
+        conversationId: conversationId ?? undefined,
+        rawPayload,
+        sentAt: sendTimestamp
+      };
+
       if (originalMessage.message_type === 'group' && originalMessage.group_id) {
         // 第3层：检查群聊自动回复是否开启（auto_reply_enabled）
         const groupSettings = cachedGroupSettings ?? await this.database.getGroupChatSettingById(originalMessage.group_id);
@@ -1694,12 +1719,17 @@ class QQBot implements BatchHandler {
         if (shouldSendReply && originalMessage.message_id) {
           await this.websocketClient.sendReplyMessage(
             originalMessage.message_id,
-            finalResponse
+            finalResponse,
+            {
+              ...baseSendOptions,
+              groupId: originalMessage.group_id
+            }
           );
         } else {
           await this.websocketClient.sendGroupMessage(
             originalMessage.group_id,
-            finalResponse
+            finalResponse,
+            baseSendOptions
           );
         }
       } else {
@@ -1716,12 +1746,17 @@ class QQBot implements BatchHandler {
         if (shouldSendReply && originalMessage.message_id) {
           await this.websocketClient.sendReplyMessage(
             originalMessage.message_id,
-            finalResponse
+            finalResponse,
+            {
+              ...baseSendOptions,
+              userId
+            }
           );
         } else {
           await this.websocketClient.sendPrivateMessage(
             userId,
-            finalResponse
+            finalResponse,
+            baseSendOptions
           );
         }
       }

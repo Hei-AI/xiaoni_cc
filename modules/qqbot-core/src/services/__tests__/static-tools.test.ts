@@ -23,9 +23,13 @@ describe('Messaging Static Tools', () => {
   let endTool: StaticTool;
   let toolsByName: Map<string, StaticTool>;
 
-  const buildContext = (args: Record<string, unknown> = {}): ToolContext => ({
+  const buildContext = (
+    args: Record<string, unknown> = {},
+    overrides: Partial<ToolContext> = {}
+  ): ToolContext => ({
     trace_id: 'trace-123',
     source_key: 'source_key',
+    ...overrides,
     arguments: args
   });
 
@@ -52,7 +56,9 @@ describe('Messaging Static Tools', () => {
 
     toolsByName.forEach(tool => {
       expect(tool.mode).toBe('fire-and-forget');
-      expect(tool.parameters.type).toBe('object');
+      if (tool.parameters) {
+        expect(tool.parameters.type).toBe('object');
+      }
       expect(typeof tool.handler).toBe('function');
     });
 
@@ -98,7 +104,7 @@ describe('Messaging Static Tools', () => {
   describe('send_group_chat_message', () => {
     it('should send group message without mention', async () => {
       const result = await groupTool.handler(
-        buildContext({ group_id: 654321, message: 'broadcast' })
+        buildContext({ message: 'broadcast' }, { group_id: 654321 })
       );
 
       expect(deps.sendGroupMessage).toHaveBeenCalledWith(654321, 'broadcast');
@@ -113,11 +119,10 @@ describe('Messaging Static Tools', () => {
     it('should send group message with @ mention', async () => {
       const result = await groupTool.handler(
         buildContext({
-          group_id: 654321,
           message: 'hi',
           should_at: true,
           at_user_id: 111
-        })
+        }, { group_id: 654321 })
       );
 
       expect(deps.sendAtMessage).toHaveBeenCalledWith(654321, 111, 'hi');
@@ -133,15 +138,24 @@ describe('Messaging Static Tools', () => {
     it('should reject missing user id when mention is requested', async () => {
       const result = await groupTool.handler(
         buildContext({
-          group_id: 654321,
           message: 'hi',
           should_at: true
-        })
+        }, { group_id: 654321 })
       );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('at_user_id');
       expect(deps.sendAtMessage).not.toHaveBeenCalled();
+    });
+
+    it('should fail when group context is missing', async () => {
+      const result = await groupTool.handler(
+        buildContext({ message: 'hello' })
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('group_id');
+      expect(deps.sendGroupMessage).not.toHaveBeenCalled();
     });
   });
 

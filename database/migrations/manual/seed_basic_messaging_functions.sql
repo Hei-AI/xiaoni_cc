@@ -48,16 +48,15 @@ SELECT
   '66666666-7777-8888-9999-aaaaaaaaaaaa',
   'send_group_chat_message',
   'Send Group Chat Message',
-  '向指定QQ群发送消息，可选@指定成员。',
+  '向当前会话所属的QQ群发送消息，可选@指定成员。',
   JSON_OBJECT(
     'type', 'object',
     'properties', JSON_OBJECT(
-      'group_id', JSON_OBJECT('type', 'integer', 'description', '目标QQ群ID。'),
       'message', JSON_OBJECT('type', 'string', 'description', '要发送的消息内容。'),
       'should_at', JSON_OBJECT('type', 'boolean', 'description', '是否需要@某个群成员。', 'default', false),
       'at_user_id', JSON_OBJECT('type', 'integer', 'description', '当should_at为true时，需要@的QQ号。')
     ),
-    'required', JSON_ARRAY('group_id', 'message')
+    'required', JSON_ARRAY('message')
   ),
   1,
   0,

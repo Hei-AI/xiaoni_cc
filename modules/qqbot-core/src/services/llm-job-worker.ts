@@ -13,6 +13,46 @@ import { LLMJob, LLMJobStatus, GeminiFunctionCall, FunctionCallingMode } from '.
 
 const moduleLogger = logger.createModuleLogger('llm-job-worker');
 
+const serializeError = (error: unknown) => {
+  if (error instanceof Error) {
+    const serialized: Record<string, any> = { message: error.message };
+
+    if (error.stack) {
+      serialized.stack = error.stack;
+    }
+
+    const errorWithMeta = error as Record<string, any>;
+    if (errorWithMeta.code) {
+      serialized.code = errorWithMeta.code;
+    }
+    if (errorWithMeta.errno) {
+      serialized.errno = errorWithMeta.errno;
+    }
+    if (errorWithMeta.sqlState || errorWithMeta.sqlstate) {
+      serialized.sqlState = errorWithMeta.sqlState ?? errorWithMeta.sqlstate;
+    }
+
+    return serialized;
+  }
+
+  return error;
+};
+
+const releaseConnectionSafely = (connection: any, context: string) => {
+  if (!connection) {
+    return;
+  }
+
+  try {
+    connection.release();
+  } catch (error) {
+    moduleLogger.error('Failed to release database connection', {
+      context,
+      error: serializeError(error)
+    });
+  }
+};
+
 const normalizeFunctionCallingMode = (mode: unknown): FunctionCallingMode => {
   if (typeof mode !== 'string') {
     return 'ANY';
@@ -134,8 +174,9 @@ export class LLMJobWorker extends EventEmitter {
   }): Promise<string> {
     const jobId = uuidv4();
 
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
 
       await connection.query(
         `INSERT INTO llm_jobs (
@@ -155,15 +196,22 @@ export class LLMJobWorker extends EventEmitter {
         ]
       );
 
-      connection.release();
+      releaseConnectionSafely(connection, 'createJob');
+      connection = null;
 
       moduleLogger.info('Created LLM job', { jobId, traceId: params.traceId });
       this.emit('job_created', { jobId, traceId: params.traceId });
 
       return jobId;
     } catch (error) {
-      moduleLogger.error('Failed to create job', { error });
+      moduleLogger.error('Failed to create job', {
+        error: serializeError(error),
+        jobId,
+        traceId: params.traceId
+      });
       throw error;
+    } finally {
+      releaseConnectionSafely(connection, 'createJob.finally');
     }
   }
 
@@ -199,8 +247,9 @@ export class LLMJobWorker extends EventEmitter {
    * 获取待处理任务
    */
   private async fetchPendingJobs(limit: number): Promise<LLMJob[]> {
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
 
       const [rows] = await connection.query(
         `SELECT * FROM llm_jobs
@@ -211,12 +260,15 @@ export class LLMJobWorker extends EventEmitter {
         [limit]
       );
 
-      connection.release();
+      releaseConnectionSafely(connection, 'fetchPendingJobs');
+      connection = null;
 
       return (rows as any[]).map(row => this.mapRowToJob(row));
     } catch (error) {
-      moduleLogger.error('Failed to fetch pending jobs', { error });
+      moduleLogger.error('Failed to fetch pending jobs', { error: serializeError(error) });
       return [];
+    } finally {
+      releaseConnectionSafely(connection, 'fetchPendingJobs.finally');
     }
   }
 
@@ -540,17 +592,25 @@ export class LLMJobWorker extends EventEmitter {
    * 更新任务状态
    */
   private async updateJobStatus(jobId: string, status: LLMJobStatus): Promise<void> {
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
 
       await connection.query(
         'UPDATE llm_jobs SET status = ?, updated_at = NOW() WHERE id = ?',
         [status, jobId]
       );
 
-      connection.release();
+      releaseConnectionSafely(connection, 'updateJobStatus');
+      connection = null;
     } catch (error) {
-      moduleLogger.error('Failed to update job status', { jobId, status, error });
+      moduleLogger.error('Failed to update job status', {
+        jobId,
+        status,
+        error: serializeError(error)
+      });
+    } finally {
+      releaseConnectionSafely(connection, 'updateJobStatus.finally');
     }
   }
 
@@ -558,17 +618,25 @@ export class LLMJobWorker extends EventEmitter {
    * 更新任务轮次
    */
   private async updateJobTurn(jobId: string, turn: number): Promise<void> {
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
 
       await connection.query(
         'UPDATE llm_jobs SET current_turn = ?, updated_at = NOW() WHERE id = ?',
         [turn, jobId]
       );
 
-      connection.release();
+      releaseConnectionSafely(connection, 'updateJobTurn');
+      connection = null;
     } catch (error) {
-      moduleLogger.error('Failed to update job turn', { jobId, turn, error });
+      moduleLogger.error('Failed to update job turn', {
+        jobId,
+        turn,
+        error: serializeError(error)
+      });
+    } finally {
+      releaseConnectionSafely(connection, 'updateJobTurn.finally');
     }
   }
 
@@ -576,8 +644,9 @@ export class LLMJobWorker extends EventEmitter {
    * 完成任务
    */
   private async completeJob(jobId: string, finalResponse: string): Promise<void> {
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
 
       await connection.query(
         `UPDATE llm_jobs
@@ -589,11 +658,17 @@ export class LLMJobWorker extends EventEmitter {
         [finalResponse, jobId]
       );
 
-      connection.release();
+      releaseConnectionSafely(connection, 'completeJob');
+      connection = null;
 
       moduleLogger.info('Job completed', { jobId });
     } catch (error) {
-      moduleLogger.error('Failed to complete job', { jobId, error });
+      moduleLogger.error('Failed to complete job', {
+        jobId,
+        error: serializeError(error)
+      });
+    } finally {
+      releaseConnectionSafely(connection, 'completeJob.finally');
     }
   }
 
@@ -601,8 +676,9 @@ export class LLMJobWorker extends EventEmitter {
    * 任务失败
    */
   private async failJob(jobId: string, errorMessage: string): Promise<void> {
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
 
       await connection.query(
         `UPDATE llm_jobs
@@ -613,11 +689,17 @@ export class LLMJobWorker extends EventEmitter {
         [errorMessage, jobId]
       );
 
-      connection.release();
+      releaseConnectionSafely(connection, 'failJob');
+      connection = null;
 
       moduleLogger.info('Job failed', { jobId, error: errorMessage });
     } catch (error) {
-      moduleLogger.error('Failed to mark job as failed', { jobId, error });
+      moduleLogger.error('Failed to mark job as failed', {
+        jobId,
+        error: serializeError(error)
+      });
+    } finally {
+      releaseConnectionSafely(connection, 'failJob.finally');
     }
   }
 
@@ -625,8 +707,9 @@ export class LLMJobWorker extends EventEmitter {
    * 安排重试
    */
   private async scheduleRetry(jobId: string, retryCount: number): Promise<void> {
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
 
       const nextRetryAt = new Date(Date.now() + this.config.retryDelayMs);
 
@@ -640,11 +723,17 @@ export class LLMJobWorker extends EventEmitter {
         [retryCount, nextRetryAt, jobId]
       );
 
-      connection.release();
+      releaseConnectionSafely(connection, 'scheduleRetry');
+      connection = null;
 
       moduleLogger.info('Job retry scheduled', { jobId, retryCount, nextRetryAt });
     } catch (error) {
-      moduleLogger.error('Failed to schedule retry', { jobId, error });
+      moduleLogger.error('Failed to schedule retry', {
+        jobId,
+        error: serializeError(error)
+      });
+    } finally {
+      releaseConnectionSafely(connection, 'scheduleRetry.finally');
     }
   }
 
@@ -652,15 +741,17 @@ export class LLMJobWorker extends EventEmitter {
    * 获取任务信息
    */
   async getJob(jobId: string): Promise<LLMJob | null> {
+    let connection: any;
     try {
-      const connection = await (this.database as any).pool.getConnection();
+      connection = await (this.database as any).pool.getConnection();
 
       const [rows] = await connection.query(
         'SELECT * FROM llm_jobs WHERE id = ? LIMIT 1',
         [jobId]
       );
 
-      connection.release();
+      releaseConnectionSafely(connection, 'getJob');
+      connection = null;
 
       const jobs = rows as any[];
       if (jobs.length === 0) {
@@ -669,8 +760,13 @@ export class LLMJobWorker extends EventEmitter {
 
       return this.mapRowToJob(jobs[0]);
     } catch (error) {
-      moduleLogger.error('Failed to get job', { jobId, error });
+      moduleLogger.error('Failed to get job', {
+        jobId,
+        error: serializeError(error)
+      });
       return null;
+    } finally {
+      releaseConnectionSafely(connection, 'getJob.finally');
     }
   }
 

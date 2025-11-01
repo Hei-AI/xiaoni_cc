@@ -102,15 +102,11 @@ const createGroupMessageTool = (
   deps: MessagingToolDependencies
 ): StaticTool => ({
   name: 'send_group_chat_message',
-  description: '向指定QQ群发送消息，可选@指定成员。',
+  description: '向当前会话所属的QQ群发送消息，可选@指定成员。',
   mode: 'fire-and-forget',
   parameters: {
     type: 'object',
     properties: {
-      group_id: {
-        type: 'integer',
-        description: '目标QQ群ID。'
-      },
       message: {
         type: 'string',
         description: '要发送的消息内容。'
@@ -125,7 +121,7 @@ const createGroupMessageTool = (
         description: '当should_at为true时，需要@的QQ号。'
       }
     },
-    required: ['group_id', 'message']
+    required: ['message']
   },
   registryMetadata: {
     displayName: 'Send Group Chat Message',
@@ -143,13 +139,12 @@ const createGroupMessageTool = (
 
     try {
       const {
-        group_id,
         message,
         should_at = false,
         at_user_id = null
       } = ctx.arguments || {};
 
-      const normalizedGroupId = validateNumericId(group_id, 'group_id');
+      const normalizedGroupId = validateNumericId(ctx.group_id, 'group_id');
       const normalizedMessage = validateMessage(message);
       const normalizedShouldAt = Boolean(should_at);
 
