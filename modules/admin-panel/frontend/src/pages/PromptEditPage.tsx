@@ -812,6 +812,9 @@ export const PromptEditPage: React.FC = () => {
     queryKey: ['prompt', promptId],
     queryFn: () => fetchPrompt(promptId!),
     enabled: !isNew && promptId !== 'new' && !!promptId && promptId !== undefined,
+    staleTime: 0, // Always consider data stale to force refetch
+    gcTime: 0, // Don't cache data (React Query v5 uses gcTime instead of cacheTime)
+    refetchOnMount: 'always', // Always refetch when component mounts
   });
 
   // 查询 Agent 类型
@@ -1063,24 +1066,7 @@ export const PromptEditPage: React.FC = () => {
 
     const contextVariablesObject = rowsToContextObject(contextVariableRows);
 
-    const normalizedToolsConfig = normalizeToolsConfig((formData.advanced_config as any)?.toolsConfig);
-    const sanitizedToolsConfig = {
-      ...normalizedToolsConfig,
-      functionCalling: {
-        ...normalizedToolsConfig.functionCalling,
-        allowedFunctionNames: Array.from(
-          new Set(normalizedToolsConfig.functionCalling.allowedFunctionNames || [])
-        ).filter((name) => name && name.length > 0),
-        allowedFunctionIds: Array.from(
-          new Set(normalizedToolsConfig.functionCalling.allowedFunctionIds || [])
-        ).filter((id) => id && id.length > 0)
-      }
-    };
-
-    const submitAdvancedConfig = ensureAdvancedConfigDefaults({
-      ...formData.advanced_config,
-      toolsConfig: sanitizedToolsConfig
-    });
+    const submitAdvancedConfig = advancedConfigSnapshot;
 
     const registryAllowedIdSet = new Set(
       sanitizedToolsConfig.customTools
@@ -1096,20 +1082,6 @@ export const PromptEditPage: React.FC = () => {
       functionIds: filteredRegistryIds,
       actor: formData.created_by || 'admin'
     };
-
-    const maxOutputTokensValue = Number(formData.model_config.maxOutputTokens);
-    if (!Number.isNaN(maxOutputTokensValue) && maxOutputTokensValue > 0) {
-      submitAdvancedConfig.maxOutputTokens = maxOutputTokensValue;
-      submitAdvancedConfig.generationConfig = {
-        ...(submitAdvancedConfig.generationConfig || {}),
-        maxOutputTokens: maxOutputTokensValue
-      };
-    } else {
-      delete submitAdvancedConfig.maxOutputTokens;
-      if (submitAdvancedConfig.generationConfig) {
-        delete submitAdvancedConfig.generationConfig.maxOutputTokens;
-      }
-    }
 
     const submitData = {
       ...formData,
@@ -1968,52 +1940,49 @@ export const PromptEditPage: React.FC = () => {
   const manualThinkingEnabled =
     typeof thinkingConfig.thinkingBudget === 'number' && thinkingConfig.thinkingBudget >= 0;
   const thinkingBudgetValue = manualThinkingEnabled ? thinkingConfig.thinkingBudget : 4096;
-  const previewConfig = {
-    model: formData.model_name || 'gemini-2.5-flash',
-    temperature: formData.model_config.temperature,
-    topP: formData.model_config.topP,
-    topK: formData.model_config.topK,
-    maxOutputTokens: formData.model_config.maxOutputTokens,
-    ...(stopSequences.length ? { stopSequences } : {}),
-    ...(formData.model_config.mediaResolution &&
-    formData.model_config.mediaResolution !== 'MEDIA_RESOLUTION_DEFAULT'
-      ? { mediaResolution: formData.model_config.mediaResolution }
-      : {}),
-    thinkingConfig: {
-      thinkingBudget: thinkingConfig.thinkingBudget,
-      includeThoughts: thinkingConfig.includeThoughts
-    },
-    safetySettings: formData.advanced_config?.safetySettings ?? DEFAULT_SAFETY_SETTINGS,
-    ...(structuredOutputEnabled
-      ? { structuredOutput: (formData.advanced_config as any)?.structuredOutput || {} }
-      : {}),
-    ...(googleSearchEnabled
-      ? { googleSearch: (formData.advanced_config as any)?.googleSearch || {} }
-      : {}),
-    ...(urlContextEnabled
-      ? { urlContext: (formData.advanced_config as any)?.urlContext || {} }
-      : {}),
-    ...(functionCallingMode === 'NONE'
-      ? {}
-      : {
-          functionCalling: {
-            mode: functionCallingMode,
-            allow: allowedFunctionNames
-          }
-        })
-  };
-  const previewTools =
-    functionCallingMode === 'NONE'
-      ? ''
-      : `const tools = ${JSON.stringify(
-          customTools.map((tool) => ({
-            name: tool.name,
-            description: tool.description
-          })),
-          null,
-          2
-        )};\n\n`;
-  const getCodePreview = `${previewTools}const config = ${JSON.stringify(previewConfig, null, 2)};`;
+  const { advancedConfigSnapshot, sanitizedToolsConfig } = useMemo(() => {
+    const normalizedToolsConfig = normalizeToolsConfig((formData.advanced_config as any)?.toolsConfig);
+    const sanitizedFunctionCalling = {
+      ...normalizedToolsConfig.functionCalling,
+      allowedFunctionNames: Array.from(
+        new Set(normalizedToolsConfig.functionCalling.allowedFunctionNames || [])
+      ).filter((name) => name && name.length > 0),
+      allowedFunctionIds: Array.from(
+        new Set(normalizedToolsConfig.functionCalling.allowedFunctionIds || [])
+      ).filter((id) => id && id.length > 0)
+    };
+
+    const sanitizedTools = {
+      ...normalizedToolsConfig,
+      functionCalling: sanitizedFunctionCalling
+    };
+
+    const advancedConfig = ensureAdvancedConfigDefaults({
+      ...formData.advanced_config,
+      toolsConfig: sanitizedTools
+    });
+
+    const maxOutputTokensValue = Number(formData.model_config?.maxOutputTokens);
+    if (!Number.isNaN(maxOutputTokensValue) && maxOutputTokensValue > 0) {
+      advancedConfig.maxOutputTokens = maxOutputTokensValue;
+      advancedConfig.generationConfig = {
+        ...(advancedConfig.generationConfig || {}),
+        maxOutputTokens: maxOutputTokensValue
+      };
+    } else {
+      delete advancedConfig.maxOutputTokens;
+      if (advancedConfig.generationConfig) {
+        delete advancedConfig.generationConfig.maxOutputTokens;
+      }
+    }
+
+    return {
+      advancedConfigSnapshot: advancedConfig,
+      sanitizedToolsConfig: sanitizedTools
+    };
+  }, [formData.advanced_config, formData.model_config?.maxOutputTokens]);
+
+  const getCodePreview = JSON.stringify(advancedConfigSnapshot ?? {}, null, 2);
   const lastUpdatedAt = useMemo(() => {
     if (!promptData?.data?.updated_at) {
       return '未更新';
