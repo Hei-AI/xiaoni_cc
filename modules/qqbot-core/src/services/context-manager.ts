@@ -1,29 +1,18 @@
 import { DatabaseManager } from './database';
-import { QQMessage, ConversationData, OB11Segment } from '../types';
+import {
+  QQMessage,
+  ContextHistoryMessage,
+  MessageContext,
+  GroupMessageHistoryRecord,
+  PrivateMessageHistoryRecord,
+  OB11Segment
+} from '../types';
 import { logger } from '../utils/logger';
 import {
   buildAttachmentHints,
   extractTextFromSegments,
   resolveAttachmentsFromMessage
 } from '../utils/message-utils';
-
-/**
- * 消息上下文接口
- */
-export interface MessageContext {
-  currentMessage: QQMessage;
-  historyMessages: ConversationData[];
-  contextSummary: string;
-  userInfo?: {
-    user_id: number;
-    nickname: string;
-    message_count: number;
-  };
-  groupInfo?: {
-    group_id: number;
-    message_count: number;
-  };
-}
 
 /**
  * 上下文管理器
@@ -35,6 +24,39 @@ export class ContextManager {
 
   constructor(database: DatabaseManager) {
     this.database = database;
+  }
+
+  private async buildHistoryMessages(
+    message: QQMessage,
+    limit: number
+  ): Promise<ContextHistoryMessage[]> {
+    try {
+      if (message.message_type === 'private') {
+        const records = await this.database.getPrivateMessageHistoryRecords(
+          message.user_id,
+          limit
+        );
+        return records.map(record => this.transformPrivateHistoryRecord(record));
+      }
+
+      if (message.message_type === 'group' && message.group_id) {
+        const records = await this.database.getGroupMessageHistoryRecords(
+          message.group_id,
+          limit
+        );
+        return records.map(record => this.transformGroupHistoryRecord(record));
+      }
+
+      return [];
+    } catch (error) {
+      this.moduleLogger.warn('Failed to build history messages from database', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        messageType: message.message_type,
+        userId: message.user_id,
+        groupId: message.group_id
+      });
+      return [];
+    }
   }
 
   /**
@@ -58,7 +80,7 @@ export class ContextManager {
       // 获取历史消息
       this.moduleLogger.info('Step 1: Getting history messages...');
       
-      const historyMessages = await this.database.getMessageContext(message, contextLimit);
+      const historyMessages = await this.buildHistoryMessages(message, contextLimit);
       this.moduleLogger.info('Step 1 completed: Got history messages', { count: historyMessages.length });
 
       // 生成上下文摘要
@@ -137,8 +159,8 @@ export class ContextManager {
    * @returns 上下文摘要文本
    */
   private generateContextSummary(
-    currentMessage: QQMessage, 
-    historyMessages: ConversationData[]
+    currentMessage: QQMessage,
+    historyMessages: ContextHistoryMessage[]
   ): string {
     if (historyMessages.length === 0) {
       return `用户${currentMessage.sender?.nickname || `用户${currentMessage.user_id}`}发起了新对话`;
@@ -146,19 +168,17 @@ export class ContextManager {
 
     const recentCount = Math.min(historyMessages.length, 5);
     const recentMessages = historyMessages.slice(-recentCount);
-    
+
     let summary = `最近${recentCount}条对话:\n`;
-    
+
     recentMessages.forEach((msg, index) => {
-      const time = new Date(msg.timestamp).toLocaleTimeString();
-      const userMsg = this.truncateMessage(msg.user_message, 50);
-      const aiMsg = msg.ai_response ? this.truncateMessage(msg.ai_response, 50) : '无回复';
-      
-      summary += `${index + 1}. [${time}] 用户: ${userMsg}\n`;
-      summary += `   AI回复: ${aiMsg}\n`;
+      const time = this.toIsoString(msg.sent_at);
+      const roleLabel = msg.sender_role === 'bot' ? '机器人' : '用户';
+      const content = this.truncateMessage(msg.content, 50);
+      summary += `${index + 1}. [${time ?? ''}] ${roleLabel}: ${content}\n`;
     });
 
-    return summary;
+    return summary.trimEnd();
   }
 
   /**
@@ -257,7 +277,7 @@ export class ContextManager {
     }
 
     context.historyMessages.forEach(historyMessage => {
-      const profile = this.extractSenderProfileFromConversation(historyMessage);
+      const profile = this.extractSenderProfileFromHistory(historyMessage);
       if (profile.userId) {
         const resolvedNickname =
           profile.nickname || `用户${profile.userId}`;
@@ -297,21 +317,54 @@ export class ContextManager {
     return JSON.stringify(payload, null, 2);
   }
 
+  private transformPrivateHistoryRecord(
+    record: PrivateMessageHistoryRecord
+  ): ContextHistoryMessage {
+    return {
+      conversation_id: record.conversation_id ?? null,
+      message_id: record.message_id ?? null,
+      user_id: record.user_id,
+      sender_id: record.sender_id,
+      sender_role: record.sender_role,
+      content: record.content,
+      content_type: record.content_type,
+      sent_at: record.sent_at instanceof Date ? record.sent_at : new Date(record.sent_at),
+      raw_payload: record.raw_payload
+    };
+  }
+
+  private transformGroupHistoryRecord(
+    record: GroupMessageHistoryRecord
+  ): ContextHistoryMessage {
+    return {
+      conversation_id: record.conversation_id ?? null,
+      message_id: record.message_id ?? null,
+      group_id: record.group_id,
+      sender_id: record.sender_id,
+      sender_role: record.sender_role,
+      content: record.content,
+      content_type: record.content_type,
+      sent_at: record.sent_at instanceof Date ? record.sent_at : new Date(record.sent_at),
+      raw_payload: record.raw_payload
+    };
+  }
+
   private buildHistoryEntry(
-    conversation: ConversationData,
+    historyMessage: ContextHistoryMessage,
     nicknameMap: Map<number, string>
   ): Record<string, any> {
-    const senderProfile = this.extractSenderProfileFromConversation(conversation);
-    const userId = senderProfile.userId ?? conversation.user_id;
+    const senderProfile = this.extractSenderProfileFromHistory(historyMessage);
+    const userId = senderProfile.userId ?? historyMessage.sender_id;
     const nickname = this.resolveNickname(userId, senderProfile.nickname, nicknameMap);
-    const mentions = this.extractMentionsFromConversation(conversation, nicknameMap);
+    const { payload, fallbackText } = this.extractHistoryPayload(historyMessage);
+    const mentions = this.extractMentionsFromPayload(payload, fallbackText, nicknameMap);
 
     return {
       qq_id: userId ? String(userId) : '',
       user_nick: nickname,
-      message: conversation.user_message ?? '',
+      message: historyMessage.content ?? '',
       at_qq_id: mentions,
-      received_time: this.toIsoString(conversation.timestamp) ?? ''
+      received_time: this.toIsoString(historyMessage.sent_at) ?? ''
     };
   }
 
@@ -374,42 +427,44 @@ export class ContextManager {
     return preferredNickname || '';
   }
 
-  private extractMentionsFromConversation(
-    conversation: ConversationData,
-    nicknameMap: Map<number, string>
-  ): Array<{ qq_id: string; nick_name: string }> {
-    try {
-      if (conversation.raw_request) {
-        const parsed = this.parseRawRequest(conversation.raw_request);
-        if (parsed) {
-          const messagePayload =
-            Array.isArray(parsed.message) || typeof parsed.message === 'string'
-              ? parsed.message
-              : parsed.raw_message;
+  private extractHistoryPayload(
+    historyMessage: ContextHistoryMessage
+  ): {
+    payload: string | OB11Segment[] | undefined;
+    fallbackText: string | undefined;
+  } {
+    let raw = historyMessage.raw_payload;
 
-          const mentions = this.extractMentionsFromPayload(
-            messagePayload,
-            conversation.user_message,
-            nicknameMap
-          );
-
-          if (mentions.length > 0) {
-            return mentions;
-          }
-        }
-      }
-    } catch (error) {
-      this.moduleLogger.warn('Failed to extract mentions from conversation', {
-        error,
-        conversationId: conversation.id
-      });
+    if (typeof raw === 'string') {
+      raw = this.parseRawRequest(raw) ?? raw;
     }
 
-    return this.extractMentionsFromPayload(
-      undefined,
-      conversation.user_message,
-      nicknameMap
-    );
+    if (raw && typeof raw === 'object') {
+      if (Array.isArray(raw.message) || typeof raw.message === 'string') {
+        return {
+          payload: raw.message,
+          fallbackText:
+            typeof raw.raw_message === 'string'
+              ? raw.raw_message
+              : historyMessage.content
+        };
+      }
+
+      if (Array.isArray(raw.segments)) {
+        return {
+          payload: raw.segments,
+          fallbackText:
+            typeof raw.raw_message === 'string'
+              ? raw.raw_message
+              : historyMessage.content
+        };
+      }
+    }
+
+    return {
+      payload: typeof historyMessage.content === 'string' ? historyMessage.content : undefined,
+      fallbackText: historyMessage.content
+    };
   }
 
   private extractMentionsFromMessage(
@@ -541,40 +596,53 @@ export class ContextManager {
     return parts.join(' ').trim();
   }
 
-  private extractSenderProfileFromConversation(conversation: ConversationData): {
+  private extractSenderProfileFromHistory(
+    historyMessage: ContextHistoryMessage
+  ): {
     userId?: number;
     nickname?: string;
-    source: 'parsed' | 'fallback';
+    source: 'payload' | 'fallback';
   } {
     try {
-      if (conversation.raw_request) {
-        const parsed = this.parseRawRequest(conversation.raw_request);
+      let raw = historyMessage.raw_payload;
+      if (typeof raw === 'string') {
+        raw = this.parseRawRequest(raw) ?? raw;
+      }
 
-        if (parsed?.sender) {
+      if (raw && typeof raw === 'object') {
+        if (raw.sender) {
           return {
-            userId: parsed.sender.user_id ?? conversation.user_id,
-            nickname: parsed.sender.nickname,
-            source: 'parsed'
+            userId: raw.sender.user_id ?? historyMessage.sender_id,
+            nickname: raw.sender.nickname || raw.sender.card,
+            source: 'payload'
           };
         }
 
-        if (parsed?.user_id) {
+        if (typeof raw.user_id === 'number') {
           return {
-            userId: parsed.user_id,
-            nickname: parsed.nickname,
-            source: 'parsed'
+            userId: raw.user_id,
+            nickname: raw.nickname,
+            source: 'payload'
           };
         }
       }
     } catch (error) {
-      this.moduleLogger.warn('Failed to parse conversation raw_request', {
-        error,
-        conversationId: conversation.id
+      this.moduleLogger.warn('Failed to extract sender profile from history payload', {
+        error: error instanceof Error ? error.message : String(error),
+        senderId: historyMessage.sender_id
       });
     }
 
+    if (historyMessage.sender_role === 'bot') {
+      return {
+        userId: historyMessage.sender_id,
+        nickname: 'QQ机器人',
+        source: 'fallback'
+      };
+    }
+
     return {
-      userId: conversation.user_id,
+      userId: historyMessage.sender_id,
       nickname: undefined,
       source: 'fallback'
     };

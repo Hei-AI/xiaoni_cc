@@ -123,6 +123,61 @@ export interface ConversationData {
   updated_at: Date;
 }
 
+export type MessageContentType = 'text' | 'image' | 'audio' | 'video';
+
+export interface GroupMessageHistoryRecord {
+  id: number;
+  conversation_id?: string | null;
+  message_id?: number | null;
+  group_id: number;
+  sender_id: number;
+  sender_role: 'user' | 'bot' | 'system';
+  content_type: MessageContentType;
+  content: string;
+  raw_payload?: any;
+  sent_at: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export type NewGroupMessageHistoryRecord = Omit<
+  GroupMessageHistoryRecord,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export interface PrivateMessageHistoryRecord {
+  id: number;
+  conversation_id?: string | null;
+  message_id?: number | null;
+  user_id: number;
+  sender_id: number;
+  sender_role: 'user' | 'bot' | 'system';
+  content_type: MessageContentType;
+  content: string;
+  raw_payload?: any;
+  sent_at: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export type NewPrivateMessageHistoryRecord = Omit<
+  PrivateMessageHistoryRecord,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export interface ContextHistoryMessage {
+  conversation_id?: string | null;
+  message_id?: number | null;
+  group_id?: number;
+  user_id?: number;
+  sender_id: number;
+  sender_role: 'user' | 'bot' | 'system';
+  content: string;
+  content_type: MessageContentType;
+  sent_at: Date;
+  raw_payload?: any;
+}
+
 // 批次处理记录
 export interface ConversationBatch {
   id: string; // UUID
@@ -1041,7 +1096,7 @@ export interface DecisionResult {
 // ContextManager types - unified MessageContext interface
 export interface MessageContext {
   currentMessage: QQMessage;
-  historyMessages: ConversationData[];
+  historyMessages: ContextHistoryMessage[];
   contextSummary: string;
   userInfo?: {
     user_id: number;

@@ -1,8 +1,22 @@
 import mysql from 'mysql2/promise';
-import { 
-  DatabaseConfig, ConversationData, RequirementData, AgentPromptData, LogLevel,
-  GroupChatSettings, GroupChatStats, GroupChatActivity, GroupChatOverview,
-  PrivateChatSettings, LLMCallTrace, SessionLLMAnalysis
+import {
+  DatabaseConfig,
+  ConversationData,
+  RequirementData,
+  AgentPromptData,
+  LogLevel,
+  GroupChatSettings,
+  GroupChatStats,
+  GroupChatActivity,
+  GroupChatOverview,
+  PrivateChatSettings,
+  LLMCallTrace,
+  SessionLLMAnalysis,
+  GroupMessageHistoryRecord,
+  NewGroupMessageHistoryRecord,
+  PrivateMessageHistoryRecord,
+  NewPrivateMessageHistoryRecord,
+  MessageContentType
 } from '../types';
 import { logger } from '../utils/logger';
 
@@ -100,6 +114,26 @@ export class DatabaseManager {
     } catch (error) {
       this.moduleLogger.warn('Failed to verify/set UTF-8 character set on connection', { error });
     }
+  }
+
+  private parseJsonField(value: any): any {
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch (error) {
+        this.moduleLogger.warn('Failed to parse JSON field', {
+          error: error instanceof Error ? error.message : String(error),
+          preview: value.substring ? value.substring(0, 120) : value
+        });
+        return undefined;
+      }
+    }
+
+    return value;
   }
 
   public async executeQuery<T = any>(
@@ -1146,6 +1180,45 @@ export class DatabaseManager {
     return await this.getSessionByIdFromConversations(sessionId);
   }
 
+  private async executeInsertAndReturnId(
+    query: string,
+    params: any[] = []
+  ): Promise<number> {
+    const operationId = Math.random().toString(36).substr(2, 8);
+    let connection: mysql.PoolConnection | null = null;
+
+    try {
+      if (!this.pool) {
+        throw new Error('Database pool not initialized');
+      }
+
+      connection = await this.pool.getConnection();
+      await this.ensureUtf8Connection(connection);
+      const [result] = await connection.execute(query, params);
+      connection.release();
+      connection = null;
+      return (result as mysql.ResultSetHeader).insertId || 0;
+    } catch (error) {
+      this.moduleLogger.error(`[${operationId}] Insert execution failed`, {
+        error,
+        query: query.substring(0, 200),
+        paramCount: params.length
+      });
+
+      if (connection) {
+        try {
+          connection.release();
+        } catch (releaseError) {
+          this.moduleLogger.error(`[${operationId}] Failed to release connection after insert`, {
+            releaseError
+          });
+        }
+      }
+
+      throw error;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // 人类化处理批次记录
   // ---------------------------------------------------------------------------
@@ -1758,6 +1831,132 @@ export class DatabaseManager {
       this.moduleLogger.error('Failed to update private chat prompt', { error, userId, promptId });
       return false;
     }
+  }
+
+  public async saveGroupMessageHistory(record: NewGroupMessageHistoryRecord): Promise<number> {
+    const query = `
+      INSERT INTO group_message_history (
+        conversation_id,
+        message_id,
+        group_id,
+        sender_id,
+        sender_role,
+        content_type,
+        content,
+        raw_payload,
+        sent_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const params = [
+      record.conversation_id ?? null,
+      record.message_id ?? null,
+      record.group_id,
+      record.sender_id,
+      record.sender_role,
+      record.content_type,
+      record.content,
+      record.raw_payload ? JSON.stringify(record.raw_payload) : null,
+      record.sent_at
+    ];
+
+    return await this.executeInsertAndReturnId(query, params);
+  }
+
+  public async savePrivateMessageHistory(record: NewPrivateMessageHistoryRecord): Promise<number> {
+    const query = `
+      INSERT INTO private_message_history (
+        conversation_id,
+        message_id,
+        user_id,
+        sender_id,
+        sender_role,
+        content_type,
+        content,
+        raw_payload,
+        sent_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const params = [
+      record.conversation_id ?? null,
+      record.message_id ?? null,
+      record.user_id,
+      record.sender_id,
+      record.sender_role,
+      record.content_type,
+      record.content,
+      record.raw_payload ? JSON.stringify(record.raw_payload) : null,
+      record.sent_at
+    ];
+
+    return await this.executeInsertAndReturnId(query, params);
+  }
+
+  public async getGroupMessageHistoryRecords(
+    groupId: number,
+    limit: number = 20
+  ): Promise<GroupMessageHistoryRecord[]> {
+    const safeLimit = Math.max(1, Math.floor(Number(limit)));
+    const query = `
+      SELECT *
+      FROM group_message_history
+      WHERE group_id = ?
+      ORDER BY sent_at DESC, id DESC
+      LIMIT ${safeLimit}
+    `;
+
+    const rows = await this.executeQuery<any>(query, [groupId]);
+
+    return rows
+      .map(row => ({
+        id: row.id,
+        conversation_id: row.conversation_id ?? null,
+        message_id: row.message_id ?? null,
+        group_id: row.group_id,
+        sender_id: row.sender_id,
+        sender_role: row.sender_role,
+        content_type: row.content_type as MessageContentType,
+        content: row.content,
+        raw_payload: this.parseJsonField(row.raw_payload),
+        sent_at: row.sent_at instanceof Date ? row.sent_at : new Date(row.sent_at),
+        created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+        updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at)
+      }))
+      .reverse();
+  }
+
+  public async getPrivateMessageHistoryRecords(
+    userId: number,
+    limit: number = 20
+  ): Promise<PrivateMessageHistoryRecord[]> {
+    const safeLimit = Math.max(1, Math.floor(Number(limit)));
+    const query = `
+      SELECT *
+      FROM private_message_history
+      WHERE user_id = ?
+      ORDER BY sent_at DESC, id DESC
+      LIMIT ${safeLimit}
+    `;
+
+    const rows = await this.executeQuery<any>(query, [userId]);
+
+    return rows
+      .map(row => ({
+        id: row.id,
+        conversation_id: row.conversation_id ?? null,
+        message_id: row.message_id ?? null,
+        user_id: row.user_id,
+        sender_id: row.sender_id,
+        sender_role: row.sender_role,
+        content_type: row.content_type as MessageContentType,
+        content: row.content,
+        raw_payload: this.parseJsonField(row.raw_payload),
+        sent_at: row.sent_at instanceof Date ? row.sent_at : new Date(row.sent_at),
+        created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+        updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at)
+      }))
+      .reverse();
   }
 
   /**

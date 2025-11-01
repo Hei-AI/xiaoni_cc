@@ -63,6 +63,54 @@ CREATE TABLE conversations (
 - 上下文相关回复
 - 消息链追踪
 
+### group_message_history - 群聊消息历史表
+**记录群聊中所有成员与机器人的消息气泡，用于构建上下文窗口**
+```sql
+CREATE TABLE group_message_history (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    conversation_id VARCHAR(36),
+    message_id BIGINT,
+    group_id BIGINT NOT NULL,
+    sender_id BIGINT NOT NULL,
+    sender_role ENUM('user', 'bot', 'system') DEFAULT 'user',
+    content_type ENUM('text', 'image', 'audio', 'video') DEFAULT 'text',
+    content TEXT NOT NULL,
+    raw_payload JSON,
+    sent_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+**使用场景**:
+- 群聊上下文构建（ContextManager）
+- 历史消息回溯、审计
+- 消息级别的洞察与统计
+
+### private_message_history - 私聊消息历史表
+**记录私聊窗口的每一条消息（包括机器人回复）**
+```sql
+CREATE TABLE private_message_history (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    conversation_id VARCHAR(36),
+    message_id BIGINT,
+    user_id BIGINT NOT NULL,
+    sender_id BIGINT NOT NULL,
+    sender_role ENUM('user', 'bot', 'system') DEFAULT 'user',
+    content_type ENUM('text', 'image', 'audio', 'video') DEFAULT 'text',
+    content TEXT NOT NULL,
+    raw_payload JSON,
+    sent_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+**使用场景**:
+- 私聊上下文拼装
+- 精准追踪机器人是否真正回复
+- 辅助人类值班查看会话完整轨迹
+
 ### requirements - 需求管理表
 **Claude Code需求处理状态跟踪**
 ```sql

@@ -1,12 +1,22 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
-import { WebSocketConfig, QQMessage, QQNotice, QQRequest, WebSocketEvent } from '../types';
+import {
+  WebSocketConfig,
+  QQMessage,
+  QQNotice,
+  QQRequest,
+  WebSocketEvent,
+  MessageContentType
+} from '../types';
 import { logger } from '../utils/logger';
 import { LoggingService } from './logging-service';
+import { DatabaseManager } from './database';
 import { createEventContext } from '../utils/trace-strategy';
 import {
   extractAttachmentsFromSegments,
-  extractTextFromSegments
+  extractTextFromSegments,
+  buildAttachmentHints,
+  resolveAttachmentsFromMessage
 } from '../utils/message-utils';
 
 interface WebSocketMessage extends WebSocketEvent {
@@ -14,6 +24,14 @@ interface WebSocketMessage extends WebSocketEvent {
   user_id?: number;
   group_id?: number;
   message_type?: 'private' | 'group';
+}
+
+interface SendMessageRecordOptions {
+  conversationId?: string;
+  messageId?: number;
+  contentType?: MessageContentType;
+  rawPayload?: any;
+  sentAt?: Date;
 }
 
 export class WebSocketClient extends EventEmitter {
@@ -26,11 +44,20 @@ export class WebSocketClient extends EventEmitter {
   private isConnecting: boolean = false;
   private isManualClose: boolean = false;
   private loggingService: LoggingService | null = null;
+  private database?: DatabaseManager;
+  private botQQNumber?: number;
 
-  constructor(config: WebSocketConfig, loggingService?: LoggingService) {
+  constructor(
+    config: WebSocketConfig,
+    loggingService?: LoggingService,
+    database?: DatabaseManager,
+    botQQNumber?: number
+  ) {
     super();
     this.config = config;
-    this.loggingService = loggingService || null;
+    this.loggingService = loggingService ?? null;
+    this.database = database;
+    this.botQQNumber = botQQNumber;
   }
 
   public async connect(): Promise<void> {
@@ -125,6 +152,10 @@ export class WebSocketClient extends EventEmitter {
           traceId,
           fullMessage: JSON.stringify(message, null, 2)
         });
+      }
+
+      if (message.post_type === 'message') {
+        await this.recordIncomingMessageHistory(message as QQMessage, traceId);
       }
 
       // 检查是否是API响应消息
@@ -470,7 +501,11 @@ export class WebSocketClient extends EventEmitter {
   }
 
   // OneBot API 方法
-  public async sendPrivateMessage(userId: number, message: string): Promise<void> {
+  public async sendPrivateMessage(
+    userId: number,
+    message: string,
+    options?: SendMessageRecordOptions
+  ): Promise<void> {
     await this.sendMessage({
       action: 'send_private_msg',
       params: {
@@ -478,6 +513,8 @@ export class WebSocketClient extends EventEmitter {
         message: message
       }
     });
+
+    await this.recordBotPrivateMessage(userId, message, options);
   }
 
   public async waitUntilConnected(timeoutMs: number = 10000): Promise<void> {
@@ -538,7 +575,11 @@ export class WebSocketClient extends EventEmitter {
     });
   }
 
-  public async sendGroupMessage(groupId: number, message: string): Promise<void> {
+  public async sendGroupMessage(
+    groupId: number,
+    message: string,
+    options?: SendMessageRecordOptions
+  ): Promise<void> {
     await this.sendMessage({
       action: 'send_group_msg',
       params: {
@@ -546,15 +587,37 @@ export class WebSocketClient extends EventEmitter {
         message: message
       }
     });
+
+    await this.recordBotGroupMessage(groupId, message, options);
   }
 
-  public async sendReplyMessage(messageId: number, message: string): Promise<void> {
+  public async sendReplyMessage(
+    messageId: number,
+    message: string,
+    options?: SendMessageRecordOptions & { groupId?: number; userId?: number }
+  ): Promise<void> {
+    const finalMessage = `[CQ:reply,id=${messageId}]${message}`;
+
     await this.sendMessage({
       action: 'send_msg',
       params: {
-        message: `[CQ:reply,id=${messageId}]${message}`
+        message: finalMessage
       }
     });
+
+    const payloadOptions: SendMessageRecordOptions = {
+      ...options,
+      rawPayload: options?.rawPayload ?? {
+        message: finalMessage,
+        reply_to: messageId
+      }
+    };
+
+    if (options?.groupId) {
+      await this.recordBotGroupMessage(options.groupId, finalMessage, payloadOptions);
+    } else if (options?.userId) {
+      await this.recordBotPrivateMessage(options.userId, finalMessage, payloadOptions);
+    }
   }
 
   public async sendAtMessage(groupId: number, userId: number, message: string): Promise<void> {
@@ -612,6 +675,226 @@ export class WebSocketClient extends EventEmitter {
         reason
       }
     });
+  }
+
+  private async recordBotPrivateMessage(
+    userId: number,
+    message: string,
+    options?: SendMessageRecordOptions
+  ): Promise<void> {
+    if (!this.database) {
+      return;
+    }
+
+    if (!this.botQQNumber) {
+      this.moduleLogger.warn('Bot QQ number not configured, skip private history record');
+      return;
+    }
+
+    const contentType =
+      options?.contentType ?? this.detectContentTypeFromString(message);
+    const sentAt = options?.sentAt ?? new Date();
+
+    try {
+      await this.database.savePrivateMessageHistory({
+        conversation_id: options?.conversationId ?? null,
+        message_id: options?.messageId ?? null,
+        user_id: userId,
+        sender_id: this.botQQNumber,
+        sender_role: 'bot',
+        content_type: contentType,
+        content: message,
+        raw_payload: options?.rawPayload ?? { message },
+        sent_at: sentAt
+      });
+    } catch (error) {
+      this.moduleLogger.warn('Failed to record private message history', {
+        error: error instanceof Error ? error.message : String(error),
+        userId,
+        conversationId: options?.conversationId
+      });
+    }
+  }
+
+  private async recordBotGroupMessage(
+    groupId: number,
+    message: string,
+    options?: SendMessageRecordOptions
+  ): Promise<void> {
+    if (!this.database) {
+      return;
+    }
+
+    if (!this.botQQNumber) {
+      this.moduleLogger.warn('Bot QQ number not configured, skip group history record');
+      return;
+    }
+
+    const contentType =
+      options?.contentType ?? this.detectContentTypeFromString(message);
+    const sentAt = options?.sentAt ?? new Date();
+
+    try {
+      await this.database.saveGroupMessageHistory({
+        conversation_id: options?.conversationId ?? null,
+        message_id: options?.messageId ?? null,
+        group_id: groupId,
+        sender_id: this.botQQNumber,
+        sender_role: 'bot',
+        content_type: contentType,
+        content: message,
+        raw_payload: options?.rawPayload ?? { message },
+        sent_at: sentAt
+      });
+    } catch (error) {
+      this.moduleLogger.warn('Failed to record group message history', {
+        error: error instanceof Error ? error.message : String(error),
+        groupId,
+        conversationId: options?.conversationId
+      });
+    }
+  }
+
+  private async recordIncomingMessageHistory(
+    message: QQMessage,
+    traceId?: string | null
+  ): Promise<void> {
+    if (!this.database) {
+      return;
+    }
+
+    if (message.post_type !== 'message') {
+      return;
+    }
+
+    if (this.botQQNumber && message.user_id === this.botQQNumber) {
+      return;
+    }
+
+    const sentAt =
+      typeof message.time === 'number'
+        ? new Date(message.time * 1000)
+        : new Date();
+    const contentType = this.determineIncomingContentType(message);
+    const readableContent = this.buildReadableContent(message);
+
+    try {
+      if (message.message_type === 'private') {
+        await this.database.savePrivateMessageHistory({
+          conversation_id: null,
+          message_id: message.message_id,
+          user_id: message.user_id,
+          sender_id: message.user_id,
+          sender_role: 'user',
+          content_type: contentType,
+          content: readableContent,
+          raw_payload: message,
+          sent_at: sentAt
+        });
+      } else if (message.message_type === 'group' && message.group_id) {
+        await this.database.saveGroupMessageHistory({
+          conversation_id: null,
+          message_id: message.message_id,
+          group_id: message.group_id,
+          sender_id: message.user_id,
+          sender_role: 'user',
+          content_type: contentType,
+          content: readableContent,
+          raw_payload: message,
+          sent_at: sentAt
+        });
+      }
+    } catch (error) {
+      this.moduleLogger.warn('Failed to record incoming message history', {
+        error: error instanceof Error ? error.message : String(error),
+        traceId,
+        messageId: message.message_id,
+        messageType: message.message_type
+      });
+    }
+  }
+
+  private buildReadableContent(message: QQMessage): string {
+    let baseText = '';
+
+    if (typeof message.raw_message === 'string' && message.raw_message.trim().length > 0) {
+      baseText = message.raw_message.trim();
+    } else if (typeof message.message === 'string') {
+      baseText = message.message.trim();
+    } else if (Array.isArray(message.message)) {
+      baseText = extractTextFromSegments(message.message);
+    }
+
+    const attachments = resolveAttachmentsFromMessage(message);
+    const hints = buildAttachmentHints(attachments);
+
+    return [baseText, ...hints]
+      .filter(part => typeof part === 'string' && part.trim().length > 0)
+      .join(' ')
+      .trim();
+  }
+
+  private determineIncomingContentType(message: QQMessage): MessageContentType {
+    if (Array.isArray(message.message)) {
+      const segments = message.message;
+      if (segments.some(segment => segment.type === 'image')) {
+        return 'image';
+      }
+      if (segments.some(segment => segment.type === 'video')) {
+        return 'video';
+      }
+      if (
+        segments.some(
+          segment => segment.type === 'record' || segment.type === 'audio' || segment.type === 'voice'
+        )
+      ) {
+        return 'audio';
+      }
+    }
+
+    const attachments = resolveAttachmentsFromMessage(message);
+    if (attachments.some(attachment => attachment.type === 'image')) {
+      return 'image';
+    }
+    if (attachments.some(attachment => attachment.type === 'video')) {
+      return 'video';
+    }
+    if (
+      attachments.some(
+        attachment =>
+          attachment.type === 'record' ||
+          attachment.type === 'audio' ||
+          attachment.type === 'voice'
+      )
+    ) {
+      return 'audio';
+    }
+
+    const raw =
+      (typeof message.raw_message === 'string' && message.raw_message) ||
+      (typeof message.message === 'string' ? message.message : '');
+
+    return this.detectContentTypeFromString(raw);
+  }
+
+  private detectContentTypeFromString(text: string): MessageContentType {
+    if (!text) {
+      return 'text';
+    }
+
+    if (/\[CQ:image/.test(text)) {
+      return 'image';
+    }
+
+    if (/\[CQ:video/.test(text)) {
+      return 'video';
+    }
+
+    if (/\[CQ:(record|audio|voice)/.test(text)) {
+      return 'audio';
+    }
+
+    return 'text';
   }
 
   public close(): void {
