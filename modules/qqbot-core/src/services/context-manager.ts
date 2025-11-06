@@ -5,7 +5,8 @@ import {
   MessageContext,
   GroupMessageHistoryRecord,
   PrivateMessageHistoryRecord,
-  OB11Segment
+  OB11Segment,
+  MessageAttachment
 } from '../types';
 import { logger } from '../utils/logger';
 import {
@@ -13,6 +14,38 @@ import {
   extractTextFromSegments,
   resolveAttachmentsFromMessage
 } from '../utils/message-utils';
+
+type GeminiTextPart = { text: string };
+type GeminiImagePart = { inline_data: { mime_type: string; data: string } };
+
+export type GeminiContentPart = GeminiTextPart | GeminiImagePart;
+
+export interface FormattedContextPrompt {
+  parts: GeminiContentPart[];
+  plainText: string;
+}
+
+type PromptMessageType = 'text' | 'image';
+
+interface PromptAttachment {
+  type: 'image';
+  mimeType: string;
+  data: string;
+}
+
+interface PromptMessageEntry {
+  qq_id: string;
+  user_nick: string;
+  message_type: PromptMessageType;
+  context?: string;
+  at_qq_id: Array<{ qq_id: string; nick_name: string }>;
+  received_time: string;
+}
+
+interface PromptMessageWithAttachments {
+  entry: PromptMessageEntry;
+  attachments: PromptAttachment[];
+}
 
 /**
  * 上下文管理器
@@ -266,7 +299,7 @@ export class ContextManager {
   public formatContextForAI(
     context: MessageContext,
     currentUserInput?: string
-  ): string {
+  ): FormattedContextPrompt {
     const nicknameMap = new Map<number, string>();
 
     if (context.userInfo) {
@@ -297,9 +330,34 @@ export class ContextManager {
       nicknameMap.set(currentSenderProfile.userId, currentNickname);
     }
 
-    const historyEntries = context.historyMessages.map(historyMessage =>
-      this.buildHistoryEntry(historyMessage, nicknameMap)
-    );
+    const parts: GeminiContentPart[] = [];
+    const textFragments: string[] = [];
+
+    const appendTextPart = (text: string) => {
+      const normalized = typeof text === 'string' ? text : '';
+      parts.push({ text: normalized });
+      textFragments.push(normalized);
+    };
+
+    const appendImagePart = (attachment: PromptAttachment) => {
+      parts.push({
+        inline_data: {
+          mime_type: attachment.mimeType,
+          data: attachment.data
+        }
+      });
+      textFragments.push('[image attachment]');
+    };
+
+    appendTextPart('======已读消息========');
+
+    context.historyMessages.forEach(historyMessage => {
+      const formatted = this.buildHistoryEntry(historyMessage, nicknameMap);
+      appendTextPart(JSON.stringify(formatted.entry));
+      formatted.attachments.forEach(appendImagePart);
+    });
+
+    appendTextPart('=======未读消息======');
 
     const unreadEntries = [
       this.buildUnreadEntry(
@@ -309,12 +367,18 @@ export class ContextManager {
       )
     ];
 
-    const payload: Record<string, any> = {
-      history: historyEntries,
-      unread: unreadEntries
-    };
+    unreadEntries.forEach(unread => {
+      appendTextPart(JSON.stringify(unread.entry));
+      unread.attachments.forEach(appendImagePart);
+    });
 
-    return JSON.stringify(payload, null, 2);
+    const plainText = textFragments.join('\n').trim()
+      || this.extractMessageText(context.currentMessage);
+
+    return {
+      parts,
+      plainText
+    };
   }
 
   private transformPrivateHistoryRecord(
@@ -352,19 +416,41 @@ export class ContextManager {
   private buildHistoryEntry(
     historyMessage: ContextHistoryMessage,
     nicknameMap: Map<number, string>
-  ): Record<string, any> {
+  ): PromptMessageWithAttachments {
     const senderProfile = this.extractSenderProfileFromHistory(historyMessage);
     const userId = senderProfile.userId ?? historyMessage.sender_id;
     const nickname = this.resolveNickname(userId, senderProfile.nickname, nicknameMap);
     const { payload, fallbackText } = this.extractHistoryPayload(historyMessage);
     const mentions = this.extractMentionsFromPayload(payload, fallbackText, nicknameMap);
+    const isBotSender = historyMessage.sender_role === 'bot';
+    const displayUserId = isBotSender ? '我' : userId ? String(userId) : '';
+    const displayNickname = isBotSender ? '我' : nickname;
 
-    return {
-      qq_id: userId ? String(userId) : '',
-      user_nick: nickname,
-      message: historyMessage.content ?? '',
+    const representation = this.resolveHistoryMessageContent(
+      historyMessage,
+      payload,
+      fallbackText
+    );
+
+    const entry: PromptMessageEntry = {
+      qq_id: displayUserId,
+      user_nick: displayNickname,
+      message_type: representation.messageType,
       at_qq_id: mentions,
       received_time: this.toIsoString(historyMessage.sent_at) ?? ''
+    };
+
+    if (
+      representation.messageType === 'text' &&
+      representation.context &&
+      representation.context.length > 0
+    ) {
+      entry.context = representation.context;
+    }
+
+    return {
+      entry,
+      attachments: representation.attachments
     };
   }
 
@@ -372,7 +458,7 @@ export class ContextManager {
     message: QQMessage,
     nicknameMap: Map<number, string>,
     currentUserInput?: string
-  ): Record<string, any> {
+  ): PromptMessageWithAttachments {
     const senderProfile = this.extractSenderProfileFromMessage(message);
     const userId = senderProfile.userId ?? message.user_id;
     const nickname = this.resolveNickname(
@@ -381,27 +467,369 @@ export class ContextManager {
       nicknameMap
     );
 
-    const messageText =
-      typeof currentUserInput === 'string' && currentUserInput.length > 0
-        ? currentUserInput
-        : this.extractMessageText(message);
+    const representation = this.resolveCurrentMessageContent(
+      message,
+      currentUserInput
+    );
 
     const mentions = this.extractMentionsFromMessage(
       message,
       nicknameMap,
-      messageText
+      representation.context ?? currentUserInput
     );
 
-    return {
+    const entry: PromptMessageEntry = {
       qq_id: userId ? String(userId) : '',
       user_nick: nickname,
-      message: messageText,
+      message_type: representation.messageType,
       at_qq_id: mentions,
       received_time:
         this.toIsoString(
           message.time ? message.time * 1000 : undefined
         ) ?? ''
     };
+
+    if (
+      representation.messageType === 'text' &&
+      representation.context &&
+      representation.context.length > 0
+    ) {
+      entry.context = representation.context;
+    }
+
+    return {
+      entry,
+      attachments: representation.attachments
+    };
+  }
+
+  private resolveHistoryMessageContent(
+    historyMessage: ContextHistoryMessage,
+    payload: string | OB11Segment[] | undefined,
+    fallbackText: string | undefined
+  ): { messageType: PromptMessageType; context?: string; attachments: PromptAttachment[] } {
+    const contextCandidates = [
+      fallbackText,
+      typeof historyMessage.content === 'string' ? historyMessage.content : undefined
+    ];
+
+    const attachments: PromptAttachment[] = [];
+
+    if (Array.isArray(payload)) {
+      attachments.push(...this.collectImageAttachmentsFromSegments(payload));
+      const hasImage =
+        historyMessage.content_type === 'image' ||
+        attachments.length > 0 ||
+        payload.some(segment => segment.type === 'image');
+
+      if (hasImage && attachments.length === 0) {
+        const rawSegments = this.extractSegmentsFromRawPayload(historyMessage.raw_payload);
+        attachments.push(...this.collectImageAttachmentsFromSegments(rawSegments));
+      }
+
+      if (hasImage) {
+        return {
+          messageType: 'image',
+          context: this.pickFirstNonEmptyText(contextCandidates),
+          attachments
+        };
+      }
+
+      const textFromSegments = extractTextFromSegments(payload);
+      return {
+        messageType: 'text',
+        context: this.pickFirstNonEmptyText([textFromSegments, ...contextCandidates]),
+        attachments: []
+      };
+    }
+
+    if (typeof payload === 'string') {
+      const hasImage = historyMessage.content_type === 'image';
+      if (hasImage) {
+        const rawSegments = this.extractSegmentsFromRawPayload(historyMessage.raw_payload);
+        attachments.push(...this.collectImageAttachmentsFromSegments(rawSegments));
+      }
+
+      return {
+        messageType: hasImage ? 'image' : 'text',
+        context: this.pickFirstNonEmptyText([payload, ...contextCandidates]),
+        attachments: hasImage ? attachments : []
+      };
+    }
+
+    const rawSegments = this.extractSegmentsFromRawPayload(historyMessage.raw_payload);
+    if (rawSegments.length > 0) {
+      attachments.push(...this.collectImageAttachmentsFromSegments(rawSegments));
+    }
+
+    const hasImage = historyMessage.content_type === 'image' || attachments.length > 0;
+
+    return {
+      messageType: hasImage ? 'image' : 'text',
+      context: this.pickFirstNonEmptyText(contextCandidates),
+      attachments: hasImage ? attachments : []
+    };
+  }
+
+  private resolveCurrentMessageContent(
+    message: QQMessage,
+    providedText?: string
+  ): { messageType: PromptMessageType; context?: string; attachments: PromptAttachment[] } {
+    const segments = Array.isArray(message.message) ? message.message : message.segments;
+    const normalizedProvided =
+      typeof providedText === 'string' && providedText.trim().length > 0
+        ? providedText.trim()
+        : undefined;
+
+    const derivedAttachments = resolveAttachmentsFromMessage(message);
+    const localAttachments = this.collectImageAttachmentsFromLocalSources(message);
+    const attachments = this.collectImageAttachmentsFromMessageComponents(
+      segments,
+      derivedAttachments,
+      localAttachments
+    );
+
+    const hasImage =
+      attachments.length > 0 ||
+      derivedAttachments.some(attachment => attachment.type === 'image') ||
+      localAttachments.length > 0;
+
+    const contextText = this.pickFirstNonEmptyText([
+      normalizedProvided,
+      this.extractMessageText(message)
+    ]);
+
+    if (hasImage) {
+      return {
+        messageType: 'image',
+        context: contextText,
+        attachments
+      };
+    }
+
+    return {
+      messageType: 'text',
+      context: contextText,
+      attachments: []
+    };
+  }
+
+  private collectImageAttachmentsFromSegments(
+    segments?: OB11Segment[]
+  ): PromptAttachment[] {
+    return this.collectImageAttachmentsFromMessageComponents(segments, undefined);
+  }
+
+  private collectImageAttachmentsFromMessageComponents(
+    segments?: OB11Segment[],
+    attachments?: MessageAttachment[],
+    localAttachments?: PromptAttachment[]
+  ): PromptAttachment[] {
+    const results: PromptAttachment[] = [];
+    const seen = new Set<string>();
+
+    const pushIfUnique = (attachment: PromptAttachment | null) => {
+      if (!attachment) {
+        return;
+      }
+      if (seen.has(attachment.data)) {
+        return;
+      }
+      seen.add(attachment.data);
+      results.push(attachment);
+    };
+
+    if (Array.isArray(localAttachments)) {
+      localAttachments.forEach(pushIfUnique);
+    }
+
+    if (Array.isArray(segments)) {
+      segments.forEach(segment => {
+        const image = this.extractImageDataFromSegment(segment);
+        pushIfUnique(image);
+      });
+    }
+
+    if (Array.isArray(attachments)) {
+      attachments.forEach(attachment => {
+        if (attachment.type !== 'image') {
+          return;
+        }
+        const image = this.extractImageDataFromSegment({
+          type: attachment.type,
+          data: attachment.data
+        } as OB11Segment);
+        pushIfUnique(image);
+      });
+    }
+
+    return results;
+  }
+
+  private extractImageDataFromSegment(segment?: OB11Segment | null): PromptAttachment | null {
+    if (!segment || segment.type !== 'image' || !segment.data) {
+      return null;
+    }
+
+    const data = segment.data;
+    const candidateFields = [
+      data.base64,
+      data.file_base64,
+      data.image_base64,
+      data.data,
+      data.image
+    ];
+
+    let base64: string | undefined;
+
+    for (const candidate of candidateFields) {
+      if (typeof candidate === 'string' && candidate.trim().length > 0) {
+        base64 = candidate;
+        break;
+      }
+    }
+
+    if (!base64) {
+      return null;
+    }
+
+    const mimeType = this.resolveMimeType(
+      data.mime || data.mimetype || data.content_type,
+      data.file || data.name || data.filename
+    );
+
+    return {
+      type: 'image',
+      mimeType,
+      data: this.normalizeBase64(base64)
+    };
+  }
+
+  private collectImageAttachmentsFromLocalSources(message: QQMessage): PromptAttachment[] {
+    const raw = (message as any)?.local_attachments;
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+
+    const attachments: PromptAttachment[] = [];
+
+    raw.forEach(entry => {
+      if (!entry || typeof entry !== 'object') {
+        return;
+      }
+
+      const type = entry.type;
+      const base64 = typeof entry.base64 === 'string' ? entry.base64 : undefined;
+      if (type !== 'image' || !base64 || base64.trim().length === 0) {
+        return;
+      }
+
+      const mimeCandidate =
+        typeof entry.mimeType === 'string'
+          ? entry.mimeType
+          : entry.mime_type;
+
+      const resolvedMime = this.resolveMimeType(
+        typeof mimeCandidate === 'string' ? mimeCandidate : undefined,
+        typeof entry.originalName === 'string' ? entry.originalName : undefined
+      );
+
+      attachments.push({
+        type: 'image',
+        mimeType: resolvedMime,
+        data: this.normalizeBase64(base64)
+      });
+    });
+
+    return attachments;
+  }
+
+  private resolveMimeType(explicit?: string, fileName?: string): string {
+    if (typeof explicit === 'string' && explicit.trim().length > 0) {
+      const trimmed = explicit.trim();
+      if (trimmed.startsWith('data:')) {
+        const semicolonIndex = trimmed.indexOf(';');
+        const extracted = trimmed.slice(5, semicolonIndex > -1 ? semicolonIndex : undefined);
+        if (extracted.includes('/')) {
+          return extracted;
+        }
+      }
+      if (trimmed.includes('/')) {
+        return trimmed;
+      }
+    }
+
+    return this.inferMimeTypeFromFileName(fileName);
+  }
+
+  private inferMimeTypeFromFileName(fileName?: string): string {
+    if (typeof fileName !== 'string' || fileName.length === 0) {
+      return 'image/png';
+    }
+
+    const lower = fileName.toLowerCase();
+
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+      return 'image/jpeg';
+    }
+    if (lower.endsWith('.gif')) {
+      return 'image/gif';
+    }
+    if (lower.endsWith('.webp')) {
+      return 'image/webp';
+    }
+    if (lower.endsWith('.bmp')) {
+      return 'image/bmp';
+    }
+    if (lower.endsWith('.svg')) {
+      return 'image/svg+xml';
+    }
+    if (lower.endsWith('.heic') || lower.endsWith('.heif')) {
+      return 'image/heic';
+    }
+
+    return 'image/png';
+  }
+
+  private normalizeBase64(data: string): string {
+    const trimmed = data.trim();
+    if (trimmed.startsWith('data:')) {
+      const commaIndex = trimmed.indexOf(',');
+      if (commaIndex !== -1) {
+        return trimmed.slice(commaIndex + 1);
+      }
+    }
+    return trimmed;
+  }
+
+  private extractSegmentsFromRawPayload(raw: any): OB11Segment[] {
+    if (!raw) {
+      return [];
+    }
+
+    const resolved = typeof raw === 'string' ? this.parseRawRequest(raw) : raw;
+    if (resolved && Array.isArray(resolved.message)) {
+      return resolved.message;
+    }
+    if (resolved && Array.isArray(resolved.segments)) {
+      return resolved.segments;
+    }
+
+    return [];
+  }
+
+  private pickFirstNonEmptyText(
+    candidates: Array<string | undefined | null>
+  ): string | undefined {
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string') {
+        const trimmed = candidate.trim();
+        if (trimmed.length > 0) {
+          return trimmed;
+        }
+      }
+    }
+    return undefined;
   }
 
   private resolveNickname(

@@ -65,10 +65,11 @@ async function debugPrivateContext() {
         
         // 4. 查看格式化后的AI prompt
         const aiPrompt = contextManager.formatContextForAI(messageContext);
-        console.log('\n🤖 发给LLM的完整prompt:');
-        console.log('=' * 80);
-        console.log(aiPrompt);
-        console.log('=' * 80);
+        console.log('\n🤖 发给LLM的完整prompt (plain text):');
+        console.log('='.repeat(80));
+        console.log(aiPrompt.plainText);
+        console.log('='.repeat(80));
+        console.log('Parts:', JSON.stringify(aiPrompt.parts, null, 2));
         
         // 5. 检查数据库中实际的消息格式
         const sampleMessages = await database.executeQuery(

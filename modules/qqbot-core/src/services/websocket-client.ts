@@ -1,12 +1,18 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
+import { promises as fs } from 'fs';
+import path from 'path';
+import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
 import {
   WebSocketConfig,
   QQMessage,
   QQNotice,
   QQRequest,
   WebSocketEvent,
-  MessageContentType
+  MessageContentType,
+  OB11Segment,
+  MessageAttachment
 } from '../types';
 import { logger } from '../utils/logger';
 import { LoggingService } from './logging-service';
@@ -34,6 +40,8 @@ interface SendMessageRecordOptions {
   sentAt?: Date;
 }
 
+const ATTACHMENT_STORAGE_ROOT = path.resolve(process.cwd(), 'resources', 'attachments');
+
 export class WebSocketClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private config: WebSocketConfig;
@@ -58,6 +66,265 @@ export class WebSocketClient extends EventEmitter {
     this.loggingService = loggingService ?? null;
     this.database = database;
     this.botQQNumber = botQQNumber;
+  }
+
+  private async attachLocalMediaMetadata(message: QQMessage): Promise<void> {
+    try {
+      const segments = Array.isArray(message.segments)
+        ? message.segments
+        : Array.isArray(message.message)
+          ? (message.message as OB11Segment[])
+          : undefined;
+
+      const derivedAttachments = Array.isArray(message.attachments)
+        ? (message.attachments as MessageAttachment[])
+        : undefined;
+
+      if ((!segments || segments.length === 0) && !derivedAttachments) {
+        return;
+      }
+
+      const localAttachments: Array<Record<string, any>> = [];
+      let index = 0;
+
+      const collectFromSegment = async (
+        segment: OB11Segment,
+        originalName?: string
+      ): Promise<void> => {
+        if (segment.type !== 'image' && segment.type !== 'face') {
+          return;
+        }
+
+        const media = await this.extractSegmentImageData(segment);
+        if (!media) {
+          return;
+        }
+
+        const localPath = await this.persistImageToDisk(
+          media.base64,
+          media.mimeType,
+          message,
+          index++,
+          originalName
+        );
+
+        localAttachments.push({
+          type: segment.type,
+          mimeType: media.mimeType,
+          base64: media.base64,
+          local_path: localPath,
+          source: {
+            file: segment.data?.file,
+            url: segment.data?.url
+          },
+          saved_at: new Date().toISOString()
+        });
+      };
+
+      if (segments && segments.length > 0) {
+        for (const segment of segments) {
+          const originalName =
+            segment.data?.file || segment.data?.name || segment.data?.filename;
+          await collectFromSegment(segment, originalName);
+        }
+      } else if (derivedAttachments) {
+        for (const attachment of derivedAttachments) {
+          if (attachment.type !== 'image') {
+            continue;
+          }
+
+          const pseudoSegment: OB11Segment = {
+            type: 'image',
+            data: attachment.data ?? {}
+          };
+
+          await collectFromSegment(
+            pseudoSegment,
+            attachment.data?.file || attachment.data?.name
+          );
+        }
+      }
+
+      if (localAttachments.length > 0) {
+        (message as any).local_attachments = localAttachments;
+      }
+    } catch (error) {
+      this.moduleLogger.warn('Failed to enrich message with local media metadata', {
+        error: error instanceof Error ? error.message : String(error),
+        messageId: message.message_id
+      });
+    }
+  }
+
+  private async extractSegmentImageData(
+    segment: OB11Segment
+  ): Promise<{ base64: string; mimeType: string } | null> {
+    const data = segment.data ?? {};
+
+    const explicitBase64 = this.normalizeBase64String(
+      typeof data.base64 === 'string' ? data.base64 : undefined
+    );
+    if (explicitBase64) {
+      return {
+        base64: explicitBase64,
+        mimeType: this.resolveMimeType(
+          data.mime || data.mimetype || data.content_type,
+          data.file || data.name
+        )
+      };
+    }
+
+    if (typeof data.url === 'string' && data.url.length > 0) {
+      try {
+        const response = await axios.get<ArrayBuffer>(data.url, {
+          responseType: 'arraybuffer',
+          timeout: 10000
+        });
+        const buffer = Buffer.from(response.data);
+        const base64 = buffer.toString('base64');
+        const mimeType =
+          (response.headers['content-type'] as string | undefined) ||
+          this.resolveMimeType(undefined, data.file || data.name);
+
+        return {
+          base64,
+          mimeType
+        };
+      } catch (error) {
+        this.moduleLogger.warn('Failed to download image attachment', {
+          error: error instanceof Error ? error.message : String(error),
+          url: data.url
+        });
+      }
+    }
+
+    return null;
+  }
+
+  private async persistImageToDisk(
+    base64: string,
+    mimeType: string,
+    message: QQMessage,
+    index: number,
+    originalName?: string
+  ): Promise<string> {
+    await fs.mkdir(ATTACHMENT_STORAGE_ROOT, { recursive: true });
+
+    const contextDir = message.message_type === 'group'
+      ? `group_${message.group_id ?? 'unknown'}`
+      : `user_${message.user_id}`;
+
+    const targetDir = path.join(ATTACHMENT_STORAGE_ROOT, contextDir);
+    await fs.mkdir(targetDir, { recursive: true });
+
+    const extension = this.resolveFileExtension(mimeType, originalName);
+    const sanitizedContext = contextDir.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const baseFileName = [
+      sanitizedContext,
+      message.message_id ?? Date.now(),
+      index,
+      uuidv4().slice(0, 8)
+    ]
+      .join('_')
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    const fileName = `${baseFileName}${extension}`;
+    const filePath = path.join(targetDir, fileName);
+
+    const buffer = Buffer.from(base64, 'base64');
+    await fs.writeFile(filePath, buffer);
+
+    const relativePath = path
+      .relative(process.cwd(), filePath)
+      .split(path.sep)
+      .join('/');
+
+    return relativePath;
+  }
+
+  private resolveMimeType(explicit?: string, fileName?: string): string {
+    if (explicit && explicit.includes('/')) {
+      const normalized = explicit.trim();
+      if (normalized.startsWith('data:')) {
+        const semicolonIndex = normalized.indexOf(';');
+        if (semicolonIndex > -1) {
+          return normalized.slice(5, semicolonIndex);
+        }
+        return normalized.slice(5);
+      }
+      return normalized;
+    }
+
+    if (fileName) {
+      const ext = path.extname(fileName).toLowerCase();
+      switch (ext) {
+        case '.jpg':
+        case '.jpeg':
+          return 'image/jpeg';
+        case '.gif':
+          return 'image/gif';
+        case '.webp':
+          return 'image/webp';
+        case '.bmp':
+          return 'image/bmp';
+        case '.svg':
+          return 'image/svg+xml';
+        case '.heic':
+        case '.heif':
+          return 'image/heic';
+        case '.png':
+          return 'image/png';
+        default:
+          break;
+      }
+    }
+
+    return 'image/png';
+  }
+
+  private resolveFileExtension(mimeType?: string, fallbackName?: string): string {
+    if (fallbackName) {
+      const ext = path.extname(fallbackName);
+      if (ext) {
+        return ext;
+      }
+    }
+
+    switch ((mimeType || '').toLowerCase()) {
+      case 'image/jpeg':
+        return '.jpg';
+      case 'image/gif':
+        return '.gif';
+      case 'image/webp':
+        return '.webp';
+      case 'image/bmp':
+        return '.bmp';
+      case 'image/svg+xml':
+        return '.svg';
+      case 'image/heic':
+        return '.heic';
+      case 'image/heif':
+        return '.heif';
+      case 'image/png':
+      default:
+        return '.png';
+    }
+  }
+
+  private normalizeBase64String(base64?: string): string | undefined {
+    if (!base64 || typeof base64 !== 'string') {
+      return undefined;
+    }
+
+    const trimmed = base64.trim();
+    if (trimmed.startsWith('data:')) {
+      const commaIndex = trimmed.indexOf(',');
+      if (commaIndex !== -1) {
+        return trimmed.slice(commaIndex + 1);
+      }
+    }
+
+    return trimmed.length > 0 ? trimmed : undefined;
   }
 
   public async connect(): Promise<void> {
@@ -777,6 +1044,8 @@ export class WebSocketClient extends EventEmitter {
         : new Date();
     const contentType = this.determineIncomingContentType(message);
     const readableContent = this.buildReadableContent(message);
+
+    await this.attachLocalMediaMetadata(message);
 
     try {
       if (message.message_type === 'private') {
