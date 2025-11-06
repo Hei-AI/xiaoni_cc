@@ -34,7 +34,7 @@
       "mode": "AUTO",  // ❌ 模式是AUTO
       "allowedFunctionNames": [  // ❌ 但设置了allowedFunctionNames
         "send_private_chat_message",
-        "send_group_chat_message"
+        "send_qq_group_message"
       ]
     }
   }
@@ -253,7 +253,7 @@ jobConfig.toolConfig = {
   "toolConfig": {
     "functionCallingConfig": {
       "mode": "AUTO",
-      "allowedFunctionNames": ["send_private_chat_message", "send_group_chat_message"]  // ❌
+      "allowedFunctionNames": ["send_private_chat_message", "send_qq_group_message"]  // ❌
     }
   }
 }
@@ -279,7 +279,7 @@ jobConfig.toolConfig = {
   "toolConfig": {
     "functionCallingConfig": {
       "mode": "ANY",
-      "allowedFunctionNames": ["send_private_chat_message", "send_group_chat_message"]  // ✅
+      "allowedFunctionNames": ["send_private_chat_message", "send_qq_group_message"]  // ✅
     }
   }
 }
