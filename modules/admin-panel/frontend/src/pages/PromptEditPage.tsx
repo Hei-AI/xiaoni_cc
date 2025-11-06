@@ -438,6 +438,337 @@ const ensureAdvancedConfigDefaults = (advancedConfig: any): any => {
   return base;
 };
 
+const coerceNumber = (value: any): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const deepCleanValue = (value: any): any => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => deepCleanValue(item))
+      .filter((item) => item !== undefined);
+  }
+
+  if (value && typeof value === 'object') {
+    const cleanedEntries = Object.entries(value).reduce<Record<string, any>>((acc, [key, val]) => {
+      const cleaned = deepCleanValue(val);
+      if (cleaned !== undefined) {
+        acc[key] = cleaned;
+      }
+      return acc;
+    }, {});
+
+    return Object.keys(cleanedEntries).length > 0 ? cleanedEntries : undefined;
+  }
+
+  return value === undefined ? undefined : value;
+};
+
+interface GetConfigJsonParams {
+  modelName: string;
+  systemInstruction: string;
+  modelConfig: Record<string, any>;
+  generationConfig?: Record<string, any>;
+  safetySettings?: SafetySettingConfig[];
+  toolsConfig: ToolsConfigState;
+  advancedConfig?: Record<string, any> | null;
+  stopSequences?: string[];
+}
+
+const PREDEFINED_TOOL_FIELD_MAP: Record<string, string> = {
+  google_search: 'googleSearch',
+  googlesearch: 'googleSearch',
+  googleSearch: 'googleSearch',
+  google_search_retrieval: 'googleSearchRetrieval',
+  googlesearchretrieval: 'googleSearchRetrieval',
+  googleSearchRetrieval: 'googleSearchRetrieval',
+  code_execution: 'codeExecution',
+  codeexecution: 'codeExecution',
+  codeExecution: 'codeExecution',
+  vertex_ai_search: 'vertexAISearch',
+  vertexaisearch: 'vertexAISearch',
+  vertexAISearch: 'vertexAISearch',
+  retrieval: 'retrieval',
+  url_context: 'retrieval',
+  urlcontext: 'retrieval',
+  urlContext: 'retrieval'
+};
+
+const generateGetConfigJson = ({
+  modelName,
+  systemInstruction,
+  modelConfig,
+  generationConfig,
+  safetySettings,
+  toolsConfig,
+  advancedConfig,
+  stopSequences
+}: GetConfigJsonParams): string => {
+  const safeModelName =
+    typeof modelName === 'string' && modelName.trim().length > 0 ? modelName.trim() : 'gemini-2.5-flash';
+  const trimmedInstruction =
+    typeof systemInstruction === 'string' ? systemInstruction.trim() : '';
+
+  const generation: Record<string, any> = {};
+  if (generationConfig && typeof generationConfig === 'object') {
+    Object.entries(generationConfig).forEach(([key, value]) => {
+      if (key === 'thinkingConfig' && value && typeof value === 'object') {
+        generation.thinkingConfig = { ...(value as Record<string, any>) };
+      } else {
+        generation[key] = value;
+      }
+    });
+  }
+
+  const numericModelKeys = [
+    'temperature',
+    'topP',
+    'topK',
+    'candidateCount',
+    'maxOutputTokens',
+    'responseLogprobs',
+    'logprobs',
+    'presencePenalty',
+    'frequencyPenalty',
+    'seed'
+  ];
+
+  numericModelKeys.forEach((key) => {
+    const coerced = coerceNumber(modelConfig?.[key]);
+    if (coerced !== undefined) {
+      generation[key] = coerced;
+    }
+  });
+
+  if (modelConfig?.responseMimeType) {
+    generation.responseMimeType = modelConfig.responseMimeType;
+  }
+  if (modelConfig?.responseSchema) {
+    generation.responseSchema = modelConfig.responseSchema;
+  }
+
+  let effectiveStopSequences: string[] = [];
+  if (Array.isArray(stopSequences) && stopSequences.length > 0) {
+    effectiveStopSequences = stopSequences;
+  } else if (Array.isArray(modelConfig?.stopSequences)) {
+    effectiveStopSequences = modelConfig.stopSequences;
+  } else if (Array.isArray(generation.stopSequences)) {
+    effectiveStopSequences = generation.stopSequences;
+  }
+  if (effectiveStopSequences.length > 0) {
+    generation.stopSequences = effectiveStopSequences;
+  }
+
+  const config: Record<string, any> = {};
+  if (trimmedInstruction.length > 0) {
+    config.systemInstruction = {
+      role: 'system',
+      parts: [{ text: trimmedInstruction }]
+    };
+  }
+
+  const generationKeyOrder = [
+    'temperature',
+    'topP',
+    'topK',
+    'candidateCount',
+    'maxOutputTokens',
+    'stopSequences',
+    'responseLogprobs',
+    'logprobs',
+    'presencePenalty',
+    'frequencyPenalty',
+    'seed',
+    'responseMimeType',
+    'responseSchema'
+  ];
+
+  generationKeyOrder.forEach((key) => {
+    if (generation[key] !== undefined) {
+      config[key] = generation[key];
+    }
+  });
+
+  const mediaResolution =
+    typeof modelConfig?.mediaResolution === 'string' && modelConfig.mediaResolution.length > 0
+      ? modelConfig.mediaResolution
+      : typeof advancedConfig?.mediaResolution === 'string'
+        ? advancedConfig.mediaResolution
+        : undefined;
+
+  if (mediaResolution) {
+    config.mediaResolution = mediaResolution;
+  }
+
+  if (Array.isArray(advancedConfig?.responseModalities)) {
+    config.responseModalities = advancedConfig.responseModalities;
+  }
+
+  if (advancedConfig?.httpOptions) {
+    config.httpOptions = advancedConfig.httpOptions;
+  }
+
+  if (advancedConfig?.labels) {
+    config.labels = advancedConfig.labels;
+  }
+
+  if (advancedConfig?.cachedContent) {
+    config.cachedContent = advancedConfig.cachedContent;
+  }
+
+  if (advancedConfig?.audioTimestamp !== undefined) {
+    config.audioTimestamp = advancedConfig.audioTimestamp;
+  }
+
+  if (advancedConfig?.speechConfig) {
+    config.speechConfig = advancedConfig.speechConfig;
+  }
+
+  if (advancedConfig?.routingConfig) {
+    config.routingConfig = advancedConfig.routingConfig;
+  }
+
+  const thinking = generation.thinkingConfig;
+  if (thinking && typeof thinking === 'object') {
+    const thinkingConfig: Record<string, any> = {};
+    if (typeof thinking.includeThoughts === 'boolean') {
+      thinkingConfig.includeThoughts = thinking.includeThoughts;
+    }
+    if (typeof thinking.thinkingBudget === 'number' && thinking.thinkingBudget >= 0) {
+      thinkingConfig.thinkingBudget = thinking.thinkingBudget;
+    }
+    if (Object.keys(thinkingConfig).length > 0) {
+      config.thinkingConfig = thinkingConfig;
+    }
+  }
+
+  const normalizedSafety = Array.isArray(safetySettings)
+    ? safetySettings.filter(
+        (setting) =>
+          setting &&
+          typeof setting.category === 'string' &&
+          setting.category.length > 0 &&
+          typeof setting.threshold === 'string' &&
+          setting.threshold.length > 0
+      )
+    : [];
+
+  if (normalizedSafety.length > 0) {
+    config.safetySettings = normalizedSafety.map((setting) => ({
+      category: setting.category,
+      threshold: setting.threshold
+    }));
+  }
+
+  const toolPayloads: any[] = [];
+
+  if (Array.isArray(toolsConfig?.customTools)) {
+    const customDeclarations = toolsConfig.customTools
+      .map((tool) => {
+        if (!tool || typeof tool !== 'object' || !tool.name) {
+          return null;
+        }
+        const declaration: Record<string, any> = {
+          name: tool.name
+        };
+        if (tool.description && tool.description.trim().length > 0) {
+          declaration.description = tool.description.trim();
+        }
+        if (tool.parameters && typeof tool.parameters === 'object' && Object.keys(tool.parameters).length > 0) {
+          declaration.parameters = tool.parameters;
+        }
+        if ((tool as any).response && typeof (tool as any).response === 'object') {
+          declaration.response = (tool as any).response;
+        }
+        return declaration;
+      })
+      .filter(Boolean);
+
+    if (customDeclarations.length > 0) {
+      toolPayloads.push({ functionDeclarations: customDeclarations });
+    }
+  }
+
+  const predefinedEnabled = Array.isArray(toolsConfig?.predefinedTools?.enabledTools)
+    ? toolsConfig.predefinedTools.enabledTools
+    : [];
+  const addedPredefined = new Set<string>();
+
+  predefinedEnabled.forEach((toolName) => {
+    if (typeof toolName !== 'string') {
+      return;
+    }
+    const trimmed = toolName.trim();
+    if (!trimmed) {
+      return;
+    }
+    const lower = trimmed.toLowerCase();
+    const mappedField = PREDEFINED_TOOL_FIELD_MAP[trimmed] || PREDEFINED_TOOL_FIELD_MAP[lower];
+    if (!mappedField || addedPredefined.has(mappedField)) {
+      return;
+    }
+    let payload: any = undefined;
+    if (mappedField === 'googleSearch' && toolsConfig.googleSearch && typeof toolsConfig.googleSearch === 'object') {
+      payload = toolsConfig.googleSearch;
+    } else if (mappedField === 'retrieval' && toolsConfig.urlContext && typeof toolsConfig.urlContext === 'object') {
+      payload = toolsConfig.urlContext;
+    } else if (mappedField === 'googleSearchRetrieval' && toolsConfig.googleSearch && typeof toolsConfig.googleSearch === 'object') {
+      payload = toolsConfig.googleSearch;
+    }
+
+    toolPayloads.push(
+      payload && Object.keys(payload).length > 0
+        ? { [mappedField]: payload }
+        : { [mappedField]: {} }
+    );
+    addedPredefined.add(mappedField);
+  });
+
+  if (toolPayloads.length > 0) {
+    config.tools = toolPayloads;
+  }
+
+  const functionCallingMode = toolsConfig?.functionCalling?.mode || 'NONE';
+  const allowedFunctionNames = Array.isArray(toolsConfig?.functionCalling?.allowedFunctionNames)
+    ? toolsConfig.functionCalling.allowedFunctionNames.filter(
+        (name) => typeof name === 'string' && name.trim().length > 0
+      )
+    : [];
+
+  if (functionCallingMode && functionCallingMode !== 'NONE') {
+    const functionCallingConfig: Record<string, any> = {
+      mode: functionCallingMode
+    };
+    if (functionCallingMode === 'ANY' && allowedFunctionNames.length > 0) {
+      functionCallingConfig.allowedFunctionNames = allowedFunctionNames;
+    }
+    config.toolConfig = {
+      functionCallingConfig
+    };
+  }
+
+  const payload = {
+    model: safeModelName,
+    config,
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: 'INSERT_INPUT_HERE' }]
+      }
+    ]
+  };
+
+  const cleaned = deepCleanValue(payload) ?? {};
+  return JSON.stringify(cleaned, null, 2);
+};
+
 const parseJsonField = <T,>(value: any, fallback: T): T => {
   if (!value) {
     return fallback;
@@ -786,7 +1117,7 @@ export const PromptEditPage: React.FC = () => {
   const [isDebugging, setIsDebugging] = useState(false);
   const [useDraftConfig, setUseDraftConfig] = useState<boolean>(() => isNew);
   const [newStopSequence, setNewStopSequence] = useState('');
-  const [getCodeCopied, setGetCodeCopied] = useState(false);
+  const [configJsonCopied, setConfigJsonCopied] = useState(false);
   const [systemInstructionsCopied, setSystemInstructionsCopied] = useState(false);
   const [isSafetyDialogOpen, setIsSafetyDialogOpen] = useState(false);
   const [isHistorySheetOpen, setIsHistorySheetOpen] = useState(false);
@@ -1614,12 +1945,12 @@ export const PromptEditPage: React.FC = () => {
   }, [customToolsSignature, toolsConfig]);
 
   useEffect(() => {
-    if (!getCodeCopied) {
+    if (!configJsonCopied) {
       return;
     }
-    const timer = window.setTimeout(() => setGetCodeCopied(false), 2000);
+    const timer = window.setTimeout(() => setConfigJsonCopied(false), 2000);
     return () => window.clearTimeout(timer);
-  }, [getCodeCopied]);
+  }, [configJsonCopied]);
 
   useEffect(() => {
     if (!systemInstructionsCopied) {
@@ -1911,9 +2242,10 @@ export const PromptEditPage: React.FC = () => {
   const functionCallingMode = toolsConfig.functionCalling.mode;
   const isFunctionCallingDisabled = functionCallingMode === 'NONE';
   const contextVariablesPreview = JSON.stringify(rowsToContextObject(contextVariableRows), null, 2);
-  const stopSequences = Array.isArray(formData.model_config.stopSequences)
-    ? formData.model_config.stopSequences
-    : [];
+  const stopSequences = useMemo(
+    () => normalizeStopSequencesList(formData.model_config?.stopSequences),
+    [formData.model_config?.stopSequences]
+  );
   const orderedSafetySettings = useMemo<SafetySettingsEntry[]>(() => {
     if (!Array.isArray(formData.advanced_config?.safetySettings)) {
       return [];
@@ -1982,7 +2314,32 @@ export const PromptEditPage: React.FC = () => {
     };
   }, [formData.advanced_config, formData.model_config?.maxOutputTokens]);
 
-  const getCodePreview = JSON.stringify(advancedConfigSnapshot ?? {}, null, 2);
+  const modelConfigSnapshot = useMemo(
+    () => ({ ...(formData.model_config || {}) }),
+    [formData.model_config]
+  );
+
+  const configJsonPreview = useMemo(
+    () =>
+      generateGetConfigJson({
+        modelName: formData.model_name || 'gemini-2.5-flash',
+        systemInstruction: formData.system_instructions || '',
+        modelConfig: modelConfigSnapshot,
+        generationConfig: advancedConfigSnapshot?.generationConfig,
+        safetySettings: advancedConfigSnapshot?.safetySettings,
+        toolsConfig: sanitizedToolsConfig,
+        advancedConfig: advancedConfigSnapshot,
+        stopSequences
+      }),
+    [
+      advancedConfigSnapshot,
+      formData.model_name,
+      formData.system_instructions,
+      modelConfigSnapshot,
+      sanitizedToolsConfig,
+      stopSequences
+    ]
+  );
   const lastUpdatedAt = useMemo(() => {
     if (!promptData?.data?.updated_at) {
       return '未更新';
@@ -2038,7 +2395,7 @@ export const PromptEditPage: React.FC = () => {
     { key: 'runtime', label: '运行参数', icon: SlidersHorizontal },
     { key: 'safety', label: '内容安全', icon: ShieldCheck },
     { key: 'preview', label: '配置预览', icon: Eye },
-    { key: 'code', label: 'Get code', icon: Copy }
+    { key: 'code', label: 'Get config JSON', icon: Copy }
   ];
   const quickNavItems = [
     { key: 'playground', label: 'Prompt Playground', icon: MessageSquare },
@@ -2052,7 +2409,7 @@ export const PromptEditPage: React.FC = () => {
     runtime: '同步 Google AI Studio 的推理设置。',
     safety: '映射 HarmBlockThreshold 配置项。',
     preview: 'JSON 视图便于再次确认。',
-    code: '复制到自动化脚本或 SDK。'
+    code: '导出符合 Gemini API 的请求配置。'
   };
   const activeDrawerNavItem = activeDrawerKey
     ? drawerNavItems.find((item) => item.key === activeDrawerKey)
@@ -3237,22 +3594,22 @@ export const PromptEditPage: React.FC = () => {
         <Card className="bg-card/60 shadow-sm">
           <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <CardTitle className="text-base font-semibold">Get code</CardTitle>
-              <CardDescription>复制到自动化脚本或 SDK。</CardDescription>
+              <CardTitle className="text-base font-semibold">Get config JSON</CardTitle>
+              <CardDescription>复制到 API 请求或配置模板。</CardDescription>
             </div>
             <Button
               type="button"
-              variant={getCodeCopied ? 'default' : 'outline'}
+              variant={configJsonCopied ? 'default' : 'outline'}
               size="sm"
-              onClick={handleCopyGetCode}
+              onClick={handleCopyConfigJson}
             >
-              {getCodeCopied ? '已复制' : '复制'}
+              {configJsonCopied ? '已复制' : '复制'}
               <Copy className="ml-2 h-4 w-4" />
             </Button>
           </CardHeader>
           <CardContent>
             <pre className="scrollbar-thin max-h-80 overflow-auto rounded-md bg-muted/20 p-3 text-xs">
-              {getCodePreview}
+              {configJsonPreview}
             </pre>
           </CardContent>
         </Card>
@@ -3261,17 +3618,17 @@ export const PromptEditPage: React.FC = () => {
 
     return contentMap[activeDrawerKey];
   };
-  const handleCopyGetCode = async () => {
+  const handleCopyConfigJson = async () => {
     try {
       if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(getCodePreview);
-        setGetCodeCopied(true);
+        await navigator.clipboard.writeText(configJsonPreview);
+        setConfigJsonCopied(true);
       } else {
         throw new Error('浏览器不支持剪贴板写入');
       }
     } catch (error) {
       console.error('Failed to copy run configuration', error);
-      setGetCodeCopied(false);
+      setConfigJsonCopied(false);
     }
   };
   if (!isNew && isLoadingPrompt) {
