@@ -158,14 +158,7 @@ END //
 
 DELIMITER ;
 
--- 8. 示例数据插入
--- 创建一些示例的 agent_prompts 配置
-INSERT INTO agent_prompts (id, agent_type, prompt_name, model_name, allowed_token_ids, system_instructions, is_active, version, created_by)
-VALUES 
-    (UUID(), 'chat_bot', 'gemini_2_5_flash', 'gemini-2.5-flash', '[1,2,3,4,5]', '["你是智能助手，使用gemini-2.5-flash模型"]', TRUE, 1, 'system'),
-    (UUID(), 'chat_bot', 'gemini_1_5_pro', 'gemini-1.5-pro', '[6,7,8,9,10]', '["你是专业助手，使用gemini-1.5-pro模型"]', TRUE, 1, 'system'),
-    (UUID(), 'technical_expert', 'gemini_2_5_flash', 'gemini-2.5-flash', '[1,3,5,7,9]', '["你是技术专家，使用gemini-2.5-flash模型"]', TRUE, 1, 'system')
-ON DUPLICATE KEY UPDATE id = id;
+-- 8.（已移除）示例 Prompt 数据初始化
 
 -- 9. 验证查询
 -- 查看token-model可用性

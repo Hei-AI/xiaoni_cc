@@ -110,8 +110,8 @@ DELIMITER ;
 
 -- 插入初始数据用于测试
 INSERT INTO websocket_logs (trace_id, session_id, direction, message_type, raw_payload, user_id, group_id, message_id) VALUES
-('test-trace-001', 'ws-session-001', 'incoming', 'message', '{"type": "message", "content": "test"}', 12345, 67890, 1001),
-('test-trace-002', 'ws-session-002', 'outgoing', 'message', '{"type": "message", "content": "response"}', 12345, NULL, 1002);
+('test-trace-001', 'ws-session-001', 'incoming', 'message', '{"type": "message", "content": "test"}', 12345, 1019235326, 1001),
+('test-trace-002', 'ws-session-002', 'outgoing', 'message', '{"type": "message", "content": "response"}', 12345, 1019235326, 1002);
 
 INSERT INTO llm_call_logs (id, trace_id, user_id, model_name, agent_type, input_prompt, response_text, response_time_ms) VALUES
 (UUID(), 'test-trace-001', 12345, 'gemini-2.0-flash-exp', 'chat_bot', 'Hello, how are you?', 'I am doing well, thank you!', 1500),
