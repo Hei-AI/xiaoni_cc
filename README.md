@@ -50,6 +50,17 @@ docker compose up -d
 - HTTP API 网关：[http://localhost:8080/health](http://localhost:8080/health)
 - qqbot-core 健康检查：[http://localhost:8081/health](http://localhost:8081/health)
 
+### OpenClaw Bridge（可选）
+用于将 OneBot11 QQ 消息桥接到 OpenClaw Gateway：
+
+```bash
+cp modules/openclaw-bridge/.env.example modules/openclaw-bridge/.env
+# 编辑 .env 后启动
+docker compose --profile bridge up -d openclaw-bridge
+```
+
+更多说明见：`modules/openclaw-bridge/README.md`
+
 ## 日常开发
 - 查看日志：`docker logs -f <container>`
 - 进入容器调试：`docker exec -it qqbot-qqbot-core /bin/sh`

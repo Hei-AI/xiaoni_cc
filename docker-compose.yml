@@ -113,6 +113,7 @@ services:
       - ./logs/qqbot-core:/app/logs
       - ./modules/qqbot-core/resources/config:/app/resources/config
       - ./modules/qqbot-core/resources/napcat_qq_data:/app/resources/napcat_qq_data
+      - ./resource/napcat_qq_data:/app/.config/QQ:ro
     networks:
       - qq_bot_network
 
@@ -166,6 +167,23 @@ services:
       - qq_bot_network
     volumes:
       - ./logs/admin-frontend:/var/log/nginx
+
+  # OpenClaw Bridge (OneBot11 <-> OpenClaw)
+  # 启动方式: docker compose --profile bridge up -d openclaw-bridge
+  openclaw-bridge:
+    image: qqbot-openclaw-bridge
+    build:
+      context: ./modules/openclaw-bridge
+      args: *build_no_proxy
+    container_name: qqbot-openclaw-bridge
+    profiles: ["bridge"]
+    ports:
+      - "8090:8090"
+    env_file:
+      - ./modules/openclaw-bridge/.env
+    restart: unless-stopped
+    networks:
+      - qq_bot_network
 
   # Operational one-off tasks (invoke with: docker compose --profile ops run --rm <service>)
   init-db:
