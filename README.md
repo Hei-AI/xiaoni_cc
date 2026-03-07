@@ -11,6 +11,7 @@
 ├── modules/
 │   ├── qqbot-core/              # 消息处理与 AI 调度
 │   ├── http-api/                # OneBot/HTTP 网关
+│   ├── openclaw-bridge/         # OneBot11 ↔ OpenClaw 桥接服务
 │   ├── admin-panel/{backend,frontend}
 │   └── http-traffic-monitor/    # 透明代理组件
 └── docs/                        # 设计、状态与路线图
@@ -58,6 +59,7 @@ docker compose up -d
 - 项目状态：`docs/PROJECT_STATUS.md`
 - 人类化消息处理：`docs/HUMAN_LIKE_PROCESSOR_FLOW.md`
 - LLM 工具链设计：`docs/LLM_TOOL_EXECUTION_DESIGN.md`
+- WSL2 中的 Playwright MCP 配置：`docs/PLAYWRIGHT_MCP_WSL.md`
 - 部署说明：`DOCKER.md`
 - 路线图：`docs/ROADMAP.md`
 
