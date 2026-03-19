@@ -251,8 +251,8 @@ export class LLMJobWorker extends EventEmitter {
     try {
       connection = await (this.database as any).pool.getConnection();
 
-      const [rows] = await connection.query(
-        `SELECT * FROM llm_jobs
+      const [idRows] = await connection.query(
+        `SELECT id FROM llm_jobs FORCE INDEX (idx_status_retry_created)
          WHERE status = 'pending'
            AND (next_retry_at IS NULL OR next_retry_at <= NOW())
          ORDER BY created_at ASC
@@ -260,10 +260,29 @@ export class LLMJobWorker extends EventEmitter {
         [limit]
       );
 
+      const ids = (idRows as Array<{ id: string }>).map(row => row.id);
+      if (ids.length === 0) {
+        releaseConnectionSafely(connection, 'fetchPendingJobs.empty');
+        connection = null;
+        return [];
+      }
+
+      const placeholders = ids.map(() => '?').join(',');
+      const [rows] = await connection.query(
+        `SELECT * FROM llm_jobs WHERE id IN (${placeholders})`,
+        ids
+      );
+
       releaseConnectionSafely(connection, 'fetchPendingJobs');
       connection = null;
 
-      return (rows as any[]).map(row => this.mapRowToJob(row));
+      const rowMap = new Map<string, any>();
+      (rows as any[]).forEach(row => rowMap.set(row.id, row));
+
+      return ids
+        .map(id => rowMap.get(id))
+        .filter(Boolean)
+        .map((row: any) => this.mapRowToJob(row));
     } catch (error) {
       moduleLogger.error('Failed to fetch pending jobs', { error: serializeError(error) });
       return [];
@@ -867,11 +886,25 @@ export class LLMJobWorker extends EventEmitter {
     }
 
     const cloned: Record<string, any> = { ...declaration };
-    if (cloned.parameters !== undefined) {
-      cloned.parameters = this.sanitizeSchema(cloned.parameters);
+    const toolName = typeof cloned.name === 'string' ? cloned.name : undefined;
+    const staticOverride = toolName
+      ? this.dispatcher.getStaticToolDeclaration(toolName)
+      : undefined;
+
+    const sanitizeSchema = (schema: any) =>
+      schema !== undefined ? this.sanitizeSchema(schema) : schema;
+
+    if (staticOverride) {
+      cloned.description = staticOverride.description ?? cloned.description;
+      cloned.parameters = sanitizeSchema(
+        staticOverride.parameters !== undefined ? staticOverride.parameters : cloned.parameters
+      );
+    } else if (cloned.parameters !== undefined) {
+      cloned.parameters = sanitizeSchema(cloned.parameters);
     }
+
     if (cloned.response !== undefined) {
-      cloned.response = this.sanitizeSchema(cloned.response);
+      cloned.response = sanitizeSchema(cloned.response);
     }
 
     return cloned;

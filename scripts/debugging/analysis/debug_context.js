@@ -64,7 +64,7 @@ async function debugPrivateContext() {
         console.log(`  - 上下文摘要长度: ${messageContext.contextSummary.length}字符`);
         
         // 4. 查看格式化后的AI prompt
-        const aiPrompt = contextManager.formatContextForAI(messageContext);
+        const aiPrompt = await contextManager.formatContextForAI(messageContext);
         console.log('\n🤖 发给LLM的完整prompt (plain text):');
         console.log('='.repeat(80));
         console.log(aiPrompt.plainText);

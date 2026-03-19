@@ -9,11 +9,13 @@ import { GroupChatDetailPage } from './pages/GroupChatDetailPage';
 import { PrivateChatManagementPage } from './pages/PrivateChatManagementPage';
 import { PrivateChatDetailPage } from './pages/PrivateChatDetailPage';
 import { PromptManagementPage } from './pages/PromptManagementPage';
+import { PromptDetailPage } from './pages/PromptDetailPage';
 import { PromptEditPage } from './pages/PromptEditPage';
 import { PromptDebugPage } from './pages/PromptDebugPage';
 import QueueManagementPage from './pages/QueueManagementPage';
 import { HttpTrafficMonitorPage } from './pages/HttpTrafficMonitorPage';
 import { HttpTrafficDetailPage } from './pages/HttpTrafficDetailPage';
+import { ReplayTemplatesPage } from './pages/ReplayTemplatesPage';
 import { Layout } from './components/Layout';
 import './globals.css';
 
@@ -28,7 +30,7 @@ const queryClient = new QueryClient({
 
 const PromptRedirect: React.FC = () => {
   const { promptId } = useParams<{ promptId: string }>();
-  return <Navigate to={`/prompts/${promptId}/edit`} replace />;
+  return <Navigate to={`/prompts/${promptId}/detail`} replace />;
 };
 
 function App() {
@@ -48,14 +50,14 @@ function App() {
             <Route path="/prompts" element={<PromptManagementPage />} />
             <Route path="/prompts/new" element={<PromptEditPage />} />
             <Route path="/prompts/:promptId" element={<PromptRedirect />} />
+            <Route path="/prompts/:promptId/detail" element={<PromptDetailPage />} />
             <Route path="/prompts/:promptId/edit" element={<PromptEditPage />} />
             <Route path="/prompts/:promptId/debug" element={<PromptDebugPage />} />
             <Route path="/queue-monitor" element={<Navigate to="/queue-management" replace />} />
             <Route path="/queue-management" element={<QueueManagementPage />} />
             <Route path="/traffic" element={<HttpTrafficMonitorPage />} />
             <Route path="/traffic/:id" element={<HttpTrafficDetailPage />} />
-            <Route path="/monitoring" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/settings" element={<Navigate to="/prompts" replace />} />
+            <Route path="/traffic/replay/templates" element={<ReplayTemplatesPage />} />
           </Routes>
         </Layout>
       </Router>

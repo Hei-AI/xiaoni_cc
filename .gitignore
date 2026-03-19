@@ -1,5 +1,7 @@
 # IDE files
 .idea/
+.vscode/
+.playwright-mcp/
 *.iml
 out/
 gen/
@@ -17,7 +19,17 @@ backend/build/
 # Runtime data
 backend/runtime/
 backend/database/mysql_data/
-database/mysql_data/
+database/mysql_data/*
+!database/mysql_data/.gitkeep
+modules/qqbot-core/resources/napcat_qq_data/*
+!modules/qqbot-core/resources/napcat_qq_data/.gitkeep
+resource/napcat_config/*.json
+!resource/napcat_config/napcat.json
+!resource/napcat_config/webui.json
+resource/napcat_qq_data/*
+!resource/napcat_qq_data/.gitkeep
+resource/napcat_qq_data2/*
+!resource/napcat_qq_data2/.gitkeep
 
 # Dependencies
 node_modules/
@@ -56,15 +68,3 @@ coverage/
 *.tmp
 *.temp
 **/qq-log*
-resource/napcat_qq_data
-resource/napcat_qq_data2
-.idea
-
-### Example user template template
-### Example user template
-
-# IntelliJ project files
-out
-gen
-.vscode
-.playwright-mcp

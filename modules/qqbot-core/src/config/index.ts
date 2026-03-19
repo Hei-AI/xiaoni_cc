@@ -51,12 +51,6 @@ export const config: AppConfig = {
     bot_qq_number: parseInt(process.env.BOT_QQ_NUMBER || '1129974489', 10)
   },
 
-  function_registry: {
-    base_url: process.env.FUNCTION_REGISTRY_BASE_URL || 'http://http-api:8080/v1',
-    timeout_ms: parseInt(process.env.FUNCTION_REGISTRY_TIMEOUT_MS || '5000', 10),
-    enabled: process.env.ENABLE_FUNCTION_REGISTRY !== 'false'
-  },
-  
   logging: {
     level: process.env.LOG_LEVEL || 'info',
     file_prefix: process.env.LOG_FILE_PREFIX || 'qqbot'

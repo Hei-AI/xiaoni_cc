@@ -1,77 +1,103 @@
-# QQ Bot 项目
+# QQ Bot
 
-基于 OneBot 11 协议的 QQ 机器人，包含核心服务、管理界面与辅助观测组件。该仓库使用 TypeScript、MySQL 以及 Docker 进行部署与运行。
+基于 OneBot 11 的 QQ 机器人主仓。
 
-## 目录结构
-```
+当前主仓只保留运行底座和管理端：
+
+- `qqbot-core`: 消息接入、队列、上下文、AI 调度、消息发送
+- `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、流量查看/回放
+- `admin-panel/frontend`: 管理界面
+- `mysql`: 数据存储
+- `docker-compose.napcat.yml`: NapCat 独立部署入口
+
+`openclaw-bridge` 已迁移到独立项目，不再保留在本仓。
+
+## 目录
+
+```text
 .
-├── docker-compose.yml           # 业务服务编排
-├── docker-compose.napcat.yml    # NapCat 独立部署
-├── scripts/                     # 启动、部署与辅助脚本
+├── docker-compose.yml
+├── docker-compose.napcat.yml
+├── database/
+├── docs/
 ├── modules/
-│   ├── qqbot-core/              # 消息处理与 AI 调度
-│   ├── http-api/                # OneBot/HTTP 网关
-│   ├── openclaw-bridge/         # OneBot11 ↔ OpenClaw 桥接服务
-│   ├── admin-panel/{backend,frontend}
-│   └── http-traffic-monitor/    # 透明代理组件
-└── docs/                        # 设计、状态与路线图
+│   ├── admin-panel/
+│   ├── http-traffic-monitor/
+│   └── qqbot-core/
+├── resource/
+└── scripts/
 ```
 
-更多服务说明可参考 `docs/PROJECT_STATUS.md`、`docs/HUMAN_LIKE_PROCESSOR_FLOW.md` 与 `docs/LLM_TOOL_EXECUTION_DESIGN.md`。
+## 运行架构
+
+主链：
+
+```text
+NapCat -> qqbot-core -> MySQL
+                  \
+                   -> admin-backend -> admin-frontend
+```
+
+说明：
+
+- NapCat 独立部署，不包含在主业务 compose 中。
+- 管理端直接连接 `qqbot-core` 和 MySQL，不再经过函数注册中心。
+- HTTP 流量监控/回放属于管理端运维工具链。
 
 ## 快速开始
 
-### 环境准备
-1. 安装 Docker / Docker Compose。
-2. 首次部署前创建网络：
-   ```bash
-   docker network create qq_bot_network
-   ```
-3. 如果需要 NapCat，请参见 `docker-compose.napcat.yml`；首次运行前执行 `mkdir -p resource/napcat_config resource/napcat_qq_data logs/napcat`，随后通过 `docker compose -f docker-compose.napcat.yml up -d` 启动。
+### 1. 创建网络
 
-### Build & Run
 ```bash
-docker compose build          # 构建镜像
-docker compose up -d          # 启动全部服务
-docker compose ps             # 查看状态
+docker network create qq_bot_network
 ```
-- 日志：`docker logs -f qqbot-qqbot-core`、`docker logs -f qqbot-http-api` 等。
-- 停止：`docker compose stop` 或 `docker compose down`。
 
-### Compose 命令
+### 2. 启动 NapCat
+
 ```bash
+mkdir -p resource/napcat_config resource/napcat_qq_data logs/napcat
+docker compose -f docker-compose.napcat.yml up -d
+```
+
+### 3. 启动主栈
+
+```bash
+docker compose build
 docker compose up -d
+docker compose ps
 ```
-默认会启动 traffic-monitor、mysql、http-api、qqbot-core、admin-backend、admin-frontend 等服务。
 
-服务端口：
-- Admin 前端：[http://localhost:3003](http://localhost:3003)
-- Admin 后端 API：[http://localhost:9080/api/](http://localhost:9080/api/)
-- HTTP API 网关：[http://localhost:8080/health](http://localhost:8080/health)
-- qqbot-core 健康检查：[http://localhost:8081/health](http://localhost:8081/health)
+默认服务：
 
-### OpenClaw Bridge（可选）
-用于将 OneBot11 QQ 消息桥接到 OpenClaw Gateway：
+- Admin Frontend: `http://localhost:3003`
+- Admin Backend: `http://localhost:9080/api/health`
+- QQBot Core: `http://localhost:8081/health`
+
+## 调试能力
+
+保留的调试面：
+
+- `qqbot-core` 健康检查、消息模拟、LLM 调试、简单队列接口
+- Admin 会话/聊天查看
+- Admin Queue Management
+- Prompt 管理 / 编辑 / 调试
+- HTTP 流量查看与回放
+
+## 常用命令
 
 ```bash
-cp modules/openclaw-bridge/.env.example modules/openclaw-bridge/.env
-# 编辑 .env 后启动
-docker compose --profile bridge up -d openclaw-bridge
+docker compose logs -f qqbot-qqbot-core
+docker compose logs -f qqbot-admin-backend
+docker exec -it qqbot-qqbot-core /bin/sh
+python3 scripts/start_modules.py start
+python3 scripts/start_modules.py status
 ```
 
-更多说明见：`modules/openclaw-bridge/README.md`
+## 文档
 
-## 日常开发
-- 查看日志：`docker logs -f <container>`
-- 进入容器调试：`docker exec -it qqbot-qqbot-core /bin/sh`
-- 运行测试：`npm test`（可在容器中执行）
+- [docs/TODO_REFACTOR.md](docs/TODO_REFACTOR.md)
+- [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)
+- [docs/ROADMAP.md](docs/ROADMAP.md)
+- [docs/PLAYWRIGHT_MCP_WSL.md](docs/PLAYWRIGHT_MCP_WSL.md)
 
-## 文档索引
-- 项目状态：`docs/PROJECT_STATUS.md`
-- 人类化消息处理：`docs/HUMAN_LIKE_PROCESSOR_FLOW.md`
-- LLM 工具链设计：`docs/LLM_TOOL_EXECUTION_DESIGN.md`
-- WSL2 中的 Playwright MCP 配置：`docs/PLAYWRIGHT_MCP_WSL.md`
-- 部署说明：`DOCKER.md`
-- 路线图：`docs/ROADMAP.md`
-
-更多历史或已完成文档可在 `docs/archive/` 中查阅。
+历史设计文档见 `docs/archive/`。

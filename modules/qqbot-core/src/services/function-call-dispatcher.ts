@@ -6,11 +6,6 @@
 import { logger } from '../utils/logger';
 import { ToolRegistryService } from './tool-registry-service';
 import {
-  FunctionRegistryClient,
-  FunctionInvokeResult,
-  RegistryFunctionUpsertPayload
-} from './function-registry-client';
-import {
   StaticTool,
   ToolContext,
   ToolResult,
@@ -48,12 +43,10 @@ export interface DispatchResult {
 export class FunctionCallDispatcher {
   private staticTools: Map<string, StaticTool>;
   private toolRegistry: ToolRegistryService;
-  private functionRegistryClient?: FunctionRegistryClient;
 
-  constructor(toolRegistry: ToolRegistryService, functionRegistryClient?: FunctionRegistryClient) {
+  constructor(toolRegistry: ToolRegistryService) {
     this.staticTools = new Map();
     this.toolRegistry = toolRegistry;
-    this.functionRegistryClient = functionRegistryClient;
     moduleLogger.info('[FunctionCallDispatcher] Initialized');
   }
 
@@ -65,9 +58,9 @@ export class FunctionCallDispatcher {
     moduleLogger.info(`[FunctionCallDispatcher] Registered static tool: ${tool.name}`);
 
     try {
-      await this.syncStaticToolWithRegistry(tool);
+      await this.toolRegistry.upsertTool(this.buildRegistryPayload(tool));
     } catch (error: any) {
-      moduleLogger.error('[FunctionCallDispatcher] Failed to sync static tool with registry', {
+      moduleLogger.error('[FunctionCallDispatcher] Failed to sync static tool with local registry', {
         tool: tool.name,
         error: error?.message || error
       });
@@ -118,13 +111,7 @@ export class FunctionCallDispatcher {
         return await this.handleStaticTool(staticTool, args, context);
       }
 
-      // 4. 检查函数注册中心
-      const registryFunctionId = this.getRegistryFunctionId(name, context.metadata);
-      if (registryFunctionId && this.functionRegistryClient?.isEnabled()) {
-        return await this.handleRegistryFunction(registryFunctionId, name, args, context);
-      }
-
-      // 5. 工具未找到
+      // 4. 工具未找到
       return {
         shouldContinue: true,
         functionResponse: {
@@ -312,109 +299,6 @@ export class FunctionCallDispatcher {
     }
   }
 
-  private getRegistryFunctionId(
-    functionName: string,
-    metadata?: Record<string, any>
-  ): string | undefined {
-    if (!metadata) {
-      return undefined;
-    }
-
-    const mapping = metadata.functionNameToId || metadata.function_name_to_id;
-    if (mapping && typeof mapping === 'object') {
-      const match = mapping[functionName];
-      return typeof match === 'string' ? match : undefined;
-    }
-
-    return undefined;
-  }
-
-  private async handleRegistryFunction(
-    functionId: string,
-    functionName: string,
-    args: any,
-    context: {
-      traceId: string;
-      jobId?: string;
-      userId?: number;
-      groupId?: number;
-      sourceKey: string;
-      metadata?: Record<string, any>;
-    }
-  ): Promise<DispatchResult> {
-    if (!this.functionRegistryClient) {
-      return {
-        shouldContinue: true,
-        functionResponse: {
-          name: functionName,
-          response: {
-            name: functionName,
-            content: { error: 'Function registry client not configured' }
-          }
-        },
-        isCompleted: false,
-        error: 'Function registry client not configured'
-      };
-    }
-
-    try {
-      const invocationContext: Record<string, any> = {
-        sourceKey: context.sourceKey,
-        userId: context.userId,
-        groupId: context.groupId,
-        promptId: context.metadata?.promptId,
-        conversationId: context.metadata?.conversationId,
-        messageId: context.metadata?.messageId,
-        sessionId: context.metadata?.sessionId
-      };
-
-      const result = await this.functionRegistryClient.invokeFunction(functionId, {
-        traceId: context.traceId,
-        jobId: context.jobId,
-        arguments: args || {},
-        context: invocationContext,
-        requestMode: context.metadata?.functionCallingMode
-      }) as FunctionInvokeResult;
-
-      const responseContent = result?.success
-        ? (result.data ?? { status: 'success' })
-        : { error: result?.error || 'Function execution failed' };
-
-      return {
-        shouldContinue: true,
-        functionResponse: {
-          name: functionName,
-          response: {
-            name: functionName,
-            content: responseContent
-          }
-        },
-        suppressAutoReply: result?.suppressAutoReply,
-        isCompleted: false,
-        error: result?.success ? undefined : result?.error
-      };
-    } catch (error: any) {
-      moduleLogger.error('[FunctionCallDispatcher] Registry function invocation failed', {
-        functionId,
-        functionName,
-        error: error?.message
-      });
-
-      return {
-        shouldContinue: true,
-        functionResponse: {
-          name: functionName,
-          response: {
-            name: functionName,
-            content: { error: error?.message || 'Function execution failed' }
-          }
-        },
-        isCompleted: false,
-        error: error?.message || 'Function execution failed'
-      };
-    }
-  }
-
   /**
    * 记录静态工具执行日志
    */
@@ -465,6 +349,14 @@ export class FunctionCallDispatcher {
     }
   }
 
+  private buildStaticDeclaration(tool: StaticTool): { name: string; description: string; parameters?: any } {
+    return {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    };
+  }
+
   /**
    * 获取所有静态工具声明 (用于 Gemini payload)
    */
@@ -472,14 +364,21 @@ export class FunctionCallDispatcher {
     const declarations: any[] = [];
 
     this.staticTools.forEach((tool) => {
-      declarations.push({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters
-      });
+      declarations.push(this.buildStaticDeclaration(tool));
     });
 
     return declarations;
+  }
+
+  /**
+   * 按名称获取单个静态工具声明
+   */
+  getStaticToolDeclaration(name: string): { name: string; description: string; parameters?: any } | undefined {
+    const tool = this.staticTools.get(name);
+    if (!tool) {
+      return undefined;
+    }
+    return this.buildStaticDeclaration(tool);
   }
 
   private buildRegistryPayload(tool: StaticTool): Omit<LLMTool, 'id' | 'created_at' | 'updated_at'> {
@@ -505,55 +404,6 @@ export class FunctionCallDispatcher {
       success_calls: 0,
       failed_calls: 0
     };
-  }
-
-  private buildFunctionDefinitionPayload(tool: StaticTool): RegistryFunctionUpsertPayload {
-    const metadata = tool.registryMetadata || {};
-    const expectResponse = metadata.expectResponse ?? (tool.mode !== 'fire-and-forget');
-    const timeoutMs = metadata.timeoutMs ?? 10000;
-    const createdBy = metadata.createdBy || 'system';
-
-    return {
-      name: tool.name,
-      displayName: metadata.displayName || tool.description || tool.name,
-      description: tool.description,
-      parametersSchema: tool.parameters,
-      sideEffect: metadata.sideEffect ?? false,
-      expectResponse,
-      category: metadata.category,
-      tags: metadata.tags,
-      invokeMethod: 'INTERNAL',
-      invokeUrl: undefined,
-      httpMethod: undefined,
-      authType: 'NONE',
-      timeoutMs,
-      retryPolicy: undefined,
-      executionAdapter: undefined,
-      managedBySystem: true,
-      enabled: metadata.enabled ?? true,
-      createdBy,
-      updatedBy: metadata.updatedBy
-    };
-  }
-
-  private async syncStaticToolWithRegistry(tool: StaticTool): Promise<void> {
-    const payload = this.buildRegistryPayload(tool);
-    await this.toolRegistry.upsertTool(payload);
-
-    if (this.functionRegistryClient?.isEnabled()) {
-      try {
-        const functionPayload = this.buildFunctionDefinitionPayload(tool);
-        await this.functionRegistryClient.upsertFunctionDefinition(functionPayload);
-      } catch (error: any) {
-        moduleLogger.error(
-          '[FunctionCallDispatcher] Failed to sync function definition to registry',
-          {
-            tool: tool.name,
-            error: error?.message || error
-          }
-        );
-      }
-    }
   }
 
   /**

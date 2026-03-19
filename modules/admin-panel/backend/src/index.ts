@@ -6,7 +6,6 @@ import winston from 'winston';
 import { DatabaseManager } from './services/database';
 import simpleQueueRoutes from './routes/simple-queue-monitor';
 import queueMonitorRoutes from './routes/queue-monitor';
-import llmConfigRoutes from './routes/llm-config-minimal';
 import { createDebugRoutes } from './routes/debug-routes';
 import { createTokenRoutes } from './routes/token-management';
 import { createConversationRoutes } from './routes/conversation-routes';
@@ -19,14 +18,12 @@ import { createUserRoutes } from './routes/user-routes';
 import { createTrafficMonitorRoutes } from './routes/traffic-monitor-routes';
 import { createTemplateRoutes } from './routes/template-routes';
 import { TrafficLogWatcher, DEFAULT_WATCHER_CONFIG } from './services/traffic-log-watcher';
-import { createFunctionRegistryRoutes } from './routes/function-registry-routes';
 
 // Load environment variables
 config();
 
 const app = express();
 const PORT = parseInt(process.env.HTTP_PORT || '9080', 10);
-const FUNCTION_REGISTRY_BASE_URL = process.env.FUNCTION_REGISTRY_BASE_URL || 'http://http-api:8080/v1';
 
 // Configure logging
 const logger = winston.createLogger({
@@ -123,7 +120,7 @@ async function startServer() {
   logger.info('🔧 Registering log routes...');
   app.use('/api', createLogRoutes(database, logger));           // Log queries
   logger.info('🔧 Registering prompt routes...');
-  app.use('/api', createPromptRoutes(database, logger, FUNCTION_REGISTRY_BASE_URL));        // Prompt management
+  app.use('/api', createPromptRoutes(database, logger));        // Prompt management
   logger.info('🔧 Registering debug routes...');
   app.use('/api', createDebugRoutes(database, logger));         // Debug endpoints
   logger.info('🔧 Registering token routes...');
@@ -138,16 +135,12 @@ async function startServer() {
   app.use('/api', createTrafficMonitorRoutes(database, logger)); // HTTP traffic monitoring
   logger.info('🔧 Registering template routes...');
   app.use('/api', createTemplateRoutes(database, logger));      // Traffic replay templates
-  logger.info('🔧 Registering function registry routes...');
-  app.use('/api/function-registry', createFunctionRegistryRoutes(FUNCTION_REGISTRY_BASE_URL, logger));
 
   // 现有的专用路由
   logger.info('🔧 Registering simple-queue routes...');
   app.use('/api/simple-queue', simpleQueueRoutes);
   logger.info('🔧 Registering queue-monitor routes...');
   app.use('/api/queue-monitor', queueMonitorRoutes);
-  logger.info('🔧 Registering llm-config routes...');
-  app.use('/api/llm-config', llmConfigRoutes);
 
   logger.info('✅ All routes registered successfully');
 

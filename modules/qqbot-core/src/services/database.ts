@@ -1845,7 +1845,7 @@ export class DatabaseManager {
         content,
         raw_payload,
         sent_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const params = [
@@ -1875,7 +1875,7 @@ export class DatabaseManager {
         content,
         raw_payload,
         sent_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const params = [

@@ -95,8 +95,14 @@ const validateTags = (value: unknown): string[] => {
   return Array.from(new Set(normalized));
 };
 
-const validateUserPerspectives = (value: unknown): UserPerspective[] => {
+const validateUserPerspectives = (
+  value: unknown,
+  options: { required?: boolean } = {}
+): UserPerspective[] => {
   if (value == null) {
+    if (options.required) {
+      throw new Error('user_perspectives is required; provide an empty array if no perspectives apply');
+    }
     return [];
   }
 
@@ -248,7 +254,7 @@ const createGroupMessageTool = (
       },
       user_perspectives: {
         type: 'array',
-        description: '当消息涉及评价/调侃时，提供依据以满足 persona 约束。',
+        description: '当消息涉及评价/调侃时，提供依据以满足 persona 约束；若没有观点请传空数组。',
         items: {
           type: 'object',
           properties: {
@@ -260,7 +266,7 @@ const createGroupMessageTool = (
         }
       }
     },
-    required: ['message']
+    required: ['message', 'user_perspectives']
   },
   registryMetadata: {
     displayName: 'Send QQ Group Message',
@@ -280,13 +286,13 @@ const createGroupMessageTool = (
       const {
         message,
         at_user_ids = [],
-        user_perspectives = []
+        user_perspectives
       } = ctx.arguments || {};
 
       const normalizedGroupId = validateNumericId(ctx.group_id, 'group_id');
       const normalizedMessage = validateMessage(message);
       const mentionUserIds = validateAtUserIds(at_user_ids);
-      const normalizedPerspectives = validateUserPerspectives(user_perspectives);
+      const normalizedPerspectives = validateUserPerspectives(user_perspectives, { required: true });
 
       const mentionPrefix = buildMentionPrefix(mentionUserIds);
       const finalPayload = mentionPrefix
@@ -350,7 +356,7 @@ const createSendMemeImageTool = (
       },
       user_perspectives: {
         type: 'array',
-        description: '若表情暗含评价/吐槽，请给出依据，保持 persona 约束一致。',
+        description: '若表情暗含评价/吐槽，请给出依据，保持 persona 约束一致；无观点请显式传空数组。',
         items: {
           type: 'object',
           properties: {
@@ -362,7 +368,7 @@ const createSendMemeImageTool = (
         }
       }
     },
-    required: ['tags']
+    required: ['tags', 'user_perspectives']
   },
   registryMetadata: {
     displayName: 'Send Meme Image',
@@ -379,11 +385,11 @@ const createSendMemeImageTool = (
     const start = Date.now();
 
     try {
-      const { tags, at_user_ids = [], user_perspectives = [] } = ctx.arguments || {};
+      const { tags, at_user_ids = [], user_perspectives } = ctx.arguments || {};
 
       const normalizedTags = validateTags(tags);
       const mentionUserIds = validateAtUserIds(at_user_ids);
-      const normalizedPerspectives = validateUserPerspectives(user_perspectives);
+      const normalizedPerspectives = validateUserPerspectives(user_perspectives, { required: true });
 
       const memeCandidate = await deps.findMemeByTags(normalizedTags);
       if (!memeCandidate) {
@@ -446,7 +452,7 @@ const createSaveMemeImageTool = (
   deps: MessagingToolDependencies
 ): StaticTool => ({
   name: 'save_meme_image',
-  description: '将新的表情图片入库以便后续按标签检索使用。',
+  description: '这表情挺有意思的,保存一下,我以后可能要用到',
   mode: 'fire-and-forget',
   parameters: {
     type: 'object',

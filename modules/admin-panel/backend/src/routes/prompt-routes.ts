@@ -2,56 +2,31 @@ import express from 'express';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
 import * as crypto from 'crypto';
-import axios, { AxiosInstance } from 'axios';
 
 // 创建Prompt管理相关路由
 export function createPromptRoutes(
   database: DatabaseManager,
-  logger: winston.Logger,
-  functionRegistryBaseUrl?: string
+  logger: winston.Logger
 ) {
   const router = express.Router();
-  const functionRegistryClient: AxiosInstance | null = functionRegistryBaseUrl
-    ? axios.create({ baseURL: functionRegistryBaseUrl, timeout: 5000 })
-    : null;
+  const qqbotCoreBaseUrl = process.env.QQBOT_CORE_URL || 'http://qqbot-core:8081';
 
-  const normalizeFunctionBindings = (input: any) => {
-    if (!input || typeof input !== 'object') {
-      return null;
-    }
-
-    const rawIds = Array.isArray(input.functionIds)
-      ? input.functionIds
-      : Array.isArray(input.function_ids)
-        ? input.function_ids
-        : [];
-
-    const functionIds = (rawIds as unknown[])
-      .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-      .map((id: string) => id.trim());
-
-    if (functionIds.length === 0) {
-      return null;
-    }
-
-    const actor = typeof input.actor === 'string' ? input.actor : undefined;
-
-    return {
-      functionIds,
-      actor
-    };
-  };
-
-  const syncFunctionBindings = async (promptId: string, bindings: any) => {
-    if (!functionRegistryClient || !bindings) {
+  const clearCoreConfigCache = async (agentType?: string) => {
+    if (!qqbotCoreBaseUrl) {
       return;
     }
 
     try {
-      await functionRegistryClient.patch(`/prompts/${promptId}/functions`, bindings);
+      await fetch(`${qqbotCoreBaseUrl}/api/internal/config-cache/clear`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(agentType ? { agentType } : {})
+      });
     } catch (error: any) {
-      logger.error('Failed to sync function bindings with registry', {
-        promptId,
+      logger.warn('Failed to clear qqbot-core configuration cache', {
+        agentType,
         error: error?.message || error
       });
     }
@@ -180,10 +155,6 @@ export function createPromptRoutes(
         ]
       );
 
-      const functionBindings = normalizeFunctionBindings(
-        req.body?.function_bindings || req.body?.functionBindings
-      );
-
       res.json({
         success: true,
         data: {
@@ -196,9 +167,7 @@ export function createPromptRoutes(
         timestamp: new Date().toISOString()
       });
 
-      if (functionBindings) {
-        await syncFunctionBindings(promptId, functionBindings);
-      }
+      await clearCoreConfigCache(agent_type || 'chat_bot');
 
     } catch (error) {
       logger.error('Failed to create prompt', { error, body: req.body });
@@ -225,9 +194,7 @@ export function createPromptRoutes(
         advanced_config,
         model_name,
         description,
-        is_active,
-        function_bindings,
-        functionBindings
+        is_active
       } = req.body;
 
       if (!prompt_name || !system_instructions) {
@@ -239,8 +206,8 @@ export function createPromptRoutes(
       }
 
       // 检查Prompt是否存在
-      const existingPrompt = await database.executeQuery(
-        'SELECT id FROM agent_prompts WHERE id = ?',
+      const existingPrompt = await database.executeQuery<{ id: string; agent_type: string | null }>(
+        'SELECT id, agent_type FROM agent_prompts WHERE id = ?',
         [promptId]
       );
 
@@ -279,8 +246,6 @@ export function createPromptRoutes(
         ]
       );
 
-      const normalizedBindings = normalizeFunctionBindings(function_bindings || functionBindings);
-
       res.json({
         success: true,
         data: {
@@ -293,8 +258,11 @@ export function createPromptRoutes(
         timestamp: new Date().toISOString()
       });
 
-      if (normalizedBindings) {
-        await syncFunctionBindings(promptId, normalizedBindings);
+      const previousAgentType = existingPrompt[0]?.agent_type || undefined;
+      const nextAgentType = agent_type || previousAgentType;
+      await clearCoreConfigCache(previousAgentType);
+      if (nextAgentType && nextAgentType !== previousAgentType) {
+        await clearCoreConfigCache(nextAgentType);
       }
 
     } catch (error) {
@@ -317,8 +285,9 @@ export function createPromptRoutes(
       const existingPrompt = await database.executeQuery<{
         id: string;
         prompt_name: string;
+        agent_type: string | null;
       }>(
-        'SELECT id, prompt_name FROM agent_prompts WHERE id = ?',
+        'SELECT id, prompt_name, agent_type FROM agent_prompts WHERE id = ?',
         [promptId]
       );
 
@@ -349,6 +318,8 @@ export function createPromptRoutes(
         message: `Prompt "${existingPrompt[0].prompt_name}" deleted successfully`,
         timestamp: new Date().toISOString()
       });
+
+      await clearCoreConfigCache(existingPrompt[0].agent_type || undefined);
 
     } catch (error) {
       logger.error('Failed to delete prompt', { error, promptId: req.params.id });

@@ -47,12 +47,6 @@ class ProcessManager {
     this.projectRoot = path.join(__dirname, '..');
     this.modules = [
       {
-        name: 'HTTP API Gateway',
-        path: 'modules/http-api',
-        port: 8080,
-        script: 'dev'
-      },
-      {
         name: 'QQBot Core',
         path: 'modules/qqbot-core',
         port: 8081,
@@ -258,9 +252,9 @@ class ProcessManager {
       return false;
     }
 
-    // 并行启动前3个模块 (后端服务)
-    const backendModules = this.modules.slice(0, 3);
-    const frontendModule = this.modules[3];
+    // 并行启动后端模块
+    const backendModules = this.modules.slice(0, 2);
+    const frontendModule = this.modules[2];
 
     Logger.step('并行启动后端模块...');
     

@@ -234,10 +234,10 @@ docker exec qqbot-mysql curl http://www.google.com
 docker exec qqbot-mysql curl https://www.google.com
 
 # 查看日志
-tail -f modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmproxy-*.log
+tail -f logs/qqbot-traffic/mitmproxy-*.log
 
 # 查看流量记录
-cat modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/traffic-2025-10-01.jsonl | jq
+cat logs/qqbot-traffic/traffic-2025-10-01.jsonl | jq
 ```
 
 ---
@@ -284,7 +284,7 @@ cat modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/traffic-2
 ### 4. 关键配置文件
 - **addon**: `modules/http-traffic-monitor/mitmproxy/addon.py`
 - **Python CLI工具**: `modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py`
-- **日志目录**: `modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/`
+- **日志目录**: `logs/qqbot-traffic/`
 - **证书目录**: `~/.mitmproxy/` (首次启动自动生成)
 
 ---

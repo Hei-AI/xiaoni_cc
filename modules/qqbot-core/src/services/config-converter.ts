@@ -206,12 +206,49 @@ export class ConfigConverter {
     try {
       const config = typeof advancedConfig === 'string' ? JSON.parse(advancedConfig) : advancedConfig;
       const toolsConfig = config && typeof config.toolsConfig === 'object' ? config.toolsConfig : {};
+      const rawCustomTools = Array.isArray(toolsConfig.customTools) ? toolsConfig.customTools : [];
+      const customTools = rawCustomTools
+        .map((tool: any) => {
+          if (!tool || typeof tool !== 'object') {
+            return null;
+          }
+
+          const name = typeof tool.name === 'string' ? tool.name.trim() : '';
+          const id = typeof tool.id === 'string' ? tool.id.trim() : '';
+          const normalizedName = name.length > 0 ? name : id;
+          if (!normalizedName) {
+            return null;
+          }
+
+          return {
+            id: id || normalizedName,
+            name: normalizedName,
+            description: typeof tool.description === 'string' ? tool.description : '',
+            parameters: tool.parameters && typeof tool.parameters === 'object' ? tool.parameters : {}
+          };
+        })
+        .filter(Boolean);
+
+      const customToolNames = customTools.map((tool: any) => tool.name);
+      const customToolIds = customTools.map((tool: any) => tool.id);
+      const rawFunctionCalling = toolsConfig.functionCalling || toolsConfig.functionCallingConfig || {};
 
       return {
         functionCalling: {
-          mode: this.normalizeFunctionCallingMode(toolsConfig.functionCalling?.mode),
-          allowedFunctionNames: [],
-          allowedFunctionIds: []
+          mode: this.normalizeFunctionCallingMode(
+            rawFunctionCalling.mode,
+            customTools.length > 0 ? 'AUTO' : 'NONE'
+          ),
+          allowedFunctionNames: Array.isArray(rawFunctionCalling.allowedFunctionNames)
+            ? rawFunctionCalling.allowedFunctionNames.filter((name: unknown) =>
+                typeof name === 'string' && customToolNames.includes(name)
+              )
+            : customToolNames,
+          allowedFunctionIds: Array.isArray(rawFunctionCalling.allowedFunctionIds)
+            ? rawFunctionCalling.allowedFunctionIds.filter((id: unknown) =>
+                typeof id === 'string' && customToolIds.includes(id)
+              )
+            : customToolIds
         },
         predefinedTools: {
           enabledTools: Array.isArray(toolsConfig.predefinedTools?.enabledTools)
@@ -219,7 +256,7 @@ export class ConfigConverter {
             : [],
           callingMode: this.normalizeFunctionCallingMode(toolsConfig.predefinedTools?.callingMode, 'AUTO')
         },
-        customTools: [],
+        customTools,
         googleSearch: toolsConfig.googleSearch,
         urlContext: toolsConfig.urlContext,
         structuredOutput: toolsConfig.structuredOutput

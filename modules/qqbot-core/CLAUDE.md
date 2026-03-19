@@ -53,7 +53,7 @@ npm run build              # 构建
 ## 6. 测试与调试
 - 单元/集成测试：`npm test` 或 `npm run test:watch`。
 - LLM 工具专用测试：[llm-tools-integration.test.ts](./tests/llm-tools-integration.test.ts)。
-- 模拟消息：[src/index.ts](./src/index.ts) 中暴露的 `simulatePrivateMessage*`、`simulateGroupMessage*` 方法，或通过 [modules/http-api](../http-api) 提供的 HTTP 接口。
+- 模拟消息：通过 [src/index.ts](./src/index.ts) 中暴露的 `simulatePrivateMessage*`、`simulateGroupMessage*` 方法，或使用 `qqbot-core` 自身的测试/调试接口。
 
 ## 7. 提交注意
 - 不要提交 `logs/`、`dist/`、`node_modules/`、`resource/napcat_qq_data/` 等目录。

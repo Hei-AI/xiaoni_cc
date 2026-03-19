@@ -11,6 +11,8 @@ import * as chokidar from 'chokidar';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
 
+const MYSQL_INT_UNSIGNED_MAX = Math.pow(2, 32) - 1;
+
 // ==================== 类型定义 ====================
 
 interface WatcherConfig {
@@ -46,7 +48,7 @@ interface TrafficLogRecord {
   response_body?: string;
   response_content_type?: string;
   response_size?: number;
-  duration_ms?: number;
+  duration_ms?: number | null;
   request_timestamp: string;
   response_timestamp?: string;
   is_ai_request?: boolean;
@@ -414,7 +416,7 @@ export class TrafficLogWatcher {
           record.response_body || null,
           record.response_content_type || null,
           record.response_size || 0,
-          record.duration_ms || null,
+          record.duration_ms ?? null,
           this.convertToMySQLDatetime(record.request_timestamp),
           record.response_timestamp ? this.convertToMySQLDatetime(record.response_timestamp) : null,
           record.is_ai_request || false,
@@ -473,7 +475,7 @@ export class TrafficLogWatcher {
       response_body: record.response_body,
       response_content_type: record.response_content_type,
       response_size: record.response_size,
-      duration_ms: record.duration_ms,
+      duration_ms: this.normalizeDuration(record.duration_ms),
       request_timestamp: record.request_timestamp || new Date().toISOString(),
       response_timestamp: record.response_timestamp,
       is_ai_request: record.is_ai_request || false,
@@ -507,6 +509,48 @@ export class TrafficLogWatcher {
     } catch {
       return new Date().toISOString().slice(0, 19).replace('T', ' ');
     }
+  }
+
+  /**
+   * 规范化耗时字段，避免插入负数或超出MySQL取值范围
+   */
+  private normalizeDuration(value: unknown): number | null {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+
+    let numericValue: number;
+
+    if (typeof value === 'number') {
+      numericValue = value;
+    } else if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return null;
+      }
+      numericValue = Number(trimmed);
+    } else {
+      return null;
+    }
+
+    if (!Number.isFinite(numericValue)) {
+      this.logger.debug('[TrafficLogWatcher] Ignoring non-numeric duration_ms value:', value);
+      return null;
+    }
+
+    if (numericValue < 0) {
+      this.logger.debug(`[TrafficLogWatcher] duration_ms value ${numericValue} < 0, clamping to 0`);
+      return 0;
+    }
+
+    if (numericValue > MYSQL_INT_UNSIGNED_MAX) {
+      this.logger.debug(
+        `[TrafficLogWatcher] duration_ms value ${numericValue} exceeds MySQL limit, clamping to ${MYSQL_INT_UNSIGNED_MAX}`
+      );
+      return MYSQL_INT_UNSIGNED_MAX;
+    }
+
+    return Math.round(numericValue);
   }
 }
 

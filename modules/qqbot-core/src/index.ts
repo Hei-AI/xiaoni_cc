@@ -19,7 +19,6 @@ import { ToolRegistryService } from './services/tool-registry-service';
 import { FunctionCallDispatcher } from './services/function-call-dispatcher';
 import { LLMJobWorker } from './services/llm-job-worker';
 import { createMessagingTools } from './tools/static-tools';
-import { FunctionRegistryClient } from './services/function-registry-client';
 import {
   QQMessage,
   QQNotice,
@@ -67,7 +66,6 @@ class QQBot implements BatchHandler {
   private functionCallDispatcher: FunctionCallDispatcher;
   private llmJobWorker: LLMJobWorker;
   private enableLLMTools: boolean;
-  private functionRegistryClient: FunctionRegistryClient;
   private memeLibrary: MemeLibrary;
 
   private moduleLogger = logger.createModuleLogger('main');
@@ -87,8 +85,7 @@ class QQBot implements BatchHandler {
       this.database,
       config.ai.bot_qq_number
     );
-    this.functionRegistryClient = new FunctionRegistryClient(config.function_registry);
-    this.aiService = new AIService(config.ai, this.database, this.loggingService, this.functionRegistryClient);
+    this.aiService = new AIService(config.ai, this.database, this.loggingService);
     this.sessionManager = new SessionManager(this.database);
     this.contextManager = new ContextManager(this.database);
     this.debugService = new DebugService(this.database);
@@ -141,10 +138,7 @@ class QQBot implements BatchHandler {
     // 🛠️ Initialize LLM Tools System
     this.enableLLMTools = process.env.ENABLE_LLM_TOOLS === 'true';
     this.toolRegistryService = new ToolRegistryService(this.database);
-    this.functionCallDispatcher = new FunctionCallDispatcher(
-      this.toolRegistryService,
-      this.functionRegistryClient
-    );
+    this.functionCallDispatcher = new FunctionCallDispatcher(this.toolRegistryService);
 
     const messagingTools = createMessagingTools({
       sendPrivateMessage: this.websocketClient.sendPrivateMessage.bind(this.websocketClient),
@@ -161,12 +155,6 @@ class QQBot implements BatchHandler {
           error: error instanceof Error ? error.message : error
         });
       });
-
-    void this.ensureBasicChatFunctionSetup().catch(error => {
-      this.moduleLogger.error('Failed to ensure basic_chat function setup', {
-        error: error instanceof Error ? error.message : error
-      });
-    });
 
     // 初始化 LLMJobWorker
     this.llmJobWorker = new LLMJobWorker(
@@ -307,458 +295,6 @@ class QQBot implements BatchHandler {
     this.moduleLogger.info('QQBot initialized', {
       enableHumanLikeProcessing: this.enableHumanLikeProcessing
     });
-  }
-
-  private async ensureBasicChatFunctionSetup(): Promise<void> {
-    const map = await this.ensureMessagingFunctionDefinitions();
-    await this.ensureBasicChatPromptConfig(map);
-  }
-
-  private async ensureMessagingFunctionDefinitions(): Promise<Map<string, string>> {
-    const definitions: Array<{
-      name: string;
-      displayName: string;
-      description: string;
-      parametersSchema: Record<string, unknown>;
-      sideEffect: boolean;
-      expectResponse: boolean;
-      category: string;
-      tags: string[];
-      timeoutMs: number;
-    }> = [
-      {
-        name: 'send_private_chat_message',
-        displayName: 'Send Private Chat Message',
-        description: '向指定QQ用户发送一条私聊消息。',
-        parametersSchema: {
-          type: 'object',
-          properties: {
-            user_id: {
-              type: 'integer',
-              description: '接收消息的QQ用户ID。'
-            },
-            message: {
-              type: 'string',
-              description: '要发送的消息内容。'
-            }
-          },
-          required: ['user_id', 'message']
-        },
-        sideEffect: true,
-        expectResponse: false,
-        category: 'messaging',
-        tags: ['qq', 'private'],
-        timeoutMs: 10000
-      },
-      {
-        name: 'send_qq_group_message',
-        displayName: 'Send QQ Group Message',
-        description: '向当前会话所属的QQ群发送文本消息，可选精准@指定成员。',
-        parametersSchema: {
-          type: 'object',
-          properties: {
-            message: {
-              type: 'string',
-              description: '要发送的群聊文本内容。'
-            },
-            at_user_ids: {
-              type: 'array',
-              description: '需要被@的QQ号列表；缺省或空数组时不@任何人。',
-              items: { type: 'integer' }
-            },
-            user_perspectives: {
-              type: 'array',
-              description: '当消息涉及评价/调侃时，提供依据以满足 persona 约束。',
-              items: {
-                type: 'object',
-                properties: {
-                  target_user_id: { type: 'integer', description: '被评价的用户QQ号。' },
-                  based_on: { type: 'string', description: '触发该评价的原始输入片段。' },
-                  comment: { type: 'string', description: '面向目标用户的评价或结论。' }
-                },
-                required: ['target_user_id', 'based_on', 'comment']
-              }
-            }
-          },
-          required: ['message']
-        },
-        sideEffect: true,
-        expectResponse: false,
-        category: 'messaging',
-        tags: ['qq', 'group'],
-        timeoutMs: 10000
-      },
-      {
-        name: 'send_meme_image',
-        displayName: 'Send Meme Image',
-        description: '按标签检索并发送匹配的表情包，支持必要的@与观点说明。',
-        parametersSchema: {
-          type: 'object',
-          properties: {
-            tags: {
-              type: 'array',
-              description: '用于检索表情包的语义标签（情绪/场景等，每个尽量2-4字）。',
-              items: { type: 'string' }
-            },
-            at_user_ids: {
-              type: 'array',
-              description: '需要被@的成员QQ号列表；缺省表示不@任何人。',
-              items: { type: 'integer' }
-            },
-            user_perspectives: {
-              type: 'array',
-              description: '若表情暗含评价/吐槽，请给出依据，保持 persona 约束一致。',
-              items: {
-                type: 'object',
-                properties: {
-                  target_user_id: { type: 'integer', description: '被评价的用户QQ号。' },
-                  based_on: { type: 'string', description: '触发该评价的原始输入片段。' },
-                  comment: { type: 'string', description: '对目标用户的评价或结论。' }
-                },
-                required: ['target_user_id', 'based_on', 'comment']
-              }
-            }
-          },
-          required: ['tags']
-        },
-        sideEffect: true,
-        expectResponse: false,
-        category: 'messaging',
-        tags: ['qq', 'meme', 'image'],
-        timeoutMs: 10000
-      },
-      {
-        name: 'save_meme_image',
-        displayName: 'Save Meme Image',
-        description: '将新的表情图片入库以便后续按标签检索使用。',
-        parametersSchema: {
-          type: 'object',
-          properties: {
-            image_base64: {
-              type: 'string',
-              description: '表情图片的 Base64 编码内容；后端需解码保存。'
-            },
-            tags: {
-              type: 'array',
-              description: '为表情打上的检索标签（每个尽量2-4字，覆盖情绪/场景）。',
-              items: { type: 'string' }
-            }
-          },
-          required: ['image_base64', 'tags']
-        },
-        sideEffect: true,
-        expectResponse: false,
-        category: 'messaging',
-        tags: ['qq', 'meme', 'storage'],
-        timeoutMs: 10000
-      },
-      {
-        name: 'end',
-        displayName: 'End Conversation',
-        description: '当无需回复或执行任何操作时使用，表示当前会话结束。',
-        parametersSchema: {
-          type: 'object',
-          properties: {},
-          required: []
-        },
-        sideEffect: false,
-        expectResponse: false,
-        category: 'system',
-        tags: ['system', 'control'],
-        timeoutMs: 5000
-      }
-    ];
-
-    const nameToId = new Map<string, string>();
-
-    for (const definition of definitions) {
-      const rows = await this.database.executeQuery<{ id: string }>(
-        'SELECT id FROM llm_function_definitions WHERE name = ? LIMIT 1',
-        [definition.name]
-      );
-
-      if (rows.length === 0) {
-        const id = uuidv4();
-        await this.database.executeQuery(
-          `INSERT INTO llm_function_definitions (
-            id, name, display_name, description, parameters_schema,
-            side_effect, expect_response, category, tags,
-            invoke_method, invoke_url, http_method, auth_type,
-            timeout_ms, managed_by_system, enabled, created_by, updated_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'INTERNAL', NULL, NULL, 'NONE', ?, 1, 1, 'system', 'system')`,
-          [
-            id,
-            definition.name,
-            definition.displayName,
-            definition.description,
-            JSON.stringify(definition.parametersSchema),
-            definition.sideEffect ? 1 : 0,
-            definition.expectResponse ? 1 : 0,
-            definition.category,
-            JSON.stringify(definition.tags),
-            definition.timeoutMs
-          ]
-        );
-        nameToId.set(definition.name, id);
-      } else {
-        const id = rows[0].id;
-        await this.database.executeQuery(
-          `UPDATE llm_function_definitions
-           SET display_name = ?, description = ?, parameters_schema = ?, side_effect = ?,
-               expect_response = ?, category = ?, tags = ?, timeout_ms = ?, updated_by = 'system', enabled = 1
-           WHERE id = ?`,
-          [
-            definition.displayName,
-            definition.description,
-            JSON.stringify(definition.parametersSchema),
-            definition.sideEffect ? 1 : 0,
-            definition.expectResponse ? 1 : 0,
-            definition.category,
-            JSON.stringify(definition.tags),
-            definition.timeoutMs,
-            id
-          ]
-        );
-        nameToId.set(definition.name, id);
-      }
-    }
-
-    const deprecatedRows = await this.database.executeQuery<{ id: string }>(
-      'SELECT id FROM llm_function_definitions WHERE name = ? LIMIT 1',
-      ['send_group_chat_message']
-    );
-    if (deprecatedRows.length > 0) {
-      await this.database.executeQuery(
-        'UPDATE llm_function_definitions SET enabled = 0, updated_by = \'system\' WHERE id = ?',
-        [deprecatedRows[0].id]
-      );
-    }
-
-    return nameToId;
-  }
-
-  private async ensureBasicChatPromptConfig(functionMap: Map<string, string>): Promise<void> {
-    const prompts = await this.database.executeQuery<{ id: string; advanced_config: string | null }>(
-      'SELECT id, advanced_config FROM agent_prompts WHERE prompt_name = ? LIMIT 1',
-      ['basic_chat']
-    );
-
-    if (prompts.length === 0) {
-      this.moduleLogger.warn('basic_chat prompt not found when ensuring function setup');
-      return;
-    }
-
-    const prompt = prompts[0];
-    const promptId = prompt.id;
-
-    const bindingOrder: Array<{ name: string; priority: number }> = [
-      { name: 'send_private_chat_message', priority: 0 },
-      { name: 'send_qq_group_message', priority: 1 },
-      { name: 'send_meme_image', priority: 2 },
-      { name: 'save_meme_image', priority: 3 },
-      { name: 'end', priority: 4 }
-    ];
-
-    for (const binding of bindingOrder) {
-      if (binding.name === 'end') {
-        const endRows = await this.database.executeQuery<{ id: string }>(
-          'SELECT id FROM llm_function_definitions WHERE name = ? LIMIT 1',
-          ['end']
-        );
-        if (endRows.length === 0) {
-          continue;
-        }
-        const existingEnd = await this.database.executeQuery<{ id: number }>(
-          'SELECT id FROM prompt_function_bindings WHERE prompt_id = ? AND function_id = ? LIMIT 1',
-          [promptId, endRows[0].id]
-        );
-        if (existingEnd.length === 0) {
-          await this.database.executeQuery(
-            `INSERT INTO prompt_function_bindings (
-              prompt_id, function_id, calling_mode, priority, metadata, created_by, updated_by
-            ) VALUES (?, ?, 'AUTO', ?, NULL, 'system', 'system')`,
-            [promptId, endRows[0].id, binding.priority]
-          );
-        } else {
-          await this.database.executeQuery(
-            `UPDATE prompt_function_bindings
-             SET calling_mode = 'AUTO', priority = ?, updated_by = 'system'
-             WHERE id = ?`,
-            [binding.priority, existingEnd[0].id]
-          );
-        }
-        continue;
-      }
-
-      const functionId = functionMap.get(binding.name);
-      if (!functionId) {
-        continue;
-      }
-
-      const existing = await this.database.executeQuery<{ id: number }>(
-        'SELECT id FROM prompt_function_bindings WHERE prompt_id = ? AND function_id = ? LIMIT 1',
-        [promptId, functionId]
-      );
-
-      if (existing.length === 0) {
-        await this.database.executeQuery(
-          `INSERT INTO prompt_function_bindings (
-            prompt_id, function_id, calling_mode, priority, metadata, created_by, updated_by
-          ) VALUES (?, ?, 'AUTO', ?, NULL, 'system', 'system')`,
-          [promptId, functionId, binding.priority]
-        );
-      } else {
-        await this.database.executeQuery(
-          `UPDATE prompt_function_bindings
-           SET calling_mode = 'AUTO', priority = ?, updated_by = 'system'
-           WHERE id = ?`,
-          [binding.priority, existing[0].id]
-        );
-      }
-    }
-
-    await this.database.executeQuery(
-      `DELETE FROM prompt_function_bindings
-       WHERE prompt_id = ?
-         AND function_id IN (
-           SELECT id FROM llm_function_definitions WHERE name = 'send_group_chat_message'
-         )`,
-      [promptId]
-    );
-
-    const config = this.normalizeAdvancedConfig(prompt.advanced_config);
-    config.toolsConfig = config.toolsConfig || {};
-    config.toolsConfig.functionCalling = config.toolsConfig.functionCalling || {};
-    config.toolsConfig.functionCalling.mode = config.toolsConfig.functionCalling.mode || 'AUTO';
-    config.toolsConfig.functionCalling.allowedFunctionNames = [
-      'send_private_chat_message',
-      'send_qq_group_message',
-      'send_meme_image',
-      'save_meme_image'
-    ];
-
-    const customToolTemplates: Record<string, Record<string, unknown>> = {
-      send_private_chat_message: {
-        id: 'send_private_chat_message',
-        name: 'send_private_chat_message',
-        description: '向指定QQ用户发送一条私聊消息。',
-        parameters: {
-          type: 'object',
-          properties: {
-            user_id: {
-              type: 'integer',
-              description: '接收消息的QQ用户ID。'
-            },
-            message: {
-              type: 'string',
-              description: '要发送的消息内容。'
-            }
-          },
-          required: ['user_id', 'message']
-        }
-      },
-      send_qq_group_message: {
-        id: 'send_qq_group_message',
-        name: 'send_qq_group_message',
-        description: '向当前会话所属的QQ群发送文本消息，可选精准@指定成员。',
-        parameters: {
-          type: 'object',
-          properties: {
-            message: {
-              type: 'string',
-              description: '要发送的群聊文本内容。'
-            },
-            at_user_ids: {
-              type: 'array',
-              description: '需要被@的QQ号列表；缺省或空数组时不@任何人。',
-              items: { type: 'integer' }
-            },
-            user_perspectives: {
-              type: 'array',
-              description: '当消息涉及评价/调侃时，提供依据以满足 persona 约束。',
-              items: {
-                type: 'object',
-                properties: {
-                  target_user_id: { type: 'integer', description: '被评价的用户QQ号。' },
-                  based_on: { type: 'string', description: '触发该评价的原始输入片段。' },
-                  comment: { type: 'string', description: '面向目标用户的评价或结论。' }
-                },
-                required: ['target_user_id', 'based_on', 'comment']
-              }
-            }
-          },
-          required: ['message']
-        }
-      },
-      send_meme_image: {
-        id: 'send_meme_image',
-        name: 'send_meme_image',
-        description: '按标签检索并发送匹配的表情包，支持必要的@与观点说明。',
-        parameters: {
-          type: 'object',
-          properties: {
-            tags: {
-              type: 'array',
-              description: '用于检索表情包的语义标签（情绪/场景等，每个尽量2-4字）。',
-              items: { type: 'string' }
-            },
-            at_user_ids: {
-              type: 'array',
-              description: '需要被@的成员QQ号列表；缺省表示不@任何人。',
-              items: { type: 'integer' }
-            },
-            user_perspectives: {
-              type: 'array',
-              description: '若表情暗含评价/吐槽，请给出依据，保持 persona 约束一致。',
-              items: {
-                type: 'object',
-                properties: {
-                  target_user_id: { type: 'integer', description: '被评价的用户QQ号。' },
-                  based_on: { type: 'string', description: '触发该评价的原始输入片段。' },
-                  comment: { type: 'string', description: '对目标用户的评价或结论。' }
-                },
-                required: ['target_user_id', 'based_on', 'comment']
-              }
-            }
-          },
-          required: ['tags']
-        }
-      },
-      save_meme_image: {
-        id: 'save_meme_image',
-        name: 'save_meme_image',
-        description: '将新的表情图片入库以便后续按标签检索使用。',
-        parameters: {
-          type: 'object',
-          properties: {
-            image_base64: {
-              type: 'string',
-              description: '表情图片的 Base64 编码内容；后端需解码保存。'
-            },
-            tags: {
-              type: 'array',
-              description: '为表情打上的检索标签（每个尽量2-4字，覆盖情绪/场景）。',
-              items: { type: 'string' }
-            }
-          },
-          required: ['image_base64', 'tags']
-        }
-      }
-    };
-
-    const orderedCustomTools = [
-      customToolTemplates.send_private_chat_message,
-      customToolTemplates.send_qq_group_message,
-      customToolTemplates.send_meme_image,
-      customToolTemplates.save_meme_image
-    ];
-
-    config.toolsConfig.customTools = orderedCustomTools;
-
-    await this.database.executeQuery(
-      'UPDATE agent_prompts SET advanced_config = ? WHERE id = ?',
-      [JSON.stringify(config), promptId]
-    );
   }
 
   private normalizeAdvancedConfig(raw: string | null): any {
@@ -1873,7 +1409,7 @@ class QQBot implements BatchHandler {
       let cachedGroupSettings = resolvedGroupSettings;
       let cachedPrivateSettings = resolvedPrivateSettings;
 
-      const contextPrompt = this.contextManager.formatContextForAI(
+      const contextPrompt = await this.contextManager.formatContextForAI(
         messageContext,
         userMessage
       );

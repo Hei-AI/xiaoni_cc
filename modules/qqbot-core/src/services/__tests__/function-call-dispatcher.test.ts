@@ -103,25 +103,16 @@ describe('FunctionCallDispatcher', () => {
       );
     });
 
-    it('should sync static tool to function registry when enabled', async () => {
-      const functionRegistryClient = {
-        isEnabled: jest.fn().mockReturnValue(true),
-        upsertFunctionDefinition: jest.fn().mockResolvedValue(null)
-      } as any;
-
-      const localDispatcher = new FunctionCallDispatcher(
-        mockToolRegistry,
-        functionRegistryClient
-      );
-
+    it('should only sync static tool to local registry', async () => {
       mockToolRegistry.upsertTool.mockClear();
-      await localDispatcher.registerStaticTool(mockStaticTool);
+
+      await dispatcher.registerStaticTool(mockStaticTool);
 
       expect(mockToolRegistry.upsertTool).toHaveBeenCalledTimes(1);
-      expect(functionRegistryClient.upsertFunctionDefinition).toHaveBeenCalledWith(
+      expect(mockToolRegistry.upsertTool).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: 'test_static_tool',
-          invokeMethod: 'INTERNAL'
+          method_id: 'test_static_tool',
+          name: 'Test Static Tool'
         })
       );
     });

@@ -5,7 +5,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_DIR="${SCRIPT_DIR}/mitmproxy-data/logs"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+LOG_DIR="${PROJECT_ROOT}/logs/qqbot-traffic"
 TODAY=$(date +%Y-%m-%d)
 TRAFFIC_LOG="${LOG_DIR}/traffic-${TODAY}.jsonl"
 
@@ -73,7 +74,6 @@ echo "步骤4: 从容器发起测试请求..."
 # 测试容器列表
 TEST_CONTAINERS=(
     "qqbot-qqbot-core"
-    "qqbot-http-api"
     "qqbot-admin-backend"
 )
 

@@ -38,39 +38,6 @@ services:
       timeout: 20s
       retries: 10
 
-  # HTTP API Gateway
-  http-api:
-    image: qqbot-http-api
-    build:
-      context: ./modules/http-api
-      args: *build_no_proxy
-    container_name: qqbot-http-api
-    ports:
-      - "8080:8080"
-    environment:
-      - HTTP_PORT=8080
-      - QQBOT_CORE_URL=http://qqbot-qqbot-core:8081
-      - LOG_LEVEL=info
-      - MYSQL_HOST=qqbot-mysql
-      - MYSQL_PORT=3306
-      - MYSQL_USER=qqbot_user
-      - MYSQL_PASSWORD=qqbot_password
-      - MYSQL_DATABASE=qqbot_db
-      # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
-      - NODE_TLS_REJECT_UNAUTHORIZED=0
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: unless-stopped
-    depends_on:
-      - qqbot-core
-    networks:
-      - qq_bot_network
-    volumes:
-      - ./logs/http-api:/app/logs
-
   # QQBot Core Service
   qqbot-core:
     image: qqbot-qqbot-core
@@ -93,9 +60,7 @@ services:
       - WEBSOCKET_HOST=napcat
       - WEBSOCKET_PORT=3001
       - WEBSOCKET_ACCESS_TOKEN=w@123456
-      - ENABLE_FUNCTION_REGISTRY=true
-      - FUNCTION_REGISTRY_BASE_URL=http://qqbot-http-api:8080/v1
-      - FUNCTION_REGISTRY_TIMEOUT_MS=5000
+      - ENABLE_FUNCTION_REGISTRY=false
       # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - ENABLE_LLM_TOOLS=true
@@ -168,23 +133,6 @@ services:
     volumes:
       - ./logs/admin-frontend:/var/log/nginx
 
-  # OpenClaw Bridge (OneBot11 <-> OpenClaw)
-  # 启动方式: docker compose --profile bridge up -d openclaw-bridge
-  openclaw-bridge:
-    image: qqbot-openclaw-bridge
-    build:
-      context: ./modules/openclaw-bridge
-      args: *build_no_proxy
-    container_name: qqbot-openclaw-bridge
-    profiles: ["bridge"]
-    ports:
-      - "8090:8090"
-    env_file:
-      - ./modules/openclaw-bridge/.env
-    restart: unless-stopped
-    networks:
-      - qq_bot_network
-
   # Operational one-off tasks (invoke with: docker compose --profile ops run --rm <service>)
   init-db:
     image: mysql:8.0
@@ -196,40 +144,6 @@ services:
       - ./scripts/init-database-docker.sql:/scripts/init.sql:ro
     depends_on:
       mysql:
-        condition: service_healthy
-    networks:
-      - qq_bot_network
-    restart: "no"
-
-  update-llm-config:
-    image: mysql:8.0
-    profiles: ["ops"]
-    command: ["sh", "-c", "mysql -hmysql -uqqbot_user qqbot_db < /scripts/update.sql"]
-    environment:
-      MYSQL_PWD: ${MYSQL_PASSWORD:-qqbot_password}
-    volumes:
-      - ./database/migrations/005_extend_agent_prompts_advanced_configs.sql:/scripts/update.sql:ro
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      - qq_bot_network
-    restart: "no"
-
-  test-llm-config:
-    image: node:18-alpine
-    profiles: ["ops"]
-    entrypoint: ["/bin/sh", "-c"]
-    command: >-
-      set -e;
-      apk add --no-cache curl jq;
-      BASE_URL="http://qqbot-admin-backend:9080";
-      curl -sf "$$BASE_URL/api/llm-config/agents" | jq . >/dev/null;
-      curl -sf "$$BASE_URL/api/llm-config/pipelines" | jq . >/dev/null;
-      curl -sf "$$BASE_URL/api/llm-config/tools" | jq . >/dev/null;
-      echo "LLM configuration endpoints responded successfully."
-    depends_on:
-      admin-backend:
         condition: service_healthy
     networks:
       - qq_bot_network

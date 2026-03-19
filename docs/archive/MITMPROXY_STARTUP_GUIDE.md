@@ -72,10 +72,10 @@ ps aux | grep mitmdump | grep -v grep
 
 ```bash
 # 实时日志
-tail -f modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmproxy-*.log
+tail -f logs/qqbot-traffic/mitmproxy-*.log
 
 # 流量记录
-cat modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/traffic-$(date +%Y-%m-%d).jsonl | jq
+cat logs/qqbot-traffic/traffic-$(date +%Y-%m-%d).jsonl | jq
 ```
 
 ---
@@ -102,7 +102,7 @@ docker exec qqbot-mysql curl http://www.google.com
 docker exec qqbot-qqbot-core curl https://www.google.com
 
 # 查看日志确认拦截
-tail -20 modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmproxy-*.log | grep "client connect"
+tail -20 logs/qqbot-traffic/mitmproxy-*.log | grep "client connect"
 ```
 
 ---

@@ -36,7 +36,7 @@ async function dumpContext(scope: 'group' | 'private'): Promise<void> {
   }
 
   const context = await contextManager.buildMessageContext(message, 10);
-  const prompt = contextManager.formatContextForAI(context);
+  const prompt = await contextManager.formatContextForAI(context);
 
   console.log(`=== ${scope.toUpperCase()} CONTEXT ===`);
   console.log('History count:', context.historyMessages.length);

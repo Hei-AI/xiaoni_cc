@@ -272,12 +272,6 @@ export interface WebSocketConfig {
   uri: string;
 }
 
-export interface FunctionRegistryConfig {
-  base_url: string;
-  timeout_ms: number;
-  enabled: boolean;
-}
-
 export interface HttpServerConfig {
   host: string;
   port: number;
@@ -311,7 +305,6 @@ export interface AppConfig {
   websocket: WebSocketConfig;
   http_server: HttpServerConfig;
   ai: AIConfig;
-  function_registry: FunctionRegistryConfig;
   logging: {
     level: string;
     file_prefix: string;

@@ -3,7 +3,6 @@ import { EventEmitter } from 'events';
 import { promises as fs } from 'fs';
 import path from 'path';
 import axios from 'axios';
-import { v4 as uuidv4 } from 'uuid';
 import {
   WebSocketConfig,
   QQMessage,
@@ -40,7 +39,19 @@ interface SendMessageRecordOptions {
   sentAt?: Date;
 }
 
-const ATTACHMENT_STORAGE_ROOT = path.resolve(process.cwd(), 'resources', 'attachments');
+interface LocalAttachmentPayload {
+  type: 'image' | 'face';
+  mimeType: string;
+  base64: string;
+  originalName?: string;
+  source: Record<string, any>;
+}
+
+interface ExtractedImageData {
+  base64: string;
+  mimeType: string;
+  source: Record<string, any>;
+}
 
 export class WebSocketClient extends EventEmitter {
   private ws: WebSocket | null = null;
@@ -80,12 +91,23 @@ export class WebSocketClient extends EventEmitter {
         ? (message.attachments as MessageAttachment[])
         : undefined;
 
-      if ((!segments || segments.length === 0) && !derivedAttachments) {
-        return;
-      }
-
       const localAttachments: Array<Record<string, any>> = [];
-      let index = 0;
+
+      const pushAttachment = (payload?: LocalAttachmentPayload | null) => {
+        if (!payload || !payload.base64) {
+          return;
+        }
+
+        const normalizedType = payload.type === 'face' ? 'image' : payload.type;
+        localAttachments.push({
+          type: normalizedType,
+          mimeType: payload.mimeType,
+          base64: payload.base64,
+          originalName: payload.originalName,
+          source: payload.source,
+          saved_at: new Date().toISOString()
+        });
+      };
 
       const collectFromSegment = async (
         segment: OB11Segment,
@@ -100,24 +122,16 @@ export class WebSocketClient extends EventEmitter {
           return;
         }
 
-        const localPath = await this.persistImageToDisk(
-          media.base64,
-          media.mimeType,
-          message,
-          index++,
-          originalName
-        );
-
-        localAttachments.push({
+        pushAttachment({
           type: segment.type,
           mimeType: media.mimeType,
           base64: media.base64,
-          local_path: localPath,
+          originalName,
           source: {
+            ...media.source,
             file: segment.data?.file,
             url: segment.data?.url
-          },
-          saved_at: new Date().toISOString()
+          }
         });
       };
 
@@ -145,6 +159,9 @@ export class WebSocketClient extends EventEmitter {
         }
       }
 
+      const rawPayloadAttachments = await this.collectImageAttachmentsFromRawPayload(message);
+      rawPayloadAttachments.forEach(pushAttachment);
+
       if (localAttachments.length > 0) {
         (message as any).local_attachments = localAttachments;
       }
@@ -156,90 +173,325 @@ export class WebSocketClient extends EventEmitter {
     }
   }
 
-  private async extractSegmentImageData(
-    segment: OB11Segment
-  ): Promise<{ base64: string; mimeType: string } | null> {
-    const data = segment.data ?? {};
+  private async collectImageAttachmentsFromRawPayload(
+    message: QQMessage
+  ): Promise<LocalAttachmentPayload[]> {
+    const rawPayload = (message as any)?.raw ?? (message as any)?.raw_payload;
+    const elements = this.extractRawElements(rawPayload);
 
-    const explicitBase64 = this.normalizeBase64String(
-      typeof data.base64 === 'string' ? data.base64 : undefined
-    );
-    if (explicitBase64) {
-      return {
-        base64: explicitBase64,
-        mimeType: this.resolveMimeType(
-          data.mime || data.mimetype || data.content_type,
-          data.file || data.name
-        )
-      };
+    if (elements.length === 0) {
+      return [];
     }
 
-    if (typeof data.url === 'string' && data.url.length > 0) {
-      try {
-        const response = await axios.get<ArrayBuffer>(data.url, {
-          responseType: 'arraybuffer',
-          timeout: 10000
-        });
-        const buffer = Buffer.from(response.data);
-        const base64 = buffer.toString('base64');
-        const mimeType =
-          (response.headers['content-type'] as string | undefined) ||
-          this.resolveMimeType(undefined, data.file || data.name);
+    const attachments: LocalAttachmentPayload[] = [];
+    const seen = new Set<string>();
 
+    for (const element of elements) {
+      const picElement = element?.picElement || element?.pic_element;
+      if (!picElement) {
+        continue;
+      }
+
+      const dedupeKey =
+        picElement.fileUuid ||
+        picElement.file_uuid ||
+        picElement.fileName ||
+        picElement.file_name;
+
+      if (dedupeKey && seen.has(dedupeKey)) {
+        continue;
+      }
+
+      const resolved = await this.resolveImageFromPicElement(picElement);
+      if (!resolved) {
+        continue;
+      }
+
+      if (dedupeKey) {
+        seen.add(dedupeKey);
+      }
+
+      attachments.push(resolved);
+    }
+
+    return attachments;
+  }
+
+  private async resolveImageFromPicElement(picElement: any): Promise<LocalAttachmentPayload | null> {
+    if (!picElement || typeof picElement !== 'object') {
+      return null;
+    }
+
+    const originalName = picElement.fileName || picElement.file_name;
+
+    const originUrl =
+      typeof picElement.originImageUrl === 'string'
+        ? picElement.originImageUrl
+        : typeof picElement.origin_image_url === 'string'
+          ? picElement.origin_image_url
+          : undefined;
+
+    const fallbackUrl =
+      typeof picElement.url === 'string' ? picElement.url : undefined;
+
+    const sourceBase: Record<string, any> = {
+      type: 'raw_payload',
+      file: originalName,
+      file_uuid: picElement.fileUuid || picElement.file_uuid,
+      origin_url: originUrl,
+      url: fallbackUrl
+    };
+
+    const mimeType = this.resolveMimeType(
+      picElement.mimeType || picElement.mime_type,
+      originalName
+    );
+
+    const base64Candidates = [
+      picElement.originImageBase64,
+      picElement.origin_image_base64,
+      picElement.base64,
+      picElement.picBuf,
+      picElement.pic_buf,
+      picElement.bytes,
+      picElement.data
+    ];
+
+    for (const candidate of base64Candidates) {
+      const normalized = this.normalizeBase64String(candidate);
+      if (normalized) {
         return {
-          base64,
-          mimeType
+          type: 'image',
+          mimeType,
+          base64: normalized,
+          originalName,
+          source: {
+            ...sourceBase,
+            method: 'raw.base64'
+          }
         };
-      } catch (error) {
-        this.moduleLogger.warn('Failed to download image attachment', {
-          error: error instanceof Error ? error.message : String(error),
-          url: data.url
-        });
+      }
+    }
+
+    if (originUrl) {
+      const downloaded = await this.downloadImageAsBase64(originUrl, {
+        successLog: 'Downloaded image from origin url'
+      });
+      if (downloaded) {
+        return {
+          type: 'image',
+          mimeType: downloaded.mimeType || mimeType,
+          base64: downloaded.base64,
+          originalName,
+          source: {
+            ...sourceBase,
+            method: 'raw.origin_url',
+            url: originUrl
+          }
+        };
+      }
+    }
+
+    if (fallbackUrl) {
+      const downloaded = await this.downloadImageAsBase64(fallbackUrl);
+      if (downloaded) {
+        return {
+          type: 'image',
+          mimeType: downloaded.mimeType || mimeType,
+          base64: downloaded.base64,
+          originalName,
+          source: {
+            ...sourceBase,
+            method: 'raw.url',
+            url: fallbackUrl
+          }
+        };
+      }
+    }
+
+    const sourcePath = this.resolveSourcePath(picElement);
+    if (sourcePath) {
+      const base64 = await this.readLocalFileAsBase64(sourcePath);
+      if (base64) {
+        return {
+          type: 'image',
+          mimeType,
+          base64,
+          originalName,
+          source: {
+            ...sourceBase,
+            method: 'raw.source_path',
+            path: sourcePath
+          }
+        };
       }
     }
 
     return null;
   }
 
-  private async persistImageToDisk(
-    base64: string,
-    mimeType: string,
-    message: QQMessage,
-    index: number,
-    originalName?: string
-  ): Promise<string> {
-    await fs.mkdir(ATTACHMENT_STORAGE_ROOT, { recursive: true });
+  private extractRawElements(rawPayload: any): any[] {
+    if (!rawPayload) {
+      return [];
+    }
 
-    const contextDir = message.message_type === 'group'
-      ? `group_${message.group_id ?? 'unknown'}`
-      : `user_${message.user_id}`;
+    let payload = rawPayload;
+    if (typeof payload === 'string') {
+      try {
+        payload = JSON.parse(payload);
+      } catch (error) {
+        this.moduleLogger.debug('Failed to parse raw payload for image extraction', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return [];
+      }
+    }
 
-    const targetDir = path.join(ATTACHMENT_STORAGE_ROOT, contextDir);
-    await fs.mkdir(targetDir, { recursive: true });
+    if (Array.isArray(payload)) {
+      return payload;
+    }
 
-    const extension = this.resolveFileExtension(mimeType, originalName);
-    const sanitizedContext = contextDir.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const baseFileName = [
-      sanitizedContext,
-      message.message_id ?? Date.now(),
-      index,
-      uuidv4().slice(0, 8)
-    ]
-      .join('_')
-      .replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (Array.isArray(payload.elements)) {
+      return payload.elements;
+    }
 
-    const fileName = `${baseFileName}${extension}`;
-    const filePath = path.join(targetDir, fileName);
+    if (payload.msgBody && Array.isArray(payload.msgBody.elements)) {
+      return payload.msgBody.elements;
+    }
 
-    const buffer = Buffer.from(base64, 'base64');
-    await fs.writeFile(filePath, buffer);
+    if (payload.message && Array.isArray(payload.message.elements)) {
+      return payload.message.elements;
+    }
 
-    const relativePath = path
-      .relative(process.cwd(), filePath)
-      .split(path.sep)
-      .join('/');
+    if (payload.commonElem && Array.isArray(payload.commonElem.elements)) {
+      return payload.commonElem.elements;
+    }
 
-    return relativePath;
+    return [];
+  }
+
+  private resolveSourcePath(picElement: any): string | undefined {
+    if (!picElement || typeof picElement !== 'object') {
+      return undefined;
+    }
+
+    const candidates = [
+      picElement.sourcePath,
+      picElement.source_path,
+      picElement.originImagePath,
+      picElement.origin_image_path,
+      picElement.filePath,
+      picElement.file_path
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim().length > 0) {
+        return candidate.trim();
+      }
+    }
+
+    return undefined;
+  }
+
+  private async readLocalFileAsBase64(filePath?: string): Promise<string | null> {
+    if (!filePath || typeof filePath !== 'string') {
+      return null;
+    }
+
+    const normalizedPath = path.isAbsolute(filePath)
+      ? filePath
+      : path.resolve(process.cwd(), filePath);
+
+    try {
+      const buffer = await fs.readFile(normalizedPath);
+      return buffer.toString('base64');
+    } catch (error) {
+      this.moduleLogger.warn('Failed to read local image source', {
+        error: error instanceof Error ? error.message : String(error),
+        filePath: normalizedPath
+      });
+      return null;
+    }
+  }
+
+  private async downloadImageAsBase64(
+    url: string,
+    options?: { successLog?: string; context?: string }
+  ): Promise<{ base64: string; mimeType?: string } | null> {
+    if (!url || typeof url !== 'string') {
+      return null;
+    }
+
+    try {
+      const response = await axios.get<ArrayBuffer>(url, {
+        responseType: 'arraybuffer',
+        timeout: 10000
+      });
+
+      const buffer = Buffer.from(response.data);
+      const base64 = buffer.toString('base64');
+      const mimeType = response.headers['content-type'] as string | undefined;
+
+      if (options?.successLog) {
+        this.moduleLogger.info(options.successLog, {
+          url,
+          context: options.context
+        });
+      }
+
+      return {
+        base64,
+        mimeType
+      };
+    } catch (error) {
+      this.moduleLogger.warn('Failed to download image attachment', {
+        error: error instanceof Error ? error.message : String(error),
+        url,
+        context: options?.context
+      });
+      return null;
+    }
+  }
+
+  private async extractSegmentImageData(
+    segment: OB11Segment
+  ): Promise<ExtractedImageData | null> {
+    const data = segment.data ?? {};
+
+    const explicitBase64 = this.normalizeBase64String(data.base64);
+    if (explicitBase64) {
+      return {
+        base64: explicitBase64,
+        mimeType: this.resolveMimeType(
+          data.mime || data.mimetype || data.content_type,
+          data.file || data.name
+        ),
+        source: {
+          type: 'segment',
+          method: 'segment.base64'
+        }
+      };
+    }
+
+    if (typeof data.url === 'string' && data.url.length > 0) {
+      const downloaded = await this.downloadImageAsBase64(data.url, {
+        context: 'segment.url'
+      });
+
+      if (downloaded) {
+        return {
+          base64: downloaded.base64,
+          mimeType: downloaded.mimeType || this.resolveMimeType(undefined, data.file || data.name),
+          source: {
+            type: 'segment',
+            method: 'segment.url',
+            url: data.url
+          }
+        };
+      }
+    }
+
+    return null;
   }
 
   private resolveMimeType(explicit?: string, fileName?: string): string {
@@ -282,37 +534,17 @@ export class WebSocketClient extends EventEmitter {
     return 'image/png';
   }
 
-  private resolveFileExtension(mimeType?: string, fallbackName?: string): string {
-    if (fallbackName) {
-      const ext = path.extname(fallbackName);
-      if (ext) {
-        return ext;
-      }
+
+  private normalizeBase64String(base64?: unknown): string | undefined {
+    if (!base64) {
+      return undefined;
     }
 
-    switch ((mimeType || '').toLowerCase()) {
-      case 'image/jpeg':
-        return '.jpg';
-      case 'image/gif':
-        return '.gif';
-      case 'image/webp':
-        return '.webp';
-      case 'image/bmp':
-        return '.bmp';
-      case 'image/svg+xml':
-        return '.svg';
-      case 'image/heic':
-        return '.heic';
-      case 'image/heif':
-        return '.heif';
-      case 'image/png':
-      default:
-        return '.png';
+    if (Buffer.isBuffer(base64)) {
+      return base64.toString('base64');
     }
-  }
 
-  private normalizeBase64String(base64?: string): string | undefined {
-    if (!base64 || typeof base64 !== 'string') {
+    if (typeof base64 !== 'string') {
       return undefined;
     }
 

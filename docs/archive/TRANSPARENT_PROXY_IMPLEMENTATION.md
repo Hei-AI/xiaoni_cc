@@ -185,7 +185,7 @@ python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py remo
    - 命令：`python3 mitmproxy_manager.py start --iptables`
    - 状态：后台运行中（监听端口 15001）
    - 证书位置：`modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem`
-   - 日志位置：`modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/`
+   - 日志位置：`logs/qqbot-traffic/`
 
 4. **✅ 复制证书到项目目录**
    - 源：`modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem`
@@ -226,8 +226,8 @@ python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py remo
    docker exec qqbot-admin-backend curl -v https://generativelanguage.googleapis.com
 
    # 查看 mitmproxy 日志确认流量被拦截
-   tail -f modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmproxy-*.log
-   cat modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/traffic-*.jsonl | jq
+   tail -f logs/qqbot-traffic/mitmproxy-*.log
+   cat logs/qqbot-traffic/traffic-*.jsonl | jq
    ```
 
 ### 🐛 已知问题
@@ -261,7 +261,7 @@ python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py star
 python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py status
 
 # 查看实时日志
-tail -f modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmproxy-*.log
+tail -f logs/qqbot-traffic/mitmproxy-*.log
 ```
 
 ---
@@ -683,8 +683,8 @@ dns:
 - Clash 配置: `/mnt/c/Users/a8517/.config/clash/config.yaml`
 
 **日志和证书**:
-- mitmproxy 运行日志: `modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmproxy-*.log`
-- 流量记录: `modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/traffic-2025-09-30.jsonl`
+- mitmproxy 运行日志: `logs/qqbot-traffic/mitmproxy-*.log`
+- 流量记录: `logs/qqbot-traffic/traffic-2025-09-30.jsonl`
 - CA 证书: `modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem`
 - WSL2 系统证书: `/usr/local/share/ca-certificates/mitmproxy.crt`
 
@@ -704,7 +704,7 @@ docker exec qqbot-qqbot-core nslookup generativelanguage.googleapis.com 8.8.8.8
 docker exec qqbot-qqbot-core curl -k -v https://generativelanguage.googleapis.com
 
 # 查看实时流量
-tail -f modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/mitmproxy-*.log
+tail -f logs/qqbot-traffic/mitmproxy-*.log
 ```
 
 ### 移交给团队成员的核心信息

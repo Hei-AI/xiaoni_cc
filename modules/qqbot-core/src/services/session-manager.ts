@@ -113,7 +113,7 @@ export class SessionChainTracker {
     try {
       // 查找被引用消息的Session信息
       const query = `
-        SELECT session_id, depth, root_message_id 
+        SELECT session_id, depth
         FROM message_reply_chain 
         WHERE message_id = ?
       `;
@@ -121,7 +121,6 @@ export class SessionChainTracker {
       const result = await this.database.executeQuery<{
         session_id: string;
         depth: number;
-        root_message_id: string;
       }>(query, [reply_to_message_id]);
 
       if (result.length === 0) {
@@ -156,7 +155,7 @@ export class SessionChainTracker {
       }
 
       const { session_id } = result[0];
-      // const { session_id, depth, root_message_id } = result[0];
+      // const { session_id, depth } = result[0];
 
       // 获取完整Session信息
       return await this.getSessionById(session_id);

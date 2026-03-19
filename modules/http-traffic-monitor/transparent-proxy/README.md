@@ -170,7 +170,8 @@ python3 mitmproxy_manager.py restart
 
 ## 日志位置
 
-- **mitmproxy日志**: `mitmproxy-data/logs/`
+- **mitmproxy日志**: `logs/qqbot-traffic/mitmproxy-*.log`
+- **流量记录(JSONL)**: `logs/qqbot-traffic/traffic-*.jsonl`
 - **PID文件**: `/tmp/mitmproxy.pid`
 - **配置文件**: `config.json`
 

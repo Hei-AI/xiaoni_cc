@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-QQ Bot - 4模块自动启动管理脚本
+QQ Bot - 3模块自动启动管理脚本
 解决端口冲突，并行启动，错误处理
 """
 
@@ -52,13 +52,6 @@ class ModuleManager:
     def __init__(self):
         self.project_root = Path(__file__).parent.parent
         self.modules = [
-            {
-                'name': 'HTTP API Gateway',
-                'path': 'modules/http-api',
-                'port': 8080,
-                'health_endpoint': '/health',
-                'npm_script': 'dev'
-            },
             {
                 'name': 'QQBot Core',
                 'path': 'modules/qqbot-core', 
@@ -189,7 +182,7 @@ class ModuleManager:
                 return False
         
         # 并行安装
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        with ThreadPoolExecutor(max_workers=len(self.modules)) as executor:
             futures = {executor.submit(install_module_deps, module): module for module in self.modules}
             
             success_count = 0

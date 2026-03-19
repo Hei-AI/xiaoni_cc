@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
     model_name VARCHAR(100),
     model_provider VARCHAR(50) DEFAULT 'gemini',
     prompt_template TEXT,
-    input_prompt TEXT,
+    input_prompt LONGTEXT,
     input_tokens INT DEFAULT 0,
     model_config JSON,
     raw_response TEXT,

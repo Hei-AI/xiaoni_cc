@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
   model_name VARCHAR(100) NOT NULL COMMENT '模型名称如gemini-2.0-flash-exp',
   agent_type VARCHAR(50) NOT NULL COMMENT 'Agent类型如chat_bot、intent_analyzer等',
   prompt_name VARCHAR(100) DEFAULT 'default' COMMENT 'Prompt名称',
-  input_prompt TEXT NOT NULL COMMENT '输入的prompt内容',
+  input_prompt LONGTEXT NOT NULL COMMENT '输入的prompt内容',
   system_instructions JSON NULL COMMENT '系统指令内容',
   model_parameters JSON NULL COMMENT '模型参数如temperature、max_tokens等',
   response_text TEXT NOT NULL COMMENT 'LLM返回的文本',

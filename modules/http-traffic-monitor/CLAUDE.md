@@ -38,7 +38,7 @@ python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py logs
 - 与 Admin Panel 的可视化入口仍在规划阶段，相关计划见 [docs/ROADMAP.md](../../docs/ROADMAP.md)。
 
 ## 5. 提交注意
-- 避免提交 `transparent-proxy/mitmproxy-data/logs/` 与 `logs/qqbot-traffic/` 中的日志文件。
+- 避免提交 `logs/qqbot-traffic/` 中的日志文件。
 - 修改 CLI 或辅助脚本后请同步更新 [README.md](./README.md)，并实际运行 `start/stop/status` 流程验证。
 
 若对透明代理行为有疑问，先阅读 [modules/http-traffic-monitor/README.md](./README.md)，再根据实际部署环境调整脚本参数。

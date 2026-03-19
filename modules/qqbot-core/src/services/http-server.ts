@@ -553,6 +553,36 @@ class HttpServer {
       }
     });
 
+    this.app.post('/api/internal/config-cache/clear', (req: Request, res: Response) => {
+      try {
+        if (!this.services.aiService) {
+          return res.status(503).json({
+            success: false,
+            error: 'AI Service not available',
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        const agentType = typeof req.body?.agentType === 'string' ? req.body.agentType : undefined;
+        this.services.aiService.clearConfigurationCache(agentType);
+
+        res.json({
+          success: true,
+          agentType: agentType || 'all',
+          timestamp: new Date().toISOString()
+        });
+      } catch (error: any) {
+        this.moduleLogger.error('Failed to clear configuration cache', {
+          error: error?.message || error
+        });
+        res.status(500).json({
+          success: false,
+          error: error?.message || 'Failed to clear configuration cache',
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
     this.app.get('/api/simple-queue/config', (req: Request, res: Response) => {
       try {
         const configSnapshot = queueService.getRuntimeConfig();

@@ -27,7 +27,6 @@ import { CacheManagerFactory } from '../utils/cache-manager';
 import { errorHandler, createLLMAPIError, safeExecuteWithRetry } from '../utils/error-handler';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
-import { FunctionRegistryClient, PromptFunctionRegistryResponse } from './function-registry-client';
 import {
   createLLMProvider,
   inferProviderFromModelName,
@@ -59,7 +58,6 @@ export class AIService {
   private database: DatabaseManager;
   private loggingService: LoggingService;
   private tokenManager: ReturnType<typeof getTokenManager>;
-  private functionRegistryClient?: FunctionRegistryClient;
   private moduleLogger = logger.createModuleLogger('ai-service');
 
   // 统一缓存管理
@@ -75,14 +73,12 @@ export class AIService {
   constructor(
     config: AIConfig,
     database: DatabaseManager,
-    loggingService: LoggingService,
-    functionRegistryClient?: FunctionRegistryClient
+    loggingService: LoggingService
   ) {
     this.aiConfig = config;
     this.database = database;
     this.loggingService = loggingService;
     this.tokenManager = getTokenManager(database);
-    this.functionRegistryClient = functionRegistryClient;
 
     const proxy = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
     if (proxy) {
@@ -533,19 +529,6 @@ export class AIService {
       customTools: []
     };
 
-    const registryEnabled = this.functionRegistryClient?.isEnabled() ?? false;
-    let registryData: PromptFunctionRegistryResponse | null = null;
-
-    if (registryEnabled && agentPrompt?.id) {
-      const promptKey = typeof agentPrompt.id === 'string'
-        ? agentPrompt.id
-        : String(agentPrompt.id);
-
-      if (promptKey) {
-        registryData = await this.functionRegistryClient!.getFunctionsForPrompt(promptKey);
-      }
-    }
-
     let advancedConfig: any = null;
     if (agentPrompt?.advanced_config) {
       try {
@@ -560,17 +543,66 @@ export class AIService {
       }
     }
 
-    const legacyToolsConfig = advancedConfig?.toolsConfig;
-    const registryFunctions = Array.isArray(registryData?.functions) ? registryData.functions : [];
+    const legacyToolsConfig = advancedConfig?.toolsConfig && typeof advancedConfig.toolsConfig === 'object'
+      ? advancedConfig.toolsConfig
+      : {};
+    const rawCustomTools = Array.isArray(legacyToolsConfig.customTools) ? legacyToolsConfig.customTools : [];
+    const customTools = rawCustomTools
+      .map((tool: any) => {
+        if (!tool || typeof tool !== 'object') {
+          return null;
+        }
 
-    const customTools = registryFunctions.map((fn) => ({
-      id: fn.id,
-      name: fn.name,
-      description: fn.description || '',
-      parameters: fn.parametersSchema || {}
-    }));
+        const name = typeof tool.name === 'string' ? tool.name.trim() : '';
+        const id = typeof tool.id === 'string' ? tool.id.trim() : '';
+        const normalizedName = name.length > 0 ? name : id;
+        if (!normalizedName) {
+          return null;
+        }
 
-    const callingMode = this.normalizeFunctionCallingMode(legacyToolsConfig?.functionCalling?.mode);
+        const description = typeof tool.description === 'string' ? tool.description.trim() : '';
+        const parameters =
+          tool.parameters && typeof tool.parameters === 'object'
+            ? tool.parameters
+            : {};
+
+        return {
+          id: id || normalizedName,
+          name: normalizedName,
+          description,
+          parameters
+        };
+      })
+      .filter(Boolean) as Array<{
+        id: string;
+        name: string;
+        description: string;
+        parameters: Record<string, any>;
+      }>;
+
+    const customToolNameSet = new Set(customTools.map(tool => tool.name));
+    const customToolIdSet = new Set(customTools.map(tool => tool.id));
+
+    const rawFunctionCalling = legacyToolsConfig.functionCalling && typeof legacyToolsConfig.functionCalling === 'object'
+      ? legacyToolsConfig.functionCalling
+      : legacyToolsConfig.functionCallingConfig && typeof legacyToolsConfig.functionCallingConfig === 'object'
+        ? legacyToolsConfig.functionCallingConfig
+        : {};
+    const callingMode = this.normalizeFunctionCallingMode(
+      rawFunctionCalling.mode,
+      customTools.length > 0 ? 'AUTO' : 'NONE'
+    );
+
+    const allowedFunctionNames = Array.isArray(rawFunctionCalling.allowedFunctionNames)
+      ? rawFunctionCalling.allowedFunctionNames.filter(
+          (name: unknown): name is string => typeof name === 'string' && customToolNameSet.has(name)
+        )
+      : customTools.map(tool => tool.name);
+    const allowedFunctionIds = Array.isArray(rawFunctionCalling.allowedFunctionIds)
+      ? rawFunctionCalling.allowedFunctionIds.filter(
+          (id: unknown): id is string => typeof id === 'string' && customToolIdSet.has(id)
+        )
+      : customTools.map(tool => tool.id);
 
     const functionCalling: {
       mode: FunctionCallingMode;
@@ -578,27 +610,17 @@ export class AIService {
       allowedFunctionIds: string[];
     } = {
       mode: customTools.length > 0 ? callingMode : 'NONE',
-      allowedFunctionIds: customTools.map(tool => tool.id)
+      allowedFunctionIds
     };
 
     if (functionCalling.mode === 'ANY') {
-      const allowedNames = customTools
-        .map(tool => tool.name)
-        .filter((name): name is string => typeof name === 'string' && name.trim().length > 0);
-
-      if (allowedNames.length > 0) {
-        functionCalling.allowedFunctionNames = allowedNames;
+      if (allowedFunctionNames.length > 0) {
+        functionCalling.allowedFunctionNames = allowedFunctionNames;
       }
     }
 
-    if (customTools.length === 0) {
-      return {
-        ...defaultConfig,
-        functionCalling
-      };
-    }
-
     return {
+      ...defaultConfig,
       functionCalling,
       predefinedTools: legacyToolsConfig?.predefinedTools || {
         enabledTools: [],
@@ -611,7 +633,10 @@ export class AIService {
     };
   }
 
-  private normalizeFunctionCallingMode(mode: unknown): FunctionCallingMode {
+  private normalizeFunctionCallingMode(
+    mode: unknown,
+    fallback: FunctionCallingMode = 'AUTO'
+  ): FunctionCallingMode {
     if (typeof mode === 'string') {
       const upper = mode.toUpperCase();
       if (upper === 'AUTO' || upper === 'ANY' || upper === 'NONE') {
@@ -619,7 +644,7 @@ export class AIService {
       }
     }
 
-    return 'AUTO';
+    return fallback;
   }
 
   /**

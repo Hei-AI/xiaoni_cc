@@ -5,8 +5,6 @@ import { Button } from './ui/button';
 import {
   LayoutDashboard,
   MessageCircle,
-  Settings,
-  Activity,
   Bot,
   Users,
   User,
@@ -15,7 +13,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
-  Network
+  Network,
+  FileStack
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -75,17 +74,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       active: location.pathname.startsWith('/traffic')
     },
     {
-      href: '/monitoring',
-      label: '监控',
-      icon: Activity,
-      active: location.pathname === '/monitoring'
+      href: '/traffic/replay/templates',
+      label: '回放模板',
+      icon: FileStack,
+      active: location.pathname.startsWith('/traffic/replay/templates')
     },
-    {
-      href: '/settings',
-      label: '设置',
-      icon: Settings,
-      active: location.pathname === '/settings'
-    }
   ];
 
   return (
