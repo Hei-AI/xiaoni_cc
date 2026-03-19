@@ -223,7 +223,7 @@ export class LoggingService {
         call_sequence: callSequence,
         agent_type: data.agentType,
         model_name: data.modelName,
-        model_provider: data.modelProvider || 'gemini',
+        model_provider: data.modelProvider || 'google-gemini-cli',
         prompt_template: data.promptTemplate || null,
         input_prompt: data.inputPrompt,
         input_tokens: data.inputTokens || null,

@@ -4,7 +4,6 @@
  */
 
 import {
-  GoogleGenAI,
   HarmCategory,
   HarmBlockThreshold,
   Type,
@@ -29,6 +28,18 @@ import { errorHandler, createLLMAPIError, safeExecuteWithRetry } from '../utils/
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { FunctionRegistryClient, PromptFunctionRegistryResponse } from './function-registry-client';
+import {
+  createLLMProvider,
+  inferProviderFromModelName,
+  resolveProviderConfigFromPrompt,
+  resolveProviderFromUnifiedConfig,
+  type LLMProviderId,
+  type OpenResponseCreateRequest
+} from './llm-provider';
+import {
+  buildGeminiCompatibleResponseFromOpenResponse,
+  geminiRequestToOpenResponseRequest
+} from './llm-provider/helpers';
 
 interface GenerateResponseOptions {
   promptId?: string;
@@ -44,6 +55,7 @@ interface GenerateContentOptions {
 
 export class AIService {
   private static proxyConfigured = false;
+  private aiConfig: AIConfig;
   private database: DatabaseManager;
   private loggingService: LoggingService;
   private tokenManager: ReturnType<typeof getTokenManager>;
@@ -66,6 +78,7 @@ export class AIService {
     loggingService: LoggingService,
     functionRegistryClient?: FunctionRegistryClient
   ) {
+    this.aiConfig = config;
     this.database = database;
     this.loggingService = loggingService;
     this.tokenManager = getTokenManager(database);
@@ -324,6 +337,7 @@ export class AIService {
    */
   private async convertToUnifiedConfig(agentPrompt: any): Promise<UnifiedLLMConfig> {
     const now = new Date();
+    const resolvedProvider = resolveProviderConfigFromPrompt(agentPrompt);
 
     let advancedConfig: Record<string, any> | null = null;
     if (agentPrompt?.advanced_config) {
@@ -455,8 +469,11 @@ export class AIService {
 
       model: {
         name: agentPrompt.model_name || 'gemini-2.5-flash',
-        provider: 'google',
-        allowedTokenIds: agentPrompt.allowed_token_ids || []
+        provider: resolvedProvider.provider,
+        allowedTokenIds: agentPrompt.allowed_token_ids || [],
+        ...(resolvedProvider.providerSpecific
+          ? { providerSpecific: resolvedProvider.providerSpecific }
+          : {})
       },
 
       generation,
@@ -544,86 +561,41 @@ export class AIService {
     }
 
     const legacyToolsConfig = advancedConfig?.toolsConfig;
+    const registryFunctions = Array.isArray(registryData?.functions) ? registryData.functions : [];
 
-    const customTools: Array<{
-      id: string;
-      name: string;
-      description: string;
-      parameters: Record<string, any>;
-    }> = Array.isArray(legacyToolsConfig?.customTools)
-      ? legacyToolsConfig.customTools.map((tool: any) => ({
-          id: tool.id || tool.name,
-          name: tool.name || tool.id,
-          description: tool.description || '',
-          parameters: tool.parameters || {}
-        }))
-      : [];
-
-    const toolIndexMap = new Map<string, number>();
-    customTools.forEach((tool, index) => {
-      if (tool.id) {
-        toolIndexMap.set(tool.id, index);
-      }
-    });
-
-    if (registryData && registryData.functions.length > 0) {
-      registryData.functions.forEach((fn) => {
-        const normalized = {
-          id: fn.id,
-          name: fn.name,
-          description: fn.description || '',
-          parameters: fn.parametersSchema || {}
-        };
-
-        if (toolIndexMap.has(fn.id)) {
-          const idx = toolIndexMap.get(fn.id)!;
-          customTools[idx] = normalized;
-        } else {
-          toolIndexMap.set(fn.id, customTools.length);
-          customTools.push(normalized);
-        }
-      });
-    }
-
-    if (!legacyToolsConfig && customTools.length === 0) {
-      return defaultConfig;
-    }
+    const customTools = registryFunctions.map((fn) => ({
+      id: fn.id,
+      name: fn.name,
+      description: fn.description || '',
+      parameters: fn.parametersSchema || {}
+    }));
 
     const callingMode = this.normalizeFunctionCallingMode(legacyToolsConfig?.functionCalling?.mode);
-
-    const configuredAllowedIds = Array.isArray(legacyToolsConfig?.functionCalling?.allowedFunctionIds)
-      ? legacyToolsConfig.functionCalling.allowedFunctionIds
-          .filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0)
-          .map((id: string) => id.trim())
-      : undefined;
-
-    const allowedIds = configuredAllowedIds && configuredAllowedIds.length > 0
-      ? configuredAllowedIds
-      : customTools.map(tool => tool.id);
 
     const functionCalling: {
       mode: FunctionCallingMode;
       allowedFunctionNames?: string[];
       allowedFunctionIds: string[];
     } = {
-      mode: callingMode,
-      allowedFunctionIds: allowedIds
+      mode: customTools.length > 0 ? callingMode : 'NONE',
+      allowedFunctionIds: customTools.map(tool => tool.id)
     };
 
-    if (callingMode === 'ANY') {
-      const configuredAllowedNames = Array.isArray(legacyToolsConfig?.functionCalling?.allowedFunctionNames)
-        ? legacyToolsConfig.functionCalling.allowedFunctionNames
-            .filter((name: unknown): name is string => typeof name === 'string' && name.trim().length > 0)
-            .map((name: string) => name.trim())
-        : undefined;
+    if (functionCalling.mode === 'ANY') {
+      const allowedNames = customTools
+        .map(tool => tool.name)
+        .filter((name): name is string => typeof name === 'string' && name.trim().length > 0);
 
-      const allowedNames = configuredAllowedNames && configuredAllowedNames.length > 0
-        ? configuredAllowedNames
-        : customTools.map((tool) => tool.name);
-
-      if (Array.isArray(allowedNames) && allowedNames.length > 0) {
+      if (allowedNames.length > 0) {
         functionCalling.allowedFunctionNames = allowedNames;
       }
+    }
+
+    if (customTools.length === 0) {
+      return {
+        ...defaultConfig,
+        functionCalling
+      };
     }
 
     return {
@@ -694,8 +666,10 @@ export class AIService {
   } | null> {
     const callStartTime = Date.now();
     const llmCallId = uuidv4();
+    const providerId = resolveProviderFromUnifiedConfig(config);
 
     this.moduleLogger.debug('Starting LLM API call', {
+      providerId,
       modelName: config.model.name,
       configId: config.id,
       traceId,
@@ -711,54 +685,32 @@ export class AIService {
       });
     }
 
-    let tokenInfo: {
-      token: string;
-      tokenId: number;
-      projectName: string;
-    } | null = null;
-
     try {
-      // 1. 获取Token
-      tokenInfo = await this.tokenManager.getTokenForModel(
-        config.model.name,
-        config.category,
-        config.name
-      );
+      const provider = createLLMProvider({
+        providerId,
+        aiConfig: this.aiConfig,
+        tokenManager: this.tokenManager
+      });
 
-      if (!tokenInfo) {
-        throw new Error(`No available tokens for model ${config.model.name}`);
-      }
-
-      const activeToken = tokenInfo;
-
-      // 2. 构建SDK请求
-      const genAIClient = new GoogleGenAI({
-        apiKey: activeToken.token,
-        httpOptions: {
-          timeout: config.performance.timeout
+      const response = await provider.generateText({
+        prompt,
+        config,
+        context: {
+          traceId,
+          agentType: config.category,
+          promptName: config.name
         }
       });
 
-      const contents = this.buildContents(prompt, config.context.systemInstruction);
-      const sdkConfig = this.buildGenerateContentConfig(config);
-
-      // 3. 执行SDK调用
-      const response = await genAIClient.models.generateContent({
-        model: config.model.name,
-        contents,
-        config: sdkConfig
-      });
-
-      const responseText = response.text ?? this.extractTextFromResponse(response);
+      const responseText = response.text;
       if (!responseText) {
         throw new Error('Invalid response format from LLM API');
       }
 
-      const processingTimeMs = Date.now() - callStartTime;
-      const usage = response.usageMetadata;
-      const inputTokens = usage?.promptTokenCount ?? this.estimateTokens(contents);
-      const outputTokens = usage?.candidatesTokenCount ?? Math.ceil(responseText.length / 4);
-      const plainResponse = this.cloneResponse(response);
+      const processingTimeMs = response.usage.processingTimeMs || (Date.now() - callStartTime);
+      const inputTokens = response.usage.inputTokens;
+      const outputTokens = response.usage.outputTokens;
+      const plainResponse = response.rawResponse;
 
       // 埋点：LLM调用成功
       if (traceId && this.loggingService) {
@@ -780,17 +732,11 @@ export class AIService {
             sessionId: undefined,
             agentType: config.category || 'unknown',
             modelName: config.model.name,
-            modelProvider: 'google',
+            modelProvider: response.provider,
             promptTemplate: config.name || 'default',
             inputPrompt: prompt,
             inputTokens: inputTokens,
-            modelConfig: JSON.stringify({
-              temperature: config.generation.temperature,
-              topK: config.generation.topK,
-              topP: config.generation.topP,
-              maxOutputTokens: config.generation.maxOutputTokens,
-              stopSequences: config.generation.stopSequences
-            }),
+            modelConfig: this.buildModelConfigSummary(config),
             rawResponse: JSON.stringify(plainResponse),
             processedResponse: responseText,
             outputTokens: outputTokens,
@@ -816,13 +762,11 @@ export class AIService {
         }
       }
 
-      await this.tokenManager.reportSuccess(activeToken.token);
-
       this.moduleLogger.info('LLM API call successful', {
+        providerId: response.provider,
         modelName: config.model.name,
         configId: config.id,
         processingTimeMs,
-        tokenId: activeToken.tokenId,
         responseLength: responseText.length
       });
 
@@ -858,17 +802,11 @@ export class AIService {
             sessionId: undefined,
             agentType: config.category || 'unknown',
             modelName: config.model.name,
-            modelProvider: 'google',
+            modelProvider: providerId,
             promptTemplate: config.name || 'default',
             inputPrompt: prompt,
             inputTokens: Math.ceil(prompt.length / 4),
-            modelConfig: JSON.stringify({
-              temperature: config.generation.temperature,
-              topK: config.generation.topK,
-              topP: config.generation.topP,
-              maxOutputTokens: config.generation.maxOutputTokens,
-              stopSequences: config.generation.stopSequences
-            }),
+            modelConfig: this.buildModelConfigSummary(config),
             rawResponse: undefined,
             processedResponse: undefined,
             outputTokens: 0,
@@ -897,10 +835,6 @@ export class AIService {
       });
 
       errorHandler.handleError(standardizedError);
-
-      if (tokenInfo) {
-        await this.handleTokenFailure(tokenInfo, config.model.name, error, 'callLLMAPI');
-      }
 
       throw standardizedError;
     }
@@ -1014,11 +948,6 @@ export class AIService {
   ): Promise<any> {
     const callStartTime = Date.now();
     const llmCallId = uuidv4();
-    let tokenInfo: {
-      token: string;
-      tokenId: number;
-      projectName: string;
-    } | null = null;
 
     const normalizedOptions: GenerateContentOptions = typeof options === 'string'
       ? { modelName: options }
@@ -1033,6 +962,19 @@ export class AIService {
       request.model = { name: targetModel };
     }
 
+    const resolvedAgentType = normalizedOptions.agentType || 'tool_system';
+    const resolvedPromptName = normalizedOptions.promptName || 'direct_call';
+    const resolvedPromptConfig = await this.resolveProviderConfigForGenerateContent(
+      normalizedOptions,
+      resolvedAgentType,
+      resolvedPromptName
+    );
+    const providerRequest = this.normalizeGenerateContentRequest(
+      request,
+      targetModel,
+      resolvedPromptConfig || undefined
+    );
+
     this.moduleLogger.debug('Starting direct LLM generateContent call', {
       modelName: targetModel,
       traceId,
@@ -1044,48 +986,43 @@ export class AIService {
       promptId: normalizedOptions.promptId
     });
 
-    const resolvedAgentType = normalizedOptions.agentType || 'tool_system';
-    const resolvedPromptName = normalizedOptions.promptName || 'direct_call';
+    const providerId = this.resolveProviderForGenerateContent(
+      targetModel,
+      request,
+      normalizedOptions,
+      resolvedPromptConfig
+    );
 
-    let sdkConfig: GenerateContentConfig | undefined;
+    let modelConfigSummary: Record<string, any> | undefined;
 
     try {
-      // 1. 获取Token
-      tokenInfo = await this.tokenManager.getTokenForModel(
-        targetModel,
-        resolvedAgentType,
-        resolvedPromptName
+      const provider = createLLMProvider({
+        providerId,
+        aiConfig: this.aiConfig,
+        tokenManager: this.tokenManager
+      });
+      modelConfigSummary = this.buildGenerateContentModelConfigSummary(
+        request,
+        resolvedPromptConfig || undefined
       );
 
-      if (!tokenInfo) {
-        throw new Error(`No available tokens for model ${targetModel}`);
-      }
-
-      const activeToken = tokenInfo;
-      // 2. 创建SDK客户端并构造配置
-      const genAIClient = new GoogleGenAI({
-        apiKey: activeToken.token,
-        httpOptions: {
-          timeout: this.defaultTimeout
+      const response = await provider.generateContent({
+        request: providerRequest,
+        modelName: targetModel,
+        providerConfig: resolvedPromptConfig || undefined,
+        context: {
+          traceId,
+          agentType: resolvedAgentType,
+          promptName: resolvedPromptName,
+          promptId: normalizedOptions.promptId
         }
       });
 
-      const contents = request.contents || [];
-      sdkConfig = this.buildGenerateContentConfigFromRequest(request);
-
-      // 3. 执行SDK调用
-      const response = await genAIClient.models.generateContent({
-        model: targetModel,
-        contents,
-        config: sdkConfig
-      });
-
-      const processingTimeMs = Date.now() - callStartTime;
-      const usage = response.usageMetadata;
-      const inputTokens = usage?.promptTokenCount ?? this.estimateTokens(contents);
-      const outputTokens = usage?.candidatesTokenCount ?? this.estimateTokensFromResponse(response);
-      const processedResponse = this.extractTextFromResponse(response);
-      const plainResponse = this.cloneResponse(response);
+      const processingTimeMs = response.usage.processingTimeMs || (Date.now() - callStartTime);
+      const inputTokens = response.usage.inputTokens;
+      const outputTokens = response.usage.outputTokens;
+      const processedResponse = response.text;
+      const plainResponse = response.rawResponse;
 
       if (traceId && this.loggingService) {
         try {
@@ -1095,11 +1032,11 @@ export class AIService {
             sessionId: undefined,
             agentType: resolvedAgentType,
             modelName: targetModel,
-            modelProvider: 'google',
+            modelProvider: response.provider,
             promptTemplate: resolvedPromptName,
-            inputPrompt: JSON.stringify(contents),
+            inputPrompt: JSON.stringify(providerRequest.input || []),
             inputTokens,
-            modelConfig: JSON.stringify(sdkConfig),
+            modelConfig: modelConfigSummary,
             rawResponse: JSON.stringify(plainResponse),
             processedResponse,
             outputTokens,
@@ -1116,19 +1053,17 @@ export class AIService {
         }
       }
 
-      await this.tokenManager.reportSuccess(activeToken.token);
-
       this.moduleLogger.info('Direct LLM generateContent call successful', {
+        providerId: response.provider,
         modelName: targetModel,
         processingTimeMs,
-        tokenId: activeToken.tokenId,
         hasTools: !!request.tools,
         toolCount: request.tools?.length || 0,
         agentType: resolvedAgentType,
         promptName: resolvedPromptName
       });
 
-      return plainResponse;
+      return buildGeminiCompatibleResponseFromOpenResponse(response.response, plainResponse);
 
     } catch (error: any) {
       const processingTimeMs = Date.now() - callStartTime;
@@ -1141,11 +1076,11 @@ export class AIService {
             sessionId: undefined,
             agentType: resolvedAgentType,
             modelName: targetModel,
-            modelProvider: 'google',
+            modelProvider: providerId,
             promptTemplate: resolvedPromptName,
-            inputPrompt: JSON.stringify(request.contents || []),
+            inputPrompt: JSON.stringify(providerRequest.input || []),
             inputTokens: 0,
-            modelConfig: JSON.stringify(sdkConfig || request.generationConfig || {}),
+            modelConfig: modelConfigSummary || request.generationConfig || {},
             rawResponse: undefined,
             processedResponse: undefined,
             outputTokens: 0,
@@ -1164,11 +1099,8 @@ export class AIService {
         }
       }
 
-      if (tokenInfo) {
-        await this.handleTokenFailure(tokenInfo, targetModel, error, 'generateContent');
-      }
-
       this.moduleLogger.error('Direct LLM generateContent call failed', {
+        providerId,
         modelName: targetModel,
         error: error.message,
         status: error.status,
@@ -1181,6 +1113,95 @@ export class AIService {
 
       throw error;
     }
+  }
+
+  private normalizeGenerateContentRequest(
+    request: Record<string, any>,
+    modelName: string,
+    providerConfig?: UnifiedLLMConfig
+  ): OpenResponseCreateRequest {
+    if (request && typeof request === 'object' && request.model && request.input) {
+      return {
+        ...request,
+        model: typeof request.model === 'string' ? request.model : modelName
+      } as OpenResponseCreateRequest;
+    }
+
+    return geminiRequestToOpenResponseRequest(request, modelName, providerConfig);
+  }
+
+  private async resolveProviderConfigForGenerateContent(
+    options: GenerateContentOptions,
+    agentType: string,
+    promptName: string
+  ): Promise<UnifiedLLMConfig | null> {
+    if (options.promptId) {
+      return await this.getConfigurationByPromptId(options.promptId);
+    }
+
+    if (options.agentType) {
+      return await this.getConfiguration(options.agentType, options.promptName);
+    }
+
+    return null;
+  }
+
+  private resolveProviderForGenerateContent(
+    targetModel: string,
+    request: { model?: { name: string } },
+    options: GenerateContentOptions,
+    config?: UnifiedLLMConfig | null
+  ): LLMProviderId {
+    if (
+      config?.model?.provider &&
+      resolveProviderFromUnifiedConfig(config) !== inferProviderFromModelName(config.model.name)
+    ) {
+      return resolveProviderFromUnifiedConfig(config);
+    }
+
+    const hasExplicitModel = Boolean(options.modelName || request?.model?.name);
+    if (hasExplicitModel) {
+      return inferProviderFromModelName(targetModel);
+    }
+
+    if (config) {
+      return resolveProviderFromUnifiedConfig(config);
+    }
+
+    return inferProviderFromModelName(targetModel);
+  }
+
+  private buildModelConfigSummary(config: UnifiedLLMConfig): Record<string, any> {
+    return {
+      provider: resolveProviderFromUnifiedConfig(config),
+      temperature: config.generation.temperature,
+      topK: config.generation.topK,
+      topP: config.generation.topP,
+      maxOutputTokens: config.generation.maxOutputTokens,
+      stopSequences: config.generation.stopSequences,
+      providerSpecific: config.model.providerSpecific
+    };
+  }
+
+  private buildGenerateContentModelConfigSummary(
+    request: {
+      generationConfig?: any;
+      safetySettings?: any;
+      toolConfig?: any;
+      thinkingConfig?: any;
+      systemInstruction?: any;
+    },
+    config?: UnifiedLLMConfig
+  ): Record<string, any> {
+    return {
+      provider: config ? resolveProviderFromUnifiedConfig(config) : undefined,
+      generationConfig: request.generationConfig || config?.generation,
+      safetySettings: request.safetySettings || config?.safety,
+      toolConfig: request.toolConfig || config?.tools?.functionCalling,
+      thinkingConfig: request.thinkingConfig || config?.thinking,
+      systemInstruction: request.systemInstruction || config?.context.systemInstruction,
+      providerSpecific: config?.model.providerSpecific
+    };
   }
 
   private buildContents(prompt: string, systemInstruction?: string): any[] {

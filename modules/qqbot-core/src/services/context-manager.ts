@@ -14,11 +14,10 @@ import {
   extractTextFromSegments,
   resolveAttachmentsFromMessage
 } from '../utils/message-utils';
+import type { Part } from '@google/genai';
+import sharp from 'sharp';
 
-type GeminiTextPart = { text: string };
-type GeminiImagePart = { inline_data: { mime_type: string; data: string } };
-
-export type GeminiContentPart = GeminiTextPart | GeminiImagePart;
+export type GeminiContentPart = Part;
 
 export interface FormattedContextPrompt {
   parts: GeminiContentPart[];
@@ -296,10 +295,10 @@ export class ContextManager {
    * @param context 消息上下文
    * @returns 格式化后的prompt文本
    */
-  public formatContextForAI(
+  public async formatContextForAI(
     context: MessageContext,
     currentUserInput?: string
-  ): FormattedContextPrompt {
+  ): Promise<FormattedContextPrompt> {
     const nicknameMap = new Map<number, string>();
 
     if (context.userInfo) {
@@ -339,11 +338,15 @@ export class ContextManager {
       textFragments.push(normalized);
     };
 
-    const appendImagePart = (attachment: PromptAttachment) => {
+    const appendImagePart = async (attachment: PromptAttachment) => {
+      const normalized = await this.prepareAttachmentForGemini(attachment);
+      if (!normalized) {
+        return;
+      }
       parts.push({
-        inline_data: {
-          mime_type: attachment.mimeType,
-          data: attachment.data
+        inlineData: {
+          mimeType: normalized.mimeType,
+          data: normalized.data
         }
       });
       textFragments.push('[image attachment]');
@@ -351,11 +354,13 @@ export class ContextManager {
 
     appendTextPart('======已读消息========');
 
-    context.historyMessages.forEach(historyMessage => {
+    for (const historyMessage of context.historyMessages) {
       const formatted = this.buildHistoryEntry(historyMessage, nicknameMap);
       appendTextPart(JSON.stringify(formatted.entry));
-      formatted.attachments.forEach(appendImagePart);
-    });
+      for (const attachment of formatted.attachments) {
+        await appendImagePart(attachment);
+      }
+    }
 
     appendTextPart('=======未读消息======');
 
@@ -367,10 +372,12 @@ export class ContextManager {
       )
     ];
 
-    unreadEntries.forEach(unread => {
+    for (const unread of unreadEntries) {
       appendTextPart(JSON.stringify(unread.entry));
-      unread.attachments.forEach(appendImagePart);
-    });
+      for (const attachment of unread.attachments) {
+        await appendImagePart(attachment);
+      }
+    }
 
     const plainText = textFragments.join('\n').trim()
       || this.extractMessageText(context.currentMessage);
@@ -514,9 +521,27 @@ export class ContextManager {
     ];
 
     const attachments: PromptAttachment[] = [];
+    const seen = new Set<string>();
+
+    const pushAttachments = (items?: PromptAttachment[]) => {
+      if (!Array.isArray(items)) {
+        return;
+      }
+
+      items.forEach(item => {
+        if (!item || seen.has(item.data)) {
+          return;
+        }
+        seen.add(item.data);
+        attachments.push(item);
+      });
+    };
+
+    pushAttachments(this.collectLocalAttachmentsFromRawPayload(historyMessage.raw_payload));
 
     if (Array.isArray(payload)) {
-      attachments.push(...this.collectImageAttachmentsFromSegments(payload));
+      pushAttachments(this.collectImageAttachmentsFromSegments(payload));
+      const textFromSegments = extractTextFromSegments(payload);
       const hasImage =
         historyMessage.content_type === 'image' ||
         attachments.length > 0 ||
@@ -524,18 +549,17 @@ export class ContextManager {
 
       if (hasImage && attachments.length === 0) {
         const rawSegments = this.extractSegmentsFromRawPayload(historyMessage.raw_payload);
-        attachments.push(...this.collectImageAttachmentsFromSegments(rawSegments));
+        pushAttachments(this.collectImageAttachmentsFromSegments(rawSegments));
       }
 
       if (hasImage) {
         return {
           messageType: 'image',
-          context: this.pickFirstNonEmptyText(contextCandidates),
+          context: this.pickFirstNonEmptyText([textFromSegments, ...contextCandidates]),
           attachments
         };
       }
 
-      const textFromSegments = extractTextFromSegments(payload);
       return {
         messageType: 'text',
         context: this.pickFirstNonEmptyText([textFromSegments, ...contextCandidates]),
@@ -544,10 +568,12 @@ export class ContextManager {
     }
 
     if (typeof payload === 'string') {
-      const hasImage = historyMessage.content_type === 'image';
-      if (hasImage) {
+      const hasImage =
+        historyMessage.content_type === 'image' || attachments.length > 0;
+
+      if (hasImage && attachments.length === 0) {
         const rawSegments = this.extractSegmentsFromRawPayload(historyMessage.raw_payload);
-        attachments.push(...this.collectImageAttachmentsFromSegments(rawSegments));
+        pushAttachments(this.collectImageAttachmentsFromSegments(rawSegments));
       }
 
       return {
@@ -558,9 +584,7 @@ export class ContextManager {
     }
 
     const rawSegments = this.extractSegmentsFromRawPayload(historyMessage.raw_payload);
-    if (rawSegments.length > 0) {
-      attachments.push(...this.collectImageAttachmentsFromSegments(rawSegments));
-    }
+    pushAttachments(this.collectImageAttachmentsFromSegments(rawSegments));
 
     const hasImage = historyMessage.content_type === 'image' || attachments.length > 0;
 
@@ -629,7 +653,7 @@ export class ContextManager {
     const seen = new Set<string>();
 
     const pushIfUnique = (attachment: PromptAttachment | null) => {
-      if (!attachment) {
+      if (!this.isSupportedPromptAttachment(attachment)) {
         return;
       }
       if (seen.has(attachment.data)) {
@@ -706,7 +730,26 @@ export class ContextManager {
   }
 
   private collectImageAttachmentsFromLocalSources(message: QQMessage): PromptAttachment[] {
-    const raw = (message as any)?.local_attachments;
+    return this.buildPromptAttachmentsFromLocalEntries(
+      (message as any)?.local_attachments
+    );
+  }
+
+  private collectLocalAttachmentsFromRawPayload(rawPayload: any): PromptAttachment[] {
+    if (!rawPayload) {
+      return [];
+    }
+
+    const resolved =
+      typeof rawPayload === 'string' ? this.parseRawRequest(rawPayload) : rawPayload;
+    if (!resolved) {
+      return [];
+    }
+
+    return this.buildPromptAttachmentsFromLocalEntries(resolved.local_attachments);
+  }
+
+  private buildPromptAttachmentsFromLocalEntries(raw: any): PromptAttachment[] {
     if (!Array.isArray(raw)) {
       return [];
     }
@@ -725,23 +768,96 @@ export class ContextManager {
       }
 
       const mimeCandidate =
-        typeof entry.mimeType === 'string'
-          ? entry.mimeType
-          : entry.mime_type;
+        typeof entry.mimeType === 'string' ? entry.mimeType : entry.mime_type;
 
       const resolvedMime = this.resolveMimeType(
         typeof mimeCandidate === 'string' ? mimeCandidate : undefined,
         typeof entry.originalName === 'string' ? entry.originalName : undefined
       );
 
-      attachments.push({
+      const promptAttachment: PromptAttachment = {
         type: 'image',
         mimeType: resolvedMime,
         data: this.normalizeBase64(base64)
-      });
+      };
+
+      if (!this.isSupportedPromptAttachment(promptAttachment)) {
+        return;
+      }
+
+      attachments.push(promptAttachment);
     });
 
     return attachments;
+  }
+
+  private async prepareAttachmentForGemini(
+    attachment: PromptAttachment
+  ): Promise<PromptAttachment | null> {
+    if (!this.isSupportedPromptAttachment(attachment)) {
+      return null;
+    }
+
+    let mimeType = (attachment.mimeType || '').trim().toLowerCase();
+    const normalizedData = attachment.data.trim();
+
+    if (!mimeType || !mimeType.startsWith('image/')) {
+      mimeType = 'image/png';
+    }
+
+    if (mimeType.startsWith('image/gif')) {
+      const converted = await this.convertGifToWebp(normalizedData);
+      if (!converted) {
+        this.moduleLogger.warn('Dropping GIF attachment due to conversion failure');
+        return null;
+      }
+      mimeType = 'image/webp';
+      return {
+        ...attachment,
+        mimeType,
+        data: converted
+      };
+    }
+
+    return {
+      ...attachment,
+      mimeType,
+      data: normalizedData
+    };
+  }
+
+  private async convertGifToWebp(base64Data: string): Promise<string | null> {
+    try {
+      const buffer = Buffer.from(base64Data, 'base64');
+      const converted = await sharp(buffer, { animated: true })
+        .webp({ quality: 90 })
+        .toBuffer();
+      return converted.toString('base64');
+    } catch (error) {
+      this.moduleLogger.warn('Failed to convert GIF to WebP', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private isSupportedPromptAttachment(
+    attachment: PromptAttachment | null
+  ): attachment is PromptAttachment {
+    if (!attachment) {
+      return false;
+    }
+
+    if (typeof attachment.data !== 'string' || attachment.data.trim().length === 0) {
+      return false;
+    }
+
+    const mimeType = (attachment.mimeType || '').trim().toLowerCase();
+    if (mimeType.startsWith('image/')) {
+      return true;
+    }
+
+    return false;
   }
 
   private resolveMimeType(explicit?: string, fileName?: string): string {

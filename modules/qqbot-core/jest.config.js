@@ -20,7 +20,8 @@ module.exports = {
     'html'
   ],
   moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1'
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '^sharp$': '<rootDir>/src/test-support/sharp-mock.ts'
   },
   setupFilesAfterEnv: [],
   testTimeout: 10000,

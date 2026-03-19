@@ -61,7 +61,7 @@ export interface ModelConfig {
   name: string;
 
   // 供应商信息
-  provider: 'google' | 'openai' | 'anthropic' | 'custom';
+  provider: 'google' | 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex' | 'anthropic' | 'custom';
 
   // 允许使用的Token ID列表 (绑定特定tokens)
   allowedTokenIds?: number[];

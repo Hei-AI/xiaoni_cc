@@ -9,6 +9,15 @@ export interface MessageAttachment {
   data: Record<string, any>;
 }
 
+export interface LocalAttachment {
+  type: 'image' | 'face';
+  mimeType: string;
+  base64: string;
+  originalName?: string;
+  source?: Record<string, any>;
+  saved_at?: string;
+}
+
 export interface QQMessage {
   time: number;
   post_type: 'message' | 'message_sent';
@@ -26,6 +35,7 @@ export interface QQMessage {
   temp_source?: number;  // 临时会话来源
   segments?: OB11Segment[]; // 保留原始消息段
   attachments?: MessageAttachment[]; // 解析出的附件信息
+  local_attachments?: LocalAttachment[];
 }
 
 export interface FriendSender {
@@ -276,6 +286,22 @@ export interface HttpServerConfig {
 export interface AIConfig {
   gemini_api_keys: string[];
   model_name: string;
+  gemini_cli_access_token?: string;
+  gemini_cli_refresh_token?: string;
+  gemini_cli_project_id?: string;
+  gemini_cli_expires_at?: string | number;
+  gemini_cli_oauth_path?: string;
+  gemini_cli_base_url?: string;
+  gemini_cli_stream_path?: string;
+  openai_api_key?: string;
+  openai_base_url?: string;
+  codex_access_token?: string;
+  codex_refresh_token?: string;
+  codex_expires_at?: string | number;
+  codex_account_id?: string;
+  codex_base_url?: string;
+  codex_oauth_path?: string;
+  codex_responses_path?: string;
   authorized_user_id: number;
   bot_qq_number: number;
 }

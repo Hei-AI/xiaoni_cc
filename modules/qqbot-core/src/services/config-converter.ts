@@ -6,6 +6,7 @@
 import { UnifiedLLMConfig, LLMConfigCategory } from '../types/llm-config-unified';
 import { AgentPromptData } from '../types';
 import { logger } from '../utils/logger';
+import { resolveProviderConfigFromPrompt } from './llm-provider';
 
 export class ConfigConverter {
   private moduleLogger = logger.createModuleLogger('config-converter');
@@ -21,6 +22,7 @@ export class ConfigConverter {
     });
 
     const now = new Date();
+    const resolvedProvider = resolveProviderConfigFromPrompt(agentPrompt);
 
     return {
       id: agentPrompt.id.toString(),
@@ -30,8 +32,11 @@ export class ConfigConverter {
 
       model: {
         name: agentPrompt.model_name || 'gemini-2.5-flash',
-        provider: 'google',
-        allowedTokenIds: agentPrompt.allowed_token_ids || []
+        provider: resolvedProvider.provider,
+        allowedTokenIds: agentPrompt.allowed_token_ids || [],
+        ...(resolvedProvider.providerSpecific
+          ? { providerSpecific: resolvedProvider.providerSpecific }
+          : {})
       },
 
       generation: {
@@ -178,26 +183,61 @@ export class ConfigConverter {
   }
 
   private extractToolsConfig(advancedConfig: any): any {
+    const defaultConfig = {
+      functionCalling: {
+        mode: 'NONE',
+        allowedFunctionNames: [],
+        allowedFunctionIds: []
+      },
+      predefinedTools: {
+        enabledTools: [],
+        callingMode: 'AUTO'
+      },
+      customTools: [],
+      googleSearch: undefined,
+      urlContext: undefined,
+      structuredOutput: undefined
+    };
+
     if (!advancedConfig) {
-      return {
-        functionCalling: { enabled: false },
-        predefinedTools: { enabledTools: [], callingMode: 'AUTO' }
-      };
+      return defaultConfig;
     }
 
     try {
       const config = typeof advancedConfig === 'string' ? JSON.parse(advancedConfig) : advancedConfig;
-      return config.toolsConfig || {
-        functionCalling: { enabled: false },
-        predefinedTools: { enabledTools: [], callingMode: 'AUTO' }
+      const toolsConfig = config && typeof config.toolsConfig === 'object' ? config.toolsConfig : {};
+
+      return {
+        functionCalling: {
+          mode: this.normalizeFunctionCallingMode(toolsConfig.functionCalling?.mode),
+          allowedFunctionNames: [],
+          allowedFunctionIds: []
+        },
+        predefinedTools: {
+          enabledTools: Array.isArray(toolsConfig.predefinedTools?.enabledTools)
+            ? toolsConfig.predefinedTools.enabledTools
+            : [],
+          callingMode: this.normalizeFunctionCallingMode(toolsConfig.predefinedTools?.callingMode, 'AUTO')
+        },
+        customTools: [],
+        googleSearch: toolsConfig.googleSearch,
+        urlContext: toolsConfig.urlContext,
+        structuredOutput: toolsConfig.structuredOutput
       };
     } catch (error) {
       this.moduleLogger.warn('Failed to extract tools config', { error });
-      return {
-        functionCalling: { enabled: false },
-        predefinedTools: { enabledTools: [], callingMode: 'AUTO' }
-      };
+      return defaultConfig;
     }
+  }
+
+  private normalizeFunctionCallingMode(value: unknown, fallback: 'AUTO' | 'ANY' | 'NONE' = 'NONE'): 'AUTO' | 'ANY' | 'NONE' {
+    if (typeof value === 'string') {
+      const upper = value.toUpperCase();
+      if (upper === 'AUTO' || upper === 'ANY' || upper === 'NONE') {
+        return upper as 'AUTO' | 'ANY' | 'NONE';
+      }
+    }
+    return fallback;
   }
 }
 

@@ -117,7 +117,7 @@ describe('Messaging Static Tools', () => {
   describe('send_qq_group_message', () => {
     it('should send group message without mention', async () => {
       const result = await groupTool.handler(
-        buildContext({ message: 'broadcast' }, { group_id: 654321 })
+        buildContext({ message: 'broadcast', user_perspectives: [] }, { group_id: 654321 })
       );
 
       expect(deps.sendGroupMessage).toHaveBeenCalledWith(654321, 'broadcast');
@@ -133,7 +133,8 @@ describe('Messaging Static Tools', () => {
       const result = await groupTool.handler(
         buildContext({
           message: 'hi',
-          at_user_ids: [111, 222]
+          at_user_ids: [111, 222],
+          user_perspectives: []
         }, { group_id: 654321 })
       );
 
@@ -153,7 +154,8 @@ describe('Messaging Static Tools', () => {
       const result = await groupTool.handler(
         buildContext({
           message: 'hi',
-          at_user_ids: '111'
+          at_user_ids: '111',
+          user_perspectives: []
         }, { group_id: 654321 })
       );
 
@@ -162,9 +164,19 @@ describe('Messaging Static Tools', () => {
       expect(deps.sendGroupMessage).not.toHaveBeenCalled();
     });
 
+    it('should reject missing user_perspectives argument', async () => {
+      const result = await groupTool.handler(
+        buildContext({ message: 'hi' }, { group_id: 654321 })
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('user_perspectives');
+      expect(deps.sendGroupMessage).not.toHaveBeenCalled();
+    });
+
     it('should fail when group context is missing', async () => {
       const result = await groupTool.handler(
-        buildContext({ message: 'hello' })
+        buildContext({ message: 'hello', user_perspectives: [] })
       );
 
       expect(result.success).toBe(false);
@@ -187,7 +199,7 @@ describe('Messaging Static Tools', () => {
     it('should send meme image in group context', async () => {
       const result = await memeTool.handler(
         buildContext(
-          { tags: ['无语'], at_user_ids: [999] },
+          { tags: ['无语'], at_user_ids: [999], user_perspectives: [] },
           { group_id: 12345 }
         )
       );
@@ -208,7 +220,7 @@ describe('Messaging Static Tools', () => {
 
     it('should send meme image in private context when group is missing', async () => {
       const result = await memeTool.handler(
-        buildContext({ tags: ['围观'] }, { user_id: 87654 })
+        buildContext({ tags: ['围观'], user_perspectives: [] }, { user_id: 87654 })
       );
 
       expect(deps.sendPrivateMessage).toHaveBeenCalledWith(
@@ -222,12 +234,23 @@ describe('Messaging Static Tools', () => {
       deps.findMemeByTags.mockResolvedValueOnce(null);
 
       const result = await memeTool.handler(
-        buildContext({ tags: ['不存在'] }, { group_id: 24680 })
+        buildContext({ tags: ['不存在'], user_perspectives: [] }, { group_id: 24680 })
       );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('No meme image found');
       expect(deps.sendGroupMessage).not.toHaveBeenCalled();
+    });
+
+    it('should reject missing user_perspectives argument for meme tool', async () => {
+      const result = await memeTool.handler(
+        buildContext({ tags: ['吐槽'] }, { group_id: 24680 })
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('user_perspectives');
+      expect(deps.sendGroupMessage).not.toHaveBeenCalled();
+      expect(deps.sendPrivateMessage).not.toHaveBeenCalled();
     });
   });
 

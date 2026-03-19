@@ -60,6 +60,7 @@ describe('LLMJobWorker', () => {
       dispatch: jest.fn(),
       getInvokeDeclaration: jest.fn(),
       getStaticToolDeclarations: jest.fn().mockReturnValue([]),
+      getStaticToolDeclaration: jest.fn().mockReturnValue(undefined),
       getSearchToolsDeclaration: jest.fn().mockReturnValue(undefined)
     };
 
@@ -241,6 +242,95 @@ describe('LLMJobWorker', () => {
         suppressAutoReply: false,
         metadata: mockJob.metadata
       }));
+    });
+
+    it('should enforce static tool overrides before calling LLM', async () => {
+      const mockJob = {
+        id: 'job-override',
+        trace_id: 'trace-static',
+        source_key: 'group_1',
+        source_type: 'group',
+        status: 'pending',
+        retry_count: 0,
+        max_retries: 3,
+        contents_json: [{ role: 'user', parts: [{ text: '发送表情包' }] }],
+        tools_json: [
+          {
+            name: 'send_meme_image',
+            description: 'Old description',
+            parameters: {
+              type: 'object',
+              properties: {
+                tags: { type: 'array' }
+              },
+              required: ['tags']
+            }
+          }
+        ],
+        config_json: null,
+        current_turn: 1,
+        max_turns: 10,
+        created_at: new Date(),
+        updated_at: new Date(),
+        metadata: { userId: 999 }
+      };
+
+      const staticSchema = {
+        type: 'object',
+        properties: {
+          tags: { type: 'array', items: { type: 'string' } },
+          user_perspectives: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                target_user_id: { type: 'integer' },
+                based_on: { type: 'string' },
+                comment: { type: 'string' }
+              },
+              required: ['target_user_id', 'based_on', 'comment']
+            }
+          }
+        },
+        required: ['tags', 'user_perspectives']
+      };
+
+      mockDispatcher.getStaticToolDeclaration.mockImplementation((name: string) => {
+        if (name === 'send_meme_image') {
+          return {
+            name,
+            description: 'Canonical meme sender',
+            parameters: staticSchema
+          };
+        }
+        return undefined;
+      });
+
+      const mockLLMResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'done' }]
+            }
+          }
+        ]
+      };
+
+      mockAIService.generateContent.mockResolvedValueOnce(mockLLMResponse);
+      mockConnection.query
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      await (worker as any).processJob(mockJob);
+
+      const request = mockAIService.generateContent.mock.calls[0][0];
+      expect(request.tools).toHaveLength(1);
+      const declaration = request.tools[0];
+      expect(declaration.description).toBe('Canonical meme sender');
+      expect(declaration.parameters.required).toEqual(['tags', 'user_perspectives']);
+      expect(
+        declaration.parameters.properties.user_perspectives.items.required
+      ).toEqual(['target_user_id', 'based_on', 'comment']);
     });
 
     it('should process job with function call', async () => {

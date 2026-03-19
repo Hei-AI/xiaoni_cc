@@ -62,11 +62,11 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
   -- 调用基本信息
   agent_type VARCHAR(50) NOT NULL COMMENT 'AI代理类型：chat_bot, intent_analyzer等',
   model_name VARCHAR(100) NOT NULL COMMENT '使用的模型名称',
-  model_provider VARCHAR(50) DEFAULT 'gemini' COMMENT '模型提供商',
+  model_provider VARCHAR(50) DEFAULT 'google-gemini-cli' COMMENT '模型提供商',
   
   -- 输入信息
   prompt_template TEXT NULL COMMENT 'Prompt模板名称或描述',
-  input_prompt TEXT NOT NULL COMMENT '完整的输入prompt',
+  input_prompt LONGTEXT NOT NULL COMMENT '完整的输入prompt',
   input_tokens INT NULL COMMENT '输入token数量',
   
   -- 模型配置
