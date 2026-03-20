@@ -1,0 +1,9 @@
+:80 {
+    encode gzip
+
+    basicauth * {
+        admin $2a$14$iOCQYzUI/Vg92kNZy8zKOOikV1vfD5DUv55KVKmLeIZ62OMUGbpWa
+    }
+
+    reverse_proxy admin-frontend:80
+}

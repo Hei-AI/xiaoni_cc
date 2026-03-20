@@ -96,7 +96,7 @@ services:
       args: *build_no_proxy
     container_name: qqbot-admin-backend
     ports:
-      - "9080:9080"
+      - "127.0.0.1:9080:9080"
     environment:
       - DB_HOST=qqbot-mysql
       - DB_PORT=3306
@@ -128,7 +128,7 @@ services:
       args: *build_no_proxy
     container_name: qqbot-admin-frontend
     ports:
-      - "3003:80"
+      - "127.0.0.1:3003:80"
     environment:
       - VITE_API_BASE_URL=http://qqbot-admin-backend:9080
     depends_on:
@@ -138,6 +138,20 @@ services:
       - qq_bot_network
     volumes:
       - ./logs/admin-frontend:/var/log/nginx
+
+  # Authenticated local-only gateway for exposing Admin Panel via Cloudflare Tunnel
+  admin-expose-proxy:
+    image: caddy:2
+    container_name: qqbot-admin-expose-proxy
+    ports:
+      - "127.0.0.1:3903:80"
+    depends_on:
+      - admin-frontend
+    restart: unless-stopped
+    networks:
+      - qq_bot_network
+    volumes:
+      - ./modules/admin-panel/expose/Caddyfile:/etc/caddy/Caddyfile:ro
 
   # Operational one-off tasks (invoke with: docker compose --profile ops run --rm <service>)
   init-db:
