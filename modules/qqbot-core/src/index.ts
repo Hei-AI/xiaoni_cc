@@ -7,6 +7,7 @@ import AIService from './services/ai-service';
 import { SessionManager } from './services/session-manager';
 import { LoggingService } from './services/logging-service';
 import { ContextManager } from './services/context-manager';
+import { ChatViewportService } from './services/chat-viewport-service';
 import { DebugService } from './services/debug-service';
 import MessageQueueService, { DrainedMessage } from './services/message-queue-service';
 import DirectNotifier, { BatchHandler, TriggerType } from './services/direct-notifier';
@@ -48,6 +49,7 @@ class QQBot implements BatchHandler {
   private sessionManager: SessionManager;
   private loggingService: LoggingService;
   private contextManager: ContextManager;
+  private chatViewportService: ChatViewportService;
   private debugService: DebugService;
 
   // Stage 1 Engines
@@ -74,7 +76,9 @@ class QQBot implements BatchHandler {
   private groupReplyEnabled: boolean = true;
   private allowedGroups: Set<number> = new Set();
   private groupSettingsCache: Map<number, boolean> = new Map(); // 群聊启用状态缓存
-  private readonly defaultChatPromptCandidates: string[] = ['echance_chat', 'enhanced_chat', 'default_chat'];
+  private readonly defaultChatPromptCandidates: string[] = ['basic_chat', 'echance_chat', 'enhanced_chat', 'default_chat'];
+  private httpServerStarted = false;
+  private websocketConnected = false;
 
   constructor() {
     this.database = getDatabaseManager(config.database);
@@ -87,7 +91,8 @@ class QQBot implements BatchHandler {
     );
     this.aiService = new AIService(config.ai, this.database, this.loggingService);
     this.sessionManager = new SessionManager(this.database);
-    this.contextManager = new ContextManager(this.database);
+    this.chatViewportService = new ChatViewportService(this.database);
+    this.contextManager = new ContextManager(this.database, this.chatViewportService);
     this.debugService = new DebugService(this.database);
     this.memeLibrary = new MemeLibrary();
 
@@ -151,6 +156,8 @@ class QQBot implements BatchHandler {
         const groupSettings = await this.database.getGroupChatSettingById(groupId);
         return !(groupSettings && !groupSettings.auto_reply_enabled);
       },
+      scrollChatViewUp: (cursor, pageSize) => this.chatViewportService.scrollUp(cursor, pageSize),
+      jumpChatViewToLatest: (cursor, pageSize) => this.chatViewportService.jumpToLatest(cursor, pageSize),
       findMemeByTags: tags => this.memeLibrary.findBestMatch(tags),
       saveMemeImage: (imageBase64, tags) => this.memeLibrary.addMeme(imageBase64, tags),
       recordMemeUsage: memeId => this.memeLibrary.recordUsage(memeId)
@@ -344,8 +351,15 @@ class QQBot implements BatchHandler {
       `1. You must end every reply by calling exactly one terminal tool. Use ${sendTool} for normal replies and use end only when you intentionally want no reply.`,
       '2. Do not finish with plain assistant text. Do not call end after a send tool.',
       '3. Use send_meme_image only when the user explicitly asks for an image/meme or the conversation is already in a meme workflow.',
-      '4. save_meme_image is non-terminal; after saving you must continue until a send tool or end completes the turn.'
+      '4. save_meme_image is non-terminal; after saving you must continue until a send tool or end completes the turn.',
+      '5. Treat the supplied transcript as the currently visible QQ chat window, not the full chat history.',
+      '6. If you need older context, call chat_view_scroll_up. If you want to return to the newest messages, call chat_view_jump_to_latest.'
     ].join('\n');
+  }
+
+  private getImplicitChatToolNames(messageType: 'private' | 'group'): string[] {
+    const sendTool = messageType === 'group' ? 'send_qq_group_message' : 'send_private_chat_message';
+    return [sendTool, 'chat_view_scroll_up', 'chat_view_jump_to_latest', 'end'];
   }
 
   public async start(): Promise<void> {
@@ -361,6 +375,7 @@ class QQBot implements BatchHandler {
 
       // 启动HTTP服务器
       await this.httpServer.start();
+      this.httpServerStarted = true;
       this.moduleLogger.info('✅ HTTP server started');
 
       // 设置WebSocket事件监听器
@@ -368,6 +383,7 @@ class QQBot implements BatchHandler {
 
       // 连接到WebSocket服务器
       await this.websocketClient.connect();
+      this.websocketConnected = this.websocketClient.isConnected();
       this.moduleLogger.info('✅ WebSocket client connected');
 
       // 启动调度器（如果启用拟人化处理）
@@ -387,19 +403,15 @@ class QQBot implements BatchHandler {
       }
 
       // 更新机器人状态
-      await this.database.updateBotStatus(
-        config.ai.bot_qq_number.toString(),
-        'online',
-        this.websocketClient.isConnected(),
-        true
-      );
+      await this.persistRuntimeStatus('online');
 
       this.moduleLogger.info('🎉 QQ Bot started successfully!');
 
-      // 发送启动成功通知给授权用户
-      await this.sendStartupNotification();
-
     } catch (error) {
+      await this.persistRuntimeStatus(
+        'error',
+        error instanceof Error ? error.message : String(error)
+      );
       this.moduleLogger.error('❌ Failed to start QQ Bot', { error });
       throw error;
     }
@@ -408,19 +420,23 @@ class QQBot implements BatchHandler {
   private setupWebSocketEventHandlers(): void {
     // 连接事件
     this.websocketClient.on('connected', () => {
+      this.websocketConnected = true;
+      void this.persistRuntimeStatus('online');
       this.moduleLogger.info('WebSocket connected');
     });
 
     this.websocketClient.on('disconnected', (data) => {
+      this.websocketConnected = false;
       this.moduleLogger.warn('WebSocket disconnected', data);
-      
-      // 通知授权用户连接断开
-      this.notifyConnectionStatus(false).catch(error => {
-        this.moduleLogger.error('Failed to notify disconnection', { error });
-      });
+      void this.persistRuntimeStatus('offline', this.extractDisconnectReason(data));
     });
 
     this.websocketClient.on('error', (error) => {
+      this.websocketConnected = this.websocketClient.isConnected();
+      void this.persistRuntimeStatus(
+        'error',
+        error instanceof Error ? error.message : String(error)
+      );
       this.moduleLogger.error('WebSocket error', { error });
     });
 
@@ -485,12 +501,28 @@ class QQBot implements BatchHandler {
     }
 
     try {
-      // 遍历处理每条消息，传递 batchId
-      for (const drained of messages) {
+      const anchorMessage = this.pickLatestDrainedMessage(messages);
+
+      if (anchorMessage) {
+        this.moduleLogger.info('Selected private batch anchor message', {
+          batchId,
+          sourceKey,
+          anchorTraceId: anchorMessage.traceId,
+          skippedMessageCount: Math.max(0, messages.length - 1)
+        });
+
         await this._processSinglePrivateMessage(
-          drained.message as QQMessage,
-          drained.eventData,
-          drained.traceId,
+          anchorMessage.message as QQMessage,
+          {
+            ...anchorMessage.eventData,
+            batchMessages: messages.map(item => ({
+              traceId: item.traceId,
+              arrivalTime: item.arrivalTime,
+              priority: item.priority,
+              messageId: (item.message as QQMessage)?.message_id ?? null
+            }))
+          },
+          anchorMessage.traceId,
           batchId
         );
       }
@@ -600,12 +632,29 @@ class QQBot implements BatchHandler {
     }
 
     try {
-      // 遍历处理每条消息，传递 batchId
-      for (const drained of messages) {
+      const anchorMessage = this.pickGroupBatchAnchor(messages);
+
+      if (anchorMessage) {
+        this.moduleLogger.info('Selected group batch anchor message', {
+          batchId,
+          sourceKey,
+          anchorTraceId: anchorMessage.traceId,
+          skippedMessageCount: Math.max(0, messages.length - 1),
+          anchorMessageId: (anchorMessage.message as QQMessage)?.message_id ?? null
+        });
+
         await this._processSingleGroupMessage(
-          drained.message as QQMessage,
-          drained.eventData,
-          drained.traceId,
+          anchorMessage.message as QQMessage,
+          {
+            ...anchorMessage.eventData,
+            batchMessages: messages.map(item => ({
+              traceId: item.traceId,
+              arrivalTime: item.arrivalTime,
+              priority: item.priority,
+              messageId: (item.message as QQMessage)?.message_id ?? null
+            }))
+          },
+          anchorMessage.traceId,
           batchId
         );
       }
@@ -662,6 +711,58 @@ class QQBot implements BatchHandler {
 
       throw error;
     }
+  }
+
+  private pickLatestDrainedMessage(messages: DrainedMessage[]): DrainedMessage | null {
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return null;
+    }
+
+    return [...messages].sort((left, right) => {
+      const leftTime = left.arrivalTime instanceof Date ? left.arrivalTime.getTime() : 0;
+      const rightTime = right.arrivalTime instanceof Date ? right.arrivalTime.getTime() : 0;
+      return rightTime - leftTime;
+    })[0] || null;
+  }
+
+  private pickGroupBatchAnchor(messages: DrainedMessage[]): DrainedMessage | null {
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return null;
+    }
+
+    const directlyAddressed = messages.filter(item =>
+      this.isGroupMessageDirectlyAddressed(item.message as QQMessage)
+    );
+
+    if (directlyAddressed.length > 0) {
+      return this.pickLatestDrainedMessage(directlyAddressed);
+    }
+
+    return this.pickLatestDrainedMessage(messages);
+  }
+
+  private isGroupMessageDirectlyAddressed(message: QQMessage): boolean {
+    if (!message || message.message_type !== 'group') {
+      return false;
+    }
+
+    const botQQ = this.aiService.getBotQQNumber();
+    if (!botQQ) {
+      return false;
+    }
+
+    if (Array.isArray(message.message)) {
+      return message.message.some((segment: any) =>
+        segment?.type === 'at' && segment.data?.qq === botQQ.toString()
+      );
+    }
+
+    if (typeof message.message === 'string') {
+      const atPattern = new RegExp(`\\[CQ:at,qq=${botQQ}\\]`);
+      return atPattern.test(message.message);
+    }
+
+    return false;
   }
 
   /**
@@ -1406,7 +1507,7 @@ class QQBot implements BatchHandler {
     return {
       config,
       agentType: config.category || 'chat_bot',
-      promptName: resolvedPromptName || config.name || 'enhanced_chat',
+      promptName: resolvedPromptName || config.name || 'basic_chat',
       promptId: effectivePromptId,
       groupSettings,
       privateSettings
@@ -1550,7 +1651,31 @@ class QQBot implements BatchHandler {
           return cloned;
         };
 
-        const customTools = promptConfig.tools?.customTools || [];
+        const customTools = [...(promptConfig.tools?.customTools || [])];
+        if (this.isToolDrivenChatPrompt(promptAgentType, promptName)) {
+          const existingNames = new Set(
+            customTools
+              .map((tool: any) => tool?.name || tool?.id)
+              .filter((value: unknown): value is string => typeof value === 'string' && value.length > 0)
+          );
+
+          this.getImplicitChatToolNames(originalMessage.message_type).forEach(toolName => {
+            if (existingNames.has(toolName)) {
+              return;
+            }
+
+            customTools.push({
+              id: toolName,
+              name: toolName,
+              description: '',
+              parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+              }
+            });
+          });
+        }
         const staticToolDeclarations = this.functionCallDispatcher
           .getStaticToolDeclarations()
           .reduce<Record<string, { description?: string; parameters?: any }>>((acc, decl) => {
@@ -1644,7 +1769,8 @@ class QQBot implements BatchHandler {
           promptId: promptId || null,
           promptName,
           agentType: promptAgentType,
-          modelName: promptConfig.model?.name || null
+          modelName: promptConfig.model?.name || null,
+          chatViewport: contextPrompt.chatViewport || null
         };
 
         if (functionDeclarations.length > 0) {
@@ -2026,70 +2152,49 @@ class QQBot implements BatchHandler {
     this.moduleLogger.debug('Bot message sent', event);
   }
 
-  private async sendStartupNotification(): Promise<void> {
-    try {
-      // 等待一小段时间，确保WebSocket连接完全稳定
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      const authorizedUserId = config.ai.authorized_user_id;
-
-      const startupMessage = `🎉 QQ智能机器人 Stage 1 启动成功！
-
-📊 系统状态:
-✅ 数据库连接: 正常
-✅ WebSocket连接: 正常  
-✅ HTTP服务器: 正常
-✅ AI服务: 正常
-
-🧠 Stage 1 新特性:
-✅ 智能决策引擎: 自动判断是否需要回复
-✅ Prompt 配置驱动: LLM 调用内完成风格化处理
-✅ 上下文引擎: 理解对话历史和用户信息
-
-🤖 机器人信息:
-• QQ号: ${config.ai.bot_qq_number}
-• AI模型: ${(await this.aiService.getModelInfo()).name}
-• 架构版本: Stage 1 - Smart Responder
-• 启动时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
-
-💡 功能说明:
-• 智能对话: 直接发送消息进行对话（现在更懂你了！）
-• 需求管理: 描述开发需求，机器人会智能识别并处理
-• 群聊管理: 支持群聊AI回复功能（智能过滤无意义回复）
-• 个性化回复: 根据时间、用户关系、对话主题自动调整语调
-
-🚀 Stage 1 进化完成！现在我能更智能地理解您的意图，提供更有针对性的回复。
-
-您现在可以开始与我对话了！`;
-
-      await this.websocketClient.sendPrivateMessage(authorizedUserId, startupMessage);
-      
-      this.moduleLogger.info('Startup notification sent to authorized user', { 
-        userId: authorizedUserId 
-      });
-
-    } catch (error) {
-      this.moduleLogger.error('Failed to send startup notification', { error });
-      // 启动通知失败不应该阻止整个启动过程，所以这里只记录错误
+  private extractDisconnectReason(data: unknown): string | undefined {
+    if (!data || typeof data !== 'object') {
+      return 'WebSocket disconnected';
     }
+
+    const reason =
+      'reason' in data && typeof data.reason === 'string'
+        ? data.reason
+        : undefined;
+    const code =
+      'code' in data && typeof data.code === 'number'
+        ? data.code
+        : undefined;
+
+    if (code !== undefined && reason) {
+      return `WebSocket disconnected (${code}: ${reason})`;
+    }
+    if (code !== undefined) {
+      return `WebSocket disconnected (${code})`;
+    }
+    return reason ?? 'WebSocket disconnected';
   }
 
-  private async notifyConnectionStatus(connected: boolean): Promise<void> {
+  private async persistRuntimeStatus(
+    status: 'online' | 'offline' | 'error',
+    errorMessage?: string
+  ): Promise<void> {
     try {
-      const authorizedUserId = config.ai.authorized_user_id;
-      const statusMessage = connected 
-        ? '🔗 机器人重新连接成功，服务已恢复！' 
-        : '⚠️ 机器人连接断开，正在尝试重连...';
-
-      await this.websocketClient.sendPrivateMessage(authorizedUserId, statusMessage);
-      
-      this.moduleLogger.info('Connection status notification sent', { 
-        userId: authorizedUserId,
-        connected 
-      });
-
+      await this.database.updateBotStatus(
+        config.ai.bot_qq_number.toString(),
+        status,
+        this.websocketConnected,
+        this.httpServerStarted,
+        errorMessage
+      );
     } catch (error) {
-      this.moduleLogger.error('Failed to send connection status notification', { error });
+      this.moduleLogger.error('Failed to persist bot runtime status', {
+        error,
+        status,
+        websocketConnected: this.websocketConnected,
+        httpServerStarted: this.httpServerStarted,
+        errorMessage
+      });
     }
   }
 
@@ -2110,13 +2215,11 @@ class QQBot implements BatchHandler {
         this.moduleLogger.info('✅ ScheduleDispatcher stopped');
       }
 
+      this.websocketConnected = false;
+      this.httpServerStarted = false;
+
       // 更新机器人状态
-      await this.database.updateBotStatus(
-        config.ai.bot_qq_number.toString(),
-        'offline',
-        false,
-        false
-      );
+      await this.persistRuntimeStatus('offline');
 
       // 停止各个服务
       this.websocketClient.close();

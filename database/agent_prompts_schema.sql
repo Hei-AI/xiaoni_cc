@@ -33,7 +33,7 @@ INSERT IGNORE INTO agent_prompts (
 (
     UUID(),
     'chat_bot',
-    'default_chat',
+    'basic_chat',
     JSON_ARRAY(
         '你是一个智能QQ机器人助手，基于Gemini AI技术。你的特点是：',
         '1. 友好、专业、有帮助',

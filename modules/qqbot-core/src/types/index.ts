@@ -176,6 +176,7 @@ export type NewPrivateMessageHistoryRecord = Omit<
 >;
 
 export interface ContextHistoryMessage {
+  history_id?: number | null;
   conversation_id?: string | null;
   message_id?: number | null;
   group_id?: number;
@@ -1092,6 +1093,34 @@ export interface MessageContext {
     group_id: number;
     message_count: number;
   };
+}
+
+export type ChatViewportSourceType = 'private' | 'group';
+
+export type ChatViewportHistoryTable =
+  | 'private_message_history'
+  | 'group_message_history';
+
+export type ChatViewportAnchor = 'latest' | 'trigger' | 'scroll';
+
+export interface ChatViewportCursor {
+  source_key: string;
+  source_type: ChatViewportSourceType;
+  history_table: ChatViewportHistoryTable;
+  source_id: number;
+  anchor: ChatViewportAnchor;
+  top_history_id?: number | null;
+  bottom_history_id?: number | null;
+  unread_count: number;
+  earlier_unread_count: number;
+  visible_count: number;
+}
+
+export interface ChatViewportData {
+  header_lines: string[];
+  visible_messages: ContextHistoryMessage[];
+  divider_before_history_id?: number | null;
+  cursor: ChatViewportCursor;
 }
 
 export interface UserInfo {

@@ -311,4 +311,85 @@ describe('Messaging Static Tools', () => {
       expect(deps.findMemeByTags).not.toHaveBeenCalled();
     });
   });
+
+  describe('chat viewport tools', () => {
+    it('should create chat viewport tools when dependencies are provided', () => {
+      const tools = createMessagingTools({
+        ...deps,
+        scrollChatViewUp: jest.fn(),
+        jumpChatViewToLatest: jest.fn()
+      });
+      const toolNames = tools.map(tool => tool.name);
+
+      expect(toolNames).toContain('chat_view_scroll_up');
+      expect(toolNames).toContain('chat_view_jump_to_latest');
+    });
+
+    it('should return transcript and metadata patch when scrolling up', async () => {
+      const scrollChatViewUp = jest.fn().mockResolvedValue({
+        header_lines: ['当前窗口：与 QQ 123 的私聊'],
+        visible_messages: [
+          {
+            history_id: 11,
+            sender_id: 123,
+            sender_role: 'user',
+            content: '更早消息',
+            content_type: 'text',
+            sent_at: '2026-03-21T00:00:00.000Z',
+            raw_payload: { sender: { nickname: '李阿花' } }
+          }
+        ],
+        cursor: {
+          source_key: 'user_123',
+          source_type: 'private',
+          history_table: 'private_message_history',
+          source_id: 123,
+          anchor: 'scroll',
+          top_history_id: 11,
+          bottom_history_id: 18,
+          unread_count: 3,
+          earlier_unread_count: 2,
+          visible_count: 8
+        }
+      });
+
+      const tools = createMessagingTools({
+        ...deps,
+        scrollChatViewUp,
+        jumpChatViewToLatest: jest.fn()
+      });
+      const tool = tools.find(item => item.name === 'chat_view_scroll_up')!;
+
+      const result = await tool.handler(
+        buildContext(
+          { page_size: 5 },
+          {
+            metadata: {
+              chatViewport: {
+                source_key: 'user_123',
+                source_type: 'private',
+                history_table: 'private_message_history',
+                source_id: 123,
+                top_history_id: 18,
+                bottom_history_id: 25
+              }
+            }
+          }
+        )
+      );
+
+      expect(scrollChatViewUp).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        status: 'ok',
+        page_size: 5
+      });
+      expect(result.data.transcript).toContain('当前窗口：与 QQ 123 的私聊');
+      expect(result.data.__job_metadata_patch).toMatchObject({
+        chatViewport: {
+          top_history_id: 11
+        }
+      });
+    });
+  });
 });

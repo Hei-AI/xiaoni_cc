@@ -17,6 +17,8 @@ export interface MessagingToolDependencies {
   sendGroupMessage: (groupId: number, message: string) => Promise<void>;
   canSendPrivateMessage?: (userId: number) => Promise<boolean>;
   canSendGroupMessage?: (groupId: number) => Promise<boolean>;
+  scrollChatViewUp?: (cursor: any, pageSize?: number) => Promise<any>;
+  jumpChatViewToLatest?: (cursor: any, pageSize?: number) => Promise<any>;
   findMemeByTags: (tags: string[]) => Promise<MemeLibraryEntry | null>;
   saveMemeImage: (imageBase64: string, tags: string[]) => Promise<MemeLibraryEntry>;
   recordMemeUsage?: (memeId: string) => Promise<void>;
@@ -158,6 +160,58 @@ const validateBase64 = (value: unknown): string => {
   }
 
   return sanitized;
+};
+
+const validateOptionalPositiveInteger = (
+  value: unknown,
+  fallback: number
+): number => {
+  if (value == null) {
+    return fallback;
+  }
+
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    throw new Error('page_size must be a positive integer');
+  }
+
+  return Math.min(20, Math.floor(normalized));
+};
+
+const buildViewportTranscript = (viewport: any): string => {
+  const lines: string[] = [];
+  const headerLines = Array.isArray(viewport?.header_lines) ? viewport.header_lines : [];
+  headerLines.forEach((line: unknown) => {
+    if (typeof line === 'string' && line.trim().length > 0) {
+      lines.push(line.trim());
+    }
+  });
+
+  const dividerId = viewport?.divider_before_history_id;
+  const messages = Array.isArray(viewport?.visible_messages) ? viewport.visible_messages : [];
+
+  messages.forEach((message: any) => {
+    if (dividerId != null && Number(message?.history_id) === Number(dividerId)) {
+      lines.push('--- 以下是未读消息 ---');
+    }
+
+    const rawSender = message?.raw_payload?.sender;
+    const name =
+      message?.sender_role === 'bot'
+        ? '我'
+        : rawSender?.nickname
+          || rawSender?.card
+          || (typeof message?.sender_id === 'number' ? `QQ ${message.sender_id}` : '未知用户');
+    const time = message?.sent_at ? `[${new Date(message.sent_at).toISOString()}] ` : '';
+    const content =
+      typeof message?.content === 'string' && message.content.trim().length > 0
+        ? message.content.trim()
+        : '[空消息]';
+
+    lines.push(`${time}${name}: ${content}`);
+  });
+
+  return lines.join('\n').trim();
 };
 
 const buildMentionPrefix = (atUserIds: number[]): string => {
@@ -638,12 +692,172 @@ const createEndTool = (): StaticTool => ({
   })
 });
 
+const createChatViewScrollUpTool = (
+  deps: MessagingToolDependencies
+): StaticTool => ({
+  name: 'chat_view_scroll_up',
+  description: '向前翻页查看当前聊天窗口中更早的消息。',
+  mode: 'returnable',
+  loopBehavior: {
+    completion: 'continue'
+  },
+  parameters: {
+    type: 'object',
+    properties: {
+      page_size: {
+        type: 'integer',
+        description: '本次向前翻页加载的消息条数，默认 8。'
+      }
+    },
+    required: []
+  },
+  registryMetadata: {
+    displayName: 'Chat View Scroll Up',
+    category: 'chat_view',
+    tags: ['qq', 'chat', 'viewport'],
+    sideEffect: false,
+    expectResponse: true,
+    timeoutMs: 10000,
+    version: '1.0.0',
+    createdBy: 'system',
+    updatedBy: 'system'
+  },
+  handler: async (ctx: ToolContext): Promise<ToolResult> => {
+    const start = Date.now();
+
+    try {
+      if (typeof deps.scrollChatViewUp !== 'function') {
+        throw new Error('chat view scrolling is not available');
+      }
+
+      const cursor = ctx.metadata?.chatViewport;
+      if (!cursor) {
+        throw new Error('missing chatViewport metadata');
+      }
+
+      const pageSize = validateOptionalPositiveInteger(ctx.arguments?.page_size, 8);
+      const viewport = await deps.scrollChatViewUp(cursor, pageSize);
+
+      return {
+        success: true,
+        data: {
+          status: 'ok',
+          transcript: buildViewportTranscript(viewport),
+          page_size: pageSize,
+          __job_metadata_patch: {
+            chatViewport: viewport.cursor
+          }
+        },
+        duration_ms: Date.now() - start
+      };
+    } catch (error: any) {
+      moduleLogger.error('[chat_view_scroll_up] Error:', {
+        error: error?.message || error,
+        trace_id: ctx.trace_id,
+        arguments: ctx.arguments
+      });
+
+      return {
+        success: false,
+        error: error?.message || 'Failed to scroll chat view upward',
+        duration_ms: Date.now() - start
+      };
+    }
+  }
+});
+
+const createChatViewJumpToLatestTool = (
+  deps: MessagingToolDependencies
+): StaticTool => ({
+  name: 'chat_view_jump_to_latest',
+  description: '跳回当前聊天窗口的最新消息位置。',
+  mode: 'returnable',
+  loopBehavior: {
+    completion: 'continue'
+  },
+  parameters: {
+    type: 'object',
+    properties: {
+      page_size: {
+        type: 'integer',
+        description: '最新视图显示的消息条数，默认 8。'
+      }
+    },
+    required: []
+  },
+  registryMetadata: {
+    displayName: 'Chat View Jump To Latest',
+    category: 'chat_view',
+    tags: ['qq', 'chat', 'viewport'],
+    sideEffect: false,
+    expectResponse: true,
+    timeoutMs: 10000,
+    version: '1.0.0',
+    createdBy: 'system',
+    updatedBy: 'system'
+  },
+  handler: async (ctx: ToolContext): Promise<ToolResult> => {
+    const start = Date.now();
+
+    try {
+      if (typeof deps.jumpChatViewToLatest !== 'function') {
+        throw new Error('chat view jump is not available');
+      }
+
+      const cursor = ctx.metadata?.chatViewport;
+      if (!cursor) {
+        throw new Error('missing chatViewport metadata');
+      }
+
+      const pageSize = validateOptionalPositiveInteger(ctx.arguments?.page_size, 8);
+      const viewport = await deps.jumpChatViewToLatest(cursor, pageSize);
+
+      return {
+        success: true,
+        data: {
+          status: 'ok',
+          transcript: buildViewportTranscript(viewport),
+          page_size: pageSize,
+          __job_metadata_patch: {
+            chatViewport: viewport.cursor
+          }
+        },
+        duration_ms: Date.now() - start
+      };
+    } catch (error: any) {
+      moduleLogger.error('[chat_view_jump_to_latest] Error:', {
+        error: error?.message || error,
+        trace_id: ctx.trace_id,
+        arguments: ctx.arguments
+      });
+
+      return {
+        success: false,
+        error: error?.message || 'Failed to jump chat view to latest',
+        duration_ms: Date.now() - start
+      };
+    }
+  }
+});
+
 export const createMessagingTools = (
   deps: MessagingToolDependencies
-): StaticTool[] => [
-  createPrivateMessageTool(deps),
-  createGroupMessageTool(deps),
-  createSendMemeImageTool(deps),
-  createSaveMemeImageTool(deps),
-  createEndTool()
-];
+): StaticTool[] => {
+  const tools: StaticTool[] = [
+    createPrivateMessageTool(deps),
+    createGroupMessageTool(deps),
+    createSendMemeImageTool(deps),
+    createSaveMemeImageTool(deps)
+  ];
+
+  if (typeof deps.scrollChatViewUp === 'function') {
+    tools.push(createChatViewScrollUpTool(deps));
+  }
+
+  if (typeof deps.jumpChatViewToLatest === 'function') {
+    tools.push(createChatViewJumpToLatestTool(deps));
+  }
+
+  tools.push(createEndTool());
+  return tools;
+};

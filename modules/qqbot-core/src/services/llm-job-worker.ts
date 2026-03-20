@@ -591,6 +591,10 @@ export class LLMJobWorker extends EventEmitter {
           };
         }
 
+        if (dispatchResult.metadataPatch) {
+          jobMetadata = this.mergeMetadataPatch(jobMetadata, dispatchResult.metadataPatch);
+        }
+
         if (dispatchResult.kind === 'complete') {
           if (index !== functionCalls.length - 1) {
             const outcome: AgentLoopOutcome = {
@@ -843,6 +847,25 @@ export class LLMJobWorker extends EventEmitter {
       ...metadata,
       loopOutcome: outcome
     };
+  }
+
+  private mergeMetadataPatch(
+    metadata: Record<string, any>,
+    patch: Record<string, any>
+  ): Record<string, any> {
+    const merged: Record<string, any> = {
+      ...metadata,
+      ...patch
+    };
+
+    if (metadata.chatViewport || patch.chatViewport) {
+      merged.chatViewport = {
+        ...(metadata.chatViewport || {}),
+        ...(patch.chatViewport || {})
+      };
+    }
+
+    return merged;
   }
 
   private buildFinalResponse(outcome: AgentLoopOutcome): string {

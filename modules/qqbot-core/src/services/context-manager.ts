@@ -1,5 +1,7 @@
 import { DatabaseManager } from './database';
 import {
+  ChatViewportData,
+  ChatViewportCursor,
   QQMessage,
   ContextHistoryMessage,
   MessageContext,
@@ -9,6 +11,7 @@ import {
   MessageAttachment
 } from '../types';
 import { logger } from '../utils/logger';
+import { ChatViewportService } from './chat-viewport-service';
 import {
   buildAttachmentHints,
   extractTextFromSegments,
@@ -22,6 +25,7 @@ export type GeminiContentPart = Part;
 export interface FormattedContextPrompt {
   parts: GeminiContentPart[];
   plainText: string;
+  chatViewport?: ChatViewportCursor;
 }
 
 type PromptMessageType = 'text' | 'image';
@@ -52,10 +56,12 @@ interface PromptMessageWithAttachments {
  */
 export class ContextManager {
   private database: DatabaseManager;
+  private chatViewportService: ChatViewportService;
   private moduleLogger = logger.createModuleLogger('context-manager');
 
-  constructor(database: DatabaseManager) {
+  constructor(database: DatabaseManager, chatViewportService?: ChatViewportService) {
     this.database = database;
+    this.chatViewportService = chatViewportService || new ChatViewportService(database);
   }
 
   private async buildHistoryMessages(
@@ -68,7 +74,9 @@ export class ContextManager {
           message.user_id,
           limit
         );
-        return records.map(record => this.transformPrivateHistoryRecord(record));
+        return records
+          .filter(record => !this.isCurrentMessageRecord(record.message_id, message.message_id))
+          .map(record => this.transformPrivateHistoryRecord(record));
       }
 
       if (message.message_type === 'group' && message.group_id) {
@@ -76,7 +84,9 @@ export class ContextManager {
           message.group_id,
           limit
         );
-        return records.map(record => this.transformGroupHistoryRecord(record));
+        return records
+          .filter(record => !this.isCurrentMessageRecord(record.message_id, message.message_id))
+          .map(record => this.transformGroupHistoryRecord(record));
       }
 
       return [];
@@ -299,6 +309,26 @@ export class ContextManager {
     context: MessageContext,
     currentUserInput?: string
   ): Promise<FormattedContextPrompt> {
+    try {
+      const viewport = await this.chatViewportService.buildViewportForMessage(
+        context.currentMessage
+      );
+      return await this.buildViewportPrompt(viewport);
+    } catch (error) {
+      this.moduleLogger.warn('Failed to build chat viewport, falling back to legacy context prompt', {
+        error: error instanceof Error ? error.message : String(error),
+        messageId: context.currentMessage.message_id,
+        messageType: context.currentMessage.message_type
+      });
+    }
+
+    return this.buildLegacyPrompt(context, currentUserInput);
+  }
+
+  private async buildLegacyPrompt(
+    context: MessageContext,
+    currentUserInput?: string
+  ): Promise<FormattedContextPrompt> {
     const nicknameMap = new Map<number, string>();
 
     if (context.userInfo) {
@@ -388,10 +418,75 @@ export class ContextManager {
     };
   }
 
+  private async buildViewportPrompt(
+    viewport: ChatViewportData
+  ): Promise<FormattedContextPrompt> {
+    const nicknameMap = new Map<number, string>();
+
+    viewport.visible_messages.forEach(historyMessage => {
+      const profile = this.extractSenderProfileFromHistory(historyMessage);
+      if (profile.userId) {
+        nicknameMap.set(profile.userId, profile.nickname || `用户${profile.userId}`);
+      }
+    });
+
+    const parts: GeminiContentPart[] = [];
+    const textFragments: string[] = [];
+
+    const appendTextPart = (text: string) => {
+      const normalized = typeof text === 'string' ? text : '';
+      if (normalized.length === 0) {
+        return;
+      }
+      parts.push({ text: normalized });
+      textFragments.push(normalized);
+    };
+
+    const appendImagePart = async (attachment: PromptAttachment) => {
+      const normalized = await this.prepareAttachmentForGemini(attachment);
+      if (!normalized) {
+        return;
+      }
+      parts.push({
+        inlineData: {
+          mimeType: normalized.mimeType,
+          data: normalized.data
+        }
+      });
+      textFragments.push('[image attachment]');
+    };
+
+    viewport.header_lines.forEach(line => appendTextPart(line));
+
+    for (const historyMessage of viewport.visible_messages) {
+      if (
+        viewport.divider_before_history_id
+        && historyMessage.history_id === viewport.divider_before_history_id
+      ) {
+        appendTextPart('--- 以下是未读消息 ---');
+      }
+
+      const formatted = this.buildHistoryEntry(historyMessage, nicknameMap);
+      appendTextPart(this.renderViewportMessageLine(formatted.entry));
+      for (const attachment of formatted.attachments) {
+        await appendImagePart(attachment);
+      }
+    }
+
+    const plainText = textFragments.join('\n').trim();
+
+    return {
+      parts,
+      plainText,
+      chatViewport: viewport.cursor
+    };
+  }
+
   private transformPrivateHistoryRecord(
     record: PrivateMessageHistoryRecord
   ): ContextHistoryMessage {
     return {
+      history_id: record.id,
       conversation_id: record.conversation_id ?? null,
       message_id: record.message_id ?? null,
       user_id: record.user_id,
@@ -408,6 +503,7 @@ export class ContextManager {
     record: GroupMessageHistoryRecord
   ): ContextHistoryMessage {
     return {
+      history_id: record.id,
       conversation_id: record.conversation_id ?? null,
       message_id: record.message_id ?? null,
       group_id: record.group_id,
@@ -459,6 +555,32 @@ export class ContextManager {
       entry,
       attachments: representation.attachments
     };
+  }
+
+  private renderViewportMessageLine(entry: PromptMessageEntry): string {
+    const name = entry.user_nick || entry.qq_id || '未知用户';
+    const time = entry.received_time ? `[${entry.received_time}] ` : '';
+    const mentionText = Array.isArray(entry.at_qq_id) && entry.at_qq_id.length > 0
+      ? ` ${entry.at_qq_id.map(item => `@${item.nick_name || item.qq_id}`).join(' ')}`
+      : '';
+
+    if (entry.message_type === 'image') {
+      const contextText = entry.context ? ` ${entry.context}` : '';
+      return `${time}${name}: [图片消息]${contextText}${mentionText}`.trim();
+    }
+
+    return `${time}${name}: ${entry.context || ''}${mentionText}`.trim();
+  }
+
+  private isCurrentMessageRecord(
+    historyMessageId?: number | null,
+    currentMessageId?: number | null
+  ): boolean {
+    if (historyMessageId == null || currentMessageId == null) {
+      return false;
+    }
+
+    return Number(historyMessageId) === Number(currentMessageId);
   }
 
   private buildUnreadEntry(

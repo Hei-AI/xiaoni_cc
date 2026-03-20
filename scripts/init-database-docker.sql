@@ -205,7 +205,7 @@ INSERT IGNORE INTO agent_prompts (
 (
     'chat_bot_basic',
     'chat_bot',
-    '基础聊天机器人',
+    'basic_chat',
     '["你是一个友好的AI助手，请用中文回复。", "保持对话自然、有帮助。"]',
     'gemini-2.5-flash',
     JSON_OBJECT(
@@ -242,7 +242,7 @@ INSERT IGNORE INTO agent_prompts (
     true,
     1,
     'system',
-    '基础聊天机器人配置'
+    '基础聊天机器人配置（默认聊天视图 prompt）'
 ),
 
 -- 决策引擎（思考模式）

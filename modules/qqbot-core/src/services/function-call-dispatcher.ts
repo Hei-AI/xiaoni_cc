@@ -24,6 +24,7 @@ export interface DispatchResult {
   searchedTools?: any[];
   outcome?: AgentLoopOutcome;
   error?: string;
+  metadataPatch?: Record<string, any>;
 }
 
 export class FunctionCallDispatcher {
@@ -262,6 +263,18 @@ export class FunctionCallDispatcher {
     };
 
     const result: ToolResult = await tool.handler(toolContext);
+    const rawData =
+      result.data && typeof result.data === 'object'
+        ? { ...(result.data as Record<string, any>) }
+        : result.data;
+    const metadataPatch =
+      rawData && typeof rawData === 'object'
+        ? rawData.__job_metadata_patch as Record<string, any> | undefined
+        : undefined;
+
+    if (rawData && typeof rawData === 'object' && Object.prototype.hasOwnProperty.call(rawData, '__job_metadata_patch')) {
+      delete rawData.__job_metadata_patch;
+    }
 
     // 记录执行日志
     await this.logStaticToolExecution(tool.name, tool.mode, toolContext, result);
@@ -284,11 +297,12 @@ export class FunctionCallDispatcher {
     if (tool.mode === 'returnable' || tool.loopBehavior?.completion === 'continue') {
       return {
         kind: 'continue',
+        metadataPatch,
         functionResponse: {
           name: tool.name,
           response: {
             name: tool.name,
-            content: result.data ?? { status: 'ok' }
+            content: rawData ?? { status: 'ok' }
           }
         }
       };
