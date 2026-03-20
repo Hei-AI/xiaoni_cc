@@ -141,37 +141,6 @@ export interface ReplayHistory {
   template_id?: number;
 }
 
-export interface ReplayTemplate {
-  id: number;
-  template_name: string;
-  description?: string;
-  target_api_type?: string;
-  target_host_pattern?: string;
-  target_path_pattern?: string;
-  header_modifications?: {
-    add?: Record<string, string>;
-    remove?: string[];
-    replace?: Record<string, string>;
-  };
-  body_modifications?: {
-    set?: Record<string, any>;
-    remove?: string[];
-    replace_entire?: string;
-  };
-  query_modifications?: {
-    add?: Record<string, string>;
-    remove?: string[];
-    replace?: Record<string, string>;
-  };
-  url_replacement_pattern?: string;
-  url_replacement_value?: string;
-  is_active: boolean;
-  usage_count: number;
-  created_by?: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface BatchReplayResult {
   total: number;
   successful: number;

@@ -8,13 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
-import { Play, RotateCcw, Save, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Play, RotateCcw, AlertCircle, CheckCircle2 } from 'lucide-react';
 import type { TrafficLog, ReplayModifications } from '../types/traffic-replay';
 
 interface TrafficReplayEditorProps {
   originalLog: TrafficLog;
   onReplay: (modifications: ReplayModifications) => Promise<void>;
-  onSaveTemplate?: (template: any) => Promise<void>;
   isReplaying?: boolean;
   error?: string;
 }
@@ -24,7 +23,6 @@ const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'
 export function TrafficReplayEditor({
   originalLog,
   onReplay,
-  onSaveTemplate,
   isReplaying = false,
   error
 }: TrafficReplayEditorProps) {
@@ -350,16 +348,6 @@ export function TrafficReplayEditor({
                     ))}
                   </ul>
                 </div>
-                {onSaveTemplate && (
-                  <Button
-                    variant="outline"
-                    onClick={() => onSaveTemplate({ modifications: modificationSummary })}
-                    disabled={isReplaying}
-                  >
-                    <Save className="h-4 w-4 mr-2" />
-                    保存为模板
-                  </Button>
-                )}
               </div>
             ) : (
               <Alert>

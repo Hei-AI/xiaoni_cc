@@ -292,36 +292,6 @@ export class TrafficReplayService {
   }
 
   /**
-   * 应用模板重放
-   */
-  async replayWithTemplate(
-    logId: number,
-    templateId: number
-  ): Promise<ReplayResult> {
-    console.log(`[TrafficReplay] Replaying with template: logId=${logId}, templateId=${templateId}`);
-
-    // 加载模板
-    const template = await this.loadTemplate(templateId);
-    if (!template) {
-      throw new Error(`Template not found: ${templateId}`);
-    }
-
-    // 应用模板规则
-    const modifications = this.applyTemplate(template);
-
-    // 执行重放
-    const result = await this.replayRequest({
-      originalLogId: logId,
-      modifications
-    });
-
-    // 更新模板使用次数
-    await this.incrementTemplateUsage(templateId);
-
-    return result;
-  }
-
-  /**
    * 查询重放历史
    */
   async getReplayHistory(originalLogId: number): Promise<ReplayHistory[]> {
@@ -583,76 +553,6 @@ export class TrafficReplayService {
       fieldsModified,
       modificationCount: fieldsModified.length
     };
-  }
-
-  /**
-   * 加载模板
-   */
-  private async loadTemplate(templateId: number): Promise<any> {
-    const results = await this.db.executeQuery<any>(
-      'SELECT * FROM traffic_replay_templates WHERE id = ? AND is_active = TRUE',
-      [templateId]
-    );
-
-    if (results.length === 0) {
-      return null;
-    }
-
-    const row = results[0];
-    return {
-      id: row.id,
-      template_name: row.template_name,
-      header_modifications: this.parseJson(row.header_modifications),
-      body_modifications: this.parseJson(row.body_modifications),
-      query_modifications: this.parseJson(row.query_modifications),
-      url_replacement_pattern: row.url_replacement_pattern,
-      url_replacement_value: row.url_replacement_value
-    };
-  }
-
-  /**
-   * 应用模板规则
-   */
-  private applyTemplate(template: any): any {
-    const modifications: any = {};
-
-    // 应用Header修改
-    if (template.header_modifications) {
-      modifications.headers = {};
-
-      if (template.header_modifications.add) {
-        Object.assign(modifications.headers, template.header_modifications.add);
-      }
-
-      if (template.header_modifications.replace) {
-        Object.assign(modifications.headers, template.header_modifications.replace);
-      }
-    }
-
-    // 应用Query参数修改
-    if (template.query_modifications) {
-      modifications.queryParams = {};
-
-      if (template.query_modifications.add) {
-        Object.assign(modifications.queryParams, template.query_modifications.add);
-      }
-
-      if (template.query_modifications.replace) {
-        Object.assign(modifications.queryParams, template.query_modifications.replace);
-      }
-    }
-
-    return modifications;
-  }
-
-  /**
-   * 更新模板使用次数
-   */
-  private async incrementTemplateUsage(templateId: number): Promise<void> {
-    await this.db.executeUpdate(
-      'UPDATE traffic_replay_templates SET usage_count = usage_count + 1 WHERE id = ?',
-      [templateId]
-    );
   }
 
   /**

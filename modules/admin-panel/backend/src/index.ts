@@ -15,7 +15,6 @@ import { createPromptRoutes } from './routes/prompt-routes';
 import { createChatRoutes } from './routes/chat-routes';
 import { createAgentRoutes } from './routes/agent-routes';
 import { createTrafficMonitorRoutes } from './routes/traffic-monitor-routes';
-import { createTemplateRoutes } from './routes/template-routes';
 import { TrafficLogWatcher, DEFAULT_WATCHER_CONFIG } from './services/traffic-log-watcher';
 
 // Load environment variables
@@ -130,8 +129,6 @@ async function startServer() {
   app.use('/api', createAgentRoutes(database, logger));         // Agent types
   logger.info('🔧 Registering traffic monitor routes...');
   app.use('/api', createTrafficMonitorRoutes(database, logger)); // HTTP traffic monitoring
-  logger.info('🔧 Registering template routes...');
-  app.use('/api', createTemplateRoutes(database, logger));      // Traffic replay templates
 
   // 现有的专用路由
   logger.info('🔧 Registering simple-queue routes...');

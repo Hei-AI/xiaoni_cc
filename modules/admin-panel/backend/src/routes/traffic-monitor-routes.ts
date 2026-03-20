@@ -583,39 +583,6 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
     }
   });
 
-  // 使用模板重放
-  router.post('/traffic/replay/:id/with-template', async (req, res) => {
-    try {
-      const logId = parseInt(req.params.id);
-      const { templateId } = req.body;
-
-      if (isNaN(logId) || !templateId) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid log ID or template ID',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      const result = await replayService.replayWithTemplate(logId, templateId);
-
-      res.json({
-        success: true,
-        data: result,
-        timestamp: new Date().toISOString()
-      });
-
-    } catch (error) {
-      logger.error('Failed to replay with template', { error, logId: req.params.id });
-      res.status(500).json({
-        success: false,
-        error: 'Failed to replay with template',
-        message: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
-      });
-    }
-  });
-
   // 获取重放历史
   router.get('/traffic/replay/history/:originalId', async (req, res) => {
     try {
