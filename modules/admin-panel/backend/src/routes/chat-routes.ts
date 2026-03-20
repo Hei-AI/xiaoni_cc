@@ -707,55 +707,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
     }
   });
 
-  // 重试对话
-  router.post('/private-chats/:userId/retry/:conversationId', async (req, res) => {
-    try {
-      const userId = parseInt(req.params.userId);
-      const conversationId = req.params.conversationId;
-
-      if (!userId || isNaN(userId) || !conversationId) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid user ID or conversation ID',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      // 检查对话是否存在
-      const conversation = await database.executeQuery(
-        'SELECT * FROM conversations WHERE id = ? AND user_id = ?',
-        [conversationId, userId]
-      );
-
-      if (conversation.length === 0) {
-        return res.status(404).json({
-          success: false,
-          error: 'Conversation not found',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      // TODO: 实现实际的重试逻辑，调用AI服务重新处理
-      logger.info('Conversation retry requested', { userId, conversationId });
-
-      res.json({
-        success: true,
-        message: 'Conversation retry initiated',
-        data: { userId, conversationId },
-        timestamp: new Date().toISOString()
-      });
-
-    } catch (error) {
-      logger.error('Failed to retry conversation', { error, userId: req.params.userId, conversationId: req.params.conversationId });
-      res.status(500).json({
-        success: false,
-        error: 'Failed to retry conversation',
-        message: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
-      });
-    }
-  });
-
   // 获取特定群聊的详情
   router.get('/group-chats/:groupId', async (req, res) => {
     try {
@@ -1128,11 +1079,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       });
     }
   });
-
-  // TODO: Prompt binding routes - temporarily disabled due to build errors
-  // These routes are implemented in qqbot-core and can be accessed via direct database updates for now
-  // router.put('/private-chats/:userId/prompt', async (req, res) => { ... });
-  // router.put('/group-chats/:groupId/prompt', async (req, res) => { ... });
 
   return router;
 }

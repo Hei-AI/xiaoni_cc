@@ -14,7 +14,6 @@ import { createStatusRoutes } from './routes/status-routes';
 import { createPromptRoutes } from './routes/prompt-routes';
 import { createChatRoutes } from './routes/chat-routes';
 import { createAgentRoutes } from './routes/agent-routes';
-import { createUserRoutes } from './routes/user-routes';
 import { createTrafficMonitorRoutes } from './routes/traffic-monitor-routes';
 import { createTemplateRoutes } from './routes/template-routes';
 import { TrafficLogWatcher, DEFAULT_WATCHER_CONFIG } from './services/traffic-log-watcher';
@@ -129,8 +128,6 @@ async function startServer() {
   app.use('/api', createChatRoutes(database, logger));          // Group & private chats
   logger.info('🔧 Registering agent routes...');
   app.use('/api', createAgentRoutes(database, logger));         // Agent types
-  logger.info('🔧 Registering user routes...');
-  app.use('/api', createUserRoutes(database, logger));          // User profiles
   logger.info('🔧 Registering traffic monitor routes...');
   app.use('/api', createTrafficMonitorRoutes(database, logger)); // HTTP traffic monitoring
   logger.info('🔧 Registering template routes...');

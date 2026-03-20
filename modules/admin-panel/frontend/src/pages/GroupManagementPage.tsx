@@ -23,7 +23,6 @@ import {
   PlayCircle,
   PauseCircle,
   Filter,
-  Download,
   Eye
 } from 'lucide-react';
 
@@ -107,7 +106,6 @@ export const GroupManagementPage: React.FC = () => {
     status?: string;
     sortBy?: string;
   }>({});
-  const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
   const [showFilters, setShowFilters] = useState(false);
 
   const queryClient = useQueryClient();
@@ -147,28 +145,6 @@ export const GroupManagementPage: React.FC = () => {
     setPage(1);
   };
 
-  const handleSelectAll = () => {
-    if (selectedGroups.length === groupsData?.data.length) {
-      setSelectedGroups([]);
-    } else {
-      setSelectedGroups(groupsData?.data.map(group => group.group_id) || []);
-    }
-  };
-
-  const handleSelectGroup = (groupId: number) => {
-    setSelectedGroups(prev => 
-      prev.includes(groupId) 
-        ? prev.filter(id => id !== groupId)
-        : [...prev, groupId]
-    );
-  };
-
-  // Batch update functionality temporarily disabled
-  const handleBatchUpdate = (field: string, value: boolean) => {
-    // TODO: Implement batch update when backend API is ready
-    console.log('Batch update not implemented:', field, value);
-  };
-
   // 独立的群聊操作函数
   const handleGroupUpdate = async (groupId: number, field: string, value: boolean) => {
     const loadingKey = `${groupId}_${field}`;
@@ -203,15 +179,6 @@ export const GroupManagementPage: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            disabled
-            title="暂未实现"
-          >
-            <Download className="h-4 w-4 mr-2" />
-            从QQ同步
-          </Button>
           <Button 
             variant="outline" 
             size="sm" 
@@ -290,40 +257,6 @@ export const GroupManagementPage: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* 批量操作 - 简化版本 */}
-      {selectedGroups.length > 0 && (
-        <Card className="bg-blue-50 border-blue-200">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-blue-700">
-                已选择 {selectedGroups.length} 个群聊
-              </p>
-              <div className="flex items-center gap-2">
-                <Button 
-                  size="sm" 
-                  onClick={() => handleBatchUpdate('is_enabled', true)}
-                  disabled
-                  title="功能开发中"
-                >
-                  <PlayCircle className="h-4 w-4 mr-1" />
-                  批量启用
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="outline"
-                  onClick={() => handleBatchUpdate('is_enabled', false)}
-                  disabled
-                  title="功能开发中"
-                >
-                  <PauseCircle className="h-4 w-4 mr-1" />
-                  批量禁用
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* 群聊列表 */}
       <Card>
         <CardHeader>
@@ -347,12 +280,6 @@ export const GroupManagementPage: React.FC = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-12">
-                      <Checkbox
-                        checked={selectedGroups.length === groupsData?.data.length}
-                        onCheckedChange={handleSelectAll}
-                      />
-                    </TableHead>
                     <TableHead>群号</TableHead>
                     <TableHead>群名称</TableHead>
                     <TableHead>启用状态</TableHead>
@@ -366,12 +293,6 @@ export const GroupManagementPage: React.FC = () => {
                 <TableBody>
                   {groupsData?.data.map((group) => (
                     <TableRow key={group.group_id}>
-                      <TableCell>
-                        <Checkbox
-                          checked={selectedGroups.includes(group.group_id)}
-                          onCheckedChange={() => handleSelectGroup(group.group_id)}
-                        />
-                      </TableCell>
                       <TableCell className="font-mono">
                         {group.group_id}
                       </TableCell>

@@ -35,7 +35,7 @@ python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py logs
 ## 4. 集成建议
 - 仅在排查或审计外部 HTTP 请求时启动；生产环境请评估安全策略。
 - JSONL 流量日志默认写入 `logs/qqbot-traffic/traffic-*.jsonl` 并由 admin-backend 的 `traffic-log-watcher` 消费；若要持久化或扩展分析逻辑，可在 `services/` 中新增处理脚本。
-- 与 Admin Panel 的可视化入口仍在规划阶段，相关计划见 [docs/ROADMAP.md](../../docs/ROADMAP.md)。
+- 当前可视化入口以 Admin Panel 中已保留的流量查看与回放页面为准；如需扩展，优先与现有管理端能力保持一致。
 
 ## 5. 提交注意
 - 避免提交 `logs/qqbot-traffic/` 中的日志文件。

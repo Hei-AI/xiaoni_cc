@@ -48,7 +48,7 @@ NapCat -> qqbot-core -> MySQL
 
 ## 当前工作重点
 
-- 按 [docs/TODO_REFACTOR.md](docs/TODO_REFACTOR.md) 完成仓库精简
+- 继续收口主仓内容，只保留当前主链需要的模块、接口与文档
 - 清理本地运行资产和历史兼容层
 - 验证在去除函数注册中心后主链仍稳定
 - 确保 OpenClaw Bridge 已平移到独立项目并可继续运行

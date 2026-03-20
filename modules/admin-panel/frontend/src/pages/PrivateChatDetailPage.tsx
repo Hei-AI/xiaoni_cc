@@ -27,8 +27,6 @@ import {
   XCircle,
   AlertCircle,
   Link as LinkIcon,
-  RotateCcw,
-  Settings,
   Calendar,
   BarChart3,
   Loader2
@@ -105,18 +103,6 @@ const fetchUserConversations = async (userId: string, params: {
   const response = await fetch(`/api/private-chats/${userId}?${queryParams}`);
   if (!response.ok) {
     throw new Error('Failed to fetch user conversations');
-  }
-  return response.json();
-};
-
-// 重试对话
-const retryConversation = async (userId: string, conversationId: string) => {
-  const response = await fetch(`/api/private-chats/${userId}/retry/${conversationId}`, {
-    method: 'POST',
-  });
-  
-  if (!response.ok) {
-    throw new Error('Failed to retry conversation');
   }
   return response.json();
 };
@@ -201,15 +187,6 @@ export const PrivateChatDetailPage: React.FC = () => {
         startTime,
         endTime
       });
-    },
-  });
-
-  // 重试对话mutation
-  const retryMutation = useMutation({
-    mutationFn: ({ conversationId }: { conversationId: string }) => 
-      retryConversation(userId, conversationId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['private-chat-details', userId] });
     },
   });
 
@@ -564,54 +541,6 @@ export const PrivateChatDetailPage: React.FC = () => {
               </div>
             </CardContent>
           </Card>
-
-          {/* Quick Actions */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5" />
-                快捷操作
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Button 
-                className="w-full" 
-                variant="outline" 
-                size="sm"
-                onClick={() => {
-                  // TODO: Implement manual reply functionality
-                  console.log('Manual reply to be implemented');
-                }}
-              >
-                <MessageCircle className="h-4 w-4 mr-2" />
-                手动回复
-              </Button>
-              <Button 
-                className="w-full" 
-                variant="outline" 
-                size="sm"
-                onClick={() => {
-                  // TODO: Implement clear history functionality
-                  console.log('Clear history to be implemented');
-                }}
-              >
-                <RotateCcw className="h-4 w-4 mr-2" />
-                清空历史
-              </Button>
-              <Button 
-                className="w-full" 
-                variant="outline" 
-                size="sm"
-                onClick={() => {
-                  // TODO: Implement export functionality
-                  console.log('Export to be implemented');
-                }}
-              >
-                <LinkIcon className="h-4 w-4 mr-2" />
-                导出记录
-              </Button>
-            </CardContent>
-          </Card>
         </div>
       )}
 
@@ -738,16 +667,6 @@ export const PrivateChatDetailPage: React.FC = () => {
                           >
                             <LinkIcon className="h-3 w-3" />
                           </Button>
-                          {conversation.status === 'failed' && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => retryMutation.mutate({ conversationId: conversation.conversation_id })}
-                              disabled={retryMutation.isPending}
-                            >
-                              <RotateCcw className="h-3 w-3" />
-                            </Button>
-                          )}
                         </div>
                       </TableCell>
                     </TableRow>

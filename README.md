@@ -95,9 +95,8 @@ python3 scripts/start_modules.py status
 
 ## 文档
 
-- [docs/TODO_REFACTOR.md](docs/TODO_REFACTOR.md)
 - [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)
 - [docs/ROADMAP.md](docs/ROADMAP.md)
-- [docs/PLAYWRIGHT_MCP_WSL.md](docs/PLAYWRIGHT_MCP_WSL.md)
+- [DOCKER.md](DOCKER.md)
 
 历史设计文档见 `docs/archive/`。
