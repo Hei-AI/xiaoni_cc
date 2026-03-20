@@ -12,31 +12,17 @@ import {
   GeminiFunctionCall,
   GeminiFunctionResponse,
   ToolExecutionMode,
-  LLMTool
+  LLMTool,
+  AgentLoopOutcome
 } from '../types';
 
 const moduleLogger = logger.createModuleLogger('function-dispatcher');
 
 export interface DispatchResult {
-  // 是否需要继续LLM调用
-  shouldContinue: boolean;
-
-  // 函数响应 (返回给LLM)
+  kind: 'continue' | 'complete' | 'fail';
   functionResponse?: GeminiFunctionResponse;
-
-  // 最终文本响应 (fire-and-forget或完成)
-  finalResponse?: string;
-
-  // 是否需要抑制发送最终回复 (例如工具已直接向用户发消息)
-  suppressAutoReply?: boolean;
-
-  // 搜索到的工具 (search_tools结果)
   searchedTools?: any[];
-
-  // 是否已完成
-  isCompleted: boolean;
-
-  // 错误信息
+  outcome?: AgentLoopOutcome;
   error?: string;
 }
 
@@ -113,7 +99,7 @@ export class FunctionCallDispatcher {
 
       // 4. 工具未找到
       return {
-        shouldContinue: true,
+        kind: 'continue',
         functionResponse: {
           name,
           response: {
@@ -121,15 +107,13 @@ export class FunctionCallDispatcher {
             content: { error: `Tool not found: ${name}` }
           }
         },
-        isCompleted: false,
         error: `Tool not found: ${name}`
       };
     } catch (error: any) {
       moduleLogger.error(`[FunctionCallDispatcher] Dispatch error for ${name}:`, { error });
 
       return {
-        shouldContinue: false,
-        isCompleted: false,
+        kind: 'fail',
         error: error.message || 'Function dispatch failed'
       };
     }
@@ -164,7 +148,7 @@ export class FunctionCallDispatcher {
 
     // 返回工具列表作为函数响应
     return {
-      shouldContinue: true,
+      kind: 'continue',
       functionResponse: {
         name: 'search_tools',
         response: {
@@ -176,8 +160,7 @@ export class FunctionCallDispatcher {
           }
         }
       },
-      searchedTools: tools,
-      isCompleted: false
+      searchedTools: tools
     };
   }
 
@@ -212,7 +195,7 @@ export class FunctionCallDispatcher {
     if (expect_response) {
       // 返回结果给LLM
       return {
-        shouldContinue: true,
+        kind: 'continue',
         functionResponse: {
           name: 'invoke',
           response: {
@@ -221,21 +204,34 @@ export class FunctionCallDispatcher {
               ? result.data
               : { error: result.error }
           }
-        },
-        isCompleted: false
-      };
-    } else {
-      // Fire-and-forget模式,直接完成
-      return {
-        shouldContinue: false,
-        finalResponse: result.success
-          ? (typeof args?.message === 'string' ? args.message : '')
-          : (result.error || 'Tool execution failed'),
-        suppressAutoReply: true,
-        isCompleted: true,
-        error: result.success ? undefined : result.error
+        }
       };
     }
+
+    if (!result.success) {
+      return {
+        kind: 'continue',
+        functionResponse: {
+          name: 'invoke',
+          response: {
+            name: 'invoke',
+            content: { error: result.error || 'Tool execution failed' }
+          }
+        },
+        error: result.error
+      };
+    }
+
+    return {
+      kind: 'complete',
+      outcome: {
+        kind: 'side_effect_only',
+        toolName: 'invoke',
+        summary: typeof args?.message === 'string' && args.message.trim().length > 0
+          ? args.message.trim()
+          : `Dynamic tool ${method_id} executed without return payload`
+      }
+    };
   }
 
   /**
@@ -270,33 +266,38 @@ export class FunctionCallDispatcher {
     // 记录执行日志
     await this.logStaticToolExecution(tool.name, tool.mode, toolContext, result);
 
-    // 根据模式决定返回值
-    if (tool.mode === 'returnable') {
+    if (!result.success) {
       return {
-        shouldContinue: true,
+        kind: 'continue',
         functionResponse: {
           name: tool.name,
           response: {
             name: tool.name,
-            content: result.success ? result.data : { error: result.error }
+            content: { error: result.error || 'Tool execution failed' }
           }
         },
-        isCompleted: false
-      };
-    } else {
-      // Fire-and-forget模式
-      return {
-        shouldContinue: false,
-        finalResponse: result.success
-          ? (result.data && typeof result.data.message === 'string'
-              ? result.data.message
-              : '')
-          : (result.error || 'Tool execution failed'),
-        suppressAutoReply: true,
-        isCompleted: true,
-        error: result.success ? undefined : result.error
+        error: result.error || 'Tool execution failed'
       };
     }
+
+    // 根据模式决定返回值
+    if (tool.mode === 'returnable' || tool.loopBehavior?.completion === 'continue') {
+      return {
+        kind: 'continue',
+        functionResponse: {
+          name: tool.name,
+          response: {
+            name: tool.name,
+            content: result.data ?? { status: 'ok' }
+          }
+        }
+      };
+    }
+
+    return {
+      kind: 'complete',
+      outcome: this.buildTerminalOutcome(tool, result)
+    };
   }
 
   /**
@@ -473,5 +474,76 @@ export class FunctionCallDispatcher {
         required: ['method_id', 'arguments']
       }
     };
+  }
+
+  private buildTerminalOutcome(tool: StaticTool, result: ToolResult): AgentLoopOutcome {
+    const configuredKind = tool.loopBehavior?.outcomeKind || 'side_effect_only';
+    const data = result.data && typeof result.data === 'object' ? result.data : {};
+
+    if (configuredKind === 'ended_no_reply') {
+      return {
+        kind: 'ended_no_reply',
+        toolName: tool.name,
+        summary: typeof (data as any).reason === 'string'
+          ? (data as any).reason
+          : 'Conversation ended without reply',
+        suppressed: Boolean((data as any).status === 'suppressed')
+      };
+    }
+
+    if (configuredKind === 'message_sent') {
+      if ((data as any).status === 'suppressed') {
+        return {
+          kind: 'ended_no_reply',
+          toolName: tool.name,
+          summary: typeof (data as any).reason === 'string'
+            ? (data as any).reason
+            : 'Auto reply disabled',
+          message: typeof (data as any).message === 'string' ? (data as any).message : undefined,
+          suppressed: true
+        };
+      }
+
+      return {
+        kind: 'message_sent',
+        toolName: tool.name,
+        message: typeof (data as any).message === 'string' ? (data as any).message : undefined,
+        summary: this.buildOutcomeSummary(tool.name, data)
+      };
+    }
+
+    return {
+      kind: 'side_effect_only',
+      toolName: tool.name,
+      summary: this.buildOutcomeSummary(tool.name, data)
+    };
+  }
+
+  private buildOutcomeSummary(toolName: string, data: Record<string, any>): string {
+    if (toolName === 'send_private_chat_message' || toolName === 'send_qq_group_message') {
+      if (typeof data.message === 'string' && data.message.trim().length > 0) {
+        return data.message.trim();
+      }
+    }
+
+    if (toolName === 'send_meme_image') {
+      const tags = Array.isArray(data.tags) ? data.tags.join(',') : '';
+      return data.meme_id ? `sent meme ${data.meme_id}${tags ? ` (${tags})` : ''}` : 'sent meme image';
+    }
+
+    if (toolName === 'save_meme_image') {
+      const tags = Array.isArray(data.tags) ? data.tags.join(',') : '';
+      return data.meme_id ? `stored meme ${data.meme_id}${tags ? ` (${tags})` : ''}` : 'stored meme image';
+    }
+
+    if (typeof data.message === 'string' && data.message.trim().length > 0) {
+      return data.message.trim();
+    }
+
+    if (typeof data.status === 'string' && data.status.trim().length > 0) {
+      return `${toolName}:${data.status.trim()}`;
+    }
+
+    return toolName;
   }
 }

@@ -112,6 +112,22 @@ describe('Messaging Static Tools', () => {
       expect(result.error).toContain('message');
       expect(deps.sendPrivateMessage).not.toHaveBeenCalled();
     });
+
+    it('should suppress private message when auto reply is disabled', async () => {
+      deps.canSendPrivateMessage = jest.fn().mockResolvedValue(false) as any;
+
+      const result = await privateTool.handler(
+        buildContext({ user_id: 123456, message: 'hello world' })
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        status: 'suppressed',
+        reason: 'auto_reply_disabled',
+        message: 'hello world'
+      });
+      expect(deps.sendPrivateMessage).not.toHaveBeenCalled();
+    });
   });
 
   describe('send_qq_group_message', () => {

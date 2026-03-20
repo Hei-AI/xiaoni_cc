@@ -1463,6 +1463,23 @@ export interface LLMJob {
   completed_at?: Date;
 }
 
+export type AgentLoopOutcomeKind =
+  | 'message_sent'
+  | 'side_effect_only'
+  | 'ended_no_reply'
+  | 'failed'
+  | 'protocol_error';
+
+export interface AgentLoopOutcome {
+  kind: AgentLoopOutcomeKind;
+  toolName?: string;
+  message?: string;
+  summary?: string;
+  error?: string;
+  suppressed?: boolean;
+  protocolFallback?: 'text_to_send_tool';
+}
+
 /**
  * 工具执行模式
  */
@@ -1546,6 +1563,10 @@ export interface StaticTool {
   parameters?: any; // JSON Schema (可选，如无参数可不传)
   mode: ToolExecutionMode;
   handler: (ctx: ToolContext) => Promise<ToolResult>;
+  loopBehavior?: {
+    completion: 'continue' | 'terminal';
+    outcomeKind?: 'message_sent' | 'side_effect_only' | 'ended_no_reply';
+  };
   registryMetadata?: {
     displayName?: string;
     category?: string;

@@ -55,8 +55,9 @@ export class CodexProvider extends OpenAIProvider {
     providerConfig?: UnifiedLLMConfig
   ): Record<string, any> {
     const instructions = request.instructions || this.resolveInstructions(request, providerConfig);
+    const resolvedModel = this.resolveCodexModel(request.model);
     const payload: Record<string, any> = {
-      model: request.model,
+      model: resolvedModel,
       store: request.store ?? false,
       stream: true,
       instructions: instructions || 'You are a helpful assistant.',
@@ -67,13 +68,6 @@ export class CodexProvider extends OpenAIProvider {
       include: ['reasoning.encrypted_content'],
       parallel_tool_calls: true
     };
-
-    if (request.temperature !== undefined) {
-      payload.temperature = request.temperature;
-    }
-    if (request.top_p !== undefined) {
-      payload.top_p = request.top_p;
-    }
     if (Array.isArray(request.stop) && request.stop.length > 0) {
       payload.stop = request.stop;
     }
@@ -100,7 +94,7 @@ export class CodexProvider extends OpenAIProvider {
       request?.reasoning?.effort;
     if (typeof reasoningEffort === 'string') {
       payload.reasoning = {
-        effort: this.normalizeReasoningEffort(request.model, reasoningEffort),
+        effort: this.normalizeReasoningEffort(resolvedModel, reasoningEffort),
         summary: providerSpecific.reasoningSummary || 'auto'
       };
     }
@@ -329,6 +323,24 @@ export class CodexProvider extends OpenAIProvider {
       return effort === 'high' || effort === 'xhigh' ? 'high' : 'medium';
     }
     return effort;
+  }
+
+  private resolveCodexModel(modelName: string): string {
+    const normalizedModel = modelName.includes('/') ? modelName.split('/').pop() || modelName : modelName;
+    const modelPrefix = modelName.includes('/') ? `${modelName.slice(0, modelName.lastIndexOf('/') + 1)}` : '';
+    const aliases: Record<string, string> = {
+      'gpt-5-mini': 'gpt-5-codex-mini'
+    };
+    const resolvedModel = aliases[normalizedModel] || normalizedModel;
+
+    if (resolvedModel !== normalizedModel) {
+      this.codexLogger.info('Resolved Codex model alias for current account capability', {
+        requestedModel: normalizedModel,
+        resolvedModel
+      });
+    }
+
+    return `${modelPrefix}${resolvedModel}`;
   }
 
   private normalizeCodexOutputItem(item: any): any | null {

@@ -56,8 +56,9 @@ services:
       - HTTP_PORT=8081
       - INTERNAL_HTTP_PORT=8081
       - LOG_LEVEL=info
-      # WebSocket连接配置 - 直接连接napcat容器
-      - WEBSOCKET_HOST=napcat
+      # WebSocket连接配置 - 连接qqbot专用NapCat容器
+      - BOT_QQ_NUMBER=1129974489
+      - WEBSOCKET_HOST=napcat-qqbot
       - WEBSOCKET_PORT=3001
       - WEBSOCKET_ACCESS_TOKEN=w@123456
       - ENABLE_FUNCTION_REGISTRY=false
@@ -68,6 +69,9 @@ services:
       - LLM_POLL_INTERVAL_MS=1000
       - LLM_JOB_TIMEOUT_MS=300000
       - LLM_RETRY_DELAY_MS=5000
+      - AI_MODEL_NAME=gpt-5.4-mini
+      - GEMINI_CLI_OAUTH_CLIENT_ID=${GEMINI_CLI_OAUTH_CLIENT_ID:-}
+      - GEMINI_CLI_OAUTH_CLIENT_SECRET=${GEMINI_CLI_OAUTH_CLIENT_SECRET:-}
     depends_on:
       - mysql
     restart: unless-stopped
@@ -78,7 +82,9 @@ services:
       - ./logs/qqbot-core:/app/logs
       - ./modules/qqbot-core/resources/config:/app/resources/config
       - ./modules/qqbot-core/resources/napcat_qq_data:/app/resources/napcat_qq_data
-      - ./resource/napcat_qq_data:/app/.config/QQ:ro
+      - ./resource/napcat_qq_data2:/app/.config/QQ:ro
+      - ${HOME}/.codex:/root/.codex
+      - ${HOME}/.gemini:/root/.gemini
     networks:
       - qq_bot_network
 

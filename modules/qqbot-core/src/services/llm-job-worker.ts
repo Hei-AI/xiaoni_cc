@@ -9,7 +9,13 @@ import { DatabaseManager } from './database';
 import { FunctionCallDispatcher } from './function-call-dispatcher';
 import { AIService } from './ai-service';
 import { logger } from '../utils/logger';
-import { LLMJob, LLMJobStatus, GeminiFunctionCall, FunctionCallingMode } from '../types';
+import {
+  LLMJob,
+  LLMJobStatus,
+  GeminiFunctionCall,
+  FunctionCallingMode,
+  AgentLoopOutcome
+} from '../types';
 
 const moduleLogger = logger.createModuleLogger('llm-job-worker');
 
@@ -66,6 +72,45 @@ const normalizeFunctionCallingMode = (mode: unknown): FunctionCallingMode => {
   return 'ANY';
 };
 
+const getErrorStatusCode = (error: any): number | undefined => {
+  if (!error || typeof error !== 'object') {
+    return undefined;
+  }
+
+  if (typeof error.status === 'number') {
+    return error.status;
+  }
+
+  if (typeof error.statusCode === 'number') {
+    return error.statusCode;
+  }
+
+  if (error.response && typeof error.response.status === 'number') {
+    return error.response.status;
+  }
+
+  if (error.originalError) {
+    return getErrorStatusCode(error.originalError);
+  }
+
+  return undefined;
+};
+
+const isPermanentAuthorizationError = (error: any): boolean => {
+  const statusCode = getErrorStatusCode(error);
+  if (statusCode === 401 || statusCode === 403) {
+    return true;
+  }
+
+  const message = typeof error?.message === 'string' ? error.message.toLowerCase() : '';
+  return (
+    message.includes('permission_denied') ||
+    message.includes('api key was reported as leaked') ||
+    message.includes('please use another api key') ||
+    message.includes('invalid api key')
+  );
+};
+
 export interface LLMJobWorkerConfig {
   maxConcurrentJobs: number;
   pollIntervalMs: number;
@@ -75,9 +120,10 @@ export interface LLMJobWorkerConfig {
 
 export interface JobResult {
   success: boolean;
+  outcome?: AgentLoopOutcome;
   finalResponse?: string;
-  suppressAutoReply?: boolean;
   error?: string;
+  metadata?: Record<string, any>;
 }
 
 export class LLMJobWorker extends EventEmitter {
@@ -308,37 +354,79 @@ export class LLMJobWorker extends EventEmitter {
 
       // 更新最终状态
       if (result.success) {
-        await this.completeJob(job.id, result.finalResponse!);
+        await this.completeJob(
+          job.id,
+          result.finalResponse || '',
+          result.metadata || job.metadata || null
+        );
+        if (this.isToolDrivenChatJob(result.metadata || job.metadata || {})) {
+          await this.updateConversationForOutcome(
+            job,
+            result.outcome || {
+              kind: 'side_effect_only',
+              summary: result.finalResponse || ''
+            }
+          );
+        }
         this.emit('job_completed', {
           jobId: job.id,
           traceId: job.trace_id,
           finalResponse: result.finalResponse,
-          suppressAutoReply: result.suppressAutoReply || false,
-          metadata: job.metadata || null
+          outcome: result.outcome,
+          metadata: result.metadata || job.metadata || null
         });
       } else {
-        await this.failJob(job.id, result.error!);
+        await this.failJob(
+          job.id,
+          result.error!,
+          result.metadata || job.metadata || null
+        );
+        if (this.isToolDrivenChatJob(result.metadata || job.metadata || {})) {
+          await this.updateConversationFailure(
+            job,
+            result.outcome || {
+              kind: 'failed',
+              error: result.error
+            },
+            result.error || 'Job failed'
+          );
+        }
         this.emit('job_failed', {
           jobId: job.id,
           traceId: job.trace_id,
           error: result.error,
-          metadata: job.metadata || null
+          outcome: result.outcome,
+          metadata: result.metadata || job.metadata || null
         });
       }
     } catch (error: any) {
       moduleLogger.error('Job execution error', { jobId: job.id, error });
 
       // 判断是否需要重试
-      if (job.retry_count < job.max_retries) {
+      if (this.shouldRetryJobError(error) && job.retry_count < job.max_retries) {
         await this.scheduleRetry(job.id, job.retry_count + 1);
         this.emit('job_retry_scheduled', { jobId: job.id, retryCount: job.retry_count + 1 });
       } else {
-        await this.failJob(job.id, error.message);
+        const failedMetadata = this.applyLoopOutcomeMetadata(job.metadata || {}, {
+          kind: 'failed',
+          error: error.message
+        });
+        await this.failJob(job.id, error.message, failedMetadata);
+        if (this.isToolDrivenChatJob(failedMetadata)) {
+          await this.updateConversationFailure(job, {
+            kind: 'failed',
+            error: error.message
+          }, error.message);
+        }
         this.emit('job_failed', {
           jobId: job.id,
           traceId: job.trace_id,
           error: error.message,
-          metadata: job.metadata || null
+          outcome: {
+            kind: 'failed',
+            error: error.message
+          },
+          metadata: failedMetadata
         });
       }
     } finally {
@@ -351,8 +439,8 @@ export class LLMJobWorker extends EventEmitter {
    * 执行任务主逻辑
    */
   private async executeJob(job: LLMJob): Promise<JobResult> {
-    let contents = job.contents_json;
-    const jobMetadata = job.metadata || {};
+    let contents = Array.isArray(job.contents_json) ? [...job.contents_json] : [];
+    let jobMetadata = { ...(job.metadata || {}) };
 
     type ToolSource = 'job' | 'search' | 'static' | 'invoke';
     const sourcePriority: Record<ToolSource, number> = {
@@ -391,6 +479,7 @@ export class LLMJobWorker extends EventEmitter {
 
     let tools = Array.from(toolMap.values()).map(entry => entry.declaration);
     tools = this.sanitizeTools(tools);
+    tools = this.filterToolsForSource(job.source_type, tools);
     let currentTurn = job.current_turn;
 
     moduleLogger.info('Executing job', {
@@ -400,19 +489,65 @@ export class LLMJobWorker extends EventEmitter {
     });
 
     while (currentTurn <= job.max_turns) {
+      moduleLogger.info('turn_start', {
+        jobId: job.id,
+        traceId: job.trace_id,
+        turn: currentTurn,
+        maxTurns: job.max_turns
+      });
+
       // 调用 LLM
       const response = await this.callLLM(job, contents, tools);
+      moduleLogger.info('turn_llm_success', {
+        jobId: job.id,
+        traceId: job.trace_id,
+        turn: currentTurn
+      });
+
+      const assistantTurn = this.buildAssistantTurn(response);
+      if (assistantTurn) {
+        contents.push(assistantTurn);
+      }
 
       // 检查是否有函数调用
       const functionCalls = this.extractFunctionCalls(response);
 
       if (functionCalls.length === 0) {
-        // 没有函数调用,返回最终响应
-        const finalText = this.extractTextFromResponse(response);
+        const finalText = this.extractTextFromResponse(response).trim();
+        if (this.isToolDrivenChatJob(jobMetadata)) {
+          if (finalText.length > 0 && this.isTextFallbackEnabled()) {
+            moduleLogger.warn('protocol_fallback', {
+              jobId: job.id,
+              traceId: job.trace_id,
+              fallback: 'text_to_send_tool'
+            });
+            const fallbackResult = await this.executeTextFallback(job, jobMetadata, finalText);
+            if (fallbackResult.metadata) {
+              jobMetadata = fallbackResult.metadata;
+            }
+            await this.updateJobProgress(job.id, currentTurn, contents, jobMetadata);
+            return fallbackResult;
+          }
+
+          const outcome: AgentLoopOutcome = {
+            kind: 'protocol_error',
+            error: 'Chat loop ended without terminal tool invocation',
+            summary: 'Chat loop ended without terminal tool invocation'
+          };
+          jobMetadata = this.applyLoopOutcomeMetadata(jobMetadata, outcome);
+          await this.updateJobProgress(job.id, currentTurn, contents, jobMetadata);
+          return {
+            success: false,
+            outcome,
+            error: outcome.error,
+            metadata: jobMetadata
+          };
+        }
+
         return {
           success: true,
           finalResponse: finalText,
-          suppressAutoReply: false
+          metadata: jobMetadata
         };
       }
 
@@ -422,10 +557,17 @@ export class LLMJobWorker extends EventEmitter {
         functionCount: functionCalls.length
       });
 
-      let shouldContinue = true;
       const functionResponses: any[] = [];
+      let terminalOutcome: AgentLoopOutcome | null = null;
 
-      for (const functionCall of functionCalls) {
+      for (let index = 0; index < functionCalls.length; index++) {
+        const functionCall = functionCalls[index];
+        moduleLogger.info('turn_tool_dispatch', {
+          jobId: job.id,
+          traceId: job.trace_id,
+          turn: currentTurn,
+          toolName: functionCall.name
+        });
         const dispatchResult = await this.dispatcher.dispatch(functionCall, {
           traceId: job.trace_id,
           jobId: job.id,
@@ -435,25 +577,50 @@ export class LLMJobWorker extends EventEmitter {
           metadata: jobMetadata
         });
 
-        if (dispatchResult.isCompleted) {
-          // 工具执行完成,无需继续
+        if (dispatchResult.kind === 'fail') {
           return {
-            success: true,
-            finalResponse: dispatchResult.finalResponse,
-            suppressAutoReply: dispatchResult.suppressAutoReply || false
+            success: false,
+            outcome: {
+              kind: 'failed',
+              toolName: functionCall.name,
+              error: dispatchResult.error,
+              summary: dispatchResult.error
+            },
+            error: dispatchResult.error || 'Function dispatch failed',
+            metadata: jobMetadata
           };
+        }
+
+        if (dispatchResult.kind === 'complete') {
+          if (index !== functionCalls.length - 1) {
+            const outcome: AgentLoopOutcome = {
+              kind: 'protocol_error',
+              toolName: functionCall.name,
+              error: 'Terminal tool call must be the final action in the turn',
+              summary: 'Terminal tool call must be the final action in the turn'
+            };
+            jobMetadata = this.applyLoopOutcomeMetadata(jobMetadata, outcome);
+            await this.updateJobProgress(job.id, currentTurn, contents, jobMetadata);
+            return {
+              success: false,
+              outcome,
+              error: outcome.error,
+              metadata: jobMetadata
+            };
+          }
+
+          terminalOutcome = dispatchResult.outcome || {
+            kind: 'side_effect_only',
+            toolName: functionCall.name,
+            summary: functionCall.name
+          };
+          break;
         }
 
         if (dispatchResult.functionResponse) {
           functionResponses.push(dispatchResult.functionResponse);
         }
 
-        if (!dispatchResult.shouldContinue) {
-          shouldContinue = false;
-          break;
-        }
-
-        // 如果搜索到工具,动态添加 invoke 声明
         if (dispatchResult.searchedTools && dispatchResult.searchedTools.length > 0) {
           const invokeDeclaration = this.dispatcher.getInvokeDeclaration(
             dispatchResult.searchedTools
@@ -463,14 +630,6 @@ export class LLMJobWorker extends EventEmitter {
         }
       }
 
-      if (!shouldContinue) {
-        return {
-          success: false,
-          error: 'Function execution stopped'
-        };
-      }
-
-      // 将函数响应添加到 contents
       for (const funcResp of functionResponses) {
         contents.push({
           role: 'function',
@@ -478,22 +637,54 @@ export class LLMJobWorker extends EventEmitter {
         });
       }
 
+      if (terminalOutcome) {
+        jobMetadata = this.applyLoopOutcomeMetadata(jobMetadata, terminalOutcome);
+        await this.updateJobProgress(job.id, currentTurn, contents, jobMetadata);
+        moduleLogger.info('loop_terminal_outcome', {
+          jobId: job.id,
+          traceId: job.trace_id,
+          outcome: terminalOutcome.kind,
+          toolName: terminalOutcome.toolName
+        });
+        return {
+          success: true,
+          outcome: terminalOutcome,
+          finalResponse: this.buildFinalResponse(terminalOutcome),
+          metadata: jobMetadata
+        };
+      }
+
       // 更新当前轮次
       currentTurn++;
-      await this.updateJobTurn(job.id, currentTurn);
+      await this.updateJobProgress(job.id, currentTurn, contents, jobMetadata);
 
       // 检查是否超过最大轮次
       if (currentTurn > job.max_turns) {
+        const outcome: AgentLoopOutcome = {
+          kind: 'failed',
+          error: `Exceeded max turns: ${job.max_turns}`,
+          summary: `Exceeded max turns: ${job.max_turns}`
+        };
+        jobMetadata = this.applyLoopOutcomeMetadata(jobMetadata, outcome);
         return {
           success: false,
-          error: `Exceeded max turns: ${job.max_turns}`
+          outcome,
+          error: outcome.error,
+          metadata: jobMetadata
         };
       }
     }
 
+    const unexpectedOutcome: AgentLoopOutcome = {
+      kind: 'failed',
+      error: 'Unexpected end of execution',
+      summary: 'Unexpected end of execution'
+    };
     return {
       success: false,
-      error: 'Unexpected end of execution'
+      outcome: unexpectedOutcome,
+      error: unexpectedOutcome.error,
+      metadata: jobMetadata
     };
   }
 
@@ -503,29 +694,42 @@ export class LLMJobWorker extends EventEmitter {
   private async callLLM(job: LLMJob, contents: any[], tools: any[]): Promise<any> {
     try {
       // 构建请求
-      const sanitizedTools = this.sanitizeTools(tools);
+      const configuredRequest =
+        job.config_json && typeof job.config_json === 'object'
+          ? { ...(job.config_json as Record<string, any>) }
+          : {};
+      const sanitizedTools = this.mergeAndSanitizeTools(
+        Array.isArray(configuredRequest.tools) ? configuredRequest.tools : [],
+        tools
+      );
+      const requestTools = this.filterToolsForSource(job.source_type, sanitizedTools);
       const request: Record<string, any> = {
         contents,
-        tools: sanitizedTools.length > 0 ? sanitizedTools : undefined,
-        ...(job.config_json || {})
+        ...configuredRequest,
+        tools: requestTools.length > 0 ? requestTools : undefined
       };
+
+      const metadata = job.metadata || {};
+      const defaultFunctionCallingMode: FunctionCallingMode = this.isToolDrivenChatJob(metadata)
+        ? 'AUTO'
+        : 'ANY';
 
       if (!request.toolConfig || typeof request.toolConfig !== 'object') {
         request.toolConfig = {
           functionCallingConfig: {
-            mode: 'ANY'
+            mode: defaultFunctionCallingMode
           }
         };
       } else {
         const fc = request.toolConfig.functionCallingConfig;
         if (!fc || typeof fc !== 'object') {
-          request.toolConfig.functionCallingConfig = { mode: 'ANY' };
+          request.toolConfig.functionCallingConfig = { mode: defaultFunctionCallingMode };
         } else {
-          request.toolConfig.functionCallingConfig.mode = normalizeFunctionCallingMode(fc.mode);
+          request.toolConfig.functionCallingConfig.mode = this.isToolDrivenChatJob(metadata)
+            ? 'AUTO'
+            : normalizeFunctionCallingMode(fc.mode);
         }
       }
-
-      const metadata = job.metadata || {};
       const modelNameFromConfig = (job.config_json && (job.config_json as any).model?.name)
         || (job.config_json && (job.config_json as any).modelName)
         || metadata.modelName;
@@ -537,7 +741,7 @@ export class LLMJobWorker extends EventEmitter {
       moduleLogger.info('Calling LLM', {
         jobId: job.id,
         contentCount: contents.length,
-        toolCount: tools.length,
+        toolCount: requestTools.length,
         model: modelNameFromConfig || request.model?.name
       });
 
@@ -607,6 +811,132 @@ export class LLMJobWorker extends EventEmitter {
     return textParts.join('\n');
   }
 
+  private buildAssistantTurn(response: any): { role: string; parts: any[] } | null {
+    if (!response || !Array.isArray(response.candidates) || response.candidates.length === 0) {
+      return null;
+    }
+
+    const candidate = response.candidates[0];
+    if (!candidate?.content || !Array.isArray(candidate.content.parts) || candidate.content.parts.length === 0) {
+      return null;
+    }
+
+    return {
+      role: candidate.content.role || 'model',
+      parts: candidate.content.parts
+    };
+  }
+
+  private isToolDrivenChatJob(metadata: Record<string, any>): boolean {
+    return metadata?.agentType === 'chat_bot' && metadata?.promptName === 'basic_chat';
+  }
+
+  private isTextFallbackEnabled(): boolean {
+    return process.env.CHAT_AGENT_TEXT_FALLBACK_TO_SEND_TOOL !== 'false';
+  }
+
+  private applyLoopOutcomeMetadata(
+    metadata: Record<string, any>,
+    outcome: AgentLoopOutcome
+  ): Record<string, any> {
+    return {
+      ...metadata,
+      loopOutcome: outcome
+    };
+  }
+
+  private buildFinalResponse(outcome: AgentLoopOutcome): string {
+    if (outcome.kind === 'message_sent') {
+      return outcome.message || outcome.summary || '';
+    }
+
+    if (outcome.kind === 'side_effect_only') {
+      return outcome.summary || outcome.toolName || '';
+    }
+
+    if (outcome.kind === 'ended_no_reply') {
+      return '';
+    }
+
+    return outcome.error || outcome.summary || '';
+  }
+
+  private async executeTextFallback(
+    job: LLMJob,
+    metadata: Record<string, any>,
+    finalText: string
+  ): Promise<JobResult> {
+    const fallbackCall: GeminiFunctionCall = job.source_type === 'group'
+      ? {
+          name: 'send_qq_group_message',
+          args: {
+            message: finalText,
+            user_perspectives: []
+          }
+        }
+      : {
+          name: 'send_private_chat_message',
+          args: {
+            user_id: metadata.userId,
+            message: finalText
+          }
+        };
+
+    if (job.source_type === 'private' && !metadata.userId) {
+      const outcome: AgentLoopOutcome = {
+        kind: 'protocol_error',
+        error: 'Missing userId for text fallback',
+        summary: 'Missing userId for text fallback'
+      };
+      const nextMetadata = this.applyLoopOutcomeMetadata(metadata, outcome);
+      return {
+        success: false,
+        outcome,
+        error: outcome.error,
+        metadata: nextMetadata
+      };
+    }
+
+    const dispatchResult = await this.dispatcher.dispatch(fallbackCall, {
+      traceId: job.trace_id,
+      jobId: job.id,
+      sourceKey: job.source_key,
+      userId: metadata.userId,
+      groupId: metadata.groupId,
+      metadata
+    });
+
+    if (dispatchResult.kind !== 'complete' || !dispatchResult.outcome) {
+      const outcome: AgentLoopOutcome = {
+        kind: 'protocol_error',
+        error: 'Text fallback did not resolve to a terminal send action',
+        summary: 'Text fallback did not resolve to a terminal send action'
+      };
+      const nextMetadata = this.applyLoopOutcomeMetadata(metadata, outcome);
+      return {
+        success: false,
+        outcome,
+        error: outcome.error,
+        metadata: nextMetadata
+      };
+    }
+
+    const nextOutcome: AgentLoopOutcome = {
+      ...dispatchResult.outcome,
+      message: dispatchResult.outcome.message || finalText,
+      summary: dispatchResult.outcome.summary || finalText,
+      protocolFallback: 'text_to_send_tool'
+    };
+    const nextMetadata = this.applyLoopOutcomeMetadata(metadata, nextOutcome);
+
+    return {
+      success: true,
+      outcome: nextOutcome,
+      finalResponse: this.buildFinalResponse(nextOutcome),
+      metadata: nextMetadata
+    };
+  }
+
   /**
    * 更新任务状态
    */
@@ -636,33 +966,49 @@ export class LLMJobWorker extends EventEmitter {
   /**
    * 更新任务轮次
    */
-  private async updateJobTurn(jobId: string, turn: number): Promise<void> {
+  private async updateJobProgress(
+    jobId: string,
+    turn: number,
+    contents: any[],
+    metadata?: Record<string, any> | null
+  ): Promise<void> {
     let connection: any;
     try {
       connection = await (this.database as any).pool.getConnection();
 
       await connection.query(
-        'UPDATE llm_jobs SET current_turn = ?, updated_at = NOW() WHERE id = ?',
-        [turn, jobId]
+        `UPDATE llm_jobs
+         SET current_turn = ?, contents_json = ?, metadata = ?, updated_at = NOW()
+         WHERE id = ?`,
+        [
+          turn,
+          JSON.stringify(contents),
+          metadata ? JSON.stringify(metadata) : null,
+          jobId
+        ]
       );
 
-      releaseConnectionSafely(connection, 'updateJobTurn');
+      releaseConnectionSafely(connection, 'updateJobProgress');
       connection = null;
     } catch (error) {
-      moduleLogger.error('Failed to update job turn', {
+      moduleLogger.error('Failed to update job progress', {
         jobId,
         turn,
         error: serializeError(error)
       });
     } finally {
-      releaseConnectionSafely(connection, 'updateJobTurn.finally');
+      releaseConnectionSafely(connection, 'updateJobProgress.finally');
     }
   }
 
   /**
    * 完成任务
    */
-  private async completeJob(jobId: string, finalResponse: string): Promise<void> {
+  private async completeJob(
+    jobId: string,
+    finalResponse: string,
+    metadata?: Record<string, any> | null
+  ): Promise<void> {
     let connection: any;
     try {
       connection = await (this.database as any).pool.getConnection();
@@ -671,10 +1017,11 @@ export class LLMJobWorker extends EventEmitter {
         `UPDATE llm_jobs
          SET status = 'completed',
              final_response = ?,
+             metadata = ?,
              completed_at = NOW(),
              updated_at = NOW()
          WHERE id = ?`,
-        [finalResponse, jobId]
+        [finalResponse, metadata ? JSON.stringify(metadata) : null, jobId]
       );
 
       releaseConnectionSafely(connection, 'completeJob');
@@ -694,7 +1041,11 @@ export class LLMJobWorker extends EventEmitter {
   /**
    * 任务失败
    */
-  private async failJob(jobId: string, errorMessage: string): Promise<void> {
+  private async failJob(
+    jobId: string,
+    errorMessage: string,
+    metadata?: Record<string, any> | null
+  ): Promise<void> {
     let connection: any;
     try {
       connection = await (this.database as any).pool.getConnection();
@@ -703,9 +1054,10 @@ export class LLMJobWorker extends EventEmitter {
         `UPDATE llm_jobs
          SET status = 'failed',
              error_message = ?,
+             metadata = ?,
              updated_at = NOW()
          WHERE id = ?`,
-        [errorMessage, jobId]
+        [errorMessage, metadata ? JSON.stringify(metadata) : null, jobId]
       );
 
       releaseConnectionSafely(connection, 'failJob');
@@ -722,6 +1074,59 @@ export class LLMJobWorker extends EventEmitter {
     }
   }
 
+  private async updateConversationForOutcome(job: LLMJob, outcome: AgentLoopOutcome): Promise<void> {
+    const conversationId = job.metadata?.conversationId;
+    if (!conversationId || typeof (this.database as any).updateConversationStatus !== 'function') {
+      return;
+    }
+
+    const aiResponse = this.buildConversationResponse(outcome);
+    const modelName = job.metadata?.modelName || null;
+    const rawResponse = JSON.stringify({ outcome });
+    await (this.database as any).updateConversationStatus(
+      conversationId,
+      'completed',
+      undefined,
+      aiResponse,
+      0,
+      modelName,
+      rawResponse
+    );
+  }
+
+  private async updateConversationFailure(
+    job: LLMJob,
+    outcome: AgentLoopOutcome,
+    errorMessage: string
+  ): Promise<void> {
+    const conversationId = job.metadata?.conversationId;
+    if (!conversationId || typeof (this.database as any).updateConversationStatus !== 'function') {
+      return;
+    }
+
+    await (this.database as any).updateConversationStatus(
+      conversationId,
+      'failed',
+      errorMessage,
+      undefined,
+      0,
+      job.metadata?.modelName || null,
+      JSON.stringify({ outcome })
+    );
+  }
+
+  private buildConversationResponse(outcome: AgentLoopOutcome): string {
+    if (outcome.kind === 'message_sent') {
+      return outcome.message || outcome.summary || '';
+    }
+
+    if (outcome.kind === 'ended_no_reply') {
+      return '';
+    }
+
+    return outcome.summary || '';
+  }
+
   /**
    * 安排重试
    */
@@ -730,22 +1135,20 @@ export class LLMJobWorker extends EventEmitter {
     try {
       connection = await (this.database as any).pool.getConnection();
 
-      const nextRetryAt = new Date(Date.now() + this.config.retryDelayMs);
-
       await connection.query(
         `UPDATE llm_jobs
          SET status = 'pending',
              retry_count = ?,
-             next_retry_at = ?,
+             next_retry_at = DATE_ADD(NOW(), INTERVAL ? MICROSECOND),
              updated_at = NOW()
          WHERE id = ?`,
-        [retryCount, nextRetryAt, jobId]
+        [retryCount, this.config.retryDelayMs * 1000, jobId]
       );
 
       releaseConnectionSafely(connection, 'scheduleRetry');
       connection = null;
 
-      moduleLogger.info('Job retry scheduled', { jobId, retryCount, nextRetryAt });
+      moduleLogger.info('Job retry scheduled', { jobId, retryCount, retryDelayMs: this.config.retryDelayMs });
     } catch (error) {
       moduleLogger.error('Failed to schedule retry', {
         jobId,
@@ -837,6 +1240,18 @@ export class LLMJobWorker extends EventEmitter {
     };
   }
 
+  private shouldRetryJobError(error: any): boolean {
+    if (isPermanentAuthorizationError(error)) {
+      moduleLogger.warn('Skipping retry for permanent authorization error', {
+        statusCode: getErrorStatusCode(error),
+        message: error?.message
+      });
+      return false;
+    }
+
+    return true;
+  }
+
   private sanitizeSchema(schema: any): any {
     if (!schema || typeof schema !== 'object') {
       return schema;
@@ -912,7 +1327,7 @@ export class LLMJobWorker extends EventEmitter {
 
   private sanitizeTools(tools: any[]): any[] {
     if (!Array.isArray(tools)) {
-      return tools;
+      return [];
     }
 
     return tools.map(tool => {
@@ -932,5 +1347,45 @@ export class LLMJobWorker extends EventEmitter {
 
       return cloned;
     });
+  }
+
+  private mergeAndSanitizeTools(primaryTools: any[], overrideTools: any[]): any[] {
+    const merged = new Map<string, any>();
+
+    const register = (toolList: any[]) => {
+      this.sanitizeTools(toolList).forEach(tool => {
+        if (!tool || typeof tool !== 'object') {
+          return;
+        }
+
+        const toolName =
+          typeof tool.name === 'string'
+            ? tool.name
+            : Array.isArray(tool.functionDeclarations) && tool.functionDeclarations.length === 1
+              ? tool.functionDeclarations[0]?.name
+              : undefined;
+
+        if (toolName) {
+          merged.set(toolName, tool);
+        }
+      });
+    };
+
+    register(primaryTools);
+    register(overrideTools);
+
+    return Array.from(merged.values());
+  }
+
+  private filterToolsForSource(sourceType: 'private' | 'group', tools: any[]): any[] {
+    if (!Array.isArray(tools)) {
+      return [];
+    }
+
+    if (sourceType === 'private') {
+      return tools.filter(tool => tool?.name !== 'send_qq_group_message');
+    }
+
+    return tools;
   }
 }

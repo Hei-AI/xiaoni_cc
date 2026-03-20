@@ -40,7 +40,8 @@ describe('LLMJobWorker', () => {
     mockDatabase = {
       pool: {
         getConnection: jest.fn().mockResolvedValue(mockConnection)
-      }
+      },
+      updateConversationStatus: jest.fn().mockResolvedValue(true)
     };
 
     // Mock AI Service
@@ -239,7 +240,7 @@ describe('LLMJobWorker', () => {
         jobId: 'job-123',
         traceId: 'trace-123',
         finalResponse: 'Hello! How can I help you?',
-        suppressAutoReply: false,
+        outcome: undefined,
         metadata: mockJob.metadata
       }));
     });
@@ -393,8 +394,7 @@ describe('LLMJobWorker', () => {
 
       // Mock dispatcher
       jest.spyOn(mockDispatcher, 'dispatch').mockResolvedValueOnce({
-        shouldContinue: true,
-        isCompleted: false,
+        kind: 'continue',
         functionResponse: {
           name: 'send_private_chat_message',
           response: {
@@ -428,9 +428,409 @@ describe('LLMJobWorker', () => {
       expect(completedSpy).toHaveBeenCalledWith(expect.objectContaining({
         jobId: 'job-123',
         traceId: 'trace-123',
-        suppressAutoReply: false,
+        outcome: undefined,
         metadata: mockJob.metadata
       }));
+    });
+
+    it('should deduplicate config tools against runtime tools before calling LLM', async () => {
+      const mockJob = {
+        id: 'job-dedupe-tools',
+        trace_id: 'trace-dedupe-tools',
+        source_key: 'user_123',
+        source_type: 'private',
+        status: 'pending',
+        retry_count: 0,
+        max_retries: 3,
+        contents_json: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+        tools_json: [
+          {
+            name: 'send_private_chat_message',
+            description: 'Runtime tool',
+            parameters: { type: 'object', properties: { user_id: { type: 'integer' } } }
+          }
+        ],
+        config_json: {
+          tools: [
+            {
+              name: 'send_private_chat_message',
+              description: 'Prompt tool',
+              parameters: { type: 'object', properties: { message: { type: 'string' } } }
+            }
+          ]
+        },
+        current_turn: 1,
+        max_turns: 10,
+        created_at: new Date(),
+        updated_at: new Date(),
+        metadata: { userId: 123 }
+      };
+
+      mockDispatcher.getStaticToolDeclaration.mockImplementation((name: string) => {
+        if (name === 'send_private_chat_message') {
+          return {
+            name,
+            description: 'Static override',
+            parameters: {
+              type: 'object',
+              required: ['user_id', 'message'],
+              properties: {
+                user_id: { type: 'integer' },
+                message: { type: 'string' }
+              }
+            }
+          };
+        }
+        return undefined;
+      });
+
+      mockAIService.generateContent.mockResolvedValueOnce({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'done' }]
+            }
+          }
+        ]
+      });
+      mockConnection.query
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      await (worker as any).processJob(mockJob);
+
+      const request = mockAIService.generateContent.mock.calls[0][0];
+      expect(request.tools).toHaveLength(1);
+      expect(request.tools[0].name).toBe('send_private_chat_message');
+      expect(request.tools[0].description).toBe('Static override');
+      expect(request.tools[0].parameters.required).toEqual(['user_id', 'message']);
+    });
+
+    it('should exclude group-only tools for private jobs', async () => {
+      const mockJob = {
+        id: 'job-private-tool-filter',
+        trace_id: 'trace-private-tool-filter',
+        source_key: 'user_123',
+        source_type: 'private',
+        status: 'pending',
+        retry_count: 0,
+        max_retries: 3,
+        contents_json: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+        tools_json: [
+          {
+            name: 'send_private_chat_message',
+            description: 'Private tool',
+            parameters: { type: 'object' }
+          },
+          {
+            name: 'send_qq_group_message',
+            description: 'Group tool',
+            parameters: { type: 'object' }
+          }
+        ],
+        config_json: {
+          tools: [
+            {
+              name: 'send_qq_group_message',
+              description: 'Group tool from config',
+              parameters: { type: 'object' }
+            }
+          ]
+        },
+        current_turn: 1,
+        max_turns: 10,
+        created_at: new Date(),
+        updated_at: new Date(),
+        metadata: { userId: 123 }
+      };
+
+      mockAIService.generateContent.mockResolvedValueOnce({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'done' }]
+            }
+          }
+        ]
+      });
+      mockConnection.query
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      await (worker as any).processJob(mockJob);
+
+      const request = mockAIService.generateContent.mock.calls[0][0];
+      expect(request.tools.map((tool: any) => tool.name)).toEqual(['send_private_chat_message']);
+    });
+
+    it('should schedule retry using database time to avoid timezone drift', async () => {
+      const mockJob = {
+        id: 'job-retry',
+        trace_id: 'trace-retry',
+        source_key: 'user_123',
+        source_type: 'private',
+        status: 'pending',
+        retry_count: 0,
+        max_retries: 3,
+        contents_json: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+        tools_json: null,
+        config_json: null,
+        current_turn: 1,
+        max_turns: 10,
+        created_at: new Date(),
+        updated_at: new Date(),
+        metadata: { userId: 123 }
+      };
+
+      mockAIService.generateContent.mockRejectedValueOnce(new Error('temporary failure'));
+      mockConnection.query
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      const retrySpy = jest.fn();
+      worker.on('job_retry_scheduled', retrySpy);
+
+      await (worker as any).processJob(mockJob);
+
+      expect(mockConnection.query).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('next_retry_at = DATE_ADD(NOW(), INTERVAL ? MICROSECOND)'),
+        [1, 1000 * 1000, 'job-retry']
+      );
+      expect(retrySpy).toHaveBeenCalledWith({ jobId: 'job-retry', retryCount: 1 });
+    });
+
+    it('should fail immediately on permanent authorization errors', async () => {
+      const mockJob = {
+        id: 'job-auth-fail',
+        trace_id: 'trace-auth-fail',
+        source_key: 'user_123',
+        source_type: 'private',
+        status: 'pending',
+        retry_count: 0,
+        max_retries: 3,
+        contents_json: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+        tools_json: null,
+        config_json: null,
+        current_turn: 1,
+        max_turns: 10,
+        created_at: new Date(),
+        updated_at: new Date(),
+        metadata: { userId: 123 }
+      };
+
+      const authError = Object.assign(
+        new Error('Your API key was reported as leaked. Please use another API key.'),
+        { status: 403 }
+      );
+
+      mockAIService.generateContent.mockRejectedValueOnce(authError);
+      mockConnection.query
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      const failedSpy = jest.fn();
+      worker.on('job_failed', failedSpy);
+
+      await (worker as any).processJob(mockJob);
+
+      expect(mockConnection.query).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining("SET status = 'failed'"),
+        [
+          authError.message,
+          JSON.stringify({
+            userId: 123,
+            loopOutcome: {
+              kind: 'failed',
+              error: authError.message
+            }
+          }),
+          'job-auth-fail'
+        ]
+      );
+      expect(failedSpy).toHaveBeenCalledWith(expect.objectContaining({
+        jobId: 'job-auth-fail',
+        traceId: 'trace-auth-fail',
+        error: authError.message,
+        outcome: {
+          kind: 'failed',
+          error: authError.message
+        },
+        metadata: {
+          userId: 123,
+          loopOutcome: {
+            kind: 'failed',
+            error: authError.message
+          }
+        }
+      }));
+    });
+
+    it('should convert bare chat text into a terminal send tool outcome for chat_bot', async () => {
+      const mockJob = {
+        id: 'job-chat-fallback',
+        trace_id: 'trace-chat-fallback',
+        source_key: 'user_123',
+        source_type: 'private',
+        status: 'pending',
+        retry_count: 0,
+        max_retries: 3,
+        contents_json: [{ role: 'user', parts: [{ text: 'hello' }] }],
+        tools_json: null,
+        config_json: null,
+        current_turn: 1,
+        max_turns: 10,
+        created_at: new Date(),
+        updated_at: new Date(),
+        metadata: {
+          userId: 123,
+          conversationId: 'conv-123',
+          agentType: 'chat_bot',
+          promptName: 'basic_chat',
+          modelName: 'gpt-5.4-mini'
+        }
+      };
+
+      mockAIService.generateContent.mockResolvedValueOnce({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: '你好呀' }]
+            }
+          }
+        ]
+      });
+
+      mockDispatcher.dispatch.mockResolvedValueOnce({
+        kind: 'complete',
+        outcome: {
+          kind: 'message_sent',
+          toolName: 'send_private_chat_message',
+          message: '你好呀',
+          summary: '你好呀'
+        }
+      });
+
+      mockConnection.query
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // updateJobStatus
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // updateJobProgress
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // completeJob
+
+      const completedSpy = jest.fn();
+      worker.on('job_completed', completedSpy);
+
+      await (worker as any).processJob(mockJob);
+
+      expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
+        {
+          name: 'send_private_chat_message',
+          args: {
+            user_id: 123,
+            message: '你好呀'
+          }
+        },
+        expect.objectContaining({
+          jobId: 'job-chat-fallback',
+          traceId: 'trace-chat-fallback'
+        })
+      );
+      expect(completedSpy).toHaveBeenCalledWith(expect.objectContaining({
+        outcome: expect.objectContaining({
+          kind: 'message_sent',
+          protocolFallback: 'text_to_send_tool'
+        })
+      }));
+      expect(mockDatabase.updateConversationStatus).toHaveBeenCalledWith(
+        'conv-123',
+        'completed',
+        undefined,
+        '你好呀',
+        0,
+        'gpt-5.4-mini',
+        expect.any(String)
+      );
+    });
+
+    it('should complete chat_bot jobs with end outcome and no reply text', async () => {
+      const mockJob = {
+        id: 'job-chat-end',
+        trace_id: 'trace-chat-end',
+        source_key: 'user_123',
+        source_type: 'private',
+        status: 'pending',
+        retry_count: 0,
+        max_retries: 3,
+        contents_json: [{ role: 'user', parts: [{ text: '...' }] }],
+        tools_json: null,
+        config_json: null,
+        current_turn: 1,
+        max_turns: 10,
+        created_at: new Date(),
+        updated_at: new Date(),
+        metadata: {
+          userId: 123,
+          conversationId: 'conv-end',
+          agentType: 'chat_bot',
+          promptName: 'basic_chat',
+          modelName: 'gpt-5.4-mini'
+        }
+      };
+
+      mockAIService.generateContent.mockResolvedValueOnce({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  functionCall: {
+                    name: 'end',
+                    args: {}
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      });
+
+      mockDispatcher.dispatch.mockResolvedValueOnce({
+        kind: 'complete',
+        outcome: {
+          kind: 'ended_no_reply',
+          toolName: 'end',
+          summary: 'Conversation ended without reply'
+        }
+      });
+
+      mockConnection.query
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // updateJobStatus
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // updateJobProgress
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // completeJob
+
+      const completedSpy = jest.fn();
+      worker.on('job_completed', completedSpy);
+
+      await (worker as any).processJob(mockJob);
+
+      expect(completedSpy).toHaveBeenCalledWith(expect.objectContaining({
+        jobId: 'job-chat-end',
+        traceId: 'trace-chat-end',
+        finalResponse: '',
+        outcome: expect.objectContaining({
+          kind: 'ended_no_reply',
+          toolName: 'end'
+        })
+      }));
+      expect(mockDatabase.updateConversationStatus).toHaveBeenCalledWith(
+        'conv-end',
+        'completed',
+        undefined,
+        '',
+        0,
+        'gpt-5.4-mini',
+        expect.any(String)
+      );
     });
   });
 

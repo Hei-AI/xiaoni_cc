@@ -15,6 +15,8 @@ const moduleLogger = logger.createModuleLogger('static-tools');
 export interface MessagingToolDependencies {
   sendPrivateMessage: (userId: number, message: string) => Promise<void>;
   sendGroupMessage: (groupId: number, message: string) => Promise<void>;
+  canSendPrivateMessage?: (userId: number) => Promise<boolean>;
+  canSendGroupMessage?: (groupId: number) => Promise<boolean>;
   findMemeByTags: (tags: string[]) => Promise<MemeLibraryEntry | null>;
   saveMemeImage: (imageBase64: string, tags: string[]) => Promise<MemeLibraryEntry>;
   recordMemeUsage?: (memeId: string) => Promise<void>;
@@ -172,6 +174,10 @@ const createPrivateMessageTool = (
   name: 'send_private_chat_message',
   description: '向指定QQ用户发送一条私聊消息。',
   mode: 'fire-and-forget',
+  loopBehavior: {
+    completion: 'terminal',
+    outcomeKind: 'message_sent'
+  },
   parameters: {
     type: 'object',
     properties: {
@@ -204,6 +210,22 @@ const createPrivateMessageTool = (
       const { user_id, message } = ctx.arguments || {};
       const normalizedUserId = validateNumericId(user_id, 'user_id');
       const normalizedMessage = validateMessage(message);
+
+      if (typeof deps.canSendPrivateMessage === 'function') {
+        const canSend = await deps.canSendPrivateMessage(normalizedUserId);
+        if (!canSend) {
+          return {
+            success: true,
+            data: {
+              status: 'suppressed',
+              reason: 'auto_reply_disabled',
+              user_id: normalizedUserId,
+              message: normalizedMessage,
+              duration_ms: Date.now() - start
+            }
+          };
+        }
+      }
 
       await deps.sendPrivateMessage(normalizedUserId, normalizedMessage);
 
@@ -238,6 +260,10 @@ const createGroupMessageTool = (
   name: 'send_qq_group_message',
   description: '向当前会话所属的QQ群发送文本消息，可选精准@指定成员。',
   mode: 'fire-and-forget',
+  loopBehavior: {
+    completion: 'terminal',
+    outcomeKind: 'message_sent'
+  },
   parameters: {
     type: 'object',
     properties: {
@@ -299,6 +325,27 @@ const createGroupMessageTool = (
         ? `${mentionPrefix} ${normalizedMessage}`.trim()
         : normalizedMessage;
 
+      if (typeof deps.canSendGroupMessage === 'function') {
+        const canSend = await deps.canSendGroupMessage(normalizedGroupId);
+        if (!canSend) {
+          return {
+            success: true,
+            data: {
+              status: 'suppressed',
+              reason: 'auto_reply_disabled',
+              group_id: normalizedGroupId,
+              message: normalizedMessage,
+              mention: {
+                enabled: mentionUserIds.length > 0,
+                user_ids: mentionUserIds
+              },
+              user_perspectives: normalizedPerspectives,
+              duration_ms: Date.now() - start
+            }
+          };
+        }
+      }
+
       await deps.sendGroupMessage(normalizedGroupId, finalPayload);
 
       return {
@@ -337,6 +384,10 @@ const createSendMemeImageTool = (
   name: 'send_meme_image',
   description: '按标签检索并发送匹配的表情包，支持必要的@与观点说明。',
   mode: 'fire-and-forget',
+  loopBehavior: {
+    completion: 'terminal',
+    outcomeKind: 'message_sent'
+  },
   parameters: {
     type: 'object',
     properties: {
@@ -404,9 +455,45 @@ const createSendMemeImageTool = (
 
       if (ctx.group_id) {
         const normalizedGroupId = validateNumericId(ctx.group_id, 'group_id');
+        if (typeof deps.canSendGroupMessage === 'function') {
+          const canSend = await deps.canSendGroupMessage(normalizedGroupId);
+          if (!canSend) {
+            return {
+              success: true,
+              data: {
+                status: 'suppressed',
+                reason: 'auto_reply_disabled',
+                group_id: normalizedGroupId,
+                meme_id: memeCandidate.id,
+                tags: normalizedTags,
+                at_user_ids: mentionUserIds,
+                user_perspectives: normalizedPerspectives,
+                duration_ms: Date.now() - start
+              }
+            };
+          }
+        }
         await deps.sendGroupMessage(normalizedGroupId, finalPayload);
       } else if (ctx.user_id) {
         const normalizedUserId = validateNumericId(ctx.user_id, 'user_id');
+        if (typeof deps.canSendPrivateMessage === 'function') {
+          const canSend = await deps.canSendPrivateMessage(normalizedUserId);
+          if (!canSend) {
+            return {
+              success: true,
+              data: {
+                status: 'suppressed',
+                reason: 'auto_reply_disabled',
+                user_id: normalizedUserId,
+                meme_id: memeCandidate.id,
+                tags: normalizedTags,
+                at_user_ids: mentionUserIds,
+                user_perspectives: normalizedPerspectives,
+                duration_ms: Date.now() - start
+              }
+            };
+          }
+        }
         await deps.sendPrivateMessage(normalizedUserId, finalPayload);
       } else {
         throw new Error('send_meme_image requires group or user context');
@@ -454,6 +541,10 @@ const createSaveMemeImageTool = (
   name: 'save_meme_image',
   description: '这表情挺有意思的,保存一下,我以后可能要用到',
   mode: 'fire-and-forget',
+  loopBehavior: {
+    completion: 'continue',
+    outcomeKind: 'side_effect_only'
+  },
   parameters: {
     type: 'object',
     properties: {
@@ -522,6 +613,15 @@ const createEndTool = (): StaticTool => ({
   name: 'end',
   description: '当无需回复或执行任何操作时使用，表示当前会话结束。',
   mode: 'fire-and-forget',
+  loopBehavior: {
+    completion: 'terminal',
+    outcomeKind: 'ended_no_reply'
+  },
+  parameters: {
+    type: 'object',
+    properties: {},
+    required: []
+  },
   registryMetadata: {
     displayName: 'End Conversation',
     category: 'system',

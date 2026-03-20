@@ -40,7 +40,9 @@ export function inferProviderFromModelName(modelName?: string): ResolvedProvider
 
   if (
     normalized.includes('codex') ||
+    normalized === 'gpt-5-mini' ||
     normalized === 'gpt-5.4' ||
+    normalized === 'gpt-5.4-mini' ||
     normalized === 'gpt-5.3-codex' ||
     normalized === 'gpt-5.3-codex-spark' ||
     normalized === 'gpt-5.2-codex'

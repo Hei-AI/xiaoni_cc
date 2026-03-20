@@ -424,6 +424,121 @@ describe('AIService.generateContent model selection', () => {
     expect(response.candidates[0].content.parts[0].text).toBe('codex-response');
   });
 
+  it('routes gpt-5.4-mini through the Codex provider without alias fallback', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qqbot-codex-54mini-'));
+    const oauthPath = path.join(tempDir, 'oauth.json');
+    const codexAccessToken = createJwt({
+      [ 'https://api.openai.com/auth' ]: {
+        chatgpt_account_id: 'acct-codex-54mini'
+      }
+    });
+    await fs.writeFile(
+      oauthPath,
+      JSON.stringify({
+        'openai-codex': {
+          access: codexAccessToken,
+          refresh: 'codex-refresh-token',
+          expires: Math.floor(Date.now() / 1000) + 3600
+        }
+      }),
+      'utf8'
+    );
+
+    const service = new AIService(
+      {
+        ...baseConfig,
+        codex_oauth_path: oauthPath
+      } as any,
+      mockDatabase,
+      loggingService
+    );
+
+    (global as any).fetch = jest.fn(async (input: any) => {
+      const url = String(input);
+      if (url.includes('/codex/responses')) {
+        return createCodexSseResponse('codex-54mini-response');
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+
+    const response = await service.generateContent(
+      { contents: [{ parts: [{ text: 'ping' }] }] },
+      'trace-codex-54mini',
+      {
+        modelName: 'gpt-5.4-mini',
+        agentType: 'chat_bot',
+        promptName: 'basic_chat'
+      }
+    );
+
+    const codexRequest = ((global as any).fetch as jest.Mock).mock.calls[0][1] as { body: string };
+    const parsedBody = JSON.parse(codexRequest.body);
+    expect(parsedBody).toEqual(
+      expect.objectContaining({
+        model: 'gpt-5.4-mini'
+      })
+    );
+    expect(parsedBody).not.toHaveProperty('temperature');
+    expect(parsedBody).not.toHaveProperty('top_p');
+    expect(response.candidates[0].content.parts[0].text).toBe('codex-54mini-response');
+  });
+
+  it('maps gpt-5-mini to a supported Codex mini model for ChatGPT-backed accounts', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qqbot-codex-mini-'));
+    const oauthPath = path.join(tempDir, 'oauth.json');
+    const codexAccessToken = createJwt({
+      [ 'https://api.openai.com/auth' ]: {
+        chatgpt_account_id: 'acct-codex-mini'
+      }
+    });
+    await fs.writeFile(
+      oauthPath,
+      JSON.stringify({
+        'openai-codex': {
+          access: codexAccessToken,
+          refresh: 'codex-refresh-token',
+          expires: Math.floor(Date.now() / 1000) + 3600
+        }
+      }),
+      'utf8'
+    );
+
+    const service = new AIService(
+      {
+        ...baseConfig,
+        codex_oauth_path: oauthPath
+      } as any,
+      mockDatabase,
+      loggingService
+    );
+
+    (global as any).fetch = jest.fn(async (input: any) => {
+      const url = String(input);
+      if (url.includes('/codex/responses')) {
+        return createCodexSseResponse('codex-mini-response');
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+
+    const response = await service.generateContent(
+      { contents: [{ parts: [{ text: 'ping' }] }] },
+      'trace-codex-mini',
+      {
+        modelName: 'gpt-5-mini',
+        agentType: 'chat_bot',
+        promptName: 'basic_chat'
+      }
+    );
+
+    const codexRequest = ((global as any).fetch as jest.Mock).mock.calls[0][1] as { body: string };
+    expect(JSON.parse(codexRequest.body)).toEqual(
+      expect.objectContaining({
+        model: 'gpt-5-codex-mini'
+      })
+    );
+    expect(response.candidates[0].content.parts[0].text).toBe('codex-mini-response');
+  });
+
   it('refreshes expired codex OAuth credentials before sending the request', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qqbot-codex-refresh-'));
     const oauthPath = path.join(tempDir, 'oauth.json');

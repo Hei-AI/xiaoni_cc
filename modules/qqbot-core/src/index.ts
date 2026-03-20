@@ -143,6 +143,14 @@ class QQBot implements BatchHandler {
     const messagingTools = createMessagingTools({
       sendPrivateMessage: this.websocketClient.sendPrivateMessage.bind(this.websocketClient),
       sendGroupMessage: this.websocketClient.sendGroupMessage.bind(this.websocketClient),
+      canSendPrivateMessage: async (userId: number) => {
+        const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
+        return !(privateChatSettings && !privateChatSettings.auto_reply_enabled);
+      },
+      canSendGroupMessage: async (groupId: number) => {
+        const groupSettings = await this.database.getGroupChatSettingById(groupId);
+        return !(groupSettings && !groupSettings.auto_reply_enabled);
+      },
       findMemeByTags: tags => this.memeLibrary.findBestMatch(tags),
       saveMemeImage: (imageBase64, tags) => this.memeLibrary.addMeme(imageBase64, tags),
       recordMemeUsage: memeId => this.memeLibrary.recordUsage(memeId)
@@ -174,11 +182,22 @@ class QQBot implements BatchHandler {
       jobId: string;
       traceId: string;
       finalResponse: string;
-      suppressAutoReply?: boolean;
+      outcome?: any;
       metadata?: any;
     }) => {
       try {
-        const { metadata, finalResponse, suppressAutoReply } = event;
+        const { metadata, finalResponse, outcome } = event;
+
+        if (metadata?.agentType === 'chat_bot' && outcome) {
+          this.moduleLogger.info('Chat loop outcome finalized by worker', {
+            jobId: event.jobId,
+            traceId: event.traceId,
+            outcome: outcome.kind,
+            toolName: outcome.toolName,
+            conversationId: metadata?.conversationId
+          });
+          return;
+        }
 
         if (!metadata || !finalResponse) {
           this.moduleLogger.warn('Job completed but missing metadata or response', { jobId: event.jobId });
@@ -207,14 +226,7 @@ class QQBot implements BatchHandler {
         }
 
         // 发送响应给用户
-        if (suppressAutoReply) {
-          this.moduleLogger.debug('Auto reply suppressed by tool execution', {
-            jobId: event.jobId,
-            messageType,
-            groupId,
-            userId
-          });
-        } else if (messageType === 'group' && groupId) {
+        if (messageType === 'group' && groupId) {
           // 检查群聊自动回复开关
           const groupSettings = await this.database.getGroupChatSettingById(groupId);
           if (groupSettings && !groupSettings.auto_reply_enabled) {
@@ -260,10 +272,15 @@ class QQBot implements BatchHandler {
       jobId: string;
       traceId: string;
       error: string;
+      outcome?: any;
       metadata?: any;
     }) => {
       try {
         this.moduleLogger.error('LLM Job failed', event);
+
+        if (event.metadata?.agentType === 'chat_bot' && event.outcome) {
+          return;
+        }
 
         // 更新 conversation 状态为失败
         if (event.metadata?.conversationId) {
@@ -314,6 +331,21 @@ class QQBot implements BatchHandler {
       });
       return {};
     }
+  }
+
+  private isToolDrivenChatPrompt(agentType: string, promptName: string): boolean {
+    return agentType === 'chat_bot' && promptName === 'basic_chat';
+  }
+
+  private buildChatLoopProtocolInstruction(messageType: 'private' | 'group'): string {
+    const sendTool = messageType === 'group' ? 'send_qq_group_message' : 'send_private_chat_message';
+    return [
+      'Chat loop protocol:',
+      `1. You must end every reply by calling exactly one terminal tool. Use ${sendTool} for normal replies and use end only when you intentionally want no reply.`,
+      '2. Do not finish with plain assistant text. Do not call end after a send tool.',
+      '3. Use send_meme_image only when the user explicitly asks for an image/meme or the conversation is already in a meme workflow.',
+      '4. save_meme_image is non-terminal; after saving you must continue until a send tool or end completes the turn.'
+    ].join('\n');
   }
 
   public async start(): Promise<void> {
@@ -1454,14 +1486,24 @@ class QQBot implements BatchHandler {
           jobConfig.thinkingConfig = promptConfig.thinking;
         }
 
-        if (promptConfig.model?.name) {
-          jobConfig.model = { name: promptConfig.model.name };
-        }
+      if (promptConfig.model?.name) {
+        jobConfig.model = { name: promptConfig.model.name };
+      }
 
-        if (promptConfig.context.systemInstruction) {
+        const chatLoopProtocolInstruction = this.isToolDrivenChatPrompt(promptAgentType, promptName)
+          ? this.buildChatLoopProtocolInstruction(originalMessage.message_type)
+          : '';
+        const mergedSystemInstruction = [
+          promptConfig.context.systemInstruction,
+          chatLoopProtocolInstruction
+        ]
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          .join('\n\n');
+
+        if (mergedSystemInstruction) {
           jobConfig.systemInstruction = {
             role: 'system',
-            parts: [{ text: promptConfig.context.systemInstruction }]
+            parts: [{ text: mergedSystemInstruction }]
           };
         }
 
@@ -1573,7 +1615,9 @@ class QQBot implements BatchHandler {
               || Object.values(functionNameToId);
 
           const functionCallingConfig: FunctionCallingConfig = {
-            mode: normalizedFunctionCallingMode as FunctionCallingMode,
+            mode: this.isToolDrivenChatPrompt(promptAgentType, promptName)
+              ? 'AUTO'
+              : normalizedFunctionCallingMode as FunctionCallingMode,
             allowedFunctionIds: allowedIds
           };
 

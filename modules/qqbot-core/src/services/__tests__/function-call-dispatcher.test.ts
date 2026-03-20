@@ -25,7 +25,8 @@ describe('FunctionCallDispatcher', () => {
   beforeEach(() => {
     // Mock connection for logging
     mockConnection = {
-      query: jest.fn().mockResolvedValue([{ insertId: 1 }])
+      query: jest.fn().mockResolvedValue([{ insertId: 1 }]),
+      release: jest.fn()
     };
 
     mockToolRegistry = {
@@ -33,7 +34,9 @@ describe('FunctionCallDispatcher', () => {
       invoke: jest.fn(),
       upsertTool: jest.fn().mockResolvedValue(1),
       database: {
-        getConnection: jest.fn().mockResolvedValue(mockConnection)
+        pool: {
+          getConnection: jest.fn().mockResolvedValue(mockConnection)
+        }
       }
     } as any;
 
@@ -128,8 +131,7 @@ describe('FunctionCallDispatcher', () => {
         sourceKey: 'user_123'
       });
 
-      expect(result.shouldContinue).toBe(true);
-      expect(result.isCompleted).toBe(false);
+      expect(result.kind).toBe('continue');
       expect(result.functionResponse).toBeDefined();
       expect(result.functionResponse?.name).toBe('test_static_tool');
       expect(result.functionResponse?.response.content).toEqual({
@@ -168,10 +170,11 @@ describe('FunctionCallDispatcher', () => {
         sourceKey: 'user_123'
       });
 
-      expect(result.shouldContinue).toBe(false);
-      expect(result.isCompleted).toBe(true);
-      expect(result.finalResponse).toBe('');
-      expect(result.suppressAutoReply).toBe(true);
+      expect(result.kind).toBe('complete');
+      expect(result.outcome).toEqual(expect.objectContaining({
+        kind: 'side_effect_only',
+        toolName: 'fire_and_forget_tool'
+      }));
     });
 
     it('should handle static tool errors', async () => {
@@ -198,6 +201,38 @@ describe('FunctionCallDispatcher', () => {
 
       expect(result.functionResponse?.response.content).toEqual({
         error: 'Tool execution failed'
+      });
+    });
+
+    it('should continue for fire-and-forget tools explicitly marked as non-terminal', async () => {
+      const continueTool: StaticTool = {
+        ...mockStaticTool,
+        name: 'save_meme_image',
+        mode: 'fire-and-forget',
+        loopBehavior: {
+          completion: 'continue',
+          outcomeKind: 'side_effect_only'
+        },
+        handler: jest.fn().mockResolvedValue({
+          success: true,
+          data: { status: 'stored', meme_id: 'meme-123' }
+        })
+      };
+
+      await dispatcher.registerStaticTool(continueTool);
+
+      const result = await dispatcher.dispatch({
+        name: 'save_meme_image',
+        args: { tags: ['test'] }
+      }, {
+        traceId: 'trace-123',
+        sourceKey: 'user_123'
+      });
+
+      expect(result.kind).toBe('continue');
+      expect(result.functionResponse?.response.content).toEqual({
+        status: 'stored',
+        meme_id: 'meme-123'
       });
     });
   });
@@ -234,8 +269,7 @@ describe('FunctionCallDispatcher', () => {
         sourceKey: 'user_123'
       });
 
-      expect(result.shouldContinue).toBe(true);
-      expect(result.isCompleted).toBe(false);
+      expect(result.kind).toBe('continue');
       expect(result.searchedTools).toHaveLength(1);
       expect(result.functionResponse?.name).toBe('search_tools');
       expect(result.functionResponse?.response.content.tools).toEqual(
@@ -295,8 +329,7 @@ describe('FunctionCallDispatcher', () => {
         sourceKey: 'user_123'
       });
 
-      expect(result.shouldContinue).toBe(true);
-      expect(result.isCompleted).toBe(false);
+      expect(result.kind).toBe('continue');
       expect(result.functionResponse?.name).toBe('invoke');
       expect(result.functionResponse?.response.content).toEqual({
         result: 'dynamic tool result'
@@ -331,10 +364,11 @@ describe('FunctionCallDispatcher', () => {
       sourceKey: 'user_123'
     });
 
-    expect(result.shouldContinue).toBe(false);
-    expect(result.isCompleted).toBe(true);
-    expect(result.finalResponse).toBe('');
-    expect(result.suppressAutoReply).toBe(true);
+    expect(result.kind).toBe('complete');
+    expect(result.outcome).toEqual(expect.objectContaining({
+      kind: 'side_effect_only',
+      toolName: 'invoke'
+    }));
   });
 
     it('should handle invoke errors', async () => {
@@ -445,8 +479,7 @@ describe('FunctionCallDispatcher', () => {
         sourceKey: 'user_123'
       });
 
-      expect(result.shouldContinue).toBe(false);
-      expect(result.isCompleted).toBe(false);
+      expect(result.kind).toBe('fail');
       expect(result.error).toBeDefined();
     });
   });
