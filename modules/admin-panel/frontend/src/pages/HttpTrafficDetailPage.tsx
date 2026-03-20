@@ -197,11 +197,11 @@ export function HttpTrafficDetailPage() {
     if (!status) return null;
 
     if (status >= 200 && status < 300) {
-      return <Badge variant="default" className="bg-green-100 text-green-800"><CheckCircle className="w-3 h-3 mr-1" />{status}</Badge>;
+      return <Badge variant="default"><CheckCircle className="w-3 h-3 mr-1" />{status}</Badge>;
     } else if (status >= 300 && status < 400) {
       return <Badge variant="secondary">{status}</Badge>;
     } else if (status >= 400 && status < 500) {
-      return <Badge variant="destructive" className="bg-orange-100 text-orange-800"><AlertTriangle className="w-3 h-3 mr-1" />{status}</Badge>;
+      return <Badge variant="destructive" className="bg-[hsl(var(--warning))]/15 text-[hsl(var(--warning))]"><AlertTriangle className="w-3 h-3 mr-1" />{status}</Badge>;
     } else if (status >= 500) {
       return <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" />{status}</Badge>;
     }
@@ -210,13 +210,13 @@ export function HttpTrafficDetailPage() {
 
   const getMethodColor = (method: string) => {
     const colors = {
-      GET: 'bg-blue-100 text-blue-800',
-      POST: 'bg-green-100 text-green-800',
-      PUT: 'bg-yellow-100 text-yellow-800',
-      DELETE: 'bg-red-100 text-red-800',
-      PATCH: 'bg-purple-100 text-purple-800'
+      GET: 'border border-sky-500/25 bg-sky-500/15 text-sky-300',
+      POST: 'border border-emerald-500/25 bg-emerald-500/15 text-emerald-300',
+      PUT: 'border border-amber-500/25 bg-amber-500/15 text-amber-300',
+      DELETE: 'border border-rose-500/25 bg-rose-500/15 text-rose-300',
+      PATCH: 'border border-violet-500/25 bg-violet-500/15 text-violet-300'
     };
-    return colors[method as keyof typeof colors] || 'bg-gray-100 text-gray-800';
+    return colors[method as keyof typeof colors] || 'border border-white/10 bg-white/6 text-foreground';
   };
 
   const formatDuration = (ms?: number) => {
@@ -382,7 +382,7 @@ export function HttpTrafficDetailPage() {
       <Card>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <CardHeader>
-            <TabsList className="grid w-full grid-cols-7">
+            <TabsList className="grid w-full min-w-[760px] grid-cols-7">
               <TabsTrigger value="overview">概览</TabsTrigger>
               <TabsTrigger value="request">请求</TabsTrigger>
               <TabsTrigger value="response">响应</TabsTrigger>

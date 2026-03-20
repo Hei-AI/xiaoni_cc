@@ -1,19 +1,43 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
-import { 
-  MessageCircle, 
-  Clock, 
-  TrendingUp, 
+import {
   Activity,
-  Search,
-  ExternalLink,
+  ArrowRight,
+  Bot,
+  Clock,
   Loader2,
-  RefreshCw
+  MessageCircle,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  TrendingUp,
+  Wallet,
 } from 'lucide-react';
-import { useDashboardStats, useConversations, useTokenStats } from '../hooks/useDashboardData';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { PageShell } from '@/components/console/PageShell';
+import { PageHeader, PageHeaderBadge } from '@/components/console/PageHeader';
+import { MetricCard } from '@/components/console/MetricCard';
+import { FilterBar } from '@/components/console/FilterBar';
+import { SectionPanel } from '@/components/console/SectionPanel';
+import { EntityCard } from '@/components/console/EntityCard';
+import { StatusPill } from '@/components/console/StatusPill';
+import { EmptyState } from '@/components/console/EmptyState';
+import { ErrorState } from '@/components/console/ErrorState';
+import { formatTimestamp } from '@/lib/utils';
+import { useConversations, useDashboardStats, useTokenStats } from '../hooks/useDashboardData';
 
 export const DashboardPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -21,301 +45,287 @@ export const DashboardPage: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [showAll, setShowAll] = useState(false);
 
-  // Debounce search term to avoid too many API calls
   React.useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
-      setCurrentPage(1); // Reset to first page when searching
-    }, 500);
+      setCurrentPage(1);
+    }, 400);
 
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Fetch data using our custom hooks
   const { data: dashboardStats, isLoading: statsLoading } = useDashboardStats();
   const { data: tokenStats, isLoading: tokenStatsLoading } = useTokenStats();
-  
-  // Get conversations with search and pagination
+
   const conversationsQuery = useConversations({
-    limit: showAll ? 50 : 10,
+    limit: showAll ? 16 : 8,
     page: currentPage,
     search: debouncedSearchTerm || undefined,
     sortBy: 'timestamp',
     sortOrder: 'desc',
   });
 
-  const { data: conversationsData, isLoading: conversationsLoading, error: conversationsError } = conversationsQuery;
+  const {
+    data: conversationsData,
+    isLoading: conversationsLoading,
+    error: conversationsError,
+  } = conversationsQuery;
 
   const conversations = conversationsData?.data || [];
   const totalConversations = conversationsData?.total || 0;
 
+  const responseCurveData = useMemo(
+    () =>
+      [...conversations]
+        .reverse()
+        .slice(-8)
+        .map((conversation, index) => ({
+          index: index + 1,
+          time: formatTimestamp(conversation.timestamp, { fallback: '--' }).slice(11, 16),
+          latency: conversation.response_time || 0,
+        })),
+    [conversations]
+  );
+
+  const activityBreakdown = useMemo(
+    () => [
+      {
+        name: 'Messages',
+        value: dashboardStats?.totalMessages || 0,
+      },
+      {
+        name: 'AI',
+        value: dashboardStats?.aiResponses || 0,
+      },
+      {
+        name: 'Groups',
+        value: dashboardStats?.activeGroups || 0,
+      },
+      {
+        name: 'Tokens',
+        value: tokenStats?.activeTokens || 0,
+      },
+    ],
+    [dashboardStats, tokenStats]
+  );
+
+  const healthTone =
+    dashboardStats?.systemHealth === 'healthy'
+      ? 'success'
+      : dashboardStats?.systemHealth === 'warning'
+        ? 'warning'
+        : 'info';
+
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-3xl font-bold">管理仪表盘</h1>
-        <p className="text-muted-foreground mt-1">
-          QQ智能机器人运行状态和数据概览
-        </p>
+    <PageShell>
+      <PageHeader
+        eyebrow="Exchange Ops"
+        title="QQ Bot 指挥台"
+        description="用交易终端的方式看机器人：核心吞吐、AI 响应、健康状态和最近事件都压在一屏里。"
+        icon={<TrendingUp className="h-5 w-5" />}
+        badge={<PageHeaderBadge>{totalConversations.toLocaleString()} Records</PageHeaderBadge>}
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => conversationsQuery.refetch()} disabled={conversationsLoading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${conversationsLoading ? 'animate-spin' : ''}`} />
+              刷新数据
+            </Button>
+            <Button size="sm" onClick={() => setShowAll((value) => !value)}>
+              {showAll ? '压缩面板' : '展开流'}
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="总消息流量"
+          value={statsLoading ? <Loader2 className="h-7 w-7 animate-spin" /> : (dashboardStats?.totalMessages || 0).toLocaleString()}
+          detail={`AI 响应 ${dashboardStats?.aiResponses || 0} 次`}
+          icon={<MessageCircle className="h-5 w-5" />}
+        />
+        <MetricCard
+          label="活跃群组"
+          value={statsLoading ? <Loader2 className="h-7 w-7 animate-spin" /> : dashboardStats?.activeGroups || 0}
+          detail={`运行时长 ${dashboardStats?.uptime || 'N/A'}`}
+          icon={<Bot className="h-5 w-5" />}
+          tone="success"
+        />
+        <MetricCard
+          label="系统健康"
+          value={
+            statsLoading ? (
+              <Loader2 className="h-7 w-7 animate-spin" />
+            ) : (
+              <StatusPill tone={healthTone}>{dashboardStats?.systemHealth || 'unknown'}</StatusPill>
+            )
+          }
+          detail="实时状态和波动压缩显示"
+          icon={<ShieldCheck className="h-5 w-5" />}
+          tone="warning"
+        />
+        <MetricCard
+          label="Token 状态"
+          value={tokenStatsLoading ? <Loader2 className="h-7 w-7 animate-spin" /> : tokenStats?.activeTokens || 'N/A'}
+          detail={`今日成本 ¥${tokenStats?.todayCost || '0.00'}`}
+          icon={<Wallet className="h-5 w-5" />}
+          tone="default"
+        />
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              总消息数
-            </CardTitle>
-            <MessageCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {statsLoading ? (
-              <Loader2 className="h-6 w-6 animate-spin" />
-            ) : (
-              <>
-                <div className="text-2xl font-bold">{dashboardStats?.totalMessages || 0}</div>
-                <p className="text-xs text-muted-foreground">
-                  AI响应 {dashboardStats?.aiResponses || 0} 次
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
+        <SectionPanel
+          className="xl:col-span-8"
+          title="响应波动"
+          description="最近一批对话的响应时延。没有后端时序接口时，使用最新流量切片构建前端监控视图。"
+          icon={<Activity className="h-4 w-4 text-primary" />}
+          action={<StatusPill tone="info">Latency Monitor</StatusPill>}
+        >
+          <div className="h-[280px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={responseCurveData}>
+                <defs>
+                  <linearGradient id="dashboardLatency" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.55} />
+                    <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="rgba(148,163,184,0.10)" vertical={false} />
+                <XAxis dataKey="time" stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
+                <YAxis stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    background: 'rgba(8,15,28,0.95)',
+                    border: '1px solid rgba(148,163,184,0.12)',
+                    borderRadius: '16px',
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="latency"
+                  stroke="hsl(var(--chart-1))"
+                  strokeWidth={2}
+                  fill="url(#dashboardLatency)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionPanel>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              活跃群组
-            </CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {statsLoading ? (
-              <Loader2 className="h-6 w-6 animate-spin" />
-            ) : (
-              <>
-                <div className="text-2xl font-bold">{dashboardStats?.activeGroups || 0}</div>
-                <p className="text-xs text-muted-foreground">
-                  系统运行时间: {dashboardStats?.uptime || 'N/A'}
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              系统健康度
-            </CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {statsLoading ? (
-              <Loader2 className="h-6 w-6 animate-spin" />
-            ) : (
-              <>
-                <div className="text-2xl font-bold capitalize">{dashboardStats?.systemHealth || 'unknown'}</div>
-                <p className="text-xs text-muted-foreground">
-                  实时状态监控
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Token状态
-            </CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {tokenStatsLoading ? (
-              <Loader2 className="h-6 w-6 animate-spin" />
-            ) : (
-              <>
-                <div className="text-2xl font-bold">{tokenStats?.activeTokens || 'N/A'}</div>
-                <p className="text-xs text-muted-foreground">
-                  今日成本: ¥{tokenStats?.todayCost || '0.00'}
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
+        <SectionPanel
+          className="xl:col-span-4"
+          title="核心分布"
+          description="把当前系统高价值指标压成一组柱状快照。"
+          icon={<TrendingUp className="h-4 w-4 text-primary" />}
+        >
+          <div className="h-[280px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={activityBreakdown}>
+                <CartesianGrid stroke="rgba(148,163,184,0.10)" vertical={false} />
+                <XAxis dataKey="name" stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
+                <YAxis stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    background: 'rgba(8,15,28,0.95)',
+                    border: '1px solid rgba(148,163,184,0.12)',
+                    borderRadius: '16px',
+                  }}
+                />
+                <Bar dataKey="value" fill="hsl(var(--chart-2))" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionPanel>
       </div>
 
-      {/* Recent Conversations */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>
-              最近对话 
-              {!conversationsLoading && (
-                <span className="text-sm font-normal text-muted-foreground ml-2">
-                  ({totalConversations} 条记录)
-                </span>
-              )}
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <input
-                  placeholder="搜索对话或ID..."
+      <SectionPanel
+        title="最近对话流"
+        description="桌面端保留高密度上下文，移动端收束成实体卡片。支持搜索和跳转到时间线。"
+        icon={<Clock className="h-4 w-4 text-primary" />}
+        action={<StatusPill tone="neutral">{totalConversations} 条记录</StatusPill>}
+      >
+        <div className="space-y-4">
+          <FilterBar className="border-none bg-transparent shadow-none">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="relative w-full lg:max-w-md">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="搜索对话内容、ID、用户"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8 pr-4 py-2 text-sm border border-input rounded-md bg-background"
+                  className="pl-9"
                 />
               </div>
-              <Button 
-                size="sm" 
-                variant="outline"
-                onClick={() => setShowAll(!showAll)}
-                disabled={conversationsLoading}
-              >
-                {conversationsLoading && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-                {showAll ? '收起' : '查看全部'}
-              </Button>
-              <Button 
-                size="sm" 
-                variant="ghost"
-                onClick={() => conversationsQuery.refetch()}
-                disabled={conversationsLoading}
-              >
-                <RefreshCw className={`h-3 w-3 ${conversationsLoading ? 'animate-spin' : ''}`} />
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusPill tone="info">Page {currentPage}</StatusPill>
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage((value) => Math.max(1, value - 1))} disabled={currentPage === 1}>
+                  上一页
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage((value) => value + 1)} disabled={conversations.length === 0}>
+                  下一页
+                </Button>
+              </div>
             </div>
-          </div>
-        </CardHeader>
-        <CardContent>
+          </FilterBar>
+
           {conversationsError ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <p>加载对话记录时出错</p>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="mt-2"
-                onClick={() => conversationsQuery.refetch()}
-              >
-                重试
-              </Button>
-            </div>
+            <ErrorState description={conversationsError.message} onRetry={() => conversationsQuery.refetch()} />
           ) : conversationsLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="p-3 border rounded-lg">
-                  <div className="animate-pulse">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="h-4 w-16 bg-muted rounded"></div>
-                      <div className="h-4 w-20 bg-muted rounded"></div>
-                    </div>
-                    <div className="h-4 w-full bg-muted rounded mb-1"></div>
-                    <div className="h-4 w-3/4 bg-muted rounded"></div>
-                  </div>
-                </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {Array.from({ length: showAll ? 6 : 4 }).map((_, index) => (
+                <div key={index} className="terminal-card h-40 animate-pulse rounded-[1.4rem] bg-white/[0.04]" />
               ))}
             </div>
           ) : conversations.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>{searchTerm ? '没有找到匹配的对话记录' : '暂无对话记录'}</p>
-            </div>
+            <EmptyState
+              icon={<MessageCircle className="h-10 w-10" />}
+              title={searchTerm ? '没有匹配的对话' : '暂无对话记录'}
+              description={searchTerm ? '换个关键词再试，或者清空搜索框。' : '当用户开始和机器人交互时，这里会实时出现最新消息流。'}
+            />
           ) : (
-            <div className="space-y-3">
+            <div className="grid gap-4 lg:grid-cols-2">
               {conversations.map((conversation) => (
-                <div
+                <EntityCard
                   key={conversation.id}
-                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent"
-                >
-                  <div className="flex-1 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm">
-                        用户 {conversation.user_id}
-                      </span>
-                      <Badge variant="outline" className="text-xs">
-                        {conversation.model_name}
-                      </Badge>
-                      <Badge variant="default">
-                        完成
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground line-clamp-1">
-                      <strong>问:</strong> {conversation.user_message}
-                    </p>
-                    <p className="text-sm text-muted-foreground line-clamp-1">
-                      <strong>答:</strong> {conversation.ai_response}
-                    </p>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>
-                        {new Date(conversation.timestamp).toLocaleString('zh-CN')}
-                      </span>
-                      <span>
-                        响应时间: {conversation.response_time}ms
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
+                  title={`用户 ${conversation.user_id}`}
+                  subtitle={conversation.model_name || 'Unknown model'}
+                  badges={
+                    <>
+                      <Badge variant="outline">{conversation.model_name || 'Model N/A'}</Badge>
+                      <StatusPill tone={conversation.ai_response ? 'success' : 'warning'}>
+                        {conversation.ai_response ? '响应完成' : '等待回复'}
+                      </StatusPill>
+                    </>
+                  }
+                  action={
                     <Link to={`/conversation/${conversation.id}/timeline`}>
-                      <Button size="sm" variant="outline">
-                        <Clock className="h-3 w-3 mr-1" />
+                      <Button size="sm">
                         时间线
+                        <ArrowRight className="ml-2 h-4 w-4" />
                       </Button>
                     </Link>
-                    <Button size="sm" variant="ghost">
-                      <ExternalLink className="h-3 w-3" />
-                    </Button>
+                  }
+                  meta={
+                    <>
+                      <span>{formatTimestamp(conversation.timestamp)}</span>
+                      <span>响应 {conversation.response_time}ms</span>
+                    </>
+                  }
+                >
+                  <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">USER</p>
+                    <p className="mt-2 line-clamp-2 text-sm text-foreground">{conversation.user_message}</p>
                   </div>
-                </div>
+                  <div className="rounded-2xl border border-primary/10 bg-primary/5 p-3">
+                    <p className="text-xs uppercase tracking-[0.2em] text-primary/80">BOT</p>
+                    <p className="mt-2 line-clamp-3 text-sm text-foreground">{conversation.ai_response || '暂无 AI 回复'}</p>
+                  </div>
+                </EntityCard>
               ))}
-              
-              {/* Pagination info */}
-              {showAll && totalConversations > conversations.length && (
-                <div className="text-center pt-4">
-                  <p className="text-sm text-muted-foreground">
-                    显示 {conversations.length} / {totalConversations} 条记录
-                  </p>
-                  {totalConversations > 50 && (
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="mt-2"
-                      onClick={() => {
-                        setCurrentPage(currentPage + 1);
-                      }}
-                    >
-                      加载更多
-                    </Button>
-                  )}
-                </div>
-              )}
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>快速操作</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Button variant="outline" className="justify-start">
-              <MessageCircle className="h-4 w-4 mr-2" />
-              发送测试消息
-            </Button>
-            <Button variant="outline" className="justify-start">
-              <Activity className="h-4 w-4 mr-2" />
-              查看系统状态
-            </Button>
-            <Button variant="outline" className="justify-start">
-              <TrendingUp className="h-4 w-4 mr-2" />
-              Token健康检查
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </SectionPanel>
+    </PageShell>
   );
 };

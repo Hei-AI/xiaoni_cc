@@ -1,19 +1,27 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
 import {
-  MessageCircle,
-  Clock,
-  Search,
-  ExternalLink,
-  RefreshCw,
-  Filter,
-  Download,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Download,
+  Filter,
+  MessageCircle,
+  RefreshCw,
+  Search,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { PageShell } from '@/components/console/PageShell';
+import { PageHeader } from '@/components/console/PageHeader';
+import { FilterBar } from '@/components/console/FilterBar';
+import { MetricCard } from '@/components/console/MetricCard';
+import { SectionPanel } from '@/components/console/SectionPanel';
+import { EntityCard } from '@/components/console/EntityCard';
+import { EmptyState } from '@/components/console/EmptyState';
+import { ErrorState } from '@/components/console/ErrorState';
+import { StatusPill } from '@/components/console/StatusPill';
+import { formatTimestamp } from '@/lib/utils';
 import { useConversations } from '../hooks/useDashboardData';
 
 export const ConversationsPage: React.FC = () => {
@@ -21,18 +29,17 @@ export const ConversationsPage: React.FC = () => {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
+  const [showFilters] = useState(false);
 
-  // Debounce search term to avoid too many API calls
   React.useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
-      setCurrentPage(1); // Reset to first page when searching
-    }, 500);
+      setCurrentPage(1);
+    }, 400);
 
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Get conversations with search and pagination
   const conversationsQuery = useConversations({
     limit: itemsPerPage,
     page: currentPage,
@@ -41,46 +48,61 @@ export const ConversationsPage: React.FC = () => {
     sortOrder: 'desc',
   });
 
-  const { data: conversationsData, isLoading: conversationsLoading, error: conversationsError } = conversationsQuery;
-
+  const { data: conversationsData, isLoading, error } = conversationsQuery;
   const conversations = conversationsData?.data || [];
   const totalConversations = conversationsData?.total || 0;
-  const totalPages = Math.ceil(totalConversations / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(totalConversations / itemsPerPage));
 
-  const handlePageChange = (page: number) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
-    }
-  };
+  const stats = useMemo(() => {
+    const responded = conversations.filter((conversation) => conversation.ai_response).length;
+    const avgLatency =
+      conversations.length > 0
+        ? Math.round(conversations.reduce((sum, conversation) => sum + (conversation.response_time || 0), 0) / conversations.length)
+        : 0;
+    const activeUsers = new Set(conversations.map((conversation) => conversation.user_id)).size;
+
+    return { responded, avgLatency, activeUsers };
+  }, [conversations]);
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-3xl font-bold">对话管理</h1>
-        <p className="text-muted-foreground mt-1">
-          查看和管理所有QQ机器人对话记录
-        </p>
+    <PageShell>
+      <PageHeader
+        eyebrow="Conversation Tape"
+        title="对话管理"
+        description="把 QQ 机器人的消息流收进统一时间带中，支持快速筛选、分页和时间线追踪。"
+        icon={<MessageCircle className="h-5 w-5" />}
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => conversationsQuery.refetch()} disabled={isLoading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              刷新
+            </Button>
+            <Button variant="outline" size="sm">
+              <Download className="mr-2 h-4 w-4" />
+              导出
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="总对话数" value={totalConversations.toLocaleString()} icon={<MessageCircle className="h-5 w-5" />} />
+        <MetricCard label="已响应" value={stats.responded} detail={`${Math.max(conversations.length - stats.responded, 0)} 条未响应`} icon={<RefreshCw className="h-5 w-5" />} tone="success" />
+        <MetricCard label="平均延迟" value={`${stats.avgLatency}ms`} icon={<Filter className="h-5 w-5" />} tone="warning" />
+        <MetricCard label="活跃用户" value={stats.activeUsers} icon={<MessageCircle className="h-5 w-5" />} />
       </div>
 
-      {/* Search and Filters */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between gap-4 mb-4">
-            <div className="flex items-center gap-4 flex-1">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <input
-                  placeholder="搜索对话内容、用户ID或消息ID..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8 pr-4 py-2 text-sm border border-input rounded-md bg-background w-full"
-                />
-              </div>
-              <Button variant="outline" size="sm">
-                <Filter className="h-4 w-4 mr-2" />
-                筛选
-              </Button>
+      <FilterBar>
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative flex-1 xl:max-w-md">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="搜索对话内容、用户 ID 或消息关键词"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9"
+              />
             </div>
             <div className="flex items-center gap-2">
               <select
@@ -89,264 +111,92 @@ export const ConversationsPage: React.FC = () => {
                   setItemsPerPage(Number(e.target.value));
                   setCurrentPage(1);
                 }}
-                className="px-3 py-2 text-sm border border-input rounded-md bg-background"
+                className="h-10 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-foreground"
               >
-                <option value={10}>10条/页</option>
-                <option value={20}>20条/页</option>
-                <option value={50}>50条/页</option>
-                <option value={100}>100条/页</option>
+                <option value={10}>10 / 页</option>
+                <option value={20}>20 / 页</option>
+                <option value={50}>50 / 页</option>
+                <option value={100}>100 / 页</option>
               </select>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => conversationsQuery.refetch()}
-                disabled={conversationsLoading}
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${conversationsLoading ? 'animate-spin' : ''}`} />
-                刷新
-              </Button>
-              <Button size="sm" variant="outline">
-                <Download className="h-4 w-4 mr-2" />
-                导出
+              <Button variant="outline" size="sm">
+                <Filter className="mr-2 h-4 w-4" />
+                筛选
               </Button>
             </div>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold">{totalConversations}</div>
-              <div className="text-sm text-muted-foreground">总对话数</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold">{conversations.filter(c => c.ai_response).length}</div>
-              <div className="text-sm text-muted-foreground">AI响应数</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold">
-                {conversations.length > 0 ? Math.round(conversations.reduce((sum, c) => sum + (c.response_time || 0), 0) / conversations.length) : 0}ms
-              </div>
-              <div className="text-sm text-muted-foreground">平均响应时间</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold">{new Set(conversations.map(c => c.user_id)).size}</div>
-              <div className="text-sm text-muted-foreground">活跃用户</div>
-            </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1}>
+              <ChevronLeft className="mr-1 h-4 w-4" />
+              上一页
+            </Button>
+            <StatusPill tone="info">
+              {currentPage} / {totalPages}
+            </StatusPill>
+            <Button variant="outline" size="sm" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage >= totalPages}>
+              下一页
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+        {showFilters ? null : null}
+      </FilterBar>
 
-      {/* Conversations List */}
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            对话记录
-            {!conversationsLoading && (
-              <span className="text-sm font-normal text-muted-foreground ml-2">
-                (第 {currentPage} 页，共 {totalPages} 页)
-              </span>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {conversationsError ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p className="mb-2">加载对话记录时出错</p>
-              <p className="text-sm mb-4">错误信息: {conversationsError.message}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => conversationsQuery.refetch()}
-              >
-                重试
-              </Button>
-            </div>
-          ) : conversationsLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: itemsPerPage }).map((_, i) => (
-                <div key={i} className="p-4 border rounded-lg">
-                  <div className="animate-pulse">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="h-4 w-20 bg-muted rounded"></div>
-                      <div className="h-4 w-24 bg-muted rounded"></div>
-                      <div className="h-4 w-16 bg-muted rounded"></div>
-                    </div>
-                    <div className="h-4 w-full bg-muted rounded mb-2"></div>
-                    <div className="h-4 w-full bg-muted rounded mb-2"></div>
-                    <div className="h-4 w-3/4 bg-muted rounded mb-3"></div>
-                    <div className="flex items-center gap-4">
-                      <div className="h-3 w-32 bg-muted rounded"></div>
-                      <div className="h-3 w-20 bg-muted rounded"></div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : conversations.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <MessageCircle className="h-16 w-16 mx-auto mb-4 opacity-50" />
-              <h3 className="text-lg font-medium mb-2">
-                {searchTerm ? '没有找到匹配的对话记录' : '暂无对话记录'}
-              </h3>
-              <p className="text-sm">
-                {searchTerm
-                  ? '尝试修改搜索条件或清空搜索框'
-                  : '当有用户与机器人对话时，记录会显示在这里'
+      <SectionPanel title="对话记录" description="移动端改为实体卡片，桌面端保留高密度信息和快速跳转。" icon={<MessageCircle className="h-4 w-4 text-primary" />}>
+        {error ? (
+          <ErrorState description={error.message} onRetry={() => conversationsQuery.refetch()} />
+        ) : isLoading ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={index} className="terminal-card h-44 animate-pulse rounded-[1.4rem] bg-white/[0.04]" />
+            ))}
+          </div>
+        ) : conversations.length === 0 ? (
+          <EmptyState
+            icon={<MessageCircle className="h-10 w-10" />}
+            title={searchTerm ? '没有找到匹配对话' : '暂无对话数据'}
+            description={searchTerm ? '缩短关键词或尝试搜索用户 ID。' : '当机器人开始处理消息时，这里会出现新的会话记录。'}
+          />
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {conversations.map((conversation) => (
+              <EntityCard
+                key={conversation.id}
+                title={`用户 ${conversation.user_id}`}
+                subtitle={formatTimestamp(conversation.timestamp)}
+                badges={
+                  <>
+                    {conversation.model_name && <Badge variant="outline">{conversation.model_name}</Badge>}
+                    <StatusPill tone={conversation.ai_response ? 'success' : 'warning'}>
+                      {conversation.ai_response ? '已响应' : '未响应'}
+                    </StatusPill>
+                  </>
                 }
-              </p>
-              {searchTerm && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-4"
-                  onClick={() => setSearchTerm('')}
-                >
-                  清空搜索
-                </Button>
-              )}
-            </div>
-          ) : (
-            <>
-              <div className="space-y-3 mb-6">
-                {conversations.map((conversation) => (
-                  <div
-                    key={conversation.id}
-                    className="p-4 border rounded-lg hover:bg-accent/50 transition-colors"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 space-y-2">
-                        {/* Header with badges */}
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-sm">
-                            用户 {conversation.user_id}
-                          </span>
-                          {conversation.model_name && (
-                            <Badge variant="outline" className="text-xs">
-                              {conversation.model_name}
-                            </Badge>
-                          )}
-                          <Badge variant={conversation.ai_response ? "default" : "secondary"}>
-                            {conversation.ai_response ? "已响应" : "未响应"}
-                          </Badge>
-                        </div>
-
-                        {/* Messages */}
-                        <div className="space-y-1">
-                          <p className="text-sm">
-                            <strong className="text-muted-foreground">问:</strong>
-                            <span className="ml-1">{conversation.user_message}</span>
-                          </p>
-                          {conversation.ai_response && (
-                            <p className="text-sm">
-                              <strong className="text-muted-foreground">答:</strong>
-                              <span className="ml-1 line-clamp-2">{conversation.ai_response}</span>
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Metadata */}
-                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                          <span>
-                            {new Date(conversation.timestamp).toLocaleString('zh-CN', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit'
-                            })}
-                          </span>
-                          {conversation.response_time && (
-                            <span>响应时间: {conversation.response_time}ms</span>
-                          )}
-                          {conversation.id && (
-                            <span>ID: {conversation.id.slice(-8)}</span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex items-center gap-2 ml-4">
-                        <Link to={`/conversation/${conversation.id}/timeline`}>
-                          <Button size="sm" variant="outline">
-                            <Clock className="h-3 w-3 mr-1" />
-                            时间线
-                          </Button>
-                        </Link>
-                        <Button size="sm" variant="ghost">
-                          <ExternalLink className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-muted-foreground">
-                    显示第 {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, totalConversations)} 条，
-                    共 {totalConversations} 条记录
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handlePageChange(currentPage - 1)}
-                      disabled={currentPage === 1 || conversationsLoading}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                      上一页
-                    </Button>
-
-                    <div className="flex items-center gap-1">
-                      {/* Show page numbers */}
-                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        let pageNum;
-                        if (totalPages <= 5) {
-                          pageNum = i + 1;
-                        } else if (currentPage <= 3) {
-                          pageNum = i + 1;
-                        } else if (currentPage >= totalPages - 2) {
-                          pageNum = totalPages - 4 + i;
-                        } else {
-                          pageNum = currentPage - 2 + i;
-                        }
-
-                        return (
-                          <Button
-                            key={pageNum}
-                            variant={currentPage === pageNum ? "default" : "outline"}
-                            size="sm"
-                            className="w-8 h-8 p-0"
-                            onClick={() => handlePageChange(pageNum)}
-                            disabled={conversationsLoading}
-                          >
-                            {pageNum}
-                          </Button>
-                        );
-                      })}
-                    </div>
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handlePageChange(currentPage + 1)}
-                      disabled={currentPage === totalPages || conversationsLoading}
-                    >
-                      下一页
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
+                action={
+                  <Link to={`/conversation/${conversation.id}/timeline`}>
+                    <Button size="sm">时间线</Button>
+                  </Link>
+                }
+                meta={
+                  <>
+                    <span>ID {conversation.id}</span>
+                    <span>响应 {conversation.response_time || 0}ms</span>
+                  </>
+                }
+              >
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Question</p>
+                  <p className="mt-2 line-clamp-3 text-sm text-foreground">{conversation.user_message}</p>
                 </div>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+                <div className="rounded-2xl border border-primary/10 bg-primary/5 p-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Answer</p>
+                  <p className="mt-2 line-clamp-4 text-sm text-foreground">{conversation.ai_response || '暂无 AI 回复'}</p>
+                </div>
+              </EntityCard>
+            ))}
+          </div>
+        )}
+      </SectionPanel>
+    </PageShell>
   );
 };

@@ -1,30 +1,30 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { 
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table';
-import { Input } from '../components/ui/input';
-import { Checkbox } from '../components/ui/checkbox';
-import { 
-  RefreshCw, 
-  Search,
-  Settings,
-  Users,
-  MessageCircle,
-  PlayCircle,
-  PauseCircle,
+import {
+  Eye,
   Filter,
-  Eye
+  MessageCircle,
+  PauseCircle,
+  PlayCircle,
+  RefreshCw,
+  Search,
+  Users,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageShell } from '@/components/console/PageShell';
+import { PageHeader } from '@/components/console/PageHeader';
+import { FilterBar } from '@/components/console/FilterBar';
+import { MetricCard } from '@/components/console/MetricCard';
+import { SectionPanel } from '@/components/console/SectionPanel';
+import { EntityCard } from '@/components/console/EntityCard';
+import { ErrorState } from '@/components/console/ErrorState';
+import { EmptyState } from '@/components/console/EmptyState';
+import { StatusPill } from '@/components/console/StatusPill';
 
 interface GroupChat {
   group_id: number;
@@ -56,7 +56,6 @@ interface GroupResponse {
   };
 }
 
-// 获取群聊列表
 const fetchGroups = async (params: {
   page: number;
   limit: number;
@@ -80,8 +79,10 @@ const fetchGroups = async (params: {
   return response.json();
 };
 
-// 更新单个群聊
-const updateGroup = async (groupId: number, data: { is_enabled?: boolean; auto_reply_enabled?: boolean; group_name?: string; welcome_message?: string }) => {
+const updateGroup = async (
+  groupId: number,
+  data: { is_enabled?: boolean; auto_reply_enabled?: boolean; group_name?: string; welcome_message?: string }
+) => {
   const response = await fetch(`/api/group-chats/${groupId}/settings`, {
     method: 'PUT',
     headers: {
@@ -89,15 +90,12 @@ const updateGroup = async (groupId: number, data: { is_enabled?: boolean; auto_r
     },
     body: JSON.stringify(data),
   });
-  
+
   if (!response.ok) {
     throw new Error('Failed to update group');
   }
   return response.json();
 };
-
-// Note: Batch operations and sync functions removed for simplicity
-// These can be implemented later when needed
 
 export const GroupManagementPage: React.FC = () => {
   const [page, setPage] = useState(1);
@@ -112,25 +110,12 @@ export const GroupManagementPage: React.FC = () => {
   const navigate = useNavigate();
   const limit = 20;
 
-  // 查询群聊数据
-  const { 
-    data: groupsData, 
-    isLoading, 
-    error, 
-    refetch,
-    isRefetching 
-  } = useQuery({
+  const { data, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['groups', page, search, filters],
     queryFn: () => fetchGroups({ page, limit, search, ...filters }),
   });
 
-  // 用于跟踪每个群聊的操作状态
-  const [loadingStates, setLoadingStates] = useState<{
-    [key: string]: boolean;
-  }>({});
-
-  // Note: Batch operations and sync functions removed for simplicity
-  // These can be implemented later when needed in backend
+  const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({});
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -138,145 +123,198 @@ export const GroupManagementPage: React.FC = () => {
   };
 
   const handleFilterChange = (key: string, value: string | undefined) => {
-    setFilters(prev => ({
+    setFilters((prev) => ({
       ...prev,
-      [key]: value
+      [key]: value,
     }));
     setPage(1);
   };
 
-  // 独立的群聊操作函数
   const handleGroupUpdate = async (groupId: number, field: string, value: boolean) => {
     const loadingKey = `${groupId}_${field}`;
-    setLoadingStates(prev => ({ ...prev, [loadingKey]: true }));
-    
+    setLoadingStates((prev) => ({ ...prev, [loadingKey]: true }));
+
     try {
       await updateGroup(groupId, { [field]: value });
       queryClient.invalidateQueries({ queryKey: ['groups'] });
-    } catch (error) {
-      console.error('Update failed:', error);
     } finally {
-      setLoadingStates(prev => ({ ...prev, [loadingKey]: false }));
+      setLoadingStates((prev) => ({ ...prev, [loadingKey]: false }));
     }
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return '无';
     return new Date(dateString).toLocaleString('zh-CN');
   };
 
+  const rows = data?.data ?? [];
+  const metrics = useMemo(() => {
+    const enabled = rows.filter((group) => group.is_enabled).length;
+    const autoReply = rows.filter((group) => group.auto_reply_enabled).length;
+    const avgActivity =
+      rows.length > 0
+        ? Math.round(rows.reduce((sum, group) => sum + group.activity_level, 0) / rows.length)
+        : 0;
+    return { enabled, autoReply, avgActivity };
+  }, [rows]);
+
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Users className="h-8 w-8 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">群聊管理</h1>
-            <p className="text-muted-foreground">
-              管理bot参与的群聊，控制事件接收和自动回复
-            </p>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => refetch()}
-            disabled={isRefetching}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isRefetching ? 'animate-spin' : ''}`} />
-            刷新
-          </Button>
-          {groupsData && (
-            <Badge variant="secondary">
-              {groupsData.pagination.total} 个群聊
-            </Badge>
-          )}
-        </div>
+    <PageShell>
+      <PageHeader
+        eyebrow="Group Desk"
+        title="群聊管理"
+        description="统一管理群级策略、自动回复状态和活跃度。移动端切为卡片流，桌面端保留高密度操作表。"
+        icon={<Users className="h-5 w-5" />}
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isRefetching}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${isRefetching ? 'animate-spin' : ''}`} />
+              刷新
+            </Button>
+            <Badge variant="outline">{data?.pagination.total || 0} 个群聊</Badge>
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <MetricCard label="当前页群组" value={rows.length} icon={<Users className="h-5 w-5" />} />
+        <MetricCard label="启用状态" value={metrics.enabled} detail={`自动回复开启 ${metrics.autoReply}`} icon={<PlayCircle className="h-5 w-5" />} tone="success" />
+        <MetricCard label="平均活跃度" value={`${metrics.avgActivity}%`} icon={<MessageCircle className="h-5 w-5" />} tone="warning" />
       </div>
 
-      {/* 搜索和过滤 */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center gap-4">
-            <div className="flex-1 flex items-center gap-2">
-              <Search className="h-4 w-4 text-muted-foreground" />
+      <FilterBar>
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative flex-1 xl:max-w-md">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="搜索群名称或群号..."
+                placeholder="搜索群名称或群号"
                 value={search}
                 onChange={(e) => handleSearch(e.target.value)}
-                className="max-w-sm"
+                className="pl-9"
               />
             </div>
-            
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-            >
-              <Filter className="h-4 w-4 mr-2" />
+            <Button variant="outline" size="sm" onClick={() => setShowFilters((value) => !value)}>
+              <Filter className="mr-2 h-4 w-4" />
               筛选
             </Button>
           </div>
-          
-          {showFilters && (
-            <div className="mt-4 flex flex-wrap gap-4 p-4 bg-muted/50 rounded-lg">
-              <label className="flex items-center space-x-2">
-                <Checkbox 
-                  checked={filters.status === 'active'}
-                  onCheckedChange={(checked) => 
-                    handleFilterChange('status', checked ? 'active' : undefined)
-                  }
-                />
-                <span>活跃群聊</span>
-              </label>
-              
-              <label className="flex items-center space-x-2">
-                <Checkbox 
-                  checked={filters.sortBy === 'activity_level'}
-                  onCheckedChange={(checked) => 
-                    handleFilterChange('sortBy', checked ? 'activity_level' : undefined)
-                  }
-                />
-                <span>按活跃度排序</span>
-              </label>
-              
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => {
-                  setFilters({});
-                  setPage(1);
-                }}
-              >
-                清除筛选
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* 群聊列表 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="h-5 w-5" />
-            群聊列表
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-              <span className="ml-2">加载中...</span>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page === 1}>
+              上一页
+            </Button>
+            <StatusPill tone="info">
+              {page} / {data?.pagination.totalPages || 1}
+            </StatusPill>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((value) => Math.min(data?.pagination.totalPages || 1, value + 1))}
+              disabled={page === (data?.pagination.totalPages || 1)}
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
+
+        {showFilters && (
+          <div className="mt-4 flex flex-wrap gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm">
+            <label className="flex items-center gap-2">
+              <Checkbox
+                checked={filters.status === 'active'}
+                onCheckedChange={(checked) => handleFilterChange('status', checked ? 'active' : undefined)}
+              />
+              <span>活跃群聊</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <Checkbox
+                checked={filters.sortBy === 'activity_level'}
+                onCheckedChange={(checked) => handleFilterChange('sortBy', checked ? 'activity_level' : undefined)}
+              />
+              <span>按活跃度排序</span>
+            </label>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setFilters({});
+                setPage(1);
+              }}
+            >
+              清除筛选
+            </Button>
+          </div>
+        )}
+      </FilterBar>
+
+      <SectionPanel title="群组矩阵" description="手机展示为策略卡片，桌面展示为运营表格。" icon={<Users className="h-4 w-4 text-primary" />}>
+        {error ? (
+          <ErrorState description={error.message} onRetry={() => refetch()} />
+        ) : isLoading ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={index} className="terminal-card h-40 animate-pulse rounded-[1.4rem] bg-white/[0.04]" />
+            ))}
+          </div>
+        ) : rows.length === 0 ? (
+          <EmptyState icon={<Users className="h-10 w-10" />} title="没有群聊数据" description="先触发真实群聊消息或检查同步接口。" />
+        ) : (
+          <>
+            <div className="space-y-4 md:hidden">
+              {rows.map((group) => (
+                <EntityCard
+                  key={group.group_id}
+                  title={group.group_name || `群聊 ${group.group_id}`}
+                  subtitle={`群号 ${group.group_id}`}
+                  badges={
+                    <>
+                      <StatusPill tone={group.is_enabled ? 'success' : 'neutral'}>{group.is_enabled ? '已启用' : '已禁用'}</StatusPill>
+                      <StatusPill tone={group.auto_reply_enabled ? 'info' : 'warning'}>
+                        {group.auto_reply_enabled ? '自动回复开启' : '自动回复关闭'}
+                      </StatusPill>
+                      <Badge variant="outline">活跃度 {group.activity_level}%</Badge>
+                    </>
+                  }
+                  action={
+                    <Button variant="outline" size="sm" onClick={() => navigate(`/groups/${group.group_id}`)}>
+                      <Eye className="mr-2 h-4 w-4" />
+                      详情
+                    </Button>
+                  }
+                  meta={
+                    <>
+                      <span>对话 {group.total_conversations}</span>
+                      <span>成功率 {group.success_rate}%</span>
+                      <span>{formatDate(group.last_conversation_time)}</span>
+                    </>
+                  }
+                >
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleGroupUpdate(group.group_id, 'is_enabled', !group.is_enabled)}
+                      disabled={loadingStates[`${group.group_id}_is_enabled`] || false}
+                    >
+                      {group.is_enabled ? <PauseCircle className="mr-2 h-4 w-4" /> : <PlayCircle className="mr-2 h-4 w-4" />}
+                      {group.is_enabled ? '禁用处理' : '启用处理'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleGroupUpdate(group.group_id, 'auto_reply_enabled', !group.auto_reply_enabled)}
+                      disabled={loadingStates[`${group.group_id}_auto_reply_enabled`] || false}
+                    >
+                      <MessageCircle className="mr-2 h-4 w-4" />
+                      自动回复
+                    </Button>
+                  </div>
+                </EntityCard>
+              ))}
             </div>
-          ) : error ? (
-            <div className="text-center py-12 text-red-600">
-              加载失败: {error instanceof Error ? error.message : '未知错误'}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
+
+            <div className="hidden md:block">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -291,46 +329,31 @@ export const GroupManagementPage: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {groupsData?.data.map((group) => (
+                  {rows.map((group) => (
                     <TableRow key={group.group_id}>
-                      <TableCell className="font-mono">
-                        {group.group_id}
+                      <TableCell className="font-mono">{group.group_id}</TableCell>
+                      <TableCell>{group.group_name || '未知群聊'}</TableCell>
+                      <TableCell>
+                        <StatusPill tone={group.is_enabled ? 'success' : 'neutral'}>{group.is_enabled ? '已启用' : '已禁用'}</StatusPill>
                       </TableCell>
                       <TableCell>
-                        {group.group_name || '未知群聊'}
+                        <StatusPill tone={group.auto_reply_enabled ? 'info' : 'warning'}>{group.auto_reply_enabled ? '开启' : '关闭'}</StatusPill>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={group.is_enabled ? "default" : "secondary"}>
-                          {group.is_enabled ? "已启用" : "已禁用"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={group.auto_reply_enabled ? "default" : "outline"}>
-                          {group.auto_reply_enabled ? "开启" : "关闭"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={group.activity_level > 50 ? "default" : group.activity_level > 20 ? "secondary" : "outline"}>
-                          {group.activity_level}%
-                        </Badge>
+                        <Badge variant="outline">{group.activity_level}%</Badge>
                       </TableCell>
                       <TableCell className="text-sm">
                         <div>对话: {group.total_conversations}</div>
-                        <div className="text-muted-foreground">
-                          成功率: {group.success_rate}%
-                        </div>
+                        <div className="text-muted-foreground">成功率: {group.success_rate}%</div>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {group.last_conversation_time ? formatDate(group.last_conversation_time) : '无'}
-                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDate(group.last_conversation_time)}</TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-2">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => handleGroupUpdate(group.group_id, 'is_enabled', !group.is_enabled)}
                             disabled={loadingStates[`${group.group_id}_is_enabled`] || false}
-                            title={group.is_enabled ? "点击禁用LLM处理" : "点击启用LLM处理"}
                           >
                             {group.is_enabled ? <PauseCircle className="h-3 w-3" /> : <PlayCircle className="h-3 w-3" />}
                           </Button>
@@ -339,16 +362,10 @@ export const GroupManagementPage: React.FC = () => {
                             variant="outline"
                             onClick={() => handleGroupUpdate(group.group_id, 'auto_reply_enabled', !group.auto_reply_enabled)}
                             disabled={loadingStates[`${group.group_id}_auto_reply_enabled`] || false}
-                            title={group.auto_reply_enabled ? "点击禁用自动回复" : "点击启用自动回复"}
                           >
                             <MessageCircle className="h-3 w-3" />
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => navigate(`/groups/${group.group_id}`)}
-                            title="查看群聊详情"
-                          >
+                          <Button size="sm" variant="outline" onClick={() => navigate(`/groups/${group.group_id}`)}>
                             <Eye className="h-3 w-3" />
                           </Button>
                         </div>
@@ -358,36 +375,9 @@ export const GroupManagementPage: React.FC = () => {
                 </TableBody>
               </Table>
             </div>
-          )}
-          
-          {/* 分页 */}
-          {groupsData && groupsData.pagination.totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
-              <p className="text-sm text-muted-foreground">
-                第 {page} 页，共 {groupsData.pagination.totalPages} 页
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage(Math.max(1, page - 1))}
-                  disabled={page === 1}
-                >
-                  上一页
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage(Math.min(groupsData.pagination.totalPages, page + 1))}
-                  disabled={page === groupsData.pagination.totalPages}
-                >
-                  下一页
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+          </>
+        )}
+      </SectionPanel>
+    </PageShell>
   );
 };

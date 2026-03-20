@@ -1,34 +1,37 @@
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import React, { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { 
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table';
-import { Input } from '../components/ui/input';
-import { Checkbox } from '../components/ui/checkbox';
 import {
+  Bot,
+  Brain,
+  Bug,
+  Code,
+  Cog,
+  Edit,
+  Filter,
+  MessageSquare,
+  Plus,
   RefreshCw,
   Search,
   Settings,
-  Bot,
-  Plus,
-  Edit,
   Trash2,
-  Filter,
-  Code,
-  MessageSquare,
-  Brain,
-  Cog,
-  Bug
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageShell } from '@/components/console/PageShell';
+import { PageHeader } from '@/components/console/PageHeader';
+import { FilterBar } from '@/components/console/FilterBar';
+import { MetricCard } from '@/components/console/MetricCard';
+import { SectionPanel } from '@/components/console/SectionPanel';
+import { EntityCard } from '@/components/console/EntityCard';
+import { SelectionBar } from '@/components/console/SelectionBar';
+import { ErrorState } from '@/components/console/ErrorState';
+import { EmptyState } from '@/components/console/EmptyState';
+import { StatusPill } from '@/components/console/StatusPill';
 
 interface AgentPrompt {
   id: string;
@@ -36,8 +39,8 @@ interface AgentPrompt {
   prompt_name: string;
   system_instructions: string | string[];
   user_prompt_template?: string | null;
-  context_variables?: any;
-  model_config?: any;
+  context_variables?: unknown;
+  model_config?: unknown;
   model_name?: string;
   allowed_token_ids?: number[] | null;
   is_active: number;
@@ -61,7 +64,6 @@ interface PromptResponse {
   timestamp: string;
 }
 
-// 获取 Prompt 列表
 const fetchPrompts = async (params: {
   page: number;
   limit: number;
@@ -83,7 +85,6 @@ const fetchPrompts = async (params: {
   return response.json();
 };
 
-// 获取 Agent 类型列表
 const fetchAgentTypes = async (): Promise<{ success: boolean; data: AgentType[] }> => {
   const response = await fetch('/api/agent-types');
   if (!response.ok) {
@@ -92,19 +93,17 @@ const fetchAgentTypes = async (): Promise<{ success: boolean; data: AgentType[] 
   return response.json();
 };
 
-// 删除 Prompt
 const deletePrompt = async (promptId: string) => {
   const response = await fetch(`/api/prompts/${promptId}`, {
     method: 'DELETE',
   });
-  
+
   if (!response.ok) {
     throw new Error('Failed to delete prompt');
   }
   return response.json();
 };
 
-// 切换 Prompt 激活状态
 const togglePromptActive = async (promptId: string, isActive: boolean) => {
   const response = await fetch(`/api/prompts/${promptId}`, {
     method: 'PUT',
@@ -113,7 +112,7 @@ const togglePromptActive = async (promptId: string, isActive: boolean) => {
     },
     body: JSON.stringify({ is_active: isActive }),
   });
-  
+
   if (!response.ok) {
     throw new Error('Failed to update prompt status');
   }
@@ -123,7 +122,7 @@ const togglePromptActive = async (promptId: string, isActive: boolean) => {
 export const PromptManagementPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [agentTypeFilter, setAgentTypeFilter] = useState('');
+  const [agentTypeFilter, setAgentTypeFilter] = useState('all');
   const [selectedPrompts, setSelectedPrompts] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -131,100 +130,75 @@ export const PromptManagementPage: React.FC = () => {
   const navigate = useNavigate();
   const limit = 20;
 
-  // 查询 Prompt 数据
-  const { 
-    data: promptsData, 
-    isLoading, 
-    error, 
-    refetch,
-    isRefetching 
-  } = useQuery({
+  const { data: promptsData, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['prompts', page, search, agentTypeFilter],
-    queryFn: () => fetchPrompts({ 
-      page, 
-      limit, 
-      search, 
-      agent_type: agentTypeFilter 
-    }),
+    queryFn: () =>
+      fetchPrompts({
+        page,
+        limit,
+        search,
+        agent_type: agentTypeFilter === 'all' ? undefined : agentTypeFilter,
+      }),
   });
 
-  // 查询 Agent 类型
   const { data: agentTypesData } = useQuery({
     queryKey: ['agent-types'],
     queryFn: fetchAgentTypes,
   });
 
-  // 删除 Prompt mutation
   const deletePromptMutation = useMutation({
     mutationFn: deletePrompt,
     onSuccess: () => {
-      // 使用多种策略确保数据刷新
       queryClient.invalidateQueries({ queryKey: ['prompts'] });
-      queryClient.refetchQueries({ queryKey: ['prompts'] });
-      // 强制刷新当前查询
       refetch();
     },
   });
 
-  // 切换激活状态 mutation
   const toggleActiveMutation = useMutation({
-    mutationFn: ({ promptId, isActive }: { promptId: string; isActive: boolean }) => 
-      togglePromptActive(promptId, isActive),
+    mutationFn: ({ promptId, isActive }: { promptId: string; isActive: boolean }) => togglePromptActive(promptId, isActive),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['prompts'] });
     },
   });
 
-  const handleSearch = (value: string) => {
-    setSearch(value);
-    setPage(1);
-  };
-
-  const handleAgentTypeFilter = (value: string) => {
-    setAgentTypeFilter(value);
-    setPage(1);
-  };
-
-  // 计算总页数
   const totalPages = promptsData ? Math.ceil(promptsData.total / limit) : 0;
 
   const handleSelectAll = () => {
     if (selectedPrompts.length === promptsData?.data.length) {
       setSelectedPrompts([]);
     } else {
-      setSelectedPrompts(promptsData?.data.map(prompt => prompt.id) || []);
+      setSelectedPrompts(promptsData?.data.map((prompt) => prompt.id) || []);
     }
   };
 
   const handleSelectPrompt = (promptId: string) => {
-    setSelectedPrompts(prev => 
-      prev.includes(promptId) 
-        ? prev.filter(id => id !== promptId)
-        : [...prev, promptId]
-    );
+    setSelectedPrompts((prev) => (prev.includes(promptId) ? prev.filter((id) => id !== promptId) : [...prev, promptId]));
   };
 
   const getAgentTypeIcon = (type: string) => {
     switch (type) {
-      case 'chat_bot': return <MessageSquare className="h-4 w-4" />;
-      case 'intent_analyzer': return <Brain className="h-4 w-4" />;
-      case 'requirement_processor': return <Code className="h-4 w-4" />;
-      case 'custom': return <Cog className="h-4 w-4" />;
-      default: return <Bot className="h-4 w-4" />;
+      case 'chat_bot':
+        return <MessageSquare className="h-4 w-4" />;
+      case 'intent_analyzer':
+        return <Brain className="h-4 w-4" />;
+      case 'requirement_processor':
+        return <Code className="h-4 w-4" />;
+      case 'custom':
+        return <Cog className="h-4 w-4" />;
+      default:
+        return <Bot className="h-4 w-4" />;
     }
   };
 
   const getAgentTypeLabel = (type: string) => {
-    const agentType = agentTypesData?.data.find(at => at.value === type);
+    const agentType = agentTypesData?.data.find((item) => item.value === type);
     return agentType?.label || type;
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('zh-CN');
-  };
+  const formatDate = (dateString: string) => new Date(dateString).toLocaleString('zh-CN');
 
   const parseSystemInstructions = (instructions: string | string[]) => {
-    let parsed;
+    let parsed: string[] | string;
     if (typeof instructions === 'string') {
       try {
         parsed = JSON.parse(instructions);
@@ -234,165 +208,227 @@ export const PromptManagementPage: React.FC = () => {
     } else {
       parsed = instructions;
     }
-    // 过滤掉空字符串，合并为一个完整的指令用于预览
-    const filtered = Array.isArray(parsed) 
-      ? parsed.filter((inst: string) => inst.trim() !== '').join(' ') 
-      : parsed;
-    return filtered;
+
+    return Array.isArray(parsed) ? parsed.filter((inst) => inst.trim() !== '').join(' ') : parsed;
   };
 
+  const rows = promptsData?.data || [];
+  const metrics = useMemo(() => {
+    const activeCount = rows.filter((prompt) => prompt.is_active).length;
+    const draftableModels = rows.filter((prompt) => prompt.model_name).length;
+    return { activeCount, draftableModels };
+  }, [rows]);
+
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Bot className="h-8 w-8 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">Prompt 管理</h1>
-            <p className="text-muted-foreground">
-              管理AI Agent的提示词配置和系统指令
-            </p>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          <Button 
-            onClick={() => navigate('/prompts/new')}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            新建 Prompt
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => refetch()}
-            disabled={isRefetching}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isRefetching ? 'animate-spin' : ''}`} />
-            刷新
-          </Button>
-          {promptsData && (
-            <Badge variant="secondary">
-              {promptsData.total} 个配置
-            </Badge>
-          )}
-        </div>
+    <PageShell>
+      <PageHeader
+        eyebrow="Prompt Exchange"
+        title="Prompt 管理"
+        description="围绕模板、变量、模型和调试能力构建统一工作台。移动端保留核心操作，桌面端保持编辑效率。"
+        icon={<Bot className="h-5 w-5" />}
+        actions={
+          <>
+            <Button size="sm" onClick={() => navigate('/prompts/new')}>
+              <Plus className="mr-2 h-4 w-4" />
+              新建 Prompt
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isRefetching}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${isRefetching ? 'animate-spin' : ''}`} />
+              刷新
+            </Button>
+            <Badge variant="outline">{promptsData?.total || 0} 个配置</Badge>
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <MetricCard label="当前页 Prompt" value={rows.length} icon={<Bot className="h-5 w-5" />} />
+        <MetricCard label="激活配置" value={metrics.activeCount} detail={`指定模型 ${metrics.draftableModels}`} icon={<Settings className="h-5 w-5" />} tone="success" />
+        <MetricCard label="当前分页" value={`${page}/${Math.max(totalPages, 1)}`} icon={<Code className="h-5 w-5" />} tone="warning" />
       </div>
 
-      {/* 搜索和过滤 */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center gap-4">
-            <div className="flex-1 flex items-center gap-2">
-              <Search className="h-4 w-4 text-muted-foreground" />
+      <FilterBar>
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative flex-1 xl:max-w-md">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="搜索 Prompt 名称或描述..."
+                placeholder="搜索 Prompt 名称或描述"
                 value={search}
-                onChange={(e) => handleSearch(e.target.value)}
-                className="max-w-sm"
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                className="pl-9"
               />
             </div>
-            
-            <select
+            <Select
               value={agentTypeFilter}
-              onChange={(e) => handleAgentTypeFilter(e.target.value)}
-              className="px-3 py-2 border rounded-md text-sm"
+              onValueChange={(value) => {
+                setAgentTypeFilter(value);
+                setPage(1);
+              }}
             >
-              <option value="">所有类型</option>
-              {agentTypesData?.data.map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-            
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-            >
-              <Filter className="h-4 w-4 mr-2" />
+              <SelectTrigger className="w-full md:w-[220px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">所有类型</SelectItem>
+                {agentTypesData?.data.map((type) => (
+                  <SelectItem key={type.value} value={type.value}>
+                    {type.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={() => setShowFilters((value) => !value)}>
+              <Filter className="mr-2 h-4 w-4" />
               筛选
             </Button>
           </div>
-          
-          {showFilters && (
-            <div className="mt-4 flex flex-wrap gap-4 p-4 bg-muted/50 rounded-lg">
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => {
-                  setSearch('');
-                  setAgentTypeFilter('');
-                  setPage(1);
-                }}
-              >
-                清除筛选
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* 批量操作 */}
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page === 1}>
+              上一页
+            </Button>
+            <StatusPill tone="info">
+              {page} / {Math.max(totalPages, 1)}
+            </StatusPill>
+            <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={page === totalPages || totalPages === 0}>
+              下一页
+            </Button>
+          </div>
+        </div>
+
+        {showFilters && (
+          <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSearch('');
+                setAgentTypeFilter('all');
+                setPage(1);
+              }}
+            >
+              清除筛选
+            </Button>
+          </div>
+        )}
+      </FilterBar>
+
       {selectedPrompts.length > 0 && (
-        <Card className="bg-blue-50 border-blue-200">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-blue-700">
-                已选择 {selectedPrompts.length} 个配置
-              </p>
-              <div className="flex items-center gap-2">
-                <Button 
-                  size="sm" 
-                  variant="destructive"
-                  onClick={() => {
-                    if (confirm(`确定要删除选中的 ${selectedPrompts.length} 个配置吗？此操作不可撤销。`)) {
-                      selectedPrompts.forEach(id => {
-                        deletePromptMutation.mutate(id);
-                      });
-                      setSelectedPrompts([]);
-                    }
-                  }}
-                  disabled={deletePromptMutation.isPending}
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  批量删除
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <SelectionBar
+          summary={<>已选择 {selectedPrompts.length} 个 Prompt 配置</>}
+          actions={
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                if (confirm(`确定要删除选中的 ${selectedPrompts.length} 个配置吗？此操作不可撤销。`)) {
+                  selectedPrompts.forEach((id) => {
+                    deletePromptMutation.mutate(id);
+                  });
+                  setSelectedPrompts([]);
+                }
+              }}
+              disabled={deletePromptMutation.isPending}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              批量删除
+            </Button>
+          }
+        />
       )}
 
-      {/* Prompt 列表 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="h-5 w-5" />
-            Prompt 配置列表
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-              <span className="ml-2">加载中...</span>
+      <SectionPanel title="Prompt 矩阵" description="手机以配置卡片浏览，桌面保留多列信息和快速操作。" icon={<Settings className="h-4 w-4 text-primary" />}>
+        {error ? (
+          <ErrorState description={error.message} onRetry={() => refetch()} />
+        ) : isLoading ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={index} className="terminal-card h-40 animate-pulse rounded-[1.4rem] bg-white/[0.04]" />
+            ))}
+          </div>
+        ) : rows.length === 0 ? (
+          <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无 Prompt 配置" description="从新建 Prompt 开始，或检查后端接口是否返回数据。" />
+        ) : (
+          <>
+            <div className="space-y-4 md:hidden">
+              {rows.map((prompt) => (
+                <EntityCard
+                  key={prompt.id}
+                  title={prompt.prompt_name}
+                  subtitle={prompt.description || '无描述'}
+                  badges={
+                    <>
+                      <Badge variant="outline" className="gap-2">
+                        {getAgentTypeIcon(prompt.agent_type)}
+                        {getAgentTypeLabel(prompt.agent_type)}
+                      </Badge>
+                      <StatusPill tone={prompt.is_active ? 'success' : 'neutral'}>{prompt.is_active ? '激活' : '禁用'}</StatusPill>
+                      <Badge variant="outline">v{prompt.version}</Badge>
+                    </>
+                  }
+                  action={<Checkbox checked={selectedPrompts.includes(prompt.id)} onCheckedChange={() => handleSelectPrompt(prompt.id)} />}
+                  meta={
+                    <>
+                      <span>{prompt.model_name || '未指定模型'}</span>
+                      <span>{formatDate(prompt.created_at)}</span>
+                    </>
+                  }
+                >
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm text-muted-foreground">
+                    {parseSystemInstructions(prompt.system_instructions).slice(0, 120)}
+                    {parseSystemInstructions(prompt.system_instructions).length > 120 ? '...' : ''}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" size="sm" onClick={() => navigate(`/prompts/${prompt.id}/edit`)}>
+                      <Edit className="mr-2 h-4 w-4" />
+                      编辑
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => navigate(`/prompts/${prompt.id}/edit#playground`)}>
+                      <Bug className="mr-2 h-4 w-4" />
+                      调试
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        toggleActiveMutation.mutate({
+                          promptId: prompt.id,
+                          isActive: !prompt.is_active,
+                        })
+                      }
+                      disabled={toggleActiveMutation.isPending}
+                    >
+                      {prompt.is_active ? '停用' : '激活'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => {
+                        if (confirm(`确定要删除 ${prompt.prompt_name} 吗？此操作不可撤销。`)) {
+                          deletePromptMutation.mutate(prompt.id);
+                        }
+                      }}
+                      disabled={deletePromptMutation.isPending}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      删除
+                    </Button>
+                  </div>
+                </EntityCard>
+              ))}
             </div>
-          ) : error ? (
-            <div className="text-center py-12 text-red-600">
-              加载失败: {error instanceof Error ? error.message : '未知错误'}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
+
+            <div className="hidden md:block">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-12">
-                      <Checkbox
-                        checked={selectedPrompts.length === promptsData?.data.length}
-                        onCheckedChange={handleSelectAll}
-                      />
+                      <Checkbox checked={selectedPrompts.length > 0 && selectedPrompts.length === rows.length} onCheckedChange={handleSelectAll} />
                     </TableHead>
                     <TableHead>类型</TableHead>
                     <TableHead>名称</TableHead>
@@ -406,13 +442,10 @@ export const PromptManagementPage: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {promptsData?.data.map((prompt) => (
+                  {rows.map((prompt) => (
                     <TableRow key={prompt.id}>
                       <TableCell>
-                        <Checkbox
-                          checked={selectedPrompts.includes(prompt.id)}
-                          onCheckedChange={() => handleSelectPrompt(prompt.id)}
-                        />
+                        <Checkbox checked={selectedPrompts.includes(prompt.id)} onCheckedChange={() => handleSelectPrompt(prompt.id)} />
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -422,87 +455,58 @@ export const PromptManagementPage: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <div className="font-medium">{prompt.prompt_name}</div>
-                        {prompt.model_name && (
-                          <div className="text-xs text-muted-foreground">
-                            {prompt.model_name}
-                          </div>
-                        )}
+                        {prompt.model_name && <div className="text-xs text-muted-foreground">{prompt.model_name}</div>}
                       </TableCell>
                       <TableCell className="max-w-xs">
                         <div className="truncate" title={prompt.description || ''}>
                           {prompt.description || '无描述'}
                         </div>
                       </TableCell>
-                      <TableCell className="max-w-xs">
-                        <div className="text-sm text-muted-foreground">
-                          {(() => {
-                            const preview = parseSystemInstructions(prompt.system_instructions);
-                            return preview.length > 50 
-                              ? preview.substring(0, 50) + '...' 
-                              : preview;
-                          })()}
-                        </div>
+                      <TableCell className="max-w-xs text-sm text-muted-foreground">
+                        {(() => {
+                          const preview = parseSystemInstructions(prompt.system_instructions);
+                          return preview.length > 64 ? `${preview.substring(0, 64)}...` : preview;
+                        })()}
                       </TableCell>
+                      <TableCell>{prompt.model_name ? <Badge variant="outline">{prompt.model_name}</Badge> : <span className="text-muted-foreground text-sm">未指定</span>}</TableCell>
                       <TableCell>
-                        {prompt.model_name ? (
-                          <Badge variant="outline">{prompt.model_name}</Badge>
-                        ) : (
-                          <span className="text-muted-foreground text-sm">未指定</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={prompt.is_active ? "default" : "secondary"}>
-                          {prompt.is_active ? "激活" : "禁用"}
-                        </Badge>
+                        <StatusPill tone={prompt.is_active ? 'success' : 'neutral'}>{prompt.is_active ? '激活' : '禁用'}</StatusPill>
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">v{prompt.version}</Badge>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {formatDate(prompt.created_at)}
-                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDate(prompt.created_at)}</TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => navigate(`/prompts/${prompt.id}/edit`)}
-                            title="编辑"
-                          >
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="outline" onClick={() => navigate(`/prompts/${prompt.id}/edit`)}>
                             <Edit className="h-3 w-3" />
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => navigate(`/prompts/${prompt.id}/edit#playground`)}
-                            title="调试对话"
-                            className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                          >
+                          <Button size="sm" variant="outline" onClick={() => navigate(`/prompts/${prompt.id}/edit#playground`)}>
                             <Bug className="h-3 w-3" />
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => toggleActiveMutation.mutate({
-                              promptId: prompt.id,
-                              isActive: !prompt.is_active
-                            })}
+                            onClick={() =>
+                              toggleActiveMutation.mutate({
+                                promptId: prompt.id,
+                                isActive: !prompt.is_active,
+                              })
+                            }
                             disabled={toggleActiveMutation.isPending}
-                            title={prompt.is_active ? "禁用" : "激活"}
                           >
-                            {prompt.is_active ? "🔴" : "🟢"}
+                            {prompt.is_active ? '停用' : '激活'}
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
+                            className="text-destructive hover:text-destructive"
                             onClick={() => {
                               if (confirm(`确定要删除 ${prompt.prompt_name} 吗？此操作不可撤销。`)) {
                                 deletePromptMutation.mutate(prompt.id);
                               }
                             }}
                             disabled={deletePromptMutation.isPending}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            title="删除"
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
@@ -513,36 +517,9 @@ export const PromptManagementPage: React.FC = () => {
                 </TableBody>
               </Table>
             </div>
-          )}
-          
-          {/* 分页 */}
-          {promptsData && totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
-              <p className="text-sm text-muted-foreground">
-                第 {page} 页，共 {totalPages} 页 (共 {promptsData.total} 个配置)
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage(Math.max(1, page - 1))}
-                  disabled={page === 1}
-                >
-                  上一页
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage(Math.min(totalPages, page + 1))}
-                  disabled={page === totalPages}
-                >
-                  下一页
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+          </>
+        )}
+      </SectionPanel>
+    </PageShell>
   );
 };

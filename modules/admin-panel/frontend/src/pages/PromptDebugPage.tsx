@@ -324,7 +324,7 @@ export const PromptDebugPage: React.FC = () => {
 
   if (promptError || !promptData?.success) {
     return (
-      <div className="text-center py-12 text-red-600">
+      <div className="py-12 text-center text-destructive">
         加载失败: {promptError instanceof Error ? promptError.message : '未知错误'}
       </div>
     );
@@ -425,7 +425,7 @@ export const PromptDebugPage: React.FC = () => {
                             e.stopPropagation();
                             handleDeleteSession(session.id);
                           }}
-                          className="opacity-0 group-hover:opacity-100 h-6 w-6 p-0 text-red-600 hover:text-red-700"
+                          className="h-6 w-6 p-0 text-destructive opacity-0 group-hover:opacity-100 hover:text-destructive"
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -513,7 +513,7 @@ export const PromptDebugPage: React.FC = () => {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => toggleThought(message.id)}
-                                className="text-yellow-700 hover:text-yellow-800 hover:bg-yellow-50 p-1 h-auto"
+                                className="h-auto p-1 text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning))]/10 hover:text-[hsl(var(--warning))]"
                               >
                                 <Brain className="h-3 w-3 mr-1" />
                                 <span className="text-xs">
@@ -527,12 +527,12 @@ export const PromptDebugPage: React.FC = () => {
                               </Button>
                             </div>
                             {message.thoughtExpanded && (
-                              <div className="mb-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                              <div className="mb-2 rounded-lg border border-[hsl(var(--warning))]/20 bg-[hsl(var(--warning))]/10 p-3">
                                 <div className="flex items-center gap-2 mb-2">
-                                  <Brain className="h-4 w-4 text-yellow-600" />
-                                  <span className="text-sm font-medium text-yellow-800">思考过程</span>
+                                  <Brain className="h-4 w-4 text-[hsl(var(--warning))]" />
+                                  <span className="text-sm font-medium text-[hsl(var(--warning))]">思考过程</span>
                                 </div>
-                                <div className="text-sm text-yellow-700 whitespace-pre-wrap font-mono">
+                                <div className="whitespace-pre-wrap font-mono text-sm text-[hsl(var(--warning))]">
                                   {message.thought}
                                 </div>
                               </div>
@@ -555,24 +555,24 @@ export const PromptDebugPage: React.FC = () => {
                             variant="ghost"
                             size="sm"
                             onClick={() => deleteMessage(message.id)}
-                            className="h-6 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                            className="h-6 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
                         </div>
 
                         {/* 消息内容 */}
-                        <div className={`p-3 rounded-lg ${
+                        <div className={`rounded-lg p-3 ${
                           message.role === 'user'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 text-gray-900'
+                            ? 'bg-primary/20 text-foreground border border-primary/20'
+                            : 'border border-white/8 bg-white/[0.04] text-foreground'
                         }`}>
                           {editingMessageId === message.id ? (
                             <div className="space-y-2">
                               <Textarea
                                 value={editingContent}
                                 onChange={(e) => setEditingContent(e.target.value)}
-                                className="min-h-[60px] text-sm text-gray-900 bg-white"
+                                className="min-h-[60px] bg-black/20 text-sm text-foreground"
                                 autoFocus
                               />
                               <div className="flex gap-2">
@@ -587,7 +587,7 @@ export const PromptDebugPage: React.FC = () => {
                                   variant="outline"
                                   size="sm"
                                   onClick={cancelEditMessage}
-                                  className="h-6 px-2 text-xs bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                                  className="h-6 px-2 text-xs"
                                 >
                                   取消
                                 </Button>
@@ -599,7 +599,7 @@ export const PromptDebugPage: React.FC = () => {
 
                           {/* 元数据 */}
                           {message.metadata && !editingMessageId && (
-                            <div className="mt-2 pt-2 border-t border-opacity-20 border-gray-300">
+                            <div className="mt-2 border-t border-white/10 pt-2">
                               <div className="text-xs opacity-75 space-x-4">
                                 {message.metadata.model && (
                                   <span>模型: {message.metadata.model}</span>
@@ -621,13 +621,13 @@ export const PromptDebugPage: React.FC = () => {
                       </div>
 
                       <div className={`flex-shrink-0 ${message.role === 'user' ? 'order-1' : 'order-2'}`}>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                          message.role === 'user' ? 'bg-blue-600' : 'bg-gray-600'
+                        <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
+                          message.role === 'user' ? 'bg-primary/20' : 'bg-white/8'
                         }`}>
                           {message.role === 'user' ? (
-                            <User className="h-4 w-4 text-white" />
+                            <User className="h-4 w-4 text-primary" />
                           ) : (
-                            <Bot className="h-4 w-4 text-white" />
+                            <Bot className="h-4 w-4 text-foreground" />
                           )}
                         </div>
                       </div>
@@ -676,8 +676,8 @@ export const PromptDebugPage: React.FC = () => {
 
       {/* 保存会话对话框 */}
       {showSaveDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-[1.4rem] border border-white/10 bg-popover/95 p-6 shadow-[0_20px_60px_-30px_rgba(2,6,23,0.95)]">
             <h3 className="text-lg font-semibold mb-4">保存调试会话</h3>
             <div className="space-y-4">
               <div>

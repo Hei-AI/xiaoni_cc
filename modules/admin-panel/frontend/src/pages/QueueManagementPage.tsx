@@ -1,36 +1,34 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { Badge } from '../components/ui/badge';
-import { Button } from '../components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { Progress } from '../components/ui/progress';
-import { Switch } from '../components/ui/switch';
-import { ScrollArea } from '../components/ui/scroll-area';
-import QueueSimulationPanel, { QueueSimulationOption } from '../components/QueueSimulationPanel';
-import { 
-  Play, 
-  Pause, 
-  Trash2, 
-  RefreshCw, 
-  AlertCircle, 
+import {
+  Activity,
+  AlertCircle,
+  BarChart3,
   CheckCircle,
   Clock,
-  Users,
   MessageSquare,
-  BarChart3,
-  Activity
+  Pause,
+  Play,
+  RefreshCw,
+  Trash2,
+  Users,
 } from 'lucide-react';
-
-/**
- * 队列管理页面
- * 功能：
- * 1. 实时监控所有消息队列状态
- * 2. 查看未消费消息详情
- * 3. 队列管理操作（暂停/恢复/清空）
- * 4. 性能统计和可视化
- */
+import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import QueueSimulationPanel, { QueueSimulationOption } from '@/components/QueueSimulationPanel';
+import { PageShell } from '@/components/console/PageShell';
+import { PageHeader } from '@/components/console/PageHeader';
+import { MetricCard } from '@/components/console/MetricCard';
+import { SectionPanel } from '@/components/console/SectionPanel';
+import { EntityCard } from '@/components/console/EntityCard';
+import { EmptyState } from '@/components/console/EmptyState';
+import { StatusPill } from '@/components/console/StatusPill';
 
 interface QueueInfo {
   name: string;
@@ -55,7 +53,7 @@ interface UnconsumedMessage {
   id: string;
   traceId: string;
   type: string;
-  data: any;
+  data: unknown;
   timestamp: string;
   priority: number;
   attempts: number;
@@ -111,119 +109,76 @@ const QueueManagementPage: React.FC = () => {
   const [unconsumedMessages, setUnconsumedMessages] = useState<UnconsumedMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
 
-  // 获取队列列表
   const fetchQueues = async () => {
     try {
       const response = await fetch('/api/queue-monitor/queues');
       const result = await response.json();
-      
+
       if (result.success) {
         setQueues(result.data);
         setStats(result.stats);
       }
-    } catch (error) {
-      console.error('Failed to fetch queues:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  // 获取未消费消息
   const fetchUnconsumedMessages = async (queueName: string) => {
-    try {
-      const response = await fetch(`/api/queue-monitor/queues/${queueName}/unconsumed?limit=100`);
-      const result = await response.json();
-      
-      if (result.success) {
-        setUnconsumedMessages(result.data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch unconsumed messages:', error);
+    const response = await fetch(`/api/queue-monitor/queues/${queueName}/unconsumed?limit=100`);
+    const result = await response.json();
+
+    if (result.success) {
+      setUnconsumedMessages(result.data);
     }
   };
 
-  // 队列操作
   const handleQueueAction = async (queueName: string, action: 'pause' | 'resume' | 'clear') => {
-    try {
-      let url = `/api/queue-monitor/queues/${queueName}`;
-      let method = 'PATCH';
-      let body = null;
+    let url = `/api/queue-monitor/queues/${queueName}`;
+    let method = 'PATCH';
+    let body: string | null = null;
 
-      if (action === 'clear') {
-        method = 'DELETE';
-      } else {
-        url += '/pause';
-        body = JSON.stringify({ paused: action === 'pause' });
+    if (action === 'clear') {
+      method = 'DELETE';
+    } else {
+      url += '/pause';
+      body = JSON.stringify({ paused: action === 'pause' });
+    }
+
+    const response = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body,
+    });
+
+    const result = await response.json();
+    if (result.success) {
+      await fetchQueues();
+      if (selectedQueue === queueName) {
+        await fetchUnconsumedMessages(queueName);
       }
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body
-      });
-
-      const result = await response.json();
-      if (result.success) {
-        await fetchQueues(); // 刷新队列列表
-        if (selectedQueue === queueName) {
-          await fetchUnconsumedMessages(queueName); // 刷新消息列表
-        }
-      }
-    } catch (error) {
-      console.error(`Failed to ${action} queue:`, error);
     }
   };
 
-  // 自动刷新
   useEffect(() => {
     fetchQueues();
+  }, []);
 
-    if (autoRefresh) {
-      const interval = setInterval(fetchQueues, 10000); // 10秒刷新
-      setRefreshInterval(interval);
-      return () => clearInterval(interval);
-    }
+  useEffect(() => {
+    if (!autoRefresh) return undefined;
+    const interval = window.setInterval(() => {
+      fetchQueues();
+    }, 10000);
+    return () => window.clearInterval(interval);
   }, [autoRefresh]);
 
-  // 队列选择变化
   useEffect(() => {
     if (selectedQueue) {
       fetchUnconsumedMessages(selectedQueue);
     }
   }, [selectedQueue]);
-
-  // 获取队列状态颜色
-  const getQueueStatusColor = (queue: QueueInfo): string => {
-    if (queue.paused) return 'bg-gray-500';
-    if (queue.failed > 0) return 'bg-red-500';
-    if (queue.active > 0) return 'bg-green-500';
-    if (queue.waiting > 0) return 'bg-yellow-500';
-    return 'bg-blue-500';
-  };
-
-  // 获取队列状态文本
-  const getQueueStatusText = (queue: QueueInfo): string => {
-    if (queue.paused) return '暂停';
-    if (queue.failed > 0) return '有失败';
-    if (queue.active > 0) return '处理中';
-    if (queue.waiting > 0) return '等待中';
-    return '空闲';
-  };
-
-  // 格式化时间
-  const formatTime = (timestamp: string): string => {
-    return new Date(timestamp).toLocaleString('zh-CN');
-  };
-
-  // 格式化处理时间
-  const formatProcessingTime = (ms: number): string => {
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-  };
 
   const selectedQueueData = queues.find((queue) => queue.name === selectedQueue) || null;
 
@@ -240,41 +195,19 @@ const QueueManagementPage: React.FC = () => {
   });
 
   const availableUserOptions = useMemo(() => {
-    if (!selectedQueueData?.userId) {
-      return privateChatOptions;
-    }
-
-    const existsInOptions = privateChatOptions.some((option) => option.value === selectedQueueData.userId);
-    if (existsInOptions) {
-      return privateChatOptions;
-    }
-
-    return [
-      {
-        value: selectedQueueData.userId,
-        label: `用户 ${selectedQueueData.userId}`,
-      },
-      ...privateChatOptions,
-    ];
+    if (!selectedQueueData?.userId) return privateChatOptions;
+    const exists = privateChatOptions.some((option) => option.value === selectedQueueData.userId);
+    return exists
+      ? privateChatOptions
+      : [{ value: selectedQueueData.userId, label: `用户 ${selectedQueueData.userId}` }, ...privateChatOptions];
   }, [privateChatOptions, selectedQueueData?.userId]);
 
   const availableGroupOptions = useMemo(() => {
-    if (!selectedQueueData?.groupId) {
-      return groupChatOptions;
-    }
-
-    const existsInOptions = groupChatOptions.some((option) => option.value === selectedQueueData.groupId);
-    if (existsInOptions) {
-      return groupChatOptions;
-    }
-
-    return [
-      {
-        value: selectedQueueData.groupId,
-        label: `群组 ${selectedQueueData.groupId}`,
-      },
-      ...groupChatOptions,
-    ];
+    if (!selectedQueueData?.groupId) return groupChatOptions;
+    const exists = groupChatOptions.some((option) => option.value === selectedQueueData.groupId);
+    return exists
+      ? groupChatOptions
+      : [{ value: selectedQueueData.groupId, label: `群组 ${selectedQueueData.groupId}` }, ...groupChatOptions];
   }, [groupChatOptions, selectedQueueData?.groupId]);
 
   const handleSimulationCompleted = async () => {
@@ -284,219 +217,213 @@ const QueueManagementPage: React.FC = () => {
     }
   };
 
+  const formatTime = (timestamp: string) => new Date(timestamp).toLocaleString('zh-CN');
+  const formatProcessingTime = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
+  const getQueueStatusText = (queue: QueueInfo) => {
+    if (queue.paused) return '暂停';
+    if (queue.failed > 0) return '有失败';
+    if (queue.active > 0) return '处理中';
+    if (queue.waiting > 0) return '等待中';
+    return '空闲';
+  };
+  const getQueueTone = (queue: QueueInfo) => {
+    if (queue.paused) return 'neutral';
+    if (queue.failed > 0) return 'danger';
+    if (queue.active > 0) return 'success';
+    if (queue.waiting > 0) return 'warning';
+    return 'info';
+  };
+
+  const chartData = queues.slice(0, 8).map((queue) => ({
+    name: queue.type === 'private' ? `U${queue.userId}` : `G${queue.groupId}`,
+    waiting: queue.waiting,
+    active: queue.active,
+    failed: queue.failed,
+  }));
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin" />
+      <div className="flex h-64 items-center justify-center">
+        <RefreshCw className="h-8 w-8 animate-spin" />
         <span className="ml-2">加载队列信息...</span>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* 页面标题和控制 */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">队列管理</h1>
-          <p className="text-gray-600 mt-1">
-            实时监控消息队列状态和未消费消息
-          </p>
-        </div>
-        
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <Switch
-              checked={autoRefresh}
-              onCheckedChange={setAutoRefresh}
-            />
-            <span className="text-sm">自动刷新</span>
-          </div>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchQueues}
-            disabled={loading}
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            手动刷新
-          </Button>
-        </div>
-      </div>
+    <PageShell>
+      <PageHeader
+        eyebrow="Queue Radar"
+        title="队列管理"
+        description="把运行时消息队列压成可操作的监控工作台，手机端也能完成队列查看、暂停、清空和消息模拟。"
+        icon={<BarChart3 className="h-5 w-5" />}
+        actions={
+          <>
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-sm">
+              <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
+              <span className="text-muted-foreground">自动刷新</span>
+            </div>
+            <Button variant="outline" size="sm" onClick={fetchQueues}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              手动刷新
+            </Button>
+          </>
+        }
+      />
 
-      {/* 统计概览 */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">总队列数</CardTitle>
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.totalQueues}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">总消息数</CardTitle>
-              <MessageSquare className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.totalMessages}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">未消费消息</CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-orange-600">{stats.totalUnconsumed}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">最后更新</CardTitle>
-              <Activity className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-sm">{formatTime(stats.lastUpdated)}</div>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="总队列数" value={stats.totalQueues} icon={<BarChart3 className="h-5 w-5" />} />
+          <MetricCard label="总消息数" value={stats.totalMessages} icon={<MessageSquare className="h-5 w-5" />} />
+          <MetricCard label="未消费消息" value={stats.totalUnconsumed} icon={<Clock className="h-5 w-5" />} tone="warning" />
+          <MetricCard label="最后更新" value={formatTime(stats.lastUpdated)} icon={<Activity className="h-5 w-5" />} />
         </div>
       )}
 
-      {/* 主要内容区域 */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 队列列表 */}
-        <div className="lg:col-span-1">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <BarChart3 className="w-5 h-5 mr-2" />
-                队列列表
-              </CardTitle>
-              <CardDescription>
-                点击队列查看详细信息和未消费消息
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-96">
-                <div className="space-y-2">
-                  {queues.map((queue) => (
-                    <Card
-                      key={queue.name}
-                      className={`cursor-pointer transition-colors hover:bg-gray-50 ${
-                        selectedQueue === queue.name ? 'ring-2 ring-blue-500' : ''
-                      }`}
-                      onClick={() => setSelectedQueue(queue.name)}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center">
-                            <div
-                              className={`w-3 h-3 rounded-full mr-2 ${getQueueStatusColor(queue)}`}
-                            />
-                            <span className="font-medium">
-                              {queue.type === 'private' ? `用户 ${queue.userId}` : `群组 ${queue.groupId}`}
-                            </span>
-                          </div>
-                          <Badge variant="outline">
-                            {getQueueStatusText(queue)}
-                          </Badge>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
-                          <div>等待: {queue.waiting}</div>
-                          <div>处理中: {queue.active}</div>
-                          <div>完成: {queue.completed}</div>
-                          <div>失败: {queue.failed}</div>
-                        </div>
-
-                        {queue.waiting > 0 && (
-                          <Progress 
-                            value={(queue.completed / (queue.completed + queue.waiting)) * 100}
-                            className="mt-2 h-1"
-                          />
-                        )}
-
-                        {queue.stats && (
-                          <div className="mt-2 text-xs text-gray-500">
-                            处理时间: {formatProcessingTime(queue.stats.avgProcessingTime)} |
-                            吞吐量: {queue.stats.throughput}/h |
-                            错误率: {(queue.stats.errorRate * 100).toFixed(1)}%
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* 队列详情和未消费消息 */}
-        <div className="lg:col-span-2">
-          {selectedQueue ? (
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <CardTitle>队列详情: {selectedQueue}</CardTitle>
-                    <CardDescription>
-                      查看和管理未消费的消息
-                    </CardDescription>
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
+        <SectionPanel
+          className="xl:col-span-4"
+          title="队列列表"
+          description="按队列选中后可在右侧查看消息和统计。"
+          icon={<Users className="h-4 w-4 text-primary" />}
+        >
+          <div className="space-y-3">
+            {queues.map((queue) => (
+              <EntityCard
+                key={queue.name}
+                className={selectedQueue === queue.name ? 'border-primary/30 bg-primary/6' : undefined}
+                title={queue.type === 'private' ? `用户 ${queue.userId}` : `群组 ${queue.groupId}`}
+                subtitle={queue.name}
+                badges={
+                  <>
+                    <StatusPill tone={getQueueTone(queue)}>{getQueueStatusText(queue)}</StatusPill>
+                    <Badge variant="outline">等待 {queue.waiting}</Badge>
+                  </>
+                }
+                action={
+                  <Button variant="outline" size="sm" onClick={() => setSelectedQueue(queue.name)}>
+                    选中
+                  </Button>
+                }
+                meta={
+                  <>
+                    <span>处理中 {queue.active}</span>
+                    <span>完成 {queue.completed}</span>
+                    <span>失败 {queue.failed}</span>
+                  </>
+                }
+              >
+                <Progress
+                  value={queue.waiting + queue.completed > 0 ? (queue.completed / (queue.completed + queue.waiting)) * 100 : 0}
+                  className="h-2"
+                />
+                {queue.stats && (
+                  <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                    <span>{formatProcessingTime(queue.stats.avgProcessingTime)}</span>
+                    <span>{queue.stats.throughput}/h</span>
+                    <span>{(queue.stats.errorRate * 100).toFixed(1)}%</span>
                   </div>
-                  
-                  <div className="flex space-x-2">
-                    {selectedQueueData && (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleQueueAction(selectedQueue, selectedQueueData.paused ? 'resume' : 'pause')}
-                        >
-                          {selectedQueueData.paused ? (
-                            <>
-                              <Play className="w-4 h-4 mr-1" />
-                              恢复
-                            </>
-                          ) : (
-                            <>
-                              <Pause className="w-4 h-4 mr-1" />
-                              暂停
-                            </>
-                          )}
-                        </Button>
+                )}
+              </EntityCard>
+            ))}
+          </div>
+        </SectionPanel>
 
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleQueueAction(selectedQueue, 'clear')}
-                          disabled={selectedQueueData.waiting === 0 && selectedQueueData.active === 0}
-                        >
-                          <Trash2 className="w-4 h-4 mr-1" />
-                          清空
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Tabs defaultValue="messages" className="w-full">
-                  <TabsList>
-                    <TabsTrigger value="messages">未消费消息</TabsTrigger>
-                    <TabsTrigger value="stats">性能统计</TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="messages" className="space-y-4">
-                    {unconsumedMessages.length > 0 ? (
+        <SectionPanel
+          className="xl:col-span-8"
+          title="队列热度"
+          description="选取前几条队列绘制等待/处理中/失败的实时截面。"
+          icon={<Activity className="h-4 w-4 text-primary" />}
+        >
+          <div className="h-[280px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData}>
+                <CartesianGrid stroke="rgba(148,163,184,0.10)" vertical={false} />
+                <XAxis dataKey="name" stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
+                <YAxis stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    background: 'rgba(8,15,28,0.95)',
+                    border: '1px solid rgba(148,163,184,0.12)',
+                    borderRadius: '16px',
+                  }}
+                />
+                <Bar dataKey="waiting" fill="hsl(var(--chart-4))" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="active" fill="hsl(var(--chart-1))" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="failed" fill="hsl(var(--chart-5))" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionPanel>
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
+        <SectionPanel
+          className="xl:col-span-7"
+          title={selectedQueue ? `队列详情 · ${selectedQueue}` : '队列详情'}
+          description="查看未消费消息、性能统计并执行暂停/恢复/清空。"
+          icon={<MessageSquare className="h-4 w-4 text-primary" />}
+          action={
+            selectedQueueData ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleQueueAction(selectedQueueData.name, selectedQueueData.paused ? 'resume' : 'pause')}
+                >
+                  {selectedQueueData.paused ? <Play className="mr-2 h-4 w-4" /> : <Pause className="mr-2 h-4 w-4" />}
+                  {selectedQueueData.paused ? '恢复' : '暂停'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleQueueAction(selectedQueueData.name, 'clear')}
+                  disabled={selectedQueueData.waiting === 0 && selectedQueueData.active === 0}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  清空
+                </Button>
+              </div>
+            ) : null
+          }
+        >
+          {!selectedQueue ? (
+            <EmptyState icon={<Users className="h-10 w-10" />} title="选择一个队列查看详情" description="左侧选中后，这里会显示未消费消息和性能统计。" />
+          ) : (
+            <Tabs defaultValue="messages">
+              <TabsList className="mb-4 w-full justify-start overflow-x-auto hide-scrollbar">
+                <TabsTrigger value="messages">未消费消息</TabsTrigger>
+                <TabsTrigger value="stats">性能统计</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="messages">
+                {unconsumedMessages.length > 0 ? (
+                  <>
+                    <div className="space-y-3 md:hidden">
+                      {unconsumedMessages.map((message) => (
+                        <EntityCard
+                          key={message.id}
+                          title={message.id}
+                          subtitle={message.type}
+                          badges={
+                            <>
+                              <StatusPill tone={message.state === 'active' ? 'success' : message.state === 'delayed' ? 'warning' : 'info'}>
+                                {message.state}
+                              </StatusPill>
+                              <Badge variant="outline">P{message.priority}</Badge>
+                            </>
+                          }
+                          meta={
+                            <>
+                              <span>{formatTime(message.timestamp)}</span>
+                              <span>重试 {message.attempts}</span>
+                              <span>{message.traceId}</span>
+                            </>
+                          }
+                        />
+                      ))}
+                    </div>
+                    <div className="hidden md:block">
                       <ScrollArea className="h-96">
                         <Table>
                           <TableHeader>
@@ -513,131 +440,74 @@ const QueueManagementPage: React.FC = () => {
                           <TableBody>
                             {unconsumedMessages.map((message) => (
                               <TableRow key={message.id}>
-                                <TableCell className="font-mono text-sm">
-                                  {message.id}
-                                </TableCell>
+                                <TableCell className="font-mono text-sm">{message.id}</TableCell>
                                 <TableCell>
-                                  <Badge 
-                                    variant={
-                                      message.state === 'active' ? 'default' :
-                                      message.state === 'delayed' ? 'secondary' : 'outline'
-                                    }
-                                  >
-                                    {message.state === 'active' ? '处理中' :
-                                     message.state === 'delayed' ? '延迟' : '等待'}
-                                  </Badge>
+                                  <StatusPill tone={message.state === 'active' ? 'success' : message.state === 'delayed' ? 'warning' : 'info'}>
+                                    {message.state}
+                                  </StatusPill>
                                 </TableCell>
                                 <TableCell>{message.type}</TableCell>
                                 <TableCell>
-                                  <Badge variant="outline">
-                                    {message.priority}
-                                  </Badge>
+                                  <Badge variant="outline">{message.priority}</Badge>
                                 </TableCell>
                                 <TableCell>{message.attempts}</TableCell>
-                                <TableCell className="text-sm">
-                                  {formatTime(message.timestamp)}
-                                </TableCell>
-                                <TableCell className="font-mono text-xs">
-                                  {message.traceId}
-                                </TableCell>
+                                <TableCell className="text-sm">{formatTime(message.timestamp)}</TableCell>
+                                <TableCell className="font-mono text-xs">{message.traceId}</TableCell>
                               </TableRow>
                             ))}
                           </TableBody>
                         </Table>
                       </ScrollArea>
-                    ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        <CheckCircle className="w-12 h-12 mx-auto mb-2" />
-                        <p>没有未消费的消息</p>
-                      </div>
-                    )}
-                  </TabsContent>
-                  
-                  <TabsContent value="stats">
-                    {selectedQueueData?.stats ? (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Card>
-                          <CardHeader className="pb-2">
-                            <CardTitle className="text-sm">平均处理时间</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="text-2xl font-bold">
-                              {formatProcessingTime(selectedQueueData.stats.avgProcessingTime)}
-                            </div>
-                          </CardContent>
-                        </Card>
+                    </div>
+                  </>
+                ) : (
+                  <EmptyState icon={<CheckCircle className="h-10 w-10" />} title="没有未消费消息" description="当前队列干净，未发现等待或延迟中的消息。" />
+                )}
+              </TabsContent>
 
-                        <Card>
-                          <CardHeader className="pb-2">
-                            <CardTitle className="text-sm">小时吞吐量</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="text-2xl font-bold">
-                              {selectedQueueData.stats.throughput}
-                            </div>
-                          </CardContent>
-                        </Card>
-
-                        <Card>
-                          <CardHeader className="pb-2">
-                            <CardTitle className="text-sm">错误率</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <div
-                              className={`text-2xl font-bold ${
-                                selectedQueueData.stats.errorRate > 0.1 ? 'text-red-600' : 'text-green-600'
-                              }`}
-                            >
-                              {(selectedQueueData.stats.errorRate * 100).toFixed(1)}%
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        <AlertCircle className="w-12 h-12 mx-auto mb-2" />
-                        <p>暂无统计数据</p>
-                      </div>
-                    )}
-                  </TabsContent>
-
-                </Tabs>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="flex items-center justify-center h-96">
-                <div className="text-center text-gray-500">
-                  <Users className="w-12 h-12 mx-auto mb-2" />
-                  <p>选择一个队列查看详细信息</p>
-                </div>
-              </CardContent>
-            </Card>
+              <TabsContent value="stats">
+                {selectedQueueData?.stats ? (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <MetricCard label="平均处理时间" value={formatProcessingTime(selectedQueueData.stats.avgProcessingTime)} />
+                    <MetricCard label="小时吞吐量" value={selectedQueueData.stats.throughput} />
+                    <MetricCard
+                      label="错误率"
+                      value={`${(selectedQueueData.stats.errorRate * 100).toFixed(1)}%`}
+                      tone={selectedQueueData.stats.errorRate > 0.1 ? 'danger' : 'success'}
+                    />
+                  </div>
+                ) : (
+                  <EmptyState icon={<AlertCircle className="h-10 w-10" />} title="暂无统计数据" description="当前队列还没有积累足够的性能采样。" />
+                )}
+              </TabsContent>
+            </Tabs>
           )}
-          <Card>
-            <CardHeader>
-              <CardTitle>消息模拟器</CardTitle>
-              <CardDescription>
-                模拟私聊或群聊消息，选中左侧队列可自动填充目标字段
-              </CardDescription>
-            </CardHeader>
-          <CardContent>
-            <QueueSimulationPanel
-              selectedQueue={selectedQueueData ? {
-                name: selectedQueueData.name,
-                type: selectedQueueData.type,
-                userId: selectedQueueData.userId,
-                groupId: selectedQueueData.groupId,
-              } : null}
-              availableUsers={availableUserOptions}
-              availableGroups={availableGroupOptions}
-              onMessageSent={handleSimulationCompleted}
-            />
-          </CardContent>
-        </Card>
-        </div>
+        </SectionPanel>
+
+        <SectionPanel
+          className="xl:col-span-5"
+          title="消息模拟器"
+          description="模拟私聊或群聊消息，选中左侧队列后自动填充目标字段。"
+          icon={<Play className="h-4 w-4 text-primary" />}
+        >
+          <QueueSimulationPanel
+            selectedQueue={
+              selectedQueueData
+                ? {
+                    name: selectedQueueData.name,
+                    type: selectedQueueData.type,
+                    userId: selectedQueueData.userId,
+                    groupId: selectedQueueData.groupId,
+                  }
+                : null
+            }
+            availableUsers={availableUserOptions}
+            availableGroups={availableGroupOptions}
+            onMessageSent={handleSimulationCompleted}
+          />
+        </SectionPanel>
       </div>
-    </div>
+    </PageShell>
   );
 };
 

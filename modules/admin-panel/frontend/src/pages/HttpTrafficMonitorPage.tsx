@@ -1,46 +1,47 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Badge } from '../components/ui/badge';
-import { Alert, AlertDescription } from '../components/ui/alert';
-import { Checkbox } from '../components/ui/checkbox';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table';
+import { Link } from 'react-router-dom';
 import {
   Activity,
-  Search,
-  RefreshCw,
-  Download,
-  Filter,
-  Eye,
-  Clock,
-  Globe,
   AlertTriangle,
-  CheckCircle,
-  XCircle,
-  Zap,
+  Clock,
+  Download,
+  Eye,
+  Filter,
+  Globe,
   Play,
-  PlayCircle
+  PlayCircle,
+  RefreshCw,
+  Search,
+  Zap,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { BatchReplayDialog } from '../components/BatchReplayDialog';
-import type { BatchReplayResult } from '../types/traffic-replay';
-import { formatTimestamp } from '../lib/utils';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from 'recharts';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { BatchReplayDialog } from '@/components/BatchReplayDialog';
+import type { BatchReplayResult } from '@/types/traffic-replay';
+import { formatTimestamp } from '@/lib/utils';
+import { PageShell } from '@/components/console/PageShell';
+import { PageHeader } from '@/components/console/PageHeader';
+import { FilterBar } from '@/components/console/FilterBar';
+import { MetricCard } from '@/components/console/MetricCard';
+import { SectionPanel } from '@/components/console/SectionPanel';
+import { EntityCard } from '@/components/console/EntityCard';
+import { SelectionBar } from '@/components/console/SelectionBar';
+import { StatusPill } from '@/components/console/StatusPill';
 
 interface TrafficLog {
   id: number;
@@ -112,33 +113,29 @@ export function HttpTrafficMonitorPage() {
     container_name: '',
     search: '',
     start_time: '',
-    end_time: ''
+    end_time: '',
   });
   const [timeRange, setTimeRange] = useState('24h');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showBatchReplayDialog, setShowBatchReplayDialog] = useState(false);
 
-  // 获取流量记录
   const { data: trafficData, isLoading: trafficLoading, refetch: refetchTraffic } = useQuery({
     queryKey: ['traffic-logs', page, filters],
     queryFn: async () => {
       const params = new URLSearchParams({
         page: page.toString(),
         limit: '50',
-        ...Object.fromEntries(
-          Object.entries(filters).filter(([_, value]) => value !== '' && value !== 'all')
-        )
+        ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '' && value !== 'all')),
       });
 
       const response = await fetch(`/api/traffic/logs?${params}`);
       if (!response.ok) throw new Error('Failed to fetch traffic logs');
       return response.json();
     },
-    refetchInterval: 30000, // 30秒自动刷新
+    refetchInterval: 30000,
   });
 
-  // 获取统计数据
   const { data: statsData, isLoading: statsLoading, refetch: refetchStats } = useQuery({
     queryKey: ['traffic-stats', timeRange],
     queryFn: async () => {
@@ -146,12 +143,12 @@ export function HttpTrafficMonitorPage() {
       if (!response.ok) throw new Error('Failed to fetch traffic stats');
       return response.json();
     },
-    refetchInterval: 60000, // 60秒自动刷新
+    refetchInterval: 60000,
   });
 
   const handleFilterChange = (key: string, value: string) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
-    setPage(1); // 重置到第一页
+    setFilters((prev) => ({ ...prev, [key]: value }));
+    setPage(1);
   };
 
   const handleRefresh = () => {
@@ -160,54 +157,43 @@ export function HttpTrafficMonitorPage() {
   };
 
   const handleExport = async (format: 'csv' | 'json') => {
-    try {
-      const params = new URLSearchParams({
-        format,
-        range: timeRange,
-        include_body: 'false'
-      });
+    const params = new URLSearchParams({
+      format,
+      range: timeRange,
+      include_body: 'false',
+    });
 
-      const response = await fetch(`/api/traffic/export?${params}`);
-      if (!response.ok) throw new Error('Failed to export data');
+    const response = await fetch(`/api/traffic/export?${params}`);
+    if (!response.ok) throw new Error('Failed to export data');
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `http_traffic_${timeRange}_${new Date().toISOString().split('T')[0]}.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      console.error('Export failed:', error);
-    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `http_traffic_${timeRange}_${new Date().toISOString().split('T')[0]}.${format}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(anchor);
   };
 
   const getStatusBadge = (status?: number) => {
     if (!status) return null;
-
-    if (status >= 200 && status < 300) {
-      return <Badge variant="default" className="bg-green-100 text-green-800"><CheckCircle className="w-3 h-3 mr-1" />{status}</Badge>;
-    } else if (status >= 300 && status < 400) {
-      return <Badge variant="secondary">{status}</Badge>;
-    } else if (status >= 400 && status < 500) {
-      return <Badge variant="destructive" className="bg-orange-100 text-orange-800"><AlertTriangle className="w-3 h-3 mr-1" />{status}</Badge>;
-    } else if (status >= 500) {
-      return <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" />{status}</Badge>;
-    }
-    return <Badge variant="outline">{status}</Badge>;
+    if (status >= 200 && status < 300) return <StatusPill tone="success">{status}</StatusPill>;
+    if (status >= 400 && status < 500) return <StatusPill tone="warning">{status}</StatusPill>;
+    if (status >= 500) return <StatusPill tone="danger">{status}</StatusPill>;
+    return <StatusPill tone="neutral">{status}</StatusPill>;
   };
 
   const getMethodColor = (method: string) => {
-    const colors = {
-      GET: 'bg-blue-100 text-blue-800',
-      POST: 'bg-green-100 text-green-800',
-      PUT: 'bg-yellow-100 text-yellow-800',
-      DELETE: 'bg-red-100 text-red-800',
-      PATCH: 'bg-purple-100 text-purple-800'
+    const colors: Record<string, string> = {
+      GET: 'bg-sky-500/15 text-sky-300 border-sky-500/25',
+      POST: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25',
+      PUT: 'bg-amber-500/15 text-amber-300 border-amber-500/25',
+      DELETE: 'bg-rose-500/15 text-rose-300 border-rose-500/25',
+      PATCH: 'bg-violet-500/15 text-violet-300 border-violet-500/25',
     };
-    return colors[method as keyof typeof colors] || 'bg-gray-100 text-gray-800';
+    return colors[method] || 'bg-white/6 text-foreground border-white/10';
   };
 
   const formatDuration = (ms?: number) => {
@@ -227,45 +213,35 @@ export function HttpTrafficMonitorPage() {
   const logs: TrafficLog[] = trafficData?.data || [];
   const pagination = trafficData?.pagination;
 
-  // 选择处理函数
   const handleSelectAll = () => {
     if (selectedIds.size === logs.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(logs.map(log => log.id)));
+      setSelectedIds(new Set(logs.map((log) => log.id)));
     }
   };
 
   const handleToggleSelect = (id: number) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) {
-      newSet.delete(id);
-    } else {
-      newSet.add(id);
-    }
-    setSelectedIds(newSet);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
-  // 快速重放单个请求
   const handleQuickReplay = async (logId: number) => {
-    try {
-      const response = await fetch(`/api/traffic/replay/${logId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modifications: {} })
-      });
+    const response = await fetch(`/api/traffic/replay/${logId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modifications: {} }),
+    });
 
-      if (!response.ok) throw new Error('快速重放失败');
-
-      // 可选：显示成功提示
-      alert('重放成功！');
-      refetchTraffic();
-    } catch (error) {
-      alert(error instanceof Error ? error.message : '重放失败');
-    }
+    if (!response.ok) throw new Error('快速重放失败');
+    alert('重放成功！');
+    refetchTraffic();
   };
 
-  // 批量重放完成处理
   const handleBatchReplayComplete = (results: BatchReplayResult) => {
     setShowBatchReplayDialog(false);
     setSelectedIds(new Set());
@@ -273,284 +249,261 @@ export function HttpTrafficMonitorPage() {
     alert(`批量重放完成！成功: ${results.successful}, 失败: ${results.failed}`);
   };
 
-  const selectedLogs = logs.filter(log => selectedIds.has(log.id));
+  const selectedLogs = logs.filter((log) => selectedIds.has(log.id));
+  const chartData = useMemo(() => (stats?.api_types || []).slice(0, 6).map((item) => ({ name: item.api_type || 'unknown', value: item.request_count })), [stats?.api_types]);
 
   return (
-    <div className="space-y-6">
-      {/* 页面标题 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Activity className="h-6 w-6 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">HTTP流量监控</h1>
-            <p className="text-muted-foreground">实时监控容器HTTP出站流量，分析API调用模式</p>
+    <PageShell>
+      <PageHeader
+        eyebrow="Traffic Mirror"
+        title="HTTP 流量监控"
+        description="实时观察容器出站请求、AI API 分布和重放链路。视觉上采用交易终端的监控视图，移动端切为请求卡片流。"
+        icon={<Activity className="h-5 w-5" />}
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={trafficLoading || statsLoading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${(trafficLoading || statsLoading) ? 'animate-spin' : ''}`} />
+              刷新
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowFilters((value) => !value)}>
+              <Filter className="mr-2 h-4 w-4" />
+              筛选
+            </Button>
+            <Select value={timeRange} onValueChange={setTimeRange}>
+              <SelectTrigger className="w-[132px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1h">1小时</SelectItem>
+                <SelectItem value="24h">24小时</SelectItem>
+                <SelectItem value="7d">7天</SelectItem>
+                <SelectItem value="30d">30天</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
+        }
+      />
+
+      {stats && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="总请求数" value={stats.overview.total_requests.toLocaleString()} icon={<Globe className="h-5 w-5" />} />
+          <MetricCard label="AI 请求数" value={stats.overview.ai_requests.toLocaleString()} icon={<Zap className="h-5 w-5" />} tone="success" />
+          <MetricCard label="平均响应时间" value={formatDuration(stats.overview.avg_response_time)} icon={<Clock className="h-5 w-5" />} tone="warning" />
+          <MetricCard
+            label="错误率"
+            value={
+              stats.overview.total_requests > 0
+                ? `${((stats.overview.failed_requests / stats.overview.total_requests) * 100).toFixed(1)}%`
+                : '0%'
+            }
+            icon={<AlertTriangle className="h-5 w-5" />}
+            tone="danger"
+          />
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
+        <SectionPanel className="xl:col-span-7" title="API 分布" description="按 API 类型聚合当前时间窗的请求量。" icon={<Zap className="h-4 w-4 text-primary" />}>
+          <div className="h-[280px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData}>
+                <CartesianGrid stroke="rgba(148,163,184,0.10)" vertical={false} />
+                <XAxis dataKey="name" stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
+                <YAxis stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    background: 'rgba(8,15,28,0.95)',
+                    border: '1px solid rgba(148,163,184,0.12)',
+                    borderRadius: '16px',
+                  }}
+                />
+                <Bar dataKey="value" fill="hsl(var(--chart-2))" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={trafficLoading || statsLoading}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${(trafficLoading || statsLoading) ? 'animate-spin' : ''}`} />
-            刷新
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowFilters(!showFilters)}
-          >
-            <Filter className="h-4 w-4 mr-2" />
-            筛选
-          </Button>
-          <Select value={timeRange} onValueChange={setTimeRange}>
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1h">1小时</SelectItem>
-              <SelectItem value="24h">24小时</SelectItem>
-              <SelectItem value="7d">7天</SelectItem>
-              <SelectItem value="30d">30天</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        </SectionPanel>
+
+        <SectionPanel className="xl:col-span-5" title="AI API 类型分布" description="快速查看当前窗口里最主要的 AI 请求类型。" icon={<Globe className="h-4 w-4 text-primary" />}>
+          <div className="space-y-3">
+            {(stats?.api_types || []).slice(0, 6).map((api) => (
+              <div key={api.api_type} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                <div>
+                  <div className="text-sm font-medium text-foreground">{api.api_type}</div>
+                  <div className="text-xs text-muted-foreground">
+                    平均 {formatDuration(api.avg_duration)} · 错误 {api.error_count}
+                  </div>
+                </div>
+                <Badge variant="outline">{api.request_count} 次</Badge>
+              </div>
+            ))}
+          </div>
+        </SectionPanel>
       </div>
 
-      {/* 统计卡片 */}
-      {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">总请求数</p>
-                  <p className="text-2xl font-bold">{stats.overview.total_requests?.toLocaleString() || 0}</p>
-                </div>
-                <Globe className="h-8 w-8 text-blue-500" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">AI请求数</p>
-                  <p className="text-2xl font-bold text-purple-600">{stats.overview.ai_requests?.toLocaleString() || 0}</p>
-                </div>
-                <Zap className="h-8 w-8 text-purple-500" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">平均响应时间</p>
-                  <p className="text-2xl font-bold">{formatDuration(stats.overview.avg_response_time)}</p>
-                </div>
-                <Clock className="h-8 w-8 text-green-500" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">错误率</p>
-                  <p className="text-2xl font-bold text-red-600">
-                    {stats.overview.total_requests > 0
-                      ? `${((stats.overview.failed_requests / stats.overview.total_requests) * 100).toFixed(1)}%`
-                      : '0%'
-                    }
-                  </p>
-                </div>
-                <AlertTriangle className="h-8 w-8 text-red-500" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* API类型统计 */}
-      {stats?.api_types && stats.api_types.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Zap className="h-5 w-5" />
-              AI API类型分布
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {stats.api_types.map((api) => (
-                <div key={api.api_type} className="p-3 border rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <Badge variant="secondary" className="capitalize">{api.api_type}</Badge>
-                    <span className="text-sm text-muted-foreground">{api.request_count}次</span>
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    平均 {formatDuration(api.avg_duration)} • {api.error_count} 错误
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 筛选器 */}
       {showFilters && (
-        <Card>
-          <CardHeader>
-            <CardTitle>筛选条件</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              <div>
-                <label className="text-sm font-medium mb-1 block">HTTP方法</label>
-                <Select value={filters.method} onValueChange={(value) => handleFilterChange('method', value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="选择方法" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">全部</SelectItem>
-                    <SelectItem value="GET">GET</SelectItem>
-                    <SelectItem value="POST">POST</SelectItem>
-                    <SelectItem value="PUT">PUT</SelectItem>
-                    <SelectItem value="DELETE">DELETE</SelectItem>
-                    <SelectItem value="PATCH">PATCH</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-1 block">状态码</label>
-                <Select value={filters.status} onValueChange={(value) => handleFilterChange('status', value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="选择状态" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">全部</SelectItem>
-                    <SelectItem value="200">200 成功</SelectItem>
-                    <SelectItem value="400">400 请求错误</SelectItem>
-                    <SelectItem value="401">401 未授权</SelectItem>
-                    <SelectItem value="404">404 未找到</SelectItem>
-                    <SelectItem value="500">500 服务器错误</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-1 block">AI请求</label>
-                <Select value={filters.is_ai_request} onValueChange={(value) => handleFilterChange('is_ai_request', value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="选择类型" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">全部</SelectItem>
-                    <SelectItem value="true">仅AI请求</SelectItem>
-                    <SelectItem value="false">非AI请求</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-1 block">容器名称</label>
-                <Input
-                  placeholder="输入容器名称..."
-                  value={filters.container_name}
-                  onChange={(e) => handleFilterChange('container_name', e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-1 block">搜索</label>
-                <div className="relative">
-                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="搜索URL或内容..."
-                    value={filters.search}
-                    onChange={(e) => handleFilterChange('search', e.target.value)}
-                    className="pl-8"
-                  />
-                </div>
-              </div>
+        <FilterBar>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <div>
+              <label className="mb-2 block text-sm font-medium">HTTP 方法</label>
+              <Select value={filters.method} onValueChange={(value) => handleFilterChange('method', value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="选择方法" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部</SelectItem>
+                  <SelectItem value="GET">GET</SelectItem>
+                  <SelectItem value="POST">POST</SelectItem>
+                  <SelectItem value="PUT">PUT</SelectItem>
+                  <SelectItem value="DELETE">DELETE</SelectItem>
+                  <SelectItem value="PATCH">PATCH</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          </CardContent>
-        </Card>
-      )}
 
-      {/* 流量记录表格 */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              HTTP流量记录
-              {selectedIds.size > 0 && (
-                <Badge variant="secondary">
-                  已选择 {selectedIds.size} 条
-                </Badge>
-              )}
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              {selectedIds.size > 0 && (
-                <>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => setShowBatchReplayDialog(true)}
-                  >
-                    <PlayCircle className="h-4 w-4 mr-2" />
-                    批量重放
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSelectedIds(new Set())}
-                  >
-                    取消选择
-                  </Button>
-                </>
-              )}
-              <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
-                <Download className="h-4 w-4 mr-2" />
-                导出CSV
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => handleExport('json')}>
-                <Download className="h-4 w-4 mr-2" />
-                导出JSON
-              </Button>
+            <div>
+              <label className="mb-2 block text-sm font-medium">状态码</label>
+              <Select value={filters.status} onValueChange={(value) => handleFilterChange('status', value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="选择状态" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部</SelectItem>
+                  <SelectItem value="200">200 成功</SelectItem>
+                  <SelectItem value="400">400 请求错误</SelectItem>
+                  <SelectItem value="401">401 未授权</SelectItem>
+                  <SelectItem value="404">404 未找到</SelectItem>
+                  <SelectItem value="500">500 服务器错误</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">AI 请求</label>
+              <Select value={filters.is_ai_request} onValueChange={(value) => handleFilterChange('is_ai_request', value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="选择类型" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部</SelectItem>
+                  <SelectItem value="true">仅 AI 请求</SelectItem>
+                  <SelectItem value="false">非 AI 请求</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">容器名称</label>
+              <Input placeholder="输入容器名称..." value={filters.container_name} onChange={(e) => handleFilterChange('container_name', e.target.value)} />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">搜索</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input placeholder="搜索 URL 或内容..." value={filters.search} onChange={(e) => handleFilterChange('search', e.target.value)} className="pl-9" />
+              </div>
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          {trafficLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <RefreshCw className="h-6 w-6 animate-spin mr-2" />
-              <span>加载中...</span>
-            </div>
-          ) : logs.length === 0 ? (
-            <Alert>
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>
-                暂无流量记录。请检查HTTP流量监控模块是否正确配置并有流量产生。
-              </AlertDescription>
-            </Alert>
-          ) : (
+        </FilterBar>
+      )}
+
+      {selectedIds.size > 0 && (
+        <SelectionBar
+          summary={<>已选择 {selectedIds.size} 条流量记录</>}
+          actions={
             <>
+              <Button size="sm" onClick={() => setShowBatchReplayDialog(true)}>
+                <PlayCircle className="mr-2 h-4 w-4" />
+                批量重放
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
+                取消选择
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
+                <Download className="mr-2 h-4 w-4" />
+                导出 CSV
+              </Button>
+            </>
+          }
+        />
+      )}
+
+      <SectionPanel
+        title="HTTP 流量记录"
+        description="移动端展示为请求卡片，桌面端保留表格和批量勾选。"
+        icon={<Activity className="h-4 w-4 text-primary" />}
+        action={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
+              <Download className="mr-2 h-4 w-4" />
+              CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleExport('json')}>
+              <Download className="mr-2 h-4 w-4" />
+              JSON
+            </Button>
+          </div>
+        }
+      >
+        {trafficLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <RefreshCw className="mr-2 h-6 w-6 animate-spin" />
+            <span>加载中...</span>
+          </div>
+        ) : logs.length === 0 ? (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>暂无流量记录。请检查 HTTP 流量监控模块是否正确配置并有流量产生。</AlertDescription>
+          </Alert>
+        ) : (
+          <>
+            <div className="space-y-4 md:hidden">
+              {logs.map((log) => (
+                <EntityCard
+                  key={log.id}
+                  title={log.url}
+                  subtitle={formatTimestamp(log.timestamp)}
+                  badges={
+                    <>
+                      <Checkbox checked={selectedIds.has(log.id)} onCheckedChange={() => handleToggleSelect(log.id)} />
+                      <Badge className={`border ${getMethodColor(log.method)}`}>{log.method}</Badge>
+                      {getStatusBadge(log.response_status)}
+                    </>
+                  }
+                  meta={
+                    <>
+                      <span>{log.container_name || 'qqbot-core'}</span>
+                      <span>{formatDuration(log.duration_ms)}</span>
+                      <span>↑ {formatBytes(log.request_size)} / ↓ {formatBytes(log.response_size)}</span>
+                    </>
+                  }
+                >
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {Boolean(log.is_ai_request) && <Zap className="h-3 w-3 text-primary" />}
+                    <span>{log.api_type || '普通请求'}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" size="sm" onClick={() => handleQuickReplay(log.id)}>
+                      <Play className="mr-2 h-4 w-4" />
+                      快速重放
+                    </Button>
+                    <Link to={`/traffic/${log.id}`}>
+                      <Button variant="outline" size="sm" className="w-full">
+                        <Eye className="mr-2 h-4 w-4" />
+                        查看详情
+                      </Button>
+                    </Link>
+                  </div>
+                </EntityCard>
+              ))}
+            </div>
+
+            <div className="hidden md:block">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-12">
-                      <Checkbox
-                        checked={selectedIds.size > 0 && selectedIds.size === logs.length}
-                        onCheckedChange={handleSelectAll}
-                      />
+                      <Checkbox checked={selectedIds.size > 0 && selectedIds.size === logs.length} onCheckedChange={handleSelectAll} />
                     </TableHead>
                     <TableHead>时间</TableHead>
                     <TableHead>容器</TableHead>
@@ -567,39 +520,26 @@ export function HttpTrafficMonitorPage() {
                   {logs.map((log) => (
                     <TableRow key={log.id}>
                       <TableCell>
-                        <Checkbox
-                          checked={selectedIds.has(log.id)}
-                          onCheckedChange={() => handleToggleSelect(log.id)}
-                        />
+                        <Checkbox checked={selectedIds.has(log.id)} onCheckedChange={() => handleToggleSelect(log.id)} />
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {formatTimestamp(log.timestamp)}
-                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{formatTimestamp(log.timestamp)}</TableCell>
                       <TableCell className="text-xs">
-                        <Badge variant="outline" className="text-xs">
-                          {log.container_name || 'qqbot-core'}
-                        </Badge>
+                        <Badge variant="outline">{log.container_name || 'qqbot-core'}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge className={getMethodColor(log.method)}>{log.method}</Badge>
+                        <Badge className={`border ${getMethodColor(log.method)}`}>{log.method}</Badge>
                       </TableCell>
                       <TableCell className="max-w-xs">
                         <div className="flex items-center gap-2">
-                          {Boolean(log.is_ai_request) && <Zap className="h-3 w-3 text-purple-500" />}
-                          <span className="truncate" title={log.url}>{log.url}</span>
+                          {Boolean(log.is_ai_request) && <Zap className="h-3 w-3 text-primary" />}
+                          <span className="truncate" title={log.url}>
+                            {log.url}
+                          </span>
                         </div>
                       </TableCell>
                       <TableCell>{getStatusBadge(log.response_status)}</TableCell>
-                      <TableCell className="text-xs">
-                        {formatDuration(log.duration_ms)}
-                      </TableCell>
-                      <TableCell>
-                        {log.api_type ? (
-                          <Badge variant="secondary" className="capitalize">{log.api_type}</Badge>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
+                      <TableCell className="text-xs">{formatDuration(log.duration_ms)}</TableCell>
+                      <TableCell>{log.api_type ? <Badge variant="outline">{log.api_type}</Badge> : <span className="text-muted-foreground">-</span>}</TableCell>
                       <TableCell className="text-xs">
                         <div>
                           <div>↑ {formatBytes(log.request_size)}</div>
@@ -607,13 +547,8 @@ export function HttpTrafficMonitorPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleQuickReplay(log.id)}
-                            title="快速重放"
-                          >
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => handleQuickReplay(log.id)} title="快速重放">
                             <Play className="h-4 w-4" />
                           </Button>
                           <Link to={`/traffic/${log.id}`}>
@@ -627,48 +562,36 @@ export function HttpTrafficMonitorPage() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
 
-              {/* 分页 */}
-              {pagination && pagination.pages > 1 && (
-                <div className="flex items-center justify-between mt-4">
-                  <div className="text-sm text-muted-foreground">
-                    显示 {((page - 1) * 50) + 1} 到 {Math.min(page * 50, pagination.total)} 条，共 {pagination.total} 条记录
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPage(page - 1)}
-                      disabled={page <= 1}
-                    >
-                      上一页
-                    </Button>
-                    <span className="text-sm">
-                      {page} / {pagination.pages}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPage(page + 1)}
-                      disabled={page >= pagination.pages}
-                    >
-                      下一页
-                    </Button>
-                  </div>
+            {pagination && pagination.pages > 1 && (
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm text-muted-foreground">
+                  显示 {((page - 1) * 50) + 1} 到 {Math.min(page * 50, pagination.total)} 条，共 {pagination.total} 条记录
                 </div>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setPage(page - 1)} disabled={page <= 1}>
+                    上一页
+                  </Button>
+                  <StatusPill tone="info">
+                    {page} / {pagination.pages}
+                  </StatusPill>
+                  <Button variant="outline" size="sm" onClick={() => setPage(page + 1)} disabled={page >= pagination.pages}>
+                    下一页
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </SectionPanel>
 
-      {/* 批量重放对话框 */}
       <BatchReplayDialog
         selectedLogs={selectedLogs}
         open={showBatchReplayDialog}
         onClose={() => setShowBatchReplayDialog(false)}
         onComplete={handleBatchReplayComplete}
       />
-    </div>
+    </PageShell>
   );
 }
