@@ -42,4 +42,4 @@
 - Manage the transparent proxy via `python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables`.
 - Keep NapCat config under `resource/napcat_config/` and local runtime data out of git.
 - Queue management APIs live under `admin-panel/backend` at `/api/queue-monitor/*`.
-- Local sudo/root credentials for this workstation are out-of-band operational data and must never be written into tracked repository files.
+- Local sudo/root credentials for this workstation are out-of-band operational data and must never be written into tracked repository files; when they must be consulted locally, read `/home/liahua/.qqbot-local/credentials.md` on this workstation instead of recording the values in-repo.
