@@ -13,66 +13,63 @@ const dbConfig = {
 
 async function checkModelConfig() {
   let connection;
-  
+
   try {
     connection = await mysql.createConnection(dbConfig);
     console.log('✅ 数据库连接成功');
-    
-    // 检查agent_prompts表中的模型配置
-    console.log('\n🔍 检查agent_prompts表中的模型配置:');
+
+    console.log('\n🔍 检查 agent_prompts 表中的模型配置:');
     const [prompts] = await connection.execute(`
       SELECT agent_type, prompt_name, model_name, is_active, created_at
-      FROM agent_prompts 
+      FROM agent_prompts
       WHERE is_active = TRUE
       ORDER BY agent_type, prompt_name
     `);
-    
-    console.log(`📊 找到 ${prompts.length} 个活跃的agent prompt配置:`);
-    prompts.forEach(prompt => {
+
+    console.log(`📊 找到 ${prompts.length} 个活跃的 agent prompt 配置:`);
+    prompts.forEach((prompt) => {
       console.log(`   ${prompt.agent_type}/${prompt.prompt_name}: ${prompt.model_name || 'NULL'}`);
     });
-    
-    // 检查系统配置文件中的默认模型
-    console.log('\n🔍 检查最近conversation中使用的模型:');
-    const [recentConvs] = await connection.execute(`
-      SELECT model_name, COUNT(*) as count
-      FROM conversations 
+
+    console.log('\n🔍 检查最近 conversation 中使用的模型:');
+    const [recentConversations] = await connection.execute(`
+      SELECT model_name, COUNT(*) AS count
+      FROM conversations
       WHERE model_name IS NOT NULL
         AND created_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
       GROUP BY model_name
       ORDER BY count DESC
     `);
-    
-    if (recentConvs.length > 0) {
-      console.log('📊 最近2小时使用的模型:');
-      recentConvs.forEach(conv => {
-        console.log(`   ${conv.model_name}: ${conv.count} 次`);
+
+    if (recentConversations.length > 0) {
+      console.log('📊 最近 2 小时使用的模型:');
+      recentConversations.forEach((conversation) => {
+        console.log(`   ${conversation.model_name}: ${conversation.count} 次`);
       });
     } else {
-      console.log('⚠️  最近2小时没有使用模型的对话记录');
+      console.log('⚠️ 最近 2 小时没有使用模型的对话记录');
     }
-    
-    // 检查LLM traces中的模型
-    console.log('\n🔍 检查llm_call_traces表中的模型使用:');
-    const [traces] = await connection.execute(`
-      SELECT model_name, COUNT(*) as count
-      FROM llm_call_traces 
-      WHERE created_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
+
+    console.log('\n🔍 检查 llm_call_logs 表中的模型使用:');
+    const [llmLogs] = await connection.execute(`
+      SELECT model_name, COUNT(*) AS count
+      FROM llm_call_logs
+      WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
       GROUP BY model_name
       ORDER BY count DESC
     `);
-    
-    if (traces.length > 0) {
-      console.log('📊 最近2小时LLM trace中的模型:');
-      traces.forEach(trace => {
-        console.log(`   ${trace.model_name}: ${trace.count} 次`);
+
+    if (llmLogs.length > 0) {
+      console.log('📊 最近 2 小时 llm_call_logs 中的模型:');
+      llmLogs.forEach((log) => {
+        console.log(`   ${log.model_name}: ${log.count} 次`);
       });
     } else {
-      console.log('⚠️  最近2小时没有LLM trace记录');
+      console.log('⚠️ 最近 2 小时没有 llm_call_logs 记录');
     }
-    
   } catch (error) {
     console.error('❌ 错误:', error.message);
+    process.exitCode = 1;
   } finally {
     if (connection) {
       await connection.end();

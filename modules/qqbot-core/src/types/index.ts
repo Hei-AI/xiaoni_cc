@@ -205,40 +205,6 @@ export interface ConversationBatch {
   updated_at: Date;
 }
 
-// LLM 调用追踪相关类型
-export interface LLMCallTrace {
-  id: string;
-  session_id: string;
-  conversation_id?: string;
-  call_sequence: number;
-  engine_type: 'decision' | 'context' | 'style' | 'persona' | 'main_chat' | 'requirement';
-  model_name?: string;
-  request?: string;
-  response?: string;
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-  response_time: number;
-  timestamp: Date;
-  success: boolean;
-  error_message?: string;
-  created_at?: Date;
-  gemini_request?: any;
-  gemini_response?: any;
-}
-
-// Session LLM 分析结果
-export interface SessionLLMAnalysis {
-  session_id: string;
-  total_calls: number;
-  total_tokens: number;
-  total_cost_estimate: number;
-  average_response_time: number;
-  engine_breakdown: Record<string, number>;
-  call_timeline: LLMCallTrace[];
-  success_rate: number;
-}
-
 export interface RequirementData {
   id: string;
   user_id: number;

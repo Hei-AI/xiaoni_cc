@@ -93,10 +93,23 @@ python3 scripts/start_modules.py start
 python3 scripts/start_modules.py status
 ```
 
+## 部署约定
+
+这里有两条不同链路，必须区分：
+
+- 本地开发链路：`npm run deploy:local`
+  - 使用 `scripts/start_modules.py`
+  - 前端直接跑在本机 `3003`
+  - 适合本地联调，不会更新公网管理端
+
+- 公网管理端链路：`npm run deploy`
+  - 等价于 `npm run deploy:admin-public`
+  - 会重建 Docker 的 `admin-frontend`，并重启 `admin-expose-proxy`
+  - 这是 `qqbot-admin.liahuas.top` 实际使用的链路
+  - 脚本会自动校验 `admin-backend` 健康接口和本机 `3903` 网关状态
+
 ## 文档
 
 - [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)
 - [docs/ROADMAP.md](docs/ROADMAP.md)
 - [DOCKER.md](DOCKER.md)
-
-历史设计文档见 `docs/archive/`。

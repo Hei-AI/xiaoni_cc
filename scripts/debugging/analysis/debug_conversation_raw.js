@@ -13,21 +13,21 @@ const dbConfig = {
 
 async function debugConversationRaw() {
   let connection;
-  
+
   try {
     connection = await mysql.createConnection(dbConfig);
     console.log('✅ 数据库连接成功');
-    
+
     const conversationId = '3c15f988-6ff9-4924-ba7c-fbaccf18ef39';
-    
-    // 检查conversations表中的记录
-    console.log('\n🔍 检查conversations表中的原始记录:');
-    const [conversations] = await connection.execute(`
-      SELECT id, model_name, status, created_at, raw_request, raw_response
-      FROM conversations 
-      WHERE id = ?
-    `, [conversationId]);
-    
+
+    console.log('\n🔍 检查 conversations 表中的原始记录:');
+    const [conversations] = await connection.execute(
+      `SELECT id, model_name, status, created_at, raw_request, raw_response
+       FROM conversations
+       WHERE id = ?`,
+      [conversationId]
+    );
+
     if (conversations.length > 0) {
       const conv = conversations[0];
       console.log('📊 对话记录:');
@@ -40,26 +40,25 @@ async function debugConversationRaw() {
     } else {
       console.log('⚠️ 没有找到对话记录');
     }
-    
-    // 检查llm_call_traces表中的记录
-    console.log('\n🔍 检查llm_call_traces表中的原始记录:');
-    const [traces] = await connection.execute(`
-      SELECT id, model_name, engine_type, prompt_tokens, completion_tokens, success, created_at
-      FROM llm_call_traces 
-      WHERE conversation_id = ?
-      ORDER BY created_at DESC
-    `, [conversationId]);
-    
-    if (traces.length > 0) {
-      console.log('📊 找到LLM调用记录:');
-      traces.forEach((trace, idx) => {
-        console.log(`   记录 ${idx + 1}: 模型=${trace.model_name}, 引擎=${trace.engine_type}, 成功=${trace.success ? '是' : '否'}`);
-        console.log(`             Token使用: ${trace.prompt_tokens}+${trace.completion_tokens}, 时间=${trace.created_at}`);
+
+    console.log('\n🔍 检查 llm_call_logs 表中的原始记录:');
+    const [logs] = await connection.execute(
+      `SELECT id, model_name, agent_type, input_tokens, output_tokens, status, timestamp
+       FROM llm_call_logs
+       WHERE conversation_id = ?
+       ORDER BY timestamp DESC`,
+      [conversationId]
+    );
+
+    if (logs.length > 0) {
+      console.log('📊 找到 LLM 调用记录:');
+      logs.forEach((log, idx) => {
+        console.log(`   记录 ${idx + 1}: 模型=${log.model_name}, Agent=${log.agent_type}, 状态=${log.status}`);
+        console.log(`             Token使用: ${log.input_tokens || 0}+${log.output_tokens || 0}, 时间=${log.timestamp}`);
       });
     } else {
-      console.log('⚠️ 没有找到LLM调用记录');
+      console.log('⚠️ 没有找到 LLM 调用记录');
     }
-    
   } catch (error) {
     console.error('❌ 错误:', error.message);
   } finally {
