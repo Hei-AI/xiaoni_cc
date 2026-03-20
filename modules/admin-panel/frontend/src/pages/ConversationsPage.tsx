@@ -111,7 +111,7 @@ export const ConversationsPage: React.FC = () => {
                   setItemsPerPage(Number(e.target.value));
                   setCurrentPage(1);
                 }}
-                className="h-10 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-foreground"
+                className="h-9 rounded-lg border border-input bg-card px-3 text-sm text-foreground shadow-sm"
               >
                 <option value={10}>10 / 页</option>
                 <option value={20}>20 / 页</option>
@@ -148,7 +148,7 @@ export const ConversationsPage: React.FC = () => {
         ) : isLoading ? (
           <div className="grid gap-4 lg:grid-cols-2">
             {Array.from({ length: 6 }).map((_, index) => (
-              <div key={index} className="terminal-card h-44 animate-pulse rounded-[1.4rem] bg-white/[0.04]" />
+              <div key={index} className="terminal-card h-44 animate-pulse rounded-xl bg-muted/60" />
             ))}
           </div>
         ) : conversations.length === 0 ? (
@@ -184,12 +184,12 @@ export const ConversationsPage: React.FC = () => {
                   </>
                 }
               >
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Question</p>
+                <div className="rounded-lg border border-border bg-muted/40 p-3">
+                  <p className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">Question</p>
                   <p className="mt-2 line-clamp-3 text-sm text-foreground">{conversation.user_message}</p>
                 </div>
-                <div className="rounded-2xl border border-primary/10 bg-primary/5 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Answer</p>
+                <div className="rounded-lg border border-primary/15 bg-primary/5 p-3">
+                  <p className="text-[11px] uppercase tracking-[0.08em] text-primary">Answer</p>
                   <p className="mt-2 line-clamp-4 text-sm text-foreground">{conversation.ai_response || '暂无 AI 回复'}</p>
                 </div>
               </EntityCard>

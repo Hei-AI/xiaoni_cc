@@ -219,7 +219,7 @@ export const GroupManagementPage: React.FC = () => {
         </div>
 
         {showFilters && (
-          <div className="mt-4 flex flex-wrap gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm">
+          <div className="mt-4 flex flex-wrap gap-4 rounded-lg border border-border bg-muted/45 p-4 text-sm">
             <label className="flex items-center gap-2">
               <Checkbox
                 checked={filters.status === 'active'}
@@ -254,7 +254,7 @@ export const GroupManagementPage: React.FC = () => {
         ) : isLoading ? (
           <div className="grid gap-4 lg:grid-cols-2">
             {Array.from({ length: 6 }).map((_, index) => (
-              <div key={index} className="terminal-card h-40 animate-pulse rounded-[1.4rem] bg-white/[0.04]" />
+              <div key={index} className="terminal-card h-40 animate-pulse rounded-xl bg-muted/60" />
             ))}
           </div>
         ) : rows.length === 0 ? (

@@ -22,30 +22,30 @@ export function PageHeader({
   className,
 }: PageHeaderProps) {
   return (
-    <div className={cn('flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between', className)}>
+    <div className={cn('flex flex-col gap-3 border-b border-border pb-4 lg:flex-row lg:items-end lg:justify-between', className)}>
       <div className="min-w-0">
         {eyebrow && (
-          <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.26em] text-primary">
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             <span className="status-dot bg-primary" />
             <span>{eyebrow}</span>
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           {icon && (
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 text-primary shadow-[0_0_28px_-14px_hsl(var(--primary))]">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted/70 text-primary">
               {icon}
             </div>
           )}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold text-foreground sm:text-3xl">{title}</h1>
+              <h1 className="text-[1.9rem] font-semibold text-foreground">{title}</h1>
               {badge ?? null}
             </div>
-            {description && <p className="mt-1 max-w-3xl text-sm text-muted-foreground sm:text-base">{description}</p>}
+            {description && <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>}
           </div>
         </div>
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2 lg:justify-end">{actions}</div>}
     </div>
   );
 }

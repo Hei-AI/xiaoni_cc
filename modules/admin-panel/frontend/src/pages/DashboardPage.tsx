@@ -121,17 +121,17 @@ export const DashboardPage: React.FC = () => {
       <PageHeader
         eyebrow="Exchange Ops"
         title="QQ Bot 指挥台"
-        description="用交易终端的方式看机器人：核心吞吐、AI 响应、健康状态和最近事件都压在一屏里。"
+        description="统一查看机器人流量、健康状态、AI 响应与最近事件。"
         icon={<TrendingUp className="h-5 w-5" />}
         badge={<PageHeaderBadge>{totalConversations.toLocaleString()} Records</PageHeaderBadge>}
         actions={
           <>
             <Button variant="outline" size="sm" onClick={() => conversationsQuery.refetch()} disabled={conversationsLoading}>
               <RefreshCw className={`mr-2 h-4 w-4 ${conversationsLoading ? 'animate-spin' : ''}`} />
-              刷新数据
+              刷新
             </Button>
             <Button size="sm" onClick={() => setShowAll((value) => !value)}>
-              {showAll ? '压缩面板' : '展开流'}
+              {showAll ? '收起' : '展开'}
             </Button>
           </>
         }
@@ -195,9 +195,10 @@ export const DashboardPage: React.FC = () => {
                 <YAxis stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
                 <Tooltip
                   contentStyle={{
-                    background: 'rgba(8,15,28,0.95)',
-                    border: '1px solid rgba(148,163,184,0.12)',
-                    borderRadius: '16px',
+                    background: 'rgba(255,255,255,0.98)',
+                    border: '1px solid rgba(203,213,225,0.9)',
+                    borderRadius: '12px',
+                    boxShadow: '0 10px 30px -18px rgba(15,23,42,0.28)',
                   }}
                 />
                 <Area
@@ -226,9 +227,10 @@ export const DashboardPage: React.FC = () => {
                 <YAxis stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
                 <Tooltip
                   contentStyle={{
-                    background: 'rgba(8,15,28,0.95)',
-                    border: '1px solid rgba(148,163,184,0.12)',
-                    borderRadius: '16px',
+                    background: 'rgba(255,255,255,0.98)',
+                    border: '1px solid rgba(203,213,225,0.9)',
+                    borderRadius: '12px',
+                    boxShadow: '0 10px 30px -18px rgba(15,23,42,0.28)',
                   }}
                 />
                 <Bar dataKey="value" fill="hsl(var(--chart-2))" radius={[8, 8, 0, 0]} />
@@ -273,7 +275,7 @@ export const DashboardPage: React.FC = () => {
           ) : conversationsLoading ? (
             <div className="grid gap-4 lg:grid-cols-2">
               {Array.from({ length: showAll ? 6 : 4 }).map((_, index) => (
-                <div key={index} className="terminal-card h-40 animate-pulse rounded-[1.4rem] bg-white/[0.04]" />
+                <div key={index} className="terminal-card h-40 animate-pulse rounded-xl bg-muted/60" />
               ))}
             </div>
           ) : conversations.length === 0 ? (
@@ -312,12 +314,12 @@ export const DashboardPage: React.FC = () => {
                     </>
                   }
                 >
-                  <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">USER</p>
+                  <div className="rounded-lg border border-border bg-muted/40 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">User</p>
                     <p className="mt-2 line-clamp-2 text-sm text-foreground">{conversation.user_message}</p>
                   </div>
-                  <div className="rounded-2xl border border-primary/10 bg-primary/5 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-primary/80">BOT</p>
+                  <div className="rounded-lg border border-primary/15 bg-primary/5 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-primary">Bot</p>
                     <p className="mt-2 line-clamp-3 text-sm text-foreground">{conversation.ai_response || '暂无 AI 回复'}</p>
                   </div>
                 </EntityCard>

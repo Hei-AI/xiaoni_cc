@@ -210,13 +210,13 @@ export function HttpTrafficDetailPage() {
 
   const getMethodColor = (method: string) => {
     const colors = {
-      GET: 'border border-sky-500/25 bg-sky-500/15 text-sky-300',
-      POST: 'border border-emerald-500/25 bg-emerald-500/15 text-emerald-300',
-      PUT: 'border border-amber-500/25 bg-amber-500/15 text-amber-300',
-      DELETE: 'border border-rose-500/25 bg-rose-500/15 text-rose-300',
-      PATCH: 'border border-violet-500/25 bg-violet-500/15 text-violet-300'
+      GET: 'border border-sky-500/20 bg-sky-500/10 text-sky-700',
+      POST: 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-700',
+      PUT: 'border border-amber-500/20 bg-amber-500/10 text-amber-700',
+      DELETE: 'border border-rose-500/20 bg-rose-500/10 text-rose-700',
+      PATCH: 'border border-violet-500/20 bg-violet-500/10 text-violet-700'
     };
-    return colors[method as keyof typeof colors] || 'border border-white/10 bg-white/6 text-foreground';
+    return colors[method as keyof typeof colors] || 'border border-border bg-muted/60 text-foreground';
   };
 
   const formatDuration = (ms?: number) => {

@@ -28,15 +28,15 @@ export function MetricCard({
 }: MetricCardProps) {
   return (
     <Card className={cn('surface-grid overflow-hidden', className)}>
-      <CardContent className="p-4 sm:p-5">
+      <CardContent className="p-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-            <div className="mt-3 text-2xl font-semibold text-foreground sm:text-3xl">{value}</div>
-            {detail && <div className="mt-2 text-sm text-muted-foreground">{detail}</div>}
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+            <div className="mt-2 text-[2rem] font-semibold leading-none text-foreground">{value}</div>
+            {detail && <div className="mt-2 text-sm leading-5 text-muted-foreground">{detail}</div>}
           </div>
           {icon && (
-            <div className={cn('flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-white/6', toneClasses[tone])}>
+            <div className={cn('flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-border/90 bg-card/90', toneClasses[tone])}>
               {icon}
             </div>
           )}

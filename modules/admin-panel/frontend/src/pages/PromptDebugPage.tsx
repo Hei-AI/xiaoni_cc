@@ -564,15 +564,15 @@ export const PromptDebugPage: React.FC = () => {
                         {/* 消息内容 */}
                         <div className={`rounded-lg p-3 ${
                           message.role === 'user'
-                            ? 'bg-primary/20 text-foreground border border-primary/20'
-                            : 'border border-white/8 bg-white/[0.04] text-foreground'
+                            ? 'border border-primary/15 bg-primary/10 text-foreground'
+                            : 'border border-border bg-muted/45 text-foreground'
                         }`}>
                           {editingMessageId === message.id ? (
                             <div className="space-y-2">
                               <Textarea
                                 value={editingContent}
                                 onChange={(e) => setEditingContent(e.target.value)}
-                                className="min-h-[60px] bg-black/20 text-sm text-foreground"
+                                className="min-h-[60px] text-sm text-foreground"
                                 autoFocus
                               />
                               <div className="flex gap-2">
@@ -599,7 +599,7 @@ export const PromptDebugPage: React.FC = () => {
 
                           {/* 元数据 */}
                           {message.metadata && !editingMessageId && (
-                            <div className="mt-2 border-t border-white/10 pt-2">
+                            <div className="mt-2 border-t border-border pt-2">
                               <div className="text-xs opacity-75 space-x-4">
                                 {message.metadata.model && (
                                   <span>模型: {message.metadata.model}</span>
@@ -622,7 +622,7 @@ export const PromptDebugPage: React.FC = () => {
 
                       <div className={`flex-shrink-0 ${message.role === 'user' ? 'order-1' : 'order-2'}`}>
                         <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
-                          message.role === 'user' ? 'bg-primary/20' : 'bg-white/8'
+                          message.role === 'user' ? 'bg-primary/10' : 'bg-muted'
                         }`}>
                           {message.role === 'user' ? (
                             <User className="h-4 w-4 text-primary" />
@@ -676,8 +676,8 @@ export const PromptDebugPage: React.FC = () => {
 
       {/* 保存会话对话框 */}
       {showSaveDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-md rounded-[1.4rem] border border-white/10 bg-popover/95 p-6 shadow-[0_20px_60px_-30px_rgba(2,6,23,0.95)]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/18 backdrop-blur-[1px]">
+          <div className="mx-4 w-full max-w-md rounded-xl border border-border bg-popover p-6 shadow-[0_24px_60px_-32px_rgba(15,23,42,0.35)]">
             <h3 className="text-lg font-semibold mb-4">保存调试会话</h3>
             <div className="space-y-4">
               <div>

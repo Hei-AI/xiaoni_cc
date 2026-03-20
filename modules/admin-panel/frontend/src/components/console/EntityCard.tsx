@@ -26,14 +26,14 @@ export function EntityCard({
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <div className="truncate text-base font-semibold text-foreground">{title}</div>
-            {subtitle && <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div>}
+            <div className="truncate text-sm font-semibold text-foreground sm:text-base">{title}</div>
+            {subtitle && <div className="mt-1 text-sm leading-6 text-muted-foreground">{subtitle}</div>}
           </div>
           {action}
         </div>
         {badges && <div className="mt-3 flex flex-wrap gap-2">{badges}</div>}
         {children && <div className="mt-4 space-y-3">{children}</div>}
-        {meta && <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">{meta}</div>}
+        {meta && <div className="mt-4 border-t border-border pt-3 text-xs text-muted-foreground"><div className="flex flex-wrap items-center gap-x-4 gap-y-2">{meta}</div></div>}
       </CardContent>
     </Card>
   );

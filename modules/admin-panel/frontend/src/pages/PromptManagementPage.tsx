@@ -301,7 +301,7 @@ export const PromptManagementPage: React.FC = () => {
         </div>
 
         {showFilters && (
-          <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mt-4 rounded-lg border border-border bg-muted/50 p-4">
             <Button
               variant="outline"
               size="sm"
@@ -347,7 +347,7 @@ export const PromptManagementPage: React.FC = () => {
         ) : isLoading ? (
           <div className="grid gap-4 lg:grid-cols-2">
             {Array.from({ length: 6 }).map((_, index) => (
-              <div key={index} className="terminal-card h-40 animate-pulse rounded-[1.4rem] bg-white/[0.04]" />
+              <div key={index} className="terminal-card h-40 animate-pulse rounded-xl bg-muted/60" />
             ))}
           </div>
         ) : rows.length === 0 ? (
@@ -378,7 +378,7 @@ export const PromptManagementPage: React.FC = () => {
                     </>
                   }
                 >
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm text-muted-foreground">
+                  <div className="rounded-lg border border-border bg-muted/45 p-3 text-sm text-muted-foreground">
                     {parseSystemInstructions(prompt.system_instructions).slice(0, 120)}
                     {parseSystemInstructions(prompt.system_instructions).length > 120 ? '...' : ''}
                   </div>

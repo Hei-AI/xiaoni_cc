@@ -10,7 +10,7 @@ interface FilterBarProps {
 export function FilterBar({ children, className }: FilterBarProps) {
   return (
     <Card className={cn('overflow-hidden', className)}>
-      <CardContent className="p-4 sm:p-5">{children}</CardContent>
+      <CardContent className="p-4">{children}</CardContent>
     </Card>
   );
 }

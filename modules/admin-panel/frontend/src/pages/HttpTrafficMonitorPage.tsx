@@ -187,13 +187,13 @@ export function HttpTrafficMonitorPage() {
 
   const getMethodColor = (method: string) => {
     const colors: Record<string, string> = {
-      GET: 'bg-sky-500/15 text-sky-300 border-sky-500/25',
-      POST: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25',
-      PUT: 'bg-amber-500/15 text-amber-300 border-amber-500/25',
-      DELETE: 'bg-rose-500/15 text-rose-300 border-rose-500/25',
-      PATCH: 'bg-violet-500/15 text-violet-300 border-violet-500/25',
+      GET: 'bg-sky-500/10 text-sky-700 border-sky-500/20',
+      POST: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20',
+      PUT: 'bg-amber-500/10 text-amber-700 border-amber-500/20',
+      DELETE: 'bg-rose-500/10 text-rose-700 border-rose-500/20',
+      PATCH: 'bg-violet-500/10 text-violet-700 border-violet-500/20',
     };
-    return colors[method] || 'bg-white/6 text-foreground border-white/10';
+    return colors[method] || 'bg-muted/60 text-foreground border-border';
   };
 
   const formatDuration = (ms?: number) => {
@@ -312,9 +312,10 @@ export function HttpTrafficMonitorPage() {
                 <YAxis stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
                 <Tooltip
                   contentStyle={{
-                    background: 'rgba(8,15,28,0.95)',
-                    border: '1px solid rgba(148,163,184,0.12)',
-                    borderRadius: '16px',
+                    background: 'rgba(255,255,255,0.98)',
+                    border: '1px solid rgba(203,213,225,0.9)',
+                    borderRadius: '12px',
+                    boxShadow: '0 10px 30px -18px rgba(15,23,42,0.28)',
                   }}
                 />
                 <Bar dataKey="value" fill="hsl(var(--chart-2))" radius={[8, 8, 0, 0]} />
@@ -326,7 +327,7 @@ export function HttpTrafficMonitorPage() {
         <SectionPanel className="xl:col-span-5" title="AI API 类型分布" description="快速查看当前窗口里最主要的 AI 请求类型。" icon={<Globe className="h-4 w-4 text-primary" />}>
           <div className="space-y-3">
             {(stats?.api_types || []).slice(0, 6).map((api) => (
-              <div key={api.api_type} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+              <div key={api.api_type} className="flex items-center justify-between rounded-lg border border-border bg-muted/45 px-4 py-3">
                 <div>
                   <div className="text-sm font-medium text-foreground">{api.api_type}</div>
                   <div className="text-xs text-muted-foreground">

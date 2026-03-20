@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -6,34 +6,35 @@
 
 @layer base {
   :root {
-    color-scheme: dark;
-    --background: 224 35% 8%;
-    --foreground: 210 33% 96%;
-    --card: 223 31% 12%;
-    --card-foreground: 210 33% 97%;
-    --popover: 223 34% 11%;
-    --popover-foreground: 210 33% 97%;
-    --primary: 174 81% 60%;
-    --primary-foreground: 220 35% 8%;
-    --secondary: 223 23% 18%;
-    --secondary-foreground: 210 33% 96%;
-    --muted: 222 22% 16%;
-    --muted-foreground: 216 18% 69%;
-    --accent: 220 24% 18%;
-    --accent-foreground: 174 81% 74%;
-    --destructive: 347 88% 63%;
+    color-scheme: light;
+    --background: 36 33% 97%;
+    --foreground: 215 30% 18%;
+    --card: 0 0% 100%;
+    --card-foreground: 215 30% 18%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 30% 18%;
+    --primary: 22 96% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 29% 96%;
+    --secondary-foreground: 215 25% 27%;
+    --muted: 210 25% 95%;
+    --muted-foreground: 215 14% 44%;
+    --accent: 214 100% 97%;
+    --accent-foreground: 215 30% 18%;
+    --destructive: 3 78% 57%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214 28% 22%;
-    --input: 216 25% 18%;
-    --ring: 174 81% 60%;
-    --radius: 1rem;
-    --success: 142 76% 56%;
-    --warning: 39 96% 58%;
-    --chart-1: 174 81% 60%;
-    --chart-2: 205 100% 66%;
-    --chart-3: 142 76% 56%;
-    --chart-4: 39 96% 58%;
-    --chart-5: 347 88% 63%;
+    --border: 216 22% 88%;
+    --input: 216 22% 88%;
+    --ring: 22 96% 56%;
+    --radius: 0.75rem;
+    --success: 147 63% 38%;
+    --warning: 38 92% 50%;
+    --info: 216 82% 56%;
+    --chart-1: 22 96% 56%;
+    --chart-2: 216 82% 56%;
+    --chart-3: 147 63% 38%;
+    --chart-4: 38 92% 50%;
+    --chart-5: 3 78% 57%;
   }
 
   * {
@@ -46,12 +47,10 @@
 
   body {
     @apply min-h-full overflow-x-hidden bg-background text-foreground antialiased;
-    font-family: "IBM Plex Sans", sans-serif;
-    background-image:
-      radial-gradient(circle at top, rgba(34, 211, 238, 0.12), transparent 28%),
-      radial-gradient(circle at 80% 0%, rgba(16, 185, 129, 0.10), transparent 24%),
-      linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(2, 6, 23, 1));
-    background-attachment: fixed;
+    font-family: "Public Sans", sans-serif;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.75)),
+      linear-gradient(180deg, #f7f5f2 0%, #f4f2ef 100%);
   }
 
   h1,
@@ -60,40 +59,36 @@
   h4,
   h5,
   h6 {
-    font-family: "Space Grotesk", sans-serif;
-    letter-spacing: -0.02em;
+    font-family: "Public Sans", sans-serif;
+    letter-spacing: -0.03em;
   }
 
   code,
   pre,
   .font-mono {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: "JetBrains Mono", monospace;
   }
 
   ::selection {
-    background: rgba(45, 212, 191, 0.24);
+    background: rgba(248, 103, 34, 0.18);
     color: hsl(var(--foreground));
   }
 }
 
 @layer components {
   .app-shell {
-    @apply min-h-screen;
-    background-image:
-      linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
-    background-size: 36px 36px;
+    @apply min-h-screen bg-background;
   }
 
   .terminal-card {
-    @apply border border-white/10 bg-card/80 shadow-[0_18px_60px_-32px_rgba(15,23,42,0.9)] backdrop-blur-xl;
+    @apply border border-border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_-20px_rgba(15,23,42,0.18)];
   }
 
   .panel-glow {
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.04),
-      0 0 0 1px rgba(148, 163, 184, 0.05),
-      0 18px 50px -30px rgba(8, 15, 32, 0.95);
+      0 1px 0 rgba(255, 255, 255, 0.95),
+      0 0 0 1px rgba(148, 163, 184, 0.04),
+      0 18px 38px -34px rgba(15, 23, 42, 0.24);
   }
 
   .status-dot {
@@ -101,10 +96,29 @@
   }
 
   .surface-grid {
-    background-image:
-      linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
-    background-size: 22px 22px;
+    background:
+      linear-gradient(180deg, rgba(249, 250, 251, 0.85), rgba(255, 255, 255, 0.92)),
+      linear-gradient(135deg, rgba(248, 103, 34, 0.04), transparent 45%);
+  }
+
+  .console-shell {
+    @apply min-h-screen bg-background;
+  }
+
+  .console-sidebar {
+    @apply border-r border-border bg-[#f8f7f5];
+  }
+
+  .console-page {
+    @apply rounded-2xl border border-border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.03),0_16px_40px_-34px_rgba(15,23,42,0.3)];
+  }
+
+  .console-subtle {
+    @apply border border-border bg-muted/60;
+  }
+
+  .console-link {
+    @apply text-[hsl(var(--info))] transition-colors hover:text-[hsl(var(--primary))];
   }
 }
 

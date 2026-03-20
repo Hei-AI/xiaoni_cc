@@ -2367,7 +2367,7 @@ export const PromptEditPage: React.FC = () => {
 
     const contentMap: Record<DrawerSectionKey, React.ReactNode> = {
       basic: (
-        <section className="rounded-2xl border bg-card/60 p-6 shadow-sm">
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
@@ -2400,7 +2400,7 @@ export const PromptEditPage: React.FC = () => {
                 value={formData.agent_type}
                 onChange={(e) => setFormData((prev) => ({ ...prev, agent_type: e.target.value }))}
                 disabled={!isEditing}
-                className="mt-[2px] w-full rounded-md border px-3 py-2 text-sm disabled:bg-muted/60"
+                className="mt-[2px] w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm disabled:bg-muted/80 disabled:opacity-60"
                 required
               >
                 {agentTypesData?.data.map((type) => (
@@ -2422,7 +2422,7 @@ export const PromptEditPage: React.FC = () => {
               />
             </div>
           </div>
-          <div className="mt-6 flex flex-col gap-4 rounded-2xl border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-6 flex flex-col gap-4 rounded-xl border border-border bg-muted/45 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold text-foreground">激活状态</p>
               <p className="text-xs text-muted-foreground">停用后将不会在生产流中被调用。</p>
@@ -2445,7 +2445,7 @@ export const PromptEditPage: React.FC = () => {
         </section>
       ),
       prompt: (
-        <section className="overflow-hidden rounded-3xl border bg-card/70 shadow-sm">
+        <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div className="border-b border-muted/40 bg-gradient-to-r from-muted/30 to-transparent px-6 py-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
@@ -2465,7 +2465,7 @@ export const PromptEditPage: React.FC = () => {
           </div>
           <div className="flex flex-col gap-6 px-6 py-6 lg:grid lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-6">
-              <div className="rounded-2xl border bg-background/80 shadow-inner">
+              <div className="rounded-xl border border-border bg-card">
                 <div className="flex items-center justify-between border-b border-muted/40 px-4 py-3 text-xs uppercase tracking-wide text-muted-foreground">
                   <span className="flex items-center gap-2 text-sm font-semibold text-foreground normal-case">
                     <Code className="h-4 w-4 text-muted-foreground" />
@@ -2508,7 +2508,7 @@ export const PromptEditPage: React.FC = () => {
                   <div
                     ref={promptPreviewRef}
                     tabIndex={-1}
-                    className="border-t border-muted/40 bg-muted/20 px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    className="border-t border-muted/40 bg-muted/45 px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                   >
                     <div className="flex items-center justify-between text-xs uppercase tracking-wide text-muted-foreground">
                       <span>段落预览</span>
@@ -2529,7 +2529,7 @@ export const PromptEditPage: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div className="rounded-2xl border bg-background/80 shadow-inner">
+              <div className="rounded-xl border border-border bg-card">
                 <div className="flex items-center justify-between border-b border-muted/40 px-4 py-3 text-xs uppercase tracking-wide text-muted-foreground">
                   <span className="flex items-center gap-2 text-sm font-semibold text-foreground normal-case">
                     <MessageSquare className="h-4 w-4 text-muted-foreground" />
@@ -2565,7 +2565,7 @@ export const PromptEditPage: React.FC = () => {
                 </div>
               </div>
             </div>
-            <aside className="space-y-4 rounded-2xl border bg-background/40 p-4 shadow-inner lg:sticky lg:top-24">
+            <aside className="space-y-4 rounded-xl border border-border bg-muted/35 p-4 lg:sticky lg:top-24">
               <div className="flex items-center justify-between text-xs uppercase tracking-wide text-muted-foreground">
                 <span>编辑导航</span>
                 <span className="text-[11px] text-muted-foreground/80">点击聚焦</span>
@@ -2655,7 +2655,7 @@ export const PromptEditPage: React.FC = () => {
         </section>
       ),
       variables: (
-        <section className="rounded-2xl border bg-card/60 p-6 shadow-sm">
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
@@ -2678,7 +2678,7 @@ export const PromptEditPage: React.FC = () => {
             {contextVariableRows.map((row, index) => (
               <div
                 key={row.id}
-                className="rounded-2xl border bg-background/80 p-4 shadow-inner transition hover:border-primary/50"
+                className="rounded-xl border border-border bg-card p-4 transition hover:border-primary/40"
               >
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>变量 #{index + 1}</span>
@@ -2758,7 +2758,7 @@ export const PromptEditPage: React.FC = () => {
         </section>
       ),
       functions: (
-        <section className="rounded-2xl border bg-card/60 p-6 shadow-sm">
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
@@ -2776,7 +2776,7 @@ export const PromptEditPage: React.FC = () => {
           </div>
 
           <div className="mt-6 space-y-6">
-            <div className="rounded-2xl border bg-muted/20 p-4">
+            <div className="rounded-xl border border-border bg-muted/45 p-4">
               <Label className="text-xs uppercase tracking-wide text-muted-foreground">调用模式</Label>
               <div className="mt-3 flex flex-wrap gap-2">
                 {[
@@ -2808,7 +2808,7 @@ export const PromptEditPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="rounded-2xl border bg-background/80 p-4 shadow-inner">
+            <div className="rounded-xl border border-border bg-card p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-semibold text-foreground">允许调用的本地工具</p>
@@ -2857,7 +2857,7 @@ export const PromptEditPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
+            <div className="space-y-4 rounded-xl border border-border bg-muted/45 p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold">本地工具</p>
@@ -2880,7 +2880,7 @@ export const PromptEditPage: React.FC = () => {
                     const editor = customToolEditors[tool.id] ?? { json: JSON.stringify(tool.parameters, null, 2) };
                     const hasError = Boolean(editor.error);
                     return (
-                      <Card key={tool.id} className="border-muted/40 bg-background/70 shadow-none">
+                      <Card key={tool.id} className="border-border bg-card shadow-none">
                         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <div>
                             <CardTitle className="text-base font-semibold">{tool.name}</CardTitle>
@@ -2899,7 +2899,7 @@ export const PromptEditPage: React.FC = () => {
                                     <DialogTitle>{tool.name}</DialogTitle>
                                     <DialogDescription>{tool.description}</DialogDescription>
                                   </DialogHeader>
-                                  <pre className="scrollbar-thin max-h-[360px] overflow-auto rounded-md bg-muted/20 p-3 text-xs">
+                                  <pre className="scrollbar-thin max-h-[360px] overflow-auto rounded-md bg-muted/45 p-3 text-xs">
                                     {JSON.stringify(tool.parameters, null, 2)}
                                   </pre>
                                 </DialogContent>
@@ -2967,7 +2967,7 @@ export const PromptEditPage: React.FC = () => {
         </section>
       ),
       runtime: (
-        <Card className="bg-card/60 shadow-sm">
+        <Card className="bg-card shadow-sm">
           <CardHeader>
             <CardTitle className="text-base font-semibold">运行参数</CardTitle>
             <CardDescription>同步 Google AI Studio 的推理设置。</CardDescription>
@@ -3075,7 +3075,7 @@ export const PromptEditPage: React.FC = () => {
                   value={formData.model_config.mediaResolution}
                   onChange={(e) => handleModelConfigChange('mediaResolution', e.target.value)}
                   disabled={!isEditing}
-                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm disabled:bg-muted/60"
+                className="mt-1 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm disabled:bg-muted/80 disabled:opacity-60"
                 >
                   {MEDIA_RESOLUTION_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -3085,7 +3085,7 @@ export const PromptEditPage: React.FC = () => {
                 </select>
                 <p className="mt-1 text-xs text-muted-foreground">低分辨率适合多媒体调试，默认保持原画质。</p>
               </div>
-              <div className="rounded-xl border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              <div className="rounded-xl border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground">
                 <p className="font-medium text-foreground">当前模型</p>
                 <p className="mt-1 break-all">{formData.model_name || '未设置'}</p>
               </div>
@@ -3143,7 +3143,7 @@ export const PromptEditPage: React.FC = () => {
                 </div>
               )}
             </div>
-            <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
+            <div className="space-y-4 rounded-xl border border-border bg-muted/45 p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold">思考预算</p>
@@ -3189,7 +3189,7 @@ export const PromptEditPage: React.FC = () => {
                   disabled={!isEditing || !manualThinkingEnabled}
                 />
               </div>
-              <div className="flex items-center justify-between rounded-xl border bg-background/60 px-3 py-2">
+              <div className="flex items-center justify-between rounded-xl border border-border bg-card px-3 py-2">
                 <div>
                   <p className="text-sm font-medium">包含思考过程</p>
                   <p className="text-xs text-muted-foreground">启用后会在调试对话中暴露 Thought。</p>
@@ -3207,7 +3207,7 @@ export const PromptEditPage: React.FC = () => {
                 />
               </div>
             </div>
-            <div className="space-y-3 rounded-2xl border bg-muted/20 p-4">
+            <div className="space-y-3 rounded-xl border border-border bg-muted/45 p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold">工具与上下文</p>
@@ -3223,7 +3223,7 @@ export const PromptEditPage: React.FC = () => {
                   管理工具
                 </Button>
               </div>
-              <div className="flex items-center justify-between rounded-lg border bg-background/60 px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
                 <div>
                   <p className="text-sm font-medium">工具调用</p>
                   <p className="text-xs text-muted-foreground">
@@ -3242,7 +3242,7 @@ export const PromptEditPage: React.FC = () => {
                   已声明 {customTools.length} 个工具，允许调用 {allowedFunctionNames.length} 个。
                 </p>
               )}
-              <div className="flex items-center justify-between rounded-lg border bg-background/60 px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
                 <div>
                   <p className="text-sm font-medium">Structured Output</p>
                   <p className="text-xs text-muted-foreground">生成符合 JSON Schema 的回复。</p>
@@ -3254,7 +3254,7 @@ export const PromptEditPage: React.FC = () => {
                   disabled={!isEditing}
                 />
               </div>
-              <div className="flex items-center justify-between rounded-lg border bg-background/60 px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
                 <div>
                   <p className="text-sm font-medium">Google Search</p>
                   <p className="text-xs text-muted-foreground">为回答补充实时网页内容。</p>
@@ -3283,13 +3283,13 @@ export const PromptEditPage: React.FC = () => {
         </Card>
       ),
       safety: (
-        <Card className="bg-card/60 shadow-sm">
+        <Card className="bg-card shadow-sm">
           <CardHeader>
             <CardTitle className="text-base font-semibold">内容安全</CardTitle>
             <CardDescription>映射 HarmBlockThreshold 配置项。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-xl border bg-muted/20 p-4">
+            <div className="rounded-xl border border-border bg-muted/45 p-4">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">当前策略</p>
               <div className="mt-3 space-y-2">
                 {orderedSafetySettings.length > 0
@@ -3336,7 +3336,7 @@ export const PromptEditPage: React.FC = () => {
                         return (
                           <div
                             key={`${setting.category ?? 'unknown'}-${index}`}
-                            className="space-y-3 rounded-lg border bg-muted/20 p-4"
+                            className="space-y-3 rounded-lg border border-border bg-muted/45 p-4"
                           >
                             <div className="flex items-center justify-between text-sm font-medium">
                               <span>{getSafetyCategoryLabel(setting.category)}</span>
@@ -3386,7 +3386,7 @@ export const PromptEditPage: React.FC = () => {
         </Card>
       ),
       preview: (
-        <Card className="bg-card/60 shadow-sm">
+        <Card className="bg-card shadow-sm">
           <CardHeader>
             <CardTitle className="text-base font-semibold">配置预览</CardTitle>
             <CardDescription>JSON 视图便于再次确认</CardDescription>
@@ -3399,17 +3399,17 @@ export const PromptEditPage: React.FC = () => {
                 <TabsTrigger value="advanced">高级</TabsTrigger>
               </TabsList>
               <TabsContent value="model">
-                <pre className="scrollbar-thin mt-3 max-h-64 overflow-auto rounded-md bg-muted/20 p-3 text-xs">
+                <pre className="scrollbar-thin mt-3 max-h-64 overflow-auto rounded-md bg-muted/45 p-3 text-xs">
                   {JSON.stringify(formData.model_config, null, 2)}
                 </pre>
               </TabsContent>
               <TabsContent value="variables">
-                <pre className="scrollbar-thin mt-3 max-h-64 overflow-auto rounded-md bg-muted/20 p-3 text-xs">
+                <pre className="scrollbar-thin mt-3 max-h-64 overflow-auto rounded-md bg-muted/45 p-3 text-xs">
                   {contextVariablesPreview}
                 </pre>
               </TabsContent>
               <TabsContent value="advanced">
-                <pre className="scrollbar-thin mt-3 max-h-64 overflow-auto rounded-md bg-muted/20 p-3 text-xs">
+                <pre className="scrollbar-thin mt-3 max-h-64 overflow-auto rounded-md bg-muted/45 p-3 text-xs">
                   {JSON.stringify(formData.advanced_config, null, 2)}
                 </pre>
               </TabsContent>
@@ -3418,7 +3418,7 @@ export const PromptEditPage: React.FC = () => {
         </Card>
       ),
       code: (
-        <Card className="bg-card/60 shadow-sm">
+        <Card className="bg-card shadow-sm">
           <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-base font-semibold">Get config JSON</CardTitle>
@@ -3435,7 +3435,7 @@ export const PromptEditPage: React.FC = () => {
             </Button>
           </CardHeader>
           <CardContent>
-            <pre className="scrollbar-thin max-h-80 overflow-auto rounded-md bg-muted/20 p-3 text-xs">
+            <pre className="scrollbar-thin max-h-80 overflow-auto rounded-md bg-muted/45 p-3 text-xs">
               {configJsonPreview}
             </pre>
           </CardContent>
@@ -3477,7 +3477,7 @@ export const PromptEditPage: React.FC = () => {
 
   return (
     <div className="flex min-h-screen flex-col pb-16">
-      <div className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
+      <div className="sticky top-0 z-30 border-b border-border bg-background/95">
         <div className="mx-auto w-full max-w-screen-2xl px-4 py-4 xl:max-w-none xl:px-8 2xl:px-12">
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -3590,7 +3590,7 @@ export const PromptEditPage: React.FC = () => {
               ))}
             </div>
             {!isEditing && !isNew && (
-              <div className="flex items-center gap-2 rounded-lg border border-dashed border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 rounded-lg border border-dashed border-primary/20 bg-primary/10 px-3 py-2 text-xs text-muted-foreground">
                 <Lock className="h-3.5 w-3.5 text-primary" />
                 <span>点击右上角“编辑”后可修改配置，灰色字段表示当前暂不可编辑。</span>
               </div>
@@ -3605,7 +3605,7 @@ export const PromptEditPage: React.FC = () => {
             <div className="flex min-h-0 flex-col gap-6">
               <Card
                 ref={playgroundCardRef}
-                className="flex min-h-0 flex-col bg-card/60 shadow-sm"
+                className="flex min-h-0 flex-col bg-card shadow-sm"
                 style={playgroundMinHeight ? { minHeight: `${playgroundMinHeight}px` } : undefined}
               >
               <CardHeader className="space-y-3">
@@ -3686,13 +3686,13 @@ export const PromptEditPage: React.FC = () => {
               </CardHeader>
               <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
                 {isNew && (
-                  <div className="rounded-xl border border-dashed border-muted/50 bg-background/80 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+                  <div className="rounded-xl border border-dashed border-muted/50 bg-card px-4 py-3 text-xs leading-relaxed text-muted-foreground">
                     草稿模式默认开启，填写左侧信息并保存后即可验证最新版本。
                   </div>
                 )}
 
                 {!isNew && !isEditing && (
-                  <div className="rounded-xl border border-dashed border-muted/50 bg-background/80 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+                  <div className="rounded-xl border border-dashed border-muted/50 bg-card px-4 py-3 text-xs leading-relaxed text-muted-foreground">
                     当前处于查看模式，调试仍会调用最新保存的配置。若需更新 Prompt，请先点击右上角的“编辑”按钮。
                   </div>
                 )}
@@ -3733,12 +3733,12 @@ export const PromptEditPage: React.FC = () => {
                             className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
                           >
                             {!isUser && (
-                              <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground shadow-inner">
+                              <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
                                 <Bot className="h-4 w-4" />
                               </div>
                             )}
                             <div
-                              className={`max-w-[75%] rounded-2xl px-4 py-3 shadow-sm transition group-hover:shadow-md ${
+                              className={`max-w-[75%] rounded-xl px-4 py-3 shadow-sm transition group-hover:shadow-md ${
                                 isUser
                                   ? 'bg-primary text-primary-foreground'
                                   : 'bg-muted text-foreground'
@@ -3752,7 +3752,7 @@ export const PromptEditPage: React.FC = () => {
                                 {message.content || '（空响应）'}
                               </div>
                               {message.thought && (
-                                <div className="mt-3 rounded-md bg-background/70 p-3 text-xs text-foreground">
+                                <div className="mt-3 rounded-md border border-border bg-card/90 p-3 text-xs text-foreground">
                                   <button
                                     type="button"
                                     className="mb-2 flex items-center gap-1 text-xs font-medium text-primary"
@@ -3770,7 +3770,7 @@ export const PromptEditPage: React.FC = () => {
                                 </div>
                               )}
                               {message.metadata && (
-                                <div className="mt-3 grid gap-2 rounded-md bg-background/70 p-2 text-xs text-muted-foreground">
+                                <div className="mt-3 grid gap-2 rounded-md border border-border bg-card/90 p-2 text-xs text-muted-foreground">
                                   {message.metadata.model && (
                                     <div className="flex items-center justify-between">
                                       <span>模型</span>
@@ -3808,7 +3808,7 @@ export const PromptEditPage: React.FC = () => {
                       })
                     )}
                   </div>
-                  <div className="border-t bg-background/95 p-4">
+                  <div className="border-t border-border bg-background p-4">
                     <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 sm:flex-row sm:items-end">
                       <Textarea
                         value={userInput}
@@ -3821,7 +3821,7 @@ export const PromptEditPage: React.FC = () => {
                           }
                         }}
                         rows={3}
-                        className="flex-1 resize-none bg-background/70"
+                        className="flex-1 resize-none bg-card"
                         disabled={isDebugging}
                       />
                       <div className="flex w-full justify-center sm:w-auto sm:justify-end">
@@ -3850,7 +3850,7 @@ export const PromptEditPage: React.FC = () => {
           </div>
           <aside className="hidden lg:block">
             <div className="space-y-4">
-              <Card className="bg-card/60 shadow-sm">
+              <Card className="bg-card shadow-sm">
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base font-semibold">
                     <Bot className="h-4 w-4 text-primary" />
@@ -3883,7 +3883,7 @@ export const PromptEditPage: React.FC = () => {
                   </div>
                 </CardContent>
               </Card>
-              <Card className="bg-card/60 shadow-sm">
+              <Card className="bg-card shadow-sm">
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base font-semibold">
                     <Navigation className="h-4 w-4 text-primary" />
@@ -3962,7 +3962,7 @@ export const PromptEditPage: React.FC = () => {
               debugSessionsData?.data.sessions?.map((session) => (
                 <div
                   key={session.id}
-                  className="group rounded-lg border border-muted/40 bg-background/80 p-3 transition hover:border-primary/50 hover:bg-primary/5"
+                  className="group rounded-lg border border-border bg-card p-3 transition hover:border-primary/40 hover:bg-primary/5"
                   onClick={() => handleLoadSession(session.id)}
                   role="button"
                 >
@@ -4049,7 +4049,7 @@ export const PromptEditPage: React.FC = () => {
       </Dialog>
 
       <Sheet open={isConfigDrawerOpen} onOpenChange={handleDrawerOpenChange}>
-        <SheetContent side="right" className="w-full max-w-3xl border-l bg-background/95 backdrop-blur px-0">
+        <SheetContent side="right" className="w-full max-w-3xl border-l border-border bg-background px-0">
           <SheetHeader className="border-b border-muted/40 px-6 py-5">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">

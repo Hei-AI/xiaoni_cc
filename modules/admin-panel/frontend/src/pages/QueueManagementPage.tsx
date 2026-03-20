@@ -259,7 +259,7 @@ const QueueManagementPage: React.FC = () => {
         icon={<BarChart3 className="h-5 w-5" />}
         actions={
           <>
-            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-sm">
+            <div className="flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-2 text-sm">
               <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
               <span className="text-muted-foreground">自动刷新</span>
             </div>
@@ -291,7 +291,7 @@ const QueueManagementPage: React.FC = () => {
             {queues.map((queue) => (
               <EntityCard
                 key={queue.name}
-                className={selectedQueue === queue.name ? 'border-primary/30 bg-primary/6' : undefined}
+                className={selectedQueue === queue.name ? 'border-primary/30 bg-primary/5' : undefined}
                 title={queue.type === 'private' ? `用户 ${queue.userId}` : `群组 ${queue.groupId}`}
                 subtitle={queue.name}
                 badges={
@@ -343,9 +343,10 @@ const QueueManagementPage: React.FC = () => {
                 <YAxis stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
                 <Tooltip
                   contentStyle={{
-                    background: 'rgba(8,15,28,0.95)',
-                    border: '1px solid rgba(148,163,184,0.12)',
-                    borderRadius: '16px',
+                    background: 'rgba(255,255,255,0.98)',
+                    border: '1px solid rgba(203,213,225,0.9)',
+                    borderRadius: '12px',
+                    boxShadow: '0 10px 30px -18px rgba(15,23,42,0.28)',
                   }}
                 />
                 <Bar dataKey="waiting" fill="hsl(var(--chart-4))" radius={[8, 8, 0, 0]} />
