@@ -180,7 +180,7 @@ const EVENT_CONFIGS = {
     side: 'left' as const
   },
 
-  // Legacy WebSocket Events (保留兼容性)
+  // WebSocket Events
   'websocket_in': {
     icon: <Wifi className="h-4 w-4" />,
     title: 'WebSocket接收',
@@ -208,6 +208,59 @@ const DEFAULT_CONFIG = {
   side: 'left' as const
 };
 
+const stringifyPayload = (value: unknown): string => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+const extractTextPreview = (value: unknown): string => {
+  if (!value) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(item => extractTextPreview(item)).filter(Boolean).join('\n');
+  }
+
+  if (typeof value !== 'object') {
+    return String(value);
+  }
+
+  const record = value as Record<string, any>;
+  if (typeof record.output_text === 'string') {
+    return record.output_text;
+  }
+  if (typeof record.text === 'string') {
+    return record.text;
+  }
+  if (typeof record.instructions === 'string') {
+    return record.instructions;
+  }
+  if (Array.isArray(record.content)) {
+    return extractTextPreview(record.content);
+  }
+  if (Array.isArray(record.input)) {
+    return extractTextPreview(record.input);
+  }
+
+  return '';
+};
+
 export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
   data
 }) => {
@@ -228,21 +281,19 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
   } | null>(null);
 
   // 获取消息内容信息
-  const messageInput = data.message_input || data.websocket_input;
-  const messageOutput = data.message_output || data.websocket_output;
+  const messageInput = data.message_input;
+  const messageOutput = data.message_output;
 
   // 🔥 处理LLM重放调试
   const handleLLMReplay = (event: UnifiedEvent) => {
     if (event.type !== 'llm' || !event.metadata) return;
 
-    // 从LLM调用链中获取prompt模板信息
-    const llmCall = data.llm_call_chain?.find(call =>
-      call.input?.input_prompt === event.metadata.input_prompt
-    );
-    const promptTemplate = llmCall?.input?.prompt_template || 'enhanced_chat';
+    const promptTemplate = event.metadata.input?.prompt_template || 'enhanced_chat';
 
     // 🔥 分离System Prompt和User Input
-    const mixedPrompt = event.metadata.input_prompt || '';
+    const mixedPrompt = event.metadata.input?.canonical_request
+      || event.metadata.input?.wire_request
+      || '';
     const { systemPrompt, userInput } = separatePromptContent(
       promptTemplates,
       promptTemplate,
@@ -250,8 +301,7 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
     );
 
     const model = event.model_name || 'gemini-2.5-flash';
-    const modelConfig = event.metadata.input?.model_config || {};
-    const parameters = JSON.stringify(modelConfig, null, 2);
+    const parameters = stringifyPayload(event.metadata.input?.canonical_request || event.metadata.input?.wire_request || {});
     const conversationId = data.conversation_id || '';
 
     console.log('🔥 LLM Replay Debug Data (Separated):', {
@@ -433,7 +483,9 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
 
         // LLM原始输入事件（右侧）
         const inputTimeDisplay = formatTimeDisplay(llmInputTime);
-        const inputPrompt = call.input?.input_prompt || '';
+        const canonicalRequest = call.input?.canonical_request;
+        const wireRequest = call.input?.wire_request;
+        const inputPrompt = extractTextPreview(canonicalRequest) || extractTextPreview(wireRequest) || '';
         events.push({
           id: `llm_input_${callIndex}`,
           timestamp: llmInputTime,
@@ -450,10 +502,7 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
           status: 'success',
           metadata: {
             _phase: 'input',
-            input_prompt: call.input?.input_prompt || '',
-            input: {
-              model_config: call.input?.model_config || {}
-            },
+            input: call.input || {},
             output: call.output || {}
           },
           model_name: call.input.model_name,
@@ -462,7 +511,10 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
 
         // LLM原始输出事件（右侧）
         const outputTimeDisplay = formatTimeDisplay(llmOutputTime);
-        const outputResponse = call.output?.processed_response || call.output?.raw_response || '';
+        const outputResponse = call.output?.processed_response
+          || extractTextPreview(call.output?.canonical_response)
+          || extractTextPreview(call.output?.wire_response)
+          || '';
         events.push({
           id: `llm_output_${callIndex}`,
           timestamp: llmOutputTime,
@@ -479,10 +531,7 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
           status: call.output.status === 'SUCCESS' ? 'success' : 'error',
           metadata: {
             _phase: 'output',
-            input_prompt: call.input?.input_prompt || '',
-            input: {
-              model_config: call.input?.model_config || {}
-            },
+            input: call.input || {},
             output: call.output || {}
           },
           model_name: call.input.model_name,
@@ -928,24 +977,21 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
                                   </div>
                                 </div>
 
-                                {/* 🔥 分离的System Prompt和User Input */}
-                                {event.metadata.input_prompt && (() => {
-                                  // 获取prompt模板信息
-                                  const llmCall = data.llm_call_chain?.find(call =>
-                                    call.input?.input_prompt === event.metadata.input_prompt
-                                  );
-                                  const promptTemplate = llmCall?.input?.prompt_template || 'enhanced_chat';
-
-                                  // 分离System Prompt和User Input
+                                {/* Canonical 视图 */}
+                                {event.metadata.input?.canonical_request && (() => {
+                                  const promptTemplate = event.metadata.input?.prompt_template || 'enhanced_chat';
+                                  const requestPayload = event.metadata.input.canonical_request;
                                   const { systemPrompt, userInput } = separatePromptContent(
                                     promptTemplates,
                                     promptTemplate,
-                                    event.metadata.input_prompt
+                                    requestPayload
                                   );
 
                                   return (
                                     <div className="space-y-4">
-                                      {/* System Prompt 部分 */}
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="secondary">Canonical View</Badge>
+                                      </div>
                                       <div>
                                         <label className="text-sm font-medium mb-2 block flex items-center gap-2">
                                           <Brain className="h-4 w-4 text-purple-600" />
@@ -958,8 +1004,6 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
                                           </div>
                                         </div>
                                       </div>
-
-                                      {/* User Input 部分 */}
                                       <div>
                                         <label className="text-sm font-medium mb-2 block flex items-center gap-2">
                                           <MessageSquare className="h-4 w-4 text-blue-600" />
@@ -971,34 +1015,49 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
                                           </div>
                                         </div>
                                       </div>
+                                      {event.metadata.input?.canonical_request && (
+                                        <div>
+                                          <label className="text-sm font-medium mb-2 block">Canonical Request</label>
+                                          <div className="bg-gray-50 dark:bg-gray-950 p-4 rounded-lg">
+                                            <pre className="text-xs overflow-auto max-h-40 whitespace-pre-wrap break-words">
+                                              {stringifyPayload(event.metadata.input.canonical_request)}
+                                            </pre>
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
                                   );
                                 })()}
 
-                                {/* 模型配置 */}
-                                {event.metadata.input?.model_config && (
+                                {/* Wire 视图 */}
+                                {event.metadata.input?.wire_request && (
                                   <div>
-                                    <label className="text-sm font-medium mb-2 block">模型配置</label>
+                                    <label className="text-sm font-medium mb-2 block">Wire Request</label>
                                     <div className="bg-gray-50 dark:bg-gray-950 p-4 rounded-lg">
-                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                                        {Object.entries(event.metadata.input.model_config).map(([key, value]) => (
-                                          <div key={key}>
-                                            <span className="font-medium">{key}:</span>
-                                            <span className="ml-2 text-muted-foreground">{String(value)}</span>
-                                          </div>
-                                        ))}
-                                      </div>
+                                      <pre className="text-xs overflow-auto max-h-40 whitespace-pre-wrap break-words">
+                                        {stringifyPayload(event.metadata.input.wire_request)}
+                                      </pre>
                                     </div>
+                                    {event.metadata.input?.wire_provider_format && (
+                                      <div className="text-xs text-muted-foreground mt-2">
+                                        provider format: {event.metadata.input.wire_provider_format}
+                                      </div>
+                                    )}
                                   </div>
                                 )}
 
                                 {/* AI回复 */}
-                                {(event.metadata.processed_response || event.metadata.raw_response) && (
+                                {(event.metadata.output?.processed_response || event.metadata.output?.canonical_response || event.metadata.output?.wire_response) && (
                                   <div>
                                     <label className="text-sm font-medium mb-2 block">AI回复内容</label>
                                     <div className="bg-green-50 dark:bg-green-950 p-4 rounded-lg">
                                       <div className="text-sm max-h-40 overflow-y-auto whitespace-pre-line break-words">
-                                        {(event.metadata.processed_response || event.metadata.raw_response || '').split('\\n').join('\n')}
+                                        {String(
+                                          event.metadata.output?.processed_response
+                                          || event.metadata.output?.canonical_response?.output_text
+                                          || extractTextPreview(event.metadata.output?.wire_response)
+                                          || ''
+                                        ).split('\\n').join('\n')}
                                       </div>
                                     </div>
                                   </div>
@@ -1052,15 +1111,25 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
                                   </div>
                                 )}
 
-                                {/* 原始响应 */}
-                                {event.metadata.output?.raw_response && (
+                                {/* Canonical 响应 */}
+                                {event.metadata.output?.canonical_response && (
                                   <div>
-                                    <label className="text-sm font-medium mb-2 block">原始API响应</label>
+                                    <label className="text-sm font-medium mb-2 block">Canonical Response</label>
                                     <div className="bg-gray-50 dark:bg-gray-950 p-4 rounded-lg">
                                       <pre className="text-xs overflow-auto max-h-40 whitespace-pre-wrap break-words">
-                                        {typeof event.metadata.output.raw_response === 'string'
-                                          ? event.metadata.output.raw_response
-                                          : JSON.stringify(event.metadata.output.raw_response, null, 2)}
+                                        {stringifyPayload(event.metadata.output.canonical_response)}
+                                      </pre>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* 原始响应 */}
+                                {event.metadata.output?.wire_response && (
+                                  <div>
+                                    <label className="text-sm font-medium mb-2 block">Wire Response</label>
+                                    <div className="bg-gray-50 dark:bg-gray-950 p-4 rounded-lg">
+                                      <pre className="text-xs overflow-auto max-h-40 whitespace-pre-wrap break-words">
+                                        {stringifyPayload(event.metadata.output.wire_response)}
                                       </pre>
                                     </div>
                                   </div>

@@ -1,9 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { LLMFlowResponse, ConversationTimelineData, TimelineNode, ENGINE_NAMES, LLMCallRecord, ProcessingEvent } from '../types';
 
-type MessageInputType = NonNullable<LLMFlowResponse['message_input']>;
-type MessageOutputType = NonNullable<LLMFlowResponse['message_output']>;
-
 const SAFE_STATUS: Array<LLMCallRecord['output']['status']> = ['SUCCESS', 'ERROR', 'TIMEOUT', 'SKIPPED'];
 
 const safeJsonParse = <T>(value: any): T | undefined => {
@@ -44,69 +41,15 @@ const isModernCallChain = (chain: any): chain is LLMCallRecord[] => {
   return Array.isArray(chain) && chain.length > 0 && chain.every(call => call && typeof call === 'object' && call.input && call.output);
 };
 
-const buildLegacyMessageInput = (flow: LLMFlowResponse): MessageInputType => {
-  if (flow.message_input) {
-    return flow.message_input;
-  }
-
-  const conversation: any = (flow as any).conversation || {};
-  const rawRequest = safeJsonParse<any>(conversation.raw_request);
-  const timestampFromConversation = conversation.timestamp ? new Date(conversation.timestamp).toISOString() : undefined;
-  const timestampFromRequest = rawRequest?.time ? new Date(rawRequest.time * 1000).toISOString() : undefined;
-  const queuedAt = timestampFromRequest || timestampFromConversation || new Date().toISOString();
-  const processedAt = timestampFromConversation || timestampFromRequest || queuedAt;
-
-  return {
-    user_id: conversation.user_id ?? rawRequest?.user_id ?? 0,
-    message: conversation.user_message ?? rawRequest?.message ?? rawRequest?.raw_message ?? '',
-    message_type: rawRequest?.message_type ?? 'private',
-    group_id: rawRequest?.group_id,
-    message_id: rawRequest?.message_id,
-    source: 'api_simulation',
-    queued_at: queuedAt,
-    processed_at: processedAt,
-    partition_key: String(conversation.user_id ?? rawRequest?.user_id ?? 'legacy'),
-    priority: 'MEDIUM'
-  };
-};
-
-const buildLegacyMessageOutput = (
-  flow: LLMFlowResponse,
-  modelFallback?: string
-): MessageOutputType => {
-  if (flow.message_output) {
-    return flow.message_output;
-  }
-
-  const conversation: any = (flow as any).conversation || {};
-  const responseText: string = conversation.ai_response ?? '';
-  const timestampIso = conversation.timestamp ? new Date(conversation.timestamp).toISOString() : new Date().toISOString();
-  const responseTime = toNumber(conversation.response_time, 0);
-  const normalizedStatus = (conversation.status ?? '').toString().toLowerCase();
-  const deliveryStatus = normalizedStatus === 'completed'
-    ? 'sent'
-    : normalizedStatus === 'failed'
-      ? 'failed'
-      : 'pending';
-
-  return {
-    content: responseText,
-    response_time_ms: responseTime,
-    model_used: conversation.model_name || modelFallback || 'unknown',
-    delivery_method: 'http_api',
-    delivery_status: deliveryStatus as MessageOutputType['delivery_status'],
-    timestamp: timestampIso,
-    character_count: responseText.length,
-    delivery_latency_ms: undefined
-  };
-};
-
-const normalizeLegacyLlmCallChain = (
+const normalizeCallChainRecords = (
   calls: any[] = [],
   fallbackTimestamp?: string
 ): LLMCallRecord[] => {
   return calls.map((rawCall, index) => {
-    const parsedModelConfig = safeJsonParse<any>(rawCall?.model_config) ?? {};
+    const parsedCanonicalRequest = safeJsonParse<any>(rawCall?.canonical_request);
+    const parsedWireRequest = safeJsonParse<any>(rawCall?.wire_request);
+    const parsedCanonicalResponse = safeJsonParse<any>(rawCall?.canonical_response);
+    const parsedWireResponse = safeJsonParse<any>(rawCall?.wire_response);
     const parsedTokenUsage = safeJsonParse<any>(rawCall?.token_usage) ?? {};
 
     const promptTokens = toNumber(parsedTokenUsage.input_tokens ?? rawCall?.input_tokens, 0);
@@ -124,21 +67,23 @@ const normalizeLegacyLlmCallChain = (
 
     return {
       sequence: rawCall?.call_sequence ?? index + 1,
-      stage: rawCall?.stage || 'legacy_llm_pipeline',
+      stage: rawCall?.stage || 'llm_pipeline',
       agent_type: rawCall?.agent_type || 'unknown',
-      purpose: rawCall?.purpose || rawCall?.prompt_template || rawCall?.tool_name || 'legacy_llm_call',
+      purpose: rawCall?.purpose || rawCall?.prompt_template || rawCall?.tool_name || 'llm_call',
       input: {
         model_name: rawCall?.model_name || 'unknown',
         model_provider: rawCall?.model_provider || 'unknown',
-        prompt_template: rawCall?.prompt_template || 'legacy',
-        input_prompt: rawCall?.input_prompt || '',
-        model_config: typeof parsedModelConfig === 'object' && parsedModelConfig !== null ? parsedModelConfig : {},
-        context_summary: rawCall?.context_summary,
+        prompt_template: rawCall?.prompt_template || 'default',
+        canonical_request: parsedCanonicalRequest,
+        wire_request: parsedWireRequest,
+        request_format_version: rawCall?.request_format_version || undefined,
+        wire_provider_format: rawCall?.wire_provider_format || undefined,
         timestamp: timestampIso
       },
       output: {
         status,
-        raw_response: rawCall?.raw_response,
+        canonical_response: parsedCanonicalResponse,
+        wire_response: parsedWireResponse,
         processed_response: rawCall?.processed_response,
         token_usage: {
           input_tokens: promptTokens,
@@ -154,7 +99,7 @@ const normalizeLegacyLlmCallChain = (
         error_info: rawCall?.error_message
           ? {
               error_message: rawCall.error_message,
-              error_code: rawCall.error_code ?? 'LEGACY_ERROR',
+              error_code: rawCall.error_code ?? 'UNKNOWN_ERROR',
               retry_count: toNumber(rawCall.retry_count, 0)
             }
           : undefined,
@@ -165,15 +110,10 @@ const normalizeLegacyLlmCallChain = (
 };
 
 const normalizeCallChain = (flow: LLMFlowResponse, fallbackTimestamp?: string): LLMCallRecord[] => {
-  if (isModernCallChain((flow as any).llm_call_chain)) {
-    return (flow as any).llm_call_chain as LLMCallRecord[];
+  if (isModernCallChain(flow.llm_call_chain)) {
+    return flow.llm_call_chain;
   }
-
-  if (Array.isArray((flow as any).llm_calls) && (flow as any).llm_calls.length > 0) {
-    return normalizeLegacyLlmCallChain((flow as any).llm_calls, fallbackTimestamp);
-  }
-
-  return [];
+  return normalizeCallChainRecords(flow.llm_call_chain || [], fallbackTimestamp);
 };
 
 // Helper function to calculate cost (rough estimation)
@@ -207,7 +147,7 @@ const buildTimelineNodes = (llmFlowData: LLMFlowResponse): TimelineNode[] => {
   const nodes: TimelineNode[] = [];
 
   // 🔥 优先使用新的 llm_call_chain 结构 (MESSAGE_FLOW_API规范)
-  const llmCalls = llmFlowData.llm_call_chain || [];
+  const llmCalls = llmFlowData.llm_call_chain;
 
   if (llmCalls.length > 0) {
     // 使用新的扁平化 llm_call_chain 结构
@@ -244,113 +184,7 @@ const buildTimelineNodes = (llmFlowData: LLMFlowResponse): TimelineNode[] => {
           status: call.output.status,
           error_message: call.output.error_info?.error_message,
           cost: call.output.cost_estimate || calculateCost(call.output),
-          confidence: extractConfidence(call.output.raw_response)
-        }
-      });
-    });
-  } else if (llmFlowData.llm_calls && Array.isArray(llmFlowData.llm_calls) && llmFlowData.llm_calls.length > 0) {
-    // 兼容 admin-backend 旧接口返回的 llm_call_logs 结构
-    llmFlowData.llm_calls.forEach((rawCall: any, index: number) => {
-      const agentType = rawCall.agent_type || 'unknown';
-      const title = ENGINE_NAMES[agentType] || agentType;
-      const isSuccess = (rawCall.status || 'SUCCESS').toUpperCase() === 'SUCCESS';
-
-      const processingTime = rawCall.processing_time_ms || rawCall.api_call_time_ms || 0;
-      const promptTokens = rawCall.input_tokens || 0;
-      const completionTokens = rawCall.output_tokens || 0;
-      const totalTokens = promptTokens + completionTokens;
-
-      let modelConfig: any = undefined;
-      try {
-        modelConfig = rawCall.model_config ? JSON.parse(rawCall.model_config) : undefined;
-      } catch (err) {
-        modelConfig = rawCall.model_config;
-      }
-
-      const nodeTimestamp = rawCall.timestamp ? new Date(rawCall.timestamp) : new Date();
-
-      nodes.push({
-        id: `legacy_llm_${index}`,
-        timestamp: nodeTimestamp,
-        type: 'llm_call',
-        title,
-        duration_ms: processingTime,
-        status: isSuccess ? 'success' : 'error',
-        summary: `模型: ${rawCall.model_name || 'unknown'} | 耗时: ${processingTime}ms`,
-        data: {
-          input: {
-            model_name: rawCall.model_name,
-            model_provider: rawCall.model_provider,
-            prompt_template: rawCall.prompt_template,
-            input_prompt: rawCall.input_prompt,
-            model_config: modelConfig,
-            context_summary: rawCall.context_summary,
-            timestamp: rawCall.timestamp
-          },
-          output: {
-            status: rawCall.status,
-            raw_response: rawCall.raw_response,
-            processed_response: rawCall.processed_response,
-            error_info: rawCall.error_message ? { error_message: rawCall.error_message, error_code: rawCall.error_code } : undefined,
-            token_usage: {
-              input_tokens: promptTokens,
-              output_tokens: completionTokens,
-              total_tokens: totalTokens
-            },
-            performance: {
-              api_call_time_ms: rawCall.api_call_time_ms || 0,
-              processing_time_ms: processingTime
-            },
-            cost_estimate: rawCall.cost_estimate,
-            timestamp: rawCall.timestamp
-          },
-          prompt_tokens: promptTokens,
-          completion_tokens: completionTokens,
-          total_tokens: totalTokens,
-          processing_time_ms: processingTime,
-          api_call_time_ms: rawCall.api_call_time_ms || 0,
-          success: isSuccess,
-          status: rawCall.status,
-          error_message: rawCall.error_message,
-          cost: rawCall.cost_estimate || calculateCost({ input_tokens: promptTokens, completion_tokens: completionTokens }),
-          confidence: extractConfidence({ candidates: [{ content: { parts: [{ text: rawCall.processed_response || rawCall.raw_response }] } }] })
-        }
-      });
-    });
-
-  } else if (llmFlowData.llm_trace && Array.isArray(llmFlowData.llm_trace)) {
-    // 回退到旧的 llm_trace 结构 (向后兼容)
-    llmFlowData.llm_trace.forEach((trace, index) => {
-      const agentType = trace.llm_raw_input.agent_type || 'unknown';
-      const title = ENGINE_NAMES[agentType] || `${agentType}`;
-      const isSuccess = trace.llm_raw_output.status === 'SUCCESS';
-
-      const processingTime = trace.llm_raw_output.processing_time_ms || trace.llm_raw_output.api_call_time_ms || 0;
-      const totalTokens = trace.llm_raw_output.total_tokens || 0;
-
-      nodes.push({
-        id: `llm_${index}`,
-        timestamp: new Date(trace.llm_raw_input.timestamp),
-        type: 'llm_call',
-        title: title,
-        duration_ms: processingTime,
-        status: isSuccess ? 'success' : 'error',
-        summary: `模型: ${trace.llm_raw_input.model_name} | 耗时: ${processingTime}ms`,
-        data: {
-          input: trace.llm_raw_input,
-          output: trace.llm_raw_output,
-          model_name: trace.llm_raw_input.model_name,
-          agent_type: agentType,
-          prompt_tokens: trace.llm_raw_output.input_tokens || 0,
-          completion_tokens: trace.llm_raw_output.output_tokens || 0,
-          total_tokens: totalTokens,
-          processing_time_ms: processingTime,
-          api_call_time_ms: trace.llm_raw_output.api_call_time_ms || 0,
-          success: isSuccess,
-          status: trace.llm_raw_output.status,
-          error_message: trace.llm_raw_output.error_message,
-          cost: calculateCost(trace.llm_raw_output),
-          confidence: extractConfidence(trace.llm_raw_output.raw_response)
+          confidence: extractConfidence(call.output.wire_response)
         }
       });
     });
@@ -382,7 +216,7 @@ const calculateTimelineSummary = (nodes: TimelineNode[], flowSummary?: any) => {
     };
   }
 
-  // 回退到客户端计算 (向后兼容)
+  // 回退到客户端计算
   const llmNodes = nodes.filter(node => node.type === 'llm_call');
 
   const totalDuration = llmNodes.reduce((sum, node) => sum + (node.duration_ms || 0), 0);
@@ -410,7 +244,6 @@ export const useConversationTimeline = (conversationId: string, autoRefreshEnabl
   return useQuery({
     queryKey: ['conversationTimeline', conversationId],
     queryFn: async (): Promise<ConversationTimelineData> => {
-      // Fetch LLM Flow data from QQBot Core API
       const response = await fetch(`/api/debug/conversation/${conversationId}/llm-flow`);
 
       if (!response.ok) {
@@ -418,58 +251,49 @@ export const useConversationTimeline = (conversationId: string, autoRefreshEnabl
       }
 
       const llmFlowData: LLMFlowResponse = await response.json();
+      if (!llmFlowData.message_input || !llmFlowData.message_output || !Array.isArray(llmFlowData.llm_call_chain) || !Array.isArray(llmFlowData.processing_events)) {
+        throw new Error('Malformed llm-flow response: missing canonical timeline fields');
+      }
 
-      const conversationMeta: any = (llmFlowData as any).conversation || {};
-      const normalizedCallChain = normalizeCallChain(llmFlowData, conversationMeta.timestamp);
-      const normalizedMessageInput = buildLegacyMessageInput(llmFlowData);
-      const normalizedMessageOutput = buildLegacyMessageOutput(llmFlowData, normalizedCallChain[0]?.input?.model_name);
-      const normalizedProcessingEvents: ProcessingEvent[] = Array.isArray(llmFlowData.processing_events) && llmFlowData.processing_events.length > 0
-        ? llmFlowData.processing_events
-        : (((llmFlowData as any).timeline_events ?? []) as ProcessingEvent[]);
-
+      const normalizedCallChain = normalizeCallChain(llmFlowData, llmFlowData.message_output.timestamp);
+      const normalizedProcessingEvents: ProcessingEvent[] = llmFlowData.processing_events;
       const normalizedFlowData: LLMFlowResponse = {
         ...llmFlowData,
         llm_call_chain: normalizedCallChain,
-        message_input: normalizedMessageInput,
-        message_output: normalizedMessageOutput,
         processing_events: normalizedProcessingEvents
       };
 
-      // Build timeline nodes
       const timelineNodes = buildTimelineNodes(normalizedFlowData);
       const timelineSummary = calculateTimelineSummary(timelineNodes, normalizedFlowData.flow_summary);
 
-      const queuedTimestampMs = Date.parse(normalizedMessageInput.queued_at);
-      const websocketInput = normalizedFlowData.websocket_input ?? {
-        ...normalizedMessageInput,
-        raw_message: normalizedMessageInput.message,
-        message_id: normalizedMessageInput.message_id ?? Date.now(),
+      const queuedTimestampMs = Date.parse(normalizedFlowData.message_input.queued_at);
+      const websocketInput = {
+        ...normalizedFlowData.message_input,
+        raw_message: normalizedFlowData.message_input.message,
+        message_id: normalizedFlowData.message_input.message_id ?? Date.now(),
         time: Number.isFinite(queuedTimestampMs) ? Math.floor(queuedTimestampMs / 1000) : Math.floor(Date.now() / 1000)
       };
 
-      const websocketOutput = normalizedFlowData.websocket_output ?? {
-        content: normalizedMessageOutput.content,
-        response_time_ms: normalizedMessageOutput.response_time_ms,
-        model: normalizedMessageOutput.model_used,
-        timestamp: normalizedMessageOutput.timestamp
+      const websocketOutput = {
+        content: normalizedFlowData.message_output.content,
+        response_time_ms: normalizedFlowData.message_output.response_time_ms,
+        model: normalizedFlowData.message_output.model_used,
+        timestamp: normalizedFlowData.message_output.timestamp
       };
 
       return {
         conversation_id: conversationId,
         trace_id: normalizedFlowData.trace_id,
-        // 新规范数据
-        message_input: normalizedMessageInput,
-        message_output: normalizedMessageOutput,
+        message_input: normalizedFlowData.message_input,
+        message_output: normalizedFlowData.message_output,
         llm_call_chain: normalizedCallChain,
-        processing_events: normalizedFlowData.processing_events || [],
+        processing_events: normalizedFlowData.processing_events,
         flow_summary: normalizedFlowData.flow_summary,
         debug_info: normalizedFlowData.debug_info,
-        // 向后兼容数据
         websocket_input: websocketInput,
         websocket_output: websocketOutput,
-        llm_traces: normalizedFlowData.llm_trace || [],
         timeline_nodes: timelineNodes,
-        timeline_events: normalizedFlowData.timeline_events || normalizedFlowData.processing_events || [],
+        timeline_events: normalizedFlowData.processing_events,
         timeline_summary: timelineSummary
       };
     },

@@ -127,7 +127,7 @@ export function createLogRoutes(database: DatabaseManager, logger: winston.Logge
       }
 
       if (req.query.model) {
-        filters.push('model = ?');
+        filters.push('model_name = ?');
         params.push(req.query.model);
       }
 
@@ -141,8 +141,9 @@ export function createLogRoutes(database: DatabaseManager, logger: winston.Logge
       const logs = await database.executeQuery(
         `SELECT
           id, conversation_id, trace_id, session_id, model_name,
-          LEFT(input_prompt, 200) as prompt_preview,
-          model_config, LEFT(processed_response, 200) as response_preview,
+          LEFT(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(canonical_request, '$.instructions')), CAST(canonical_request AS CHAR(2000))), 200) as prompt_preview,
+          request_format_version, wire_provider_format,
+          LEFT(processed_response, 200) as response_preview,
           status, timestamp as created_at, processing_time_ms, input_tokens, output_tokens
          FROM llm_call_logs
          ${whereClause}

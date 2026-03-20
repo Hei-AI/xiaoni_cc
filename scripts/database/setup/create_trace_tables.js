@@ -13,7 +13,8 @@ const dbConfig = {
   user: 'qqbot_user',
   password: 'qqbot_password',
   database: 'qqbot_db',
-  charset: 'utf8mb4'
+  charset: 'utf8mb4',
+  multipleStatements: true
 };
 
 async function createTables() {
@@ -25,41 +26,18 @@ async function createTables() {
     console.log('✅ 数据库连接成功');
 
     // 读取SQL文件
-    const sqlFile = path.join(__dirname, 'database/schema/trace_logging_tables.sql');
+    const sqlFile = path.resolve(__dirname, '../../../database/schema/trace_logging_tables.sql');
     console.log('📖 读取SQL文件:', sqlFile);
     
-    const sqlContent = await fs.readFile(sqlFile, 'utf-8');
-    
-    // 分割SQL语句（按分号分割，但忽略存储过程中的分号）
-    const statements = sqlContent
-      .split('\n')
-      .filter(line => !line.trim().startsWith('--') && line.trim().length > 0)
-      .join('\n')
-      .split(';')
-      .map(stmt => stmt.trim())
-      .filter(stmt => stmt.length > 0 && !stmt.startsWith('/*') && !stmt.includes('DELIMITER'));
+    const rawSqlContent = await fs.readFile(sqlFile, 'utf-8');
+    const executableSql = rawSqlContent
+      .replace(/^DELIMITER\s+\/\/\s*$/gm, '')
+      .replace(/^DELIMITER\s+;\s*$/gm, '')
+      .replace(/\/\/\s*$/gm, ';');
 
-    console.log(`📝 准备执行 ${statements.length} 条SQL语句...`);
-
-    // 执行每条SQL语句
-    for (let i = 0; i < statements.length; i++) {
-      const statement = statements[i];
-      if (statement.trim() === '') continue;
-      
-      try {
-        console.log(`⚡ 执行语句 ${i + 1}/${statements.length}...`);
-        await connection.execute(statement);
-        console.log(`✅ 语句 ${i + 1} 执行成功`);
-      } catch (error) {
-        // 如果是表已存在的错误，忽略
-        if (error.code === 'ER_TABLE_EXISTS_ERROR') {
-          console.log(`⚠️  语句 ${i + 1} - 表已存在，跳过`);
-          continue;
-        }
-        console.error(`❌ 语句 ${i + 1} 执行失败:`, error.message);
-        console.error('SQL:', statement.substring(0, 200) + '...');
-      }
-    }
+    console.log('📝 执行 trace logging schema...');
+    await connection.query(executableSql);
+    console.log('✅ trace logging schema 执行完成');
 
     // 验证表是否创建成功
     console.log('\n🔍 验证表创建结果...');

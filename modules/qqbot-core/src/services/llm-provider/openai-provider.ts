@@ -61,6 +61,12 @@ export class OpenAIProvider implements LLMProvider {
       modelName: contentResult.modelName,
       text: contentResult.text,
       rawResponse: contentResult.rawResponse,
+      canonicalRequest: contentResult.canonicalRequest,
+      wireRequest: contentResult.wireRequest,
+      canonicalResponse: contentResult.canonicalResponse,
+      wireResponse: contentResult.wireResponse,
+      requestFormatVersion: contentResult.requestFormatVersion,
+      wireProviderFormat: contentResult.wireProviderFormat,
       usage: contentResult.usage
     };
   }
@@ -83,23 +89,31 @@ export class OpenAIProvider implements LLMProvider {
     const inputTokens = usage.input_tokens ?? 0;
     const outputTokens = usage.output_tokens ?? Math.ceil(text.length / 4);
 
+    const canonicalResponse = {
+      ...cloneValue(response),
+      status: response?.status || 'completed',
+      model: response?.model || input.modelName,
+      output: Array.isArray(response?.output) ? cloneValue(response.output) : [],
+      output_text: response?.output_text || text,
+      usage: toOpenResponseUsage({
+        inputTokens,
+        outputTokens,
+        totalTokens: usage.total_tokens
+      })
+    };
+
     return {
       provider: this.id,
       modelName: input.modelName,
       text,
-      response: {
-        ...cloneValue(response),
-        status: response?.status || 'completed',
-        model: response?.model || input.modelName,
-        output: Array.isArray(response?.output) ? cloneValue(response.output) : [],
-        output_text: response?.output_text || text,
-        usage: toOpenResponseUsage({
-          inputTokens,
-          outputTokens,
-          totalTokens: usage.total_tokens
-        })
-      },
+      response: canonicalResponse,
       rawResponse: cloneValue(response),
+      canonicalRequest: cloneValue(input.request),
+      wireRequest: cloneValue(payload),
+      canonicalResponse,
+      wireResponse: cloneValue(response),
+      requestFormatVersion: 'openresponse/v1',
+      wireProviderFormat: `${this.id}/responses`,
       usage: {
         inputTokens,
         outputTokens,

@@ -73,6 +73,65 @@ function parseJsonField<T>(value: any, fallback: T): T {
   return fallback;
 }
 
+function buildMessageInput(conversation: any) {
+  const rawRequest = parseJsonField<any>(conversation.raw_request, {});
+  const timestampFromConversation = conversation.timestamp ? new Date(conversation.timestamp).toISOString() : undefined;
+  const timestampFromRequest = rawRequest?.time ? new Date(rawRequest.time * 1000).toISOString() : undefined;
+  const queuedAt = timestampFromRequest || timestampFromConversation || new Date().toISOString();
+  const processedAt = timestampFromConversation || timestampFromRequest || queuedAt;
+
+  return {
+    user_id: conversation.user_id ?? rawRequest.user_id ?? 0,
+    message: conversation.user_message ?? rawRequest.message ?? rawRequest.raw_message ?? '',
+    message_type: rawRequest.message_type ?? 'private',
+    group_id: rawRequest.group_id,
+    message_id: rawRequest.message_id,
+    source: 'api_simulation' as const,
+    queued_at: queuedAt,
+    processed_at: processedAt,
+    partition_key: String(conversation.user_id ?? rawRequest.user_id ?? conversation.id),
+    priority: 'MEDIUM' as const
+  };
+}
+
+function buildMessageOutput(conversation: any) {
+  const responseText = conversation.ai_response ?? '';
+  const timestampIso = conversation.timestamp ? new Date(conversation.timestamp).toISOString() : new Date().toISOString();
+  const responseTime = Number.isFinite(Number(conversation.response_time)) ? Number(conversation.response_time) : 0;
+  const normalizedStatus = (conversation.status ?? '').toString().toLowerCase();
+  const deliveryStatus = normalizedStatus === 'completed'
+    ? 'sent'
+    : normalizedStatus === 'failed'
+      ? 'failed'
+      : 'pending';
+
+  return {
+    content: responseText,
+    response_time_ms: responseTime,
+    model_used: conversation.model_name || 'unknown',
+    delivery_method: 'http_api' as const,
+    delivery_status: deliveryStatus as 'sent' | 'failed' | 'pending',
+    timestamp: timestampIso,
+    character_count: responseText.length
+  };
+}
+
+function normalizeProcessingEvents(events: any[]) {
+  return events.map((event) => ({
+    event_id: String(event.id),
+    event_type: event.event_type,
+    event_name: event.event_name,
+    event_phase: event.event_phase,
+    event_time: event.event_time,
+    duration_ms: event.duration_ms ?? undefined,
+    metadata: {
+      component: event.component || event.event_type,
+      details: parseJsonField<any>(event.metadata, {}),
+      performance_metrics: parseJsonField<any>(event.performance_metrics, undefined)
+    }
+  }));
+}
+
 // 创建调试相关路由
 export function createDebugRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
@@ -95,7 +154,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
       // 获取对话基本信息
       const conversationQuery = `
         SELECT id, user_id, user_message, ai_response, timestamp, response_time,
-               model_name, raw_request, raw_response, status, trace_id
+               model_name, raw_request, status, trace_id
         FROM conversations
         WHERE id = ?
       `;
@@ -124,10 +183,13 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
           model_name,
           model_provider,
           prompt_template,
-          input_prompt,
+          canonical_request,
+          wire_request,
+          request_format_version,
+          wire_provider_format,
           input_tokens,
-          model_config,
-          raw_response,
+          canonical_response,
+          wire_response,
           processed_response,
           output_tokens,
           api_call_time_ms,
@@ -137,8 +199,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
           error_message,
           error_code,
           cost_estimate,
-          token_usage,
-          context_summary
+          token_usage
         FROM llm_call_logs
         WHERE trace_id = ? OR conversation_id = ?
         ORDER BY timestamp ASC
@@ -175,24 +236,48 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
         websocketLogs = [];
       }
 
-      // 构建完整响应数据
+      const messageInput = buildMessageInput(conversation);
+      const messageOutput = buildMessageOutput(conversation);
+      const processingEvents = normalizeProcessingEvents(timelineEvents);
+
       const responseData = {
         conversation_id: conversationId,
         trace_id: traceId,
-        conversation: conversation,
-        llm_calls: llmCalls,
-        timeline_events: timelineEvents,
-        websocket_logs: websocketLogs,
+        message_input: messageInput,
+        message_output: messageOutput,
+        llm_call_chain: llmCalls,
+        processing_events: processingEvents,
         flow_summary: {
-          total_events: timelineEvents.length,
+          total_processing_time_ms: Number(conversation.response_time) || 0,
+          queue_wait_time_ms: 0,
+          llm_processing_time_ms: llmCalls.reduce((sum: number, call: any) => sum + (Number(call.processing_time_ms) || 0), 0),
           total_llm_calls: llmCalls.length,
-          total_websocket_events: websocketLogs.length,
+          successful_calls: llmCalls.filter((call: any) => call.status === 'SUCCESS').length,
+          failed_calls: llmCalls.filter((call: any) => call.status === 'ERROR').length,
+          skipped_calls: llmCalls.filter((call: any) => call.status === 'SKIPPED').length,
+          total_tokens_used: llmCalls.reduce((sum: number, call: any) => {
+            const usage = parseJsonField<any>(call.token_usage, {});
+            return sum + Number(usage.total_tokens ?? 0);
+          }, 0),
+          total_cost_estimate: llmCalls.reduce((sum: number, call: any) => sum + (Number(call.cost_estimate) || 0), 0),
+          success_rate: llmCalls.length > 0
+            ? (llmCalls.filter((call: any) => call.status === 'SUCCESS').length / llmCalls.length) * 100
+            : 100,
+          efficiency_score: 0
+        },
+        debug_info: {
           data_completeness: {
             conversation_record: 'complete',
             llm_call_logs: llmCalls.length > 0 ? 'complete' : 'missing',
-            timeline_events: timelineEvents.length > 0 ? 'complete' : 'missing',
-            websocket_logs: websocketLogs.length > 0 ? 'complete' : 'missing'
-          }
+            queue_logs: websocketLogs.length > 0 ? 'complete' : 'missing',
+            processing_events: processingEvents.length > 0 ? 'complete' : 'missing'
+          },
+          missing_data_reasons: [],
+          architecture_notes: [
+            'LLM 调用展示基于 canonical_request/wire_request 和 canonical_response/wire_response 双视图'
+          ],
+          performance_warnings: [],
+          recommendations: []
         }
       };
 

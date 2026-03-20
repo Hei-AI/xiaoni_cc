@@ -65,6 +65,12 @@ export class GeminiCliProvider implements LLMProvider {
       modelName: contentResult.modelName,
       text: contentResult.text,
       rawResponse: contentResult.rawResponse,
+      canonicalRequest: contentResult.canonicalRequest,
+      wireRequest: contentResult.wireRequest,
+      canonicalResponse: contentResult.canonicalResponse,
+      wireResponse: contentResult.wireResponse,
+      requestFormatVersion: contentResult.requestFormatVersion,
+      wireProviderFormat: contentResult.wireProviderFormat,
       usage: contentResult.usage
     };
   }
@@ -96,25 +102,38 @@ export class GeminiCliProvider implements LLMProvider {
     const inputTokens = usageMetadata.promptTokenCount ?? 0;
     const outputTokens = usageMetadata.candidatesTokenCount ?? Math.ceil(assembled.text.length / 4);
     const processingTimeMs = Date.now() - callStartTime;
+    const canonicalResponse = {
+      status: 'completed' as const,
+      model: input.modelName,
+      output_text: assembled.text,
+      output: this.partsToOpenResponseOutput(assembled.parts),
+      usage: toOpenResponseUsage({
+        inputTokens,
+        outputTokens,
+        totalTokens: usageMetadata.totalTokenCount
+      })
+    };
+    const wireResponse = {
+      assembled: {
+        text: assembled.text,
+        parts: cloneValue(assembled.parts),
+        usageMetadata: cloneValue(assembled.usageMetadata || {})
+      },
+      events: cloneValue(events)
+    };
 
     return {
       provider: this.id,
       modelName: input.modelName,
       text: assembled.text,
-      response: {
-        status: 'completed',
-        model: input.modelName,
-        output_text: assembled.text,
-        output: this.partsToOpenResponseOutput(assembled.parts),
-        usage: toOpenResponseUsage({
-          inputTokens,
-          outputTokens,
-          totalTokens: usageMetadata.totalTokenCount
-        })
-      },
-      rawResponse: {
-        events: cloneValue(events)
-      },
+      response: canonicalResponse,
+      rawResponse: wireResponse,
+      canonicalRequest: cloneValue(input.request),
+      wireRequest: cloneValue(payload),
+      canonicalResponse,
+      wireResponse,
+      requestFormatVersion: 'openresponse/v1',
+      wireProviderFormat: 'google-gemini-cli/generateContent',
       usage: {
         inputTokens,
         outputTokens,

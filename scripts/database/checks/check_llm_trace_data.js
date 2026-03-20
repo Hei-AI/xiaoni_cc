@@ -11,71 +11,79 @@ const dbConfig = {
   charset: 'utf8mb4'
 };
 
+async function tableExists(connection, tableName) {
+  const [rows] = await connection.execute(
+    `SELECT COUNT(*) AS count
+     FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`,
+    [dbConfig.database, tableName]
+  );
+  return Number(rows[0]?.count || 0) > 0;
+}
+
 async function checkLLMTraceData() {
   let connection;
-  
+
   try {
     connection = await mysql.createConnection(dbConfig);
     console.log('✅ 数据库连接成功');
-    
-    // 检查llm_call_traces表数据
-    console.log('\n🔍 检查llm_call_traces表:');
-    const [traceStructure] = await connection.execute("DESCRIBE llm_call_traces");
-    console.log('表结构:');
-    traceStructure.forEach(field => {
-      console.log(`   ${field.Field}: ${field.Type} ${field.Null === 'NO' ? '(NOT NULL)' : '(NULL)'}`);
-    });
-    
-    const [traceCount] = await connection.execute("SELECT COUNT(*) as count FROM llm_call_traces");
-    console.log(`\n📊 llm_call_traces 记录数: ${traceCount[0].count}`);
-    
-    if (traceCount[0].count > 0) {
-      const [sampleTraces] = await connection.execute("SELECT * FROM llm_call_traces ORDER BY timestamp DESC LIMIT 3");
-      console.log('\n📝 样本trace记录:');
-      sampleTraces.forEach((trace, index) => {
-        console.log(`   ${index + 1}. conversation_id: ${trace.conversation_id}`);
-        console.log(`      call_sequence: ${trace.call_sequence}`);
-        console.log(`      engine_type: ${trace.engine_type}`);
-        console.log(`      model_name: ${trace.model_name}`);
-      });
+
+    const hasLegacyTraceTable = await tableExists(connection, 'llm_call_traces');
+    if (hasLegacyTraceTable) {
+      console.log('\nℹ️ 检测到历史表 llm_call_traces，当前主路径已切换到 llm_call_logs。');
+      const [traceCount] = await connection.execute('SELECT COUNT(*) AS count FROM llm_call_traces');
+      console.log(`📊 llm_call_traces 记录数: ${traceCount[0].count}`);
     }
-    
-    // 检查llm_call_logs表数据
-    console.log('\n🔍 检查llm_call_logs表:');
-    const [logStructure] = await connection.execute("DESCRIBE llm_call_logs");
-    console.log('表结构:');
-    logStructure.forEach(field => {
+
+    console.log('\n🔍 检查 llm_call_logs 表结构:');
+    const [logStructure] = await connection.execute('DESCRIBE llm_call_logs');
+    logStructure.forEach((field) => {
       console.log(`   ${field.Field}: ${field.Type} ${field.Null === 'NO' ? '(NOT NULL)' : '(NULL)'}`);
     });
-    
-    const [logCount] = await connection.execute("SELECT COUNT(*) as count FROM llm_call_logs");
+
+    const [logCount] = await connection.execute('SELECT COUNT(*) AS count FROM llm_call_logs');
     console.log(`\n📊 llm_call_logs 记录数: ${logCount[0].count}`);
-    
+
     if (logCount[0].count > 0) {
-      const [sampleLogs] = await connection.execute("SELECT * FROM llm_call_logs ORDER BY created_at DESC LIMIT 3");
-      console.log('\n📝 样本log记录:');
+      const [sampleLogs] = await connection.execute(
+        `SELECT trace_id, model_name, model_provider, status, request_format_version,
+                wire_provider_format, timestamp
+         FROM llm_call_logs
+         ORDER BY timestamp DESC
+         LIMIT 3`
+      );
+
+      console.log('\n📝 样本 llm_call_logs 记录:');
       sampleLogs.forEach((log, index) => {
-        console.log(`   ${index + 1}. conversation_id: ${log.conversation_id || 'NULL'}`);
-        console.log(`      trace_id: ${log.trace_id || 'NULL'}`);
+        console.log(`   ${index + 1}. trace_id: ${log.trace_id}`);
         console.log(`      model_name: ${log.model_name}`);
-        console.log(`      success: ${log.success}`);
+        console.log(`      model_provider: ${log.model_provider}`);
+        console.log(`      status: ${log.status}`);
+        console.log(`      request_format_version: ${log.request_format_version}`);
+        console.log(`      wire_provider_format: ${log.wire_provider_format}`);
+        console.log(`      timestamp: ${log.timestamp}`);
       });
     }
-    
-    // 检查conversations表中有trace_id的记录
-    console.log('\n🔍 检查conversations表中带trace_id的记录:');
-    const [tracedConvs] = await connection.execute("SELECT id, trace_id, session_id, model_name FROM conversations WHERE trace_id IS NOT NULL ORDER BY created_at DESC LIMIT 3");
-    console.log(`📊 带trace_id的对话数: ${tracedConvs.length}`);
-    
-    tracedConvs.forEach((conv, index) => {
-      console.log(`   ${index + 1}. conversation_id: ${conv.id}`);
-      console.log(`      trace_id: ${conv.trace_id}`);
-      console.log(`      session_id: ${conv.session_id || 'NULL'}`);
-      console.log(`      model_name: ${conv.model_name}`);
+
+    console.log('\n🔍 检查 conversations 表中带 trace_id 的记录:');
+    const [tracedConversations] = await connection.execute(
+      `SELECT id, trace_id, model_name, timestamp
+       FROM conversations
+       WHERE trace_id IS NOT NULL
+       ORDER BY timestamp DESC
+       LIMIT 3`
+    );
+    console.log(`📊 样本对话数: ${tracedConversations.length}`);
+
+    tracedConversations.forEach((conversation, index) => {
+      console.log(`   ${index + 1}. conversation_id: ${conversation.id}`);
+      console.log(`      trace_id: ${conversation.trace_id}`);
+      console.log(`      model_name: ${conversation.model_name}`);
+      console.log(`      timestamp: ${conversation.timestamp}`);
     });
-    
   } catch (error) {
     console.error('❌ 错误:', error.message);
+    process.exitCode = 1;
   } finally {
     if (connection) {
       await connection.end();
@@ -83,4 +91,7 @@ async function checkLLMTraceData() {
   }
 }
 
-checkLLMTraceData().catch(console.error);
+checkLLMTraceData().catch((error) => {
+  console.error('❌ 未处理异常:', error);
+  process.exit(1);
+});

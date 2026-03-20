@@ -168,6 +168,12 @@ export interface LLMProviderTextResult {
   modelName: string;
   text: string;
   rawResponse: any;
+  canonicalRequest: OpenResponseCreateRequest;
+  wireRequest: any;
+  canonicalResponse: OpenResponseResource;
+  wireResponse: any;
+  requestFormatVersion: string;
+  wireProviderFormat: string;
   usage: LLMProviderUsage;
 }
 
@@ -177,6 +183,12 @@ export interface LLMProviderContentResult {
   text: string;
   response: OpenResponseResource;
   rawResponse: any;
+  canonicalRequest: OpenResponseCreateRequest;
+  wireRequest: any;
+  canonicalResponse: OpenResponseResource;
+  wireResponse: any;
+  requestFormatVersion: string;
+  wireProviderFormat: string;
   usage: LLMProviderUsage;
 }
 

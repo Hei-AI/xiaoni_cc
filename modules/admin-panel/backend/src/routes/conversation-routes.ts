@@ -118,10 +118,13 @@ export function createConversationRoutes(database: DatabaseManager, logger: wins
             model_name,
             model_provider,
             prompt_template,
-            input_prompt,
+            canonical_request,
+            wire_request,
+            request_format_version,
+            wire_provider_format,
             input_tokens,
-            model_config,
-            raw_response,
+            canonical_response,
+            wire_response,
             processed_response,
             output_tokens,
             api_call_time_ms,
@@ -131,8 +134,7 @@ export function createConversationRoutes(database: DatabaseManager, logger: wins
             error_message,
             error_code,
             cost_estimate,
-            token_usage,
-            context_summary
+            token_usage
            FROM llm_call_logs
            WHERE conversation_id = ? OR trace_id = ?
            ORDER BY timestamp ASC`,

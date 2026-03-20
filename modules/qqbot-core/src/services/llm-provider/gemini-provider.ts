@@ -1,7 +1,5 @@
 import {
   GoogleGenAI,
-  HarmCategory,
-  HarmBlockThreshold,
   Type,
   type GenerateContentConfig
 } from '@google/genai';
@@ -36,61 +34,26 @@ export class GeminiProvider implements LLMProvider {
   }
 
   async generateText(input: LLMProviderTextRequest): Promise<LLMProviderTextResult> {
-    const callStartTime = Date.now();
-    const modelName = input.config.model.name;
-    let tokenInfo: Awaited<ReturnType<TokenManagerInstance['getTokenForModel']>> | null = null;
+    const contentResult = await this.generateContent({
+      request: this.buildContentRequestFromPrompt(input.prompt, input.config),
+      modelName: input.config.model.name,
+      providerConfig: input.config,
+      context: input.context
+    });
 
-    try {
-      tokenInfo = await this.tokenManager.getTokenForModel(
-        modelName,
-        input.config.category,
-        input.config.name
-      );
-
-      if (!tokenInfo) {
-        throw new Error(`No available tokens for model ${modelName}`);
-      }
-
-      const client = new GoogleGenAI({
-        apiKey: tokenInfo.token,
-        httpOptions: {
-          timeout: input.config.performance.timeout
-        }
-      });
-
-      const contents = this.buildContents(input.prompt, input.config.context.systemInstruction);
-      const sdkConfig = this.buildGenerateContentConfig(input.config);
-
-      const response = await client.models.generateContent({
-        model: modelName,
-        contents,
-        config: sdkConfig
-      });
-
-      const text = extractTextFromGeminiResponse(response);
-      const promptTokens = response.usageMetadata?.promptTokenCount ?? estimateTokensFromContents(contents);
-      const outputTokens = response.usageMetadata?.candidatesTokenCount ?? Math.ceil(text.length / 4);
-      const processingTimeMs = Date.now() - callStartTime;
-
-      await this.tokenManager.reportSuccess(tokenInfo.token);
-
-      return {
-        provider: this.id,
-        modelName,
-        text,
-        rawResponse: cloneValue(response),
-        usage: {
-          inputTokens: promptTokens,
-          outputTokens,
-          processingTimeMs
-        }
-      };
-    } catch (error: any) {
-      if (tokenInfo) {
-        await this.handleTokenFailure(tokenInfo, modelName, error, 'generateText');
-      }
-      throw error;
-    }
+    return {
+      provider: contentResult.provider,
+      modelName: contentResult.modelName,
+      text: contentResult.text,
+      rawResponse: contentResult.rawResponse,
+      canonicalRequest: contentResult.canonicalRequest,
+      wireRequest: contentResult.wireRequest,
+      canonicalResponse: contentResult.canonicalResponse,
+      wireResponse: contentResult.wireResponse,
+      requestFormatVersion: contentResult.requestFormatVersion,
+      wireProviderFormat: contentResult.wireProviderFormat,
+      usage: contentResult.usage
+    };
   }
 
   async generateContent(input: LLMProviderContentRequest): Promise<LLMProviderContentResult> {
@@ -116,6 +79,11 @@ export class GeminiProvider implements LLMProvider {
       const normalizedRequest = openResponseInputToGeminiRequest(input.request);
       const contents = normalizedRequest.contents || [];
       const sdkConfig = this.buildGenerateContentConfigFromRequest(input.request, normalizedRequest.systemInstruction);
+      const wireRequest = {
+        model: input.modelName,
+        contents: cloneValue(contents),
+        config: cloneValue(sdkConfig)
+      };
 
       const response = await client.models.generateContent({
         model: input.modelName,
@@ -130,18 +98,26 @@ export class GeminiProvider implements LLMProvider {
 
       await this.tokenManager.reportSuccess(tokenInfo.token);
 
+      const canonicalResponse = openResponseFromGeminiResponse({
+        model: input.modelName,
+        text,
+        rawResponse: response,
+        inputTokens: promptTokens,
+        outputTokens
+      });
+
       return {
         provider: this.id,
         modelName: input.modelName,
         text,
-        response: openResponseFromGeminiResponse({
-          model: input.modelName,
-          text,
-          rawResponse: response,
-          inputTokens: promptTokens,
-          outputTokens
-        }),
+        response: canonicalResponse,
         rawResponse: cloneValue(response),
+        canonicalRequest: cloneValue(input.request),
+        wireRequest,
+        canonicalResponse,
+        wireResponse: cloneValue(response),
+        requestFormatVersion: 'openresponse/v1',
+        wireProviderFormat: 'google-legacy/generateContent',
         usage: {
           inputTokens: promptTokens,
           outputTokens,
@@ -172,39 +148,6 @@ export class GeminiProvider implements LLMProvider {
     });
 
     return contents;
-  }
-
-  private buildGenerateContentConfig(config: UnifiedLLMConfig): GenerateContentConfig {
-    const generation = config.generation || {};
-    const sdkConfig: GenerateContentConfig = {};
-
-    if (generation.temperature !== undefined) sdkConfig.temperature = generation.temperature;
-    if (generation.topK !== undefined) sdkConfig.topK = generation.topK;
-    if (generation.topP !== undefined) sdkConfig.topP = generation.topP;
-    if (generation.maxOutputTokens !== undefined) sdkConfig.maxOutputTokens = generation.maxOutputTokens;
-    if (generation.stopSequences) sdkConfig.stopSequences = generation.stopSequences;
-    if (generation.responseMimeType) sdkConfig.responseMimeType = generation.responseMimeType;
-    if (generation.responseSchema) sdkConfig.responseSchema = generation.responseSchema;
-
-    if (config.safety?.length) {
-      sdkConfig.safetySettings = config.safety.map(safety => ({
-        category: safety.category as HarmCategory,
-        threshold: safety.threshold as HarmBlockThreshold
-      }));
-    }
-
-    if (config.thinking?.includeThoughts !== undefined) {
-      sdkConfig.thinkingConfig = {
-        includeThoughts: config.thinking.includeThoughts,
-        thinkingBudget: config.thinking.thinkingBudget
-      } as any;
-    } else if (config.thinking?.thinkingBudget !== undefined) {
-      sdkConfig.thinkingConfig = {
-        thinkingBudget: config.thinking.thinkingBudget
-      } as any;
-    }
-
-    return sdkConfig;
   }
 
   private buildGenerateContentConfigFromRequest(request: any, systemInstruction?: any): GenerateContentConfig {

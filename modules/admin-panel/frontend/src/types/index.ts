@@ -18,19 +18,16 @@ export interface LLMCallRecord {
     model_name: string;
     model_provider: string;
     prompt_template: string;
-    input_prompt: string;
-    model_config: {
-      temperature?: number;
-      max_tokens?: number;
-      top_p?: number;
-      [key: string]: any;
-    };
-    context_summary?: string;
+    canonical_request?: any;
+    wire_request?: any;
+    request_format_version?: string;
+    wire_provider_format?: string;
     timestamp: string;
   };
   output: {
     status: 'SUCCESS' | 'ERROR' | 'TIMEOUT' | 'SKIPPED';
-    raw_response?: string;
+    canonical_response?: any;
+    wire_response?: any;
     processed_response?: string;
     token_usage: {
       input_tokens: number;
@@ -54,7 +51,7 @@ export interface LLMCallRecord {
 
 export interface ProcessingEvent {
   event_id: string;
-  event_type: 'queue' | 'llm' | 'engine' | 'api' | 'error';
+  event_type: string;
   event_name: string;
   event_phase: 'start' | 'end' | 'instant';
   event_time: string;
@@ -66,13 +63,11 @@ export interface ProcessingEvent {
   };
 }
 
-// LLM Flow API Response Types (Updated to support new MESSAGE_FLOW_API specification)
 export interface LLMFlowResponse {
   conversation_id: string;
   trace_id: string;
 
-  // 新规范字段 (MESSAGE_FLOW_API_SPECIFICATION.md)
-  message_input?: {
+  message_input: {
     user_id: number;
     message: string;
     message_type: 'private' | 'group';
@@ -90,7 +85,7 @@ export interface LLMFlowResponse {
     };
   };
 
-  message_output?: {
+  message_output: {
     content: string;
     response_time_ms: number;
     model_used: string;
@@ -101,11 +96,11 @@ export interface LLMFlowResponse {
     delivery_latency_ms?: number;
   };
 
-  llm_call_chain?: LLMCallRecord[];
+  llm_call_chain: LLMCallRecord[];
 
-  processing_events?: ProcessingEvent[];
+  processing_events: ProcessingEvent[];
 
-  flow_summary?: {
+  flow_summary: {
     total_processing_time_ms: number;
     queue_wait_time_ms: number;
     llm_processing_time_ms: number;
@@ -120,7 +115,7 @@ export interface LLMFlowResponse {
     efficiency_score: number;
   };
 
-  debug_info?: {
+  debug_info: {
     data_completeness: {
       conversation_record: 'complete' | 'partial' | 'missing';
       llm_call_logs: 'complete' | 'partial' | 'missing';
@@ -132,22 +127,6 @@ export interface LLMFlowResponse {
     performance_warnings: string[];
     recommendations: string[];
   };
-
-  // 向后兼容字段 (保留支持)
-  websocket_input?: OneBot11Message;
-  websocket_output?: {
-    content: string;
-    response_time_ms: string | number;
-    model: string;
-    timestamp: string;
-  };
-  llm_trace?: LLMTrace[];
-  timeline_events?: TimelineEvent[];
-
-  // Legacy兼容字段
-  llm_calls?: any[];
-  websocket_logs?: any[];
-  conversation?: any;
 }
 
 export interface OneBot11Message {
@@ -158,34 +137,6 @@ export interface OneBot11Message {
   message_id: number;
   message_type: 'private' | 'group';
   [key: string]: any;
-}
-
-export interface LLMTrace {
-  llm_raw_input: {
-    agent_type: string;
-    call_sequence: number;
-    model_name: string;
-    model_provider: string;
-    timestamp: string;
-    input_prompt: string;
-    prompt_template?: string;
-    model_config?: any;
-    context_summary?: string;
-  };
-  llm_raw_output: {
-    input_tokens?: number;
-    output_tokens?: number;
-    total_tokens: number;
-    api_call_time_ms?: number;
-    processing_time_ms?: number;
-    status: string;
-    error_message?: string;
-    error_code?: string;
-    cost_estimate?: number;
-    raw_response?: string;
-    processed_response?: string;
-    token_usage?: any;
-  };
 }
 
 export interface GeminiRequest {
@@ -248,15 +199,13 @@ export interface ConversationTimelineData {
   conversation_id: string;
   trace_id?: string;
 
-  // 新规范数据 (MESSAGE_FLOW_API_SPECIFICATION.md)
-  message_input?: LLMFlowResponse['message_input'];
-  message_output?: LLMFlowResponse['message_output'];
-  llm_call_chain?: LLMCallRecord[];
-  processing_events?: ProcessingEvent[];
-  flow_summary?: LLMFlowResponse['flow_summary'];
-  debug_info?: LLMFlowResponse['debug_info'];
+  message_input: LLMFlowResponse['message_input'];
+  message_output: LLMFlowResponse['message_output'];
+  llm_call_chain: LLMCallRecord[];
+  processing_events: ProcessingEvent[];
+  flow_summary: LLMFlowResponse['flow_summary'];
+  debug_info: LLMFlowResponse['debug_info'];
 
-  // 向后兼容数据
   websocket_input: OneBot11Message;
   websocket_output: {
     content: string;
@@ -264,7 +213,6 @@ export interface ConversationTimelineData {
     model: string;
     timestamp: string;
   };
-  llm_traces: LLMTrace[];
   timeline_nodes: TimelineNode[];
   timeline_events: TimelineEvent[];
   timeline_summary: {

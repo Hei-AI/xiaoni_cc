@@ -66,14 +66,15 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
   
   -- 输入信息
   prompt_template TEXT NULL COMMENT 'Prompt模板名称或描述',
-  input_prompt LONGTEXT NOT NULL COMMENT '完整的输入prompt',
+  canonical_request JSON NOT NULL COMMENT '统一规范的请求体快照',
+  wire_request JSON NOT NULL COMMENT '实际发送给 provider 的请求体快照',
+  request_format_version VARCHAR(32) NOT NULL DEFAULT 'openresponse/v1' COMMENT '统一请求格式版本',
+  wire_provider_format VARCHAR(64) NOT NULL COMMENT 'provider wire payload 格式标识',
   input_tokens INT NULL COMMENT '输入token数量',
   
-  -- 模型配置
-  model_config JSON NULL COMMENT '模型参数配置（temperature, topK等）',
-  
   -- 输出信息
-  raw_response TEXT NULL COMMENT '原始AI回复（JSON或文本）',
+  canonical_response JSON NULL COMMENT '统一规范的响应体快照',
+  wire_response JSON NULL COMMENT 'provider 原始响应快照',
   processed_response TEXT NULL COMMENT '处理后的回复内容',
   output_tokens INT NULL COMMENT '输出token数量',
   
@@ -93,7 +94,6 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
   
   -- 业务上下文
   user_id BIGINT NULL COMMENT '触发用户ID',
-  context_summary TEXT NULL COMMENT '上下文摘要',
   
   -- 索引
   INDEX idx_trace_id (trace_id),

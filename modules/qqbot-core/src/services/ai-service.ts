@@ -692,6 +692,25 @@ export class AIService {
     const callStartTime = Date.now();
     const llmCallId = uuidv4();
     const providerId = resolveProviderFromUnifiedConfig(config);
+    const canonicalRequest = geminiRequestToOpenResponseRequest({
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: prompt }]
+        }
+      ],
+      generationConfig: {
+        temperature: config.generation.temperature,
+        topP: config.generation.topP,
+        topK: config.generation.topK,
+        maxOutputTokens: config.generation.maxOutputTokens,
+        stopSequences: config.generation.stopSequences
+      },
+      toolConfig: {
+        functionCallingConfig: config.tools?.functionCalling
+      },
+      systemInstruction: config.context.systemInstruction
+    }, config.model.name, config);
 
     this.moduleLogger.debug('Starting LLM API call', {
       providerId,
@@ -759,17 +778,19 @@ export class AIService {
             modelName: config.model.name,
             modelProvider: response.provider,
             promptTemplate: config.name || 'default',
-            inputPrompt: prompt,
+            canonicalRequest: response.canonicalRequest,
+            wireRequest: response.wireRequest,
+            requestFormatVersion: response.requestFormatVersion,
+            wireProviderFormat: response.wireProviderFormat,
             inputTokens: inputTokens,
-            modelConfig: this.buildModelConfigSummary(config),
-            rawResponse: JSON.stringify(plainResponse),
+            canonicalResponse: response.canonicalResponse,
+            wireResponse: response.wireResponse,
             processedResponse: responseText,
             outputTokens: outputTokens,
             apiCallTimeMs: processingTimeMs,
             processingTimeMs: processingTimeMs,
             status: 'SUCCESS',
-            userId: userId || undefined,
-            contextSummary: prompt.length > 200 ? `${prompt.substring(0, 200)}...` : prompt
+            userId: userId || undefined
           });
 
           this.moduleLogger.debug('LLM call logged successfully', {
@@ -829,10 +850,13 @@ export class AIService {
             modelName: config.model.name,
             modelProvider: providerId,
             promptTemplate: config.name || 'default',
-            inputPrompt: prompt,
+            canonicalRequest,
+            wireRequest: undefined,
+            requestFormatVersion: 'openresponse/v1',
+            wireProviderFormat: `${providerId}/unknown`,
             inputTokens: Math.ceil(prompt.length / 4),
-            modelConfig: this.buildModelConfigSummary(config),
-            rawResponse: undefined,
+            canonicalResponse: undefined,
+            wireResponse: undefined,
             processedResponse: undefined,
             outputTokens: 0,
             apiCallTimeMs: processingTimeMs,
@@ -840,8 +864,7 @@ export class AIService {
             status: 'ERROR',
             errorMessage: error.message,
             errorCode: error.status?.toString() || 'UNKNOWN',
-            userId: userId || undefined,
-            contextSummary: prompt.length > 200 ? prompt.substring(0, 200) + '...' : prompt
+            userId: userId || undefined
           });
         } catch (logError) {
           this.moduleLogger.error('Failed to log failed LLM call', {
@@ -1018,18 +1041,12 @@ export class AIService {
       resolvedPromptConfig
     );
 
-    let modelConfigSummary: Record<string, any> | undefined;
-
     try {
       const provider = createLLMProvider({
         providerId,
         aiConfig: this.aiConfig,
         tokenManager: this.tokenManager
       });
-      modelConfigSummary = this.buildGenerateContentModelConfigSummary(
-        request,
-        resolvedPromptConfig || undefined
-      );
 
       const response = await provider.generateContent({
         request: providerRequest,
@@ -1059,16 +1076,18 @@ export class AIService {
             modelName: targetModel,
             modelProvider: response.provider,
             promptTemplate: resolvedPromptName,
-            inputPrompt: JSON.stringify(providerRequest.input || []),
+            canonicalRequest: response.canonicalRequest,
+            wireRequest: response.wireRequest,
+            requestFormatVersion: response.requestFormatVersion,
+            wireProviderFormat: response.wireProviderFormat,
             inputTokens,
-            modelConfig: modelConfigSummary,
-            rawResponse: JSON.stringify(plainResponse),
+            canonicalResponse: response.canonicalResponse,
+            wireResponse: response.wireResponse,
             processedResponse,
             outputTokens,
             apiCallTimeMs: processingTimeMs,
             processingTimeMs,
-            status: 'SUCCESS',
-            contextSummary: `Tool system call with ${request.tools?.length || 0} tools`
+            status: 'SUCCESS'
           });
         } catch (logError) {
           this.moduleLogger.error('Failed to log generateContent call', {
@@ -1103,18 +1122,20 @@ export class AIService {
             modelName: targetModel,
             modelProvider: providerId,
             promptTemplate: resolvedPromptName,
-            inputPrompt: JSON.stringify(providerRequest.input || []),
+            canonicalRequest: providerRequest,
+            wireRequest: undefined,
+            requestFormatVersion: 'openresponse/v1',
+            wireProviderFormat: `${providerId}/unknown`,
             inputTokens: 0,
-            modelConfig: modelConfigSummary || request.generationConfig || {},
-            rawResponse: undefined,
+            canonicalResponse: undefined,
+            wireResponse: undefined,
             processedResponse: undefined,
             outputTokens: 0,
             apiCallTimeMs: processingTimeMs,
             processingTimeMs,
             status: 'ERROR',
             errorMessage: error.message,
-            errorCode: (error.status ?? error.statusCode ?? error.code ?? 'UNKNOWN').toString(),
-            contextSummary: 'Tool system call failed'
+            errorCode: (error.status ?? error.statusCode ?? error.code ?? 'UNKNOWN').toString()
           });
         } catch (logError) {
           this.moduleLogger.error('Failed to log failed generateContent call', {
@@ -1194,39 +1215,6 @@ export class AIService {
     }
 
     return inferProviderFromModelName(targetModel);
-  }
-
-  private buildModelConfigSummary(config: UnifiedLLMConfig): Record<string, any> {
-    return {
-      provider: resolveProviderFromUnifiedConfig(config),
-      temperature: config.generation.temperature,
-      topK: config.generation.topK,
-      topP: config.generation.topP,
-      maxOutputTokens: config.generation.maxOutputTokens,
-      stopSequences: config.generation.stopSequences,
-      providerSpecific: config.model.providerSpecific
-    };
-  }
-
-  private buildGenerateContentModelConfigSummary(
-    request: {
-      generationConfig?: any;
-      safetySettings?: any;
-      toolConfig?: any;
-      thinkingConfig?: any;
-      systemInstruction?: any;
-    },
-    config?: UnifiedLLMConfig
-  ): Record<string, any> {
-    return {
-      provider: config ? resolveProviderFromUnifiedConfig(config) : undefined,
-      generationConfig: request.generationConfig || config?.generation,
-      safetySettings: request.safetySettings || config?.safety,
-      toolConfig: request.toolConfig || config?.tools?.functionCalling,
-      thinkingConfig: request.thinkingConfig || config?.thinking,
-      systemInstruction: request.systemInstruction || config?.context.systemInstruction,
-      providerSpecific: config?.model.providerSpecific
-    };
   }
 
   private buildContents(prompt: string, systemInstruction?: string): any[] {

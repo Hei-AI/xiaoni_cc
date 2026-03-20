@@ -38,10 +38,13 @@ export interface LLMCallLogData {
   modelName: string;
   modelProvider?: string;
   promptTemplate?: string;
-  inputPrompt: string;
+  canonicalRequest: any;
+  wireRequest: any;
+  requestFormatVersion?: string;
+  wireProviderFormat?: string;
   inputTokens?: number;
-  modelConfig?: any;
-  rawResponse?: string;
+  canonicalResponse?: any;
+  wireResponse?: any;
   processedResponse?: string;
   outputTokens?: number;
   apiCallTimeMs: number;
@@ -52,7 +55,6 @@ export interface LLMCallLogData {
   costEstimate?: number;
   tokenUsage?: any;
   userId?: number;
-  contextSummary?: string;
 }
 
 /**
@@ -225,10 +227,13 @@ export class LoggingService {
         model_name: data.modelName,
         model_provider: data.modelProvider || 'google-gemini-cli',
         prompt_template: data.promptTemplate || null,
-        input_prompt: data.inputPrompt,
+        canonical_request: data.canonicalRequest ? JSON.stringify(data.canonicalRequest) : null,
+        wire_request: data.wireRequest ? JSON.stringify(data.wireRequest) : null,
+        request_format_version: data.requestFormatVersion || 'openresponse/v1',
+        wire_provider_format: data.wireProviderFormat || `${data.modelProvider || 'unknown'}/unknown`,
         input_tokens: data.inputTokens || null,
-        model_config: data.modelConfig ? JSON.stringify(data.modelConfig) : null,
-        raw_response: data.rawResponse || null,
+        canonical_response: data.canonicalResponse ? JSON.stringify(data.canonicalResponse) : null,
+        wire_response: data.wireResponse ? JSON.stringify(data.wireResponse) : null,
         processed_response: data.processedResponse || null,
         output_tokens: data.outputTokens || null,
         api_call_time_ms: data.apiCallTimeMs,
@@ -238,18 +243,17 @@ export class LoggingService {
         error_code: data.errorCode || null,
         cost_estimate: data.costEstimate || null,
         token_usage: data.tokenUsage ? JSON.stringify(data.tokenUsage) : null,
-        user_id: data.userId || null,
-        context_summary: data.contextSummary || null
+        user_id: data.userId || null
       };
 
       const sql = `
         INSERT INTO llm_call_logs (
           trace_id, conversation_id, session_id, call_sequence, agent_type, model_name, model_provider,
-          prompt_template, input_prompt, input_tokens, model_config, raw_response,
-          processed_response, output_tokens, api_call_time_ms, processing_time_ms,
-          timestamp, status, error_message, error_code, cost_estimate, token_usage,
-          user_id, context_summary
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          prompt_template, canonical_request, wire_request, request_format_version, wire_provider_format,
+          input_tokens, canonical_response, wire_response, processed_response, output_tokens,
+          api_call_time_ms, processing_time_ms, timestamp, status, error_message, error_code,
+          cost_estimate, token_usage, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       // 🔥 使用应用程序层面的高精度时间戳，确保毫秒精度
@@ -258,12 +262,12 @@ export class LoggingService {
       const values = [
         logData.trace_id, logData.conversation_id || null, logData.session_id, logData.call_sequence,
         logData.agent_type, logData.model_name, logData.model_provider,
-        logData.prompt_template, logData.input_prompt, logData.input_tokens,
-        logData.model_config, logData.raw_response, logData.processed_response,
+        logData.prompt_template, logData.canonical_request, logData.wire_request,
+        logData.request_format_version, logData.wire_provider_format, logData.input_tokens,
+        logData.canonical_response, logData.wire_response, logData.processed_response,
         logData.output_tokens, logData.api_call_time_ms, logData.processing_time_ms,
         preciseTimestamp, logData.status, logData.error_message, logData.error_code,
-        logData.cost_estimate, logData.token_usage, logData.user_id,
-        logData.context_summary
+        logData.cost_estimate, logData.token_usage, logData.user_id
       ];
 
       const result = await this.database.executeQuery(sql, values);
