@@ -9,7 +9,7 @@ WORKDIR /app
 
 # 复制package文件并安装依赖
 COPY package*.json ./
-RUN npm install
+RUN npm install --no-audit --no-fund
 
 # 复制源码并构建
 COPY . .

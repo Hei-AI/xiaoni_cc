@@ -9,7 +9,7 @@ RUN mkdir -p /app/resources/logs /app/resources/config
 
 # 复制package文件并安装依赖（包含开发依赖，因为我们使用ts-node）
 COPY package*.json ./
-RUN npm install --include=dev
+RUN npm install --include=dev --no-audit --no-fund
 
 # 复制源码和配置
 COPY src/ ./src/
@@ -20,7 +20,7 @@ COPY tests/ ./tests/
 # 全局安装ts-node用于生产运行（使用镜像源提高稳定性）
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 RUN npm config set registry ${NPM_REGISTRY} \
-  && npm install -g ts-node typescript \
+  && npm install -g ts-node typescript --no-audit --no-fund \
   && npm config delete registry
 
 # 设置环境变量
