@@ -5,6 +5,7 @@
 
 import { DatabaseManager } from './database';
 import { logger } from '../utils/logger';
+import { randomUUID } from 'crypto';
 
 /**
  * WebSocket日志记录数据接口
@@ -109,6 +110,49 @@ export interface TimelineEventData {
   metadata?: any;
 }
 
+export interface StartSpanData {
+  traceId: string;
+  conversationId?: string;
+  parentSpanId?: string;
+  spanId?: string;
+  name: string;
+  kind?: 'internal' | 'client' | 'server' | 'producer' | 'consumer';
+  statusCode?: 'unset' | 'ok' | 'error';
+  statusMessage?: string;
+  startedAt?: Date;
+  summary?: string;
+  input?: any;
+  output?: any;
+  evidence?: any;
+  confidence?: 'observed' | 'derived' | 'missing';
+  sourceRef?: string;
+  attributes?: Record<string, unknown>;
+}
+
+export interface EndSpanData {
+  endedAt?: Date;
+  statusCode?: 'unset' | 'ok' | 'error';
+  statusMessage?: string;
+  summary?: string;
+  output?: any;
+  evidence?: any;
+  attributes?: Record<string, unknown>;
+}
+
+export interface SpanEventRecordData {
+  spanId: string;
+  name: string;
+  eventTime?: Date;
+  attributes?: Record<string, unknown>;
+}
+
+export interface SpanLinkRecordData {
+  spanId: string;
+  linkedTraceId?: string;
+  linkedSpanId?: string;
+  attributes?: Record<string, unknown>;
+}
+
 /**
  * 日志记录服务
  */
@@ -117,6 +161,7 @@ export class LoggingService {
   private moduleLogger = logger.createModuleLogger('logging-service');
   // 移除内存中的序列号管理，改用数据库原子操作保证一致性
   private sequenceLocks: Map<string, Promise<number>> = new Map(); // 按trace_id的序列锁
+  private pendingLifecycleSpans: Map<string, string[]> = new Map();
 
   constructor(database: DatabaseManager) {
     this.database = database;
@@ -148,6 +193,282 @@ export class LoggingService {
 
     this.sequenceLocks.set(traceId, sequencePromise);
     return await sequencePromise;
+  }
+
+  private preview(value: any, maxLength = 160): string {
+    if (value === null || value === undefined || value === '') {
+      return 'No summary available';
+    }
+
+    const raw = typeof value === 'string' ? value : JSON.stringify(value);
+    const compact = raw.replace(/\s+/g, ' ').trim();
+    if (!compact) {
+      return 'No summary available';
+    }
+    return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
+  }
+
+  private spanStatusFromLegacyStatus(value?: string | null): 'unset' | 'ok' | 'error' {
+    const normalized = (value || '').toLowerCase();
+    if (['success', 'completed', 'sent', 'ok'].includes(normalized)) {
+      return 'ok';
+    }
+    if (['error', 'failed', 'timeout', 'quota_exceeded'].includes(normalized)) {
+      return 'error';
+    }
+    return 'unset';
+  }
+
+  private lifecycleSpanKey(traceId: string, eventType: string, eventName: string): string {
+    return `${traceId}:${eventType}:${eventName}`;
+  }
+
+  private async safeSpanOperation(label: string, operation: () => Promise<void>): Promise<void> {
+    try {
+      await operation();
+    } catch (error: unknown) {
+      this.moduleLogger.warn(`Span operation failed: ${label}`, {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  private async ensureTraceRoot(traceId: string, conversationId?: string, startedAt?: Date | null): Promise<string> {
+    const rootSpanId = `trace-root:${traceId}`;
+
+    await this.database.executeUpdate(
+      `INSERT INTO traces (
+        trace_id, root_span_id, conversation_id, status, started_at, ended_at, duration_ms, span_count, error_count
+      ) VALUES (?, ?, ?, 'unset', ?, ?, NULL, 0, 0)
+      ON DUPLICATE KEY UPDATE
+        conversation_id = COALESCE(VALUES(conversation_id), conversation_id),
+        started_at = COALESCE(traces.started_at, VALUES(started_at)),
+        updated_at = CURRENT_TIMESTAMP`,
+      [traceId, rootSpanId, conversationId || null, startedAt || null, startedAt || null]
+    );
+
+    await this.database.executeUpdate(
+      `INSERT INTO spans (
+        span_id, trace_id, parent_span_id, name, kind, status_code, status_message,
+        service_name, operation_name, conversation_id, depth, sort_key,
+        started_at, ended_at, duration_ms, input_payload, output_payload, evidence_payload,
+        summary, confidence, source_ref
+      ) VALUES (?, ?, NULL, 'conversation.trace', 'internal', 'unset', NULL, 'qqbot-core', 'trace.root', ?, 0, '000', ?, ?, NULL, NULL, NULL, NULL, 'Conversation trace root', 'observed', ?)
+      ON DUPLICATE KEY UPDATE
+        conversation_id = COALESCE(VALUES(conversation_id), conversation_id),
+        started_at = COALESCE(spans.started_at, VALUES(started_at)),
+        updated_at = CURRENT_TIMESTAMP`,
+      [rootSpanId, traceId, conversationId || null, startedAt || null, startedAt || null, traceId]
+    );
+
+    await this.setSpanAttributes(rootSpanId, {
+      'semantic.role': 'trace_root',
+      'semantic.display_name': 'Conversation Trace',
+      ...(conversationId ? { 'conversation.id': conversationId } : {})
+    });
+
+    return rootSpanId;
+  }
+
+  private async refreshTraceSummary(traceId: string): Promise<void> {
+    await this.database.executeUpdate(
+      `UPDATE traces
+       SET started_at = (
+             SELECT MIN(started_at) FROM spans WHERE trace_id = ?
+           ),
+           ended_at = (
+             SELECT MAX(COALESCE(ended_at, started_at)) FROM spans WHERE trace_id = ?
+           ),
+           duration_ms = (
+             SELECT CASE
+               WHEN MIN(started_at) IS NULL OR MAX(COALESCE(ended_at, started_at)) IS NULL THEN NULL
+               ELSE TIMESTAMPDIFF(MICROSECOND, MIN(started_at), MAX(COALESCE(ended_at, started_at))) DIV 1000
+             END
+             FROM spans WHERE trace_id = ?
+           ),
+           span_count = (
+             SELECT COUNT(*) FROM spans WHERE trace_id = ?
+           ),
+           error_count = (
+             SELECT COUNT(*) FROM spans WHERE trace_id = ? AND status_code = 'error'
+           ),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE trace_id = ?`,
+      [traceId, traceId, traceId, traceId, traceId, traceId]
+    );
+  }
+
+  async setSpanAttributes(spanId: string, attributes: Record<string, unknown>): Promise<void> {
+    const entries = Object.entries(attributes).filter(([, value]) => value !== undefined);
+    if (entries.length === 0) {
+      return;
+    }
+
+    const keys = entries.map(([key]) => key);
+    const placeholders = keys.map(() => '?').join(', ');
+
+    await this.database.executeUpdate(
+      `DELETE FROM span_attributes WHERE span_id = ? AND attr_key IN (${placeholders})`,
+      [spanId, ...keys]
+    );
+
+    const valuesSql = entries.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const params: any[] = [];
+    for (const [key, value] of entries) {
+      let attrType: 'string' | 'number' | 'boolean' | 'json' = 'string';
+      let stringValue: string | null = null;
+      let numberValue: number | null = null;
+      let boolValue: boolean | null = null;
+      let jsonValue: string | null = null;
+
+      if (typeof value === 'number') {
+        attrType = 'number';
+        numberValue = value;
+      } else if (typeof value === 'boolean') {
+        attrType = 'boolean';
+        boolValue = value;
+      } else if (typeof value === 'string') {
+        attrType = 'string';
+        stringValue = value;
+      } else {
+        attrType = 'json';
+        jsonValue = JSON.stringify(value);
+      }
+
+      params.push(spanId, key, attrType, stringValue, numberValue, boolValue, jsonValue);
+    }
+
+    await this.database.executeUpdate(
+      `INSERT INTO span_attributes (
+        span_id, attr_key, attr_type, string_value, number_value, bool_value, json_value
+      ) VALUES ${valuesSql}`,
+      params
+    );
+  }
+
+  async startSpan(data: StartSpanData): Promise<string> {
+    const startedAt = data.startedAt || new Date();
+    const rootSpanId = await this.ensureTraceRoot(data.traceId, data.conversationId, startedAt);
+    const spanId = data.spanId || `${data.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${randomUUID()}`;
+    const parentSpanId = data.parentSpanId || rootSpanId;
+
+    await this.database.executeUpdate(
+      `INSERT INTO spans (
+        span_id, trace_id, parent_span_id, name, kind, status_code, status_message,
+        service_name, operation_name, conversation_id, depth, sort_key,
+        started_at, ended_at, duration_ms, input_payload, output_payload, evidence_payload,
+        summary, confidence, source_ref
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'qqbot-core', ?, ?, 0, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        parent_span_id = VALUES(parent_span_id),
+        status_code = VALUES(status_code),
+        status_message = VALUES(status_message),
+        started_at = VALUES(started_at),
+        input_payload = VALUES(input_payload),
+        evidence_payload = VALUES(evidence_payload),
+        summary = VALUES(summary),
+        confidence = VALUES(confidence),
+        source_ref = VALUES(source_ref),
+        updated_at = CURRENT_TIMESTAMP`,
+      [
+        spanId,
+        data.traceId,
+        parentSpanId,
+        data.name,
+        data.kind || 'internal',
+        data.statusCode || 'unset',
+        data.statusMessage || null,
+        data.name,
+        data.conversationId || null,
+        `pending-${Date.now()}`,
+        startedAt,
+        data.input ? JSON.stringify(data.input) : null,
+        data.output ? JSON.stringify(data.output) : null,
+        data.evidence ? JSON.stringify(data.evidence) : null,
+        data.summary || data.name,
+        data.confidence || 'observed',
+        data.sourceRef || null
+      ]
+    );
+
+    await this.setSpanAttributes(spanId, {
+      'semantic.display_name': data.name,
+      ...(data.attributes || {})
+    });
+    await this.refreshTraceSummary(data.traceId);
+    return spanId;
+  }
+
+  async endSpan(spanId: string, data: EndSpanData = {}): Promise<void> {
+    const endedAt = data.endedAt || new Date();
+    const spanRow = await this.database.executeQuery<{ trace_id: string; started_at: string | null }>(
+      'SELECT trace_id, started_at FROM spans WHERE span_id = ? LIMIT 1',
+      [spanId]
+    );
+    const traceId = spanRow[0]?.trace_id;
+    const startedAt = spanRow[0]?.started_at ? new Date(spanRow[0].started_at) : null;
+    const durationMs = startedAt ? Math.max(0, endedAt.getTime() - startedAt.getTime()) : null;
+
+    await this.database.executeUpdate(
+      `UPDATE spans
+       SET ended_at = ?,
+           duration_ms = ?,
+           status_code = COALESCE(?, status_code),
+           status_message = COALESCE(?, status_message),
+           output_payload = COALESCE(?, output_payload),
+           evidence_payload = COALESCE(?, evidence_payload),
+           summary = COALESCE(?, summary),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE span_id = ?`,
+      [
+        endedAt,
+        durationMs,
+        data.statusCode || null,
+        data.statusMessage || null,
+        data.output ? JSON.stringify(data.output) : null,
+        data.evidence ? JSON.stringify(data.evidence) : null,
+        data.summary || null,
+        spanId
+      ]
+    );
+
+    if (data.attributes) {
+      await this.setSpanAttributes(spanId, data.attributes);
+    }
+
+    if (traceId) {
+      await this.refreshTraceSummary(traceId);
+    }
+  }
+
+  async recordSpanEvent(data: SpanEventRecordData): Promise<void> {
+    await this.database.executeUpdate(
+      `INSERT INTO span_events (
+        event_id, span_id, name, event_time, attributes_json
+      ) VALUES (?, ?, ?, ?, ?)`,
+      [
+        `event-${randomUUID()}`,
+        data.spanId,
+        data.name,
+        data.eventTime || new Date(),
+        data.attributes ? JSON.stringify(data.attributes) : null
+      ]
+    );
+  }
+
+  async recordSpanLink(data: SpanLinkRecordData): Promise<void> {
+    await this.database.executeUpdate(
+      `INSERT INTO span_links (
+        link_id, span_id, linked_trace_id, linked_span_id, attributes_json
+      ) VALUES (?, ?, ?, ?, ?)`,
+      [
+        `link-${randomUUID()}`,
+        data.spanId,
+        data.linkedTraceId || null,
+        data.linkedSpanId || null,
+        data.attributes ? JSON.stringify(data.attributes) : null
+      ]
+    );
   }
 
   /**
@@ -199,6 +520,34 @@ export class LoggingService {
         messageType: data.messageType,
         status: data.status
       });
+
+      if (data.traceId) {
+        await this.safeSpanOperation('websocket-message', async () => {
+          const spanId = await this.startSpan({
+            traceId: data.traceId!,
+            name: data.direction === 'IN' ? 'ingress.message' : 'delivery.message',
+            kind: data.direction === 'IN' ? 'server' : 'producer',
+            statusCode: this.spanStatusFromLegacyStatus(data.status),
+            statusMessage: data.errorMessage,
+            summary: this.preview(data.rawPayload?.message || data.rawPayload?.raw_message || data.messageType),
+            input: data.rawPayload,
+            output: data.processedPayload,
+            evidence: data,
+            sourceRef: String(logId),
+            attributes: {
+              'semantic.role': data.direction === 'IN' ? 'ingress' : 'delivery',
+              'message.type': data.messageType,
+              'message.direction': data.direction
+            }
+          });
+          await this.endSpan(spanId, {
+            statusCode: this.spanStatusFromLegacyStatus(data.status),
+            statusMessage: data.errorMessage,
+            output: data.processedPayload,
+            evidence: data
+          });
+        });
+      }
 
       return logId;
     } catch (error: unknown) {
@@ -294,6 +643,56 @@ export class LoggingService {
         status: data.status
       });
 
+      await this.safeSpanOperation('llm-call', async () => {
+        const spanId = await this.startSpan({
+          traceId: data.traceId,
+          conversationId: data.conversationId,
+          name: 'llm.generation',
+          kind: 'client',
+          statusCode: this.spanStatusFromLegacyStatus(data.status),
+          statusMessage: data.errorMessage,
+          startedAt: data.startedAt,
+          summary: this.preview(data.processedResponse || data.canonicalResponse || data.wireResponse),
+          input: {
+            prompt_template: data.promptTemplate,
+            canonical_request: data.canonicalRequest,
+            wire_request: data.wireRequest
+          },
+          output: {
+            processed_response: data.processedResponse,
+            canonical_response: data.canonicalResponse,
+            wire_response: data.wireResponse,
+            token_usage: data.tokenUsage
+          },
+          evidence: data,
+          sourceRef: data.llmCallId || String(logId),
+          attributes: {
+            'semantic.role': 'generation',
+            'semantic.actor': data.agentType,
+            'llm.model_name': data.modelName,
+            'llm.model_provider': data.modelProvider || 'unknown',
+            'llm.prompt_template': data.promptTemplate || null,
+            'usage.input_tokens': data.inputTokens ?? null,
+            'usage.output_tokens': data.outputTokens ?? null,
+            'trace.agent_turn': data.agentTurn ?? null
+          }
+        });
+        await this.endSpan(spanId, {
+          endedAt: data.completedAt,
+          statusCode: this.spanStatusFromLegacyStatus(data.status),
+          statusMessage: data.errorMessage,
+          output: {
+            processed_response: data.processedResponse,
+            canonical_response: data.canonicalResponse,
+            wire_response: data.wireResponse,
+            token_usage: data.tokenUsage,
+            error_message: data.errorMessage,
+            error_code: data.errorCode
+          },
+          evidence: data
+        });
+      });
+
       return logId;
     } catch (error: unknown) {
       this.moduleLogger.error('Failed to log LLM call', { error: error instanceof Error ? error.message : String(error), data });
@@ -318,6 +717,10 @@ export class LoggingService {
       ];
 
       await this.database.executeQuery(sql, values);
+
+      await this.safeSpanOperation('session-trace-root', async () => {
+        await this.ensureTraceRoot(data.traceId, undefined, new Date());
+      });
 
       this.moduleLogger.info('Session trace created', {
         traceId: data.traceId,
@@ -411,6 +814,17 @@ export class LoggingService {
       values.push(traceId);
 
       await this.database.executeQuery(sql, values);
+
+      await this.safeSpanOperation('session-trace-update', async () => {
+        await this.database.executeUpdate(
+          `UPDATE traces
+           SET status = COALESCE(?, status),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE trace_id = ?`,
+          [data.status?.toLowerCase() || null, traceId]
+        );
+        await this.refreshTraceSummary(traceId);
+      });
 
       this.moduleLogger.info('Session trace updated', {
         traceId,
@@ -741,7 +1155,7 @@ export class LoggingService {
    * 便捷方法：记录事件开始
    */
   async logEventStart(traceId: string, eventType: string, eventName: string, conversationId?: string, metadata?: any): Promise<number> {
-    return this.logTimelineEvent({
+    const result = await this.logTimelineEvent({
       traceId,
       conversationId,
       eventType,
@@ -749,6 +1163,31 @@ export class LoggingService {
       eventPhase: 'start',
       metadata
     });
+    await this.safeSpanOperation('event-start', async () => {
+      const spanId = await this.startSpan({
+        traceId,
+        conversationId,
+        name: `${eventType}.${eventName}`,
+        kind: 'internal',
+        summary: this.preview(metadata || eventName),
+        input: metadata,
+        evidence: metadata,
+        attributes: {
+          'semantic.role': eventType,
+          'timeline.event_name': eventName
+        }
+      });
+      const key = this.lifecycleSpanKey(traceId, eventType, eventName);
+      const bucket = this.pendingLifecycleSpans.get(key) || [];
+      bucket.push(spanId);
+      this.pendingLifecycleSpans.set(key, bucket);
+      await this.recordSpanEvent({
+        spanId,
+        name: `${eventType}.${eventName}.start`,
+        attributes: metadata || {}
+      });
+    });
+    return result;
   }
 
   /**
@@ -758,7 +1197,7 @@ export class LoggingService {
     const endTime = new Date();
     const durationMs = endTime.getTime() - startTime.getTime();
 
-    return this.logTimelineEvent({
+    const result = await this.logTimelineEvent({
       traceId,
       conversationId,
       eventType,
@@ -768,13 +1207,43 @@ export class LoggingService {
       durationMs,
       metadata
     });
+    await this.safeSpanOperation('event-end', async () => {
+      const key = this.lifecycleSpanKey(traceId, eventType, eventName);
+      const bucket = this.pendingLifecycleSpans.get(key) || [];
+      const spanId = bucket.shift();
+      if (bucket.length === 0) {
+        this.pendingLifecycleSpans.delete(key);
+      } else {
+        this.pendingLifecycleSpans.set(key, bucket);
+      }
+      if (!spanId) {
+        return;
+      }
+      await this.recordSpanEvent({
+        spanId,
+        name: `${eventType}.${eventName}.end`,
+        eventTime: endTime,
+        attributes: {
+          ...(metadata || {}),
+          duration_ms: durationMs
+        }
+      });
+      await this.endSpan(spanId, {
+        endedAt: endTime,
+        statusCode: 'ok',
+        summary: this.preview(metadata || eventName),
+        output: metadata,
+        evidence: metadata
+      });
+    });
+    return result;
   }
 
   /**
    * 便捷方法：记录瞬时事件
    */
   async logInstantEvent(traceId: string, eventType: string, eventName: string, conversationId?: string, metadata?: any): Promise<number> {
-    return this.logTimelineEvent({
+    const result = await this.logTimelineEvent({
       traceId,
       conversationId,
       eventType,
@@ -782,5 +1251,34 @@ export class LoggingService {
       eventPhase: 'instant',
       metadata
     });
+    await this.safeSpanOperation('event-instant', async () => {
+      const spanId = await this.startSpan({
+        traceId,
+        conversationId,
+        name: `${eventType}.${eventName}`,
+        kind: 'internal',
+        statusCode: 'ok',
+        summary: this.preview(metadata || eventName),
+        input: metadata,
+        output: metadata,
+        evidence: metadata,
+        attributes: {
+          'semantic.role': eventType,
+          'timeline.event_name': eventName
+        }
+      });
+      await this.recordSpanEvent({
+        spanId,
+        name: `${eventType}.${eventName}.instant`,
+        attributes: metadata || {}
+      });
+      await this.endSpan(spanId, {
+        statusCode: 'ok',
+        summary: this.preview(metadata || eventName),
+        output: metadata,
+        evidence: metadata
+      });
+    });
+    return result;
   }
 }

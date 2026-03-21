@@ -6,7 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn, formatTimestamp } from '@/lib/utils';
-import { TraceFlowNode, TraceFlowViewModel } from '@/types';
+import { TraceWaterfallRow, TraceWaterfallViewModel } from '@/types';
 
 function JsonBlock({ value, emptyLabel = 'No data captured' }: { value: any; emptyLabel?: string }) {
   if (value === null || value === undefined || value === '') {
@@ -36,7 +36,7 @@ function statusTone(status: string) {
 }
 
 interface TraceInspectorPanelProps {
-  node: TraceFlowNode | null;
+  node: TraceWaterfallRow | null;
   metadataBadges: string[];
   className?: string;
 }
@@ -44,9 +44,9 @@ interface TraceInspectorPanelProps {
 export function TraceInspectorPanel({ node, metadataBadges, className }: TraceInspectorPanelProps) {
   if (!node) {
     return (
-      <Card className={cn('h-full min-h-[420px] rounded-[22px]', className)}>
+        <Card className={cn('h-full min-h-[420px] rounded-[22px]', className)}>
         <CardContent className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-          选择画布中的任意节点后，这里会显示该步骤的输入、输出和证据。
+          选择任意 span 后，这里会显示该步骤的输入、输出、属性和原始证据。
         </CardContent>
       </Card>
     );
@@ -61,7 +61,7 @@ export function TraceInspectorPanel({ node, metadataBadges, className }: TraceIn
     <Card className={cn('h-full min-h-[420px] rounded-[22px] bg-[linear-gradient(180deg,#fff,#faf8f5)]', className)}>
       <CardContent className="flex h-full flex-col p-5">
         <div className="inline-flex w-fit rounded-full border border-[hsl(var(--info))]/20 bg-[hsl(var(--info))]/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--info))]">
-          Selected
+          Selected Span
         </div>
         <h2 className="mt-3 text-[1.9rem] font-semibold leading-none text-foreground">{node.title}</h2>
         {node.subtitle ? <div className="mt-2 text-sm text-muted-foreground">{node.subtitle}</div> : null}
@@ -136,7 +136,7 @@ export function TraceInspectorPanel({ node, metadataBadges, className }: TraceIn
 interface TraceInspectorSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  node: TraceFlowNode | null;
+  node: TraceWaterfallRow | null;
   metadataBadges: string[];
 }
 
@@ -145,8 +145,8 @@ export function TraceInspectorSheet({ open, onOpenChange, node, metadataBadges }
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="h-[78vh] rounded-t-[22px] px-0 pb-0">
         <SheetHeader className="px-5 pb-3 pt-5">
-          <SheetTitle>{node?.title || '节点详情'}</SheetTitle>
-          <SheetDescription>移动端在底部抽屉中查看所选步骤的输入、输出和证据。</SheetDescription>
+          <SheetTitle>{node?.title || 'Span 详情'}</SheetTitle>
+          <SheetDescription>移动端在底部抽屉中查看所选 span 的输入、输出和证据。</SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-hidden px-4 pb-4">
           <TraceInspectorPanel node={node} metadataBadges={metadataBadges} className="h-full min-h-0 border-none shadow-none" />
@@ -157,7 +157,7 @@ export function TraceInspectorSheet({ open, onOpenChange, node, metadataBadges }
 }
 
 interface TraceRawEvidenceProps {
-  viewModel: TraceFlowViewModel;
+  viewModel: TraceWaterfallViewModel;
 }
 
 export function TraceRawEvidence({ viewModel }: TraceRawEvidenceProps) {

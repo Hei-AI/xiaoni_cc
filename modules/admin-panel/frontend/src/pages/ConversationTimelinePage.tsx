@@ -1,8 +1,8 @@
 import React from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Bug, Loader2, Pause, Play, RefreshCw, Workflow } from 'lucide-react';
+import { ArrowLeft, Bug, Loader2, Pause, Play, RefreshCw, Waypoints } from 'lucide-react';
 import { DebugPromptModal } from '@/components/DebugPromptModal';
-import { TraceCanvas } from '@/components/trace-canvas/TraceCanvas';
+import { TraceWaterfall } from '@/components/trace-canvas/TraceWaterfall';
 import { TraceInspectorPanel, TraceInspectorSheet, TraceRawEvidence } from '@/components/trace-canvas/TraceInspector';
 import { PageHeader, PageHeaderBadge } from '@/components/console/PageHeader';
 import { PageShell } from '@/components/console/PageShell';
@@ -50,21 +50,21 @@ export const ConversationTimelinePage: React.FC = () => {
 
   const { data: trace, isLoading, error, refetch, isRefetching } = useConversationTrace(conversationId, autoRefreshEnabled);
   const viewModel = React.useMemo(() => (trace ? buildTraceFlowViewModel(trace) : null), [trace]);
-  const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
+  const [selectedSpanId, setSelectedSpanId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (viewModel?.selectedNodeId) {
-      setSelectedNodeId(viewModel.selectedNodeId);
+    if (viewModel?.selectedSpanId) {
+      setSelectedSpanId(viewModel.selectedSpanId);
     }
   }, [viewModel]);
 
-  const selectedNode = React.useMemo(
-    () => viewModel?.nodes.find((node) => node.id === selectedNodeId) || null,
-    [selectedNodeId, viewModel]
+  const selectedSpan = React.useMemo(
+    () => viewModel?.rows.find((row) => row.spanId === selectedSpanId) || null,
+    [selectedSpanId, viewModel]
   );
 
-  const handleSelectNode = React.useCallback((nodeId: string) => {
-    setSelectedNodeId(nodeId);
+  const handleSelectSpan = React.useCallback((spanId: string) => {
+    setSelectedSpanId(spanId);
     if (!isDesktop) {
       setIsMobileInspectorOpen(true);
     }
@@ -73,11 +73,11 @@ export const ConversationTimelinePage: React.FC = () => {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Trace Canvas"
-        title="对话时间线"
-        description="用有向卡片和节点详情回放一次真实执行过程，让排障阅读路径和依赖关系同时清晰。"
-        icon={<Workflow className="h-5 w-5" />}
-        badge={trace ? <PageHeaderBadge>{trace.delivery.status}</PageHeaderBadge> : null}
+        eyebrow="Trace Waterfall"
+        title="Trace 详情"
+        description="以 span 树、共享时间轴和详情面板回放一次真实执行过程。"
+        icon={<Waypoints className="h-5 w-5" />}
+        badge={trace ? <PageHeaderBadge>{trace.trace.status}</PageHeaderBadge> : null}
         actions={
           <>
             <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
@@ -97,7 +97,7 @@ export const ConversationTimelinePage: React.FC = () => {
               刷新
             </Button>
             <Button variant="outline" size="sm" onClick={() => navigate(`/playground?conversationId=${conversationId}`)}>
-              <Workflow className="mr-2 h-4 w-4" />
+              <Waypoints className="mr-2 h-4 w-4" />
               导入到 Playground
             </Button>
             <Button variant="outline" size="sm" onClick={() => setIsDebugModalOpen(true)}>
@@ -123,7 +123,7 @@ export const ConversationTimelinePage: React.FC = () => {
         <Card className="rounded-[22px]">
           <CardContent className="flex items-center justify-center py-16">
             <Loader2 className="mr-3 h-8 w-8 animate-spin text-primary" />
-            <span className="text-sm text-muted-foreground">正在加载 trace canvas...</span>
+            <span className="text-sm text-muted-foreground">正在加载 trace waterfall...</span>
           </CardContent>
         </Card>
       ) : null}
@@ -152,20 +152,20 @@ export const ConversationTimelinePage: React.FC = () => {
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_420px]">
             <SectionPanel
-              title="Trace Canvas"
-              description="Dify 风格的执行画布。卡片可拖动，连线有方向，拖动位置仅本次查看有效。"
+              title="Span Waterfall"
+              description="按 span 树、共享时间轴和路径层级阅读真实执行。"
               contentClassName="pt-3"
             >
-              <TraceCanvas viewModel={viewModel} selectedNodeId={selectedNodeId} onSelectNode={handleSelectNode} />
+              <TraceWaterfall viewModel={viewModel} selectedSpanId={selectedSpanId} onSelectSpan={handleSelectSpan} />
             </SectionPanel>
 
             {isDesktop ? (
               <SectionPanel
                 title="Inspector"
-                description="点击任意节点后，查看该步骤的输入、输出和证据。"
+                description="点击任意 span 后，查看该步骤的输入、输出和证据。"
                 contentClassName="pt-3"
               >
-                <TraceInspectorPanel node={selectedNode} metadataBadges={viewModel.metadataBadges} />
+                <TraceInspectorPanel node={selectedSpan} metadataBadges={viewModel.metadataBadges} />
               </SectionPanel>
             ) : null}
           </div>
@@ -176,7 +176,7 @@ export const ConversationTimelinePage: React.FC = () => {
             <TraceInspectorSheet
               open={isMobileInspectorOpen}
               onOpenChange={setIsMobileInspectorOpen}
-              node={selectedNode}
+              node={selectedSpan}
               metadataBadges={viewModel.metadataBadges}
             />
           ) : null}
