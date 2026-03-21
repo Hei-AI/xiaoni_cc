@@ -5,9 +5,6 @@ FROM node:18-alpine AS builder
 
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 
-# 安装必要工具
-RUN apk add --no-cache curl
-
 # 创建工作目录
 WORKDIR /app
 

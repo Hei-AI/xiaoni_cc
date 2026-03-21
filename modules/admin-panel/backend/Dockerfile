@@ -1,36 +1,39 @@
 # syntax=docker/dockerfile:1.7
 
-# Admin Panel Backend - 管理后端API服务
-FROM node:18-alpine
-
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 
-# 安装必要工具
+FROM node:18-alpine AS base
 RUN apk add --no-cache curl tzdata
-
-# 设置时区为上海
 ENV TZ=Asia/Shanghai
 RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-
-# 创建工作目录
 WORKDIR /app
 
-# 创建必要目录
-RUN mkdir -p /app/logs /app/resources/logs /app/resources/config /app/resources/uploads
-
-# 复制package文件并安装依赖
-COPY package*.json ./
+FROM base AS deps
+COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
   npm config set registry ${NPM_REGISTRY} \
-  && npm ci --no-audit --no-fund \
+  && npm ci --include=dev --no-audit --no-fund \
   && npm config delete registry
 
-# 复制源码和配置
+FROM base AS build
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json package-lock.json ./
 COPY src/ ./src/
 COPY tsconfig.json ./
-
-# 编译TypeScript
 RUN npm run build
+
+FROM base AS prod-deps
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+  npm config set registry ${NPM_REGISTRY} \
+  && npm ci --omit=dev --no-audit --no-fund \
+  && npm config delete registry
+
+FROM base AS runtime
+RUN mkdir -p /app/logs /app/resources/logs /app/resources/config /app/resources/uploads
+COPY package.json package-lock.json ./
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
 
 # Install helper script for loading external CA certificates at runtime
 RUN cat <<'EOF' >/usr/local/bin/install-ca-from-volume.sh

@@ -22,6 +22,14 @@
 - `npm run dev:qqbot-core`, `npm run dev:admin-backend`, `npm run dev:admin-frontend`: local smoke runs for retained modules.
 - `python3 scripts/start_modules.py <install|start|stop|status>`: local multi-module orchestrator.
 
+## Container Build Conventions
+- Node service images must use multi-stage Dockerfiles with explicit `deps -> build -> runtime` stages; production runtime images should contain only compiled artifacts, production dependencies, and required runtime scripts/assets.
+- Use `# syntax=docker/dockerfile:1.7` and BuildKit cache mounts for npm (`RUN --mount=type=cache,target=/root/.npm ...`) to keep repeat builds fast.
+- Use `npm ci` instead of `npm install` in Docker builds. When dependency manifests change, update and commit the matching `package-lock.json`.
+- TypeScript services must run compiled output in containers (`node dist/index.js`), not `ts-node` in production images.
+- Frontend static apps should keep the existing `builder -> nginx runtime` shape and avoid installing builder-only tools in the nginx runtime stage.
+- When iterating on one service, prefer `docker compose build <service>` and only rebuild the touched images. After Dockerfile changes, verify with `docker compose build`, `docker compose up -d`, and health/log checks.
+
 ## Coding Style & Naming Conventions
 - Prefer TypeScript with two-space indentation and modern ES modules. Classes use PascalCase, functions and variables camelCase, environment variables SCREAMING_SNAKE_CASE.
 - Import shared logger utilities instead of `console.log`.
