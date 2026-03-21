@@ -15,6 +15,7 @@ import { PromptDebugPage } from './pages/PromptDebugPage';
 import QueueManagementPage from './pages/QueueManagementPage';
 import { HttpTrafficMonitorPage } from './pages/HttpTrafficMonitorPage';
 import { HttpTrafficDetailPage } from './pages/HttpTrafficDetailPage';
+import { PlaygroundPage } from './pages/PlaygroundPage';
 import { Layout } from './components/Layout';
 import './globals.css';
 
@@ -56,6 +57,7 @@ function App() {
             <Route path="/queue-management" element={<QueueManagementPage />} />
             <Route path="/traffic" element={<HttpTrafficMonitorPage />} />
             <Route path="/traffic/:id" element={<HttpTrafficDetailPage />} />
+            <Route path="/playground" element={<PlaygroundPage />} />
           </Routes>
         </Layout>
       </Router>

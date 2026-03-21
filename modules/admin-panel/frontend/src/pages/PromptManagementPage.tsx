@@ -387,7 +387,7 @@ export const PromptManagementPage: React.FC = () => {
                       <Edit className="mr-2 h-4 w-4" />
                       编辑
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => navigate(`/prompts/${prompt.id}/edit#playground`)}>
+                    <Button variant="outline" size="sm" onClick={() => navigate(`/playground?promptId=${prompt.id}`)}>
                       <Bug className="mr-2 h-4 w-4" />
                       调试
                     </Button>
@@ -481,7 +481,7 @@ export const PromptManagementPage: React.FC = () => {
                           <Button size="sm" variant="outline" onClick={() => navigate(`/prompts/${prompt.id}/edit`)}>
                             <Edit className="h-3 w-3" />
                           </Button>
-                          <Button size="sm" variant="outline" onClick={() => navigate(`/prompts/${prompt.id}/edit#playground`)}>
+                          <Button size="sm" variant="outline" onClick={() => navigate(`/playground?promptId=${prompt.id}`)}>
                             <Bug className="h-3 w-3" />
                           </Button>
                           <Button

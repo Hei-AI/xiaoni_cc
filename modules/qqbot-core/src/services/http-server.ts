@@ -200,28 +200,26 @@ class HttpServer {
       }
     });
 
-    // 🔥 增强的内部LLM调试接口 - 支持多轮对话和完整配置
+    // 🔥 增强的内部LLM调试接口 - 支持 provider-aware 调试
     this.app.post('/api/internal/llm/debug', async (req: Request, res: Response) => {
       try {
         const {
           systemPrompt,
-          userInput,          // 向后兼容单条消息
-          messages = [],      // 🔥 新增: 多轮对话消息数组
+          userInput,
+          messages = [],
           parameters: incomingParameters = {},
           model = 'gemini-2.5-flash',
           conversation_id
         } = req.body;
 
         const parameters = this.normalizeDebugParameters(incomingParameters);
+        const finalMessages = Array.isArray(messages) && messages.length > 0
+          ? messages
+          : (typeof userInput === 'string' && userInput.trim().length > 0
+            ? [{ role: 'user', content: userInput }]
+            : []);
 
-        // 🔥 参数验证: 支持messages数组或单个userInput
-        let finalMessages = [];
-        if (messages && Array.isArray(messages) && messages.length > 0) {
-          finalMessages = messages;
-        } else if (userInput && typeof userInput === 'string') {
-          // 向后兼容: 单个userInput转换为messages格式
-          finalMessages = [{ role: 'user', content: userInput }];
-        } else {
+        if (finalMessages.length === 0) {
           return res.status(400).json({
             success: false,
             error: 'Either messages array or userInput string is required',
@@ -229,15 +227,6 @@ class HttpServer {
           });
         }
 
-        this.moduleLogger.info('Internal LLM Debug API called', {
-          hasSystemPrompt: !!systemPrompt,
-          messageCount: finalMessages.length,
-          model,
-          conversation_id,
-          isMultiTurn: finalMessages.length > 1
-        });
-
-        // 🔥 复用企业级AIService，而非重复实现Token管理
         if (!this.services.aiService) {
           return res.status(503).json({
             success: false,
@@ -246,63 +235,12 @@ class HttpServer {
           });
         }
 
-        // 🔥 直接调用TokenManager和AI API，支持Token限制过滤
-        const tokenManager = this.services.aiService.tokenManager;
-        if (!tokenManager) {
-          return res.status(503).json({
-            success: false,
-            error: 'Token Manager not available',
-            timestamp: new Date().toISOString()
-          });
-        }
-
-        // 🔥 获取可用Token (支持allowed_token_ids限制)
-        let tokenInfo;
-        if (parameters.allowed_token_ids && Array.isArray(parameters.allowed_token_ids) && parameters.allowed_token_ids.length > 0) {
-          // TODO: 实现TokenManager.getSpecificToken方法以支持token ID过滤
-          // 当前使用默认策略，未来需要在TokenManager中添加此功能
-          this.moduleLogger.warn('allowed_token_ids specified but getSpecificToken not implemented yet', {
-            allowed_token_ids: parameters.allowed_token_ids
-          });
-          tokenInfo = await tokenManager.getTokenWithRetry(3);
-        } else {
-          // 使用默认token获取策略
-          tokenInfo = await tokenManager.getTokenWithRetry(3);
-        }
-
-        if (!tokenInfo) {
-          return res.status(503).json({
-            success: false,
-            error: 'No healthy tokens available',
-            timestamp: new Date().toISOString()
-          });
-        }
-
-        // 🔥 构建Gemini API多轮对话请求
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${tokenInfo.token}`;
-
-        // 🔥 转换消息格式为Gemini API格式
-        const contents = finalMessages.map(msg => ({
-          role: msg.role === 'assistant' ? 'model' : msg.role,
-          parts: [{ text: msg.content }]
-        }));
-
-        // 🔥 支持高级配置和参数合并
         const advancedConfig = parameters.advanced_config || {};
         const modelConfig = parameters.model_config || {};
-        const advancedGenerationConfig =
-          (advancedConfig.generationConfig && typeof advancedConfig.generationConfig === 'object')
-            ? advancedConfig.generationConfig
-            : {};
-        const inlineGenerationConfig =
-          (parameters.generationConfig && typeof parameters.generationConfig === 'object')
-            ? parameters.generationConfig
-            : {};
-
-        const mergedGenerationConfig = {
-          ...advancedGenerationConfig,
-          ...inlineGenerationConfig
-        };
+        const provider = this.resolveDebugProvider(parameters, model);
+        const resolvedModel = typeof model === 'string' && model.trim().length > 0
+          ? model
+          : this.resolveDefaultModelForProvider(provider);
 
         const selectFirstDefined = <T>(...values: Array<T | undefined | null>): T | undefined => {
           for (const value of values) {
@@ -313,7 +251,16 @@ class HttpServer {
           return undefined;
         };
 
-        const generationConfig: any = {
+        const mergedGenerationConfig = {
+          ...(advancedConfig.generationConfig && typeof advancedConfig.generationConfig === 'object'
+            ? advancedConfig.generationConfig
+            : {}),
+          ...(parameters.generationConfig && typeof parameters.generationConfig === 'object'
+            ? parameters.generationConfig
+            : {})
+        };
+
+        const generationConfig: Record<string, unknown> = {
           ...mergedGenerationConfig,
           temperature: selectFirstDefined(
             mergedGenerationConfig.temperature,
@@ -344,16 +291,15 @@ class HttpServer {
           ) ?? 40
         };
 
-        const resolvedStopSequences = selectFirstDefined(
+        const stopSequences = selectFirstDefined(
           mergedGenerationConfig.stopSequences,
           advancedConfig.stopSequences,
           modelConfig.stopSequences,
           parameters.stopSequences,
           (parameters as any).stop_sequences
         );
-
-        if (resolvedStopSequences !== undefined) {
-          generationConfig.stopSequences = resolvedStopSequences;
+        if (stopSequences !== undefined) {
+          generationConfig.stopSequences = stopSequences;
         }
 
         const rawThinkingConfig = selectFirstDefined(
@@ -362,9 +308,8 @@ class HttpServer {
           parameters.thinkingConfig
         );
 
-        let normalizedThinkingConfig: any;
+        const normalizedThinkingConfig: Record<string, unknown> = {};
         if (rawThinkingConfig && typeof rawThinkingConfig === 'object') {
-          normalizedThinkingConfig = {};
           if (typeof rawThinkingConfig.includeThoughts === 'boolean') {
             normalizedThinkingConfig.includeThoughts = rawThinkingConfig.includeThoughts;
           }
@@ -374,135 +319,96 @@ class HttpServer {
           ) {
             normalizedThinkingConfig.thinkingBudget = rawThinkingConfig.thinkingBudget;
           }
-          if (Object.keys(normalizedThinkingConfig).length === 0) {
-            normalizedThinkingConfig = undefined;
+          if ((rawThinkingConfig as any).responseSchema) {
+            generationConfig.responseSchema = (rawThinkingConfig as any).responseSchema;
           }
         }
 
-        const safetySettings = Array.isArray(advancedConfig.safetySettings) && advancedConfig.safetySettings.length > 0
-          ? advancedConfig.safetySettings
-          : [
-              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_NONE" }
-            ];
-
-        const requestBody: any = {
-          contents,
+        const toolsConfig = advancedConfig.toolsConfig && typeof advancedConfig.toolsConfig === 'object'
+          ? advancedConfig.toolsConfig
+          : {};
+        const requestBody: Record<string, unknown> = {
+          contents: finalMessages.map((message: any) => ({
+            role: message.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: typeof message.content === 'string' ? message.content : '' }]
+          })),
           generationConfig,
-          safetySettings
+          safetySettings: Array.isArray(advancedConfig.safetySettings) ? advancedConfig.safetySettings : []
         };
 
-        if (normalizedThinkingConfig) {
-          requestBody.generationConfig.thinkingConfig = normalizedThinkingConfig;
+        const debugTools = this.buildDebugTools(toolsConfig);
+        if (debugTools.length > 0) {
+          requestBody.tools = debugTools;
         }
 
-        if (rawThinkingConfig && typeof rawThinkingConfig === 'object') {
-          if (!requestBody.generationConfig.responseSchema && rawThinkingConfig.responseSchema) {
-            requestBody.generationConfig.responseSchema = rawThinkingConfig.responseSchema;
-          }
-          if (!requestBody.tools && rawThinkingConfig.tools) {
-            requestBody.tools = rawThinkingConfig.tools;
-          }
+        const debugToolConfig = this.buildDebugToolConfig(toolsConfig);
+        if (debugToolConfig) {
+          requestBody.toolConfig = debugToolConfig;
         }
 
-        // 添加系统指令
-        if (systemPrompt) {
-          requestBody.system_instruction = {
-            parts: [{ text: systemPrompt }]
-          };
+        if (Object.keys(normalizedThinkingConfig).length > 0) {
+          requestBody.thinkingConfig = normalizedThinkingConfig;
         }
 
-        const startTime = Date.now();
-        const geminiResponse = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody)
+        if (typeof systemPrompt === 'string' && systemPrompt.trim().length > 0) {
+          requestBody.systemInstruction = systemPrompt;
+        }
+
+        const configOverride = this.buildDebugConfig({
+          provider,
+          modelName: resolvedModel,
+          systemPrompt: typeof systemPrompt === 'string' ? systemPrompt : '',
+          generationConfig,
+          thinkingConfig: normalizedThinkingConfig,
+          safetySettings: Array.isArray(advancedConfig.safetySettings) ? advancedConfig.safetySettings : [],
+          toolsConfig,
+          providerSpecific:
+            (modelConfig.providerSpecific && typeof modelConfig.providerSpecific === 'object')
+              ? modelConfig.providerSpecific
+              : {},
+          allowedTokenIds: Array.isArray(parameters.allowed_token_ids) ? parameters.allowed_token_ids : []
         });
 
-        if (!geminiResponse.ok) {
-          const errorText = await geminiResponse.text();
-          this.moduleLogger.error('Gemini API call failed', {
-            status: geminiResponse.status,
-            error: errorText
-          });
+        const startedAt = Date.now();
+        const llmResponse = await this.services.aiService.generateContent(requestBody, {
+          modelName: resolvedModel,
+          conversationId: conversation_id,
+          agentType: 'playground_debug',
+          promptName: 'playground_debug',
+          configOverride
+        });
 
-          return res.status(geminiResponse.status).json({
-            success: false,
-            error: `Gemini API failed: ${geminiResponse.statusText}`,
-            timestamp: new Date().toISOString()
-          });
-        }
+        const aiResponse = this.extractResponseText(llmResponse);
+        const thinking = this.extractThinkingText(llmResponse);
+        const processingTimeMs = Date.now() - startedAt;
 
-        const geminiData = await geminiResponse.json() as any;
-        const responseTime = Date.now() - startTime;
-
-        // 🔥 支持思考模式响应解析
-        let aiResponse = '';
-        let thinking = '';
-
-        if (geminiData.candidates?.[0]?.content?.parts) {
-          const parts = geminiData.candidates[0].content.parts;
-          for (const part of parts) {
-            if (part.thought) {
-              // 思考部分
-              thinking += part.text || '';
-            } else {
-              // 实际回复部分
-              aiResponse += part.text || '';
-            }
-          }
-        }
-
-        if (!thinking && Array.isArray((geminiData as any).thoughts)) {
-          for (const thoughtEntry of (geminiData as any).thoughts) {
-            if (thoughtEntry && typeof thoughtEntry.text === 'string' && thoughtEntry.text.trim().length > 0) {
-              thinking += `\n${thoughtEntry.text}`;
-            }
-          }
-        }
-
-        // 如果没有找到分离的内容，使用第一个part作为回复
-        if (!aiResponse && !thinking) {
-          aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated';
-        }
-
-        // 报告Token使用成功
-        await tokenManager.reportSuccess(tokenInfo.token, responseTime);
-
-        const result = {
-          ai_response: aiResponse.trim(),
-          thinking: thinking.trim() || undefined,
-          model_name: model,
-          response_time: responseTime / 1000
-        };
-
-        // 🔥 响应成功，返回增强结果
         res.json({
           success: true,
-          response: result.ai_response,
-          thinking: result.thinking,          // 🔥 支持思考过程
-          token_used: {
-            id: tokenInfo.tokenId,
-            project_name: tokenInfo.projectName || 'Debug Token'
-          },
-          model: result.model_name,
+          response: aiResponse,
+          thinking: thinking || undefined,
+          model: typeof llmResponse.model === 'string' ? llmResponse.model : resolvedModel,
+          provider,
           performance: {
-            processing_time_ms: result.response_time * 1000
+            processing_time_ms: (llmResponse.performance as any)?.processing_time_ms ?? processingTimeMs,
+            api_call_time_ms: (llmResponse.performance as any)?.api_call_time_ms ?? processingTimeMs
           },
-          usage: geminiData.usageMetadata,    // 🔥 返回使用统计
-          thinking_tokens: geminiData.usageMetadata?.thoughtsTokenCount,
+          usage: llmResponse.usage || llmResponse.usageMetadata,
+          canonical_request: llmResponse.canonical_request || null,
+          wire_request: llmResponse.wire_request || null,
+          canonical_response: llmResponse.canonical_response || null,
+          wire_response: llmResponse.wire_response || null,
+          raw_response: llmResponse.raw_response || llmResponse,
+          debug_metadata: llmResponse.debug_metadata || null,
           timestamp: new Date().toISOString()
         });
 
         this.moduleLogger.info('Internal LLM Debug API succeeded', {
-          model,
-          responseTime: result.response_time,
-          conversation_id
+          provider,
+          model: resolvedModel,
+          conversation_id,
+          messageCount: finalMessages.length,
+          processingTimeMs
         });
-
       } catch (error: any) {
         this.moduleLogger.error('Internal LLM Debug API failed', {
           error: error.message,
@@ -714,6 +620,184 @@ class HttpServer {
         res.status(500).json({ success: false, error: 'Failed to simulate messages' });
       }
     });
+  }
+
+  private resolveDebugProvider(parameters: Record<string, any>, modelName?: string): 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex' {
+    const modelConfig = parameters.model_config && typeof parameters.model_config === 'object'
+      ? parameters.model_config
+      : {};
+    const advancedConfig = parameters.advanced_config && typeof parameters.advanced_config === 'object'
+      ? parameters.advanced_config
+      : {};
+
+    const explicitProvider = (
+      modelConfig.provider ||
+      advancedConfig.provider ||
+      (advancedConfig.model && typeof advancedConfig.model === 'object' ? advancedConfig.model.provider : undefined)
+    );
+
+    const normalized = typeof explicitProvider === 'string' ? explicitProvider.trim().toLowerCase() : '';
+    if (normalized === 'openai') return 'openai';
+    if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
+    if (normalized === 'google-legacy' || normalized === 'gemini-api') return 'google-legacy';
+
+    const normalizedModel = (modelName || '').trim().toLowerCase();
+    if (normalizedModel.startsWith('gpt-') || normalizedModel.startsWith('o1') || normalizedModel.startsWith('o3') || normalizedModel.startsWith('o4')) {
+      return 'openai';
+    }
+    if (normalizedModel.includes('codex')) {
+      return 'codex';
+    }
+
+    return 'google-gemini-cli';
+  }
+
+  private resolveDefaultModelForProvider(provider: 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex'): string {
+    switch (provider) {
+      case 'openai':
+        return 'gpt-5-mini';
+      case 'codex':
+        return 'gpt-5.2-codex';
+      case 'google-legacy':
+        return 'gemini-2.5-flash';
+      case 'google-gemini-cli':
+      default:
+        return 'gemini-2.5-flash';
+    }
+  }
+
+  private buildDebugTools(toolsConfig: Record<string, any>): any[] {
+    const customTools = Array.isArray(toolsConfig.customTools) ? toolsConfig.customTools : [];
+    const normalizedDeclarations = customTools
+      .filter((tool: any) => tool && typeof tool.name === 'string' && tool.name.trim().length > 0)
+      .map((tool: any) => ({
+        name: tool.name,
+        description: typeof tool.description === 'string' ? tool.description : '',
+        parameters: tool.parameters && typeof tool.parameters === 'object'
+          ? tool.parameters
+          : { type: 'object', properties: {} }
+      }));
+
+    return normalizedDeclarations.length > 0
+      ? [{ functionDeclarations: normalizedDeclarations }]
+      : [];
+  }
+
+  private buildDebugToolConfig(toolsConfig: Record<string, any>): any | undefined {
+    const functionCalling = toolsConfig.functionCalling && typeof toolsConfig.functionCalling === 'object'
+      ? toolsConfig.functionCalling
+      : {};
+    const mode = typeof functionCalling.mode === 'string'
+      ? functionCalling.mode
+      : typeof toolsConfig.mode === 'string'
+        ? toolsConfig.mode
+        : undefined;
+
+    if (!mode) {
+      return undefined;
+    }
+
+    return {
+      functionCallingConfig: {
+        mode
+      }
+    };
+  }
+
+  private buildDebugConfig(params: {
+    provider: 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex';
+    modelName: string;
+    systemPrompt: string;
+    generationConfig: Record<string, unknown>;
+    thinkingConfig: Record<string, unknown>;
+    safetySettings: Array<Record<string, unknown>>;
+    toolsConfig: Record<string, unknown>;
+    providerSpecific: Record<string, unknown>;
+    allowedTokenIds: number[];
+  }): any {
+    return {
+      id: 'internal-debug-config',
+      name: 'Internal Debug Config',
+      category: 'custom',
+      model: {
+        name: params.modelName,
+        provider: params.provider,
+        allowedTokenIds: params.allowedTokenIds,
+        providerSpecific: params.providerSpecific
+      },
+      generation: params.generationConfig,
+      ...(Object.keys(params.thinkingConfig).length > 0 ? { thinking: params.thinkingConfig } : {}),
+      safety: params.safetySettings,
+      tools: {
+        functionCalling: this.buildDebugToolConfig(params.toolsConfig)?.functionCallingConfig,
+        customTools: Array.isArray(params.toolsConfig.customTools) ? params.toolsConfig.customTools : []
+      },
+      context: {
+        systemInstruction: params.systemPrompt,
+        variables: {}
+      },
+      performance: {
+        timeout: 30000
+      },
+      version: {
+        version: 'internal-debug',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        createdBy: 'system',
+        isActive: true
+      }
+    };
+  }
+
+  private extractResponseText(response: any): string {
+    if (typeof response?.text === 'string' && response.text.trim().length > 0) {
+      return response.text.trim();
+    }
+
+    const parts = response?.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) {
+      return '';
+    }
+
+    return parts
+      .map((part: any) => (typeof part?.text === 'string' ? part.text : ''))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+
+  private extractThinkingText(response: any): string {
+    const canonicalResponse = response?.canonical_response || response?.debug_metadata?.canonicalResponse;
+    const output = Array.isArray(canonicalResponse?.output) ? canonicalResponse.output : [];
+    const reasoning = output
+      .filter((item: any) => item?.type === 'reasoning')
+      .flatMap((item: any) => {
+        const segments: string[] = [];
+        if (typeof item.content === 'string') {
+          segments.push(item.content);
+        }
+        if (Array.isArray(item.summary)) {
+          segments.push(
+            ...item.summary
+              .map((entry: any) => (typeof entry?.text === 'string' ? entry.text : ''))
+              .filter(Boolean)
+          );
+        }
+        return segments;
+      })
+      .filter(Boolean)
+      .join('\n');
+
+    if (reasoning.trim().length > 0) {
+      return reasoning.trim();
+    }
+
+    const thoughts = Array.isArray(response?.thoughts) ? response.thoughts : [];
+    return thoughts
+      .map((entry: any) => (typeof entry?.text === 'string' ? entry.text : ''))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
   }
 
   private normalizeDebugParameters(parameters: any): Record<string, any> {

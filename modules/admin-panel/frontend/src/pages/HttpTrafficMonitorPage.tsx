@@ -483,11 +483,19 @@ export function HttpTrafficMonitorPage() {
                     {Boolean(log.is_ai_request) && <Zap className="h-3 w-3 text-primary" />}
                     <span>{log.api_type || '普通请求'}</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className={`grid gap-2 ${log.is_ai_request ? 'grid-cols-3' : 'grid-cols-2'}`}>
                     <Button variant="outline" size="sm" onClick={() => handleQuickReplay(log.id)}>
                       <Play className="mr-2 h-4 w-4" />
                       快速重放
                     </Button>
+                    {log.is_ai_request ? (
+                      <Link to={`/playground?trafficId=${log.id}`}>
+                        <Button variant="outline" size="sm" className="w-full">
+                          <Zap className="mr-2 h-4 w-4" />
+                          Playground
+                        </Button>
+                      </Link>
+                    ) : null}
                     <Link to={`/traffic/${log.id}`}>
                       <Button variant="outline" size="sm" className="w-full">
                         <Eye className="mr-2 h-4 w-4" />
@@ -552,6 +560,13 @@ export function HttpTrafficMonitorPage() {
                           <Button variant="ghost" size="sm" onClick={() => handleQuickReplay(log.id)} title="快速重放">
                             <Play className="h-4 w-4" />
                           </Button>
+                          {log.is_ai_request ? (
+                            <Link to={`/playground?trafficId=${log.id}`}>
+                              <Button variant="ghost" size="sm" title="在 Playground 中打开">
+                                <Zap className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                          ) : null}
                           <Link to={`/traffic/${log.id}`}>
                             <Button variant="ghost" size="sm" title="查看详情">
                               <Eye className="h-4 w-4" />

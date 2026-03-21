@@ -50,6 +50,11 @@ interface GenerateContentOptions {
   agentType?: string;
   promptName?: string;
   promptId?: string;
+  conversationId?: string;
+  agentTurn?: number;
+  llmCallId?: string;
+  toolCallId?: string;
+  configOverride?: UnifiedLLMConfig;
 }
 
 export class AIService {
@@ -691,6 +696,7 @@ export class AIService {
   } | null> {
     const callStartTime = Date.now();
     const llmCallId = uuidv4();
+    const startedAt = new Date(callStartTime);
     const providerId = resolveProviderFromUnifiedConfig(config);
     const canonicalRequest = geminiRequestToOpenResponseRequest({
       contents: [
@@ -741,8 +747,10 @@ export class AIService {
         config,
         context: {
           traceId,
+          conversationId,
           agentType: config.category,
-          promptName: config.name
+          promptName: config.name,
+          llmCallId
         }
       });
 
@@ -772,8 +780,10 @@ export class AIService {
         try {
           await this.loggingService.logLLMCall({
             traceId: traceId,
+            llmCallId,
             conversationId: conversationId || undefined,
             sessionId: undefined,
+            agentTurn: undefined,
             agentType: config.category || 'unknown',
             modelName: config.model.name,
             modelProvider: response.provider,
@@ -789,6 +799,8 @@ export class AIService {
             outputTokens: outputTokens,
             apiCallTimeMs: processingTimeMs,
             processingTimeMs: processingTimeMs,
+            startedAt,
+            completedAt: new Date(),
             status: 'SUCCESS',
             userId: userId || undefined
           });
@@ -844,8 +856,10 @@ export class AIService {
         try {
           await this.loggingService.logLLMCall({
             traceId: traceId,
+            llmCallId,
             conversationId: conversationId || undefined,
             sessionId: undefined,
+            agentTurn: undefined,
             agentType: config.category || 'unknown',
             modelName: config.model.name,
             modelProvider: providerId,
@@ -861,6 +875,8 @@ export class AIService {
             outputTokens: 0,
             apiCallTimeMs: processingTimeMs,
             processingTimeMs: processingTimeMs,
+            startedAt,
+            completedAt: new Date(),
             status: 'ERROR',
             errorMessage: error.message,
             errorCode: error.status?.toString() || 'UNKNOWN',
@@ -995,11 +1011,11 @@ export class AIService {
     options?: GenerateContentOptions | string
   ): Promise<any> {
     const callStartTime = Date.now();
-    const llmCallId = uuidv4();
-
     const normalizedOptions: GenerateContentOptions = typeof options === 'string'
       ? { modelName: options }
       : (options || {});
+    const llmCallId = normalizedOptions.llmCallId || uuidv4();
+    const startedAt = new Date(callStartTime);
 
     const defaultModel = process.env.AI_MODEL_NAME || 'gemini-2.5-flash';
     const targetModel = normalizedOptions.modelName
@@ -1048,15 +1064,28 @@ export class AIService {
         tokenManager: this.tokenManager
       });
 
+      if (traceId && this.loggingService) {
+        await this.loggingService.logEventStart(traceId, 'llm', 'generate_content', normalizedOptions.conversationId, {
+          model_name: targetModel,
+          llm_call_id: llmCallId,
+          agent_turn: normalizedOptions.agentTurn,
+          prompt_name: resolvedPromptName
+        });
+      }
+
       const response = await provider.generateContent({
         request: providerRequest,
         modelName: targetModel,
         providerConfig: resolvedPromptConfig || undefined,
         context: {
           traceId,
+          conversationId: normalizedOptions.conversationId,
           agentType: resolvedAgentType,
           promptName: resolvedPromptName,
-          promptId: normalizedOptions.promptId
+          promptId: normalizedOptions.promptId,
+          agentTurn: normalizedOptions.agentTurn,
+          llmCallId,
+          toolCallId: normalizedOptions.toolCallId
         }
       });
 
@@ -1067,11 +1096,23 @@ export class AIService {
       const plainResponse = response.rawResponse;
 
       if (traceId && this.loggingService) {
+        await this.loggingService.logEventEnd(traceId, 'llm', 'generate_content', new Date(callStartTime), normalizedOptions.conversationId, {
+          status: 'success',
+          model_name: targetModel,
+          llm_call_id: llmCallId,
+          agent_turn: normalizedOptions.agentTurn,
+          prompt_name: resolvedPromptName
+        });
+      }
+
+      if (traceId && this.loggingService) {
         try {
           await this.loggingService.logLLMCall({
             traceId,
-            conversationId: undefined,
+            llmCallId,
+            conversationId: normalizedOptions.conversationId,
             sessionId: undefined,
+            agentTurn: normalizedOptions.agentTurn,
             agentType: resolvedAgentType,
             modelName: targetModel,
             modelProvider: response.provider,
@@ -1087,6 +1128,8 @@ export class AIService {
             outputTokens,
             apiCallTimeMs: processingTimeMs,
             processingTimeMs,
+            startedAt,
+            completedAt: new Date(),
             status: 'SUCCESS'
           });
         } catch (logError) {
@@ -1107,17 +1150,56 @@ export class AIService {
         promptName: resolvedPromptName
       });
 
-      return buildGeminiCompatibleResponseFromOpenResponse(response.response, plainResponse);
+      const compatibleResponse = buildGeminiCompatibleResponseFromOpenResponse(response.response, plainResponse);
+
+      return {
+        ...compatibleResponse,
+        provider: response.provider,
+        model: targetModel,
+        usage: compatibleResponse.usageMetadata,
+        performance: {
+          processing_time_ms: processingTimeMs,
+          api_call_time_ms: processingTimeMs
+        },
+        canonical_request: response.canonicalRequest,
+        wire_request: response.wireRequest,
+        canonical_response: response.canonicalResponse,
+        wire_response: response.wireResponse,
+        raw_response: plainResponse,
+        debug_metadata: {
+          provider: response.provider,
+          model: targetModel,
+          canonicalRequest: response.canonicalRequest,
+          wireRequest: response.wireRequest,
+          canonicalResponse: response.canonicalResponse,
+          wireResponse: response.wireResponse,
+          requestFormatVersion: response.requestFormatVersion,
+          wireProviderFormat: response.wireProviderFormat
+        }
+      };
 
     } catch (error: any) {
       const processingTimeMs = Date.now() - callStartTime;
 
       if (traceId && this.loggingService) {
+        await this.loggingService.logEventEnd(traceId, 'llm', 'generate_content', new Date(callStartTime), normalizedOptions.conversationId, {
+          status: 'failed',
+          model_name: targetModel,
+          llm_call_id: llmCallId,
+          agent_turn: normalizedOptions.agentTurn,
+          prompt_name: resolvedPromptName,
+          error_message: error.message
+        });
+      }
+
+      if (traceId && this.loggingService) {
         try {
           await this.loggingService.logLLMCall({
             traceId,
-            conversationId: undefined,
+            llmCallId,
+            conversationId: normalizedOptions.conversationId,
             sessionId: undefined,
+            agentTurn: normalizedOptions.agentTurn,
             agentType: resolvedAgentType,
             modelName: targetModel,
             modelProvider: providerId,
@@ -1133,6 +1215,8 @@ export class AIService {
             outputTokens: 0,
             apiCallTimeMs: processingTimeMs,
             processingTimeMs,
+            startedAt,
+            completedAt: new Date(),
             status: 'ERROR',
             errorMessage: error.message,
             errorCode: (error.status ?? error.statusCode ?? error.code ?? 'UNKNOWN').toString()
@@ -1181,6 +1265,10 @@ export class AIService {
     agentType: string,
     promptName: string
   ): Promise<UnifiedLLMConfig | null> {
+    if (options.configOverride) {
+      return options.configOverride;
+    }
+
     if (options.promptId) {
       return await this.getConfigurationByPromptId(options.promptId);
     }

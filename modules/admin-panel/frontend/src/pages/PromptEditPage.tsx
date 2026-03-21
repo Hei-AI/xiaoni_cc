@@ -3507,6 +3507,15 @@ export const PromptEditPage: React.FC = () => {
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(promptId ? `/playground?promptId=${promptId}` : '/playground')}
+                >
+                  <Navigation className="mr-1 h-3.5 w-3.5" />
+                  完整 Playground
+                </Button>
+                <Button
+                  type="button"
                   variant="ghost"
                   size="sm"
                   onClick={() => scrollToSection(playgroundCardRef)}

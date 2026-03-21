@@ -305,6 +305,12 @@ export function HttpTrafficDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {log.is_ai_request ? (
+            <Button variant="outline" size="sm" onClick={() => navigate(`/playground?trafficId=${log.id}`)}>
+              <Zap className="h-4 w-4 mr-2" />
+              在 Playground 中打开
+            </Button>
+          ) : null}
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4 mr-2" />
             刷新
