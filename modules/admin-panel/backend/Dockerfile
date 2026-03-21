@@ -1,5 +1,9 @@
+# syntax=docker/dockerfile:1.7
+
 # Admin Panel Backend - 管理后端API服务
 FROM node:18-alpine
+
+ARG NPM_REGISTRY=https://registry.npmmirror.com
 
 # 安装必要工具
 RUN apk add --no-cache curl tzdata
@@ -16,7 +20,10 @@ RUN mkdir -p /app/logs /app/resources/logs /app/resources/config /app/resources/
 
 # 复制package文件并安装依赖
 COPY package*.json ./
-RUN npm install --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm \
+  npm config set registry ${NPM_REGISTRY} \
+  && npm ci --no-audit --no-fund \
+  && npm config delete registry
 
 # 复制源码和配置
 COPY src/ ./src/

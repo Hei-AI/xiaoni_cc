@@ -1,5 +1,9 @@
+# syntax=docker/dockerfile:1.7
+
 # Admin Panel Frontend - 管理前端界面
 FROM node:18-alpine AS builder
+
+ARG NPM_REGISTRY=https://registry.npmmirror.com
 
 # 安装必要工具
 RUN apk add --no-cache curl
@@ -9,7 +13,10 @@ WORKDIR /app
 
 # 复制package文件并安装依赖
 COPY package*.json ./
-RUN npm install --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm \
+  npm config set registry ${NPM_REGISTRY} \
+  && npm ci --no-audit --no-fund \
+  && npm config delete registry
 
 # 复制源码并构建
 COPY . .
