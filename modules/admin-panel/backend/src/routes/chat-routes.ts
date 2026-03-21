@@ -26,7 +26,6 @@ interface GroupChatSettingRow {
   admin_user_id: number | null;
   agent_prompt_id: string | null;
   last_activity: string | null;
-  receive_events: number;
   human_like_scan_interval_ms: number | null;
   human_like_min_interval_ms: number | null;
   human_like_max_interval_ms: number | null;
@@ -56,7 +55,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       }
 
       if (status === 'active') {
-        whereConditions.push('g.is_enabled = 1');
+        whereConditions.push('g.is_enabled = 1 AND g.auto_reply_enabled = 1');
       }
 
       const whereClause = whereConditions.join(' AND ');
@@ -74,7 +73,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           g.group_name,
           g.is_enabled,
           g.auto_reply_enabled,
-          g.receive_events,
           g.human_like_scan_interval_ms,
           g.human_like_min_interval_ms,
           g.human_like_max_interval_ms,
@@ -98,7 +96,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           END as activity_level,
           CASE
             WHEN g.is_enabled = 1 AND g.auto_reply_enabled = 1 THEN 'active'
-            WHEN g.is_enabled = 1 THEN 'enabled'
+            WHEN g.is_enabled = 1 THEN 'receiving_only'
             ELSE 'disabled'
           END as status,
           g.last_activity as last_conversation_time
@@ -215,7 +213,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
             ELSE CONCAT(ROUND(AVG(c.response_time)), 'ms')
           END as avg_response_time,
           COALESCE(pcs.is_enabled, 1) as is_enabled,
-          COALESCE(pcs.auto_reply_enabled, 1) as auto_reply_enabled,
+          COALESCE(pcs.auto_reply_enabled, 0) as auto_reply_enabled,
           pcs.user_notes,
           pcs.agent_prompt_id
         FROM conversations c
@@ -312,7 +310,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         user_id: userId,
         nickname: userSettingRow?.username || `用户${userId}`,
         is_enabled: userSettingRow?.is_enabled ?? 1,
-        auto_reply_enabled: userSettingRow?.auto_reply_enabled ?? 1,
+        auto_reply_enabled: userSettingRow?.auto_reply_enabled ?? 0,
         welcome_message: userSettingRow?.welcome_message || null,
         user_notes: userSettingRow?.user_notes || null,
         agent_prompt_id: userSettingRow?.agent_prompt_id || null,
@@ -751,7 +749,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       // 获取群聊设置
       const groupSettingsRows = await database.executeQuery<GroupChatSettingRow>(`
         SELECT group_id, group_name, is_enabled, auto_reply_enabled, welcome_message,
-               admin_user_id, agent_prompt_id, last_activity, receive_events,
+               admin_user_id, agent_prompt_id, last_activity,
                human_like_scan_interval_ms, human_like_min_interval_ms, human_like_max_interval_ms
         FROM group_chat_settings
         WHERE group_id = ?
@@ -762,11 +760,10 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         group_id: groupId,
         group_name: groupSettingsRow?.group_name || `群聊${groupId}`,
         is_enabled: groupSettingsRow?.is_enabled ?? 1,
-        auto_reply_enabled: groupSettingsRow?.auto_reply_enabled ?? 1,
+        auto_reply_enabled: groupSettingsRow?.auto_reply_enabled ?? 0,
         welcome_message: groupSettingsRow?.welcome_message || null,
         admin_user_id: groupSettingsRow?.admin_user_id || null,
         agent_prompt_id: groupSettingsRow?.agent_prompt_id || null,
-        receive_events: groupSettingsRow?.receive_events ?? 1,
         last_activity: groupSettingsRow?.last_activity || null,
         human_like_scan_interval_ms: groupSettingsRow?.human_like_scan_interval_ms ?? null,
         human_like_min_interval_ms: groupSettingsRow?.human_like_min_interval_ms ?? null,
@@ -858,7 +855,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         'auto_reply_enabled',
         'welcome_message',
         'admin_user_id',
-        'receive_events',
         'human_like_scan_interval_ms',
         'human_like_min_interval_ms',
         'human_like_max_interval_ms'
@@ -879,10 +875,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
               return;
             }
             sanitizedUpdates[key] = Math.round(numericValue);
-            return;
-          }
-          if (key === 'receive_events') {
-            sanitizedUpdates[key] = value ? 1 : 0;
             return;
           }
           sanitizedUpdates[key] = value;

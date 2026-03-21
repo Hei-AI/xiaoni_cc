@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS private_chat_settings (
     user_id BIGINT UNIQUE NOT NULL COMMENT '用户QQ号',
     username VARCHAR(255) COMMENT '用户昵称',
     is_enabled BOOLEAN DEFAULT TRUE COMMENT '是否接收私聊消息',
-    auto_reply_enabled BOOLEAN DEFAULT TRUE COMMENT '是否自动回复私聊',
+    auto_reply_enabled BOOLEAN DEFAULT FALSE COMMENT '是否自动回复私聊',
     welcome_message TEXT COMMENT '首次对话欢迎消息',
     user_notes TEXT COMMENT '用户备注信息',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -68,11 +68,6 @@ CREATE TABLE IF NOT EXISTS private_chat_activity (
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='私聊活动日志表';
 
--- 扩展现有群聊设置表，添加事件接收控制字段
-ALTER TABLE group_chat_settings 
-ADD COLUMN receive_events BOOLEAN DEFAULT TRUE COMMENT '是否接收群聊事件' 
-AFTER auto_reply_enabled;
-
 -- 插入一些测试私聊数据
 INSERT IGNORE INTO private_chat_settings (user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes)
 VALUES 
@@ -104,7 +99,7 @@ SELECT
     COUNT(*) as total_count,
     SUM(CASE WHEN is_enabled = TRUE THEN 1 ELSE 0 END) as enabled_count,
     SUM(CASE WHEN auto_reply_enabled = TRUE THEN 1 ELSE 0 END) as auto_reply_count,
-    SUM(CASE WHEN receive_events = TRUE THEN 1 ELSE 0 END) as receive_events_count,
+    SUM(CASE WHEN is_enabled = TRUE THEN 1 ELSE 0 END) as receive_enabled_count,
     SUM(CASE WHEN last_activity >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as active_last_week
 FROM group_chat_settings
 UNION ALL
@@ -113,7 +108,7 @@ SELECT
     COUNT(*) as total_count,
     SUM(CASE WHEN is_enabled = TRUE THEN 1 ELSE 0 END) as enabled_count,
     SUM(CASE WHEN auto_reply_enabled = TRUE THEN 1 ELSE 0 END) as auto_reply_count,
-    COUNT(*) as receive_events_count,  -- 私聊默认都接收事件
+    SUM(CASE WHEN is_enabled = TRUE THEN 1 ELSE 0 END) as receive_enabled_count,
     SUM(CASE WHEN last_activity >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as active_last_week
 FROM private_chat_settings;
 
@@ -121,9 +116,9 @@ FROM private_chat_settings;
 DELIMITER //
 CREATE PROCEDURE UpdatePrivateChatActivity(
     IN p_user_id BIGINT,
-    IN p_message_count INT DEFAULT 1,
-    IN p_ai_response_count INT DEFAULT 0,
-    IN p_session_count INT DEFAULT 0
+    IN p_message_count INT,
+    IN p_ai_response_count INT,
+    IN p_session_count INT
 )
 BEGIN
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
@@ -141,7 +136,7 @@ BEGIN
     
     -- 如果用户不存在，自动创建记录
     INSERT IGNORE INTO private_chat_settings (user_id, is_enabled, auto_reply_enabled)
-    VALUES (p_user_id, TRUE, TRUE);
+    VALUES (p_user_id, TRUE, FALSE);
     
     -- 更新或插入今日统计
     INSERT INTO private_chat_stats (user_id, date, message_count, ai_responses, conversation_sessions)
@@ -162,8 +157,7 @@ CREATE PROCEDURE BatchUpdateChatSettings(
     IN p_type ENUM('group', 'private'),
     IN p_ids JSON,
     IN p_is_enabled BOOLEAN,
-    IN p_auto_reply_enabled BOOLEAN,
-    IN p_receive_events BOOLEAN
+    IN p_auto_reply_enabled BOOLEAN
 )
 BEGIN
     DECLARE i INT DEFAULT 0;
@@ -189,7 +183,6 @@ BEGIN
             SET 
                 is_enabled = COALESCE(p_is_enabled, is_enabled),
                 auto_reply_enabled = COALESCE(p_auto_reply_enabled, auto_reply_enabled),
-                receive_events = COALESCE(p_receive_events, receive_events),
                 updated_at = CURRENT_TIMESTAMP
             WHERE group_id = current_id;
             
@@ -218,7 +211,7 @@ DELIMITER ;
 
 -- 创建存储过程：事件控制数据清理
 DELIMITER //
-CREATE PROCEDURE CleanupChatControlData(IN days_to_keep INT DEFAULT 30)
+CREATE PROCEDURE CleanupChatControlData(IN days_to_keep INT)
 BEGIN
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN

@@ -163,7 +163,7 @@ export const GroupManagementPage: React.FC = () => {
       <PageHeader
         eyebrow="Group Desk"
         title="群聊管理"
-        description="统一管理群级策略、自动回复状态和活跃度。移动端切为卡片流，桌面端保留高密度操作表。"
+        description="统一管理群级接收策略、自动回复状态和活跃度。移动端切为卡片流，桌面端保留高密度操作表。"
         icon={<Users className="h-5 w-5" />}
         actions={
           <>
@@ -178,7 +178,7 @@ export const GroupManagementPage: React.FC = () => {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <MetricCard label="当前页群组" value={rows.length} icon={<Users className="h-5 w-5" />} />
-        <MetricCard label="启用状态" value={metrics.enabled} detail={`自动回复开启 ${metrics.autoReply}`} icon={<PlayCircle className="h-5 w-5" />} tone="success" />
+        <MetricCard label="接收开启" value={metrics.enabled} detail={`自动回复开启 ${metrics.autoReply}`} icon={<PlayCircle className="h-5 w-5" />} tone="success" />
         <MetricCard label="平均活跃度" value={`${metrics.avgActivity}%`} icon={<MessageCircle className="h-5 w-5" />} tone="warning" />
       </div>
 
@@ -269,7 +269,7 @@ export const GroupManagementPage: React.FC = () => {
                   subtitle={`群号 ${group.group_id}`}
                   badges={
                     <>
-                      <StatusPill tone={group.is_enabled ? 'success' : 'neutral'}>{group.is_enabled ? '已启用' : '已禁用'}</StatusPill>
+                      <StatusPill tone={group.is_enabled ? 'success' : 'neutral'}>{group.is_enabled ? '接收中' : '已忽略'}</StatusPill>
                       <StatusPill tone={group.auto_reply_enabled ? 'info' : 'warning'}>
                         {group.auto_reply_enabled ? '自动回复开启' : '自动回复关闭'}
                       </StatusPill>
@@ -298,7 +298,7 @@ export const GroupManagementPage: React.FC = () => {
                       disabled={loadingStates[`${group.group_id}_is_enabled`] || false}
                     >
                       {group.is_enabled ? <PauseCircle className="mr-2 h-4 w-4" /> : <PlayCircle className="mr-2 h-4 w-4" />}
-                      {group.is_enabled ? '禁用处理' : '启用处理'}
+                      {group.is_enabled ? '停止接收' : '开始接收'}
                     </Button>
                     <Button
                       size="sm"
@@ -320,7 +320,7 @@ export const GroupManagementPage: React.FC = () => {
                   <TableRow>
                     <TableHead>群号</TableHead>
                     <TableHead>群名称</TableHead>
-                    <TableHead>启用状态</TableHead>
+                    <TableHead>接收状态</TableHead>
                     <TableHead>自动回复</TableHead>
                     <TableHead>活跃度</TableHead>
                     <TableHead>统计信息</TableHead>
@@ -334,7 +334,7 @@ export const GroupManagementPage: React.FC = () => {
                       <TableCell className="font-mono">{group.group_id}</TableCell>
                       <TableCell>{group.group_name || '未知群聊'}</TableCell>
                       <TableCell>
-                        <StatusPill tone={group.is_enabled ? 'success' : 'neutral'}>{group.is_enabled ? '已启用' : '已禁用'}</StatusPill>
+                        <StatusPill tone={group.is_enabled ? 'success' : 'neutral'}>{group.is_enabled ? '接收中' : '已忽略'}</StatusPill>
                       </TableCell>
                       <TableCell>
                         <StatusPill tone={group.auto_reply_enabled ? 'info' : 'warning'}>{group.auto_reply_enabled ? '开启' : '关闭'}</StatusPill>

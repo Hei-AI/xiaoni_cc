@@ -458,7 +458,7 @@ export class DatabaseManager {
       const query = `
         INSERT INTO private_chat_settings (
           user_id, agent_prompt_id, is_enabled, auto_reply_enabled, created_at, updated_at
-        ) VALUES (?, ?, TRUE, TRUE, NOW(), NOW())
+        ) VALUES (?, ?, TRUE, FALSE, NOW(), NOW())
         ON DUPLICATE KEY UPDATE
           agent_prompt_id = VALUES(agent_prompt_id),
           updated_at = NOW()
@@ -482,8 +482,8 @@ export class DatabaseManager {
     try {
       const query = `
         INSERT INTO group_chat_settings (
-          group_id, agent_prompt_id, is_enabled, auto_reply_enabled, receive_events, created_at, updated_at
-        ) VALUES (?, ?, TRUE, TRUE, TRUE, NOW(), NOW())
+          group_id, agent_prompt_id, is_enabled, auto_reply_enabled, created_at, updated_at
+        ) VALUES (?, ?, TRUE, FALSE, NOW(), NOW())
         ON DUPLICATE KEY UPDATE
           agent_prompt_id = VALUES(agent_prompt_id),
           updated_at = NOW()
@@ -579,7 +579,7 @@ export class DatabaseManager {
     try {
       const query = `
         SELECT group_id, group_name, is_enabled, auto_reply_enabled, welcome_message,
-               admin_user_id, agent_prompt_id, last_activity, receive_events, created_at, updated_at,
+               admin_user_id, agent_prompt_id, last_activity, created_at, updated_at,
                human_like_scan_interval_ms, human_like_min_interval_ms, human_like_max_interval_ms
         FROM group_chat_settings
         WHERE group_id = ?

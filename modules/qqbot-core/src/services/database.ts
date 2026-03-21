@@ -6,9 +6,6 @@ import {
   AgentPromptData,
   LogLevel,
   GroupChatSettings,
-  GroupChatStats,
-  GroupChatActivity,
-  GroupChatOverview,
   PrivateChatSettings,
   GroupMessageHistoryRecord,
   NewGroupMessageHistoryRecord,
@@ -414,7 +411,7 @@ export class DatabaseManager {
   // 新增：更新conversation状态的专用方法
   public async updateConversationStatus(
     conversationId: string,
-    status: 'pending' | 'processing' | 'completed' | 'failed' | 'filtered_receive_events' | 'filtered_disabled' | 'filtered_no_response' | 'filtered_empty_content',
+    status: 'pending' | 'processing' | 'completed' | 'failed' | 'filtered_disabled' | 'filtered_no_response' | 'filtered_empty_content',
     errorReason?: string,
     aiResponse?: string,
     responseTime?: number,
@@ -1757,14 +1754,13 @@ export class DatabaseManager {
       const query = `
         INSERT INTO group_chat_settings (
           group_id, group_name, is_enabled, auto_reply_enabled,
-          receive_events, human_like_scan_interval_ms, human_like_min_interval_ms,
+          human_like_scan_interval_ms, human_like_min_interval_ms,
           human_like_max_interval_ms, welcome_message, admin_user_id, agent_prompt_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           group_name = VALUES(group_name),
           is_enabled = VALUES(is_enabled),
           auto_reply_enabled = VALUES(auto_reply_enabled),
-          receive_events = VALUES(receive_events),
           human_like_scan_interval_ms = VALUES(human_like_scan_interval_ms),
           human_like_min_interval_ms = VALUES(human_like_min_interval_ms),
           human_like_max_interval_ms = VALUES(human_like_max_interval_ms),
@@ -1779,7 +1775,6 @@ export class DatabaseManager {
         settings.group_name || null,
         settings.is_enabled,
         settings.auto_reply_enabled,
-        settings.receive_events ?? true,
         settings.human_like_scan_interval_ms ?? null,
         settings.human_like_min_interval_ms ?? null,
         settings.human_like_max_interval_ms ?? null,
@@ -1811,7 +1806,7 @@ export class DatabaseManager {
       const query = `
         INSERT INTO private_chat_settings (
           user_id, agent_prompt_id, is_enabled, auto_reply_enabled, created_at, updated_at
-        ) VALUES (?, ?, TRUE, TRUE, NOW(), NOW())
+        ) VALUES (?, ?, TRUE, FALSE, NOW(), NOW())
         ON DUPLICATE KEY UPDATE
           agent_prompt_id = VALUES(agent_prompt_id),
           updated_at = NOW()
@@ -1964,8 +1959,8 @@ export class DatabaseManager {
     try {
       const query = `
         INSERT INTO group_chat_settings (
-          group_id, agent_prompt_id, is_enabled, auto_reply_enabled, receive_events, created_at, updated_at
-        ) VALUES (?, ?, TRUE, TRUE, TRUE, NOW(), NOW())
+          group_id, agent_prompt_id, is_enabled, auto_reply_enabled, created_at, updated_at
+        ) VALUES (?, ?, TRUE, FALSE, NOW(), NOW())
         ON DUPLICATE KEY UPDATE
           agent_prompt_id = VALUES(agent_prompt_id),
           updated_at = NOW()
@@ -1997,7 +1992,6 @@ export class DatabaseManager {
         'group_name',
         'is_enabled',
         'auto_reply_enabled',
-        'receive_events',
         'human_like_scan_interval_ms',
         'human_like_min_interval_ms',
         'human_like_max_interval_ms',
@@ -2097,44 +2091,6 @@ export class DatabaseManager {
   }
   
   /**
-   * 获取群聊统计概览
-   */
-  public async getGroupChatOverview(): Promise<GroupChatOverview[]> {
-    try {
-      const query = 'SELECT * FROM group_chat_overview ORDER BY total_messages DESC, last_activity DESC';
-      return await this.executeQuery<GroupChatOverview>(query);
-    } catch (error) {
-      this.moduleLogger.error('Failed to get group chat overview', { error });
-      return [];
-    }
-  }
-  
-  /**
-   * 获取群聊活动统计
-   */
-  public async getGroupChatStats(groupId?: number, days: number = 30): Promise<GroupChatStats[]> {
-    try {
-      let query = `
-        SELECT * FROM group_chat_stats 
-        WHERE date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-      `;
-      const params: any[] = [days];
-      
-      if (groupId) {
-        query += ' AND group_id = ?';
-        params.push(groupId);
-      }
-      
-      query += ' ORDER BY date DESC, group_id ASC';
-      
-      return await this.executeQuery<GroupChatStats>(query, params);
-    } catch (error) {
-      this.moduleLogger.error('Failed to get group chat stats', { error, groupId });
-      return [];
-    }
-  }
-  
-  /**
    * 更新群聊活跃度
    */
   public async updateGroupActivity(
@@ -2169,150 +2125,6 @@ export class DatabaseManager {
     }
   }
   
-  /**
-   * 记录群聊活动
-   */
-  public async recordGroupActivity(activity: GroupChatActivity): Promise<boolean> {
-    try {
-      const query = `
-        INSERT INTO group_chat_activity (group_id, user_id, message_type, content, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `;
-      
-      const params = [
-        activity.group_id,
-        activity.user_id,
-        activity.message_type,
-        activity.content || null,
-        activity.created_at || new Date()
-      ];
-      
-      const affectedRows = await this.executeUpdate(query, params);
-      return affectedRows > 0;
-    } catch (error) {
-      this.moduleLogger.error('Failed to record group activity', { error, activity });
-      return false;
-    }
-  }
-  
-  /**
-   * 获取群聊总体统计信息
-   */
-  public async getGroupChatGlobalStats(): Promise<{
-    total_groups: number;
-    enabled_groups: number;
-    disabled_groups: number;
-    total_messages_today: number;
-    total_ai_responses_today: number;
-    most_active_groups: Array<{
-      group_id: number;
-      group_name?: string;
-      message_count: number;
-      ai_responses: number;
-    }>;
-  }> {
-    try {
-      // 获取群聊基本统计
-      const basicStatsQuery = `
-        SELECT 
-          COUNT(*) as total_groups,
-          SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled_groups,
-          SUM(CASE WHEN is_enabled = 0 THEN 1 ELSE 0 END) as disabled_groups
-        FROM group_chat_settings
-      `;
-      
-      const basicStats = await this.executeQuery(basicStatsQuery);
-      
-      // 获取今日消息统计
-      const todayStatsQuery = `
-        SELECT 
-          COALESCE(SUM(message_count), 0) as total_messages_today,
-          COALESCE(SUM(ai_responses), 0) as total_ai_responses_today
-        FROM group_chat_stats 
-        WHERE date = CURDATE()
-      `;
-      
-      const todayStats = await this.executeQuery(todayStatsQuery);
-      
-      // 获取最活跃的群聊 (最近7天)
-      const activeGroupsQuery = `
-        SELECT 
-          gcs.group_id,
-          gcs.group_name,
-          COALESCE(SUM(gst.message_count), 0) as message_count,
-          COALESCE(SUM(gst.ai_responses), 0) as ai_responses
-        FROM group_chat_settings gcs
-        LEFT JOIN group_chat_stats gst ON gcs.group_id = gst.group_id 
-          AND gst.date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-        WHERE gcs.is_enabled = 1
-        GROUP BY gcs.group_id, gcs.group_name
-        HAVING message_count > 0
-        ORDER BY message_count DESC, ai_responses DESC
-        LIMIT 5
-      `;
-      
-      const activeGroups = await this.executeQuery(activeGroupsQuery);
-      
-      return {
-        total_groups: basicStats[0]?.total_groups || 0,
-        enabled_groups: basicStats[0]?.enabled_groups || 0,
-        disabled_groups: basicStats[0]?.disabled_groups || 0,
-        total_messages_today: todayStats[0]?.total_messages_today || 0,
-        total_ai_responses_today: todayStats[0]?.total_ai_responses_today || 0,
-        most_active_groups: activeGroups.map((row: any) => ({
-          group_id: row.group_id,
-          group_name: row.group_name,
-          message_count: row.message_count,
-          ai_responses: row.ai_responses
-        }))
-      };
-    } catch (error) {
-      this.moduleLogger.error('Failed to get group chat global stats', { error });
-      return {
-        total_groups: 0,
-        enabled_groups: 0,
-        disabled_groups: 0,
-        total_messages_today: 0,
-        total_ai_responses_today: 0,
-        most_active_groups: []
-      };
-    }
-  }
-  
-  /**
-   * 清理群聊历史数据
-   */
-  public async cleanupGroupChatData(daysToKeep: number = 30): Promise<{
-    activity_logs_deleted: number;
-    stats_deleted: number;
-  }> {
-    try {
-      // 调用存储过程清理数据
-      await this.executeUpdate('CALL CleanupGroupChatData(?)', [daysToKeep]);
-      
-      // 获取清理结果（简化实现）
-      const activityResult = await this.executeQuery(
-        'SELECT ROW_COUNT() as deleted_count'
-      );
-      
-      this.moduleLogger.info(`Group chat data cleanup completed`, {
-        daysToKeep,
-        timestamp: new Date().toISOString()
-      });
-      
-      return {
-        activity_logs_deleted: activityResult[0]?.deleted_count || 0,
-        stats_deleted: 0 // 存储过程会处理，这里简化返回
-      };
-    } catch (error) {
-      this.moduleLogger.error('Failed to cleanup group chat data', { error, daysToKeep });
-      return {
-        activity_logs_deleted: 0,
-        stats_deleted: 0
-      };
-    }
-  }
-
   public async close(): Promise<void> {
     if (this.pool) {
       await this.pool.end();

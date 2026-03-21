@@ -125,7 +125,7 @@ export interface ConversationData {
   reply_to_message_id?: number;
   reply_to_text?: string;
   session_id?: string;  // Session管理支持
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'filtered_receive_events' | 'filtered_disabled' | 'filtered_no_response' | 'filtered_empty_content'; // 扩展状态字段支持过滤状态
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'filtered_disabled' | 'filtered_no_response' | 'filtered_empty_content'; // 扩展状态字段支持过滤状态
   error_reason?: string; // 新增错误原因字段
   group_id?: number; // 群聊ID，用于群聊消息记录
   batch_id?: string; // 关联的批次ID（用于批处理追踪）
@@ -551,7 +551,6 @@ export interface GroupChatSettings {
   group_name?: string;
   is_enabled: boolean;
   auto_reply_enabled: boolean;
-  receive_events: boolean;
   welcome_message?: string;
   admin_user_id?: number;
   agent_prompt_id?: string | null;
@@ -563,7 +562,7 @@ export interface GroupChatSettings {
   last_activity?: Date;
 }
 
-// Private chat settings interface (similar to group but without receive_events)
+// Private chat settings interface
 export interface PrivateChatSettings {
   id?: number;
   user_id: number;
@@ -579,39 +578,6 @@ export interface PrivateChatSettings {
   created_at: Date;
   updated_at: Date;
   last_activity?: Date;
-}
-
-export interface GroupChatStats {
-  id?: number;
-  group_id: number;
-  date: string; // YYYY-MM-DD format
-  message_count: number;
-  active_users: number;
-  ai_responses: number;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface GroupChatActivity {
-  id?: number;
-  group_id: number;
-  user_id: number;
-  message_type: 'user_message' | 'ai_response' | 'notice' | 'join' | 'leave';
-  content?: string;
-  created_at: Date;
-}
-
-export interface GroupChatOverview {
-  group_id: number;
-  group_name?: string;
-  is_enabled: boolean;
-  auto_reply_enabled: boolean;
-  last_activity?: Date;
-  created_at: Date;
-  total_messages: number;
-  total_ai_responses: number;
-  avg_active_users: number;
-  days_since_last_activity?: number;
 }
 
 // Group Chat API Response Types

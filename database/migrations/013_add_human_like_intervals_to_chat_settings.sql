@@ -5,7 +5,7 @@
 USE qqbot_db;
 
 ALTER TABLE group_chat_settings
-  ADD COLUMN human_like_scan_interval_ms INT NULL COMMENT '拟人化扫描间隔，毫秒' AFTER receive_events,
+  ADD COLUMN human_like_scan_interval_ms INT NULL COMMENT '拟人化扫描间隔，毫秒' AFTER auto_reply_enabled,
   ADD COLUMN human_like_min_interval_ms INT NULL COMMENT '拟人化最小间隔，毫秒' AFTER human_like_scan_interval_ms,
   ADD COLUMN human_like_max_interval_ms INT NULL COMMENT '拟人化最大发电间隔，毫秒' AFTER human_like_min_interval_ms;
 

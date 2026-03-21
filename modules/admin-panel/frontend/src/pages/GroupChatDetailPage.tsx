@@ -39,7 +39,6 @@ interface GroupSettings {
   group_name: string;
   is_enabled: number;
   auto_reply_enabled: number;
-  receive_events: number;
   welcome_message: string | null;
   admin_user_id: number | null;
   agent_prompt_id: string | null;
@@ -393,7 +392,7 @@ export const GroupChatDetailPage: React.FC = () => {
                         checked={!!settingsForm.is_enabled}
                         onCheckedChange={(checked) => handleSettingsChange('is_enabled', checked ? 1 : 0)}
                       />
-                      <Label htmlFor="is_enabled">启用群聊AI回复</Label>
+                      <Label htmlFor="is_enabled">接收群聊消息</Label>
                     </div>
                     
                     <div className="flex items-center space-x-2">
@@ -402,16 +401,7 @@ export const GroupChatDetailPage: React.FC = () => {
                         checked={!!settingsForm.auto_reply_enabled}
                         onCheckedChange={(checked) => handleSettingsChange('auto_reply_enabled', checked ? 1 : 0)}
                       />
-                      <Label htmlFor="auto_reply_enabled">启用自动回复</Label>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <Switch
-                        id="receive_events"
-                        checked={settingsForm.receive_events !== 0}
-                        onCheckedChange={(checked) => handleSettingsChange('receive_events', checked ? 1 : 0)}
-                      />
-                      <Label htmlFor="receive_events">接收群聊事件</Label>
+                      <Label htmlFor="auto_reply_enabled">开启自动回复</Label>
                     </div>
                   </div>
 
@@ -476,21 +466,15 @@ export const GroupChatDetailPage: React.FC = () => {
                     <p className="font-medium">{groupData.data.group_settings.group_name || '未设置'}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">启用状态</p>
+                    <p className="text-sm text-muted-foreground">接收状态</p>
                     <Badge variant={groupData.data.group_settings.is_enabled ? "default" : "secondary"}>
-                      {groupData.data.group_settings.is_enabled ? "已启用" : "已禁用"}
+                      {groupData.data.group_settings.is_enabled ? "接收中" : "已忽略"}
                     </Badge>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">自动回复</p>
                     <Badge variant={groupData.data.group_settings.auto_reply_enabled ? "default" : "outline"}>
                       {groupData.data.group_settings.auto_reply_enabled ? "开启" : "关闭"}
-                    </Badge>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">事件订阅</p>
-                    <Badge variant={groupData.data.group_settings.receive_events ? "default" : "secondary"}>
-                      {groupData.data.group_settings.receive_events ? "接收" : "忽略"}
                     </Badge>
                   </div>
                   <div>

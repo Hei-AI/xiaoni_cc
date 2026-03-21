@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS group_chat_settings (
     id INT AUTO_INCREMENT PRIMARY KEY,
     group_id BIGINT UNIQUE NOT NULL COMMENT '群号',
     group_name VARCHAR(255) COMMENT '群名称',
-    is_enabled BOOLEAN DEFAULT true COMMENT '是否启用群聊AI回复',
-    auto_reply_enabled BOOLEAN DEFAULT true COMMENT '是否自动回复',
+    is_enabled BOOLEAN DEFAULT true COMMENT '是否接收群聊消息',
+    auto_reply_enabled BOOLEAN DEFAULT false COMMENT '是否自动回复群聊消息',
     welcome_message TEXT COMMENT '欢迎消息',
     admin_user_id BIGINT COMMENT '管理员用户ID',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -97,8 +97,8 @@ GROUP BY gcs.group_id, gcs.group_name, gcs.is_enabled, gcs.auto_reply_enabled,
 DELIMITER //
 CREATE PROCEDURE UpdateGroupActivity(
     IN p_group_id BIGINT,
-    IN p_message_count INT DEFAULT 1,
-    IN p_ai_response_count INT DEFAULT 0
+    IN p_message_count INT,
+    IN p_ai_response_count INT
 )
 BEGIN
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
@@ -128,7 +128,7 @@ DELIMITER ;
 
 -- 创建存储过程：群聊数据清理
 DELIMITER //
-CREATE PROCEDURE CleanupGroupChatData(IN days_to_keep INT DEFAULT 30)
+CREATE PROCEDURE CleanupGroupChatData(IN days_to_keep INT)
 BEGIN
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN

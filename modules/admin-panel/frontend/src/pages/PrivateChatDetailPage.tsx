@@ -394,14 +394,14 @@ export const PrivateChatDetailPage: React.FC = () => {
               </div>
               <div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">启用状态:</span>
+                  <span className="text-sm font-medium">接收状态:</span>
                   <Button
                     size="sm"
                     variant={conversationData.data.user_settings.is_enabled ? "default" : "outline"}
                     onClick={() => handleQuickToggle('is_enabled')}
                     disabled={updateSettingsMutation.isPending}
                   >
-                    {conversationData.data.user_settings.is_enabled ? '已启用' : '已禁用'}
+                    {conversationData.data.user_settings.is_enabled ? '接收中' : '已忽略'}
                   </Button>
                 </div>
               </div>

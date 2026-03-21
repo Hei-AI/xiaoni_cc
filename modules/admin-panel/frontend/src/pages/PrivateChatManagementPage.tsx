@@ -263,7 +263,7 @@ export const PrivateChatManagementPage: React.FC = () => {
       <PageHeader
         eyebrow="Direct Message Book"
         title="私聊管理"
-        description="用户级策略、批量操作和自动回复开关全部保留，同时重排为适合手机操作的卡片流。"
+        description="统一管理私聊接收策略、自动回复开关和批量操作，同时重排为适合手机操作的卡片流。"
         icon={<User className="h-5 w-5" />}
         actions={
           <>
@@ -282,7 +282,7 @@ export const PrivateChatManagementPage: React.FC = () => {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <MetricCard label="当前页用户" value={rows.length} icon={<User className="h-5 w-5" />} />
-        <MetricCard label="启用状态" value={metrics.enabled} detail={`自动回复开启 ${metrics.autoReply}`} icon={<PlayCircle className="h-5 w-5" />} tone="success" />
+        <MetricCard label="接收开启" value={metrics.enabled} detail={`自动回复开启 ${metrics.autoReply}`} icon={<PlayCircle className="h-5 w-5" />} tone="success" />
         <MetricCard label="平均成功率" value={`${metrics.avgSuccess}%`} icon={<MessageCircle className="h-5 w-5" />} tone="warning" />
       </div>
 
@@ -324,7 +324,7 @@ export const PrivateChatManagementPage: React.FC = () => {
                 checked={filters.is_enabled === true}
                 onCheckedChange={(checked) => handleFilterChange('is_enabled', checked ? true : undefined)}
               />
-              <span>已启用私聊</span>
+              <span>接收中</span>
             </label>
             <label className="flex items-center gap-2">
               <Checkbox
@@ -354,11 +354,11 @@ export const PrivateChatManagementPage: React.FC = () => {
             <>
               <Button size="sm" onClick={() => handleBatchUpdate('is_enabled', true)} disabled={batchUpdateMutation.isPending}>
                 <PlayCircle className="mr-2 h-4 w-4" />
-                批量启用
+                批量开始接收
               </Button>
               <Button size="sm" variant="outline" onClick={() => handleBatchUpdate('is_enabled', false)} disabled={batchUpdateMutation.isPending}>
                 <PauseCircle className="mr-2 h-4 w-4" />
-                批量禁用
+                批量停止接收
               </Button>
               <Button size="sm" variant="outline" onClick={() => handleBatchUpdate('auto_reply_enabled', true)} disabled={batchUpdateMutation.isPending}>
                 开启自动回复
@@ -408,7 +408,7 @@ export const PrivateChatManagementPage: React.FC = () => {
                       <StatusPill tone={user.status === 'success' ? 'success' : user.status === 'failed' ? 'danger' : 'warning'}>
                         {user.status === 'success' ? '正常' : user.status === 'failed' ? '失败' : '其他'}
                       </StatusPill>
-                      <StatusPill tone={user.is_enabled ? 'success' : 'neutral'}>{user.is_enabled ? '已启用' : '已禁用'}</StatusPill>
+                      <StatusPill tone={user.is_enabled ? 'success' : 'neutral'}>{user.is_enabled ? '接收中' : '已忽略'}</StatusPill>
                       <Badge variant="outline">成功率 {user.success_rate}%</Badge>
                     </>
                   }
@@ -434,7 +434,7 @@ export const PrivateChatManagementPage: React.FC = () => {
                       disabled={loadingStates[`${user.user_id}_is_enabled`] || false}
                     >
                       {user.is_enabled ? <PauseCircle className="mr-2 h-4 w-4" /> : <PlayCircle className="mr-2 h-4 w-4" />}
-                      启用开关
+                      接收开关
                     </Button>
                     <Button
                       variant="outline"
@@ -476,7 +476,7 @@ export const PrivateChatManagementPage: React.FC = () => {
                     <TableHead>状态</TableHead>
                     <TableHead>对话统计</TableHead>
                     <TableHead>成功率</TableHead>
-                    <TableHead>启用状态</TableHead>
+                    <TableHead>接收状态</TableHead>
                     <TableHead>自动回复</TableHead>
                     <TableHead>最后对话</TableHead>
                     <TableHead>操作</TableHead>
@@ -505,7 +505,7 @@ export const PrivateChatManagementPage: React.FC = () => {
                         <Badge variant="outline">{user.success_rate}%</Badge>
                       </TableCell>
                       <TableCell>
-                        <StatusPill tone={user.is_enabled ? 'success' : 'neutral'}>{user.is_enabled ? '已启用' : '已禁用'}</StatusPill>
+                        <StatusPill tone={user.is_enabled ? 'success' : 'neutral'}>{user.is_enabled ? '接收中' : '已忽略'}</StatusPill>
                       </TableCell>
                       <TableCell>
                         <StatusPill tone={user.auto_reply_enabled ? 'info' : 'warning'}>{user.auto_reply_enabled ? '开启' : '关闭'}</StatusPill>

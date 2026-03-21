@@ -150,11 +150,11 @@ class QQBot implements BatchHandler {
       sendGroupMessage: this.websocketClient.sendGroupMessage.bind(this.websocketClient),
       canSendPrivateMessage: async (userId: number) => {
         const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
-        return !(privateChatSettings && !privateChatSettings.auto_reply_enabled);
+        return privateChatSettings?.auto_reply_enabled === true;
       },
       canSendGroupMessage: async (groupId: number) => {
         const groupSettings = await this.database.getGroupChatSettingById(groupId);
-        return !(groupSettings && !groupSettings.auto_reply_enabled);
+        return groupSettings?.auto_reply_enabled === true;
       },
       scrollChatViewUp: (cursor, pageSize) => this.chatViewportService.scrollUp(cursor, pageSize),
       jumpChatViewToLatest: (cursor, pageSize) => this.chatViewportService.jumpToLatest(cursor, pageSize),
@@ -236,7 +236,7 @@ class QQBot implements BatchHandler {
         if (messageType === 'group' && groupId) {
           // 检查群聊自动回复开关
           const groupSettings = await this.database.getGroupChatSettingById(groupId);
-          if (groupSettings && !groupSettings.auto_reply_enabled) {
+          if (groupSettings?.auto_reply_enabled !== true) {
             this.moduleLogger.debug('Group auto reply disabled, skip sending response', { groupId });
             return;
           }
@@ -246,7 +246,7 @@ class QQBot implements BatchHandler {
         } else if (messageType === 'private' && userId) {
           // 检查私聊自动回复开关
           const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
-          if (privateChatSettings && !privateChatSettings.auto_reply_enabled) {
+          if (privateChatSettings?.auto_reply_enabled !== true) {
             this.moduleLogger.debug('Private auto reply disabled, skip sending response', { userId });
             return;
           }
@@ -801,29 +801,28 @@ class QQBot implements BatchHandler {
       await this.database.saveConversation(initialConversation);
       this.moduleLogger.info('Initial conversation record created', { conversationId, batchId, status: 'pending' });
 
-      // 检查私聊设置（2层过滤控制 - private_chat_settings表没有receive_events字段）
+      // 检查私聊设置（2层过滤控制）
       const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
 
-      // 第1层：检查是否启用LLM处理（is_enabled）
-      if (privateChatSettings && privateChatSettings.is_enabled === false) {
-        this.moduleLogger.debug('Private chat LLM processing disabled', { user_id: userId });
+      // 第2层：检查是否允许自动回复
+      if (privateChatSettings && privateChatSettings.auto_reply_enabled === false) {
+        this.moduleLogger.debug('Private chat auto reply disabled', { user_id: userId });
 
-        // 🔥 FIX: Update conversation status for traceability instead of early return
-        await this.database.updateConversationStatus(conversationId, 'filtered_disabled', 'Private chat LLM processing disabled');
+        await this.database.updateConversationStatus(conversationId, 'filtered_disabled', 'Private chat auto reply disabled');
         this.moduleLogger.info('Conversation updated for filtered private message', {
           conversationId,
-          reason: 'llm_processing_disabled',
+          reason: 'auto_reply_disabled',
           traceId
         });
 
-        return; // 不调用LLM处理
+        return;
       }
 
       // 记录通过检查
       this.moduleLogger.debug('Private chat passed initial checks', {
         user_id: userId,
         is_enabled: privateChatSettings?.is_enabled ?? true,
-        auto_reply_enabled: privateChatSettings?.auto_reply_enabled ?? true
+        auto_reply_enabled: privateChatSettings?.auto_reply_enabled ?? false
       });
 
       this.moduleLogger.info('DEBUG: About to call buildMessageContext', {
@@ -940,8 +939,6 @@ class QQBot implements BatchHandler {
 
       // 检测@机器人：同时支持消息段数组格式和字符串CQ码格式
       let isAtBot = false;
-      const rawConversationText = this.formatMessageForConversation(message);
-
       if (Array.isArray(message.message)) {
         isAtBot = message.message.some((segment: any) =>
           segment.type === 'at' && segment.data?.qq === botQQ.toString()
@@ -965,78 +962,6 @@ class QQBot implements BatchHandler {
           groupReplyEnabled: this.groupReplyEnabled
         });
         return;
-      }
-
-      // 检查群聊设置（3层过滤控制）
-      if (message.group_id) {
-        const groupSettings = await this.database.getGroupChatSettingById(message.group_id);
-
-        // 第1层：检查是否接收事件（receive_events）
-        if (groupSettings && !groupSettings.receive_events) {
-          this.moduleLogger.debug('Group chat events disabled', { group_id: message.group_id });
-
-          // 🔥 FIX: Save filtered conversation record for traceability
-          const filteredConversation: ConversationData = {
-            id: conversationId,
-            trace_id: traceId,
-            user_id: message.user_id,
-            user_message: rawConversationText,
-            timestamp: new Date(),
-            response_time: 0,
-            raw_request: JSON.stringify(message),
-            status: 'filtered_receive_events',
-            error_reason: 'Group chat receive_events disabled',
-            group_id: message.group_id,
-            created_at: new Date(),
-            updated_at: new Date()
-          };
-
-          await this.database.saveConversation(filteredConversation);
-          this.moduleLogger.info('Filtered conversation saved for traceability', {
-            conversationId,
-            reason: 'receive_events_disabled',
-            traceId
-          });
-
-          return; // 直接忽略，不做任何处理
-        }
-
-        // 第2层：检查是否启用LLM处理（is_enabled）
-        if (groupSettings && !groupSettings.is_enabled) {
-          this.moduleLogger.debug('Group chat LLM processing disabled', { group_id: message.group_id });
-
-          // 🔥 FIX: Save filtered conversation record for traceability
-          const filteredConversation: ConversationData = {
-            id: conversationId,
-            trace_id: traceId,
-            user_id: message.user_id,
-            user_message: rawConversationText,
-            timestamp: new Date(),
-            response_time: 0,
-            raw_request: JSON.stringify(message),
-            status: 'filtered_disabled',
-            error_reason: 'Group chat LLM processing disabled',
-            group_id: message.group_id,
-            created_at: new Date(),
-            updated_at: new Date()
-          };
-
-          await this.database.saveConversation(filteredConversation);
-          this.moduleLogger.info('Filtered conversation saved for traceability', {
-            conversationId,
-            reason: 'llm_processing_disabled',
-            traceId
-          });
-
-          return; // 不调用LLM处理
-        }
-
-        // 记录通过前两层检查
-        this.moduleLogger.debug('Group chat passed initial checks', {
-          group_id: message.group_id,
-          receive_events: groupSettings?.receive_events ?? true,
-          is_enabled: groupSettings?.is_enabled ?? true
-        });
       }
 
       this.moduleLogger.info('Received group at message', {
@@ -1105,16 +1030,6 @@ class QQBot implements BatchHandler {
         return;
       }
 
-      // 构建群聊消息上下文（前20条消息）
-      const messageContext = await this.contextManager.buildMessageContext(messageWithCleanContent, 20);
-
-      this.moduleLogger.info('Group message context built', {
-        traceId,
-        historyCount: messageContext.historyMessages.length,
-        hasGroupInfo: !!messageContext.groupInfo,
-        groupId: message.group_id
-      });
-
       // 🔥 FIX: Create conversation record for group messages early for traceability
       const groupConversation: ConversationData = {
         id: conversationId,
@@ -1133,6 +1048,37 @@ class QQBot implements BatchHandler {
 
       await this.database.saveConversation(groupConversation);
       this.moduleLogger.info('Group conversation record created', { conversationId, batchId, groupId: message.group_id, traceId });
+
+      const groupSettings = message.group_id
+        ? await this.database.getGroupChatSettingById(message.group_id)
+        : null;
+
+      if (groupSettings && !groupSettings.auto_reply_enabled) {
+        this.moduleLogger.debug('Group chat auto reply disabled', { group_id: message.group_id });
+        await this.database.updateConversationStatus(conversationId, 'filtered_disabled', 'Group chat auto reply disabled');
+        this.moduleLogger.info('Conversation updated for filtered group message', {
+          conversationId,
+          reason: 'auto_reply_disabled',
+          traceId
+        });
+        return;
+      }
+
+      this.moduleLogger.debug('Group chat passed initial checks', {
+        group_id: message.group_id,
+        is_enabled: groupSettings?.is_enabled ?? true,
+        auto_reply_enabled: groupSettings?.auto_reply_enabled ?? false
+      });
+
+      // 构建群聊消息上下文（前20条消息）
+      const messageContext = await this.contextManager.buildMessageContext(messageWithCleanContent, 20);
+
+      this.moduleLogger.info('Group message context built', {
+        traceId,
+        historyCount: messageContext.historyMessages.length,
+        hasGroupInfo: !!messageContext.groupInfo,
+        groupId: message.group_id
+      });
 
       // Stage 1: Use DecisionEngine for group message decisions
       const decision = await this.decisionEngine.analyzeMessage(messageContext, traceId);
@@ -1202,8 +1148,61 @@ class QQBot implements BatchHandler {
     }
   }
 
+  private async recordFilteredInboundMessage(
+    message: QQMessage,
+    traceId: string,
+    errorReason: string
+  ): Promise<void> {
+    const filteredConversation: ConversationData = {
+      id: uuidv4(),
+      trace_id: traceId,
+      user_id: message.user_id,
+      group_id: message.group_id,
+      user_message: this.formatMessageForConversation(message),
+      timestamp: new Date(),
+      response_time: 0,
+      raw_request: JSON.stringify(message),
+      status: 'filtered_disabled',
+      error_reason: errorReason,
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+
+    await this.database.saveConversation(filteredConversation);
+  }
+
+  private async shouldReceiveIncomingMessage(
+    message: QQMessage
+  ): Promise<{ allowed: boolean; reason?: string }> {
+    if (message.message_type === 'group' && message.group_id) {
+      const groupSettings = await this.database.getGroupChatSettingById(message.group_id);
+      if (groupSettings && !groupSettings.is_enabled) {
+        return { allowed: false, reason: 'Group chat receiving disabled' };
+      }
+      return { allowed: true };
+    }
+
+    const privateChatSettings = await this.database.getPrivateChatSettingById(message.user_id);
+    if (privateChatSettings && !privateChatSettings.is_enabled) {
+      return { allowed: false, reason: 'Private chat receiving disabled' };
+    }
+
+    return { allowed: true };
+  }
+
   private async handlePrivateMessage(message: QQMessage, eventData?: any): Promise<void> {
     const traceId = eventData?.traceId || `trace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    const receiveDecision = await this.shouldReceiveIncomingMessage(message);
+    if (!receiveDecision.allowed) {
+      await this.recordFilteredInboundMessage(message, traceId, receiveDecision.reason || 'Private chat receiving disabled');
+      this.moduleLogger.debug('Skipped private message before enqueue', {
+        traceId,
+        userId: message.user_id,
+        reason: receiveDecision.reason
+      });
+      return;
+    }
 
     // 入队消息
     await this.messageQueueService.enqueue(message, { ...eventData, traceId });
@@ -1219,6 +1218,18 @@ class QQBot implements BatchHandler {
 
   private async handleGroupMessage(message: QQMessage, eventData?: any): Promise<void> {
     const traceId = eventData?.traceId || `trace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    const receiveDecision = await this.shouldReceiveIncomingMessage(message);
+    if (!receiveDecision.allowed) {
+      await this.recordFilteredInboundMessage(message, traceId, receiveDecision.reason || 'Group chat receiving disabled');
+      this.moduleLogger.debug('Skipped group message before enqueue', {
+        traceId,
+        groupId: message.group_id,
+        userId: message.user_id,
+        reason: receiveDecision.reason
+      });
+      return;
+    }
 
     // 入队消息
     await this.messageQueueService.enqueue(message, { ...eventData, traceId });
@@ -1283,8 +1294,7 @@ class QQBot implements BatchHandler {
         group_id: groupId,
         group_name: groupName,
         is_enabled: true,
-        auto_reply_enabled: true,
-        receive_events: true,
+        auto_reply_enabled: false,
         admin_user_id: userId,
         created_at: new Date(),
         updated_at: new Date()
@@ -1381,9 +1391,8 @@ class QQBot implements BatchHandler {
       // 从数据库获取设置
       const groupSetting = await this.database.getGroupChatSettingById(groupId);
       
-      // FIX: Default to enabled for groups without database entries
-      // This allows new groups to work immediately without manual configuration
-      const isEnabled = groupSetting ? (groupSetting.is_enabled && groupSetting.auto_reply_enabled) : true;
+      // 新目标默认接收开启、自动回复关闭
+      const isEnabled = groupSetting ? (groupSetting.is_enabled && groupSetting.auto_reply_enabled) : false;
       
       this.moduleLogger.info('Group enablement check', {
         groupId,
@@ -1900,7 +1909,7 @@ class QQBot implements BatchHandler {
         // 第3层：检查群聊自动回复是否开启（auto_reply_enabled）
         const groupSettings = cachedGroupSettings ?? await this.database.getGroupChatSettingById(originalMessage.group_id);
         cachedGroupSettings = groupSettings;
-        if (groupSettings && !groupSettings.auto_reply_enabled) {
+        if (groupSettings?.auto_reply_enabled !== true) {
           this.moduleLogger.debug('Group chat auto reply disabled, skipping message send', { 
             group_id: originalMessage.group_id 
           });
@@ -1930,7 +1939,7 @@ class QQBot implements BatchHandler {
         // 第3层：检查私聊自动回复是否开启（auto_reply_enabled）
         const privateChatSettings = cachedPrivateSettings ?? await this.database.getPrivateChatSettingById(userId);
         cachedPrivateSettings = privateChatSettings;
-        if (privateChatSettings && !privateChatSettings.auto_reply_enabled) {
+        if (privateChatSettings?.auto_reply_enabled !== true) {
           this.moduleLogger.debug('Private chat auto reply disabled, skipping message send', { 
             user_id: userId 
           });
