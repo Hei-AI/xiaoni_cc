@@ -28,8 +28,9 @@ resource/napcat_config/*.json
 !resource/napcat_config/webui.json
 resource/napcat_qq_data/*
 !resource/napcat_qq_data/.gitkeep
-resource/napcat_qq_data2/*
-!resource/napcat_qq_data2/.gitkeep
+scripts/module_pids.json
+屏幕截图 *.png
+Screenshot *.png
 
 # Dependencies
 node_modules/

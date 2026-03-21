@@ -56,9 +56,9 @@ services:
       - HTTP_PORT=8081
       - INTERNAL_HTTP_PORT=8081
       - LOG_LEVEL=info
-      # WebSocket连接配置 - 连接qqbot专用NapCat容器
+      # WebSocket连接配置 - 连接主 NapCat 容器
       - BOT_QQ_NUMBER=1129974489
-      - WEBSOCKET_HOST=napcat-qqbot
+      - WEBSOCKET_HOST=napcat
       - WEBSOCKET_PORT=3001
       - WEBSOCKET_ACCESS_TOKEN=w@123456
       - ENABLE_FUNCTION_REGISTRY=false
@@ -82,7 +82,6 @@ services:
       - ./logs/qqbot-core:/app/logs
       - ./modules/qqbot-core/resources/config:/app/resources/config
       - ./modules/qqbot-core/resources/napcat_qq_data:/app/resources/napcat_qq_data
-      - ./resource/napcat_qq_data2:/app/.config/QQ:ro
       - ${HOME}/.codex:/root/.codex
       - ${HOME}/.gemini:/root/.gemini
     networks:

@@ -14,9 +14,6 @@ Removed from the main repo architecture:
 
 - `http-api`
 - `queue-monitor`
-- `openclaw-bridge`
-
-`openclaw-bridge` now lives in a separate project and is not maintained here.
 
 ## 2. Working Model
 

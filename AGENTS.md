@@ -7,7 +7,7 @@
 - `admin-panel/backend` is the operator API layer over MySQL and `qqbot-core`; it owns prompt management, conversations, queue operations, status/log views, and traffic replay/query APIs.
 - `admin-panel/frontend` is the operator UI and only talks to `admin-panel/backend`.
 - `modules/http-traffic-monitor` is an admin-side observability toolchain for transparent proxy capture and replay support, not a standalone product service.
-- `openclaw-bridge`, `http-api`, and `queue-monitor` are no longer part of this repository's main architecture.
+- `http-api` and `queue-monitor` are no longer part of this repository's main architecture.
 
 ## Current Architecture
 - Runtime topology: `NapCat -> qqbot-core -> MySQL`, with `admin-panel/backend` calling into `qqbot-core` for queue/debug operations and `admin-panel/frontend` calling only `admin-panel/backend`.

@@ -35,7 +35,9 @@
     "lint:admin-backend": "cd modules/admin-panel/backend && npm run lint",
     "clean-ports": "python3 scripts/start_modules.py clean-ports",
     "health-check": "python3 scripts/start_modules.py status",
-    "deploy": "npm run stop && npm run install:all && npm run start"
+    "deploy": "bash scripts/deploy-admin-public.sh",
+    "deploy:local": "npm run stop && npm run install:all && npm run start",
+    "deploy:admin-public": "bash scripts/deploy-admin-public.sh"
   },
   "workspaces": [
     "modules/qqbot-core",

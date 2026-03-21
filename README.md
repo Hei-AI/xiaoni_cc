@@ -10,8 +10,6 @@
 - `mysql`: 数据存储
 - `docker-compose.napcat.yml`: NapCat 独立部署入口
 
-`openclaw-bridge` 已迁移到独立项目，不再保留在本仓。
-
 ## 目录
 
 ```text
@@ -107,6 +105,11 @@ python3 scripts/start_modules.py status
   - 会重建 Docker 的 `admin-frontend`，并重启 `admin-expose-proxy`
   - 这是 `qqbot-admin.liahuas.top` 实际使用的链路
   - 脚本会自动校验 `admin-backend` 健康接口和本机 `3903` 网关状态
+
+## 本地文件约定
+
+- `scripts/module_pids.json` 是本地 `start_modules.py` 写出的 PID 状态，不提交。
+- NapCat 登录二维码和各类截图文件属于登录/排障产物，不提交。
 
 ## 文档
 

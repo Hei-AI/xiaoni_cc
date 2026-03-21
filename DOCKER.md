@@ -1,6 +1,6 @@
 # Docker 部署说明
 
-当前主仓只保留最小运行栈：`mysql + qqbot-core + admin-backend + admin-frontend`。NapCat 继续通过 `docker-compose.napcat.yml` 独立部署，`openclaw-bridge` 已迁移到独立仓库。
+当前主仓只保留最小运行栈：`mysql + qqbot-core + admin-backend + admin-frontend`。NapCat 继续通过 `docker-compose.napcat.yml` 独立部署。
 
 ## 1. Compose 文件
 
@@ -8,9 +8,6 @@
   - 主仓核心服务栈
 - `docker-compose.napcat.yml`
   - NapCat 独立部署入口
-- `/home/liahua/IdeaProject/openclaw-bridge/docker-compose.yml`
-  - OpenClaw Bridge 独立部署入口
-
 ## 2. 当前服务概览
 
 | 服务 | 容器名 | 端口映射 | 说明 |
@@ -24,14 +21,10 @@
 
 - `http-api`
 - `queue-monitor`
-- `openclaw-bridge`
-
 ## 3. 网络关系
 
 - 主仓服务使用 `qq_bot_network`。
 - NapCat 需运行在同一网络中，供 `qqbot-core` 通过 `napcat:3001` 连接。
-- 独立的 `openclaw-bridge` 项目也复用 `qq_bot_network`，直接连接现有 NapCat 容器。
-
 首次创建网络：
 
 ```bash
@@ -47,9 +40,6 @@ docker compose up -d --build
 # 2. 启动 NapCat
 docker compose -f docker-compose.napcat.yml up -d
 
-# 3. 如需 OpenClaw Bridge，再到独立仓启动
-cd /home/liahua/IdeaProject/openclaw-bridge
-docker compose up -d --build
 ```
 
 常用命令：

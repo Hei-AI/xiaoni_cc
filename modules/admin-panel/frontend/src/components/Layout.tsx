@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { StatusPill } from './console/StatusPill';
 import {
   Sheet,
   SheetContent,
@@ -36,9 +38,105 @@ interface NavigationItem {
   active: boolean;
 }
 
+type RuntimeTone = 'success' | 'warning' | 'danger';
+
+interface RuntimeStatusPayload {
+  status: 'healthy' | 'degraded' | 'offline';
+  core: {
+    live: boolean;
+    connected: boolean;
+    status: 'online' | 'offline' | 'error';
+    botId: string | null;
+    httpServerRunning: boolean;
+    lastHeartbeat: string | null;
+    errorMessage: string | null;
+    url: string;
+    healthStatusCode: number | null;
+  };
+  admin: {
+    live: boolean;
+    status: 'online' | 'offline';
+  };
+  database: {
+    live: boolean;
+    status: 'online' | 'offline';
+  };
+}
+
+const runtimeToneMap: Record<RuntimeStatusPayload['status'], RuntimeTone> = {
+  healthy: 'success',
+  degraded: 'warning',
+  offline: 'danger',
+};
+
+function formatRuntimeTitle(runtimeStatus?: RuntimeStatusPayload): string {
+  if (!runtimeStatus) {
+    return 'Runtime loading';
+  }
+
+  if (runtimeStatus.status === 'offline') {
+    return 'Runtime offline';
+  }
+
+  if (runtimeStatus.status === 'degraded') {
+    return 'Runtime degraded';
+  }
+
+  return 'Runtime healthy';
+}
+
+function formatRuntimeSummary(runtimeStatus?: RuntimeStatusPayload): string {
+  if (!runtimeStatus) {
+    return '正在获取 Core / Admin / MySQL 状态';
+  }
+
+  const coreLabel = runtimeStatus.core.live
+    ? runtimeStatus.core.connected
+      ? 'Core live'
+      : 'Core live / WS down'
+    : 'Core offline';
+  const adminLabel = runtimeStatus.admin.live ? 'Admin live' : 'Admin offline';
+  const databaseLabel = runtimeStatus.database.live ? 'MySQL live' : 'MySQL offline';
+
+  return `${coreLabel} • ${adminLabel} • ${databaseLabel}`;
+}
+
+function formatHeartbeat(lastHeartbeat: string | null | undefined): string | null {
+  if (!lastHeartbeat) {
+    return null;
+  }
+
+  const date = new Date(lastHeartbeat);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(date);
+}
+
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { data: runtimeStatus } = useQuery<RuntimeStatusPayload>({
+    queryKey: ['runtimeStatus'],
+    queryFn: async () => {
+      const response = await fetch('/api/runtime/status');
+      if (!response.ok) {
+        throw new Error('Failed to fetch runtime status');
+      }
+
+      const payload = await response.json();
+      return payload.data as RuntimeStatusPayload;
+    },
+    staleTime: 5000,
+    refetchInterval: 15000,
+  });
 
   const navigationGroups = [
     {
@@ -117,6 +215,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     () => allItems.find((item) => item.active) ?? allItems[0],
     [allItems]
   );
+  const runtimeTitle = formatRuntimeTitle(runtimeStatus);
+  const runtimeSummary = formatRuntimeSummary(runtimeStatus);
+  const runtimeTone = runtimeToneMap[runtimeStatus?.status ?? 'degraded'];
+  const heartbeatLabel = formatHeartbeat(runtimeStatus?.core.lastHeartbeat);
+  const runtimeIssue = runtimeStatus?.core.errorMessage;
 
   const sidebarContent = (
     <div className="flex h-full flex-col">
@@ -179,14 +282,31 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       <div className="border-t border-border px-4 py-3">
         <div className="flex items-start gap-2.5">
-          <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-50 text-[hsl(var(--success))]">
+          <div
+            className={cn(
+              'mt-0.5 flex h-6 w-6 items-center justify-center rounded-full',
+              runtimeTone === 'success' && 'bg-emerald-50 text-[hsl(var(--success))]',
+              runtimeTone === 'warning' && 'bg-amber-50 text-[hsl(var(--warning))]',
+              runtimeTone === 'danger' && 'bg-red-50 text-destructive'
+            )}
+          >
             <ShieldCheck className="h-3 w-3" />
           </div>
           <div className="min-w-0">
-            <div className="text-[13px] font-medium text-foreground">Runtime online</div>
+            <div className="text-[13px] font-medium text-foreground">{runtimeTitle}</div>
             <div className="mt-0.5 text-[11px] leading-4.5 text-muted-foreground">
-              Core / Admin / MySQL 已联机
+              {runtimeSummary}
             </div>
+            {heartbeatLabel && (
+              <div className="mt-1 text-[11px] leading-4.5 text-muted-foreground">
+                Core heartbeat {heartbeatLabel}
+              </div>
+            )}
+            {runtimeIssue && runtimeTone !== 'success' && (
+              <div className="mt-1 line-clamp-2 text-[11px] leading-4.5 text-muted-foreground">
+                {runtimeIssue}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -226,9 +346,10 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               </div>
 
               <div className="flex items-center gap-2">
-                <div className="hidden rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground md:flex md:items-center md:gap-2">
-                  <span className="status-dot bg-[hsl(var(--success))]" />
-                  <span>System healthy</span>
+                <div className="hidden md:block">
+                  <StatusPill tone={runtimeTone}>
+                    {runtimeTitle}
+                  </StatusPill>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
                   Refresh

@@ -15,7 +15,6 @@
 
 - `http-api`
 - `queue-monitor`
-- `openclaw-bridge`
 
 ## 当前架构
 
@@ -51,4 +50,3 @@ NapCat -> qqbot-core -> MySQL
 - 继续收口主仓内容，只保留当前主链需要的模块、接口与文档
 - 清理本地运行资产和历史兼容层
 - 验证在去除函数注册中心后主链仍稳定
-- 确保 OpenClaw Bridge 已平移到独立项目并可继续运行

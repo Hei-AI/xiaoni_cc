@@ -1,6 +1,34 @@
 import express from 'express';
+import axios from 'axios';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
+
+const QQBOT_CORE_URL = process.env.QQBOT_CORE_URL || 'http://qqbot-qqbot-core:8081';
+const CORE_REQUEST_TIMEOUT_MS = 5000;
+
+interface BotStatusRow {
+  bot_id: string;
+  status: 'online' | 'offline' | 'error';
+  websocket_connected: number | boolean;
+  http_server_running: number | boolean;
+  last_heartbeat: string | null;
+  error_message: string | null;
+  timestamp: string | null;
+}
+
+type CoreProbeResult =
+  | {
+      ok: true;
+      statusCode: number;
+      payload: unknown;
+      error?: never;
+    }
+  | {
+      ok: false;
+      statusCode: number | null;
+      payload?: never;
+      error: string;
+    };
 
 // 创建状态和健康检查相关路由
 export function createStatusRoutes(database: DatabaseManager, logger: winston.Logger) {
@@ -26,6 +54,95 @@ export function createStatusRoutes(database: DatabaseManager, logger: winston.Lo
       timestamp: new Date().toISOString(),
       database: database ? 'connected' : 'disconnected'
     });
+  });
+
+  router.get('/runtime/status', async (_req, res) => {
+    try {
+      const [databaseLive, coreProbe, botStatusRows] = await Promise.all([
+        database.testConnection(),
+        axios
+          .get(`${QQBOT_CORE_URL}/health`, {
+            timeout: CORE_REQUEST_TIMEOUT_MS,
+            validateStatus: () => true
+          })
+          .then<CoreProbeResult>(response => {
+            if (response.status >= 200 && response.status < 300) {
+              return {
+                ok: true,
+                statusCode: response.status,
+                payload: response.data
+              };
+            }
+
+            return {
+              ok: false,
+              statusCode: response.status,
+              error: `qqbot-core health check returned HTTP ${response.status}`
+            };
+          })
+          .catch<CoreProbeResult>(error => ({
+            ok: false,
+            statusCode: null as number | null,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          })),
+        database.executeQuery<BotStatusRow>(
+          `SELECT bot_id, status, websocket_connected, http_server_running, last_heartbeat, error_message, timestamp
+           FROM bot_status
+           ORDER BY timestamp DESC
+           LIMIT 1`
+        )
+      ]);
+
+      const latestBotStatus = botStatusRows[0];
+      const websocketConnected = Boolean(latestBotStatus?.websocket_connected);
+      const httpServerRunning = coreProbe.ok || Boolean(latestBotStatus?.http_server_running);
+      const coreStatus =
+        !coreProbe.ok
+          ? 'offline'
+          : latestBotStatus?.status || (websocketConnected ? 'online' : 'offline');
+
+      const overallStatus =
+        !coreProbe.ok
+          ? 'offline'
+          : !databaseLive || coreStatus === 'error' || !websocketConnected
+            ? 'degraded'
+            : 'healthy';
+
+      res.json({
+        success: true,
+        data: {
+          status: overallStatus,
+          core: {
+            live: coreProbe.ok,
+            connected: websocketConnected,
+            status: coreStatus,
+            botId: latestBotStatus?.bot_id || null,
+            httpServerRunning,
+            lastHeartbeat: latestBotStatus?.last_heartbeat || latestBotStatus?.timestamp || null,
+            errorMessage: latestBotStatus?.error_message || (!coreProbe.ok ? coreProbe.error || 'qqbot-core health check failed' : null),
+            url: QQBOT_CORE_URL,
+            healthStatusCode: coreProbe.statusCode
+          },
+          admin: {
+            live: true,
+            status: 'online'
+          },
+          database: {
+            live: databaseLive,
+            status: databaseLive ? 'online' : 'offline'
+          }
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to fetch runtime status', { error });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch runtime status',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
   });
 
   // 仪表板统计数据
