@@ -243,3 +243,235 @@ export const STATUS_COLORS: Record<string, string> = {
   'error': 'bg-red-500',
   'pending': 'bg-yellow-500'
 };
+
+export interface TraceOverview {
+  conversation_status: string;
+  response_status: string;
+  started_at: string | null;
+  ended_at: string | null;
+  total_duration_ms: number | null;
+  llm_call_count: number;
+  tool_call_count: number;
+  http_request_count: number;
+  agent_turn_count: number;
+  final_output: string | null;
+  first_error: {
+    span_id: string;
+    title: string;
+    summary: string;
+  } | null;
+  bottleneck: {
+    span_id: string;
+    title: string;
+    duration_ms: number | null;
+  } | null;
+  models: string[];
+}
+
+export interface TraceLifecycleSpan {
+  id: string;
+  type: string;
+  parent_id: string | null;
+  trace_id: string;
+  conversation_id: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_ms: number | null;
+  status: string;
+  title: string;
+  summary: string;
+  evidence: any;
+  confidence: 'observed' | 'derived' | 'missing';
+}
+
+export interface TraceHttpRequest {
+  id: number;
+  trace_id: string | null;
+  conversation_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  agent_turn: number | null;
+  llm_call_id: string | null;
+  tool_call_id: string | null;
+  request_id: string;
+  method: string;
+  url: string;
+  host: string;
+  path: string;
+  status: string;
+  response_status: number | null;
+  request_timestamp: string | null;
+  response_timestamp: string | null;
+  duration_ms: number | null;
+  request_headers: any;
+  response_headers: any;
+  request_body: string | null;
+  response_body: string | null;
+  error_message: string | null;
+  attribution: 'tool_call_id' | 'llm_call_id' | 'time_window' | 'unattributed';
+}
+
+export interface TraceLlmCall {
+  id: number;
+  llm_call_id: string | null;
+  trace_id: string;
+  conversation_id: string | null;
+  agent_turn: number | null;
+  call_sequence: number;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+  status: string;
+  model_name: string;
+  model_provider: string;
+  agent_type: string;
+  prompt_template: string | null;
+  canonical_request: any;
+  wire_request: any;
+  canonical_response: any;
+  wire_response: any;
+  processed_response: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  token_usage: any;
+  api_call_time_ms: number | null;
+  processing_time_ms: number | null;
+  error_message: string | null;
+  error_code: string | null;
+  request_format_version: string | null;
+  wire_provider_format: string | null;
+  http_requests?: TraceHttpRequest[];
+}
+
+export interface TraceToolCall {
+  id: number;
+  tool_call_id: string | null;
+  trace_id: string;
+  conversation_id: string | null;
+  job_id: string | null;
+  agent_turn: number | null;
+  llm_call_id: string | null;
+  tool_type: string;
+  tool_name: string;
+  method_id: string | null;
+  arguments: any;
+  result: any;
+  status: string;
+  error_message: string | null;
+  execution_mode: string | null;
+  side_effect: boolean;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+  http_requests: TraceHttpRequest[];
+}
+
+export interface AgentTurnTrace {
+  turn: number;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_ms: number | null;
+  llm_calls: TraceLlmCall[];
+  tool_calls: TraceToolCall[];
+  unattributed_http: TraceHttpRequest[];
+  outcome: any;
+}
+
+export interface ConversationTraceData {
+  conversation_id: string;
+  trace_id: string;
+  batch_id: string | null;
+  overview: TraceOverview;
+  lifecycle_spans: TraceLifecycleSpan[];
+  agent_turns: AgentTurnTrace[];
+  delivery: {
+    status: string;
+    final_response: string | null;
+    websocket_logs: any[];
+    terminal_job_status: string | null;
+  };
+  raw_evidence: {
+    conversation: any;
+    websocket_logs: any[];
+    timeline_events: any[];
+    llm_calls: any[];
+    tool_calls: any[];
+    http_logs: any[];
+    llm_jobs: any[];
+  };
+  data_quality: Record<string, string>;
+}
+
+export type TraceFlowNodeKind =
+  | 'ingress'
+  | 'phase'
+  | 'turn'
+  | 'llm'
+  | 'tool'
+  | 'http'
+  | 'delivery'
+  | 'terminal';
+
+export interface TraceFlowInspectorSection {
+  id: 'overview' | 'input' | 'output' | 'evidence';
+  label: string;
+  value: any;
+  emptyLabel?: string;
+}
+
+export interface TraceFlowNodeMeta {
+  label: string;
+  value: string;
+}
+
+export interface TraceFlowNode {
+  id: string;
+  kind: TraceFlowNodeKind;
+  title: string;
+  subtitle?: string | null;
+  summary: string;
+  status: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationMs: number | null;
+  badges: string[];
+  meta: TraceFlowNodeMeta[];
+  parentId?: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  sourceRef?: string | number | null;
+  inspector: {
+    title?: string;
+    subtitle?: string | null;
+    sections: TraceFlowInspectorSection[];
+  };
+}
+
+export interface TraceFlowEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+}
+
+export interface TraceFlowMetric {
+  label: string;
+  value: string;
+  detail?: string;
+  tone?: 'default' | 'success' | 'warning' | 'danger';
+}
+
+export interface TraceFlowViewModel {
+  nodes: TraceFlowNode[];
+  edges: TraceFlowEdge[];
+  selectedNodeId: string | null;
+  metrics: TraceFlowMetric[];
+  metadataBadges: string[];
+  rawEvidenceSections: Array<{
+    id: string;
+    label: string;
+    value: any;
+  }>;
+}
