@@ -11,6 +11,32 @@
 import { logger } from '../utils/logger';
 import { AIService } from '../services/ai-service';
 import { QQMessage, DecisionResult, MessageContext, AIConfig } from '../types';
+import { extractNormalizedMessageText } from '../utils/reply-intent';
+
+type AttentionLevel = NonNullable<DecisionResult['attentionLevel']>;
+type AttentionReason = NonNullable<DecisionResult['attentionReason']>;
+type SuggestedNextStep = NonNullable<DecisionResult['suggestedNextStep']>;
+
+interface RuleFilterResult {
+  shouldRespond: boolean | null;
+  confidence: number;
+  source: 'direct_mention' | 'reply_context' | 'private_message' | 'ai_analysis' | 'rule_skip';
+  reasoning: string;
+  attentionLevel: AttentionLevel;
+  attentionReason: AttentionReason;
+  suggestedNextStep: SuggestedNextStep;
+}
+
+interface AIAnalysisDecision {
+  shouldRespond: boolean;
+  confidence: number;
+  source: 'ai_analysis';
+  reasoning: string;
+  suggestedService?: 'chat' | 'requirement' | 'ignore';
+  attentionLevel: AttentionLevel;
+  attentionReason: AttentionReason;
+  suggestedNextStep: SuggestedNextStep;
+}
 
 export class DecisionEngine {
   private aiService: AIService;
@@ -52,19 +78,7 @@ export class DecisionEngine {
         
         const suggestedService = this.determineSuggestedService(ruleResult, context);
         
-        return {
-          shouldRespond: ruleResult.shouldRespond,
-          confidence: ruleResult.confidence,
-          reason: ruleResult.reasoning || '',
-          suggestedService,
-          metadata: {
-            isDirectMention: ruleResult.source === 'direct_mention',
-            containsQuestionWords: this.containsQuestionWords(context.currentMessage.message),
-            isFromAuthorizedUser: this.isAuthorizedUser(context.currentMessage.user_id),
-            hasKeywords: this.hasRelevantKeywords(context),
-            contextualScore: ruleResult.confidence
-          }
-        };
+        return this.buildDecisionResult(context, ruleResult, suggestedService);
       }
       
       // 第二步：需要AI分析的情况（主要是群聊消息）
@@ -79,19 +93,11 @@ export class DecisionEngine {
         analysisTime
       });
       
-      return {
-        shouldRespond: aiResult.shouldRespond,
-        confidence: aiResult.confidence,
-        reason: aiResult.reasoning,
-        suggestedService: aiResult.shouldRespond ? aiResult.suggestedService || 'chat' : 'ignore',
-        metadata: {
-          isDirectMention: false,
-          containsQuestionWords: this.containsQuestionWords(context.currentMessage.message),
-          isFromAuthorizedUser: this.isAuthorizedUser(context.currentMessage.user_id),
-          hasKeywords: this.hasRelevantKeywords(context),
-          contextualScore: aiResult.confidence
-        }
-      };
+      return this.buildDecisionResult(
+        context,
+        aiResult,
+        aiResult.shouldRespond ? aiResult.suggestedService || 'chat' : 'ignore'
+      );
       
     } catch (error) {
       this.moduleLogger.error('Decision analysis failed', {
@@ -107,12 +113,7 @@ export class DecisionEngine {
   /**
    * 规则层过滤：处理明确的回复场景
    */
-  private async applyRuleFilters(message: QQMessage): Promise<{
-    shouldRespond: boolean | null;
-    confidence: number;
-    source: 'direct_mention' | 'private_message' | 'ai_analysis' | 'rule_skip';
-    reasoning: string;
-  }> {
+  private async applyRuleFilters(message: QQMessage): Promise<RuleFilterResult> {
     
     // 规则1：@消息必须回复
     if (this.isDirectMention(message)) {
@@ -120,41 +121,66 @@ export class DecisionEngine {
         shouldRespond: true,
         confidence: 95,
         source: 'direct_mention',
-        reasoning: 'Direct mention detected, must respond'
+        reasoning: 'Direct mention detected, worthy of immediate attention',
+        attentionLevel: 'high',
+        attentionReason: 'direct_mention',
+        suggestedNextStep: 'inspect_current'
+      };
+    }
+
+    // 规则2：引用回复是有明确历史锚点的定向回应，默认应该响应
+    if (message.reply_intent_context?.message_kind === 'directed_reply') {
+      return {
+        shouldRespond: true,
+        confidence: message.reply_intent_context.address_target.type === 'mention' ? 95 : 90,
+        source: 'reply_context',
+        reasoning: `Directed reply detected with address target ${message.reply_intent_context.address_target.type}`,
+        attentionLevel: 'high',
+        attentionReason: 'reply_context',
+        suggestedNextStep: 'inspect_reply_anchor'
       };
     }
     
-    // 规则2：授权用户私聊消息默认回复
+    // 规则3：授权用户私聊消息默认回复
     if (message.message_type === 'private' && this.isAuthorizedUser(message.user_id)) {
-      const messageText = typeof message.message === 'string' ? message.message : '';
+      const messageText = this.getMessageText(message);
       const hasDevKeywords = this.hasDevKeywords(messageText);
       
       return {
         shouldRespond: true,
         confidence: hasDevKeywords ? 95 : 90,
         source: 'private_message',
-        reasoning: hasDevKeywords ? '授权用户开发需求' : '授权用户私聊消息'
+        reasoning: hasDevKeywords ? '授权用户开发需求' : '授权用户私聊消息',
+        attentionLevel: 'high',
+        attentionReason: 'private_message',
+        suggestedNextStep: 'inspect_current'
       };
     }
     
-    // 规则3：非授权用户的私聊消息需要AI分析
+    // 规则4：非授权用户的私聊消息需要AI分析
     if (message.message_type === 'private' && !this.isAuthorizedUser(message.user_id)) {
       // 让AI判断是否应该回复非授权用户
       return {
         shouldRespond: null,
         confidence: 0,
         source: 'ai_analysis',
-        reasoning: 'Non-authorized user, needs AI analysis'
+        reasoning: 'Non-authorized user, needs AI analysis',
+        attentionLevel: 'medium',
+        attentionReason: 'private_message',
+        suggestedNextStep: 'inspect_current'
       };
     }
 
-    // 规则4：明显的无关内容跳过
+    // 规则5：明显的无关内容跳过
     if (this.isObviouslyIrrelevant(message)) {
       return {
         shouldRespond: false,
         confidence: 80,
         source: 'rule_skip',
-        reasoning: 'Obviously irrelevant content detected'
+        reasoning: 'Obviously irrelevant content detected',
+        attentionLevel: 'low',
+        attentionReason: 'rule_skip',
+        suggestedNextStep: 'end'
       };
     }
     
@@ -163,7 +189,10 @@ export class DecisionEngine {
       shouldRespond: null,
       confidence: 0,
       source: 'ai_analysis',
-      reasoning: 'Needs AI analysis for decision'
+      reasoning: 'Needs AI analysis for decision',
+      attentionLevel: 'low',
+      attentionReason: 'ambient',
+      suggestedNextStep: 'inspect_current'
     };
   }
 
@@ -198,7 +227,11 @@ export class DecisionEngine {
    * 判断是否为明显无关的内容
    */
   private isObviouslyIrrelevant(message: QQMessage): boolean {
-    const messageText = typeof message.message === 'string' ? message.message.toLowerCase() : '';
+    if (message.reply_intent_context?.message_kind === 'directed_reply') {
+      return false;
+    }
+
+    const messageText = this.getMessageText(message).toLowerCase();
     
     // 过滤明显无关的内容
     const irrelevantPatterns = [
@@ -216,25 +249,128 @@ export class DecisionEngine {
    * AI分析：对需要智能判断的消息进行分析
    * 临时版本：跳过LLM调用，默认返回需要回复
    */
-  private async performAIAnalysis(context: MessageContext): Promise<{
-    shouldRespond: boolean;
-    confidence: number;
-    source: 'ai_analysis';
-    reasoning: string;
-    suggestedService?: 'chat' | 'requirement' | 'ignore';
-  }> {
-    this.moduleLogger.info('AI analysis skipped, using default positive decision', {
+  private async performAIAnalysis(context: MessageContext): Promise<AIAnalysisDecision> {
+    this.moduleLogger.info('AI analysis using heuristic attention model', {
       userId: context.currentMessage.user_id,
       messageType: context.currentMessage.message_type
     });
 
-    // 临时跳过AI调用，默认返回需要回复
+    const message = context.currentMessage;
+    const messageText = this.getMessageText(message).trim();
+    const containsQuestionWords = this.containsQuestionWords(messageText);
+    const hasKeywords = this.hasRelevantKeywords(context);
+    const hasDevKeywords = this.hasDevKeywords(messageText);
+    const ongoingThread = this.hasOngoingThread(context);
+    const isPrivate = message.message_type === 'private';
+    const lowSignal = messageText.length <= 4 && !containsQuestionWords && !hasKeywords && !ongoingThread;
+    const isSpam = ['广告', '推广', '加群', '加q', 'qq群', '微信'].some(pattern =>
+      messageText.toLowerCase().includes(pattern.toLowerCase())
+    );
+
+    if (isPrivate) {
+      if (isSpam) {
+        return {
+          shouldRespond: false,
+          confidence: 85,
+          source: 'ai_analysis',
+          reasoning: '私聊内容表现为垃圾或推广信息，降低注意力并结束',
+          suggestedService: 'ignore',
+          attentionLevel: 'low',
+          attentionReason: 'ambient',
+          suggestedNextStep: 'end'
+        };
+      }
+
+      return {
+        shouldRespond: true,
+        confidence: hasDevKeywords ? 90 : 80,
+        source: 'ai_analysis',
+        reasoning: hasDevKeywords ? '私聊包含明确任务或求助线索' : '私聊默认值得进入注意力 loop',
+        suggestedService: 'chat',
+        attentionLevel: 'high',
+        attentionReason: 'private_message',
+        suggestedNextStep: 'inspect_current'
+      };
+    }
+
+    if (hasDevKeywords) {
+      return {
+        shouldRespond: true,
+        confidence: 88,
+        source: 'ai_analysis',
+        reasoning: '检测到开发/协作语义，值得继续判断是否回复',
+        suggestedService: 'chat',
+        attentionLevel: 'medium',
+        attentionReason: ongoingThread ? 'ongoing_thread' : 'ambient',
+        suggestedNextStep: 'inspect_current'
+      };
+    }
+
+    if (containsQuestionWords || ongoingThread) {
+      return {
+        shouldRespond: true,
+        confidence: ongoingThread ? 78 : 72,
+        source: 'ai_analysis',
+        reasoning: ongoingThread ? '当前窗口显示话题仍在持续，值得继续观察' : '消息带有疑问或求助信号',
+        suggestedService: 'chat',
+        attentionLevel: ongoingThread ? 'medium' : 'low',
+        attentionReason: ongoingThread ? 'ongoing_thread' : 'ambient',
+        suggestedNextStep: 'inspect_current'
+      };
+    }
+
+    if (lowSignal) {
+      return {
+        shouldRespond: false,
+        confidence: 70,
+        source: 'ai_analysis',
+        reasoning: '消息信号较弱且缺少上下文关联，当前轮次可以忽略',
+        suggestedService: 'ignore',
+        attentionLevel: 'low',
+        attentionReason: 'ambient',
+        suggestedNextStep: 'end'
+      };
+    }
+
     return {
-      shouldRespond: true,
-      confidence: 80,
-      source: 'ai_analysis' as const,
-      reasoning: 'Default positive decision (AI analysis temporarily disabled)',
-      suggestedService: 'chat' as const
+      shouldRespond: false,
+      confidence: 60,
+      source: 'ai_analysis',
+      reasoning: '普通群聊噪声，未形成足够的注意力理由',
+      suggestedService: 'ignore',
+      attentionLevel: 'low',
+      attentionReason: 'ambient',
+      suggestedNextStep: 'end'
+    };
+  }
+
+  private buildDecisionResult(
+    context: MessageContext,
+    result: RuleFilterResult | AIAnalysisDecision,
+    suggestedService: 'chat' | 'requirement' | 'ignore'
+  ): DecisionResult {
+    const containsQuestionWords = this.containsQuestionWords(this.getMessageText(context.currentMessage));
+    const isFromAuthorizedUser = this.isAuthorizedUser(context.currentMessage.user_id);
+    const hasKeywords = this.hasRelevantKeywords(context);
+
+    return {
+      shouldRespond: Boolean(result.shouldRespond),
+      confidence: result.confidence,
+      reason: result.reasoning || '',
+      suggestedService,
+      attentionLevel: result.attentionLevel,
+      attentionReason: result.attentionReason,
+      suggestedNextStep: result.suggestedNextStep,
+      metadata: {
+        isDirectMention: result.attentionReason === 'direct_mention',
+        containsQuestionWords,
+        isFromAuthorizedUser,
+        hasKeywords,
+        contextualScore: result.confidence,
+        attentionLevel: result.attentionLevel,
+        attentionReason: result.attentionReason,
+        suggestedNextStep: result.suggestedNextStep
+      }
     };
   }
 
@@ -372,7 +508,7 @@ ${context.currentMessage.group_id ? `群聊ID: ${context.currentMessage.group_id
   private determineSuggestedService(ruleResult: any, context: MessageContext): 'chat' | 'requirement' | 'ignore' {
     if (!ruleResult.shouldRespond) return 'ignore';
     
-    const messageText = typeof context.currentMessage.message === 'string' ? context.currentMessage.message : '';
+    const messageText = this.getMessageText(context.currentMessage);
     const isAuthorized = this.isAuthorizedUser(context.currentMessage.user_id);
     
     // 授权用户的复杂开发需求建议用requirement服务
@@ -405,13 +541,21 @@ ${context.currentMessage.group_id ? `群聊ID: ${context.currentMessage.group_id
    * 辅助方法：检查是否包含相关关键词
    */
   private hasRelevantKeywords(context: MessageContext): boolean {
-    // 从消息内容中提取关键词进行判断
-    const message = context.currentMessage.raw_message || context.currentMessage.message;
-    const messageText = typeof message === 'string' ? message : JSON.stringify(message);
+    const messageText = this.getMessageText(context.currentMessage);
     const technicalKeywords = ['bug', 'error', '错误', '问题', '代码', '开发', '实现', 'API'];
     return technicalKeywords.some(tech => 
       messageText.toLowerCase().includes(tech.toLowerCase())
     );
+  }
+
+  private hasOngoingThread(context: MessageContext): boolean {
+    return context.historyMessages
+      .slice(-6)
+      .some(message => message.sender_role === 'bot');
+  }
+
+  private getMessageText(message: QQMessage): string {
+    return extractNormalizedMessageText(message);
   }
 
   /**
@@ -504,6 +648,7 @@ ${context.currentMessage.group_id ? `群聊ID: ${context.currentMessage.group_id
       averageConfidence: 0,
       sourceBreakdown: {
         direct_mention: 0,
+        reply_context: 0,
         private_message: 0,
         ai_analysis: 0,
         rule_skip: 0

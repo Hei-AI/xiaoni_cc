@@ -26,6 +26,8 @@ type HistoryRow = {
 const DEFAULT_VIEWPORT_SIZE = 8;
 const DEFAULT_GROUP_CONTEXT_BEFORE = 5;
 const DEFAULT_GROUP_CONTEXT_AFTER = 1;
+const DEFAULT_REPLY_CONTEXT_BEFORE = 10;
+const DEFAULT_REPLY_CONTEXT_AFTER = 10;
 
 export class ChatViewportService {
   private database: DatabaseManager;
@@ -44,6 +46,53 @@ export class ChatViewportService {
     }
 
     return this.buildPrivateLatestViewport(message.user_id);
+  }
+
+  public async buildReplyAnchorViewport(params: {
+    messageType: 'private' | 'group';
+    userId: number;
+    groupId?: number;
+    replyMessageId: number;
+  }): Promise<ChatViewportData | null> {
+    await this.ensureAttentionTable();
+
+    const source = this.resolveSourceDescriptor(params.messageType, params.userId, params.groupId);
+    if (!source) {
+      return null;
+    }
+
+    return this.buildReplyAnchorViewportForSource(
+      source.historyTable,
+      source.sourceType,
+      source.sourceId,
+      params.replyMessageId
+    );
+  }
+
+  public async isMessageVisible(
+    cursor: ChatViewportCursor,
+    messageId: number
+  ): Promise<boolean> {
+    await this.ensureAttentionTable();
+
+    if (!cursor?.history_table || !cursor?.source_type || !cursor?.source_id) {
+      return false;
+    }
+
+    const anchorRow = await this.findAnchorRow(
+      cursor.history_table,
+      cursor.source_type,
+      cursor.source_id,
+      messageId
+    );
+
+    if (!anchorRow) {
+      return false;
+    }
+
+    const topHistoryId = cursor.top_history_id ?? anchorRow.id;
+    const bottomHistoryId = cursor.bottom_history_id ?? anchorRow.id;
+    return anchorRow.id >= topHistoryId && anchorRow.id <= bottomHistoryId;
   }
 
   public async scrollUp(
@@ -98,6 +147,18 @@ export class ChatViewportService {
     pageSize: number = DEFAULT_VIEWPORT_SIZE
   ): Promise<ChatViewportData> {
     await this.ensureAttentionTable();
+
+    if (cursor.anchor === 'reply_anchor' && cursor.reply_anchor_message_id) {
+      const replyViewport = await this.buildReplyAnchorViewportForSource(
+        cursor.history_table,
+        cursor.source_type,
+        cursor.source_id,
+        cursor.reply_anchor_message_id
+      );
+      if (replyViewport) {
+        return replyViewport;
+      }
+    }
 
     if (cursor.source_type === 'group') {
       return this.buildLatestViewport(
@@ -212,6 +273,62 @@ export class ChatViewportService {
     });
   }
 
+  private async buildReplyAnchorViewportForSource(
+    historyTable: ChatViewportHistoryTable,
+    sourceType: ChatViewportSourceType,
+    sourceId: number,
+    replyMessageId: number
+  ): Promise<ChatViewportData | null> {
+    const anchorRow = await this.findAnchorRow(
+      historyTable,
+      sourceType,
+      sourceId,
+      replyMessageId
+    );
+
+    if (!anchorRow) {
+      return null;
+    }
+
+    const sourceColumn = sourceType === 'group' ? 'group_id' : 'user_id';
+    const beforeRows = await this.queryRows(
+      `
+        SELECT *
+        FROM ${historyTable}
+        WHERE ${sourceColumn} = ?
+          AND id < ?
+        ORDER BY id DESC
+        LIMIT ${DEFAULT_REPLY_CONTEXT_BEFORE}
+      `,
+      [sourceId, anchorRow.id]
+    );
+    const afterRows = await this.queryRows(
+      `
+        SELECT *
+        FROM ${historyTable}
+        WHERE ${sourceColumn} = ?
+          AND id > ?
+        ORDER BY id ASC
+        LIMIT ${DEFAULT_REPLY_CONTEXT_AFTER}
+      `,
+      [sourceId, anchorRow.id]
+    );
+
+    return this.finalizeViewport({
+      historyTable,
+      sourceType,
+      sourceId,
+      anchor: 'reply_anchor',
+      rows: [...beforeRows.reverse(), anchorRow, ...afterRows],
+      title: sourceType === 'group'
+        ? `引用消息窗口：群聊 ${sourceId}`
+        : `引用消息窗口：与 QQ ${sourceId} 的私聊`,
+      introLine: `以下是围绕被引用消息 ${replyMessageId} 展开的上下文窗口。`,
+      includeUnreadSummary: false,
+      replyAnchorMessageId: replyMessageId
+    });
+  }
+
   private async findGroupAnchorRow(
     groupId: number,
     messageId: number
@@ -231,13 +348,48 @@ export class ChatViewportService {
     return rows[0] || null;
   }
 
+  private async findPrivateAnchorRow(
+    userId: number,
+    messageId: number
+  ): Promise<HistoryRow | null> {
+    const rows = await this.queryRows(
+      `
+        SELECT *
+        FROM private_message_history
+        WHERE user_id = ?
+          AND message_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+      `,
+      [userId, messageId]
+    );
+
+    return rows[0] || null;
+  }
+
+  private async findAnchorRow(
+    historyTable: ChatViewportHistoryTable,
+    sourceType: ChatViewportSourceType,
+    sourceId: number,
+    messageId: number
+  ): Promise<HistoryRow | null> {
+    if (historyTable === 'group_message_history' || sourceType === 'group') {
+      return this.findGroupAnchorRow(sourceId, messageId);
+    }
+
+    return this.findPrivateAnchorRow(sourceId, messageId);
+  }
+
   private async finalizeViewport(params: {
     historyTable: ChatViewportHistoryTable;
     sourceType: ChatViewportSourceType;
     sourceId: number;
-    anchor: 'latest' | 'trigger' | 'scroll';
+    anchor: 'latest' | 'trigger' | 'scroll' | 'reply_anchor';
     rows: HistoryRow[];
     title?: string;
+    introLine?: string;
+    includeUnreadSummary?: boolean;
+    replyAnchorMessageId?: number;
   }): Promise<ChatViewportData> {
     const {
       historyTable,
@@ -245,7 +397,10 @@ export class ChatViewportService {
       sourceId,
       anchor,
       rows,
-      title
+      title,
+      introLine,
+      includeUnreadSummary = true,
+      replyAnchorMessageId
     } = params;
     const sourceKey = `${sourceType === 'group' ? 'group' : 'user'}_${sourceId}`;
     const historyIds = rows.map(row => row.id);
@@ -272,15 +427,17 @@ export class ChatViewportService {
       title || (sourceType === 'group'
         ? normalizedGroupHeader(sourceId)
         : normalizedPrivateHeader(sourceId)),
-      sourceType === 'group'
+      introLine || (sourceType === 'group'
         ? '你是通过提醒打开到当前聊天片段。'
-        : '你当前打开的是最新消息位置。'
+        : '你当前打开的是最新消息位置。')
     ];
 
-    if (earlierUnreadCount > 0) {
-      headerLines.push(`右上角未读：${earlierUnreadCount} 条更早未查看消息`);
-    } else if (visibleUnreadCount > 0) {
-      headerLines.push(`右上角未读：${visibleUnreadCount} 条`);
+    if (includeUnreadSummary) {
+      if (earlierUnreadCount > 0) {
+        headerLines.push(`右上角未读：${earlierUnreadCount} 条更早未查看消息`);
+      } else if (visibleUnreadCount > 0) {
+        headerLines.push(`右上角未读：${visibleUnreadCount} 条`);
+      }
     }
 
     return {
@@ -293,6 +450,7 @@ export class ChatViewportService {
         history_table: historyTable,
         source_id: sourceId,
         anchor,
+        reply_anchor_message_id: replyAnchorMessageId ?? null,
         top_history_id: rows[0]?.id ?? null,
         bottom_history_id: rows[rows.length - 1]?.id ?? null,
         unread_count: unreadCount,
@@ -467,6 +625,34 @@ export class ChatViewportService {
     } catch (error) {
       return rawPayload;
     }
+  }
+
+  private resolveSourceDescriptor(
+    messageType: 'private' | 'group',
+    userId: number,
+    groupId?: number
+  ): {
+    historyTable: ChatViewportHistoryTable;
+    sourceType: ChatViewportSourceType;
+    sourceId: number;
+  } | null {
+    if (messageType === 'group' && groupId) {
+      return {
+        historyTable: 'group_message_history',
+        sourceType: 'group',
+        sourceId: groupId
+      };
+    }
+
+    if (messageType === 'private') {
+      return {
+        historyTable: 'private_message_history',
+        sourceType: 'private',
+        sourceId: userId
+      };
+    }
+
+    return null;
   }
 }
 

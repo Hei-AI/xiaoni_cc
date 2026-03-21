@@ -5,6 +5,7 @@
 
 import { logger } from '../utils/logger';
 import { ToolRegistryService } from './tool-registry-service';
+import { v4 as uuidv4 } from 'uuid';
 import {
   StaticTool,
   ToolContext,
@@ -15,6 +16,7 @@ import {
   LLMTool,
   AgentLoopOutcome
 } from '../types';
+import { buildTraceHeaders } from '../utils/trace-headers';
 
 const moduleLogger = logger.createModuleLogger('function-dispatcher');
 
@@ -25,6 +27,7 @@ export interface DispatchResult {
   outcome?: AgentLoopOutcome;
   error?: string;
   metadataPatch?: Record<string, any>;
+  followupContents?: any[];
 }
 
 export class FunctionCallDispatcher {
@@ -71,9 +74,12 @@ export class FunctionCallDispatcher {
     context: {
       traceId: string;
       jobId?: string;
+      conversationId?: string;
       userId?: number;
       groupId?: number;
       sourceKey: string;
+      agentTurn?: number;
+      llmCallId?: string;
       metadata?: Record<string, any>;
     }
   ): Promise<DispatchResult> {
@@ -173,12 +179,16 @@ export class FunctionCallDispatcher {
     context: {
       traceId: string;
       jobId?: string;
+      conversationId?: string;
       userId?: number;
       groupId?: number;
       sourceKey: string;
+      agentTurn?: number;
+      llmCallId?: string;
     }
   ): Promise<DispatchResult> {
     const { method_id, arguments: toolArgs, expect_response = true } = args;
+    const toolCallId = uuidv4();
 
     moduleLogger.info('[FunctionCallDispatcher] Invoking dynamic tool:', {
       method_id,
@@ -189,7 +199,23 @@ export class FunctionCallDispatcher {
       method_id,
       toolArgs,
       context.traceId,
-      context.jobId
+      context.jobId,
+      {
+        conversation_id: context.conversationId,
+        user_id: context.userId,
+        group_id: context.groupId,
+        source_key: context.sourceKey,
+        agent_turn: context.agentTurn,
+        llm_call_id: context.llmCallId,
+        tool_call_id: toolCallId,
+        trace_headers: buildTraceHeaders({
+          traceId: context.traceId,
+          conversationId: context.conversationId,
+          agentTurn: context.agentTurn,
+          llmCallId: context.llmCallId,
+          toolCallId
+        })
+      }
     );
 
     // 根据 expect_response 决定是否继续
@@ -243,26 +269,43 @@ export class FunctionCallDispatcher {
     args: any,
     context: {
       traceId: string;
-          jobId?: string;
-          userId?: number;
-          groupId?: number;
-          sourceKey: string;
-          metadata?: Record<string, any>;
-        }
+      jobId?: string;
+      conversationId?: string;
+      userId?: number;
+      groupId?: number;
+      sourceKey: string;
+      agentTurn?: number;
+      llmCallId?: string;
+      metadata?: Record<string, any>;
+    }
   ): Promise<DispatchResult> {
     moduleLogger.info(`[FunctionCallDispatcher] Executing static tool: ${tool.name}`);
+    const toolCallId = uuidv4();
+    const startedAt = new Date();
 
     const toolContext: ToolContext = {
       trace_id: context.traceId,
       job_id: context.jobId,
+      conversation_id: context.conversationId,
       user_id: context.userId,
       group_id: context.groupId,
       source_key: context.sourceKey,
+      agent_turn: context.agentTurn,
+      llm_call_id: context.llmCallId,
+      tool_call_id: toolCallId,
+      trace_headers: buildTraceHeaders({
+        traceId: context.traceId,
+        conversationId: context.conversationId,
+        agentTurn: context.agentTurn,
+        llmCallId: context.llmCallId,
+        toolCallId
+      }),
       arguments: args,
       metadata: context.metadata
     };
 
     const result: ToolResult = await tool.handler(toolContext);
+    const completedAt = new Date();
     const rawData =
       result.data && typeof result.data === 'object'
         ? { ...(result.data as Record<string, any>) }
@@ -271,13 +314,20 @@ export class FunctionCallDispatcher {
       rawData && typeof rawData === 'object'
         ? rawData.__job_metadata_patch as Record<string, any> | undefined
         : undefined;
+    const followupContents =
+      rawData && typeof rawData === 'object'
+        ? rawData.__tool_followup_contents as any[] | undefined
+        : undefined;
 
     if (rawData && typeof rawData === 'object' && Object.prototype.hasOwnProperty.call(rawData, '__job_metadata_patch')) {
       delete rawData.__job_metadata_patch;
     }
+    if (rawData && typeof rawData === 'object' && Object.prototype.hasOwnProperty.call(rawData, '__tool_followup_contents')) {
+      delete rawData.__tool_followup_contents;
+    }
 
     // 记录执行日志
-    await this.logStaticToolExecution(tool.name, tool.mode, toolContext, result);
+    await this.logStaticToolExecution(tool.name, tool.mode, toolContext, result, startedAt, completedAt);
 
     if (!result.success) {
       return {
@@ -298,6 +348,7 @@ export class FunctionCallDispatcher {
       return {
         kind: 'continue',
         metadataPatch,
+        followupContents,
         functionResponse: {
           name: tool.name,
           response: {
@@ -321,7 +372,9 @@ export class FunctionCallDispatcher {
     toolName: string,
     executionMode: ToolExecutionMode,
     context: ToolContext,
-    result: ToolResult
+    result: ToolResult,
+    startedAt: Date,
+    completedAt: Date
   ): Promise<void> {
     let connection: any;
     try {
@@ -330,13 +383,18 @@ export class FunctionCallDispatcher {
 
       await connection.query(
         `INSERT INTO tool_execution_logs (
-          trace_id, job_id, tool_type, tool_name,
+          trace_id, tool_call_id, job_id, conversation_id, agent_turn, llm_call_id,
+          tool_type, tool_name,
           arguments, result, status, error_message, duration_ms,
           execution_mode, side_effect, started_at, completed_at
-        ) VALUES (?, ?, 'static', ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        ) VALUES (?, ?, ?, ?, ?, ?, 'static', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           context.trace_id,
+          context.tool_call_id || null,
           context.job_id || null,
+          context.conversation_id || null,
+          context.agent_turn ?? null,
+          context.llm_call_id || null,
           toolName,
           JSON.stringify(context.arguments),
           result.data ? JSON.stringify(result.data) : null,
@@ -344,7 +402,9 @@ export class FunctionCallDispatcher {
           result.error || null,
           result.duration_ms || null,
           executionMode,
-          false
+          false,
+          startedAt,
+          completedAt
         ]
       );
     } catch (error) {

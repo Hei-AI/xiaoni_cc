@@ -8,15 +8,18 @@ import {
   GroupMessageHistoryRecord,
   PrivateMessageHistoryRecord,
   OB11Segment,
-  MessageAttachment
+  MessageAttachment,
+  ReplyIntentContext
 } from '../types';
 import { logger } from '../utils/logger';
 import { ChatViewportService } from './chat-viewport-service';
 import {
   buildAttachmentHints,
   extractTextFromSegments,
-  resolveAttachmentsFromMessage
+  resolveAttachmentsFromMessage,
+  resolveAttachmentViewsFromMessage
 } from '../utils/message-utils';
+import { extractNormalizedMessageText, parseReplyIntentContext } from '../utils/reply-intent';
 import type { Part } from '@google/genai';
 import sharp from 'sharp';
 
@@ -145,6 +148,7 @@ export class ContextManager {
           currentMessage: message,
           historyMessages,
           contextSummary,
+          replyIntentContext: message.reply_intent_context,
           userInfo,
           groupInfo
         };
@@ -164,6 +168,7 @@ export class ContextManager {
           currentMessage: message,
           historyMessages,
           contextSummary,
+          replyIntentContext: message.reply_intent_context,
           userInfo,
           groupInfo: undefined
         };
@@ -189,7 +194,8 @@ export class ContextManager {
       return {
         currentMessage: message,
         historyMessages: [],
-        contextSummary: '无可用上下文信息'
+        contextSummary: '无可用上下文信息',
+        replyIntentContext: message.reply_intent_context
       };
     }
   }
@@ -313,7 +319,12 @@ export class ContextManager {
       const viewport = await this.chatViewportService.buildViewportForMessage(
         context.currentMessage
       );
-      return await this.buildViewportPrompt(viewport);
+      return await this.buildViewportPrompt(
+        viewport,
+        context.currentMessage,
+        currentUserInput,
+        context.replyIntentContext || context.currentMessage.reply_intent_context
+      );
     } catch (error) {
       this.moduleLogger.warn('Failed to build chat viewport, falling back to legacy context prompt', {
         error: error instanceof Error ? error.message : String(error),
@@ -368,46 +379,20 @@ export class ContextManager {
       textFragments.push(normalized);
     };
 
-    const appendImagePart = async (attachment: PromptAttachment) => {
-      const normalized = await this.prepareAttachmentForGemini(attachment);
-      if (!normalized) {
-        return;
-      }
-      parts.push({
-        inlineData: {
-          mimeType: normalized.mimeType,
-          data: normalized.data
-        }
-      });
-      textFragments.push('[image attachment]');
-    };
-
     appendTextPart('======已读消息========');
 
     for (const historyMessage of context.historyMessages) {
-      const formatted = this.buildHistoryEntry(historyMessage, nicknameMap);
-      appendTextPart(JSON.stringify(formatted.entry));
-      for (const attachment of formatted.attachments) {
-        await appendImagePart(attachment);
-      }
+      appendTextPart(this.renderHistoryMessageBlock(historyMessage, nicknameMap));
     }
 
     appendTextPart('=======未读消息======');
 
-    const unreadEntries = [
-      this.buildUnreadEntry(
-        context.currentMessage,
-        nicknameMap,
-        currentUserInput
-      )
-    ];
-
-    for (const unread of unreadEntries) {
-      appendTextPart(JSON.stringify(unread.entry));
-      for (const attachment of unread.attachments) {
-        await appendImagePart(attachment);
-      }
-    }
+    this.appendCurrentMessageBlock(
+      context.currentMessage,
+      nicknameMap,
+      currentUserInput,
+      appendTextPart
+    );
 
     const plainText = textFragments.join('\n').trim()
       || this.extractMessageText(context.currentMessage);
@@ -419,7 +404,10 @@ export class ContextManager {
   }
 
   private async buildViewportPrompt(
-    viewport: ChatViewportData
+    viewport: ChatViewportData,
+    currentMessage: QQMessage,
+    currentUserInput?: string,
+    replyIntentContext?: ReplyIntentContext
   ): Promise<FormattedContextPrompt> {
     const nicknameMap = new Map<number, string>();
 
@@ -442,23 +430,13 @@ export class ContextManager {
       textFragments.push(normalized);
     };
 
-    const appendImagePart = async (attachment: PromptAttachment) => {
-      const normalized = await this.prepareAttachmentForGemini(attachment);
-      if (!normalized) {
-        return;
-      }
-      parts.push({
-        inlineData: {
-          mimeType: normalized.mimeType,
-          data: normalized.data
-        }
-      });
-      textFragments.push('[image attachment]');
-    };
-
     viewport.header_lines.forEach(line => appendTextPart(line));
 
     for (const historyMessage of viewport.visible_messages) {
+      if (this.isCurrentMessageRecord(historyMessage.message_id, currentMessage.message_id)) {
+        continue;
+      }
+
       if (
         viewport.divider_before_history_id
         && historyMessage.history_id === viewport.divider_before_history_id
@@ -466,12 +444,15 @@ export class ContextManager {
         appendTextPart('--- 以下是未读消息 ---');
       }
 
-      const formatted = this.buildHistoryEntry(historyMessage, nicknameMap);
-      appendTextPart(this.renderViewportMessageLine(formatted.entry));
-      for (const attachment of formatted.attachments) {
-        await appendImagePart(attachment);
-      }
+      appendTextPart(this.renderHistoryMessageBlock(historyMessage, nicknameMap));
     }
+
+    this.appendCurrentMessageBlock(
+      currentMessage,
+      nicknameMap,
+      currentUserInput,
+      appendTextPart
+    );
 
     const plainText = textFragments.join('\n').trim();
 
@@ -480,6 +461,323 @@ export class ContextManager {
       plainText,
       chatViewport: viewport.cursor
     };
+  }
+
+  private appendInteractionContextParts(
+    replyIntentContext: ReplyIntentContext,
+    appendTextPart: (text: string) => void
+  ): void {
+    const anchorText = replyIntentContext.semantic_anchor.text || '<unavailable>';
+    const anchorSender = this.formatAddressTargetUser(
+      replyIntentContext.semantic_anchor.sender_nickname,
+      replyIntentContext.semantic_anchor.sender_id
+    );
+    const addressTarget = this.formatAddressTargetUser(
+      replyIntentContext.address_target.nickname,
+      replyIntentContext.address_target.user_id
+    );
+
+    appendTextPart('--- 回复线索 ---');
+    appendTextPart(`当前消息包含 reply 锚点，引用消息 ID: ${replyIntentContext.semantic_anchor.message_id}`);
+    if (anchorSender) {
+      appendTextPart(`被引用发送者: ${anchorSender}`);
+    }
+    appendTextPart(`被引用内容摘要: ${anchorText}`);
+    appendTextPart(`直接回应目标类型: ${replyIntentContext.address_target.type}`);
+    if (addressTarget) {
+      appendTextPart(`直接回应对象: ${addressTarget}`);
+    }
+  }
+
+  private appendCurrentMessageBlock(
+    message: QQMessage,
+    nicknameMap: Map<number, string>,
+    currentUserInput: string | undefined,
+    appendTextPart: (text: string) => void
+  ): void {
+    appendTextPart('--- 当前消息 ---');
+    appendTextPart(this.renderCurrentMessageBlock(message, nicknameMap, currentUserInput));
+
+    const replyIntentContext = message.reply_intent_context;
+    if (replyIntentContext) {
+      appendTextPart(this.renderCurrentMessageReplyIntentBlock(replyIntentContext));
+    }
+  }
+
+  private renderHistoryMessageBlock(
+    historyMessage: ContextHistoryMessage,
+    nicknameMap: Map<number, string>
+  ): string {
+    const senderProfile = this.extractSenderProfileFromHistory(historyMessage);
+    const senderId = senderProfile.userId ?? historyMessage.sender_id;
+    const senderName = historyMessage.sender_role === 'bot'
+      ? '我'
+      : this.resolveNickname(senderId, senderProfile.nickname, nicknameMap);
+    const { payload, fallbackText } = this.extractHistoryPayload(historyMessage);
+    const mentions = this.extractMentionsFromPayload(payload, fallbackText, nicknameMap);
+    const rawMessage = this.extractHistoryRawMessage(historyMessage);
+    const attachmentViews = rawMessage
+      ? resolveAttachmentViewsFromMessage(rawMessage)
+      : [];
+    const replyRef = rawMessage
+      ? this.extractReplyRefFromMessageLike(rawMessage)
+      : undefined;
+
+    return this.renderMessageRecord({
+      time: this.toIsoString(historyMessage.sent_at) ?? '',
+      messageId: historyMessage.message_id,
+      senderId,
+      senderName,
+      mentions: mentions.map(item => item.qq_id),
+      contentType: this.resolveTranscriptContentType(
+        this.extractTranscriptTextFromHistory(rawMessage, payload, fallbackText),
+        attachmentViews
+      ),
+      text: this.extractTranscriptTextFromHistory(rawMessage, payload, fallbackText),
+      attachments: attachmentViews,
+      replyRef
+    });
+  }
+
+  private renderCurrentMessageBlock(
+    message: QQMessage,
+    nicknameMap: Map<number, string>,
+    currentUserInput?: string
+  ): string {
+    const senderProfile = this.extractSenderProfileFromMessage(message);
+    const senderId = senderProfile.userId ?? message.user_id;
+    const senderName = this.resolveNickname(
+      senderId,
+      senderProfile.nickname || message.sender?.nickname,
+      nicknameMap
+    );
+    const transcriptText = this.extractTranscriptTextFromCurrentMessage(message, currentUserInput);
+    const mentions = this.extractMentionsFromMessage(
+      message,
+      nicknameMap,
+      transcriptText ?? currentUserInput
+    );
+    const attachmentViews = resolveAttachmentViewsFromMessage(message);
+    const replyRef = this.extractReplyRefFromMessageLike(message);
+
+    return this.renderMessageRecord({
+      time: this.toIsoString(message.time ? message.time * 1000 : undefined) ?? '',
+      messageId: message.message_id,
+      senderId,
+      senderName,
+      mentions: mentions.map(item => item.qq_id),
+      contentType: this.resolveTranscriptContentType(
+        transcriptText,
+        attachmentViews
+      ),
+      text: transcriptText,
+      attachments: attachmentViews,
+      replyRef
+    });
+  }
+
+  private renderMessageRecord(params: {
+    time: string;
+    messageId?: number | null;
+    senderId?: number;
+    senderName?: string;
+    mentions: string[];
+    contentType: string;
+    text?: string;
+    attachments: Array<{
+      attachment_id: number;
+      type: string;
+      label: string;
+      mime_type?: string;
+    }>;
+    replyRef?: {
+      message_id?: number;
+      sender_id?: number;
+      sender_name?: string;
+      text?: string;
+    };
+  }): string {
+    const lines = ['- message:'];
+    lines.push(`  time=${params.time}`);
+    if (params.messageId != null) {
+      lines.push(`  message_id=${params.messageId}`);
+    }
+    if (params.senderId != null) {
+      lines.push(`  sender_id=${params.senderId}`);
+    }
+    lines.push(`  sender_name=${params.senderName || '未知用户'}`);
+    lines.push(`  mentions=${JSON.stringify(params.mentions)}`);
+    if (params.replyRef?.message_id != null) {
+      lines.push(`  reply_ref.message_id=${params.replyRef.message_id}`);
+      if (params.replyRef.sender_id != null) {
+        lines.push(`  reply_ref.sender_id=${params.replyRef.sender_id}`);
+      }
+      if (params.replyRef.sender_name) {
+        lines.push(`  reply_ref.sender_name=${params.replyRef.sender_name}`);
+      }
+      if (params.replyRef.text) {
+        lines.push(`  reply_ref.text=${params.replyRef.text}`);
+      }
+    }
+    lines.push(`  content_type=${params.contentType}`);
+    if (params.text) {
+      lines.push(`  text=${params.text}`);
+    }
+    if (params.attachments.length > 0) {
+      lines.push(`  attachments=${JSON.stringify(params.attachments)}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  private renderCurrentMessageReplyIntentBlock(
+    replyIntentContext: ReplyIntentContext
+  ): string {
+    const lines = ['- current_message_reply_intent:'];
+    const reason =
+      replyIntentContext.address_target.type === 'mention'
+        ? 'explicit_mention_in_current_message'
+        : replyIntentContext.address_target.type === 'quoted_sender'
+          ? 'quoted_sender_of_reply_anchor'
+          : 'shared_group_context_without_single_addressee';
+    const targetUserId = replyIntentContext.address_target.user_id;
+
+    if (targetUserId != null) {
+      lines.push(`  primary_addressee_user_id=${targetUserId}`);
+    } else {
+      lines.push('  primary_addressee_user_id=<none>');
+    }
+
+    lines.push(`  primary_addressee_reason=${reason}`);
+    lines.push(`  explanation=${this.buildReplyIntentExplanation(replyIntentContext)}`);
+
+    return lines.join('\n');
+  }
+
+  private buildReplyIntentExplanation(
+    replyIntentContext: ReplyIntentContext
+  ): string {
+    if (replyIntentContext.address_target.type === 'mention') {
+      return '当前消息正文里显式提到了目标用户，因此优先视为对该被提及用户说话。';
+    }
+
+    if (replyIntentContext.address_target.type === 'quoted_sender') {
+      return '当前消息没有新的明确提及对象，因此优先视为在回应被引用消息的发送者。';
+    }
+
+    return '当前消息存在 reply 锚点，但没有唯一明确的个人收件人，更像是在群上下文中接话。';
+  }
+
+  private resolveTranscriptContentType(
+    text: string | undefined,
+    attachments: Array<{ type: string }>
+  ): string {
+    const hasText = typeof text === 'string' && text.trim().length > 0;
+    const hasImage = attachments.some(item => item.type === 'image');
+    const hasOnlyFace = attachments.length > 0 && attachments.every(item => item.type === 'face');
+
+    if (hasText && attachments.length > 0) {
+      return 'mixed';
+    }
+    if (hasImage) {
+      return 'image';
+    }
+    if (!hasText && hasOnlyFace) {
+      return 'face_only';
+    }
+    return 'text';
+  }
+
+  private extractReplyRefFromMessageLike(message: QQMessage): {
+    message_id?: number;
+    sender_id?: number;
+    sender_name?: string;
+    text?: string;
+  } | undefined {
+    const replyIntentContext = message.reply_intent_context || parseReplyIntentContext(message);
+    if (!replyIntentContext) {
+      return undefined;
+    }
+
+    return {
+      message_id: replyIntentContext.semantic_anchor.message_id,
+      sender_id: replyIntentContext.semantic_anchor.sender_id,
+      sender_name: replyIntentContext.semantic_anchor.sender_nickname,
+      text: replyIntentContext.semantic_anchor.text
+    };
+  }
+
+  private extractHistoryRawMessage(historyMessage: ContextHistoryMessage): QQMessage | undefined {
+    let raw = historyMessage.raw_payload;
+
+    if (typeof raw === 'string') {
+      raw = this.parseRawRequest(raw) ?? raw;
+    }
+
+    if (raw && typeof raw === 'object') {
+      return raw as QQMessage;
+    }
+
+    return undefined;
+  }
+
+  private extractTranscriptTextFromCurrentMessage(
+    message: QQMessage,
+    currentUserInput?: string
+  ): string | undefined {
+    const normalizedProvided =
+      typeof currentUserInput === 'string' && currentUserInput.trim().length > 0
+        ? currentUserInput.trim()
+        : undefined;
+
+    return this.pickFirstNonEmptyText([
+      normalizedProvided,
+      extractNormalizedMessageText(message)
+    ]);
+  }
+
+  private extractTranscriptTextFromHistory(
+    rawMessage: QQMessage | undefined,
+    payload: string | OB11Segment[] | undefined,
+    fallbackText?: string
+  ): string | undefined {
+    if (rawMessage) {
+      const normalized = extractNormalizedMessageText(rawMessage);
+      if (normalized.length > 0) {
+        return normalized;
+      }
+    }
+
+    if (Array.isArray(payload)) {
+      const textFromSegments = extractTextFromSegments(payload);
+      if (textFromSegments.length > 0) {
+        return textFromSegments;
+      }
+    }
+
+    if (typeof payload === 'string' && payload.trim().length > 0) {
+      return payload.trim();
+    }
+
+    return typeof fallbackText === 'string' && fallbackText.trim().length > 0
+      ? fallbackText.trim()
+      : undefined;
+  }
+
+  private formatAddressTargetUser(
+    nickname?: string,
+    userId?: number
+  ): string | undefined {
+    if (nickname && userId !== undefined) {
+      return `${nickname} (${userId})`;
+    }
+    if (nickname) {
+      return nickname;
+    }
+    if (userId !== undefined) {
+      return `用户${userId} (${userId})`;
+    }
+    return undefined;
   }
 
   private transformPrivateHistoryRecord(
@@ -1234,6 +1532,11 @@ export class ContextManager {
   }
 
   private extractMessageText(message: QQMessage): string {
+    const normalizedText = extractNormalizedMessageText(message);
+    if (normalizedText.length > 0) {
+      return normalizedText;
+    }
+
     let baseText = '';
 
     if (typeof message.message === 'string') {

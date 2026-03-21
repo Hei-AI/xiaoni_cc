@@ -21,6 +21,7 @@ import {
   LLMProviderTextRequest,
   LLMProviderTextResult
 } from './types';
+import { buildTraceHeaders } from '../../utils/trace-headers';
 
 type TokenManagerInstance = ReturnType<typeof getTokenManager>;
 
@@ -72,8 +73,9 @@ export class GeminiProvider implements LLMProvider {
       const client = new GoogleGenAI({
         apiKey: tokenInfo.token,
         httpOptions: {
-          timeout: input.providerConfig?.performance.timeout || 30000
-        }
+          timeout: input.providerConfig?.performance.timeout || 30000,
+          headers: buildTraceHeaders(input.context)
+        } as any
       });
 
       const normalizedRequest = openResponseInputToGeminiRequest(input.request);

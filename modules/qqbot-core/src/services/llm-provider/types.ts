@@ -145,9 +145,13 @@ export interface LLMProviderUsage {
 
 export interface LLMProviderContext {
   traceId?: string;
+  conversationId?: string;
   agentType?: string;
   promptName?: string;
   promptId?: string;
+  agentTurn?: number;
+  llmCallId?: string;
+  toolCallId?: string;
 }
 
 export interface LLMProviderTextRequest {

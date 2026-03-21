@@ -31,9 +31,11 @@ export interface WebSocketLogData {
  */
 export interface LLMCallLogData {
   traceId: string;
+  llmCallId?: string;
   conversationId?: string;
   sessionId?: string;
   callSequence?: number;
+  agentTurn?: number;
   agentType: string;
   modelName: string;
   modelProvider?: string;
@@ -49,6 +51,8 @@ export interface LLMCallLogData {
   outputTokens?: number;
   apiCallTimeMs: number;
   processingTimeMs: number;
+  startedAt?: Date;
+  completedAt?: Date;
   status?: 'SUCCESS' | 'ERROR' | 'TIMEOUT' | 'QUOTA_EXCEEDED';
   errorMessage?: string;
   errorCode?: string;
@@ -220,9 +224,11 @@ export class LoggingService {
 
       const logData = {
         trace_id: data.traceId,
+        llm_call_id: data.llmCallId || null,
         conversation_id: data.conversationId || null,
         session_id: data.sessionId || null,
         call_sequence: callSequence,
+        agent_turn: data.agentTurn || null,
         agent_type: data.agentType,
         model_name: data.modelName,
         model_provider: data.modelProvider || 'google-gemini-cli',
@@ -243,30 +249,33 @@ export class LoggingService {
         error_code: data.errorCode || null,
         cost_estimate: data.costEstimate || null,
         token_usage: data.tokenUsage ? JSON.stringify(data.tokenUsage) : null,
-        user_id: data.userId || null
+        user_id: data.userId || null,
+        started_at: data.startedAt || null,
+        completed_at: data.completedAt || null
       };
 
       const sql = `
         INSERT INTO llm_call_logs (
-          trace_id, conversation_id, session_id, call_sequence, agent_type, model_name, model_provider,
+          trace_id, llm_call_id, conversation_id, session_id, call_sequence, agent_turn, agent_type, model_name, model_provider,
           prompt_template, canonical_request, wire_request, request_format_version, wire_provider_format,
           input_tokens, canonical_response, wire_response, processed_response, output_tokens,
-          api_call_time_ms, processing_time_ms, timestamp, status, error_message, error_code,
+          api_call_time_ms, processing_time_ms, timestamp, started_at, completed_at, status, error_message, error_code,
           cost_estimate, token_usage, user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       // 🔥 使用应用程序层面的高精度时间戳，确保毫秒精度
-      const preciseTimestamp = new Date();
+      const preciseTimestamp = data.completedAt || new Date();
 
       const values = [
-        logData.trace_id, logData.conversation_id || null, logData.session_id, logData.call_sequence,
+        logData.trace_id, logData.llm_call_id, logData.conversation_id || null, logData.session_id, logData.call_sequence,
+        logData.agent_turn,
         logData.agent_type, logData.model_name, logData.model_provider,
         logData.prompt_template, logData.canonical_request, logData.wire_request,
         logData.request_format_version, logData.wire_provider_format, logData.input_tokens,
         logData.canonical_response, logData.wire_response, logData.processed_response,
         logData.output_tokens, logData.api_call_time_ms, logData.processing_time_ms,
-        preciseTimestamp, logData.status, logData.error_message, logData.error_code,
+        preciseTimestamp, logData.started_at, logData.completed_at, logData.status, logData.error_message, logData.error_code,
         logData.cost_estimate, logData.token_usage, logData.user_id
       ];
 
@@ -276,8 +285,10 @@ export class LoggingService {
       this.moduleLogger.info('LLM call logged', {
         logId,
         traceId: data.traceId,
+        llmCallId: data.llmCallId,
         agentType: data.agentType,
         modelName: data.modelName,
+        agentTurn: data.agentTurn,
         callSequence,
         apiCallTime: data.apiCallTimeMs,
         status: data.status

@@ -32,6 +32,7 @@ interface WebSocketMessage extends WebSocketEvent {
 }
 
 interface SendMessageRecordOptions {
+  traceId?: string;
   conversationId?: string;
   messageId?: number;
   contentType?: MessageContentType;
@@ -912,12 +913,27 @@ export class WebSocketClient extends EventEmitter {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  public async sendMessage(data: any, traceId?: string): Promise<void> {
+  public async sendMessage(data: any, traceId?: string, options?: SendMessageRecordOptions): Promise<void> {
     const startTime = Date.now();
+    const effectiveTraceId = options?.traceId || traceId;
+    const deliveryStartTime = new Date(startTime);
+
+    if (this.loggingService && effectiveTraceId) {
+      await this.loggingService.logEventStart(
+        effectiveTraceId,
+        'delivery',
+        'delivery.send_message',
+        options?.conversationId,
+        {
+          action: data?.action,
+          params: data?.params
+        }
+      );
+    }
 
     if (!this.isConnected()) {
       this.moduleLogger.warn('WebSocket not ready when sending message, waiting for reconnection', {
-        traceId,
+        traceId: effectiveTraceId,
         action: data?.action,
         params: data?.params
       });
@@ -938,7 +954,7 @@ export class WebSocketClient extends EventEmitter {
       const processingTime = Date.now() - startTime;
       
       this.moduleLogger.info('Message sent to OneBot server', { 
-        traceId,
+        traceId: effectiveTraceId,
         action: data.action, 
         params: data.params,
         processingTime
@@ -948,7 +964,7 @@ export class WebSocketClient extends EventEmitter {
       if (this.loggingService) {
         try {
           await this.loggingService.logWebSocketMessage({
-            traceId,
+            traceId: effectiveTraceId,
             direction: 'OUT',
             messageType: data.action || 'unknown_action',
             eventPriority: 'HIGH',
@@ -957,11 +973,25 @@ export class WebSocketClient extends EventEmitter {
             status: 'SUCCESS'
           });
 
-          this.moduleLogger.info('📝 WebSocket OUT logged', { traceId, action: data.action });
+          if (effectiveTraceId) {
+            await this.loggingService.logEventEnd(
+              effectiveTraceId,
+              'delivery',
+              'delivery.send_message',
+              deliveryStartTime,
+              options?.conversationId,
+              {
+                action: data?.action,
+                status: 'success'
+              }
+            );
+          }
+
+          this.moduleLogger.info('📝 WebSocket OUT logged', { traceId: effectiveTraceId, action: data.action });
         } catch (logError: unknown) {
           this.moduleLogger.error('Failed to log WebSocket OUT message', { 
             error: logError instanceof Error ? logError.message : String(logError), 
-            traceId 
+            traceId: effectiveTraceId 
           });
         }
       }
@@ -969,7 +999,7 @@ export class WebSocketClient extends EventEmitter {
       const processingTime = Date.now() - startTime;
       
       this.moduleLogger.error('Failed to send message', { 
-        traceId, 
+        traceId: effectiveTraceId, 
         error: error instanceof Error ? error.message : String(error), 
         data, 
         processingTime 
@@ -979,7 +1009,7 @@ export class WebSocketClient extends EventEmitter {
       if (this.loggingService) {
         try {
           await this.loggingService.logWebSocketMessage({
-            traceId,
+            traceId: effectiveTraceId,
             direction: 'OUT',
             messageType: data.action || 'unknown_action',
             eventPriority: 'HIGH',
@@ -988,6 +1018,18 @@ export class WebSocketClient extends EventEmitter {
             status: 'ERROR',
             errorMessage: error instanceof Error ? error.message : String(error)
           });
+          await this.loggingService.logEventEnd(
+            effectiveTraceId || `delivery-${Date.now()}`,
+            'delivery',
+            'delivery.send_message',
+            deliveryStartTime,
+            options?.conversationId,
+            {
+              action: data?.action,
+              status: 'error',
+              error_message: error instanceof Error ? error.message : String(error)
+            }
+          );
         } catch (logError: unknown) {
           this.moduleLogger.error('Failed to log WebSocket OUT error', { 
             error: logError instanceof Error ? logError.message : String(logError) 
@@ -1011,7 +1053,7 @@ export class WebSocketClient extends EventEmitter {
         user_id: userId,
         message: message
       }
-    });
+    }, options?.traceId, options);
 
     await this.recordBotPrivateMessage(userId, message, options);
   }
@@ -1085,7 +1127,7 @@ export class WebSocketClient extends EventEmitter {
         group_id: groupId,
         message: message
       }
-    });
+    }, options?.traceId, options);
 
     await this.recordBotGroupMessage(groupId, message, options);
   }

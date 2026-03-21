@@ -32,6 +32,12 @@ interface FileState {
 interface TrafficLogRecord {
   request_id: string;
   trace_id?: string;
+  conversation_id?: string;
+  user_id?: string;
+  session_id?: string;
+  agent_turn?: number | null;
+  llm_call_id?: string;
+  tool_call_id?: string;
   container_name?: string;
   service_name?: string;
   method: string;
@@ -57,6 +63,11 @@ interface TrafficLogRecord {
   client_ip?: string;
   user_agent?: string;
   error_message?: string;
+}
+
+interface ApiClassification {
+  is_ai_request: boolean;
+  api_type?: string;
 }
 
 // ==================== TrafficLogWatcher类 ====================
@@ -380,11 +391,12 @@ export class TrafficLogWatcher {
 
     try {
       // 生成占位符：(?,?,?,...), (?,?,?,...), ...
-      const placeholders = records.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+      const placeholders = records.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
 
       const sql = `
         INSERT INTO http_traffic_logs (
-          trace_id, container_name, service_name, request_id,
+          trace_id, conversation_id, user_id, session_id, agent_turn, llm_call_id, tool_call_id,
+          container_name, service_name, request_id,
           method, url, host, path, query_params,
           request_headers, request_body, request_content_type, request_size,
           response_status, response_headers, response_body, response_content_type, response_size,
@@ -399,6 +411,12 @@ export class TrafficLogWatcher {
       for (const record of records) {
         params.push(
           record.trace_id || null,
+          record.conversation_id || null,
+          record.user_id || null,
+          record.session_id || null,
+          record.agent_turn ?? null,
+          record.llm_call_id || null,
+          record.tool_call_id || null,
           record.container_name || 'qqbot-core',
           record.service_name || null,
           record.request_id,
@@ -432,8 +450,38 @@ export class TrafficLogWatcher {
 
     } catch (error) {
       this.logger.error('[TrafficLogWatcher] Batch insert failed:', error);
-      throw error;
+      if (records.length === 1) {
+        throw error;
+      }
+      await this.insertIndividually(records, error);
     }
+  }
+
+  private async insertIndividually(records: TrafficLogRecord[], batchError: unknown): Promise<void> {
+    this.logger.warn('[TrafficLogWatcher] Falling back to per-record insert after batch failure', {
+      recordCount: records.length,
+      error: batchError instanceof Error ? batchError.message : String(batchError)
+    });
+
+    let inserted = 0;
+    for (const record of records) {
+      try {
+        await this.insertBatch([record]);
+        inserted += 1;
+      } catch (recordError) {
+        this.logger.error('[TrafficLogWatcher] Skipping invalid traffic record', {
+          requestId: record.request_id,
+          traceId: record.trace_id,
+          url: record.url,
+          error: recordError instanceof Error ? recordError.message : String(recordError)
+        });
+      }
+    }
+
+    this.logger.info('[TrafficLogWatcher] Per-record fallback finished', {
+      inserted,
+      skipped: records.length - inserted
+    });
   }
 
   /**
@@ -456,8 +504,21 @@ export class TrafficLogWatcher {
       path = record.path || '/';
     }
 
+    const normalizedApi = this.normalizeApiClassification(
+      host,
+      path,
+      Boolean(record.is_ai_request),
+      record.api_type || null
+    );
+
     return {
       trace_id: record.trace_id || record.traceId,
+      conversation_id: record.conversation_id || record.conversationId || null,
+      user_id: record.user_id || record.userId || null,
+      session_id: record.session_id || record.sessionId || null,
+      agent_turn: this.normalizeInteger(record.agent_turn ?? record.agentTurn),
+      llm_call_id: record.llm_call_id || record.llmCallId || null,
+      tool_call_id: record.tool_call_id || record.toolCallId || null,
       container_name: record.container_name || record.containerName || 'qqbot-core',
       service_name: record.service_name || record.serviceName,
       request_id: record.request_id || record.requestId || record.id || this.generateRequestId(),
@@ -478,12 +539,41 @@ export class TrafficLogWatcher {
       duration_ms: this.normalizeDuration(record.duration_ms),
       request_timestamp: record.request_timestamp || new Date().toISOString(),
       response_timestamp: record.response_timestamp,
-      is_ai_request: record.is_ai_request || false,
-      api_type: record.api_type,
+      is_ai_request: normalizedApi.is_ai_request,
+      api_type: normalizedApi.api_type,
       api_version: record.api_version,
       client_ip: record.client_ip,
       user_agent: record.user_agent,
       error_message: record.error_message
+    };
+  }
+
+  private normalizeApiClassification(
+    host: string,
+    path: string,
+    isAiRequest: boolean,
+    apiType: string | null
+  ): ApiClassification {
+    const normalizedHost = host.toLowerCase();
+    const normalizedPath = path.toLowerCase();
+
+    if (normalizedHost === 'chatgpt.com' && normalizedPath.startsWith('/backend-api/codex/')) {
+      return {
+        is_ai_request: true,
+        api_type: 'codex'
+      };
+    }
+
+    if (isAiRequest) {
+      return {
+        is_ai_request: true,
+        api_type: apiType || 'other'
+      };
+    }
+
+    return {
+      is_ai_request: false,
+      api_type: apiType || undefined
     };
   }
 
@@ -551,6 +641,19 @@ export class TrafficLogWatcher {
     }
 
     return Math.round(numericValue);
+  }
+
+  private normalizeInteger(value: unknown): number | null {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+
+    const numericValue = typeof value === 'number' ? value : Number(String(value).trim());
+    if (!Number.isFinite(numericValue)) {
+      return null;
+    }
+
+    return Math.trunc(numericValue);
   }
 }
 

@@ -19,8 +19,13 @@ import ContextEngine from './engines/context-engine';
 import { ToolRegistryService } from './services/tool-registry-service';
 import { FunctionCallDispatcher } from './services/function-call-dispatcher';
 import { LLMJobWorker } from './services/llm-job-worker';
-import { createMessagingTools } from './tools/static-tools';
 import {
+  createMessagingTools,
+  type ReplyContextToolPayload,
+  type MessageAttachmentToolPayload
+} from './tools/static-tools';
+import {
+  ChatViewportData,
   QQMessage,
   QQNotice,
   QQRequest,
@@ -29,6 +34,7 @@ import {
   DecisionResult,
   GroupChatSettings,
   PrivateChatSettings,
+  ReplyIntentContext,
   UnifiedLLMConfig,
   FunctionCallingConfig,
   FunctionCallingMode
@@ -37,8 +43,14 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   buildAttachmentHints,
   extractTextFromSegments,
-  resolveAttachmentsFromMessage
+  resolveAttachmentsFromMessage,
+  resolveAttachmentViewsFromMessage
 } from './utils/message-utils';
+import {
+  extractNormalizedMessageText,
+  parseReplyIntentContext
+} from './utils/reply-intent';
+import { isAutoReplyAllowed, isDbBooleanEnabled } from './utils/boolean-flags';
 import MemeLibrary from './services/meme-library';
 
 class QQBot implements BatchHandler {
@@ -110,7 +122,8 @@ class QQBot implements BatchHandler {
     const humanLikeTickInterval = parseInt(process.env.HUMAN_LIKE_TICK_INTERVAL || '1000', 10);
     this.messageQueueService = new MessageQueueService(
       config.ai.authorized_user_id,
-      config.ai.bot_qq_number
+      config.ai.bot_qq_number,
+      this.loggingService
     );
     this.directNotifier = new DirectNotifier(this); // Pass self as BatchHandler
     this.humanLikeConfigService = new HumanLikeConfigService(
@@ -150,14 +163,16 @@ class QQBot implements BatchHandler {
       sendGroupMessage: this.websocketClient.sendGroupMessage.bind(this.websocketClient),
       canSendPrivateMessage: async (userId: number) => {
         const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
-        return privateChatSettings?.auto_reply_enabled === true;
+        return isAutoReplyAllowed(privateChatSettings);
       },
       canSendGroupMessage: async (groupId: number) => {
         const groupSettings = await this.database.getGroupChatSettingById(groupId);
-        return groupSettings?.auto_reply_enabled === true;
+        return isAutoReplyAllowed(groupSettings);
       },
       scrollChatViewUp: (cursor, pageSize) => this.chatViewportService.scrollUp(cursor, pageSize),
       jumpChatViewToLatest: (cursor, pageSize) => this.chatViewportService.jumpToLatest(cursor, pageSize),
+      fetchReplyContext: metadata => this.fetchReplyContextToolPayload(metadata),
+      readMessageAttachment: params => this.readMessageAttachmentToolPayload(params),
       findMemeByTags: tags => this.memeLibrary.findBestMatch(tags),
       saveMemeImage: (imageBase64, tags) => this.memeLibrary.addMeme(imageBase64, tags),
       recordMemeUsage: memeId => this.memeLibrary.recordUsage(memeId)
@@ -236,22 +251,28 @@ class QQBot implements BatchHandler {
         if (messageType === 'group' && groupId) {
           // 检查群聊自动回复开关
           const groupSettings = await this.database.getGroupChatSettingById(groupId);
-          if (groupSettings?.auto_reply_enabled !== true) {
+          if (!isAutoReplyAllowed(groupSettings)) {
             this.moduleLogger.debug('Group auto reply disabled, skip sending response', { groupId });
             return;
           }
 
           await this.database.updateGroupActivity(groupId, 0, 1);
-          await this.websocketClient.sendGroupMessage(groupId, finalResponse);
+          await this.websocketClient.sendGroupMessage(groupId, finalResponse, {
+            traceId: event.traceId,
+            conversationId
+          });
         } else if (messageType === 'private' && userId) {
           // 检查私聊自动回复开关
           const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
-          if (privateChatSettings?.auto_reply_enabled !== true) {
+          if (!isAutoReplyAllowed(privateChatSettings)) {
             this.moduleLogger.debug('Private auto reply disabled, skip sending response', { userId });
             return;
           }
 
-          await this.websocketClient.sendPrivateMessage(userId, finalResponse);
+          await this.websocketClient.sendPrivateMessage(userId, finalResponse, {
+            traceId: event.traceId,
+            conversationId
+          });
         }
 
         this.moduleLogger.info('LLM Job response sent', {
@@ -261,6 +282,12 @@ class QQBot implements BatchHandler {
           groupId,
           conversationId,
           modelName: jobModelName || 'unknown'
+        });
+
+        await this.loggingService.logInstantEvent(event.traceId, 'trace', 'trace.completed', conversationId, {
+          job_id: event.jobId,
+          message_type: messageType,
+          outcome: outcome?.kind || 'message_sent'
         });
       } catch (error) {
         const normalizedError =
@@ -297,6 +324,12 @@ class QQBot implements BatchHandler {
             `LLM Job failed: ${event.error}`
           );
         }
+
+        await this.loggingService.logInstantEvent(event.traceId, 'trace', 'trace.failed', event.metadata?.conversationId, {
+          job_id: event.jobId,
+          error: event.error,
+          outcome: event.outcome?.kind || 'failed'
+        });
 
         // 可选：发送错误通知给用户（暂时不实现）
       } catch (error) {
@@ -340,11 +373,14 @@ class QQBot implements BatchHandler {
     }
   }
 
-  private isToolDrivenChatPrompt(agentType: string, promptName: string): boolean {
-    return agentType === 'chat_bot' && promptName === 'basic_chat';
+  private isToolDrivenChatAgent(agentType: string): boolean {
+    return agentType === 'chat_bot';
   }
 
-  private buildChatLoopProtocolInstruction(messageType: 'private' | 'group'): string {
+  private buildChatLoopProtocolInstruction(
+    messageType: 'private' | 'group',
+    _replyIntentContext?: ReplyIntentContext
+  ): string {
     const sendTool = messageType === 'group' ? 'send_qq_group_message' : 'send_private_chat_message';
     return [
       'Chat loop protocol:',
@@ -353,13 +389,299 @@ class QQBot implements BatchHandler {
       '3. Use send_meme_image only when the user explicitly asks for an image/meme or the conversation is already in a meme workflow.',
       '4. save_meme_image is non-terminal; after saving you must continue until a send tool or end completes the turn.',
       '5. Treat the supplied transcript as the currently visible QQ chat window, not the full chat history.',
-      '6. If you need older context, call chat_view_scroll_up. If you want to return to the newest messages, call chat_view_jump_to_latest.'
+      '6. First decide whether this message is worth replying to now. Low-signal or unclear turns may end with end.',
+      '7. If you need more context, choose the tool that matches the missing information: use chat_view_scroll_up / chat_view_jump_to_latest for the current window, and use reply_context_fetch only when the reply anchor itself matters.',
+      '8. If a message contains image or meme attachments and the visual content matters, use read_message_attachment to open that specific attachment before deciding.',
+      '9. Use the metadata and tool schemas to infer execution parameters. Do not ask for IDs that are already present in context.'
     ].join('\n');
   }
 
   private getImplicitChatToolNames(messageType: 'private' | 'group'): string[] {
     const sendTool = messageType === 'group' ? 'send_qq_group_message' : 'send_private_chat_message';
-    return [sendTool, 'chat_view_scroll_up', 'chat_view_jump_to_latest', 'end'];
+    return [sendTool, 'chat_view_scroll_up', 'chat_view_jump_to_latest', 'reply_context_fetch', 'read_message_attachment', 'end'];
+  }
+
+  private formatReplyTargetUser(
+    nickname?: string,
+    userId?: number
+  ): string | undefined {
+    if (nickname && userId !== undefined) {
+      return `${nickname} (${userId})`;
+    }
+    if (nickname) {
+      return nickname;
+    }
+    if (userId !== undefined) {
+      return `用户${userId} (${userId})`;
+    }
+    return undefined;
+  }
+
+  private buildViewportTranscript(viewport: ChatViewportData): string {
+    const lines: string[] = [];
+
+    for (const rawLine of viewport.header_lines || []) {
+      if (typeof rawLine === 'string' && rawLine.trim().length > 0) {
+        lines.push(rawLine.trim());
+      }
+    }
+
+    for (const message of viewport.visible_messages || []) {
+      if (
+        viewport.divider_before_history_id != null
+        && Number(message.history_id) === Number(viewport.divider_before_history_id)
+      ) {
+        lines.push('--- 以下是未读消息 ---');
+      }
+
+      const rawMessage = message.raw_payload && typeof message.raw_payload === 'object'
+        ? message.raw_payload as QQMessage
+        : undefined;
+      const rawSender = rawMessage?.sender;
+      const senderId = typeof message.sender_id === 'number' ? message.sender_id : rawSender?.user_id;
+      const senderName =
+        message.sender_role === 'bot'
+          ? '我'
+          : rawSender?.nickname
+            || ('card' in (rawSender || {}) ? (rawSender as any)?.card : undefined)
+            || (senderId != null ? `用户${senderId}` : '未知用户');
+      const normalizedText = rawMessage ? extractNormalizedMessageText(rawMessage) : '';
+      const attachmentViews = rawMessage ? resolveAttachmentViewsFromMessage(rawMessage) : [];
+      const replyIntent = rawMessage
+        ? (rawMessage.reply_intent_context || parseReplyIntentContext(rawMessage))
+        : undefined;
+      const mentions = Array.isArray(rawMessage?.message)
+        ? rawMessage.message
+            .filter(segment => segment?.type === 'at')
+            .map(segment => String(segment?.data?.qq))
+            .filter(value => value && value !== 'all' && value !== 'here')
+        : [];
+
+      const block = ['- message:'];
+      block.push(`  time=${message.sent_at ? new Date(message.sent_at).toISOString() : ''}`);
+      if (message.message_id != null) {
+        block.push(`  message_id=${message.message_id}`);
+      }
+      if (senderId != null) {
+        block.push(`  sender_id=${senderId}`);
+      }
+      block.push(`  sender_name=${senderName}`);
+      block.push(`  mentions=${JSON.stringify(Array.from(new Set(mentions)))}`);
+      if (replyIntent?.semantic_anchor?.message_id != null) {
+        block.push(`  reply_ref.message_id=${replyIntent.semantic_anchor.message_id}`);
+        if (replyIntent.semantic_anchor.sender_id != null) {
+          block.push(`  reply_ref.sender_id=${replyIntent.semantic_anchor.sender_id}`);
+        }
+        if (replyIntent.semantic_anchor.sender_nickname) {
+          block.push(`  reply_ref.sender_name=${replyIntent.semantic_anchor.sender_nickname}`);
+        }
+        if (replyIntent.semantic_anchor.text) {
+          block.push(`  reply_ref.text=${replyIntent.semantic_anchor.text}`);
+        }
+      }
+      block.push(`  content_type=${this.resolveTranscriptContentType(normalizedText, attachmentViews)}`);
+      if (normalizedText) {
+        block.push(`  text=${normalizedText}`);
+      }
+      if (attachmentViews.length > 0) {
+        block.push(`  attachments=${JSON.stringify(attachmentViews.map(({ attachment_id, type, label, mime_type }) => ({
+          attachment_id,
+          type,
+          label,
+          mime_type
+        })))}`);
+      }
+
+      lines.push(block.join('\n'));
+    }
+
+    return lines.join('\n').trim();
+  }
+
+  private resolveTranscriptContentType(
+    text: string | undefined,
+    attachments: Array<{ type: string }>
+  ): string {
+    const hasText = typeof text === 'string' && text.trim().length > 0;
+    const hasImage = attachments.some(item => item.type === 'image');
+    const hasOnlyFace = attachments.length > 0 && attachments.every(item => item.type === 'face');
+
+    if (hasText && attachments.length > 0) {
+      return 'mixed';
+    }
+    if (hasImage) {
+      return 'image';
+    }
+    if (!hasText && hasOnlyFace) {
+      return 'face_only';
+    }
+    return 'text';
+  }
+
+  private async fetchReplyContextToolPayload(
+    metadata?: Record<string, any>
+  ): Promise<ReplyContextToolPayload> {
+    const replyIntentContext = metadata?.replyIntentContext as ReplyIntentContext | undefined;
+    const replyToMessageId = Number(metadata?.replyToMessageId);
+    const currentViewport = metadata?.chatViewport;
+
+    if (!replyIntentContext?.semantic_anchor?.message_id || !Number.isFinite(replyToMessageId)) {
+      return {
+        status: 'missing_reply_context',
+        note: '当前消息没有可读取的 reply 上下文。'
+      };
+    }
+
+    const addressTarget = {
+      type: replyIntentContext.address_target.type,
+      user_id: replyIntentContext.address_target.user_id,
+      nickname: this.formatReplyTargetUser(
+        replyIntentContext.address_target.nickname,
+        replyIntentContext.address_target.user_id
+      )
+    };
+    const quotedSender = {
+      user_id: replyIntentContext.semantic_anchor.sender_id,
+      nickname: this.formatReplyTargetUser(
+        replyIntentContext.semantic_anchor.sender_nickname,
+        replyIntentContext.semantic_anchor.sender_id
+      )
+    };
+
+    const anchorAlreadyVisible = currentViewport
+      ? await this.chatViewportService.isMessageVisible(currentViewport, replyToMessageId)
+      : false;
+
+    if (anchorAlreadyVisible) {
+      return {
+        status: 'ok',
+        message_kind: replyIntentContext.message_kind,
+        reply_to_message_id: replyToMessageId,
+        address_target: addressTarget,
+        quoted_sender: quotedSender,
+        quoted_text: replyIntentContext.semantic_anchor.text,
+        anchor_already_visible: true,
+        note: '被引用消息已经在当前聊天窗口中可见。'
+      };
+    }
+
+    const replyViewport = await this.chatViewportService.buildReplyAnchorViewport({
+      messageType: metadata?.messageType,
+      userId: Number(metadata?.userId),
+      groupId: metadata?.groupId != null ? Number(metadata.groupId) : undefined,
+      replyMessageId: replyToMessageId
+    });
+
+    if (!replyViewport) {
+      return {
+        status: 'anchor_not_found',
+        message_kind: replyIntentContext.message_kind,
+        reply_to_message_id: replyToMessageId,
+        address_target: addressTarget,
+        quoted_sender: quotedSender,
+        quoted_text: replyIntentContext.semantic_anchor.text,
+        anchor_already_visible: false,
+        note: '数据库中未找到被引用消息，只能使用原始 reply 摘要。'
+      };
+    }
+
+    return {
+      status: 'ok',
+      message_kind: replyIntentContext.message_kind,
+      reply_to_message_id: replyToMessageId,
+      address_target: addressTarget,
+      quoted_sender: quotedSender,
+      quoted_text: replyIntentContext.semantic_anchor.text,
+      anchor_already_visible: false,
+      transcript: this.buildViewportTranscript(replyViewport),
+      reply_anchor_viewport: replyViewport.cursor
+    };
+  }
+
+  private async readMessageAttachmentToolPayload(params: {
+    metadata?: Record<string, any>;
+    messageId: number;
+    attachmentId?: number;
+    attachmentIndex?: number;
+  }): Promise<MessageAttachmentToolPayload> {
+    const { metadata, messageId, attachmentId, attachmentIndex } = params;
+    const resolvedAttachmentId = attachmentId ?? attachmentIndex;
+    if (resolvedAttachmentId == null) {
+      return {
+        status: 'attachment_not_found',
+        message_id: messageId,
+        note: '缺少 attachment_id 或 attachment_index。'
+      };
+    }
+
+    const messageType = metadata?.messageType;
+    const groupId = metadata?.groupId != null ? Number(metadata.groupId) : undefined;
+    const userId = metadata?.userId != null ? Number(metadata.userId) : undefined;
+
+    let rawMessage: QQMessage | undefined;
+    if (messageType === 'group' && groupId != null) {
+      const record = await this.database.getGroupMessageHistoryRecordByMessageId(groupId, messageId);
+      rawMessage = record?.raw_payload as QQMessage | undefined;
+    } else if (messageType === 'private' && userId != null) {
+      const record = await this.database.getPrivateMessageHistoryRecordByMessageId(userId, messageId);
+      rawMessage = record?.raw_payload as QQMessage | undefined;
+    }
+
+    if (!rawMessage || typeof rawMessage !== 'object') {
+      return {
+        status: 'message_not_found',
+        message_id: messageId,
+        attachment_id: resolvedAttachmentId,
+        note: '数据库中未找到目标消息，无法读取附件。'
+      };
+    }
+
+    const attachmentViews = resolveAttachmentViewsFromMessage(rawMessage);
+    const attachment = attachmentViews.find(item => item.attachment_id === resolvedAttachmentId);
+    if (!attachment) {
+      return {
+        status: 'attachment_not_found',
+        message_id: messageId,
+        attachment_id: resolvedAttachmentId,
+        note: '目标消息中不存在该附件。'
+      };
+    }
+
+    if (attachment.type !== 'image') {
+      return {
+        status: 'not_available_yet',
+        message_id: messageId,
+        attachment_id: resolvedAttachmentId,
+        attachment_type: attachment.type,
+        label: attachment.label,
+        note: '该附件不是可视觉读取的图片内容。'
+      };
+    }
+
+    if (!attachment.base64 || !attachment.mime_type) {
+      return {
+        status: 'download_failed',
+        message_id: messageId,
+        attachment_id: resolvedAttachmentId,
+        attachment_type: attachment.type,
+        label: attachment.label,
+        mime_type: attachment.mime_type,
+        note: '图片存在，但当前未能拿到可读取的原始内容。'
+      };
+    }
+
+    return {
+      status: 'ok',
+      message_id: messageId,
+      attachment_id: resolvedAttachmentId,
+      attachment_type: attachment.type,
+      label: attachment.label,
+      mime_type: attachment.mime_type,
+      media_part: {
+        mimeType: attachment.mime_type,
+        data: attachment.base64
+      }
+    };
   }
 
   public async start(): Promise<void> {
@@ -770,18 +1092,19 @@ class QQBot implements BatchHandler {
    */
   private async _processSinglePrivateMessage(message: QQMessage, eventData?: any, traceId?: string, batchId?: string): Promise<void> {
     const conversationId = uuidv4();
+    const enrichedMessage = this.enrichIncomingMessage(message);
 
     try {
       this.moduleLogger.info('Processing single private message', {
         traceId,
         conversationId,
-        user_id: message.user_id,
-        message: message.message
+        user_id: enrichedMessage.user_id,
+        message: enrichedMessage.message
       });
 
-      const userId = message.user_id;
-      const userMessage = typeof message.message === 'string' ? message.message.trim() : '';
-      const conversationText = this.formatMessageForConversation(message);
+      const userId = enrichedMessage.user_id;
+      const userMessage = enrichedMessage.normalized_text || '';
+      const conversationText = this.formatMessageForConversation(enrichedMessage, userMessage);
 
       // 🔥 FIX: 立即创建conversation记录 - 改进后的架构 (移到过滤检查之前)
       const initialConversation: ConversationData = {
@@ -791,9 +1114,10 @@ class QQBot implements BatchHandler {
         user_message: conversationText,
         timestamp: new Date(),
         response_time: 0,
-        raw_request: JSON.stringify(message), // 保存完整的WebSocket消息数据
+        raw_request: JSON.stringify(enrichedMessage), // 保存完整的WebSocket消息数据
         status: 'pending', // 初始状态为pending
         batch_id: batchId, // 关联批次ID
+        ...this.buildConversationThreadingFields(enrichedMessage),
         created_at: new Date(),
         updated_at: new Date()
       };
@@ -805,7 +1129,7 @@ class QQBot implements BatchHandler {
       const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
 
       // 第2层：检查是否允许自动回复
-      if (privateChatSettings && privateChatSettings.auto_reply_enabled === false) {
+      if (privateChatSettings && !isDbBooleanEnabled(privateChatSettings.auto_reply_enabled)) {
         this.moduleLogger.debug('Private chat auto reply disabled', { user_id: userId });
 
         await this.database.updateConversationStatus(conversationId, 'filtered_disabled', 'Private chat auto reply disabled');
@@ -836,7 +1160,20 @@ class QQBot implements BatchHandler {
       await this.database.updateConversationStatus(conversationId, 'processing');
 
       // 构建消息上下文（前20条消息）
-      const messageContext = await this.contextManager.buildMessageContext(message, 20);
+      const contextStartTime = new Date();
+      if (traceId) {
+        await this.loggingService.logEventStart(traceId, 'context', 'context.build', conversationId, {
+          message_type: enrichedMessage.message_type,
+          user_id: userId
+        });
+      }
+      const messageContext = await this.contextManager.buildMessageContext(enrichedMessage, 20);
+      if (traceId) {
+        await this.loggingService.logEventEnd(traceId, 'context', 'context.build', contextStartTime, conversationId, {
+          history_count: messageContext.historyMessages.length,
+          has_user_info: !!messageContext.userInfo
+        });
+      }
 
       this.moduleLogger.info('DEBUG: buildMessageContext completed', { userId });
 
@@ -848,13 +1185,30 @@ class QQBot implements BatchHandler {
       });
 
       // Stage 1: Use DecisionEngine for intelligent response decision
+      const decisionStartTime = new Date();
+      if (traceId) {
+        await this.loggingService.logEventStart(traceId, 'decision', 'decision.analyze', conversationId, {
+          message_type: enrichedMessage.message_type,
+          user_id: userId
+        });
+      }
       const decision = await this.decisionEngine.analyzeMessage(messageContext, traceId);
+      if (traceId) {
+        await this.loggingService.logEventEnd(traceId, 'decision', 'decision.analyze', decisionStartTime, conversationId, {
+          should_respond: decision.shouldRespond,
+          reason: decision.reason,
+          confidence: decision.confidence
+        });
+      }
 
       this.moduleLogger.info('Decision engine result', {
         shouldRespond: decision.shouldRespond,
         confidence: decision.confidence,
         reason: decision.reason,
         suggestedService: decision.suggestedService,
+        attentionLevel: decision.attentionLevel,
+        attentionReason: decision.attentionReason,
+        suggestedNextStep: decision.suggestedNextStep,
         userId
       });
 
@@ -876,7 +1230,9 @@ class QQBot implements BatchHandler {
       }
 
       // 使用SessionManager处理消息
-      const sessionContext = await this.sessionManager.processIncomingMessage(message);
+      const sessionContext = await this.sessionManager.processIncomingMessage(enrichedMessage);
+
+      await this.database.updateConversationSession(conversationId, sessionContext.session_id);
 
       this.moduleLogger.info('Session processing result', {
         sessionId: sessionContext.session_id,
@@ -894,7 +1250,7 @@ class QQBot implements BatchHandler {
       await this.handleEnhancedAIConversation(
         userId,
         userMessage,
-        message,
+        enrichedMessage,
         messageContext,
         sessionContext.session_id,
         traceId,
@@ -905,9 +1261,9 @@ class QQBot implements BatchHandler {
       this.moduleLogger.error('Error processing private message', {
         error: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
-        userId: message.user_id,
+        userId: enrichedMessage.user_id,
         conversationId,
-        messagePreview: typeof message.message === 'string' ? message.message.substring(0, 50) : JSON.stringify(message.message)?.substring(0, 50)
+        messagePreview: typeof enrichedMessage.message === 'string' ? enrichedMessage.message.substring(0, 50) : JSON.stringify(enrichedMessage.message)?.substring(0, 50)
       });
 
       // 更新conversation状态为失败
@@ -924,14 +1280,17 @@ class QQBot implements BatchHandler {
    */
   private async _processSingleGroupMessage(message: QQMessage, eventData?: any, traceId?: string, batchId?: string): Promise<void> {
     const conversationId = uuidv4();
+    const baseEnrichedMessage = this.enrichIncomingMessage(message);
 
     try {
       this.moduleLogger.info('Processing single group message', {
         traceId,
         conversationId,
-        group_id: message.group_id,
-        user_id: message.user_id,
-        message: typeof message.message === 'string' ? message.message.substring(0, 100) : JSON.stringify(message.message).substring(0, 100)
+        group_id: baseEnrichedMessage.group_id,
+        user_id: baseEnrichedMessage.user_id,
+        message: typeof baseEnrichedMessage.message === 'string'
+          ? baseEnrichedMessage.message.substring(0, 100)
+          : JSON.stringify(baseEnrichedMessage.message).substring(0, 100)
       });
 
       // 只处理@机器人的消息
@@ -939,14 +1298,14 @@ class QQBot implements BatchHandler {
 
       // 检测@机器人：同时支持消息段数组格式和字符串CQ码格式
       let isAtBot = false;
-      if (Array.isArray(message.message)) {
-        isAtBot = message.message.some((segment: any) =>
+      if (Array.isArray(baseEnrichedMessage.message)) {
+        isAtBot = baseEnrichedMessage.message.some((segment: any) =>
           segment.type === 'at' && segment.data?.qq === botQQ.toString()
         );
-      } else if (typeof message.message === 'string') {
+      } else if (typeof baseEnrichedMessage.message === 'string') {
         // 字符串CQ码格式检测
         const atPattern = new RegExp(`\\[CQ:at,qq=${botQQ}\\]`);
-        isAtBot = atPattern.test(message.message);
+        isAtBot = atPattern.test(baseEnrichedMessage.message);
       }
 
       this.moduleLogger.info('AT检测:', {
@@ -965,22 +1324,22 @@ class QQBot implements BatchHandler {
       }
 
       this.moduleLogger.info('Received group at message', {
-        group_id: message.group_id,
-        user_id: message.user_id,
-        message: message.message
+        group_id: baseEnrichedMessage.group_id,
+        user_id: baseEnrichedMessage.user_id,
+        message: baseEnrichedMessage.message
       });
 
       // 清理消息内容（保留@信息以便区分消息目标）
       let cleanMessage = '';
 
-      if (typeof message.message === 'string') {
+      if (typeof baseEnrichedMessage.message === 'string') {
         // 字符串格式：保留@信息，并将CQ at标记转换为易读形式
-        cleanMessage = message.message
+        cleanMessage = baseEnrichedMessage.message
           .replace(/\[CQ:at,qq=(\d+)(?:,[^\]]*)?\]/g, (_, qq) => `@${qq}`)
           .trim();
-      } else if (Array.isArray(message.message)) {
+      } else if (Array.isArray(baseEnrichedMessage.message)) {
         // 消息段数组格式：提取文本内容并保留@信息
-        cleanMessage = message.message
+        cleanMessage = baseEnrichedMessage.message
           .map((segment: any) => {
             if (segment.type === 'text') {
               return segment.data?.text || '';
@@ -995,33 +1354,34 @@ class QQBot implements BatchHandler {
           .trim();
       }
 
-      const messageWithCleanContent = { ...message, message: cleanMessage };
-      const conversationText = this.formatMessageForConversation(messageWithCleanContent);
+      const enrichedMessage = this.enrichIncomingMessage(baseEnrichedMessage, cleanMessage);
+      const conversationText = this.formatMessageForConversation(enrichedMessage, cleanMessage);
       const hasAttachments =
-        Array.isArray(messageWithCleanContent.attachments) &&
-        messageWithCleanContent.attachments.length > 0;
+        Array.isArray(enrichedMessage.attachments) &&
+        enrichedMessage.attachments.length > 0;
 
       if (!cleanMessage && !hasAttachments) {
         // 记录空消息以便排查，但不发送兜底消息
         this.moduleLogger.info('Skipped group message with empty content after normalization', {
           traceId,
           conversationId,
-          groupId: message.group_id,
-          userId: message.user_id
+          groupId: enrichedMessage.group_id,
+          userId: enrichedMessage.user_id
         });
 
         const filteredConversation: ConversationData = {
           id: conversationId,
           trace_id: traceId,
-          user_id: message.user_id,
-          group_id: message.group_id,
+          user_id: enrichedMessage.user_id,
+          group_id: enrichedMessage.group_id,
           user_message: conversationText,
           timestamp: new Date(),
           response_time: 0,
-          raw_request: JSON.stringify(message),
+          raw_request: JSON.stringify(enrichedMessage),
           status: 'filtered_empty_content',
           error_reason: 'Empty content after normalization',
           batch_id: batchId,
+          ...this.buildConversationThreadingFields(enrichedMessage),
           created_at: new Date(),
           updated_at: new Date()
         };
@@ -1034,27 +1394,28 @@ class QQBot implements BatchHandler {
       const groupConversation: ConversationData = {
         id: conversationId,
         trace_id: traceId,
-        user_id: message.user_id,
-        group_id: message.group_id,
+        user_id: enrichedMessage.user_id,
+        group_id: enrichedMessage.group_id,
         user_message: conversationText,
         timestamp: new Date(),
         response_time: 0,
-        raw_request: JSON.stringify(message),
+        raw_request: JSON.stringify(enrichedMessage),
         status: 'pending',
         batch_id: batchId, // 关联批次ID
+        ...this.buildConversationThreadingFields(enrichedMessage),
         created_at: new Date(),
         updated_at: new Date()
       };
 
       await this.database.saveConversation(groupConversation);
-      this.moduleLogger.info('Group conversation record created', { conversationId, batchId, groupId: message.group_id, traceId });
+      this.moduleLogger.info('Group conversation record created', { conversationId, batchId, groupId: enrichedMessage.group_id, traceId });
 
-      const groupSettings = message.group_id
-        ? await this.database.getGroupChatSettingById(message.group_id)
+      const groupSettings = enrichedMessage.group_id
+        ? await this.database.getGroupChatSettingById(enrichedMessage.group_id)
         : null;
 
-      if (groupSettings && !groupSettings.auto_reply_enabled) {
-        this.moduleLogger.debug('Group chat auto reply disabled', { group_id: message.group_id });
+      if (groupSettings && !isDbBooleanEnabled(groupSettings.auto_reply_enabled)) {
+        this.moduleLogger.debug('Group chat auto reply disabled', { group_id: enrichedMessage.group_id });
         await this.database.updateConversationStatus(conversationId, 'filtered_disabled', 'Group chat auto reply disabled');
         this.moduleLogger.info('Conversation updated for filtered group message', {
           conversationId,
@@ -1065,37 +1426,69 @@ class QQBot implements BatchHandler {
       }
 
       this.moduleLogger.debug('Group chat passed initial checks', {
-        group_id: message.group_id,
+        group_id: enrichedMessage.group_id,
         is_enabled: groupSettings?.is_enabled ?? true,
         auto_reply_enabled: groupSettings?.auto_reply_enabled ?? false
       });
 
       // 构建群聊消息上下文（前20条消息）
-      const messageContext = await this.contextManager.buildMessageContext(messageWithCleanContent, 20);
+      const contextStartTime = new Date();
+      if (traceId) {
+        await this.loggingService.logEventStart(traceId, 'context', 'context.build', conversationId, {
+          message_type: enrichedMessage.message_type,
+          group_id: enrichedMessage.group_id,
+          user_id: enrichedMessage.user_id
+        });
+      }
+      const messageContext = await this.contextManager.buildMessageContext(enrichedMessage, 20);
+      if (traceId) {
+        await this.loggingService.logEventEnd(traceId, 'context', 'context.build', contextStartTime, conversationId, {
+          history_count: messageContext.historyMessages.length,
+          has_group_info: !!messageContext.groupInfo
+        });
+      }
 
       this.moduleLogger.info('Group message context built', {
         traceId,
         historyCount: messageContext.historyMessages.length,
         hasGroupInfo: !!messageContext.groupInfo,
-        groupId: message.group_id
+        groupId: enrichedMessage.group_id
       });
 
       // Stage 1: Use DecisionEngine for group message decisions
+      const decisionStartTime = new Date();
+      if (traceId) {
+        await this.loggingService.logEventStart(traceId, 'decision', 'decision.analyze', conversationId, {
+          message_type: enrichedMessage.message_type,
+          group_id: enrichedMessage.group_id,
+          user_id: enrichedMessage.user_id
+        });
+      }
       const decision = await this.decisionEngine.analyzeMessage(messageContext, traceId);
+      if (traceId) {
+        await this.loggingService.logEventEnd(traceId, 'decision', 'decision.analyze', decisionStartTime, conversationId, {
+          should_respond: decision.shouldRespond,
+          reason: decision.reason,
+          confidence: decision.confidence
+        });
+      }
 
       this.moduleLogger.info('Group message decision engine result', {
         shouldRespond: decision.shouldRespond,
         confidence: decision.confidence,
         reason: decision.reason,
-        groupId: message.group_id,
-        userId: message.user_id
+        attentionLevel: decision.attentionLevel,
+        attentionReason: decision.attentionReason,
+        suggestedNextStep: decision.suggestedNextStep,
+        groupId: enrichedMessage.group_id,
+        userId: enrichedMessage.user_id
       });
 
       // If decision engine says don't respond, update conversation status and exit
       if (!decision.shouldRespond) {
         this.moduleLogger.info('Decision engine determined not to respond to group message', {
-          groupId: message.group_id,
-          userId: message.user_id,
+          groupId: enrichedMessage.group_id,
+          userId: enrichedMessage.user_id,
           reason: decision.reason
         });
 
@@ -1110,19 +1503,20 @@ class QQBot implements BatchHandler {
       }
 
       // 更新群聊活跃度
-      if (message.group_id) {
-        await this.database.updateGroupActivity(message.group_id, 1, 0);
+      if (enrichedMessage.group_id) {
+        await this.database.updateGroupActivity(enrichedMessage.group_id, 1, 0);
       }
 
       // Update conversation status to processing
       await this.database.updateConversationStatus(conversationId, 'processing');
 
       // Stage 1: Enhanced AI conversation for group messages
-      const sessionContext = await this.sessionManager.processIncomingMessage(message);
+      const sessionContext = await this.sessionManager.processIncomingMessage(enrichedMessage);
+      await this.database.updateConversationSession(conversationId, sessionContext.session_id);
       await this.handleEnhancedAIConversation(
-        message.user_id,
+        enrichedMessage.user_id,
         cleanMessage,
-        messageWithCleanContent,
+        enrichedMessage,
         messageContext,
         sessionContext.session_id,
         traceId,
@@ -1133,10 +1527,12 @@ class QQBot implements BatchHandler {
       this.moduleLogger.error('Error processing group message', {
         error: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
-        groupId: message.group_id,
-        userId: message.user_id,
+        groupId: baseEnrichedMessage.group_id,
+        userId: baseEnrichedMessage.user_id,
         conversationId,
-        messagePreview: typeof message.message === 'string' ? message.message.substring(0, 50) : JSON.stringify(message.message)?.substring(0, 50)
+        messagePreview: typeof baseEnrichedMessage.message === 'string'
+          ? baseEnrichedMessage.message.substring(0, 50)
+          : JSON.stringify(baseEnrichedMessage.message)?.substring(0, 50)
       });
 
       // 更新conversation状态为失败
@@ -1153,17 +1549,19 @@ class QQBot implements BatchHandler {
     traceId: string,
     errorReason: string
   ): Promise<void> {
+    const enrichedMessage = this.enrichIncomingMessage(message);
     const filteredConversation: ConversationData = {
       id: uuidv4(),
       trace_id: traceId,
-      user_id: message.user_id,
-      group_id: message.group_id,
-      user_message: this.formatMessageForConversation(message),
+      user_id: enrichedMessage.user_id,
+      group_id: enrichedMessage.group_id,
+      user_message: this.formatMessageForConversation(enrichedMessage),
       timestamp: new Date(),
       response_time: 0,
-      raw_request: JSON.stringify(message),
+      raw_request: JSON.stringify(enrichedMessage),
       status: 'filtered_disabled',
       error_reason: errorReason,
+      ...this.buildConversationThreadingFields(enrichedMessage),
       created_at: new Date(),
       updated_at: new Date()
     };
@@ -1363,19 +1761,36 @@ class QQBot implements BatchHandler {
       return providedText.trim();
     }
 
-    if (typeof message.message === 'string') {
-      return message.message.trim();
+    if (typeof message.normalized_text === 'string' && message.normalized_text.trim().length > 0) {
+      return message.normalized_text.trim();
     }
 
-    if (Array.isArray(message.message)) {
-      return extractTextFromSegments(message.message);
-    }
+    return extractNormalizedMessageText(message);
+  }
 
-    if (typeof message.raw_message === 'string') {
-      return message.raw_message.trim();
-    }
+  private enrichIncomingMessage(
+    message: QQMessage,
+    normalizedText?: string
+  ): QQMessage {
+    const safeNormalizedText = typeof normalizedText === 'string' && normalizedText.trim().length > 0
+      ? normalizedText.trim()
+      : extractNormalizedMessageText(message);
 
-    return '';
+    return {
+      ...message,
+      normalized_text: safeNormalizedText || undefined,
+      reply_intent_context: message.reply_intent_context || parseReplyIntentContext(message)
+    };
+  }
+
+  private buildConversationThreadingFields(
+    message: QQMessage
+  ): Pick<ConversationData, 'message_id' | 'reply_to_message_id' | 'reply_to_text'> {
+    return {
+      message_id: message.message_id,
+      reply_to_message_id: message.reply_intent_context?.semantic_anchor.message_id,
+      reply_to_text: message.reply_intent_context?.semantic_anchor.text
+    };
   }
 
   /**
@@ -1550,6 +1965,11 @@ class QQBot implements BatchHandler {
 
       let cachedGroupSettings = resolvedGroupSettings;
       let cachedPrivateSettings = resolvedPrivateSettings;
+      const isToolDrivenChat = this.isToolDrivenChatAgent(promptAgentType);
+
+      if (isToolDrivenChat && !this.enableLLMTools) {
+        throw new Error('chat_bot requires loop function calling, but ENABLE_LLM_TOOLS is disabled');
+      }
 
       const contextPrompt = await this.contextManager.formatContextForAI(
         messageContext,
@@ -1596,12 +2016,15 @@ class QQBot implements BatchHandler {
           jobConfig.thinkingConfig = promptConfig.thinking;
         }
 
-      if (promptConfig.model?.name) {
-        jobConfig.model = { name: promptConfig.model.name };
-      }
+        if (promptConfig.model?.name) {
+          jobConfig.model = { name: promptConfig.model.name };
+        }
 
-        const chatLoopProtocolInstruction = this.isToolDrivenChatPrompt(promptAgentType, promptName)
-          ? this.buildChatLoopProtocolInstruction(originalMessage.message_type)
+        const chatLoopProtocolInstruction = isToolDrivenChat
+          ? this.buildChatLoopProtocolInstruction(
+              originalMessage.message_type,
+              originalMessage.reply_intent_context
+            )
           : '';
         const mergedSystemInstruction = [
           promptConfig.context.systemInstruction,
@@ -1661,7 +2084,7 @@ class QQBot implements BatchHandler {
         };
 
         const customTools = [...(promptConfig.tools?.customTools || [])];
-        if (this.isToolDrivenChatPrompt(promptAgentType, promptName)) {
+        if (isToolDrivenChat) {
           const existingNames = new Set(
             customTools
               .map((tool: any) => tool?.name || tool?.id)
@@ -1749,7 +2172,7 @@ class QQBot implements BatchHandler {
               || Object.values(functionNameToId);
 
           const functionCallingConfig: FunctionCallingConfig = {
-            mode: this.isToolDrivenChatPrompt(promptAgentType, promptName)
+            mode: isToolDrivenChat
               ? 'AUTO'
               : normalizedFunctionCallingMode as FunctionCallingMode,
             allowedFunctionIds: allowedIds
@@ -1779,7 +2202,10 @@ class QQBot implements BatchHandler {
           promptName,
           agentType: promptAgentType,
           modelName: promptConfig.model?.name || null,
-          chatViewport: contextPrompt.chatViewport || null
+          chatViewport: contextPrompt.chatViewport || null,
+          replyIntentContext: originalMessage.reply_intent_context || messageContext.replyIntentContext || null,
+          replyToMessageId: originalMessage.reply_intent_context?.semantic_anchor.message_id || null,
+          replyAnchorViewport: null
         };
 
         if (functionDeclarations.length > 0) {
@@ -1812,6 +2238,10 @@ class QQBot implements BatchHandler {
       }
 
       // 原有逻辑：直接调用 AI 服务
+      if (isToolDrivenChat) {
+        throw new Error('chat_bot must run through LLM loop jobs');
+      }
+
       const inferredUserRelation: 'new' | 'occasional' | 'frequent' = (() => {
         const historyCount = messageContext.userInfo?.message_count || 0;
         if (historyCount > 10) return 'frequent';
@@ -1909,7 +2339,7 @@ class QQBot implements BatchHandler {
         // 第3层：检查群聊自动回复是否开启（auto_reply_enabled）
         const groupSettings = cachedGroupSettings ?? await this.database.getGroupChatSettingById(originalMessage.group_id);
         cachedGroupSettings = groupSettings;
-        if (groupSettings?.auto_reply_enabled !== true) {
+        if (!isAutoReplyAllowed(groupSettings)) {
           this.moduleLogger.debug('Group chat auto reply disabled, skipping message send', { 
             group_id: originalMessage.group_id 
           });
@@ -1939,7 +2369,7 @@ class QQBot implements BatchHandler {
         // 第3层：检查私聊自动回复是否开启（auto_reply_enabled）
         const privateChatSettings = cachedPrivateSettings ?? await this.database.getPrivateChatSettingById(userId);
         cachedPrivateSettings = privateChatSettings;
-        if (privateChatSettings?.auto_reply_enabled !== true) {
+        if (!isAutoReplyAllowed(privateChatSettings)) {
           this.moduleLogger.debug('Private chat auto reply disabled, skipping message send', { 
             user_id: userId 
           });

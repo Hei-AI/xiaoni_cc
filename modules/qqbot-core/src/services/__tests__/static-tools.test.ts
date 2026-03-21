@@ -23,6 +23,8 @@ describe('Messaging Static Tools', () => {
   let memeTool: StaticTool;
   let saveMemeTool: StaticTool;
   let endTool: StaticTool;
+  let replyContextTool: StaticTool | undefined;
+  let readAttachmentTool: StaticTool | undefined;
   let toolsByName: Map<string, StaticTool>;
 
   const buildContext = (
@@ -46,6 +48,37 @@ describe('Messaging Static Tools', () => {
         image_base64: 'YmFzZTY0',
         created_at: new Date().toISOString()
       }),
+      fetchReplyContext: jest.fn().mockResolvedValue({
+        status: 'ok',
+        reply_to_message_id: 470624549,
+        anchor_already_visible: false,
+        transcript: '引用消息窗口：群聊 10001',
+        reply_anchor_viewport: {
+          source_key: 'group_10001',
+          source_type: 'group',
+          history_table: 'group_message_history',
+          source_id: 10001,
+          anchor: 'reply_anchor',
+          reply_anchor_message_id: 470624549,
+          top_history_id: 1,
+          bottom_history_id: 21,
+          unread_count: 0,
+          earlier_unread_count: 0,
+          visible_count: 21
+        }
+      }),
+      readMessageAttachment: jest.fn().mockResolvedValue({
+        status: 'ok',
+        message_id: 470624549,
+        attachment_id: 0,
+        attachment_type: 'image',
+        label: '表情包',
+        mime_type: 'image/png',
+        media_part: {
+          mimeType: 'image/png',
+          data: 'QUJDREVGRw=='
+        }
+      }),
       recordMemeUsage: jest.fn().mockResolvedValue(undefined)
     };
 
@@ -56,6 +89,8 @@ describe('Messaging Static Tools', () => {
     memeTool = toolsByName.get('send_meme_image')!;
     saveMemeTool = toolsByName.get('save_meme_image')!;
     endTool = toolsByName.get('end')!;
+    replyContextTool = toolsByName.get('reply_context_fetch');
+    readAttachmentTool = toolsByName.get('read_message_attachment');
   });
 
   it('should create both private and group messaging tools', () => {
@@ -65,17 +100,26 @@ describe('Messaging Static Tools', () => {
     expect(toolNames).toContain('send_qq_group_message');
     expect(toolNames).toContain('send_meme_image');
     expect(toolNames).toContain('save_meme_image');
+    expect(toolNames).toContain('reply_context_fetch');
+    expect(toolNames).toContain('read_message_attachment');
     expect(toolNames).toContain('end');
 
+    expect(privateTool.mode).toBe('fire-and-forget');
+    expect(groupTool.mode).toBe('fire-and-forget');
+    expect(memeTool.mode).toBe('fire-and-forget');
+    expect(saveMemeTool.mode).toBe('fire-and-forget');
+    expect(endTool.mode).toBe('fire-and-forget');
+    expect(replyContextTool?.mode).toBe('returnable');
+    expect(readAttachmentTool?.mode).toBe('returnable');
+
     toolsByName.forEach(tool => {
-      expect(tool.mode).toBe('fire-and-forget');
       if (tool.parameters) {
         expect(tool.parameters.type).toBe('object');
       }
       expect(typeof tool.handler).toBe('function');
     });
 
-    expect(toolsByName.size).toBe(5);
+    expect(toolsByName.size).toBe(7);
   });
 
   describe('send_private_chat_message', () => {
@@ -133,7 +177,7 @@ describe('Messaging Static Tools', () => {
   describe('send_qq_group_message', () => {
     it('should send group message without mention', async () => {
       const result = await groupTool.handler(
-        buildContext({ message: 'broadcast', user_perspectives: [] }, { group_id: 654321 })
+        buildContext({ message: 'broadcast' }, { group_id: 654321 })
       );
 
       expect(deps.sendGroupMessage).toHaveBeenCalledWith(654321, 'broadcast');
@@ -149,8 +193,7 @@ describe('Messaging Static Tools', () => {
       const result = await groupTool.handler(
         buildContext({
           message: 'hi',
-          at_user_ids: [111, 222],
-          user_perspectives: []
+          at_user_ids: [111, 222]
         }, { group_id: 654321 })
       );
 
@@ -170,8 +213,7 @@ describe('Messaging Static Tools', () => {
       const result = await groupTool.handler(
         buildContext({
           message: 'hi',
-          at_user_ids: '111',
-          user_perspectives: []
+          at_user_ids: '111'
         }, { group_id: 654321 })
       );
 
@@ -180,14 +222,18 @@ describe('Messaging Static Tools', () => {
       expect(deps.sendGroupMessage).not.toHaveBeenCalled();
     });
 
-    it('should reject missing user_perspectives argument', async () => {
+    it('should allow missing user_perspectives argument', async () => {
       const result = await groupTool.handler(
         buildContext({ message: 'hi' }, { group_id: 654321 })
       );
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('user_perspectives');
-      expect(deps.sendGroupMessage).not.toHaveBeenCalled();
+      expect(result.success).toBe(true);
+      expect(deps.sendGroupMessage).toHaveBeenCalledWith(654321, 'hi');
+      expect(result.data).toMatchObject({
+        status: 'sent',
+        group_id: 654321,
+        user_perspectives: []
+      });
     });
 
     it('should fail when group context is missing', async () => {
@@ -323,6 +369,8 @@ describe('Messaging Static Tools', () => {
 
       expect(toolNames).toContain('chat_view_scroll_up');
       expect(toolNames).toContain('chat_view_jump_to_latest');
+      expect(toolNames).toContain('reply_context_fetch');
+      expect(toolNames).toContain('read_message_attachment');
     });
 
     it('should return transcript and metadata patch when scrolling up', async () => {
@@ -390,6 +438,146 @@ describe('Messaging Static Tools', () => {
           top_history_id: 11
         }
       });
+    });
+
+    it('should scroll reply anchor viewport when target=reply_anchor', async () => {
+      const scrollChatViewUp = jest.fn().mockResolvedValue({
+        header_lines: ['引用消息窗口：群聊 10001'],
+        visible_messages: [],
+        cursor: {
+          source_key: 'group_10001',
+          source_type: 'group',
+          history_table: 'group_message_history',
+          source_id: 10001,
+          anchor: 'reply_anchor',
+          reply_anchor_message_id: 470624549,
+          top_history_id: 4,
+          bottom_history_id: 24,
+          unread_count: 0,
+          earlier_unread_count: 0,
+          visible_count: 21
+        }
+      });
+
+      const tools = createMessagingTools({
+        ...deps,
+        scrollChatViewUp,
+        jumpChatViewToLatest: jest.fn()
+      });
+      const tool = tools.find(item => item.name === 'chat_view_scroll_up')!;
+
+      const result = await tool.handler(
+        buildContext(
+          { page_size: 6, target: 'reply_anchor' },
+          {
+            metadata: {
+              replyAnchorViewport: {
+                source_key: 'group_10001',
+                source_type: 'group',
+                history_table: 'group_message_history',
+                source_id: 10001,
+                anchor: 'reply_anchor',
+                reply_anchor_message_id: 470624549,
+                top_history_id: 10,
+                bottom_history_id: 30
+              }
+            }
+          }
+        )
+      );
+
+      expect(scrollChatViewUp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          anchor: 'reply_anchor',
+          reply_anchor_message_id: 470624549
+        }),
+        6
+      );
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        target: 'reply_anchor'
+      });
+      expect(result.data.__job_metadata_patch).toMatchObject({
+        replyAnchorViewport: {
+          top_history_id: 4
+        }
+      });
+    });
+  });
+
+  describe('reply_context_fetch', () => {
+    it('should return reply context and patch reply anchor metadata', async () => {
+      expect(replyContextTool).toBeDefined();
+
+      const result = await replyContextTool!.handler(
+        buildContext({}, {
+          metadata: {
+            replyIntentContext: {
+              message_kind: 'directed_reply'
+            }
+          }
+        })
+      );
+
+      expect(deps.fetchReplyContext).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        status: 'ok',
+        reply_to_message_id: 470624549,
+        transcript: '引用消息窗口：群聊 10001'
+      });
+      expect(result.data.__job_metadata_patch).toMatchObject({
+        replyAnchorViewport: {
+          anchor: 'reply_anchor',
+          reply_anchor_message_id: 470624549
+        }
+      });
+    });
+  });
+
+  describe('read_message_attachment', () => {
+    it('should return attachment metadata and multimodal followup content', async () => {
+      expect(readAttachmentTool).toBeDefined();
+
+      const result = await readAttachmentTool!.handler(
+        buildContext({
+          message_id: 470624549,
+          attachment_id: 0
+        })
+      );
+
+      expect(deps.readMessageAttachment).toHaveBeenCalledWith({
+        metadata: undefined,
+        messageId: 470624549,
+        attachmentId: 0,
+        attachmentIndex: undefined
+      });
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        status: 'ok',
+        message_id: 470624549,
+        attachment_id: 0,
+        attachment_type: 'image',
+        media_loaded: true
+      });
+      expect(result.data.__tool_followup_contents).toHaveLength(1);
+      expect(result.data.__tool_followup_contents[0].parts[1]).toEqual({
+        inlineData: {
+          mimeType: 'image/png',
+          data: 'QUJDREVGRw=='
+        }
+      });
+    });
+
+    it('should reject missing attachment selector', async () => {
+      const result = await readAttachmentTool!.handler(
+        buildContext({
+          message_id: 470624549
+        })
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('attachment_id or attachment_index');
     });
   });
 });

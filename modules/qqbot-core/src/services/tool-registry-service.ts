@@ -142,7 +142,8 @@ export class ToolRegistryService {
     methodId: string,
     args: any,
     traceId: string,
-    jobId?: string
+    jobId?: string,
+    contextExtras: Partial<ToolContext> = {}
   ): Promise<ToolResult> {
     const startTime = Date.now();
 
@@ -176,8 +177,16 @@ export class ToolRegistryService {
       const context: ToolContext = {
         trace_id: traceId,
         job_id: jobId,
-        source_key: '', // TODO: 从 job 获取
-        arguments: args
+        conversation_id: contextExtras.conversation_id,
+        user_id: contextExtras.user_id,
+        group_id: contextExtras.group_id,
+        source_key: contextExtras.source_key || '',
+        agent_turn: contextExtras.agent_turn,
+        llm_call_id: contextExtras.llm_call_id,
+        tool_call_id: contextExtras.tool_call_id,
+        trace_headers: contextExtras.trace_headers,
+        arguments: args,
+        metadata: contextExtras.metadata
       };
 
       // 执行工具 (带超时)
@@ -194,7 +203,11 @@ export class ToolRegistryService {
       // 记录执行日志
       await this.logExecution({
         trace_id: traceId,
+        tool_call_id: context.tool_call_id,
         job_id: jobId,
+        conversation_id: context.conversation_id,
+        agent_turn: context.agent_turn,
+        llm_call_id: context.llm_call_id,
         tool_type: 'dynamic',
         tool_name: tool.name,
         method_id: methodId,
@@ -361,13 +374,18 @@ export class ToolRegistryService {
       connection = await (this.database as any).pool.getConnection();
       await connection.query(
         `INSERT INTO tool_execution_logs (
-          trace_id, job_id, tool_type, tool_name, method_id,
+          trace_id, tool_call_id, job_id, conversation_id, agent_turn, llm_call_id,
+          tool_type, tool_name, method_id,
           arguments, result, status, error_message, duration_ms,
           execution_mode, side_effect, started_at, completed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           log.trace_id,
+          log.tool_call_id || null,
           log.job_id || null,
+          log.conversation_id || null,
+          log.agent_turn ?? null,
+          log.llm_call_id || null,
           log.tool_type,
           log.tool_name,
           log.method_id || null,

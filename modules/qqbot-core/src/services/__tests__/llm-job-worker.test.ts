@@ -687,7 +687,7 @@ describe('LLMJobWorker', () => {
           userId: 123,
           conversationId: 'conv-123',
           agentType: 'chat_bot',
-          promptName: 'basic_chat',
+          promptName: 'enhanced_chat',
           modelName: 'gpt-5.4-mini'
         }
       };
@@ -830,6 +830,195 @@ describe('LLMJobWorker', () => {
         0,
         'gpt-5.4-mini',
         expect.any(String)
+      );
+    });
+
+    it('should reject reply turns that do not fetch reply context first', async () => {
+      const mockJob = {
+        id: 'job-reply-no-fetch',
+        trace_id: 'trace-reply-no-fetch',
+        source_key: 'group_10001',
+        source_type: 'group',
+        status: 'pending',
+        retry_count: 0,
+        max_retries: 3,
+        contents_json: [{ role: 'user', parts: [{ text: '当前窗口：群聊 10001' }] }],
+        tools_json: null,
+        config_json: null,
+        current_turn: 1,
+        max_turns: 10,
+        created_at: new Date(),
+        updated_at: new Date(),
+        metadata: {
+          userId: 85178516,
+          groupId: 10001,
+          conversationId: 'conv-reply',
+          agentType: 'chat_bot',
+          promptName: 'custom_chat',
+          modelName: 'gpt-5.4-mini',
+          replyIntentContext: {
+            message_kind: 'directed_reply',
+            semantic_anchor: {
+              message_id: 470624549
+            },
+            address_target: {
+              type: 'mention',
+              user_id: 1129974489
+            }
+          }
+        }
+      };
+
+      mockAIService.generateContent.mockResolvedValueOnce({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  functionCall: {
+                    name: 'send_qq_group_message',
+                    args: {
+                      message: '直接回复'
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      });
+
+      mockConnection.query
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      mockDispatcher.dispatch.mockResolvedValueOnce({
+        kind: 'complete',
+        outcome: {
+          kind: 'message_sent',
+          toolName: 'send_qq_group_message',
+          message: '直接回复',
+          summary: '直接回复'
+        }
+      });
+
+      const completedSpy = jest.fn();
+      worker.on('job_completed', completedSpy);
+
+      await (worker as any).processJob(mockJob);
+
+      expect(mockDispatcher.dispatch).toHaveBeenCalled();
+      expect(completedSpy).toHaveBeenCalledWith(expect.objectContaining({
+        outcome: expect.objectContaining({
+          kind: 'message_sent',
+          toolName: 'send_qq_group_message'
+        })
+      }));
+    });
+
+    it('should append followup multimodal contents returned by tools before the next turn', async () => {
+      const mockJob = {
+        id: 'job-attachment-followup',
+        trace_id: 'trace-attachment-followup',
+        source_key: 'group_10001',
+        source_type: 'group',
+        status: 'pending',
+        retry_count: 0,
+        max_retries: 3,
+        contents_json: [{ role: 'user', parts: [{ text: '看看这张图' }] }],
+        tools_json: [
+          {
+            name: 'read_message_attachment',
+            description: 'Read attachment',
+            parameters: { type: 'object' }
+          }
+        ],
+        config_json: null,
+        current_turn: 1,
+        max_turns: 10,
+        created_at: new Date(),
+        updated_at: new Date(),
+        metadata: { groupId: 10001 }
+      };
+
+      mockAIService.generateContent
+        .mockResolvedValueOnce({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'read_message_attachment',
+                      args: { message_id: 1, attachment_id: 0 }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          candidates: [
+            {
+              content: {
+                parts: [{ text: '看到了' }]
+              }
+            }
+          ]
+        });
+
+      mockDispatcher.dispatch.mockResolvedValueOnce({
+        kind: 'continue',
+        functionResponse: {
+          name: 'read_message_attachment',
+          response: {
+            name: 'read_message_attachment',
+            content: {
+              status: 'ok',
+              message_id: 1,
+              attachment_id: 0,
+              media_loaded: true
+            }
+          }
+        },
+        followupContents: [
+          {
+            role: 'user',
+            parts: [
+              { text: 'Attachment content loaded for message_id=1, attachment_id=0.' },
+              { inlineData: { mimeType: 'image/png', data: 'QUJDREVGRw==' } }
+            ]
+          }
+        ]
+      });
+
+      mockConnection.query
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      await (worker as any).processJob(mockJob);
+
+      const secondRequest = mockAIService.generateContent.mock.calls[1][0];
+      expect(secondRequest.contents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'function',
+            parts: [{ functionResponse: expect.any(Object) }]
+          }),
+          expect.objectContaining({
+            role: 'user',
+            parts: expect.arrayContaining([
+              expect.objectContaining({ text: expect.stringContaining('Attachment content loaded') }),
+              expect.objectContaining({
+                inlineData: { mimeType: 'image/png', data: 'QUJDREVGRw==' }
+              })
+            ])
+          })
+        ])
       );
     });
   });

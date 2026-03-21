@@ -18,6 +18,26 @@ export interface LocalAttachment {
   saved_at?: string;
 }
 
+export interface ReplySemanticAnchor {
+  message_id: number;
+  text?: string;
+  sender_id?: number;
+  sender_nickname?: string;
+}
+
+export interface ReplyAddressTarget {
+  type: 'mention' | 'quoted_sender' | 'group';
+  user_id?: number;
+  nickname?: string;
+}
+
+export interface ReplyIntentContext {
+  message_kind: 'directed_reply';
+  semantic_anchor: ReplySemanticAnchor;
+  address_target: ReplyAddressTarget;
+  interpretation: string;
+}
+
 export interface QQMessage {
   time: number;
   post_type: 'message' | 'message_sent';
@@ -36,6 +56,8 @@ export interface QQMessage {
   segments?: OB11Segment[]; // 保留原始消息段
   attachments?: MessageAttachment[]; // 解析出的附件信息
   local_attachments?: LocalAttachment[];
+  normalized_text?: string;
+  reply_intent_context?: ReplyIntentContext;
 }
 
 export interface FriendSender {
@@ -1036,12 +1058,18 @@ export interface DecisionResult {
   confidence: number;
   reason: string;
   suggestedService: 'chat' | 'requirement' | 'ignore';
+  attentionLevel?: 'high' | 'medium' | 'low';
+  attentionReason?: 'direct_mention' | 'reply_context' | 'private_message' | 'ongoing_thread' | 'ambient' | 'rule_skip';
+  suggestedNextStep?: 'inspect_current' | 'inspect_reply_anchor' | 'reply' | 'end';
   metadata?: {
     isDirectMention?: boolean;
     containsQuestionWords?: boolean;
     isFromAuthorizedUser?: boolean;
     hasKeywords?: boolean;
     contextualScore?: number;
+    attentionLevel?: 'high' | 'medium' | 'low';
+    attentionReason?: 'direct_mention' | 'reply_context' | 'private_message' | 'ongoing_thread' | 'ambient' | 'rule_skip';
+    suggestedNextStep?: 'inspect_current' | 'inspect_reply_anchor' | 'reply' | 'end';
   };
 }
 
@@ -1050,6 +1078,7 @@ export interface MessageContext {
   currentMessage: QQMessage;
   historyMessages: ContextHistoryMessage[];
   contextSummary: string;
+  replyIntentContext?: ReplyIntentContext;
   userInfo?: {
     user_id: number;
     nickname: string;
@@ -1067,7 +1096,7 @@ export type ChatViewportHistoryTable =
   | 'private_message_history'
   | 'group_message_history';
 
-export type ChatViewportAnchor = 'latest' | 'trigger' | 'scroll';
+export type ChatViewportAnchor = 'latest' | 'trigger' | 'scroll' | 'reply_anchor';
 
 export interface ChatViewportCursor {
   source_key: string;
@@ -1075,6 +1104,7 @@ export interface ChatViewportCursor {
   history_table: ChatViewportHistoryTable;
   source_id: number;
   anchor: ChatViewportAnchor;
+  reply_anchor_message_id?: number | null;
   top_history_id?: number | null;
   bottom_history_id?: number | null;
   unread_count: number;
@@ -1496,10 +1526,15 @@ export interface LLMTool {
  */
 export interface ToolContext {
   trace_id: string;
+  conversation_id?: string;
   job_id?: string;
   user_id?: number;
   group_id?: number;
   source_key: string;
+  agent_turn?: number;
+  llm_call_id?: string;
+  tool_call_id?: string;
+  trace_headers?: Record<string, string>;
   arguments: any;
   metadata?: Record<string, any>;
 }
@@ -1551,7 +1586,11 @@ export interface ToolExecutionLog {
 
   // 关联
   trace_id: string;
+  conversation_id?: string;
+  tool_call_id?: string;
+  llm_call_id?: string;
   job_id?: string;
+  agent_turn?: number;
   tool_type: ToolType;
   tool_name: string;
   method_id?: string;

@@ -107,7 +107,8 @@ export class CodexProvider extends OpenAIProvider {
     responsesPath: string,
     payload: Record<string, any>,
     apiKey: string,
-    timeoutMs?: number
+    timeoutMs?: number,
+    traceHeaders: Record<string, string> = {}
   ): Promise<any> {
     const accountId = this.extractAccountId(apiKey);
 
@@ -118,7 +119,8 @@ export class CodexProvider extends OpenAIProvider {
         payload,
         apiKey,
         accountId,
-        timeoutMs
+        timeoutMs,
+        traceHeaders
       );
     } catch (error: any) {
       const status = error?.response?.status || error?.status;
@@ -141,7 +143,8 @@ export class CodexProvider extends OpenAIProvider {
         payload,
         credential.access,
         this.extractAccountId(credential.access),
-        timeoutMs
+        timeoutMs,
+        traceHeaders
       );
     }
   }
@@ -152,7 +155,8 @@ export class CodexProvider extends OpenAIProvider {
     payload: Record<string, any>,
     apiKey: string,
     accountId: string | null,
-    timeoutMs?: number
+    timeoutMs?: number,
+    traceHeaders: Record<string, string> = {}
   ): Promise<any> {
     const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
     const normalizedPath = responsesPath.startsWith('/') ? responsesPath : `/${responsesPath}`;
@@ -170,7 +174,8 @@ export class CodexProvider extends OpenAIProvider {
           Accept: 'text/event-stream',
           'User-Agent': this.buildUserAgent(),
           ...(accountId ? { 'chatgpt-account-id': accountId } : {}),
-          ...this.defaultHeaders
+          ...this.defaultHeaders,
+          ...traceHeaders
         }
       });
 

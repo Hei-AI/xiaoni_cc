@@ -39,6 +39,9 @@ class HTTPTrafficLogger:
                 r'generativelanguage\.googleapis\.com',
                 r'ai\.google\.dev'
             ],
+            'codex': [
+                r'chatgpt\.com'
+            ],
             'openai': [
                 r'api\.openai\.com',
                 r'openai\.azure\.com'
@@ -262,6 +265,9 @@ class HTTPTrafficLogger:
             flow.metadata['request_id'] = str(uuid.uuid4())
             flow.metadata['start_time'] = datetime.now(timezone.utc)
             flow.metadata['trace_id'] = self._extract_trace_id(flow)
+            correlation_context = self._extract_correlation_context(flow)
+            for key, value in correlation_context.items():
+                flow.metadata[key] = value
 
             logger.debug(f"拦截请求: {flow.request.method} {flow.request.pretty_url}")
 
@@ -312,6 +318,48 @@ class HTTPTrafficLogger:
 
         return None
 
+    def _extract_correlation_context(self, flow: http.HTTPFlow) -> Dict[str, Any]:
+        """从请求头和URL中提取trace关联字段"""
+        parsed_url = urlparse(flow.request.pretty_url)
+        query_params = parse_qs(parsed_url.query)
+
+        def read_value(header_names: List[str], query_names: List[str]) -> Optional[str]:
+            for header in header_names:
+                value = flow.request.headers.get(header)
+                if value:
+                    return value
+            for query_name in query_names:
+                if query_name in query_params and query_params[query_name]:
+                    return query_params[query_name][0]
+            return None
+
+        return {
+            'conversation_id': read_value(
+                ['x-conversation-id', 'conversation-id'],
+                ['conversation_id', 'conversationId']
+            ),
+            'agent_turn': read_value(
+                ['x-agent-turn', 'agent-turn'],
+                ['agent_turn', 'agentTurn']
+            ),
+            'llm_call_id': read_value(
+                ['x-llm-call-id', 'llm-call-id'],
+                ['llm_call_id', 'llmCallId']
+            ),
+            'tool_call_id': read_value(
+                ['x-tool-call-id', 'tool-call-id'],
+                ['tool_call_id', 'toolCallId']
+            ),
+            'user_id': read_value(
+                ['x-user-id', 'user-id'],
+                ['user_id', 'userId']
+            ),
+            'session_id': read_value(
+                ['x-session-id', 'session-id'],
+                ['session_id', 'sessionId']
+            )
+        }
+
     def _analyze_api_request(self, flow: http.HTTPFlow) -> Dict[str, Any]:
         """分析API请求类型和特征"""
         host = flow.request.pretty_host.lower()
@@ -340,6 +388,8 @@ class HTTPTrafficLogger:
         if api_type == 'gemini':
             # /v1beta/models/gemini-pro:generateContent -> /v1beta/models/*/generateContent
             return re.sub(r'/models/[^/]+', '/models/*', path)
+        elif api_type == 'codex':
+            return path
         elif api_type == 'openai':
             # 保留原始路径，OpenAI路径相对规范
             return path
@@ -378,6 +428,10 @@ class HTTPTrafficLogger:
             # 基础标识
             'request_id': flow.metadata.get('request_id'),
             'trace_id': flow.metadata.get('trace_id'),
+            'conversation_id': flow.metadata.get('conversation_id'),
+            'agent_turn': flow.metadata.get('agent_turn'),
+            'llm_call_id': flow.metadata.get('llm_call_id'),
+            'tool_call_id': flow.metadata.get('tool_call_id'),
             'container_name': self._get_container_name_from_client_ip(flow),
             'service_name': os.getenv('SERVICE_NAME', 'http-traffic-monitor'),
 
@@ -412,6 +466,8 @@ class HTTPTrafficLogger:
             # 网络信息
             'user_agent': flow.request.headers.get('user-agent'),
             'referer': flow.request.headers.get('referer'),
+            'user_id': flow.metadata.get('user_id'),
+            'session_id': flow.metadata.get('session_id'),
 
             # 错误信息
             'error_message': None,

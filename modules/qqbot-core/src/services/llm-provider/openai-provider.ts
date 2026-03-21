@@ -17,6 +17,7 @@ import {
   LLMProviderTextResult,
   OpenResponseCreateRequest
 } from './types';
+import { buildTraceHeaders } from '../../utils/trace-headers';
 
 type OpenAIProviderOptions = {
   id?: LLMProviderId;
@@ -81,7 +82,14 @@ export class OpenAIProvider implements LLMProvider {
       typeof providerSpecific.responsesPath === 'string' ? providerSpecific.responsesPath : this.responsesPath;
 
     const payload = this.buildResponsesPayload(input.request, providerConfig);
-    const response = await this.postResponses(baseUrl, responsesPath, payload, apiKey, providerConfig?.performance.timeout || this.timeoutMs);
+    const response = await this.postResponses(
+      baseUrl,
+      responsesPath,
+      payload,
+      apiKey,
+      providerConfig?.performance.timeout || this.timeoutMs,
+      buildTraceHeaders(input.context)
+    );
 
     const text = extractTextFromOpenAIResponse(response);
     const processingTimeMs = Date.now() - callStartTime;
@@ -192,7 +200,8 @@ export class OpenAIProvider implements LLMProvider {
     responsesPath: string,
     payload: Record<string, any>,
     apiKey: string,
-    timeoutMs?: number
+    timeoutMs?: number,
+    traceHeaders: Record<string, string> = {}
   ): Promise<any> {
     const requestConfig: AxiosRequestConfig = {
       url: `${baseUrl}${responsesPath.startsWith('/') ? responsesPath : `/${responsesPath}`}`,
@@ -202,7 +211,8 @@ export class OpenAIProvider implements LLMProvider {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        ...this.defaultHeaders
+        ...this.defaultHeaders,
+        ...traceHeaders
       }
     };
 

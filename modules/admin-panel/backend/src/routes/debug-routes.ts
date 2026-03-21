@@ -132,9 +132,590 @@ function normalizeProcessingEvents(events: any[]) {
   }));
 }
 
+type TraceConfidence = 'observed' | 'derived' | 'missing';
+
+function toNumber(value: any): number | null {
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function toIsoString(value: any): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function toMillis(value: any): number | null {
+  const iso = toIsoString(value);
+  return iso ? new Date(iso).getTime() : null;
+}
+
+function getSpanDurationMs(startAt?: any, endAt?: any, fallback?: any): number | null {
+  const start = toMillis(startAt);
+  const end = toMillis(endAt);
+  if (start !== null && end !== null) {
+    return Math.max(0, end - start);
+  }
+  const fallbackValue = toNumber(fallback);
+  return fallbackValue !== null ? Math.max(0, fallbackValue) : null;
+}
+
+function compareTraceTimes(left: any, right: any, leftFallback: number = 0, rightFallback: number = 0): number {
+  const leftTime = toMillis(left) ?? leftFallback;
+  const rightTime = toMillis(right) ?? rightFallback;
+
+  if (leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+
+  return 0;
+}
+
+function normalizeStatus(value: any, successValues: string[] = ['success', 'completed', 'sent', 'ok']): string {
+  const normalized = (value ?? '').toString().trim().toLowerCase();
+  if (!normalized) {
+    return 'unknown';
+  }
+  if (successValues.includes(normalized)) {
+    return 'success';
+  }
+  if (['failed', 'error', 'timeout', 'cancelled'].includes(normalized)) {
+    return 'error';
+  }
+  if (['pending', 'processing', 'calling', 'awaiting_tool', 'queued', 'started'].includes(normalized)) {
+    return 'pending';
+  }
+  return normalized;
+}
+
+function buildLifecycleType(eventType: string, eventName: string): string {
+  const combined = `${eventType}.${eventName}`.toLowerCase();
+  if (combined.includes('queue')) return 'queue';
+  if (combined.includes('context')) return 'context';
+  if (combined.includes('decision')) return 'decision';
+  if (combined.includes('delivery')) return 'delivery';
+  if (combined.includes('trace')) return 'terminal_outcome';
+  if (combined.includes('websocket')) return 'ingress';
+  if (combined.includes('llm')) return 'llm_call';
+  if (combined.includes('tool')) return 'tool_call';
+  return eventType || 'trace';
+}
+
+function summarizeEvent(event: any): string {
+  const pieces = [event.event_type, event.event_name, event.event_phase].filter(Boolean);
+  return pieces.join(' / ');
+}
+
+function pairTimelineEvents(events: any[]) {
+  const startMap = new Map<string, any[]>();
+  const spans: any[] = [];
+
+  for (const event of events) {
+    const key = `${event.event_type}:${event.event_name}`;
+    if (event.event_phase === 'start') {
+      const bucket = startMap.get(key) || [];
+      bucket.push(event);
+      startMap.set(key, bucket);
+      continue;
+    }
+
+    if (event.event_phase === 'end') {
+      const bucket = startMap.get(key) || [];
+      const startEvent = bucket.shift();
+      if (bucket.length === 0) {
+        startMap.delete(key);
+      } else {
+        startMap.set(key, bucket);
+      }
+
+      spans.push({
+        id: `timeline-${event.id}`,
+        type: buildLifecycleType(event.event_type, event.event_name),
+        parent_id: null,
+        trace_id: event.trace_id,
+        conversation_id: event.conversation_id,
+        started_at: toIsoString(startEvent?.event_time) || toIsoString(event.event_time),
+        ended_at: toIsoString(event.event_time),
+        duration_ms: getSpanDurationMs(startEvent?.event_time, event.event_time, event.duration_ms),
+        status: 'success',
+        title: `${event.event_type}.${event.event_name}`,
+        summary: summarizeEvent(event),
+        evidence: {
+          start: startEvent || null,
+          end: event
+        },
+        confidence: startEvent ? 'observed' : 'derived'
+      });
+      continue;
+    }
+
+    spans.push({
+      id: `timeline-${event.id}`,
+      type: buildLifecycleType(event.event_type, event.event_name),
+      parent_id: null,
+      trace_id: event.trace_id,
+      conversation_id: event.conversation_id,
+      started_at: toIsoString(event.event_time),
+      ended_at: toIsoString(event.event_time),
+      duration_ms: event.duration_ms ?? null,
+      status: normalizeStatus(event.event_name),
+      title: `${event.event_type}.${event.event_name}`,
+      summary: summarizeEvent(event),
+      evidence: event,
+      confidence: 'observed' as TraceConfidence
+    });
+  }
+
+  return spans.filter((span) => ['queue', 'context', 'decision', 'delivery', 'terminal_outcome'].includes(span.type));
+}
+
+function normalizeLlmCall(call: any) {
+  const tokenUsage = parseJsonField<any>(call.token_usage, {});
+  return {
+    id: call.id,
+    llm_call_id: call.llm_call_id || null,
+    trace_id: call.trace_id,
+    conversation_id: call.conversation_id || null,
+    agent_turn: toNumber(call.agent_turn),
+    call_sequence: toNumber(call.call_sequence) || 0,
+    started_at: toIsoString(call.started_at || (call.timestamp && call.api_call_time_ms ? new Date(new Date(call.timestamp).getTime() - Number(call.api_call_time_ms)) : null) || call.timestamp),
+    completed_at: toIsoString(call.completed_at || call.timestamp),
+    duration_ms: getSpanDurationMs(call.started_at, call.completed_at || call.timestamp, call.api_call_time_ms || call.processing_time_ms),
+    status: normalizeStatus(call.status, ['success']),
+    model_name: call.model_name,
+    model_provider: call.model_provider,
+    agent_type: call.agent_type,
+    prompt_template: call.prompt_template,
+    canonical_request: parseJsonField<any>(call.canonical_request, null),
+    wire_request: parseJsonField<any>(call.wire_request, null),
+    canonical_response: parseJsonField<any>(call.canonical_response, null),
+    wire_response: parseJsonField<any>(call.wire_response, null),
+    processed_response: call.processed_response || null,
+    input_tokens: toNumber(call.input_tokens),
+    output_tokens: toNumber(call.output_tokens),
+    token_usage: tokenUsage,
+    api_call_time_ms: toNumber(call.api_call_time_ms),
+    processing_time_ms: toNumber(call.processing_time_ms),
+    error_message: call.error_message || null,
+    error_code: call.error_code || null,
+    request_format_version: call.request_format_version || null,
+    wire_provider_format: call.wire_provider_format || null
+  };
+}
+
+function normalizeToolCall(call: any) {
+  return {
+    id: call.id,
+    tool_call_id: call.tool_call_id || null,
+    trace_id: call.trace_id,
+    conversation_id: call.conversation_id || null,
+    job_id: call.job_id || null,
+    agent_turn: toNumber(call.agent_turn),
+    llm_call_id: call.llm_call_id || null,
+    tool_type: call.tool_type,
+    tool_name: call.tool_name,
+    method_id: call.method_id || null,
+    arguments: parseJsonField<any>(call.arguments, null),
+    result: parseJsonField<any>(call.result, null),
+    status: normalizeStatus(call.status, ['success']),
+    error_message: call.error_message || null,
+    execution_mode: call.execution_mode || null,
+    side_effect: Boolean(call.side_effect),
+    started_at: toIsoString(call.started_at),
+    completed_at: toIsoString(call.completed_at || call.started_at),
+    duration_ms: getSpanDurationMs(call.started_at, call.completed_at, call.duration_ms),
+    http_requests: [] as any[]
+  };
+}
+
+function normalizeHttpLog(log: any) {
+  return {
+    id: log.id,
+    trace_id: log.trace_id || null,
+    conversation_id: log.conversation_id || null,
+    user_id: log.user_id || null,
+    session_id: log.session_id || null,
+    agent_turn: toNumber(log.agent_turn),
+    llm_call_id: log.llm_call_id || null,
+    tool_call_id: log.tool_call_id || null,
+    request_id: log.request_id,
+    method: log.method,
+    url: log.url,
+    host: log.host,
+    path: log.path,
+    status: normalizeStatus(log.response_status && Number(log.response_status) < 400 ? 'success' : (log.error_message ? 'error' : 'pending')),
+    response_status: toNumber(log.response_status),
+    request_timestamp: toIsoString(log.request_timestamp),
+    response_timestamp: toIsoString(log.response_timestamp || log.request_timestamp),
+    duration_ms: getSpanDurationMs(log.request_timestamp, log.response_timestamp, log.duration_ms),
+    request_headers: parseJsonField<any>(log.request_headers, {}),
+    response_headers: parseJsonField<any>(log.response_headers, {}),
+    request_body: log.request_body || null,
+    response_body: log.response_body || null,
+    error_message: log.error_message || null,
+    attribution: 'unattributed' as 'tool_call_id' | 'llm_call_id' | 'time_window' | 'unattributed'
+  };
+}
+
+function attachHttpLogs(toolCalls: any[], llmCalls: any[], httpLogs: any[]) {
+  const toolById = new Map(toolCalls.filter((item) => item.tool_call_id).map((item) => [item.tool_call_id, item]));
+  const llmById = new Map(llmCalls.filter((item) => item.llm_call_id).map((item) => [item.llm_call_id, item]));
+  const unattributed: any[] = [];
+
+  for (const httpLog of httpLogs) {
+    if (httpLog.tool_call_id && toolById.has(httpLog.tool_call_id)) {
+      httpLog.attribution = 'tool_call_id';
+      toolById.get(httpLog.tool_call_id)!.http_requests.push(httpLog);
+      continue;
+    }
+
+    if (httpLog.llm_call_id && llmById.has(httpLog.llm_call_id)) {
+      httpLog.attribution = 'llm_call_id';
+      const llmCall = llmById.get(httpLog.llm_call_id)!;
+      llmCall.http_requests = llmCall.http_requests || [];
+      llmCall.http_requests.push(httpLog);
+      continue;
+    }
+
+    const requestTime = toMillis(httpLog.request_timestamp);
+    const matchingTool = toolCalls.find((toolCall) => {
+      const start = toMillis(toolCall.started_at);
+      const end = toMillis(toolCall.completed_at || toolCall.started_at);
+      return requestTime !== null && start !== null && end !== null && requestTime >= start && requestTime <= end;
+    });
+
+    if (matchingTool) {
+      httpLog.attribution = 'time_window';
+      matchingTool.http_requests.push(httpLog);
+      continue;
+    }
+
+    unattributed.push(httpLog);
+  }
+
+  return unattributed;
+}
+
 // 创建调试相关路由
 export function createDebugRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
+
+  router.get('/debug/conversation/:conversationId/trace', async (req, res) => {
+    try {
+      const conversationId = req.params.conversationId;
+      const conversations = await database.executeQuery(
+        `SELECT id, trace_id, batch_id, user_id, group_id, user_message, ai_response, status,
+                error_reason, response_time, model_name, raw_request, timestamp
+         FROM conversations
+         WHERE id = ?`,
+        [conversationId]
+      );
+
+      if (!conversations || conversations.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: `Conversation not found: ${conversationId}`,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const conversation = conversations[0] as any;
+      const traceId = conversation.trace_id;
+
+      const safeQuery = async (sql: string, params: any[] = [], label: string) => {
+        try {
+          return await database.executeQuery(sql, params);
+        } catch (error) {
+          logger.warn(`Trace query failed: ${label}`, {
+            error: error instanceof Error ? error.message : String(error),
+            conversationId,
+            traceId
+          });
+          return [];
+        }
+      };
+
+      const [llmCallRows, toolCallRows, httpRows, websocketRows, timelineRows, llmJobRows] = await Promise.all([
+        safeQuery(
+          `SELECT * FROM llm_call_logs
+           WHERE trace_id = ? OR conversation_id = ?
+           ORDER BY timestamp ASC, call_sequence ASC`,
+          [traceId, conversationId],
+          'llm_call_logs'
+        ),
+        safeQuery(
+          `SELECT * FROM tool_execution_logs
+           WHERE trace_id = ?
+           ORDER BY COALESCE(started_at, completed_at) ASC, id ASC`,
+          [traceId],
+          'tool_execution_logs'
+        ),
+        safeQuery(
+          `SELECT * FROM http_traffic_logs
+           WHERE trace_id = ? OR conversation_id = ?
+           ORDER BY request_timestamp ASC, id ASC`,
+          [traceId, conversationId],
+          'http_traffic_logs'
+        ),
+        safeQuery(
+          `SELECT * FROM websocket_logs
+           WHERE trace_id = ?
+           ORDER BY timestamp ASC, id ASC`,
+          [traceId],
+          'websocket_logs'
+        ),
+        safeQuery(
+          `SELECT * FROM timeline_events
+           WHERE trace_id = ?
+           ORDER BY event_time ASC, id ASC`,
+          [traceId],
+          'timeline_events'
+        ),
+        safeQuery(
+          `SELECT * FROM llm_jobs
+           WHERE trace_id = ?
+           ORDER BY created_at ASC, id ASC`,
+          [traceId],
+          'llm_jobs'
+        )
+      ]);
+
+      const llmCalls = (llmCallRows as any[])
+        .map(normalizeLlmCall)
+        .sort((left, right) => {
+          const timeComparison = compareTraceTimes(
+            left.started_at || left.completed_at,
+            right.started_at || right.completed_at
+          );
+          if (timeComparison !== 0) {
+            return timeComparison;
+          }
+
+          if (left.call_sequence !== right.call_sequence) {
+            return left.call_sequence - right.call_sequence;
+          }
+
+          return left.id - right.id;
+        });
+      const toolCalls = (toolCallRows as any[]).map(normalizeToolCall);
+      const httpLogs = (httpRows as any[]).map(normalizeHttpLog);
+      const unattributedHttp = attachHttpLogs(toolCalls, llmCalls, httpLogs);
+      const timelineSpans = pairTimelineEvents(timelineRows as any[]);
+
+      const websocketSpans = (websocketRows as any[]).map((row) => ({
+        id: `websocket-${row.id}`,
+        type: row.direction === 'IN' ? 'ingress' : 'delivery',
+        parent_id: null,
+        trace_id: row.trace_id,
+        conversation_id: conversationId,
+        started_at: toIsoString(row.timestamp),
+        ended_at: toIsoString(row.timestamp),
+        duration_ms: toNumber(row.processing_time_ms),
+        status: normalizeStatus(row.status, ['success']),
+        title: `${row.direction} ${row.message_type}`,
+        summary: `${row.direction} ${row.message_type}`,
+        evidence: {
+          ...row,
+          raw_payload: parseJsonField<any>(row.raw_payload, row.raw_payload),
+          processed_payload: parseJsonField<any>(row.processed_payload, row.processed_payload),
+          metadata: parseJsonField<any>(row.metadata, row.metadata)
+        },
+        confidence: 'observed' as TraceConfidence
+      }));
+
+      const llmSpans = llmCalls.map((call) => ({
+        id: `llm-${call.id}`,
+        type: 'llm_call',
+        parent_id: null,
+        trace_id: call.trace_id,
+        conversation_id: call.conversation_id || conversationId,
+        started_at: call.started_at,
+        ended_at: call.completed_at,
+        duration_ms: call.duration_ms,
+        status: call.status,
+        title: `${call.model_provider || 'model'} / ${call.model_name}`,
+        summary: `${call.agent_type} turn ${call.agent_turn ?? 'n/a'}`,
+        evidence: call,
+        confidence: call.started_at && call.completed_at ? 'observed' : 'derived'
+      }));
+
+      const toolSpans = toolCalls.map((call) => ({
+        id: `tool-${call.id}`,
+        type: 'tool_call',
+        parent_id: null,
+        trace_id: call.trace_id,
+        conversation_id: call.conversation_id || conversationId,
+        started_at: call.started_at,
+        ended_at: call.completed_at,
+        duration_ms: call.duration_ms,
+        status: call.status,
+        title: call.tool_name,
+        summary: call.method_id || call.tool_type,
+        evidence: call,
+        confidence: call.tool_call_id ? 'observed' : 'derived'
+      }));
+
+      const httpSpans = httpLogs.map((log) => ({
+        id: `http-${log.id}`,
+        type: 'external_http',
+        parent_id: log.tool_call_id ? `tool-call-id-${log.tool_call_id}` : (log.llm_call_id ? `llm-call-id-${log.llm_call_id}` : null),
+        trace_id: log.trace_id,
+        conversation_id: log.conversation_id || conversationId,
+        started_at: log.request_timestamp,
+        ended_at: log.response_timestamp,
+        duration_ms: log.duration_ms,
+        status: log.status,
+        title: `${log.method} ${log.host}`,
+        summary: `${log.response_status || 'pending'} ${log.path}`,
+        evidence: log,
+        confidence: log.attribution === 'time_window' ? 'derived' : log.attribution === 'unattributed' ? 'missing' : 'observed'
+      }));
+
+      const allSpans = [...timelineSpans, ...websocketSpans, ...llmSpans, ...toolSpans, ...httpSpans]
+        .sort((left, right) => {
+          const leftTime = toMillis(left.started_at) ?? 0;
+          const rightTime = toMillis(right.started_at) ?? 0;
+          if (leftTime !== rightTime) {
+            return leftTime - rightTime;
+          }
+          return String(left.id).localeCompare(String(right.id));
+        });
+
+      const explicitTurns = new Set<number>();
+      llmCalls.forEach((call) => {
+        if (call.agent_turn !== null) explicitTurns.add(call.agent_turn);
+      });
+      toolCalls.forEach((call) => {
+        if (call.agent_turn !== null) explicitTurns.add(call.agent_turn);
+      });
+
+      const turnValues = explicitTurns.size > 0 ? Array.from(explicitTurns).sort((a, b) => a - b) : [1];
+      const latestJob = (llmJobRows as any[]).length > 0 ? (llmJobRows as any[])[(llmJobRows as any[]).length - 1] : null;
+
+      const agentTurns = turnValues.map((turn) => {
+        const turnLlmCalls = llmCalls.filter((call) => (call.agent_turn ?? 1) === turn);
+        const turnToolCalls = toolCalls.filter((call) => (call.agent_turn ?? 1) === turn);
+        const turnStartCandidates = [...turnLlmCalls.map((call) => call.started_at), ...turnToolCalls.map((call) => call.started_at)].filter(Boolean);
+        const turnEndCandidates = [...turnLlmCalls.map((call) => call.completed_at), ...turnToolCalls.map((call) => call.completed_at)].filter(Boolean);
+        const turnUnattributedHttp = unattributedHttp.filter((log) => (log.agent_turn ?? turn) === turn);
+
+        return {
+          turn,
+          started_at: turnStartCandidates.sort()[0] || null,
+          ended_at: turnEndCandidates.sort().slice(-1)[0] || turnStartCandidates.sort().slice(-1)[0] || null,
+          duration_ms: getSpanDurationMs(turnStartCandidates.sort()[0], turnEndCandidates.sort().slice(-1)[0]),
+          llm_calls: turnLlmCalls,
+          tool_calls: turnToolCalls,
+          unattributed_http: turnUnattributedHttp,
+          outcome: turn === turnValues[turnValues.length - 1]
+            ? {
+                conversation_status: conversation.status,
+                job_status: latestJob?.status || null,
+                final_response: conversation.ai_response || latestJob?.final_response || null,
+                error_message: conversation.error_reason || latestJob?.error_message || null
+              }
+            : null
+        };
+      });
+
+      const responseStart = toIsoString((websocketRows as any[]).find((row) => row.direction === 'IN')?.timestamp || conversation.timestamp);
+      const responseEnd = toIsoString((websocketRows as any[]).filter((row) => row.direction === 'OUT').slice(-1)[0]?.timestamp || latestJob?.completed_at || conversation.timestamp);
+      const bottleneckSpan = allSpans
+        .filter((span) => typeof span.duration_ms === 'number')
+        .sort((left, right) => (right.duration_ms || 0) - (left.duration_ms || 0))[0];
+      const firstErrorSpan = allSpans.find((span) => span.status === 'error');
+
+      const deliveryLogs = (websocketRows as any[]).filter((row) => row.direction === 'OUT');
+      const delivery = {
+        status: deliveryLogs.length > 0 ? 'sent' : (conversation.ai_response ? 'generated_not_sent' : 'skipped'),
+        final_response: conversation.ai_response || latestJob?.final_response || null,
+        websocket_logs: deliveryLogs,
+        terminal_job_status: latestJob?.status || null
+      };
+
+      const traceHeadersPropagated = httpLogs.some((log) => log.llm_call_id || log.tool_call_id || log.agent_turn !== null || log.conversation_id);
+      const queueStart = (timelineRows as any[]).find((event) => `${event.event_type}.${event.event_name}`.toLowerCase().includes('queue') && event.event_phase === 'start');
+      const queueEnd = (timelineRows as any[]).find((event) => `${event.event_type}.${event.event_name}`.toLowerCase().includes('queue') && event.event_phase === 'end');
+
+      const dataQuality = {
+        trace_headers_propagated: traceHeadersPropagated ? 'complete' : (httpLogs.length > 0 ? 'partial' : 'missing'),
+        llm_logs_complete: llmCalls.length === 0 ? 'missing' : (llmCalls.every((call) => call.llm_call_id && call.started_at && call.completed_at) ? 'complete' : 'partial'),
+        tool_logs_complete: toolCalls.length === 0 ? 'missing' : (toolCalls.every((call) => call.tool_call_id && call.started_at) ? 'complete' : 'partial'),
+        http_logs_complete: httpLogs.length === 0 ? 'missing' : (httpLogs.every((log) => log.request_timestamp && log.response_timestamp) ? 'complete' : 'partial'),
+        queue_timing_complete: queueStart && queueEnd ? 'complete' : 'partial',
+        overall: 'partial'
+      };
+      dataQuality.overall = Object.values(dataQuality).slice(0, 5).every((item) => item === 'complete')
+        ? 'complete'
+        : Object.values(dataQuality).slice(0, 5).some((item) => item === 'missing')
+          ? 'partial'
+          : 'partial';
+
+      return res.json({
+        success: true,
+        data: {
+          conversation_id: conversationId,
+          trace_id: traceId,
+          batch_id: conversation.batch_id || null,
+          overview: {
+            conversation_status: conversation.status,
+            response_status: delivery.status,
+            started_at: responseStart,
+            ended_at: responseEnd,
+            total_duration_ms: getSpanDurationMs(responseStart, responseEnd, conversation.response_time),
+            llm_call_count: llmCalls.length,
+            tool_call_count: toolCalls.length,
+            http_request_count: httpLogs.length,
+            agent_turn_count: agentTurns.length,
+            final_output: conversation.ai_response || latestJob?.final_response || null,
+            first_error: firstErrorSpan
+              ? {
+                  span_id: firstErrorSpan.id,
+                  title: firstErrorSpan.title,
+                  summary: firstErrorSpan.summary
+                }
+              : null,
+            bottleneck: bottleneckSpan
+              ? {
+                  span_id: bottleneckSpan.id,
+                  title: bottleneckSpan.title,
+                  duration_ms: bottleneckSpan.duration_ms
+                }
+              : null,
+            models: Array.from(new Set(llmCalls.map((call) => call.model_name).filter(Boolean)))
+          },
+          lifecycle_spans: allSpans,
+          agent_turns: agentTurns,
+          delivery,
+          raw_evidence: {
+            conversation,
+            websocket_logs: websocketRows,
+            timeline_events: timelineRows,
+            llm_calls: llmCallRows,
+            tool_calls: toolCallRows,
+            http_logs: httpRows,
+            llm_jobs: llmJobRows
+          },
+          data_quality: dataQuality
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to get conversation trace', {
+        error,
+        conversationId: req.params.conversationId
+      });
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to retrieve conversation trace',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
 
 
   // LLM Flow 调试接口

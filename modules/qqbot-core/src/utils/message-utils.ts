@@ -1,4 +1,4 @@
-import { MessageAttachment, OB11Segment, QQMessage } from '../types';
+import { LocalAttachment, MessageAttachment, OB11Segment, QQMessage } from '../types';
 
 const ATTACHMENT_LABELS: Record<string, string> = {
   image: '图片',
@@ -37,7 +37,7 @@ export function extractAttachmentsFromSegments(
   segments: OB11Segment[]
 ): MessageAttachment[] {
   return segments
-    .filter(segment => segment.type !== 'text' && segment.type !== 'at')
+    .filter(segment => segment.type !== 'text' && segment.type !== 'at' && segment.type !== 'reply')
     .map(segment => ({
       type: segment.type,
       label: buildAttachmentLabel(segment),
@@ -65,6 +65,168 @@ export function resolveAttachmentsFromMessage(
   }
 
   return [];
+}
+
+export interface ResolvedAttachmentView {
+  attachment_id: number;
+  type: string;
+  label: string;
+  mime_type?: string;
+  original_name?: string;
+  base64?: string;
+}
+
+export function resolveAttachmentViewsFromMessage(
+  message: QQMessage
+): ResolvedAttachmentView[] {
+  const attachments = resolveAttachmentsFromMessage(message);
+  const localAttachments = Array.isArray(message.local_attachments)
+    ? message.local_attachments
+    : [];
+
+  if (attachments.length === 0 && localAttachments.length === 0) {
+    return [];
+  }
+
+  const imageSegments = getImageSegments(message);
+  let imageIndex = 0;
+  let localImageIndex = 0;
+
+  const views = attachments.map((attachment, index) => {
+    if (attachment.type !== 'image') {
+      return {
+        attachment_id: index,
+        type: attachment.type,
+        label: attachment.label
+      };
+    }
+
+    const segment = imageSegments[imageIndex++];
+    const localAttachment = findNextLocalImage(localAttachments, localImageIndex);
+    if (localAttachment) {
+      localImageIndex = localAttachment.nextIndex;
+    }
+
+    const base64 = extractImageBase64(segment?.data) || localAttachment?.entry.base64;
+    const mimeType = resolveAttachmentMimeType(
+      segment?.data?.mime || segment?.data?.mimetype || segment?.data?.content_type || localAttachment?.entry.mimeType,
+      segment?.data?.file || segment?.data?.name || localAttachment?.entry.originalName
+    );
+
+    return {
+      attachment_id: index,
+      type: 'image',
+      label: attachment.label,
+      mime_type: mimeType,
+      original_name:
+        segment?.data?.file || segment?.data?.name || localAttachment?.entry.originalName,
+      base64
+    };
+  });
+
+  if (views.length > 0) {
+    return views;
+  }
+
+  return localAttachments.map((attachment, index) => ({
+    attachment_id: index,
+    type: attachment.type,
+    label: buildLocalAttachmentLabel(attachment),
+    mime_type: attachment.mimeType,
+    original_name: attachment.originalName,
+    base64: attachment.type === 'image' ? attachment.base64 : undefined
+  }));
+}
+
+function getImageSegments(message: QQMessage): OB11Segment[] {
+  if (Array.isArray(message.message)) {
+    return message.message.filter(segment => segment?.type === 'image');
+  }
+
+  if (Array.isArray(message.segments)) {
+    return message.segments.filter(segment => segment?.type === 'image');
+  }
+
+  return [];
+}
+
+function findNextLocalImage(
+  localAttachments: LocalAttachment[],
+  startIndex: number
+): { entry: LocalAttachment; nextIndex: number } | null {
+  for (let index = startIndex; index < localAttachments.length; index++) {
+    const entry = localAttachments[index];
+    if (entry?.type === 'image' && typeof entry.base64 === 'string' && entry.base64.trim().length > 0) {
+      return {
+        entry,
+        nextIndex: index + 1
+      };
+    }
+  }
+
+  return null;
+}
+
+function extractImageBase64(data: Record<string, any> | undefined): string | undefined {
+  if (!data || typeof data !== 'object') {
+    return undefined;
+  }
+
+  const candidates = [
+    data.base64,
+    data.file_base64,
+    data.image_base64,
+    data.data,
+    data.image
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.replace(/\s+/g, '');
+    }
+  }
+
+  return undefined;
+}
+
+function resolveAttachmentMimeType(explicit?: string, fileName?: string): string | undefined {
+  if (typeof explicit === 'string' && explicit.trim().length > 0) {
+    const trimmed = explicit.trim();
+    if (trimmed.includes('/')) {
+      return trimmed;
+    }
+  }
+
+  if (typeof fileName !== 'string' || fileName.trim().length === 0) {
+    return undefined;
+  }
+
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+    return 'image/jpeg';
+  }
+  if (lower.endsWith('.gif')) {
+    return 'image/gif';
+  }
+  if (lower.endsWith('.webp')) {
+    return 'image/webp';
+  }
+  if (lower.endsWith('.png')) {
+    return 'image/png';
+  }
+  if (lower.endsWith('.bmp')) {
+    return 'image/bmp';
+  }
+
+  return undefined;
+}
+
+function buildLocalAttachmentLabel(attachment: LocalAttachment): string {
+  if (attachment.type === 'face') {
+    return attachment.originalName ? `表情:${attachment.originalName}` : '表情';
+  }
+
+  return attachment.originalName ? `图片:${attachment.originalName}` : '图片';
 }
 
 function buildAttachmentLabel(segment: OB11Segment): string {

@@ -23,6 +23,7 @@ import {
   LLMProviderTextRequest,
   LLMProviderTextResult
 } from './types';
+import { buildTraceHeaders } from '../../utils/trace-headers';
 
 const GEMINI_CLI_DEFAULT_BASE_URL = 'https://cloudcode-pa.googleapis.com';
 const GEMINI_CLI_STREAM_PATH = '/v1internal:streamGenerateContent?alt=sse';
@@ -96,7 +97,8 @@ export class GeminiCliProvider implements LLMProvider {
       GEMINI_CLI_STREAM_PATH;
 
     const payload = this.buildRequestPayload(input, credential.projectId);
-    const events = await this.executeStreamRequest(baseUrl, streamPath, payload, credential, source);
+    const traceHeaders = buildTraceHeaders(input.context);
+    const events = await this.executeStreamRequest(baseUrl, streamPath, payload, credential, source, traceHeaders);
     const assembled = this.assembleResponse(events);
     const usageMetadata = assembled.usageMetadata || {};
     const inputTokens = usageMetadata.promptTokenCount ?? 0;
@@ -216,10 +218,11 @@ export class GeminiCliProvider implements LLMProvider {
     streamPath: string,
     payload: Record<string, any>,
     credential: NormalizedOAuthCredential,
-    source?: OAuthCredentialSource
+    source?: OAuthCredentialSource,
+    traceHeaders: Record<string, string> = {}
   ): Promise<any[]> {
     try {
-      return await this.fetchEvents(baseUrl, streamPath, payload, credential.access!);
+      return await this.fetchEvents(baseUrl, streamPath, payload, credential.access!, traceHeaders);
     } catch (error: any) {
       const status = error?.response?.status || error?.status;
       if (status === 403 && this.shouldRetryProjectDiscovery(error)) {
@@ -232,7 +235,8 @@ export class GeminiCliProvider implements LLMProvider {
               ...payload,
               project: rediscoveredProjectId
             },
-            credential.access!
+            credential.access!,
+            traceHeaders
           );
         }
       }
@@ -251,7 +255,8 @@ export class GeminiCliProvider implements LLMProvider {
             ...payload,
             project: refreshedProjectId || payload.project
           },
-          refreshed.access!
+          refreshed.access!,
+          traceHeaders
         );
       }
       throw error;
@@ -262,12 +267,14 @@ export class GeminiCliProvider implements LLMProvider {
     baseUrl: string,
     streamPath: string,
     payload: Record<string, any>,
-    accessToken: string
+    accessToken: string,
+    traceHeaders: Record<string, string> = {}
   ): Promise<any[]> {
     const response = await fetch(`${baseUrl.replace(/\/$/, '')}${streamPath}`, {
       method: 'POST',
       headers: {
         ...this.buildCodeAssistHeaders(accessToken),
+        ...traceHeaders,
         Accept: 'text/event-stream',
         'Client-Metadata': JSON.stringify({
           ideType: 'IDE_UNSPECIFIED',

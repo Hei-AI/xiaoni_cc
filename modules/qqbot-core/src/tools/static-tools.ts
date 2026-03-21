@@ -5,6 +5,8 @@
 
 import { StaticTool, ToolContext, ToolResult } from '../types';
 import { logger } from '../utils/logger';
+import { resolveAttachmentViewsFromMessage } from '../utils/message-utils';
+import { extractNormalizedMessageText, parseReplyIntentContext } from '../utils/reply-intent';
 
 const moduleLogger = logger.createModuleLogger('static-tools');
 
@@ -19,6 +21,13 @@ export interface MessagingToolDependencies {
   canSendGroupMessage?: (groupId: number) => Promise<boolean>;
   scrollChatViewUp?: (cursor: any, pageSize?: number) => Promise<any>;
   jumpChatViewToLatest?: (cursor: any, pageSize?: number) => Promise<any>;
+  fetchReplyContext?: (metadata?: Record<string, any>) => Promise<ReplyContextToolPayload>;
+  readMessageAttachment?: (params: {
+    metadata?: Record<string, any>;
+    messageId: number;
+    attachmentId?: number;
+    attachmentIndex?: number;
+  }) => Promise<MessageAttachmentToolPayload>;
   findMemeByTags: (tags: string[]) => Promise<MemeLibraryEntry | null>;
   saveMemeImage: (imageBase64: string, tags: string[]) => Promise<MemeLibraryEntry>;
   recordMemeUsage?: (memeId: string) => Promise<void>;
@@ -39,11 +48,52 @@ export interface UserPerspective {
   comment: string;
 }
 
+export interface ReplyContextToolPayload {
+  status: 'ok' | 'missing_reply_context' | 'anchor_not_found';
+  reply_to_message_id?: number;
+  message_kind?: string;
+  address_target?: {
+    type?: string;
+    user_id?: number;
+    nickname?: string;
+  };
+  quoted_sender?: {
+    user_id?: number;
+    nickname?: string;
+  };
+  quoted_text?: string;
+  anchor_already_visible?: boolean;
+  transcript?: string;
+  reply_anchor_viewport?: any;
+  note?: string;
+}
+
+export interface MessageAttachmentToolPayload {
+  status: 'ok' | 'message_not_found' | 'attachment_not_found' | 'not_available_yet' | 'download_failed';
+  message_id: number;
+  attachment_id?: number;
+  attachment_type?: string;
+  label?: string;
+  mime_type?: string;
+  note?: string;
+  media_part?: {
+    mimeType: string;
+    data: string;
+  };
+}
+
 const validateNumericId = (value: unknown, fieldName: string): number => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(`${fieldName} must be a valid number`);
   }
   return value;
+};
+
+const validateOptionalNumericId = (value: unknown, fieldName: string): number | undefined => {
+  if (value == null) {
+    return undefined;
+  }
+  return validateNumericId(value, fieldName);
 };
 
 const validateMessage = (value: unknown): string => {
@@ -178,6 +228,18 @@ const validateOptionalPositiveInteger = (
   return Math.min(20, Math.floor(normalized));
 };
 
+const validateViewportTarget = (value: unknown): 'current' | 'reply_anchor' => {
+  if (value == null) {
+    return 'current';
+  }
+
+  if (value === 'current' || value === 'reply_anchor') {
+    return value;
+  }
+
+  throw new Error('target must be either "current" or "reply_anchor"');
+};
+
 const buildViewportTranscript = (viewport: any): string => {
   const lines: string[] = [];
   const headerLines = Array.isArray(viewport?.header_lines) ? viewport.header_lines : [];
@@ -195,23 +257,89 @@ const buildViewportTranscript = (viewport: any): string => {
       lines.push('--- 以下是未读消息 ---');
     }
 
-    const rawSender = message?.raw_payload?.sender;
-    const name =
-      message?.sender_role === 'bot'
-        ? '我'
-        : rawSender?.nickname
-          || rawSender?.card
-          || (typeof message?.sender_id === 'number' ? `QQ ${message.sender_id}` : '未知用户');
-    const time = message?.sent_at ? `[${new Date(message.sent_at).toISOString()}] ` : '';
-    const content =
-      typeof message?.content === 'string' && message.content.trim().length > 0
-        ? message.content.trim()
-        : '[空消息]';
-
-    lines.push(`${time}${name}: ${content}`);
+    lines.push(buildViewportMessageRecord(message));
   });
 
   return lines.join('\n').trim();
+};
+
+const buildViewportMessageRecord = (message: any): string => {
+  const rawMessage = message?.raw_payload && typeof message.raw_payload === 'object'
+    ? message.raw_payload
+    : undefined;
+  const rawSender = rawMessage?.sender;
+  const senderId = typeof message?.sender_id === 'number' ? message.sender_id : rawSender?.user_id;
+  const senderName =
+    message?.sender_role === 'bot'
+      ? '我'
+      : rawSender?.nickname
+        || rawSender?.card
+        || (senderId != null ? `用户${senderId}` : '未知用户');
+  const normalizedText = rawMessage ? extractNormalizedMessageText(rawMessage) : '';
+  const attachmentViews = rawMessage ? resolveAttachmentViewsFromMessage(rawMessage) : [];
+  const mentions = Array.isArray(rawMessage?.message)
+    ? rawMessage.message
+        .filter((segment: any) => segment?.type === 'at')
+        .map((segment: any) => String(segment?.data?.qq))
+        .filter((value: string) => value && value !== 'all' && value !== 'here')
+    : [];
+  const replyIntent = rawMessage ? (rawMessage.reply_intent_context || parseReplyIntentContext(rawMessage)) : undefined;
+  const lines = ['- message:'];
+  lines.push(`  time=${message?.sent_at ? new Date(message.sent_at).toISOString() : ''}`);
+  if (message?.message_id != null) {
+    lines.push(`  message_id=${message.message_id}`);
+  }
+  if (senderId != null) {
+    lines.push(`  sender_id=${senderId}`);
+  }
+  lines.push(`  sender_name=${senderName}`);
+  lines.push(`  mentions=${JSON.stringify(Array.from(new Set(mentions)))}`);
+  if (replyIntent?.semantic_anchor?.message_id != null) {
+    lines.push(`  reply_ref.message_id=${replyIntent.semantic_anchor.message_id}`);
+    if (replyIntent.semantic_anchor.sender_id != null) {
+      lines.push(`  reply_ref.sender_id=${replyIntent.semantic_anchor.sender_id}`);
+    }
+    if (replyIntent.semantic_anchor.sender_nickname) {
+      lines.push(`  reply_ref.sender_name=${replyIntent.semantic_anchor.sender_nickname}`);
+    }
+    if (replyIntent.semantic_anchor.text) {
+      lines.push(`  reply_ref.text=${replyIntent.semantic_anchor.text}`);
+    }
+  }
+  lines.push(`  content_type=${resolveTranscriptContentType(normalizedText, attachmentViews)}`);
+  if (normalizedText) {
+    lines.push(`  text=${normalizedText}`);
+  }
+  if (attachmentViews.length > 0) {
+    lines.push(`  attachments=${JSON.stringify(attachmentViews.map(({ attachment_id, type, label, mime_type }) => ({
+      attachment_id,
+      type,
+      label,
+      mime_type
+    })))}`);
+  }
+
+  return lines.join('\n');
+};
+
+const resolveTranscriptContentType = (
+  text: string | undefined,
+  attachments: Array<{ type: string }>
+): string => {
+  const hasText = typeof text === 'string' && text.trim().length > 0;
+  const hasImage = attachments.some(item => item.type === 'image');
+  const hasOnlyFace = attachments.length > 0 && attachments.every(item => item.type === 'face');
+
+  if (hasText && attachments.length > 0) {
+    return 'mixed';
+  }
+  if (hasImage) {
+    return 'image';
+  }
+  if (!hasText && hasOnlyFace) {
+    return 'face_only';
+  }
+  return 'text';
 };
 
 const buildMentionPrefix = (atUserIds: number[]): string => {
@@ -334,7 +462,7 @@ const createGroupMessageTool = (
       },
       user_perspectives: {
         type: 'array',
-        description: '当消息涉及评价/调侃时，提供依据以满足 persona 约束；若没有观点请传空数组。',
+        description: '可选。当消息涉及评价/调侃时，提供依据以满足 persona 约束；普通发送可省略。',
         items: {
           type: 'object',
           properties: {
@@ -346,7 +474,7 @@ const createGroupMessageTool = (
         }
       }
     },
-    required: ['message', 'user_perspectives']
+    required: ['message']
   },
   registryMetadata: {
     displayName: 'Send QQ Group Message',
@@ -372,7 +500,7 @@ const createGroupMessageTool = (
       const normalizedGroupId = validateNumericId(ctx.group_id, 'group_id');
       const normalizedMessage = validateMessage(message);
       const mentionUserIds = validateAtUserIds(at_user_ids);
-      const normalizedPerspectives = validateUserPerspectives(user_perspectives, { required: true });
+      const normalizedPerspectives = validateUserPerspectives(user_perspectives, { required: false });
 
       const mentionPrefix = buildMentionPrefix(mentionUserIds);
       const finalPayload = mentionPrefix
@@ -696,7 +824,7 @@ const createChatViewScrollUpTool = (
   deps: MessagingToolDependencies
 ): StaticTool => ({
   name: 'chat_view_scroll_up',
-  description: '向前翻页查看当前聊天窗口中更早的消息。',
+  description: '向前翻页查看当前聊天窗口或引用锚点窗口中更早的消息。',
   mode: 'returnable',
   loopBehavior: {
     completion: 'continue'
@@ -707,6 +835,10 @@ const createChatViewScrollUpTool = (
       page_size: {
         type: 'integer',
         description: '本次向前翻页加载的消息条数，默认 8。'
+      },
+      target: {
+        type: 'string',
+        description: '要翻页的窗口。current 表示当前聊天窗口，reply_anchor 表示引用锚点窗口。'
       }
     },
     required: []
@@ -730,9 +862,14 @@ const createChatViewScrollUpTool = (
         throw new Error('chat view scrolling is not available');
       }
 
-      const cursor = ctx.metadata?.chatViewport;
+      const target = validateViewportTarget(ctx.arguments?.target);
+      const cursor = target === 'reply_anchor'
+        ? ctx.metadata?.replyAnchorViewport
+        : ctx.metadata?.chatViewport;
       if (!cursor) {
-        throw new Error('missing chatViewport metadata');
+        throw new Error(target === 'reply_anchor'
+          ? 'missing replyAnchorViewport metadata'
+          : 'missing chatViewport metadata');
       }
 
       const pageSize = validateOptionalPositiveInteger(ctx.arguments?.page_size, 8);
@@ -744,8 +881,9 @@ const createChatViewScrollUpTool = (
           status: 'ok',
           transcript: buildViewportTranscript(viewport),
           page_size: pageSize,
+          target,
           __job_metadata_patch: {
-            chatViewport: viewport.cursor
+            [target === 'reply_anchor' ? 'replyAnchorViewport' : 'chatViewport']: viewport.cursor
           }
         },
         duration_ms: Date.now() - start
@@ -770,7 +908,7 @@ const createChatViewJumpToLatestTool = (
   deps: MessagingToolDependencies
 ): StaticTool => ({
   name: 'chat_view_jump_to_latest',
-  description: '跳回当前聊天窗口的最新消息位置。',
+  description: '跳回当前聊天窗口的最新消息位置，或回到引用锚点窗口的初始视图。',
   mode: 'returnable',
   loopBehavior: {
     completion: 'continue'
@@ -781,6 +919,10 @@ const createChatViewJumpToLatestTool = (
       page_size: {
         type: 'integer',
         description: '最新视图显示的消息条数，默认 8。'
+      },
+      target: {
+        type: 'string',
+        description: '要重置的窗口。current 表示当前聊天窗口，reply_anchor 表示引用锚点窗口。'
       }
     },
     required: []
@@ -804,9 +946,14 @@ const createChatViewJumpToLatestTool = (
         throw new Error('chat view jump is not available');
       }
 
-      const cursor = ctx.metadata?.chatViewport;
+      const target = validateViewportTarget(ctx.arguments?.target);
+      const cursor = target === 'reply_anchor'
+        ? ctx.metadata?.replyAnchorViewport
+        : ctx.metadata?.chatViewport;
       if (!cursor) {
-        throw new Error('missing chatViewport metadata');
+        throw new Error(target === 'reply_anchor'
+          ? 'missing replyAnchorViewport metadata'
+          : 'missing chatViewport metadata');
       }
 
       const pageSize = validateOptionalPositiveInteger(ctx.arguments?.page_size, 8);
@@ -818,8 +965,9 @@ const createChatViewJumpToLatestTool = (
           status: 'ok',
           transcript: buildViewportTranscript(viewport),
           page_size: pageSize,
+          target,
           __job_metadata_patch: {
-            chatViewport: viewport.cursor
+            [target === 'reply_anchor' ? 'replyAnchorViewport' : 'chatViewport']: viewport.cursor
           }
         },
         duration_ms: Date.now() - start
@@ -834,6 +982,177 @@ const createChatViewJumpToLatestTool = (
       return {
         success: false,
         error: error?.message || 'Failed to jump chat view to latest',
+        duration_ms: Date.now() - start
+      };
+    }
+  }
+});
+
+const createReplyContextFetchTool = (
+  deps: MessagingToolDependencies
+): StaticTool => ({
+  name: 'reply_context_fetch',
+  description: '读取当前消息的引用回复上下文，包括直接回应对象、被引用消息摘要，以及按需返回引用锚点窗口。',
+  mode: 'returnable',
+  loopBehavior: {
+    completion: 'continue'
+  },
+  parameters: {
+    type: 'object',
+    properties: {},
+    required: []
+  },
+  registryMetadata: {
+    displayName: 'Reply Context Fetch',
+    category: 'chat_view',
+    tags: ['qq', 'reply', 'context'],
+    sideEffect: false,
+    expectResponse: true,
+    timeoutMs: 10000,
+    version: '1.0.0',
+    createdBy: 'system',
+    updatedBy: 'system'
+  },
+  handler: async (ctx: ToolContext): Promise<ToolResult> => {
+    const start = Date.now();
+
+    try {
+      if (typeof deps.fetchReplyContext !== 'function') {
+        throw new Error('reply context fetching is not available');
+      }
+
+      const payload = await deps.fetchReplyContext(ctx.metadata);
+      const metadataPatch = payload.reply_anchor_viewport
+        ? { replyAnchorViewport: payload.reply_anchor_viewport }
+        : undefined;
+
+      return {
+        success: true,
+        data: {
+          ...payload,
+          __job_metadata_patch: metadataPatch
+        },
+        duration_ms: Date.now() - start
+      };
+    } catch (error: any) {
+      moduleLogger.error('[reply_context_fetch] Error:', {
+        error: error?.message || error,
+        trace_id: ctx.trace_id
+      });
+
+      return {
+        success: false,
+        error: error?.message || 'Failed to fetch reply context',
+        duration_ms: Date.now() - start
+      };
+    }
+  }
+});
+
+const createReadMessageAttachmentTool = (
+  deps: MessagingToolDependencies
+): StaticTool => ({
+  name: 'read_message_attachment',
+  description: '点开并读取某条消息上的图片或表情包附件；仅在附件内容影响理解时使用。',
+  mode: 'returnable',
+  loopBehavior: {
+    completion: 'continue'
+  },
+  parameters: {
+    type: 'object',
+    properties: {
+      message_id: {
+        type: 'integer',
+        description: '要读取附件的消息 ID。'
+      },
+      attachment_id: {
+        type: 'integer',
+        description: '附件在该消息 attachments 列表中的 ID。'
+      },
+      attachment_index: {
+        type: 'integer',
+        description: '附件索引。若 attachment_id 缺失，则使用该值作为兼容输入。'
+      }
+    },
+    required: ['message_id']
+  },
+  registryMetadata: {
+    displayName: 'Read Message Attachment',
+    category: 'chat_view',
+    tags: ['qq', 'attachment', 'image'],
+    sideEffect: false,
+    expectResponse: true,
+    timeoutMs: 15000,
+    version: '1.0.0',
+    createdBy: 'system',
+    updatedBy: 'system'
+  },
+  handler: async (ctx: ToolContext): Promise<ToolResult> => {
+    const start = Date.now();
+
+    try {
+      if (typeof deps.readMessageAttachment !== 'function') {
+        throw new Error('message attachment reading is not available');
+      }
+
+      const messageId = validateNumericId(ctx.arguments?.message_id, 'message_id');
+      const attachmentId = validateOptionalNumericId(ctx.arguments?.attachment_id, 'attachment_id');
+      const attachmentIndex = validateOptionalNumericId(ctx.arguments?.attachment_index, 'attachment_index');
+      if (attachmentId == null && attachmentIndex == null) {
+        throw new Error('attachment_id or attachment_index is required');
+      }
+
+      const payload = await deps.readMessageAttachment({
+        metadata: ctx.metadata,
+        messageId,
+        attachmentId,
+        attachmentIndex
+      });
+
+      const data: Record<string, any> = {
+        status: payload.status,
+        message_id: payload.message_id,
+        attachment_id: payload.attachment_id,
+        attachment_type: payload.attachment_type,
+        label: payload.label,
+        mime_type: payload.mime_type,
+        note: payload.note
+      };
+
+      if (payload.media_part) {
+        data.media_loaded = true;
+        data.__tool_followup_contents = [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: `Attachment content loaded for message_id=${payload.message_id}, attachment_id=${payload.attachment_id}.`
+              },
+              {
+                inlineData: payload.media_part
+              }
+            ]
+          }
+        ];
+      } else {
+        data.media_loaded = false;
+      }
+
+      return {
+        success: true,
+        data,
+        duration_ms: Date.now() - start
+      };
+    } catch (error: any) {
+      moduleLogger.error('[read_message_attachment] Error:', {
+        error: error?.message || error,
+        trace_id: ctx.trace_id,
+        arguments: ctx.arguments
+      });
+
+      return {
+        success: false,
+        error: error?.message || 'Failed to read message attachment',
         duration_ms: Date.now() - start
       };
     }
@@ -856,6 +1175,14 @@ export const createMessagingTools = (
 
   if (typeof deps.jumpChatViewToLatest === 'function') {
     tools.push(createChatViewJumpToLatestTool(deps));
+  }
+
+  if (typeof deps.fetchReplyContext === 'function') {
+    tools.push(createReplyContextFetchTool(deps));
+  }
+
+  if (typeof deps.readMessageAttachment === 'function') {
+    tools.push(createReadMessageAttachmentTool(deps));
   }
 
   tools.push(createEndTool());

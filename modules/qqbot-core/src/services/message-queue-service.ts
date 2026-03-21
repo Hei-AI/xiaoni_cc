@@ -18,6 +18,7 @@ import { logger } from '../utils/logger';
 import { PartitionedMessageQueue, QueuedMessage } from './message-queue';
 import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter } from 'events';
+import { LoggingService } from './logging-service';
 
 export interface DrainedMessage {
   id: string;
@@ -33,12 +34,14 @@ export class MessageQueueService extends EventEmitter {
   private moduleLogger = logger.createModuleLogger('message-queue-service');
   private authorizedUserId: number;
   private botQQNumber: number;
+  private loggingService?: LoggingService;
 
-  constructor(authorizedUserId: number, botQQNumber: number) {
+  constructor(authorizedUserId: number, botQQNumber: number, loggingService?: LoggingService) {
     super();
     this.queue = new PartitionedMessageQueue();
     this.authorizedUserId = authorizedUserId;
     this.botQQNumber = botQQNumber;
+    this.loggingService = loggingService;
 
     this.moduleLogger.info('MessageQueueService initialized', {
       authorizedUserId,
@@ -88,6 +91,16 @@ export class MessageQueueService extends EventEmitter {
 
     await this.queue.push(queuedMessage);
 
+    if (this.loggingService) {
+      await this.loggingService.logInstantEvent(traceId, 'queue', 'queue.enqueued', eventData?.conversationId, {
+        sourceKey,
+        priority,
+        queued_message_id: queuedMessage.id,
+        source,
+        message_type: this.getMessageType(message)
+      });
+    }
+
     this.moduleLogger.info('Message enqueued', {
       sourceKey,
       messageId: queuedMessage.id,
@@ -115,6 +128,21 @@ export class MessageQueueService extends EventEmitter {
       arrivalTime: qm.timestamp,
       priority: qm.priority
     }));
+
+    if (this.loggingService) {
+      await Promise.all(drainedMessages.map((message) => this.loggingService!.logInstantEvent(
+        message.traceId,
+        'queue',
+        'queue.dequeued',
+        undefined,
+        {
+          sourceKey,
+          queued_message_id: message.id,
+          arrival_time: message.arrivalTime.toISOString(),
+          priority: message.priority
+        }
+      )));
+    }
 
     this.moduleLogger.info('Messages drained', {
       sourceKey,

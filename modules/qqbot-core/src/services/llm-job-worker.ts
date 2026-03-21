@@ -497,11 +497,13 @@ export class LLMJobWorker extends EventEmitter {
       });
 
       // 调用 LLM
-      const response = await this.callLLM(job, contents, tools);
+      const llmCallId = uuidv4();
+      const response = await this.callLLM(job, contents, tools, currentTurn, llmCallId);
       moduleLogger.info('turn_llm_success', {
         jobId: job.id,
         traceId: job.trace_id,
-        turn: currentTurn
+        turn: currentTurn,
+        llmCallId
       });
 
       const assistantTurn = this.buildAssistantTurn(response);
@@ -558,6 +560,7 @@ export class LLMJobWorker extends EventEmitter {
       });
 
       const functionResponses: any[] = [];
+      const followupContents: any[] = [];
       let terminalOutcome: AgentLoopOutcome | null = null;
 
       for (let index = 0; index < functionCalls.length; index++) {
@@ -574,6 +577,9 @@ export class LLMJobWorker extends EventEmitter {
           sourceKey: job.source_key,
           userId: jobMetadata.userId,
           groupId: jobMetadata.groupId,
+          conversationId: jobMetadata.conversationId,
+          agentTurn: currentTurn,
+          llmCallId,
           metadata: jobMetadata
         });
 
@@ -625,6 +631,10 @@ export class LLMJobWorker extends EventEmitter {
           functionResponses.push(dispatchResult.functionResponse);
         }
 
+        if (Array.isArray(dispatchResult.followupContents) && dispatchResult.followupContents.length > 0) {
+          followupContents.push(...dispatchResult.followupContents);
+        }
+
         if (dispatchResult.searchedTools && dispatchResult.searchedTools.length > 0) {
           const invokeDeclaration = this.dispatcher.getInvokeDeclaration(
             dispatchResult.searchedTools
@@ -639,6 +649,10 @@ export class LLMJobWorker extends EventEmitter {
           role: 'function',
           parts: [{ functionResponse: funcResp }]
         });
+      }
+
+      if (followupContents.length > 0) {
+        contents.push(...followupContents);
       }
 
       if (terminalOutcome) {
@@ -695,7 +709,13 @@ export class LLMJobWorker extends EventEmitter {
   /**
    * 调用 LLM
    */
-  private async callLLM(job: LLMJob, contents: any[], tools: any[]): Promise<any> {
+  private async callLLM(
+    job: LLMJob,
+    contents: any[],
+    tools: any[],
+    currentTurn: number,
+    llmCallId: string
+  ): Promise<any> {
     try {
       // 构建请求
       const configuredRequest =
@@ -755,9 +775,12 @@ export class LLMJobWorker extends EventEmitter {
         job.trace_id,
         {
           modelName: modelNameFromConfig,
+          conversationId: metadata.conversationId,
           agentType: metadata.agentType,
           promptName: metadata.promptName,
-          promptId: metadata.promptId
+          promptId: metadata.promptId,
+          agentTurn: currentTurn,
+          llmCallId
         }
       );
 
@@ -832,7 +855,7 @@ export class LLMJobWorker extends EventEmitter {
   }
 
   private isToolDrivenChatJob(metadata: Record<string, any>): boolean {
-    return metadata?.agentType === 'chat_bot' && metadata?.promptName === 'basic_chat';
+    return metadata?.agentType === 'chat_bot';
   }
 
   private isTextFallbackEnabled(): boolean {
@@ -865,6 +888,13 @@ export class LLMJobWorker extends EventEmitter {
       };
     }
 
+    if (metadata.replyAnchorViewport || patch.replyAnchorViewport) {
+      merged.replyAnchorViewport = {
+        ...(metadata.replyAnchorViewport || {}),
+        ...(patch.replyAnchorViewport || {})
+      };
+    }
+
     return merged;
   }
 
@@ -893,8 +923,7 @@ export class LLMJobWorker extends EventEmitter {
       ? {
           name: 'send_qq_group_message',
           args: {
-            message: finalText,
-            user_perspectives: []
+            message: finalText
           }
         }
       : {

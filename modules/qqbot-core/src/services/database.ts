@@ -459,6 +459,29 @@ export class DatabaseManager {
     }
   }
 
+  public async updateConversationSession(
+    conversationId: string,
+    sessionId: string
+  ): Promise<boolean> {
+    const query = `
+      UPDATE conversations
+      SET session_id = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `;
+
+    try {
+      const affectedRows = await this.executeUpdate(query, [sessionId, conversationId]);
+      return affectedRows > 0;
+    } catch (error) {
+      this.moduleLogger.error('Failed to update conversation session', {
+        error,
+        conversationId,
+        sessionId
+      });
+      return false;
+    }
+  }
+
   public async getConversations(
     userId?: number, 
     limit: number = 50
@@ -1950,6 +1973,76 @@ export class DatabaseManager {
         updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at)
       }))
       .reverse();
+  }
+
+  public async getGroupMessageHistoryRecordByMessageId(
+    groupId: number,
+    messageId: number
+  ): Promise<GroupMessageHistoryRecord | null> {
+    const query = `
+      SELECT *
+      FROM group_message_history
+      WHERE group_id = ?
+        AND message_id = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `;
+
+    const rows = await this.executeQuery<any>(query, [groupId, messageId]);
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      conversation_id: row.conversation_id ?? null,
+      message_id: row.message_id ?? null,
+      group_id: row.group_id,
+      sender_id: row.sender_id,
+      sender_role: row.sender_role,
+      content_type: row.content_type as MessageContentType,
+      content: row.content,
+      raw_payload: this.parseJsonField(row.raw_payload),
+      sent_at: row.sent_at instanceof Date ? row.sent_at : new Date(row.sent_at),
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at)
+    };
+  }
+
+  public async getPrivateMessageHistoryRecordByMessageId(
+    userId: number,
+    messageId: number
+  ): Promise<PrivateMessageHistoryRecord | null> {
+    const query = `
+      SELECT *
+      FROM private_message_history
+      WHERE user_id = ?
+        AND message_id = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `;
+
+    const rows = await this.executeQuery<any>(query, [userId, messageId]);
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      conversation_id: row.conversation_id ?? null,
+      message_id: row.message_id ?? null,
+      user_id: row.user_id,
+      sender_id: row.sender_id,
+      sender_role: row.sender_role,
+      content_type: row.content_type as MessageContentType,
+      content: row.content,
+      raw_payload: this.parseJsonField(row.raw_payload),
+      sent_at: row.sent_at instanceof Date ? row.sent_at : new Date(row.sent_at),
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at)
+    };
   }
 
   /**
