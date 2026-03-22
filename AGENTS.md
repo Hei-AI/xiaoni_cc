@@ -74,6 +74,7 @@
 
 ## Commit & Pull Request Guidelines
 - Prefix commit messages with scopes such as `feat:`, `fix:`, or `chore:`.
+- For git pushes from this workstation, use SSH remotes or explicit SSH push URLs by default; do not rely on HTTPS GitHub authentication.
 - Document schema, config, and deployment impacts in the PR body.
 - Attach outputs from the relevant test/lint commands when changing runtime behavior.
 
