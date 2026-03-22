@@ -218,6 +218,19 @@ export const PromptManagementPage: React.FC = () => {
     const draftableModels = rows.filter((prompt) => prompt.model_name).length;
     return { activeCount, draftableModels };
   }, [rows]);
+  const paginationControls = (
+    <div className="flex items-center gap-2">
+      <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page === 1}>
+        上一页
+      </Button>
+      <StatusPill tone="info">
+        {page} / {Math.max(totalPages, 1)}
+      </StatusPill>
+      <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={page === totalPages || totalPages === 0}>
+        下一页
+      </Button>
+    </div>
+  );
 
   return (
     <PageShell>
@@ -248,56 +261,43 @@ export const PromptManagementPage: React.FC = () => {
       </div>
 
       <FilterBar>
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-            <div className="relative flex-1 xl:max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="搜索 Prompt 名称或描述"
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                className="pl-9"
-              />
-            </div>
-            <Select
-              value={agentTypeFilter}
-              onValueChange={(value) => {
-                setAgentTypeFilter(value);
+        <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
+          <div className="relative flex-1 xl:max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="搜索 Prompt 名称或描述"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
                 setPage(1);
               }}
-            >
-              <SelectTrigger className="w-full md:w-[220px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">所有类型</SelectItem>
-                {agentTypesData?.data.map((type) => (
-                  <SelectItem key={type.value} value={type.value}>
-                    {type.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="sm" onClick={() => setShowFilters((value) => !value)}>
-              <Filter className="mr-2 h-4 w-4" />
-              筛选
-            </Button>
+              className="pl-9"
+            />
           </div>
-
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page === 1}>
-              上一页
-            </Button>
-            <StatusPill tone="info">
-              {page} / {Math.max(totalPages, 1)}
-            </StatusPill>
-            <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={page === totalPages || totalPages === 0}>
-              下一页
-            </Button>
-          </div>
+          <Select
+            value={agentTypeFilter}
+            onValueChange={(value) => {
+              setAgentTypeFilter(value);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger className="w-full md:w-[220px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">所有类型</SelectItem>
+              {agentTypesData?.data.map((type) => (
+                <SelectItem key={type.value} value={type.value}>
+                  {type.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => setShowFilters((value) => !value)}>
+            <Filter className="mr-2 h-4 w-4" />
+            筛选
+          </Button>
+          <div className="sm:hidden">{paginationControls}</div>
         </div>
 
         {showFilters && (
@@ -341,7 +341,12 @@ export const PromptManagementPage: React.FC = () => {
         />
       )}
 
-      <SectionPanel title="Prompt 矩阵" description="手机以配置卡片浏览，桌面保留多列信息和快速操作。" icon={<Settings className="h-4 w-4 text-primary" />}>
+      <SectionPanel
+        title="Prompt 矩阵"
+        description="手机以配置卡片浏览，桌面保留多列信息和快速操作。"
+        icon={<Settings className="h-4 w-4 text-primary" />}
+        action={<div className="hidden sm:block">{paginationControls}</div>}
+      >
         {error ? (
           <ErrorState description={error.message} onRetry={() => refetch()} />
         ) : isLoading ? (

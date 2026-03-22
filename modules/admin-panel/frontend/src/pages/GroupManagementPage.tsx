@@ -157,6 +157,24 @@ export const GroupManagementPage: React.FC = () => {
         : 0;
     return { enabled, autoReply, avgActivity };
   }, [rows]);
+  const paginationControls = (
+    <div className="flex items-center gap-2">
+      <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page === 1}>
+        上一页
+      </Button>
+      <StatusPill tone="info">
+        {page} / {data?.pagination.totalPages || 1}
+      </StatusPill>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setPage((value) => Math.min(data?.pagination.totalPages || 1, value + 1))}
+        disabled={page === (data?.pagination.totalPages || 1)}
+      >
+        下一页
+      </Button>
+    </div>
+  );
 
   return (
     <PageShell>
@@ -183,38 +201,22 @@ export const GroupManagementPage: React.FC = () => {
       </div>
 
       <FilterBar>
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-            <div className="relative flex-1 xl:max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="搜索群名称或群号"
-                value={search}
-                onChange={(e) => handleSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Button variant="outline" size="sm" onClick={() => setShowFilters((value) => !value)}>
-              <Filter className="mr-2 h-4 w-4" />
-              筛选
-            </Button>
+        <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
+          <div className="relative flex-1 xl:max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="搜索群名称或群号"
+              value={search}
+              onChange={(e) => handleSearch(e.target.value)}
+              className="pl-9"
+            />
           </div>
-
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page === 1}>
-              上一页
-            </Button>
-            <StatusPill tone="info">
-              {page} / {data?.pagination.totalPages || 1}
-            </StatusPill>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((value) => Math.min(data?.pagination.totalPages || 1, value + 1))}
-              disabled={page === (data?.pagination.totalPages || 1)}
-            >
-              下一页
-            </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowFilters((value) => !value)}>
+            <Filter className="mr-2 h-4 w-4" />
+            筛选
+          </Button>
+          <div className="sm:hidden">
+            {paginationControls}
           </div>
         </div>
 
@@ -248,7 +250,12 @@ export const GroupManagementPage: React.FC = () => {
         )}
       </FilterBar>
 
-      <SectionPanel title="群组矩阵" description="手机展示为策略卡片，桌面展示为运营表格。" icon={<Users className="h-4 w-4 text-primary" />}>
+      <SectionPanel
+        title="群组矩阵"
+        description="手机展示为策略卡片，桌面展示为运营表格。"
+        icon={<Users className="h-4 w-4 text-primary" />}
+        action={<div className="hidden sm:block">{paginationControls}</div>}
+      >
         {error ? (
           <ErrorState description={error.message} onRetry={() => refetch()} />
         ) : isLoading ? (

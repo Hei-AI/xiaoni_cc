@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from './ui/button';
@@ -19,6 +19,8 @@ import {
   Menu,
   MessageCircle,
   Network,
+  PanelLeftClose,
+  PanelLeftOpen,
   Sparkles,
   Search,
   ShieldCheck,
@@ -40,6 +42,29 @@ interface NavigationItem {
 }
 
 type RuntimeTone = 'success' | 'warning' | 'danger';
+
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'qqbot-admin-sidebar-collapsed';
+const PLAYGROUND_SIDEBAR_COLLAPSED_STORAGE_KEY = 'qqbot-admin-sidebar-collapsed-playground';
+
+function getSidebarCollapsedStorageKey(pathname: string): string {
+  return pathname.startsWith('/playground')
+    ? PLAYGROUND_SIDEBAR_COLLAPSED_STORAGE_KEY
+    : SIDEBAR_COLLAPSED_STORAGE_KEY;
+}
+
+function getInitialSidebarCollapsed(pathname: string): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const storageKey = getSidebarCollapsedStorageKey(pathname);
+  const storedValue = window.localStorage.getItem(storageKey);
+  if (storedValue !== null) {
+    return storedValue === 'true';
+  }
+
+  return pathname.startsWith('/playground');
+}
 
 interface RuntimeStatusPayload {
   status: 'healthy' | 'degraded' | 'offline';
@@ -123,7 +148,9 @@ function formatHeartbeat(lastHeartbeat: string | null | undefined): string | nul
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
+  const isPlaygroundRoute = location.pathname.startsWith('/playground');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => getInitialSidebarCollapsed(location.pathname));
   const { data: runtimeStatus } = useQuery<RuntimeStatusPayload>({
     queryKey: ['runtimeStatus'],
     queryFn: async () => {
@@ -228,59 +255,97 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const runtimeTone = runtimeToneMap[runtimeStatus?.status ?? 'degraded'];
   const heartbeatLabel = formatHeartbeat(runtimeStatus?.core.lastHeartbeat);
   const runtimeIssue = runtimeStatus?.core.errorMessage;
+  const sidebarWidthClass = sidebarCollapsed ? 'w-[68px]' : 'w-[240px]';
+
+  useEffect(() => {
+    setSidebarCollapsed(getInitialSidebarCollapsed(location.pathname));
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const storageKey = getSidebarCollapsedStorageKey(location.pathname);
+    window.localStorage.setItem(storageKey, String(sidebarCollapsed));
+  }, [location.pathname, sidebarCollapsed]);
 
   const sidebarContent = (
     <div className="flex h-full flex-col">
-      <div className="border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+      <div className={cn('border-b border-border py-3', sidebarCollapsed ? 'px-3' : 'px-4')}>
+        <div className={cn('flex items-center', sidebarCollapsed ? 'justify-center' : 'gap-2.5')}>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <Bot className="h-3.5 w-3.5" />
           </div>
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-foreground">QQ Bot Console</div>
-            <div className="truncate text-xs text-muted-foreground">Admin workspace</div>
-          </div>
+          {!sidebarCollapsed ? (
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-foreground">QQ Bot Console</div>
+              <div className="truncate text-xs text-muted-foreground">Admin workspace</div>
+            </div>
+          ) : null}
         </div>
 
-        <div className="relative mt-3">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            aria-label="导航搜索"
-            placeholder="Quick search..."
-            className="h-7.5 border-border bg-card pl-8 text-xs shadow-none"
-          />
-        </div>
+        {!sidebarCollapsed ? (
+          <div className="relative mt-3">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              aria-label="导航搜索"
+              placeholder="Quick search..."
+              className="h-7.5 border-border bg-card pl-8 text-xs shadow-none"
+            />
+          </div>
+        ) : (
+          <div className="mt-3 flex justify-center">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground">
+              <Search className="h-4 w-4" />
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-3">
+      <div className={cn('flex-1 overflow-y-auto py-3', sidebarCollapsed ? 'px-2' : 'px-3')}>
         {navigationGroups.map((group) => (
           <div key={group.label} className="mb-4">
-            <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              {group.label}
-            </div>
+            {!sidebarCollapsed ? (
+              <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {group.label}
+              </div>
+            ) : null}
             <nav className="space-y-0.5">
               {group.items.map((item: NavigationItem) => (
                 <Link
                   key={item.href}
                   to={item.href}
                   onClick={() => setMobileNavOpen(false)}
+                  title={sidebarCollapsed ? item.label : undefined}
                   className={cn(
-                    'group flex items-start gap-2.5 rounded-lg border px-2.5 py-2 transition-colors',
+                    'group rounded-lg border transition-colors',
+                    sidebarCollapsed
+                      ? 'flex justify-center px-2 py-2.5'
+                      : 'flex items-start gap-2.5 px-2.5 py-2',
                     item.active
                       ? 'border-primary/20 bg-primary/10 text-foreground shadow-sm'
                       : 'border-transparent text-muted-foreground hover:border-border hover:bg-card hover:text-foreground'
                   )}
                 >
-                  <item.icon className={cn('mt-0.5 h-[15px] w-[15px] flex-shrink-0', item.active ? 'text-primary/85' : 'text-slate-400 group-hover:text-slate-500')} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className={cn('truncate text-[13px] font-medium', item.active ? 'text-foreground' : 'text-slate-700 group-hover:text-foreground')}>{item.label}</span>
-                      {item.active && <ChevronRight className="h-3 w-3 text-primary/85" />}
+                  <item.icon
+                    className={cn(
+                      'h-[15px] w-[15px] flex-shrink-0',
+                      !sidebarCollapsed && 'mt-0.5',
+                      item.active ? 'text-primary/85' : 'text-slate-400 group-hover:text-slate-500'
+                    )}
+                  />
+                  {!sidebarCollapsed ? (
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className={cn('truncate text-[13px] font-medium', item.active ? 'text-foreground' : 'text-slate-700 group-hover:text-foreground')}>{item.label}</span>
+                        {item.active && <ChevronRight className="h-3 w-3 text-primary/85" />}
+                      </div>
+                      <div className="mt-0.5 line-clamp-2 text-[11px] leading-4.5 text-slate-500">
+                        {item.description}
+                      </div>
                     </div>
-                    <div className="mt-0.5 line-clamp-2 text-[11px] leading-4.5 text-slate-500">
-                      {item.description}
-                    </div>
-                  </div>
+                  ) : null}
                 </Link>
               ))}
             </nav>
@@ -288,8 +353,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         ))}
       </div>
 
-      <div className="border-t border-border px-4 py-3">
-        <div className="flex items-start gap-2.5">
+      <div className={cn('border-t border-border py-3', sidebarCollapsed ? 'px-2' : 'px-4')}>
+        <div className={cn('flex', sidebarCollapsed ? 'justify-center' : 'items-start gap-2.5')}>
           <div
             className={cn(
               'mt-0.5 flex h-6 w-6 items-center justify-center rounded-full',
@@ -300,22 +365,24 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           >
             <ShieldCheck className="h-3 w-3" />
           </div>
-          <div className="min-w-0">
-            <div className="text-[13px] font-medium text-foreground">{runtimeTitle}</div>
-            <div className="mt-0.5 text-[11px] leading-4.5 text-muted-foreground">
-              {runtimeSummary}
+          {!sidebarCollapsed ? (
+            <div className="min-w-0">
+              <div className="text-[13px] font-medium text-foreground">{runtimeTitle}</div>
+              <div className="mt-0.5 text-[11px] leading-4.5 text-muted-foreground">
+                {runtimeSummary}
+              </div>
+              {heartbeatLabel && (
+                <div className="mt-1 text-[11px] leading-4.5 text-muted-foreground">
+                  Core heartbeat {heartbeatLabel}
+                </div>
+              )}
+              {runtimeIssue && runtimeTone !== 'success' && (
+                <div className="mt-1 line-clamp-2 text-[11px] leading-4.5 text-muted-foreground">
+                  {runtimeIssue}
+                </div>
+              )}
             </div>
-            {heartbeatLabel && (
-              <div className="mt-1 text-[11px] leading-4.5 text-muted-foreground">
-                Core heartbeat {heartbeatLabel}
-              </div>
-            )}
-            {runtimeIssue && runtimeTone !== 'success' && (
-              <div className="mt-1 line-clamp-2 text-[11px] leading-4.5 text-muted-foreground">
-                {runtimeIssue}
-              </div>
-            )}
-          </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -324,7 +391,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   return (
     <div className="console-shell">
       <div className="flex min-h-screen">
-        <aside className="console-sidebar hidden w-[232px] shrink-0 lg:flex lg:flex-col">
+        <aside
+          className={cn(
+            'console-sidebar hidden shrink-0 transition-[width] duration-200 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col',
+            sidebarWidthClass
+          )}
+        >
           {sidebarContent}
         </aside>
 
@@ -339,6 +411,16 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                   onClick={() => setMobileNavOpen(true)}
                 >
                   <Menu className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="hidden lg:inline-flex"
+                  title={sidebarCollapsed ? '展开导航' : '折叠导航'}
+                  onClick={() => setSidebarCollapsed((prev) => !prev)}
+                >
+                  {sidebarCollapsed ? <PanelLeftOpen className="mr-2 h-4 w-4" /> : <PanelLeftClose className="mr-2 h-4 w-4" />}
+                  {sidebarCollapsed ? 'Expand' : 'Collapse'}
                 </Button>
 
                 <div className="min-w-0">
@@ -366,8 +448,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             </div>
           </header>
 
-          <main className="min-w-0 px-4 py-4 sm:px-6 lg:px-8">
-            <div className="console-page min-h-[calc(100vh-7rem)] px-4 py-4 sm:px-5 lg:px-6">
+          <main
+            className={cn(
+              'min-w-0 py-4',
+              isPlaygroundRoute ? 'px-0 pl-3 sm:pl-4 lg:pl-6 lg:pr-0' : 'px-2 sm:px-3 lg:px-4'
+            )}
+          >
+            <div className="min-h-[calc(100vh-5rem)]">
               {children}
             </div>
           </main>

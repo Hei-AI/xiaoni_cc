@@ -63,6 +63,21 @@ export const ConversationsPage: React.FC = () => {
 
     return { responded, avgLatency, activeUsers };
   }, [conversations]);
+  const paginationControls = (
+    <div className="flex items-center gap-2">
+      <Button variant="outline" size="sm" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1}>
+        <ChevronLeft className="mr-1 h-4 w-4" />
+        上一页
+      </Button>
+      <StatusPill tone="info">
+        {currentPage} / {totalPages}
+      </StatusPill>
+      <Button variant="outline" size="sm" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage >= totalPages}>
+        下一页
+        <ChevronRight className="ml-1 h-4 w-4" />
+      </Button>
+    </div>
+  );
 
   return (
     <PageShell>
@@ -93,56 +108,46 @@ export const ConversationsPage: React.FC = () => {
       </div>
 
       <FilterBar>
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-            <div className="relative flex-1 xl:max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="搜索对话内容、用户 ID 或消息关键词"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <select
-                value={itemsPerPage}
-                onChange={(e) => {
-                  setItemsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="h-9 rounded-lg border border-input bg-card px-3 text-sm text-foreground shadow-sm"
-              >
-                <option value={10}>10 / 页</option>
-                <option value={20}>20 / 页</option>
-                <option value={50}>50 / 页</option>
-                <option value={100}>100 / 页</option>
-              </select>
-              <Button variant="outline" size="sm">
-                <Filter className="mr-2 h-4 w-4" />
-                筛选
-              </Button>
-            </div>
+        <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
+          <div className="relative flex-1 xl:max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="搜索对话内容、用户 ID 或消息关键词"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9"
+            />
           </div>
-
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1}>
-              <ChevronLeft className="mr-1 h-4 w-4" />
-              上一页
-            </Button>
-            <StatusPill tone="info">
-              {currentPage} / {totalPages}
-            </StatusPill>
-            <Button variant="outline" size="sm" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage >= totalPages}>
-              下一页
-              <ChevronRight className="ml-1 h-4 w-4" />
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="h-9 rounded-lg border border-input bg-card px-3 text-sm text-foreground shadow-sm"
+            >
+              <option value={10}>10 / 页</option>
+              <option value={20}>20 / 页</option>
+              <option value={50}>50 / 页</option>
+              <option value={100}>100 / 页</option>
+            </select>
+            <Button variant="outline" size="sm">
+              <Filter className="mr-2 h-4 w-4" />
+              筛选
             </Button>
           </div>
+          <div className="sm:hidden">{paginationControls}</div>
         </div>
         {showFilters ? null : null}
       </FilterBar>
 
-      <SectionPanel title="对话记录" description="移动端改为实体卡片，桌面端保留高密度信息和快速跳转。" icon={<MessageCircle className="h-4 w-4 text-primary" />}>
+      <SectionPanel
+        title="对话记录"
+        description="移动端改为实体卡片，桌面端保留高密度信息和快速跳转。"
+        icon={<MessageCircle className="h-4 w-4 text-primary" />}
+        action={<div className="hidden sm:block">{paginationControls}</div>}
+      >
         {error ? (
           <ErrorState description={error.message} onRetry={() => conversationsQuery.refetch()} />
         ) : isLoading ? (
