@@ -166,7 +166,12 @@ export function createStatusRoutes(database: DatabaseManager, logger: winston.Lo
         database.executeQuery<{ count: number }>('SELECT COUNT(*) as count FROM conversations'),
         database.executeQuery<{ count: number }>('SELECT COUNT(*) as count FROM api_tokens'),
         database.executeQuery<{ count: number }>('SELECT COUNT(*) as count FROM conversation_sessions WHERE status = "active"'),
-        database.executeQuery<{ count: number }>('SELECT COUNT(*) as count FROM llm_call_logs WHERE DATE(timestamp) = CURDATE()')
+        database.executeQuery<{ count: number }>(
+          `SELECT COUNT(*) as count
+           FROM llm_call_logs
+           WHERE timestamp >= CURDATE()
+             AND timestamp < DATE_ADD(CURDATE(), INTERVAL 1 DAY)`
+        )
       ]);
 
       res.json({

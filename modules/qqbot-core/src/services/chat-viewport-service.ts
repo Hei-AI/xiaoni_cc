@@ -103,6 +103,7 @@ export class ChatViewportService {
 
     const normalizedPageSize = this.normalizePageSize(pageSize);
     const sourceColumn = cursor.source_type === 'group' ? 'group_id' : 'user_id';
+    const orderIndex = this.getHistoryOrderIndex(cursor.history_table);
 
     if (!cursor.top_history_id) {
       return this.jumpToLatest(cursor, normalizedPageSize);
@@ -111,7 +112,7 @@ export class ChatViewportService {
     const olderRows = await this.queryRows(
       `
         SELECT *
-        FROM ${cursor.history_table}
+        FROM ${cursor.history_table} FORCE INDEX (${orderIndex})
         WHERE ${sourceColumn} = ?
           AND id < ?
         ORDER BY id DESC
@@ -123,7 +124,7 @@ export class ChatViewportService {
     const currentRows = await this.queryRows(
       `
         SELECT *
-        FROM ${cursor.history_table}
+        FROM ${cursor.history_table} FORCE INDEX (${orderIndex})
         WHERE ${sourceColumn} = ?
           AND id >= ?
           AND id <= ?
@@ -200,10 +201,11 @@ export class ChatViewportService {
     pageSize: number
   ): Promise<ChatViewportData> {
     const sourceColumn = sourceType === 'group' ? 'group_id' : 'user_id';
+    const orderIndex = this.getHistoryOrderIndex(historyTable);
     const rows = await this.queryRows(
       `
         SELECT *
-        FROM ${historyTable}
+        FROM ${historyTable} FORCE INDEX (${orderIndex})
         WHERE ${sourceColumn} = ?
         ORDER BY id DESC
         LIMIT ${this.normalizePageSize(pageSize)}
@@ -242,7 +244,7 @@ export class ChatViewportService {
     const beforeRows = await this.queryRows(
       `
         SELECT *
-        FROM group_message_history
+        FROM group_message_history FORCE INDEX (idx_group_history_id)
         WHERE group_id = ?
           AND id <= ?
         ORDER BY id DESC
@@ -254,7 +256,7 @@ export class ChatViewportService {
     const afterRows = await this.queryRows(
       `
         SELECT *
-        FROM group_message_history
+        FROM group_message_history FORCE INDEX (idx_group_history_id)
         WHERE group_id = ?
           AND id > ?
         ORDER BY id ASC
@@ -291,10 +293,11 @@ export class ChatViewportService {
     }
 
     const sourceColumn = sourceType === 'group' ? 'group_id' : 'user_id';
+    const orderIndex = this.getHistoryOrderIndex(historyTable);
     const beforeRows = await this.queryRows(
       `
         SELECT *
-        FROM ${historyTable}
+        FROM ${historyTable} FORCE INDEX (${orderIndex})
         WHERE ${sourceColumn} = ?
           AND id < ?
         ORDER BY id DESC
@@ -305,7 +308,7 @@ export class ChatViewportService {
     const afterRows = await this.queryRows(
       `
         SELECT *
-        FROM ${historyTable}
+        FROM ${historyTable} FORCE INDEX (${orderIndex})
         WHERE ${sourceColumn} = ?
           AND id > ?
         ORDER BY id ASC
@@ -336,7 +339,7 @@ export class ChatViewportService {
     const rows = await this.queryRows(
       `
         SELECT *
-        FROM group_message_history
+        FROM group_message_history FORCE INDEX (idx_group_message_id_lookup)
         WHERE group_id = ?
           AND message_id = ?
         ORDER BY id DESC
@@ -355,7 +358,7 @@ export class ChatViewportService {
     const rows = await this.queryRows(
       `
         SELECT *
-        FROM private_message_history
+        FROM private_message_history FORCE INDEX (idx_private_message_id_lookup)
         WHERE user_id = ?
           AND message_id = ?
         ORDER BY id DESC
@@ -378,6 +381,12 @@ export class ChatViewportService {
     }
 
     return this.findPrivateAnchorRow(sourceId, messageId);
+  }
+
+  private getHistoryOrderIndex(historyTable: ChatViewportHistoryTable): string {
+    return historyTable === 'group_message_history'
+      ? 'idx_group_history_id'
+      : 'idx_user_history_id';
   }
 
   private async finalizeViewport(params: {

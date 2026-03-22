@@ -362,10 +362,12 @@ export function createPromptRoutes(
         input_count: number;
         created_at: string;
         updated_at: string;
-        messages: any;
+        message_count: number;
       }>(
-        `SELECT id, session_name, input_count, created_at, updated_at, messages
+        `SELECT id, session_name, input_count, created_at, updated_at,
+                COALESCE(JSON_LENGTH(messages), 0) as message_count
          FROM prompt_debug_sessions
+         FORCE INDEX (idx_prompt_updated_at_id)
          WHERE prompt_id = ?
          ORDER BY updated_at DESC
          LIMIT ${limit} OFFSET ${offset}`,
@@ -380,34 +382,14 @@ export function createPromptRoutes(
       const total = totalResult[0]?.total || 0;
 
       // 为每个会话计算消息总数
-      const sessionsWithMessageCount = sessions.map(session => {
-        let messageCount = 0;
-        try {
-          if (session.messages) {
-            if (Array.isArray(session.messages)) {
-              messageCount = session.messages.length;
-            } else if (typeof session.messages === 'string') {
-              const parsedMessages = JSON.parse(session.messages);
-              messageCount = Array.isArray(parsedMessages) ? parsedMessages.length : 0;
-            }
-          }
-        } catch (error) {
-          logger.warn('Failed to parse messages for message count', {
-            sessionId: session.id,
-            error: error instanceof Error ? error.message : String(error)
-          });
-          messageCount = session.input_count; // 回退到input_count
-        }
-
-        return {
-          id: session.id,
-          session_name: session.session_name,
-          input_count: session.input_count,
-          message_count: messageCount, // 添加总消息数量
-          created_at: session.created_at,
-          updated_at: session.updated_at
-        };
-      });
+      const sessionsWithMessageCount = sessions.map(session => ({
+        id: session.id,
+        session_name: session.session_name,
+        input_count: session.input_count,
+        message_count: session.message_count,
+        created_at: session.created_at,
+        updated_at: session.updated_at
+      }));
 
       res.json({
         success: true,

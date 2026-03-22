@@ -59,6 +59,7 @@ async function initializeDatabase() {
     // Test connection instead of calling initialize()
     const isHealthy = await database.testConnection();
     if (isHealthy) {
+      await database.ensureOperationalIndexes();
       logger.info('✅ Database connection established successfully');
       return true;
     } else {

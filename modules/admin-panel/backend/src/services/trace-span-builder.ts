@@ -132,6 +132,7 @@ function normalizeStatusCode(value: any): 'unset' | 'ok' | 'error' {
 
 function normalizeLlmCall(call: any) {
   const tokenUsage = parseJsonField<any>(call.token_usage, {});
+  const effectiveUnifiedConfig = parseJsonField<any>(call.effective_unified_config, null);
   return {
     id: call.id,
     llm_call_id: call.llm_call_id || null,
@@ -153,6 +154,7 @@ function normalizeLlmCall(call: any) {
     wire_request: parseJsonField<any>(call.wire_request, null),
     canonical_response: parseJsonField<any>(call.canonical_response, null),
     wire_response: parseJsonField<any>(call.wire_response, null),
+    effective_unified_config: effectiveUnifiedConfig,
     processed_response: call.processed_response || null,
     input_tokens: toNumber(call.input_tokens),
     output_tokens: toNumber(call.output_tokens),
@@ -163,6 +165,29 @@ function normalizeLlmCall(call: any) {
     error_code: call.error_code || null,
     request_format_version: call.request_format_version || null,
     wire_provider_format: call.wire_provider_format || null
+  };
+}
+
+function buildPlaygroundCapability(call: any): 'exact' | 'unsupported' {
+  return call.canonical_request && call.effective_unified_config ? 'exact' : 'unsupported';
+}
+
+function buildPlaygroundSnapshot(call: any, spanId: string) {
+  return {
+    traceId: call.trace_id || null,
+    conversationId: call.conversation_id || null,
+    llmCallId: call.llm_call_id || null,
+    spanId,
+    agentTurn: call.agent_turn ?? null,
+    provider: call.model_provider || null,
+    modelName: call.model_name || null,
+    canonicalRequest: call.canonical_request,
+    canonicalResponse: call.canonical_response,
+    wireRequest: call.wire_request,
+    wireResponse: call.wire_response,
+    requestFormatVersion: call.request_format_version || null,
+    wireProviderFormat: call.wire_provider_format || null,
+    effectiveUnifiedConfig: call.effective_unified_config || null
   };
 }
 
@@ -494,25 +519,60 @@ export async function buildConversationTracePayload(
     }
   };
 
+  const llmCallQuery = `
+    SELECT l.*
+    FROM llm_call_logs l
+    INNER JOIN (
+      SELECT id, timestamp, call_sequence
+      FROM llm_call_logs
+      WHERE trace_id = ?
+      UNION DISTINCT
+      SELECT id, timestamp, call_sequence
+      FROM llm_call_logs
+      WHERE conversation_id = ?
+    ) matched ON matched.id = l.id
+    ORDER BY matched.timestamp ASC, matched.call_sequence ASC, matched.id ASC
+  `;
+
+  const httpTrafficQuery = `
+    SELECT h.*
+    FROM http_traffic_logs h
+    INNER JOIN (
+      SELECT id, request_timestamp
+      FROM http_traffic_logs
+      WHERE trace_id = ?
+      UNION DISTINCT
+      SELECT id, request_timestamp
+      FROM http_traffic_logs
+      WHERE conversation_id = ?
+    ) matched ON matched.id = h.id
+    ORDER BY matched.request_timestamp ASC, matched.id ASC
+  `;
+
+  const toolCallQuery = `
+    SELECT t.*
+    FROM tool_execution_logs t
+    INNER JOIN (
+      SELECT id, COALESCE(started_at, completed_at) AS sort_time
+      FROM tool_execution_logs
+      WHERE trace_id = ?
+    ) matched ON matched.id = t.id
+    ORDER BY matched.sort_time ASC, matched.id ASC
+  `;
+
   const [llmCallRows, toolCallRows, httpRows, websocketRows, timelineRows, llmJobRows] = await Promise.all([
     safeQuery(
-      `SELECT * FROM llm_call_logs
-       WHERE trace_id = ? OR conversation_id = ?
-       ORDER BY timestamp ASC, call_sequence ASC`,
+      llmCallQuery,
       [traceId, conversationId],
       'llm_call_logs'
     ),
     safeQuery(
-      `SELECT * FROM tool_execution_logs
-       WHERE trace_id = ?
-       ORDER BY COALESCE(started_at, completed_at) ASC, id ASC`,
+      toolCallQuery,
       [traceId],
       'tool_execution_logs'
     ),
     safeQuery(
-      `SELECT * FROM http_traffic_logs
-       WHERE trace_id = ? OR conversation_id = ?
-       ORDER BY request_timestamp ASC, id ASC`,
+      httpTrafficQuery,
       [traceId, conversationId],
       'http_traffic_logs'
     ),
@@ -724,6 +784,8 @@ export async function buildConversationTracePayload(
   const llmSpanIdByCallId = new Map<string, string>();
   llmCalls.forEach((call) => {
     const spanId = call.llm_call_id ? `llm-call:${call.llm_call_id}` : `llm:${call.id}`;
+    const playgroundCapability = buildPlaygroundCapability(call);
+    const playgroundSnapshot = buildPlaygroundSnapshot(call, spanId);
     if (call.llm_call_id) {
       llmSpanIdByCallId.set(call.llm_call_id, spanId);
     }
@@ -749,12 +811,14 @@ export async function buildConversationTracePayload(
         'llm.prompt_template': call.prompt_template,
         'usage.input_tokens': call.input_tokens,
         'usage.output_tokens': call.output_tokens,
-        'trace.agent_turn': call.agent_turn
+        'trace.agent_turn': call.agent_turn,
+        'playground.capability': playgroundCapability
       },
       input: {
         prompt_template: call.prompt_template,
         canonical_request: call.canonical_request,
-        wire_request: call.wire_request
+        wire_request: call.wire_request,
+        effective_unified_config: call.effective_unified_config
       },
       output: {
         processed_response: call.processed_response,
@@ -764,7 +828,11 @@ export async function buildConversationTracePayload(
         error_message: call.error_message,
         error_code: call.error_code
       },
-      evidence: call,
+      evidence: {
+        ...call,
+        playground_capability: playgroundCapability,
+        playground_source_snapshot: playgroundSnapshot
+      },
       events: [],
       links: [],
       confidence: call.started_at && call.completed_at ? 'observed' : 'derived',

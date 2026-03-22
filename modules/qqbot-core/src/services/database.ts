@@ -19,6 +19,7 @@ export class DatabaseManager {
   private pool: mysql.Pool | null = null;
   private config: DatabaseConfig;
   private moduleLogger = logger.createModuleLogger('database');
+  private operationalIndexesEnsured = false;
 
   constructor(config: DatabaseConfig) {
     this.config = config;
@@ -129,6 +130,105 @@ export class DatabaseManager {
     }
 
     return value;
+  }
+
+  private async tableExists(tableName: string): Promise<boolean> {
+    const rows = await this.executeQuery<{ total: number }>(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.tables
+       WHERE table_schema = DATABASE()
+         AND table_name = ?`,
+      [tableName]
+    );
+
+    return (rows[0]?.total || 0) > 0;
+  }
+
+  private async ensureIndex(tableName: string, indexName: string, ddl: string): Promise<void> {
+    if (!(await this.tableExists(tableName))) {
+      return;
+    }
+
+    const rows = await this.executeQuery<{ total: number }>(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.statistics
+       WHERE table_schema = DATABASE()
+         AND table_name = ?
+         AND index_name = ?`,
+      [tableName, indexName]
+    );
+
+    if ((rows[0]?.total || 0) > 0) {
+      return;
+    }
+
+    try {
+      await this.executeUpdate(ddl);
+      this.moduleLogger.info('Ensured operational index', { tableName, indexName });
+    } catch (error: any) {
+      if (error?.code === 'ER_DUP_KEYNAME' || error?.code === 'ER_DUP_ENTRY') {
+        this.moduleLogger.info('Operational index already exists after concurrent creation', { tableName, indexName });
+        return;
+      }
+
+      this.moduleLogger.error('Failed to ensure operational index', { tableName, indexName, error });
+      throw error;
+    }
+  }
+
+  public async ensureOperationalIndexes(): Promise<void> {
+    if (this.operationalIndexesEnsured) {
+      return;
+    }
+
+    const indexes = [
+      {
+        tableName: 'api_tokens',
+        indexName: 'idx_is_active_healthy',
+        ddl: 'ALTER TABLE api_tokens ADD INDEX idx_is_active_healthy (is_active, is_healthy)'
+      },
+      {
+        tableName: 'api_tokens',
+        indexName: 'idx_last_used',
+        ddl: 'ALTER TABLE api_tokens ADD INDEX idx_last_used (last_used)'
+      },
+      {
+        tableName: 'api_tokens',
+        indexName: 'idx_priority',
+        ddl: 'ALTER TABLE api_tokens ADD INDEX idx_priority (priority)'
+      },
+      {
+        tableName: 'api_tokens',
+        indexName: 'idx_last_reset_date',
+        ddl: 'ALTER TABLE api_tokens ADD INDEX idx_last_reset_date (last_reset_date)'
+      },
+      {
+        tableName: 'api_tokens',
+        indexName: 'idx_blacklisted_until',
+        ddl: 'ALTER TABLE api_tokens ADD INDEX idx_blacklisted_until (blacklisted_until)'
+      },
+      {
+        tableName: 'api_tokens',
+        indexName: 'idx_priority_last_used_weight',
+        ddl: 'ALTER TABLE api_tokens ADD INDEX idx_priority_last_used_weight (priority, last_used, weight)'
+      },
+      {
+        tableName: 'agent_prompts',
+        indexName: 'idx_agent_type_active_version',
+        ddl: 'ALTER TABLE agent_prompts ADD INDEX idx_agent_type_active_version (agent_type, is_active, version)'
+      },
+      {
+        tableName: 'agent_prompts',
+        indexName: 'idx_agent_type_prompt_active_version',
+        ddl: 'ALTER TABLE agent_prompts ADD INDEX idx_agent_type_prompt_active_version (agent_type, prompt_name, is_active, version)'
+      }
+    ];
+
+    for (const index of indexes) {
+      await this.ensureIndex(index.tableName, index.indexName, index.ddl);
+    }
+
+    this.operationalIndexesEnsured = true;
   }
 
   public async executeQuery<T = any>(
@@ -1916,7 +2016,7 @@ export class DatabaseManager {
     const safeLimit = Math.max(1, Math.floor(Number(limit)));
     const query = `
       SELECT *
-      FROM group_message_history
+      FROM group_message_history FORCE INDEX (idx_group_sent_at)
       WHERE group_id = ?
       ORDER BY sent_at DESC, id DESC
       LIMIT ${safeLimit}
@@ -1949,7 +2049,7 @@ export class DatabaseManager {
     const safeLimit = Math.max(1, Math.floor(Number(limit)));
     const query = `
       SELECT *
-      FROM private_message_history
+      FROM private_message_history FORCE INDEX (idx_user_sent_at)
       WHERE user_id = ?
       ORDER BY sent_at DESC, id DESC
       LIMIT ${safeLimit}
@@ -1981,7 +2081,7 @@ export class DatabaseManager {
   ): Promise<GroupMessageHistoryRecord | null> {
     const query = `
       SELECT *
-      FROM group_message_history
+      FROM group_message_history FORCE INDEX (idx_group_message_id_lookup)
       WHERE group_id = ?
         AND message_id = ?
       ORDER BY id DESC
@@ -2016,7 +2116,7 @@ export class DatabaseManager {
   ): Promise<PrivateMessageHistoryRecord | null> {
     const query = `
       SELECT *
-      FROM private_message_history
+      FROM private_message_history FORCE INDEX (idx_private_message_id_lookup)
       WHERE user_id = ?
         AND message_id = ?
       ORDER BY id DESC

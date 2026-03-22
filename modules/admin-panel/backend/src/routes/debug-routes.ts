@@ -500,9 +500,17 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
           error_code,
           cost_estimate,
           token_usage
-        FROM llm_call_logs
-        WHERE trace_id = ? OR conversation_id = ?
-        ORDER BY timestamp ASC
+        FROM llm_call_logs l
+        INNER JOIN (
+          SELECT id, timestamp, call_sequence
+          FROM llm_call_logs
+          WHERE trace_id = ?
+          UNION DISTINCT
+          SELECT id, timestamp, call_sequence
+          FROM llm_call_logs
+          WHERE conversation_id = ?
+        ) matched ON matched.id = l.id
+        ORDER BY matched.timestamp ASC, matched.call_sequence ASC, matched.id ASC
       `;
       const llmCalls = await database.executeQuery(llmCallsQuery, [traceId, conversationId]);
 

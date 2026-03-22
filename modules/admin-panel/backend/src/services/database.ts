@@ -60,6 +60,7 @@ export class DatabaseManager {
   private pool: mysql.Pool | null = null;
   private config: DatabaseConfig;
   private logger: winston.Logger;
+  private operationalIndexesEnsured = false;
 
   constructor(config: DatabaseConfig, logger: winston.Logger) {
     this.config = config;
@@ -540,6 +541,155 @@ export class DatabaseManager {
       this.logger.error('Failed to update group chat settings', { error, groupId, updates });
       return false;
     }
+  }
+
+  private async tableExists(tableName: string): Promise<boolean> {
+    const rows = await this.executeQuery<{ total: number }>(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.tables
+       WHERE table_schema = DATABASE()
+         AND table_name = ?`,
+      [tableName]
+    );
+
+    return (rows[0]?.total || 0) > 0;
+  }
+
+  private async ensureIndex(tableName: string, indexName: string, ddl: string): Promise<void> {
+    if (!(await this.tableExists(tableName))) {
+      return;
+    }
+
+    const rows = await this.executeQuery<{ total: number }>(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.statistics
+       WHERE table_schema = DATABASE()
+         AND table_name = ?
+         AND index_name = ?`,
+      [tableName, indexName]
+    );
+
+    if ((rows[0]?.total || 0) > 0) {
+      return;
+    }
+
+    try {
+      await this.executeUpdate(ddl);
+      this.logger.info('Ensured operational index', { tableName, indexName });
+    } catch (error: any) {
+      if (error?.code === 'ER_DUP_KEYNAME' || error?.code === 'ER_DUP_ENTRY') {
+        this.logger.info('Operational index already exists after concurrent creation', { tableName, indexName });
+        return;
+      }
+
+      this.logger.error('Failed to ensure operational index', { tableName, indexName, error });
+      throw error;
+    }
+  }
+
+  public async ensureOperationalIndexes(): Promise<void> {
+    if (this.operationalIndexesEnsured) {
+      return;
+    }
+
+    const indexes = [
+      {
+        tableName: 'prompt_debug_sessions',
+        indexName: 'idx_prompt_updated_at_id',
+        ddl: 'ALTER TABLE prompt_debug_sessions ADD INDEX idx_prompt_updated_at_id (prompt_id, updated_at, id)'
+      },
+      {
+        tableName: 'llm_call_logs',
+        indexName: 'idx_trace_timestamp_sequence_id',
+        ddl: 'ALTER TABLE llm_call_logs ADD INDEX idx_trace_timestamp_sequence_id (trace_id, timestamp, call_sequence, id)'
+      },
+      {
+        tableName: 'llm_call_logs',
+        indexName: 'idx_conversation_started_id',
+        ddl: 'ALTER TABLE llm_call_logs ADD INDEX idx_conversation_started_id (conversation_id, started_at, id)'
+      },
+      {
+        tableName: 'llm_call_logs',
+        indexName: 'idx_trace_started_id',
+        ddl: 'ALTER TABLE llm_call_logs ADD INDEX idx_trace_started_id (trace_id, started_at, id)'
+      },
+      {
+        tableName: 'llm_call_logs',
+        indexName: 'idx_llm_call_started_id',
+        ddl: 'ALTER TABLE llm_call_logs ADD INDEX idx_llm_call_started_id (llm_call_id, started_at, id)'
+      },
+      {
+        tableName: 'http_traffic_logs',
+        indexName: 'idx_trace_request_time_id',
+        ddl: 'ALTER TABLE http_traffic_logs ADD INDEX idx_trace_request_time_id (trace_id, request_timestamp, id)'
+      },
+      {
+        tableName: 'http_traffic_logs',
+        indexName: 'idx_conversation_request_time_id',
+        ddl: 'ALTER TABLE http_traffic_logs ADD INDEX idx_conversation_request_time_id (conversation_id, request_timestamp, id)'
+      },
+      {
+        tableName: 'websocket_logs',
+        indexName: 'idx_trace_timestamp_id',
+        ddl: 'ALTER TABLE websocket_logs ADD INDEX idx_trace_timestamp_id (trace_id, timestamp, id)'
+      },
+      {
+        tableName: 'llm_jobs',
+        indexName: 'idx_trace_created_id',
+        ddl: 'ALTER TABLE llm_jobs ADD INDEX idx_trace_created_id (trace_id, created_at, id)'
+      },
+      {
+        tableName: 'tool_execution_logs',
+        indexName: 'idx_trace_started_completed_id',
+        ddl: 'ALTER TABLE tool_execution_logs ADD INDEX idx_trace_started_completed_id (trace_id, started_at, completed_at, id)'
+      },
+      {
+        tableName: 'traffic_replay_history',
+        indexName: 'idx_original_log_replayed_at_id',
+        ddl: 'ALTER TABLE traffic_replay_history ADD INDEX idx_original_log_replayed_at_id (original_log_id, replayed_at, id)'
+      },
+      {
+        tableName: 'group_message_history',
+        indexName: 'idx_group_history_id',
+        ddl: 'ALTER TABLE group_message_history ADD INDEX idx_group_history_id (group_id, id)'
+      },
+      {
+        tableName: 'group_message_history',
+        indexName: 'idx_group_message_id_lookup',
+        ddl: 'ALTER TABLE group_message_history ADD INDEX idx_group_message_id_lookup (group_id, message_id, id)'
+      },
+      {
+        tableName: 'private_message_history',
+        indexName: 'idx_user_history_id',
+        ddl: 'ALTER TABLE private_message_history ADD INDEX idx_user_history_id (user_id, id)'
+      },
+      {
+        tableName: 'private_message_history',
+        indexName: 'idx_private_message_id_lookup',
+        ddl: 'ALTER TABLE private_message_history ADD INDEX idx_private_message_id_lookup (user_id, message_id, id)'
+      },
+      {
+        tableName: 'conversation_batches',
+        indexName: 'idx_source_created_at_id',
+        ddl: 'ALTER TABLE conversation_batches ADD INDEX idx_source_created_at_id (source_key, created_at, id)'
+      },
+      {
+        tableName: 'conversations',
+        indexName: 'idx_batch_created_at_id',
+        ddl: 'ALTER TABLE conversations ADD INDEX idx_batch_created_at_id (batch_id, created_at, id)'
+      },
+      {
+        tableName: 'llm_tools',
+        indexName: 'idx_enabled_total_calls_success_calls_id',
+        ddl: 'ALTER TABLE llm_tools ADD INDEX idx_enabled_total_calls_success_calls_id (enabled, total_calls, success_calls, id)'
+      }
+    ];
+
+    for (const index of indexes) {
+      await this.ensureIndex(index.tableName, index.indexName, index.ddl);
+    }
+
+    this.operationalIndexesEnsured = true;
   }
 
   public async upsertPrivateChatSettings(userId: number, updates: Record<string, any>): Promise<boolean> {

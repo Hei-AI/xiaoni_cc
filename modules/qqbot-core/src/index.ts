@@ -693,6 +693,7 @@ class QQBot implements BatchHandler {
       if (!dbConnected) {
         throw new Error('Database connection failed');
       }
+      await this.database.ensureOperationalIndexes();
       this.moduleLogger.info('✅ Database connected');
 
       // 启动HTTP服务器
