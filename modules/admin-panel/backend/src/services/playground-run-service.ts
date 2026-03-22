@@ -3,16 +3,20 @@ import winston from 'winston';
 import { DatabaseManager } from './database';
 import { PlaygroundCaseBuilder } from './playground-case-builder';
 import {
+  PlaygroundBaselineSnapshot,
   PlaygroundCase,
   PlaygroundComparison,
+  PlaygroundExecutionMode,
   PlaygroundPromptInput,
   PlaygroundPromptMode,
   PlaygroundProviderConfig,
+  PlaygroundRequestPatch,
   PlaygroundRun
 } from '../types/playground';
 
 type RunExecutionInput = {
   caseId: string;
+  executionMode?: PlaygroundExecutionMode;
   promptMode: PlaygroundPromptMode;
   promptId?: string | null;
   providerConfig: PlaygroundProviderConfig;
@@ -34,6 +38,19 @@ type PromptRecord = {
   model_name?: string | null;
 };
 
+type PromptExecutionState = {
+  resolvedPrompt: PromptRecord | null;
+  renderedPromptInput: PlaygroundPromptInput;
+  promptSnapshot: {
+    mode: PlaygroundPromptMode;
+    promptId: string | null;
+    promptName: string | null;
+    systemInstruction: string;
+    userPromptTemplate: string | null;
+    contextVariables: Record<string, unknown>;
+  };
+};
+
 function parseJsonField<T>(value: unknown, fallback: T): T {
   if (value === null || value === undefined) {
     return fallback;
@@ -53,6 +70,39 @@ function parseJsonField<T>(value: unknown, fallback: T): T {
 
 function stringify(value: unknown): string {
   return JSON.stringify(value ?? null);
+}
+
+function deepEqual(left: unknown, right: unknown): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (left === null || right === null || left === undefined || right === undefined) {
+    return left === right;
+  }
+
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+
+    return left.every((item, index) => deepEqual(item, right[index]));
+  }
+
+  if (typeof left === 'object' && typeof right === 'object') {
+    const leftRecord = left as Record<string, unknown>;
+    const rightRecord = right as Record<string, unknown>;
+    const leftKeys = Object.keys(leftRecord).sort();
+    const rightKeys = Object.keys(rightRecord).sort();
+
+    if (leftKeys.length !== rightKeys.length) {
+      return false;
+    }
+
+    return leftKeys.every((key, index) => key === rightKeys[index] && deepEqual(leftRecord[key], rightRecord[key]));
+  }
+
+  return false;
 }
 
 function parseSystemInstructions(value: unknown): string {
@@ -94,7 +144,11 @@ function applyContextVariables(
 }
 
 function normalizeProvider(provider: PlaygroundProviderConfig['provider']): PlaygroundProviderConfig['provider'] {
-  return provider || 'google-gemini-cli';
+  const normalized = (provider || '').trim().toLowerCase();
+  if (normalized === 'openai') return 'openai';
+  if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
+  if (normalized === 'google-legacy' || normalized === 'google' || normalized === 'gemini-api') return 'google-legacy';
+  return 'google-gemini-cli';
 }
 
 function defaultModelForProvider(provider: PlaygroundProviderConfig['provider']): string {
@@ -109,6 +163,105 @@ function defaultModelForProvider(provider: PlaygroundProviderConfig['provider'])
     default:
       return 'gemini-2.5-flash';
   }
+}
+
+function normalizePromptMessages(messages: PlaygroundPromptInput['messages']): PlaygroundPromptInput['messages'] {
+  return messages
+    .map((message): PlaygroundPromptInput['messages'][number] => ({
+      role: message.role === 'assistant'
+        ? 'assistant'
+        : message.role === 'system'
+          ? 'system'
+          : 'user',
+      content: typeof message.content === 'string' ? message.content : ''
+    }))
+    .filter((message) => message.content.trim().length > 0);
+}
+
+function buildOpenResponseInput(messages: PlaygroundPromptInput['messages']): Array<Record<string, unknown>> {
+  return normalizePromptMessages(messages).map((message) => ({
+    type: 'message',
+    role: message.role === 'system' ? 'developer' : message.role,
+    content: [
+      {
+        type: 'input_text',
+        text: message.content
+      }
+    ]
+  }));
+}
+
+function extractOpenResponseMessageText(content: unknown): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return '';
+  }
+
+  return content
+    .map((part) => (typeof (part as { text?: unknown })?.text === 'string' ? (part as { text: string }).text : ''))
+    .filter(Boolean)
+    .join('\n');
+}
+
+function isSystemInstructionShadowMessage(item: Record<string, unknown>, baselineInstructions: string): boolean {
+  const normalizedInstructions = baselineInstructions.trim();
+  if (!normalizedInstructions) {
+    return false;
+  }
+
+  const role = typeof item.role === 'string' ? item.role : '';
+  if (role !== 'developer' && role !== 'system') {
+    return false;
+  }
+
+  return extractOpenResponseMessageText(item.content).trim() === normalizedInstructions;
+}
+
+function mergePatchedOpenResponseInput(
+  baselineInput: unknown,
+  messages: PlaygroundPromptInput['messages'],
+  baselineInstructions: string,
+  systemInstruction: string
+): Array<Record<string, unknown>> {
+  const nextMessages = buildOpenResponseInput(messages);
+  const nextSystemShadow = buildOpenResponseInput([{ role: 'system', content: systemInstruction }])[0] || null;
+  const items = Array.isArray(baselineInput) ? baselineInput : [];
+
+  if (items.length === 0) {
+    return nextMessages;
+  }
+
+  const merged: Array<Record<string, unknown>> = [];
+  let messageIndex = 0;
+
+  for (const item of items) {
+    if (item && typeof item === 'object' && (item as { type?: string }).type === 'message') {
+      if (isSystemInstructionShadowMessage(item as Record<string, unknown>, baselineInstructions)) {
+        if (nextSystemShadow) {
+          merged.push(nextSystemShadow);
+        }
+        continue;
+      }
+
+      if (messageIndex < nextMessages.length) {
+        merged.push(nextMessages[messageIndex]);
+        messageIndex += 1;
+      }
+      continue;
+    }
+
+    merged.push(item as Record<string, unknown>);
+  }
+
+  while (messageIndex < nextMessages.length) {
+    merged.push(nextMessages[messageIndex]);
+    messageIndex += 1;
+  }
+
+  return merged;
 }
 
 function tokenize(value: string): string[] {
@@ -182,60 +335,14 @@ export class PlaygroundRunService {
       throw new Error(`Playground case not found: ${input.caseId}`);
     }
 
+    if (caseRecord.source === 'span' && caseRecord.baselineSnapshot?.canonicalRequest) {
+      return this.createSpanReplayRun(caseRecord, input);
+    }
+
     const provider = normalizeProvider(input.providerConfig.provider);
-    const resolvedPrompt = input.promptMode === 'saved'
-      ? await this.loadPrompt(input.promptId || caseRecord.promptId || null)
-      : null;
-
-    const runtimeVariables = {
-      conversation_id: caseRecord.traceContext.conversationId || caseRecord.sourceRef,
-      trace_id: caseRecord.traceContext.traceId || null,
-      prompt_case_id: caseRecord.id
-    };
-
-    const renderedSystemInstruction = input.promptMode === 'saved' && resolvedPrompt
-      ? applyContextVariables(
-          parseSystemInstructions(resolvedPrompt.system_instructions),
-          parseJsonField<Record<string, unknown>>(resolvedPrompt.context_variables, {}),
-          runtimeVariables
-        )
-      : applyContextVariables(
-          input.draftPrompt?.systemInstruction || input.promptInput.systemInstruction,
-          input.draftPrompt?.contextVariables || input.promptInput.contextVariables,
-          runtimeVariables
-        );
-
-    const userTemplate = input.promptMode === 'saved'
-      ? resolvedPrompt?.user_prompt_template || null
-      : input.draftPrompt?.userPromptTemplate || null;
-    const messageContext = input.promptMode === 'saved' && resolvedPrompt
-      ? parseJsonField<Record<string, unknown>>(resolvedPrompt.context_variables, {})
-      : (input.draftPrompt?.contextVariables || input.promptInput.contextVariables);
-
-    const renderedMessages = input.promptInput.messages.map((message) => {
-      if (message.role !== 'user' || !userTemplate) {
-        return message;
-      }
-
-      return {
-        ...message,
-        content: applyContextVariables(userTemplate, messageContext, {
-          ...runtimeVariables,
-          user_input: message.content
-        })
-      };
-    });
-
-    const modelName = this.resolveModelName(provider, input.providerConfig, resolvedPrompt);
+    const promptExecution = await this.resolvePromptExecutionState(caseRecord, input);
+    const modelName = this.resolveModelName(provider, input.providerConfig, promptExecution.resolvedPrompt);
     const parameters = this.buildParameters(input.providerConfig);
-    const promptSnapshot = {
-      mode: input.promptMode,
-      promptId: resolvedPrompt?.id || input.promptId || null,
-      promptName: resolvedPrompt?.prompt_name || null,
-      systemInstruction: renderedSystemInstruction,
-      userPromptTemplate: userTemplate,
-      contextVariables: messageContext
-    };
 
     const response = await fetch(`${this.qqbotCoreUrl}/api/internal/llm/debug`, {
       method: 'POST',
@@ -243,8 +350,8 @@ export class PlaygroundRunService {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        systemPrompt: renderedSystemInstruction,
-        messages: renderedMessages,
+        systemPrompt: promptExecution.renderedPromptInput.systemInstruction,
+        messages: promptExecution.renderedPromptInput.messages,
         parameters,
         model: modelName,
         conversation_id: caseRecord.traceContext.conversationId || caseRecord.sourceRef
@@ -256,8 +363,8 @@ export class PlaygroundRunService {
       const failureRun = await this.persistRun({
         caseRecord,
         promptMode: input.promptMode,
-        promptId: resolvedPrompt?.id || input.promptId || null,
-        promptSnapshot,
+        promptId: promptExecution.promptSnapshot.promptId,
+        promptSnapshot: promptExecution.promptSnapshot,
         providerConfig: input.providerConfig,
         promptInput: input.promptInput,
         outputSnapshot: {
@@ -293,8 +400,8 @@ export class PlaygroundRunService {
     return this.persistRun({
       caseRecord,
       promptMode: input.promptMode,
-      promptId: resolvedPrompt?.id || input.promptId || null,
-      promptSnapshot,
+      promptId: promptExecution.promptSnapshot.promptId,
+      promptSnapshot: promptExecution.promptSnapshot,
       providerConfig: input.providerConfig,
       promptInput: input.promptInput,
       outputSnapshot: {
@@ -327,6 +434,7 @@ export class PlaygroundRunService {
 
     return this.createRun({
       caseId: sourceRun.caseId,
+      executionMode: sourceRun.executionMode,
       promptMode: sourceRun.promptMode,
       promptId: sourceRun.promptId || null,
       providerConfig: sourceRun.providerConfigSnapshot,
@@ -349,15 +457,219 @@ export class PlaygroundRunService {
     });
   }
 
+  private async resolvePromptExecutionState(
+    caseRecord: PlaygroundCase,
+    input: RunExecutionInput
+  ): Promise<PromptExecutionState> {
+    const resolvedPrompt = input.promptMode === 'saved'
+      ? await this.loadPrompt(input.promptId || caseRecord.promptId || null)
+      : null;
+
+    const runtimeVariables = {
+      conversation_id: caseRecord.traceContext.conversationId || caseRecord.sourceRef,
+      trace_id: caseRecord.traceContext.traceId || null,
+      prompt_case_id: caseRecord.id
+    };
+
+    const savedPromptBaseContext = resolvedPrompt
+      ? parseJsonField<Record<string, unknown>>(resolvedPrompt.context_variables, {})
+      : {};
+    const currentContextVariables = input.draftPrompt?.contextVariables || input.promptInput.contextVariables || {};
+    const hasSavedPromptInstructionOverride =
+      input.promptMode === 'saved'
+      && resolvedPrompt
+      && input.promptInput.systemInstruction !== caseRecord.promptInput.systemInstruction;
+    const hasSavedPromptContextOverride =
+      input.promptMode === 'saved'
+      && resolvedPrompt
+      && !deepEqual(currentContextVariables, caseRecord.promptInput.contextVariables || {});
+    const messageContext = input.promptMode === 'saved' && resolvedPrompt
+      ? (hasSavedPromptContextOverride ? currentContextVariables : savedPromptBaseContext)
+      : currentContextVariables;
+    const systemInstructionTemplate = input.promptMode === 'saved' && resolvedPrompt
+      ? (
+          hasSavedPromptInstructionOverride
+            ? input.promptInput.systemInstruction
+            : parseSystemInstructions(resolvedPrompt.system_instructions)
+        )
+      : (input.draftPrompt?.systemInstruction || input.promptInput.systemInstruction);
+    const renderedSystemInstruction = applyContextVariables(
+      systemInstructionTemplate,
+      messageContext,
+      runtimeVariables
+    );
+
+    const userTemplate = input.promptMode === 'saved'
+      ? resolvedPrompt?.user_prompt_template || null
+      : input.draftPrompt?.userPromptTemplate || null;
+
+    const renderedMessages = input.promptInput.messages.map((message) => {
+      if (message.role !== 'user' || !userTemplate) {
+        return message;
+      }
+
+      return {
+        ...message,
+        content: applyContextVariables(userTemplate, messageContext, {
+          ...runtimeVariables,
+          user_input: message.content
+        })
+      };
+    });
+
+    return {
+      resolvedPrompt,
+      renderedPromptInput: {
+        systemInstruction: renderedSystemInstruction,
+        messages: renderedMessages,
+        contextVariables: messageContext
+      },
+      promptSnapshot: {
+        mode: input.promptMode,
+        promptId: resolvedPrompt?.id || input.promptId || null,
+        promptName: resolvedPrompt?.prompt_name || null,
+        systemInstruction: renderedSystemInstruction,
+        userPromptTemplate: userTemplate,
+        contextVariables: messageContext
+      }
+    };
+  }
+
+  private async createSpanReplayRun(caseRecord: PlaygroundCase, input: RunExecutionInput): Promise<PlaygroundRun> {
+    const baselineSnapshot = caseRecord.baselineSnapshot;
+    if (!baselineSnapshot?.canonicalRequest) {
+      throw new Error(`Playground case ${caseRecord.id} is missing a baseline snapshot`);
+    }
+
+    const promptExecution = await this.resolvePromptExecutionState(caseRecord, input);
+    const requestPatch = this.buildRequestPatch(
+      baselineSnapshot,
+      promptExecution.renderedPromptInput,
+      input.providerConfig
+    );
+    const executionMode: PlaygroundExecutionMode = input.executionMode
+      || (Object.keys(requestPatch).length === 0 ? 'exact_replay' : 'patched_replay');
+    const effectiveRequest = executionMode === 'exact_replay'
+      ? baselineSnapshot.canonicalRequest
+      : this.applyPatchToCanonicalRequest(baselineSnapshot.canonicalRequest, requestPatch);
+    const effectiveConfig = this.buildEffectiveConfigOverride(baselineSnapshot, input.providerConfig, requestPatch);
+    const modelName = this.resolveReplayModelName(baselineSnapshot, input.providerConfig);
+    const provider = normalizeProvider(input.providerConfig.provider);
+
+    const response = await fetch(`${this.qqbotCoreUrl}/api/internal/llm/debug`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        executionMode,
+        canonicalRequest: effectiveRequest,
+        configOverride: effectiveConfig,
+        conversation_id: caseRecord.traceContext.conversationId || caseRecord.sourceRef
+      })
+    });
+
+    const payload = await response.json() as Record<string, unknown>;
+    if (!response.ok || payload.success !== true) {
+      return this.persistRun({
+        caseRecord,
+        executionMode,
+        promptMode: input.promptMode,
+        promptId: promptExecution.promptSnapshot.promptId,
+        promptSnapshot: promptExecution.promptSnapshot,
+        providerConfig: input.providerConfig,
+        promptInput: input.promptInput,
+        baselineSnapshot,
+        requestPatch,
+        effectiveRequest,
+        effectiveConfig,
+        outputSnapshot: {
+          error: payload.error || payload.message || `HTTP ${response.status}`
+        },
+        comparisonSnapshot: {
+          hasBaseline: Boolean(caseRecord.baselineOutput?.responseText),
+          match: false,
+          similarity: 0,
+          diffCount: 0,
+          baselineText: caseRecord.baselineOutput?.responseText || '',
+          currentText: ''
+        },
+        diffSnapshot: {
+          requestPatch,
+          baselineRequest: baselineSnapshot.canonicalRequest,
+          effectiveRequest
+        },
+        modelName,
+        provider,
+        status: 'failed',
+        executedBy: input.executedBy || 'admin'
+      });
+    }
+
+    const outputText = typeof payload.response === 'string' ? payload.response : '';
+    const previousRun = (await this.caseBuilder.listRunsByCase(caseRecord.id))[0];
+    const comparison = buildComparison(
+      caseRecord.baselineOutput?.responseText,
+      outputText,
+      typeof previousRun?.outputSnapshot?.responseText === 'string'
+        ? previousRun.outputSnapshot.responseText
+        : undefined
+    );
+
+    return this.persistRun({
+      caseRecord,
+      executionMode,
+      promptMode: input.promptMode,
+      promptId: promptExecution.promptSnapshot.promptId,
+      promptSnapshot: promptExecution.promptSnapshot,
+      providerConfig: input.providerConfig,
+      promptInput: input.promptInput,
+      baselineSnapshot,
+      requestPatch,
+      effectiveRequest,
+      effectiveConfig,
+      outputSnapshot: {
+        responseText: outputText,
+        thinking: typeof payload.thinking === 'string' ? payload.thinking : '',
+        usage: parseJsonField<Record<string, unknown>>(payload.usage, {}),
+        performance: parseJsonField<Record<string, unknown>>(payload.performance, {}),
+        provider: typeof payload.provider === 'string' ? payload.provider : provider,
+        modelName: typeof payload.model === 'string' ? payload.model : modelName,
+        canonicalRequest: payload.canonical_request || effectiveRequest,
+        wireRequest: payload.wire_request || null,
+        canonicalResponse: payload.canonical_response || null,
+        wireResponse: payload.wire_response || null,
+        rawResponse: payload.raw_response || null,
+        metadata: parseJsonField<Record<string, unknown>>(payload.debug_metadata, {})
+      },
+      comparisonSnapshot: comparison,
+      diffSnapshot: {
+        requestPatch,
+        baselineRequest: baselineSnapshot.canonicalRequest,
+        effectiveRequest
+      },
+      modelName: typeof payload.model === 'string' ? payload.model : modelName,
+      provider: typeof payload.provider === 'string' ? payload.provider : provider,
+      status: 'completed',
+      executedBy: input.executedBy || 'admin'
+    });
+  }
+
   private async persistRun(params: {
     caseRecord: PlaygroundCase;
+    executionMode?: PlaygroundExecutionMode;
     promptMode: PlaygroundPromptMode;
     promptId?: string | null;
     promptSnapshot: Record<string, unknown>;
     providerConfig: PlaygroundProviderConfig;
     promptInput: PlaygroundPromptInput;
+    baselineSnapshot?: PlaygroundBaselineSnapshot | null;
+    requestPatch?: PlaygroundRequestPatch | null;
+    effectiveRequest?: Record<string, unknown> | null;
+    effectiveConfig?: Record<string, unknown> | null;
     outputSnapshot: Record<string, unknown>;
     comparisonSnapshot: Record<string, unknown> | PlaygroundComparison;
+    diffSnapshot?: Record<string, unknown> | null;
     modelName: string;
     provider: string;
     status: 'completed' | 'failed';
@@ -368,21 +680,28 @@ export class PlaygroundRunService {
     await this.db.executeInsert(
       `
         INSERT INTO playground_runs (
-          id, case_id, prompt_mode, prompt_id, prompt_snapshot, provider_config_snapshot,
-          input_snapshot, output_snapshot, comparison_snapshot, model_name, provider,
+          id, case_id, execution_mode, prompt_mode, prompt_id, prompt_snapshot, provider_config_snapshot,
+          input_snapshot, baseline_snapshot, request_patch, effective_request, effective_config,
+          output_snapshot, comparison_snapshot, diff_snapshot, model_name, provider,
           status, executed_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         runId,
         params.caseRecord.id,
+        params.executionMode || 'exact_replay',
         params.promptMode,
         params.promptId || null,
         stringify(params.promptSnapshot),
         stringify(params.providerConfig),
         stringify(params.promptInput),
+        stringify(params.baselineSnapshot || null),
+        stringify(params.requestPatch || null),
+        stringify(params.effectiveRequest || null),
+        stringify(params.effectiveConfig || null),
         stringify(params.outputSnapshot),
         stringify(params.comparisonSnapshot),
+        stringify(params.diffSnapshot || null),
         params.modelName,
         params.provider,
         params.status,
@@ -447,5 +766,188 @@ export class PlaygroundRunService {
       [promptId]
     );
     return rows[0] || null;
+  }
+
+  private buildRequestPatch(
+    baselineSnapshot: PlaygroundBaselineSnapshot,
+    promptInput: PlaygroundPromptInput,
+    providerConfig: PlaygroundProviderConfig
+  ): PlaygroundRequestPatch {
+    const baselineRequest = baselineSnapshot.canonicalRequest || {};
+    const baselineInput = this.extractPromptInputFromBaseline(baselineRequest);
+    const patch: PlaygroundRequestPatch = {};
+
+    if (promptInput.systemInstruction !== baselineInput.systemInstruction) {
+      patch.instructions = promptInput.systemInstruction;
+    }
+    if (!deepEqual(promptInput.messages, baselineInput.messages)) {
+      patch.input = mergePatchedOpenResponseInput(
+        baselineRequest.input,
+        promptInput.messages,
+        baselineInput.systemInstruction,
+        promptInput.systemInstruction
+      );
+    }
+
+    const currentTools = providerConfig.tools || {};
+    const baselineTools = {
+      definitions: Array.isArray(baselineRequest.tools) ? baselineRequest.tools : [],
+      toolChoice: baselineRequest.tool_choice ?? null
+    };
+    if (!deepEqual(currentTools, baselineTools)) {
+      patch.tools = (currentTools as any).definitions ?? currentTools;
+      patch.tool_choice = (currentTools as any).toolChoice ?? null;
+    }
+
+    const fieldMappings: Array<[keyof PlaygroundRequestPatch, unknown, unknown]> = [
+      ['temperature', providerConfig.generation.temperature, baselineRequest.temperature],
+      ['top_p', providerConfig.generation.topP, baselineRequest.top_p],
+      ['max_output_tokens', providerConfig.generation.maxOutputTokens, baselineRequest.max_output_tokens],
+      ['stop', providerConfig.generation.stop, baselineRequest.stop]
+    ];
+    fieldMappings.forEach(([field, nextValue, baselineValue]) => {
+      if (!deepEqual(nextValue, baselineValue) && nextValue !== undefined) {
+        (patch as any)[field] = nextValue;
+      }
+    });
+
+    const nextProvider = providerConfig.provider || undefined;
+    const baselineProvider = normalizeProvider(
+      typeof (baselineSnapshot.effectiveUnifiedConfig as any)?.model?.provider === 'string'
+        ? (baselineSnapshot.effectiveUnifiedConfig as any).model.provider
+        : ((baselineSnapshot.provider as PlaygroundProviderConfig['provider']) || 'google-gemini-cli')
+    );
+    if (nextProvider && nextProvider !== baselineProvider) {
+      patch.provider = nextProvider;
+    }
+
+    const nextModelName = typeof providerConfig.context?.modelName === 'string' ? providerConfig.context.modelName : null;
+    if (nextModelName && nextModelName !== baselineSnapshot.modelName) {
+      patch.modelName = nextModelName;
+    }
+
+    const baselineProviderSpecific = parseJsonField<Record<string, unknown>>(
+      (baselineSnapshot.effectiveUnifiedConfig as any)?.model?.providerSpecific,
+      {}
+    );
+    if (!deepEqual(providerConfig.providerSpecific || {}, baselineProviderSpecific)) {
+      patch.providerSpecific = providerConfig.providerSpecific || {};
+    }
+
+    return patch;
+  }
+
+  private extractPromptInputFromBaseline(canonicalRequest: Record<string, unknown>): PlaygroundPromptInput {
+    const instructions = typeof canonicalRequest.instructions === 'string' ? canonicalRequest.instructions : '';
+    const normalizedInstructions = instructions.trim();
+    const items = Array.isArray(canonicalRequest.input) ? canonicalRequest.input : [];
+    const messages = normalizePromptMessages(items
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && (item as any).type === 'message'))
+      .map((item) => ({
+        role: (item.role === 'assistant'
+          ? 'assistant'
+          : item.role === 'developer' || item.role === 'system'
+            ? 'system'
+            : 'user') as 'assistant' | 'system' | 'user',
+        content: Array.isArray(item.content)
+          ? extractOpenResponseMessageText(item.content)
+          : typeof item.content === 'string'
+            ? item.content
+            : ''
+      }))
+      .filter((message) => {
+        if (message.role !== 'system' || !normalizedInstructions) {
+          return true;
+        }
+
+        return message.content.trim() !== normalizedInstructions;
+      }));
+
+    return {
+      systemInstruction: instructions,
+      messages,
+      contextVariables: {}
+    };
+  }
+
+  private applyPatchToCanonicalRequest(
+    baselineRequest: Record<string, unknown>,
+    patch: PlaygroundRequestPatch
+  ): Record<string, unknown> {
+    const nextRequest = JSON.parse(JSON.stringify(baselineRequest || {})) as Record<string, unknown>;
+
+    if (patch.instructions !== undefined) {
+      nextRequest.instructions = patch.instructions;
+    }
+    if (patch.input !== undefined) {
+      nextRequest.input = patch.input;
+    }
+    if (patch.tools !== undefined) {
+      nextRequest.tools = patch.tools;
+    }
+    if (patch.tool_choice !== undefined) {
+      nextRequest.tool_choice = patch.tool_choice;
+    }
+    if (patch.max_output_tokens !== undefined) {
+      nextRequest.max_output_tokens = patch.max_output_tokens;
+    }
+    if (patch.temperature !== undefined) {
+      nextRequest.temperature = patch.temperature;
+    }
+    if (patch.top_p !== undefined) {
+      nextRequest.top_p = patch.top_p;
+    }
+    if (patch.stop !== undefined) {
+      nextRequest.stop = patch.stop;
+    }
+    if (patch.modelName) {
+      nextRequest.model = patch.modelName;
+    }
+
+    return nextRequest;
+  }
+
+  private buildEffectiveConfigOverride(
+    baselineSnapshot: PlaygroundBaselineSnapshot,
+    providerConfig: PlaygroundProviderConfig,
+    patch: PlaygroundRequestPatch
+  ): Record<string, unknown> | null {
+    const baseConfig = parseJsonField<Record<string, unknown> | null>(baselineSnapshot.effectiveUnifiedConfig, null);
+    if (!baseConfig) {
+      return null;
+    }
+
+    const nextConfig = JSON.parse(JSON.stringify(baseConfig)) as Record<string, unknown>;
+    const nextModel = parseJsonField<Record<string, unknown>>(nextConfig.model, {});
+    const nextGeneration = parseJsonField<Record<string, unknown>>(nextConfig.generation, {});
+    const nextThinking = parseJsonField<Record<string, unknown>>(nextConfig.thinking, {});
+    nextModel.name = patch.modelName || providerConfig.context?.modelName || baselineSnapshot.modelName || nextModel.name;
+    nextModel.provider = patch.provider || providerConfig.provider || nextModel.provider;
+    nextModel.providerSpecific = providerConfig.providerSpecific || nextModel.providerSpecific || {};
+    nextConfig.model = nextModel;
+    nextConfig.generation = {
+      ...nextGeneration,
+      ...(providerConfig.generation || {})
+    };
+    if ((nextConfig.generation as Record<string, unknown>).stop !== undefined) {
+      (nextConfig.generation as Record<string, unknown>).stopSequences = (nextConfig.generation as Record<string, unknown>).stop;
+      delete (nextConfig.generation as Record<string, unknown>).stop;
+    }
+    nextConfig.thinking = {
+      ...nextThinking,
+      ...(providerConfig.thinking || {})
+    };
+    nextConfig.safety = providerConfig.safety || [];
+    nextConfig.tools = providerConfig.tools || {};
+    return nextConfig;
+  }
+
+  private resolveReplayModelName(
+    baselineSnapshot: PlaygroundBaselineSnapshot,
+    providerConfig: PlaygroundProviderConfig
+  ): string {
+    return typeof providerConfig.context?.modelName === 'string' && providerConfig.context.modelName.trim().length > 0
+      ? providerConfig.context.modelName
+      : baselineSnapshot.modelName || defaultModelForProvider(providerConfig.provider);
   }
 }
