@@ -9,6 +9,7 @@ import sys
 import time
 import json
 import signal
+import shlex
 import psutil
 import socket
 import subprocess
@@ -51,31 +52,119 @@ class Logger:
 class ModuleManager:
     def __init__(self):
         self.project_root = Path(__file__).parent.parent
+        self.root_project = {
+            'name': 'Repository Root',
+            'path': '.',
+            'install_check_packages': ['axios', 'mysql2']
+        }
         self.modules = [
             {
                 'name': 'QQBot Core',
                 'path': 'modules/qqbot-core', 
                 'port': 8081,
                 'health_endpoint': '/health',
-                'npm_script': 'dev'
+                'npm_script': 'dev',
+                'install_check_packages': ['express', 'ts-node']
             },
             {
                 'name': 'Admin Backend',
                 'path': 'modules/admin-panel/backend',
                 'port': 9080,
                 'health_endpoint': '/health', 
-                'npm_script': 'dev'
+                'npm_script': 'dev',
+                'install_check_packages': ['express', 'ts-node']
             },
             {
                 'name': 'Admin Frontend',
                 'path': 'modules/admin-panel/frontend',
                 'port': 3003,
                 'health_endpoint': '/',
-                'npm_script': 'dev'
+                'npm_script': 'dev',
+                'install_check_packages': ['vite', 'react']
             }
         ]
         self.processes = {}
         self.pid_file = self.project_root / 'scripts' / 'module_pids.json'
+
+    def _package_dir(self, node_modules: Path, package_name: str) -> Path:
+        if package_name.startswith('@'):
+            scope, scoped_name = package_name.split('/', 1)
+            return node_modules / scope / scoped_name
+        return node_modules / package_name
+
+    def _has_valid_install(self, project_path: Path, package_names: List[str]) -> bool:
+        node_modules = project_path / 'node_modules'
+        if not node_modules.is_dir():
+            return False
+
+        return all(self._package_dir(node_modules, package_name).exists() for package_name in package_names)
+
+    def _install_command(self, project_path: Path) -> List[str]:
+        lockfile = project_path / 'package-lock.json'
+        if lockfile.exists():
+            return ['npm', 'ci', '--include=dev', '--no-audit', '--no-fund']
+        return ['npm', 'install', '--no-audit', '--no-fund']
+
+    def _quarantine_node_modules(self, project_path: Path) -> Optional[Path]:
+        node_modules = project_path / 'node_modules'
+        if not node_modules.exists():
+            return None
+
+        stale_path = project_path / f"node_modules.stale-{int(time.time())}"
+        node_modules.rename(stale_path)
+        return stale_path
+
+    def _install_project_dependencies(self, project: Dict) -> bool:
+        project_path = self.project_root / project['path']
+        command = self._install_command(project_path)
+        Logger.info(f"安装 {project['name']} 依赖: {' '.join(shlex.quote(part) for part in command)}")
+
+        try:
+            result = subprocess.run(
+                command,
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=600
+            )
+
+            if result.returncode != 0:
+                stderr = result.stderr.strip()
+
+                # Historical root-owned node_modules can block npm ci cleanup.
+                if 'EACCES' in stderr and command[1] == 'ci':
+                    stale_path = self._quarantine_node_modules(project_path)
+                    if stale_path is not None:
+                        Logger.warn(
+                            f"{project['name']} 现有 node_modules 权限异常，已隔离到 {stale_path.name} 后重试"
+                        )
+                        retry = subprocess.run(
+                            command,
+                            cwd=project_path,
+                            capture_output=True,
+                            text=True,
+                            timeout=600
+                        )
+                        if retry.returncode == 0 and self._has_valid_install(project_path, project['install_check_packages']):
+                            Logger.success(f"{project['name']} 依赖安装完成")
+                            return True
+                        stderr = retry.stderr.strip()
+
+                Logger.error(f"{project['name']} 依赖安装失败: {stderr}")
+                return False
+
+            if not self._has_valid_install(project_path, project['install_check_packages']):
+                Logger.error(f"{project['name']} 依赖安装后校验失败，node_modules 不完整")
+                return False
+
+            Logger.success(f"{project['name']} 依赖安装完成")
+            return True
+        except subprocess.TimeoutExpired:
+            Logger.error(f"{project['name']} 依赖安装超时")
+            return False
+        except Exception as e:
+            Logger.error(f"{project['name']} 依赖安装异常: {e}")
+            return False
         
     def cleanup_ports(self) -> None:
         """清理端口占用"""
@@ -140,12 +229,12 @@ class ModuleManager:
                 Logger.error(f"{module['name']} package.json 不存在")
                 return False
             
-            if not node_modules.exists():
-                Logger.warn(f"{module['name']} 缺少依赖，需要运行 npm install")
+            if not self._has_valid_install(module_path, module['install_check_packages']):
+                Logger.warn(f"{module['name']} 缺少有效依赖安装，需要运行 npm run install:all")
                 missing_deps.append(module)
         
         if missing_deps:
-            Logger.warn("发现缺少依赖的模块，建议运行: python scripts/start_modules.py install")
+            Logger.warn("发现缺少依赖的模块，建议运行: npm run install:all")
             return False
         
         Logger.info("依赖检查完成")
@@ -153,37 +242,18 @@ class ModuleManager:
     
     def install_dependencies(self) -> bool:
         """并行安装所有模块依赖"""
-        Logger.step("开始并行安装依赖...")
-        
-        def install_module_deps(module):
-            module_path = self.project_root / module['path']
-            Logger.info(f"安装 {module['name']} 依赖...")
-            
-            try:
-                result = subprocess.run(
-                    ['npm', 'install'],
-                    cwd=module_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=300
-                )
-                
-                if result.returncode == 0:
-                    Logger.success(f"{module['name']} 依赖安装完成")
-                    return True
-                else:
-                    Logger.error(f"{module['name']} 依赖安装失败: {result.stderr}")
-                    return False
-            except subprocess.TimeoutExpired:
-                Logger.error(f"{module['name']} 依赖安装超时")
-                return False
-            except Exception as e:
-                Logger.error(f"{module['name']} 依赖安装异常: {e}")
-                return False
+        Logger.step("开始安装根仓库与模块依赖...")
+
+        if not self._install_project_dependencies(self.root_project):
+            Logger.error("根仓库依赖安装失败")
+            return False
         
         # 并行安装
         with ThreadPoolExecutor(max_workers=len(self.modules)) as executor:
-            futures = {executor.submit(install_module_deps, module): module for module in self.modules}
+            futures = {
+                executor.submit(self._install_project_dependencies, module): module
+                for module in self.modules
+            }
             
             success_count = 0
             for future in as_completed(futures):

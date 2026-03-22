@@ -50,24 +50,45 @@ class ProcessManager {
         name: 'QQBot Core',
         path: 'modules/qqbot-core',
         port: 8081,
-        script: 'dev'
+        script: 'dev',
+        installCheckPackages: ['express', 'ts-node']
       },
       {
         name: 'Admin Backend',
         path: 'modules/admin-panel/backend',
         port: 9080,
-        script: 'dev'
+        script: 'dev',
+        installCheckPackages: ['express', 'ts-node']
       },
       {
         name: 'Admin Frontend',
         path: 'modules/admin-panel/frontend',
         port: 3003,
-        script: 'dev'
+        script: 'dev',
+        installCheckPackages: ['vite', 'react']
       }
     ];
     
     this.processes = new Map();
     this.pidFile = path.join(__dirname, 'processes.json');
+  }
+
+  packageDir(nodeModulesPath, packageName) {
+    if (packageName.startsWith('@')) {
+      const [scope, scopedName] = packageName.split('/');
+      return path.join(nodeModulesPath, scope, scopedName);
+    }
+
+    return path.join(nodeModulesPath, packageName);
+  }
+
+  hasValidInstall(modulePath, packageNames) {
+    const nodeModules = path.join(modulePath, 'node_modules');
+    if (!fs.existsSync(nodeModules)) {
+      return false;
+    }
+
+    return packageNames.every(packageName => fs.existsSync(this.packageDir(nodeModules, packageName)));
   }
 
   // 检查端口是否被占用
@@ -153,15 +174,14 @@ class ProcessManager {
     for (const module of this.modules) {
       const modulePath = path.join(this.projectRoot, module.path);
       const packageJson = path.join(modulePath, 'package.json');
-      const nodeModules = path.join(modulePath, 'node_modules');
       
       if (!fs.existsSync(packageJson)) {
         Logger.error(`${module.name} package.json 不存在`);
         return false;
       }
       
-      if (!fs.existsSync(nodeModules)) {
-        Logger.warn(`${module.name} 缺少依赖，需要运行 npm install`);
+      if (!this.hasValidInstall(modulePath, module.installCheckPackages)) {
+        Logger.warn(`${module.name} 缺少有效依赖安装，需要运行 npm run install:all`);
         missingDeps.push(module);
       }
     }

@@ -16,11 +16,20 @@
 - Prompt management flow: prompt data is managed locally through MySQL and admin APIs; do not assume a separate function registry service exists.
 
 ## Build, Test, and Development Commands
+- `npm run install:all`: install root-level tooling plus all three Node modules using their own lockfiles.
+- `npm run build`, `npm run test`, `npm run lint`, `npm run clean`: orchestrate the retained modules from the repository root.
 - `docker compose build` then `docker compose up -d`: rebuild and launch the main stack.
 - `docker compose ps`, `docker compose stop`: inspect or stop running services.
 - `docker logs -f qqbot-qqbot-core`: follow core runtime logs.
 - `npm run dev:qqbot-core`, `npm run dev:admin-backend`, `npm run dev:admin-frontend`: local smoke runs for retained modules.
 - `python3 scripts/start_modules.py <install|start|stop|status>`: local multi-module orchestrator.
+
+## Dependency Management Conventions
+- The repository root is an orchestration layer, not an npm workspace. Do not add a `workspaces` field back to the root `package.json`.
+- `modules/qqbot-core`, `modules/admin-panel/backend`, and `modules/admin-panel/frontend` are independent Node projects. Each module owns its own `package.json`, `package-lock.json`, and `node_modules`.
+- Root-level commands must not rely on hoisted dependencies to satisfy module runtime or type resolution. If a module needs a package or `@types/*`, declare it in that module and install it in that module.
+- For local bootstrap, use `npm run install:all` from the repository root. For single-module work, use that module's own install/build/test commands inside the module directory.
+- When dependency manifests change, update the matching module `package-lock.json`. Root `package-lock.json` should only describe root-level tooling and scripts.
 
 ## Container Build Conventions
 - Node service images must use multi-stage Dockerfiles with explicit `deps -> build -> runtime` stages; production runtime images should contain only compiled artifacts, production dependencies, and required runtime scripts/assets.
@@ -34,6 +43,21 @@
 - Prefer TypeScript with two-space indentation and modern ES modules. Classes use PascalCase, functions and variables camelCase, environment variables SCREAMING_SNAKE_CASE.
 - Import shared logger utilities instead of `console.log`.
 - Keep changes incremental and avoid speculative abstractions.
+
+## Frontend Design Rules
+- Debug and observability pages must be designed around the user's real loop: `select an object -> inspect input/output/evidence -> decide -> move to the next object`. Do not turn these pages into long document-style dumps.
+- For object-driven debugging pages, the main area is for navigation and structure, while the detail panel is the single authority for the selected object's raw data. Avoid duplicate entry points such as a right-side inspector plus a separate page-level raw evidence section showing the same payloads again.
+- Treat JSON, headers, payloads, diffs, and logs as high-entropy data. They must live in fixed-height containers with their own scrolling, formatting, and copy affordances. Do not let long `<pre>` blocks, auto-growing textareas, or stacked cards hijack the page's main scrollbar.
+- Desktop detail panels should default to a docked/sticky layout for stable reading. Floating or draggable panels are enhancement modes for side-by-side comparison, not the default baseline. Mobile should usually keep the simpler drawer/sheet pattern.
+- Prefer one reusable structured-data viewer pattern across the admin frontend. If a page needs to show raw request/response/evidence data, reuse the same behavior instead of inventing a new ad hoc JSON block for each screen.
+- Anti-patterns to avoid: page-level `Raw Evidence` dumps, repeated `overview/input/output/raw` layers for the same object, raw data that pushes the whole page taller, and multiple conflicting places to inspect the same evidence.
+
+## Frontend Debugging Workflow
+- The production admin frontend entrypoint is `https://qqbot-admin.liahuas.top/`. When investigating a frontend bug that reproduces in production, prefer debugging against that real address instead of guessing from a separate local copy.
+- For production issue triage, prefer Playwright MCP attached to the user's host browser. This matches the real authenticated browsing context and is the fastest way to capture screenshots, inspect the DOM, and verify real UI behavior.
+- Do not default to debugging through a locally started frontend that sits behind a separate Basic Auth or gateway layer. That path adds avoidable auth/proxy differences and often wastes time on issues that do not exist in the real user flow.
+- If local debugging is still needed, use a local frontend entrypoint that is not hidden behind extra auth, and make sure it points at the intended backend environment. Do not treat the authenticated local expose proxy as the default frontend debugging target.
+- When a page shows runtime data from production, inspect it in the real host browser first, then fall back to local builds only when you need isolated code iteration or to verify a patch before redeploying.
 
 ## Testing Guidelines
 - Jest drives unit tests; place tests adjacent to the code under test.

@@ -34,6 +34,8 @@ Screenshot *.png
 
 # Dependencies
 node_modules/
+node_modules.stale-*/
+modules/*/node_modules.stale-*/
 backend/node_modules/
 
 # Logs
