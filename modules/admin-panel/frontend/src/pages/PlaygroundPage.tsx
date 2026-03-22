@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { SampleLibraryPanel } from '@/components/SampleLibraryPanel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -38,6 +39,7 @@ import {
   Save,
   Settings2,
   Sparkles,
+  AlertCircle,
   Wand2,
   X,
 } from 'lucide-react';
@@ -67,6 +69,13 @@ type ToolCallPreview = {
   arguments?: unknown;
   result?: unknown;
   raw?: unknown;
+};
+
+type ToolEditorEntry = {
+  key: string;
+  label: string;
+  value: unknown;
+  onChange: (nextText: string) => void;
 };
 
 function parseJsonText<T>(value: string, fallback: T): T {
@@ -110,6 +119,31 @@ function parseMaybeJson(value: unknown): unknown {
 
 function pickFirstDefined(...values: unknown[]): unknown {
   return values.find((value) => value !== undefined && value !== null);
+}
+
+function getToolDefinitionName(value: unknown, index: number): string {
+  const record = asRecord(value);
+  const functionRecord = asRecord(record?.function);
+
+  const candidates = [
+    functionRecord?.name,
+    record?.name,
+    record?.toolName,
+    record?.id,
+  ];
+
+  const name = candidates.find((candidate) => typeof candidate === 'string' && candidate.trim().length > 0);
+  return typeof name === 'string' ? name : `#${index + 1}`;
+}
+
+function getToolEditorKeys(tools: Record<string, unknown> | undefined): string[] {
+  return Object.entries(tools || {}).flatMap(([toolKey, toolValue]) => {
+    if (toolKey === 'definitions' && Array.isArray(toolValue)) {
+      return toolValue.map((_, index) => `definitions:${index}`);
+    }
+
+    return [toolKey];
+  });
 }
 
 function findToolCallCandidate(value: unknown, depth = 0): ToolCallPreview | null {
@@ -454,6 +488,7 @@ export function PlaygroundPage() {
   const [safetyText, setSafetyText] = useState(stringifyJson([]));
   const [outputView, setOutputView] = useState<OutputView>('text');
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryActionError, setLibraryActionError] = useState<string | null>(null);
   const [inputOpen, setInputOpen] = useState(false);
   const [mobileParamsOpen, setMobileParamsOpen] = useState(false);
   const [mobileCompareOpen, setMobileCompareOpen] = useState(false);
@@ -503,19 +538,33 @@ export function PlaygroundPage() {
 
   const createFromTrafficMutation = useMutation({
     mutationFn: (trafficId: number) => createCaseFromTraffic(trafficId, promptId),
+    onMutate: () => {
+      setLibraryActionError(null);
+    },
     onSuccess: (record) => {
       setSelectedCaseId(record.id);
       setLibraryOpen(false);
+      setLibraryActionError(null);
       queryClient.invalidateQueries({ queryKey: ['playground-library'] });
+    },
+    onError: (error) => {
+      setLibraryActionError(error instanceof Error ? error.message : '无法从该 traffic sample 创建 Playground Case');
     },
   });
 
   const createFromConversationMutation = useMutation({
     mutationFn: (conversationId: string) => createCaseFromConversation(conversationId, promptId),
+    onMutate: () => {
+      setLibraryActionError(null);
+    },
     onSuccess: (record) => {
       setSelectedCaseId(record.id);
       setLibraryOpen(false);
+      setLibraryActionError(null);
       queryClient.invalidateQueries({ queryKey: ['playground-library'] });
+    },
+    onError: (error) => {
+      setLibraryActionError(error instanceof Error ? error.message : '无法从该 conversation 创建 Playground Case');
     },
   });
 
@@ -550,11 +599,18 @@ export function PlaygroundPage() {
 
   const cloneRunMutation = useMutation({
     mutationFn: (runId: string) => clonePlaygroundRun(runId),
+    onMutate: () => {
+      setLibraryActionError(null);
+    },
     onSuccess: (run) => {
       setSelectedCaseId(run.caseId);
       setActiveRunId(run.id);
+      setLibraryActionError(null);
       queryClient.invalidateQueries({ queryKey: ['playground-runs', run.caseId] });
       queryClient.invalidateQueries({ queryKey: ['playground-library'] });
+    },
+    onError: (error) => {
+      setLibraryActionError(error instanceof Error ? error.message : '无法克隆该 Playground Run');
     },
   });
 
@@ -601,8 +657,15 @@ export function PlaygroundPage() {
       return;
     }
 
+    const caseId = searchParams.get('caseId');
     const trafficId = searchParams.get('trafficId');
     const conversationId = searchParams.get('conversationId');
+    if (caseId) {
+      bootstrappedRef.current = true;
+      setSelectedCaseId(caseId);
+      return;
+    }
+
     if (trafficId) {
       bootstrappedRef.current = true;
       createFromTrafficMutation.mutate(Number(trafficId));
@@ -630,7 +693,7 @@ export function PlaygroundPage() {
     setContextVariablesText(stringifyJson(currentCase.promptInput.contextVariables || {}));
     setProviderSpecificText(stringifyJson(currentCase.providerConfig.providerSpecific || {}));
     setSafetyText(stringifyJson(currentCase.providerConfig.safety || []));
-    const toolKeys = Object.keys(currentCase.providerConfig.tools || {});
+    const toolKeys = getToolEditorKeys(currentCase.providerConfig.tools);
     setExpandedToolKey(toolKeys[0] || null);
     setActiveRunId(null);
   }, [searchParams, selectedCaseQuery.data]);
@@ -642,6 +705,9 @@ export function PlaygroundPage() {
     }
     return runs.find((run) => run.id === activeRunId) || runs[0];
   }, [activeRunId, runs]);
+  const baselineSnapshot = selectedCaseQuery.data?.baselineSnapshot || null;
+  const currentExecutionMode = currentRun?.executionMode
+    || (selectedCaseQuery.data?.source === 'span' ? 'exact_replay' : null);
 
   const toolCall = useMemo(() => inferToolCall(currentRun), [currentRun]);
   const rawProviderPayload = useMemo(() => getRawProviderPayload(currentRun), [currentRun]);
@@ -662,10 +728,6 @@ export function PlaygroundPage() {
 
   const prompts = promptData || [];
   const comparePromptOptions = prompts.filter((prompt) => prompt.id !== promptId);
-  const toolEntries = useMemo(() => {
-    const tools = providerConfig.tools || {};
-    return Object.entries(tools);
-  }, [providerConfig.tools]);
   const getDesktopWindowWidth = (id: DesktopWindowId) =>
     Math.min(DESKTOP_WINDOW_MAX_WIDTH[id], Math.max(id === 'params' ? 280 : 260, viewportWidth - 104));
   const activeDockedWindowId = useMemo(
@@ -679,6 +741,8 @@ export function PlaygroundPage() {
   const currentPromptText =
     promptMode === 'draft' ? draftSystemInstruction : promptInput.systemInstruction;
   const showEditorEmptyState = editorView === 'prompt' && !selectedCaseId && !currentPromptText.trim() && !editorEmptyStateDismissed;
+  const libraryErrorMessage =
+    libraryActionError || (libraryQuery.error instanceof Error ? libraryQuery.error.message : null);
 
   const handleDesktopWindowPointerDown = (id: DesktopWindowId) => (event: ReactPointerEvent<HTMLDivElement>) => {
     const current = desktopWindows[id];
@@ -767,7 +831,7 @@ export function PlaygroundPage() {
     setProviderConfig(next);
     setProviderSpecificText(stringifyJson(next.providerSpecific || {}));
     setSafetyText(stringifyJson(next.safety || []));
-    const keys = Object.keys(next.tools || {});
+    const keys = getToolEditorKeys(next.tools);
     setExpandedToolKey((prev) => (prev && keys.includes(prev) ? prev : keys[0] || null));
   };
 
@@ -827,6 +891,24 @@ export function PlaygroundPage() {
     }));
   };
 
+  const updateToolDefinition = (definitionIndex: number, nextText: string) => {
+    setProviderConfig((prev) => {
+      const tools = prev.tools || {};
+      const definitions = Array.isArray(tools.definitions) ? tools.definitions : [];
+      const nextDefinitions = definitions.map((definition, index) =>
+        index === definitionIndex ? parseJsonText(nextText, definition) : definition
+      );
+
+      return {
+        ...prev,
+        tools: {
+          ...tools,
+          definitions: nextDefinitions,
+        },
+      };
+    });
+  };
+
   const setGenerationNumber = (key: string, value: number) => {
     setProviderConfig((prev) => ({
       ...prev,
@@ -840,6 +922,27 @@ export function PlaygroundPage() {
   const primaryUserMessage = getPrimaryUserMessage(promptInput.messages);
   const outputText = currentRun?.outputSnapshot?.responseText || currentRun?.outputSnapshot?.error || '';
   const promptPreview = buildPromptPreview(promptMode, draftSystemInstruction, draftUserPromptTemplate, promptInput);
+  const toolEditorEntries = useMemo<ToolEditorEntry[]>(() => {
+    const tools = providerConfig.tools || {};
+
+    return Object.entries(tools).flatMap(([toolKey, toolValue]) => {
+      if (toolKey === 'definitions' && Array.isArray(toolValue)) {
+        return toolValue.map((definition, index) => ({
+          key: `definitions:${index}`,
+          label: `tool / definitions / ${getToolDefinitionName(definition, index)}`,
+          value: definition,
+          onChange: (nextText: string) => updateToolDefinition(index, nextText),
+        }));
+      }
+
+      return [{
+        key: toolKey,
+        label: `tool / ${toolKey}`,
+        value: toolValue,
+        onChange: (nextText: string) => updateToolConfig(toolKey, nextText),
+      }];
+    });
+  }, [providerConfig.tools]);
 
   useEffect(() => {
     if (selectedCaseId || currentPromptText.trim()) {
@@ -944,28 +1047,28 @@ export function PlaygroundPage() {
           Tools
         </div>
 
-        {toolEntries.length > 0 ? (
+        {toolEditorEntries.length > 0 ? (
           <div className="space-y-2">
-            {toolEntries.map(([toolKey, toolValue]) => {
-              const isExpanded = expandedToolKey === toolKey;
+            {toolEditorEntries.map((entry) => {
+              const isExpanded = expandedToolKey === entry.key;
               return (
-                <div key={toolKey} className="overflow-hidden rounded-2xl border border-border/70 bg-background">
+                <div key={entry.key} className="overflow-hidden rounded-2xl border border-border/70 bg-background">
                   <button
                     type="button"
                     className={cn(
                       'flex w-full items-center justify-between px-3 py-3 text-left text-sm font-medium transition',
                       isExpanded ? 'bg-primary/10' : 'bg-background hover:bg-muted/40'
                     )}
-                    onClick={() => setExpandedToolKey((prev) => (prev === toolKey ? null : toolKey))}
+                    onClick={() => setExpandedToolKey((prev) => (prev === entry.key ? null : entry.key))}
                   >
-                    <span>tool / {toolKey}</span>
+                    <span>{entry.label}</span>
                     <span className="text-xs text-muted-foreground">{isExpanded ? '展开编辑' : '点击展开'}</span>
                   </button>
                   {isExpanded ? (
                     <div className="border-t border-border/70 p-3">
                       <Textarea
-                        value={stringifyJson(toolValue)}
-                        onChange={(event) => updateToolConfig(toolKey, event.target.value)}
+                        value={stringifyJson(entry.value)}
+                        onChange={(event) => entry.onChange(event.target.value)}
                         className="min-h-[140px] bg-background font-mono text-xs"
                       />
                     </div>
@@ -1191,6 +1294,21 @@ export function PlaygroundPage() {
               Model: {String(providerConfig.context?.modelName || prompts.find((item) => item.id === promptId)?.model_name || providerConfig.provider)}
             </div>
           </div>
+
+          {selectedCaseQuery.data?.source === 'span' && baselineSnapshot ? (
+            <div className="mt-4 rounded-2xl border border-[hsl(var(--info))]/20 bg-[hsl(var(--info))]/5 px-4 py-3 text-xs leading-6 text-foreground/85">
+              <div className="font-medium text-foreground">Span Baseline</div>
+              <div className="mt-1">
+                当前 Playground 基线来自真实 generation span。未修改时会做 exact replay；修改 prompt、tools 或参数后会切到 patched replay。
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                {baselineSnapshot.traceId ? <span className="rounded-full border border-border/70 bg-background px-2 py-0.5">trace: {baselineSnapshot.traceId}</span> : null}
+                {baselineSnapshot.spanId ? <span className="rounded-full border border-border/70 bg-background px-2 py-0.5">span: {baselineSnapshot.spanId}</span> : null}
+                {baselineSnapshot.llmCallId ? <span className="rounded-full border border-border/70 bg-background px-2 py-0.5">llm_call: {baselineSnapshot.llmCallId}</span> : null}
+                {currentExecutionMode ? <span className="rounded-full border border-border/70 bg-background px-2 py-0.5">mode: {currentExecutionMode}</span> : null}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div
@@ -1518,6 +1636,12 @@ export function PlaygroundPage() {
             <SheetDescription>Traffic 样本、已保存 Cases 和近期 Runs。</SheetDescription>
           </SheetHeader>
           <div className="mt-4 flex-1 overflow-hidden">
+            {libraryErrorMessage ? (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{libraryErrorMessage}</AlertDescription>
+              </Alert>
+            ) : null}
             <SampleLibraryPanel
               library={libraryQuery.data}
               selectedCaseId={selectedCaseId}
@@ -1552,7 +1676,31 @@ export function PlaygroundPage() {
                 {promptInput.messages.map((message, index) => (
                   <div key={`${message.role}-${index}`} className="rounded-2xl border border-border/70 bg-muted/15 p-3">
                     <div className="mb-2 flex items-center justify-between">
-                      <Badge variant={message.role === 'assistant' ? 'secondary' : 'outline'}>{message.role}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={message.role === 'assistant' ? 'secondary' : message.role === 'system' ? 'default' : 'outline'}>
+                          {message.role}
+                        </Badge>
+                        <Select
+                          value={message.role}
+                          onValueChange={(value) =>
+                            setPromptInput((prev) => ({
+                              ...prev,
+                              messages: prev.messages.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, role: value as typeof item.role } : item
+                              ),
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="h-8 w-[120px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="system">system</SelectItem>
+                            <SelectItem value="user">user</SelectItem>
+                            <SelectItem value="assistant">assistant</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1664,23 +1812,23 @@ export function PlaygroundPage() {
               <div className="rounded-2xl border border-border/70 bg-background p-4">
                 <div className="mb-3 text-sm font-semibold text-foreground">Tools</div>
                 <div className="space-y-2">
-                  {toolEntries.map(([toolKey, toolValue]) => {
-                    const isExpanded = expandedToolKey === toolKey;
+                  {toolEditorEntries.map((entry) => {
+                    const isExpanded = expandedToolKey === entry.key;
                     return (
-                      <div key={toolKey} className="overflow-hidden rounded-2xl border border-border/70">
+                      <div key={entry.key} className="overflow-hidden rounded-2xl border border-border/70">
                         <button
                           type="button"
                           className="flex w-full items-center justify-between px-3 py-3 text-left text-sm font-medium"
-                          onClick={() => setExpandedToolKey((prev) => (prev === toolKey ? null : toolKey))}
+                          onClick={() => setExpandedToolKey((prev) => (prev === entry.key ? null : entry.key))}
                         >
-                          <span>tool / {toolKey}</span>
+                          <span>{entry.label}</span>
                           <span className="text-xs text-muted-foreground">{isExpanded ? '展开编辑' : '点击展开'}</span>
                         </button>
                         {isExpanded ? (
                           <div className="border-t border-border/70 p-3">
                             <Textarea
-                              value={stringifyJson(toolValue)}
-                              onChange={(event) => updateToolConfig(toolKey, event.target.value)}
+                              value={stringifyJson(entry.value)}
+                              onChange={(event) => entry.onChange(event.target.value)}
                               className="min-h-[140px] bg-background font-mono text-xs"
                             />
                           </div>

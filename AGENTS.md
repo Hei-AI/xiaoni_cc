@@ -38,11 +38,17 @@
 - TypeScript services must run compiled output in containers (`node dist/index.js`), not `ts-node` in production images.
 - Frontend static apps should keep the existing `builder -> nginx runtime` shape and avoid installing builder-only tools in the nginx runtime stage.
 - When iterating on one service, prefer `docker compose build <service>` and only rebuild the touched images. After Dockerfile changes, verify with `docker compose build`, `docker compose up -d`, and health/log checks.
+- When a task changes code for a service that is expected to be running via `docker-compose.yml`, completion includes redeploying the affected container(s). Do not stop at local code edits or module-local builds; after validation, run the targeted `docker compose build <service>` and `docker compose up -d <service>` sequence, then confirm the container is healthy from `docker compose ps` and relevant logs.
 
 ## Coding Style & Naming Conventions
 - Prefer TypeScript with two-space indentation and modern ES modules. Classes use PascalCase, functions and variables camelCase, environment variables SCREAMING_SNAKE_CASE.
 - Import shared logger utilities instead of `console.log`.
 - Keep changes incremental and avoid speculative abstractions.
+
+## Semantic Fidelity Rule
+- For trace, replay, debug, playground, and provider-conversion flows, fix problems at the layer that loses semantics. If a layer drops meaning, flattens the unified provider input, or blocks an `inspect -> import -> rerun` workflow, change that layer instead of adding compensating adapters around it.
+- Do not preserve a broken contract by silently degrading data just to keep the current shape working. Prefer extending or correcting the real input model, even when that requires a breaking change.
+- If the required fix crosses module boundaries or conflicts with an existing contract, surface the conflict explicitly and escalate it instead of hiding it behind fallback behavior.
 
 ## Frontend Design Rules
 - Debug and observability pages must be designed around the user's real loop: `select an object -> inspect input/output/evidence -> decide -> move to the next object`. Do not turn these pages into long document-style dumps.
@@ -64,6 +70,7 @@
 - Re-run module tests after API or route changes.
 - After major queue, prompt, or traffic changes, run the relevant integration checks from `scripts/testing/`.
 - Use `./scripts/self-verification.sh` as the broad regression checklist before large merges.
+- For agent end-to-end self-tests on this workstation, prefer using OpenClaw to send a QQ private message to 小腻 (`1129974489`) yourself before asking the user to validate the flow manually.
 
 ## Commit & Pull Request Guidelines
 - Prefix commit messages with scopes such as `feat:`, `fix:`, or `chore:`.
