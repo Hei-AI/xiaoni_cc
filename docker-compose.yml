@@ -38,6 +38,31 @@ services:
       timeout: 20s
       retries: 10
 
+  # Local Embedding API Service
+  embedding-server:
+    image: qqbot-embedding-server
+    build:
+      context: ./modules/embedding-server
+      args:
+        HTTP_PROXY: ""
+        HTTPS_PROXY: ""
+        http_proxy: ""
+        https_proxy: ""
+        NO_PROXY: ""
+        no_proxy: ""
+        LLAMA_CPP_VERSION: b7472
+    container_name: qqbot-embedding-server
+    environment:
+      - MODEL_URL=https://huggingface.co/ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/resolve/main/embeddinggemma-300m-qat-Q8_0.gguf?download=true
+      - MODEL_PATH=/models/embeddinggemma-300m-qat-Q8_0.gguf
+      - SERVER_PORT=8080
+      - MODEL_DOWNLOAD_INSECURE=true
+    volumes:
+      - ./models/embedding-server:/models
+    restart: unless-stopped
+    networks:
+      - qq_bot_network
+
   # QQBot Core Service
   qqbot-core:
     image: qqbot-qqbot-core
@@ -70,10 +95,17 @@ services:
       - LLM_JOB_TIMEOUT_MS=300000
       - LLM_RETRY_DELAY_MS=5000
       - AI_MODEL_NAME=gpt-5.4-mini
+      - EMBEDDING_ENABLED=true
+      - EMBEDDING_BASE_URL=http://qqbot-embedding-server:8080
+      - EMBEDDING_MODEL_ID=embeddinggemma-300m
+      - EMBEDDING_MODEL_SOURCE=hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf
+      - EMBEDDING_TIMEOUT_MS=30000
+      - EMBEDDING_NORMALIZE=2
       - GEMINI_CLI_OAUTH_CLIENT_ID=${GEMINI_CLI_OAUTH_CLIENT_ID:-}
       - GEMINI_CLI_OAUTH_CLIENT_SECRET=${GEMINI_CLI_OAUTH_CLIENT_SECRET:-}
     depends_on:
       - mysql
+      - embedding-server
     restart: unless-stopped
     dns:
       - 8.8.8.8

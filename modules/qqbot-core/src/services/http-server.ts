@@ -2,6 +2,10 @@ import express, { Express, Request, Response } from 'express';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 import MessageQueueService from './message-queue-service';
+import EmbeddingService, {
+  OpenAIEmbeddingListResponse,
+  OpenAIModelListResponse
+} from './embedding-service';
 
 interface HttpServerConfig {
   port?: number;
@@ -14,6 +18,7 @@ interface HttpServerServices {
   debugService?: any;
   qqBot?: any;
   aiService?: any; // 🔥 新增：AI服务，用于内部LLM调试
+  embeddingService?: EmbeddingService;
   messageQueueService?: MessageQueueService;
 }
 
@@ -56,6 +61,8 @@ class HttpServer {
         timestamp: new Date().toISOString()
       });
     });
+
+    this.setupEmbeddingRoutes();
 
     // NOTE: Business API endpoints (send_private, send_group) have been moved to HTTP API Gateway
     // This improves separation of concerns - Core focuses on bot logic, Gateway handles external APIs
@@ -431,6 +438,126 @@ class HttpServer {
     // This separation improves module responsibility and security
     // For debugging features, use Admin Panel at port 9080
 
+  }
+
+  private setupEmbeddingRoutes(): void {
+    this.app.get('/v1/models', (req: Request, res: Response) => {
+      const embeddingService = this.services.embeddingService;
+
+      if (!embeddingService || !embeddingService.isEnabled()) {
+        return this.sendOpenAIError(res, 503, 'Embedding service is not enabled', 'service_unavailable', null, 'embedding_unavailable');
+      }
+
+      const payload: OpenAIModelListResponse = embeddingService.listModels();
+      res.json(payload);
+    });
+
+    this.app.post('/v1/embeddings', async (req: Request, res: Response) => {
+      const embeddingService = this.services.embeddingService;
+
+      if (!embeddingService || !embeddingService.isEnabled()) {
+        return this.sendOpenAIError(res, 503, 'Embedding service is not enabled', 'service_unavailable', null, 'embedding_unavailable');
+      }
+
+      const requestedModel = typeof req.body?.model === 'string'
+        ? req.body.model.trim()
+        : embeddingService.getPublicModelId();
+
+      if (requestedModel !== embeddingService.getPublicModelId()) {
+        return this.sendOpenAIError(
+          res,
+          400,
+          `Unsupported model: ${requestedModel}`,
+          'invalid_request_error',
+          'model',
+          'invalid_model'
+        );
+      }
+
+      if (req.body?.encoding_format !== undefined && req.body.encoding_format !== 'float') {
+        return this.sendOpenAIError(
+          res,
+          400,
+          'Only encoding_format "float" is supported',
+          'invalid_request_error',
+          'encoding_format',
+          'unsupported_encoding_format'
+        );
+      }
+
+      if (req.body?.dimensions !== undefined) {
+        if (!Number.isInteger(req.body.dimensions) || req.body.dimensions !== embeddingService.getDimensions()) {
+          return this.sendOpenAIError(
+            res,
+            400,
+            `Only dimensions=${embeddingService.getDimensions()} is supported`,
+            'invalid_request_error',
+            'dimensions',
+            'unsupported_dimensions'
+          );
+        }
+      }
+
+      let normalizedInput: string | string[];
+      try {
+        normalizedInput = this.normalizeEmbeddingInput(req.body?.input);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Invalid embedding input';
+        return this.sendOpenAIError(res, 400, message, 'invalid_request_error', 'input', 'invalid_input');
+      }
+
+      try {
+        const payload: OpenAIEmbeddingListResponse = await embeddingService.createEmbeddings({
+          input: normalizedInput,
+          model: requestedModel,
+          user: typeof req.body?.user === 'string' ? req.body.user : undefined
+        });
+        res.json(payload);
+      } catch (error) {
+        this.moduleLogger.error('Failed to serve embedding request', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+
+        return this.sendOpenAIError(
+          res,
+          502,
+          error instanceof Error ? error.message : 'Embedding upstream request failed',
+          'api_error',
+          null,
+          'embedding_upstream_failed'
+        );
+      }
+    });
+
+    this.app.get('/api/internal/embedding/health', async (req: Request, res: Response) => {
+      const embeddingService = this.services.embeddingService;
+
+      if (!embeddingService || !embeddingService.isEnabled()) {
+        return res.status(503).json({
+          success: false,
+          error: 'Embedding service is not enabled',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      try {
+        const health = await embeddingService.healthCheck();
+        res.json({
+          success: true,
+          data: health,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        this.moduleLogger.error('Embedding health check failed', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        res.status(502).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Embedding health check failed',
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
   }
 
   private setupSimpleQueueRoutes(): void {
@@ -822,6 +949,46 @@ class HttpServer {
     }
 
     return normalized;
+  }
+
+  private normalizeEmbeddingInput(input: unknown): string | string[] {
+    if (typeof input === 'string') {
+      if (input.trim().length === 0) {
+        throw new Error('input must not be empty');
+      }
+      return input;
+    }
+
+    if (!Array.isArray(input) || input.length === 0) {
+      throw new Error('input must be a non-empty string or array of strings');
+    }
+
+    const normalized = input.map((entry) => {
+      if (typeof entry !== 'string' || entry.trim().length === 0) {
+        throw new Error('input array must contain only non-empty strings');
+      }
+      return entry;
+    });
+
+    return normalized;
+  }
+
+  private sendOpenAIError(
+    res: Response,
+    status: number,
+    message: string,
+    type: string,
+    param: string | null,
+    code: string
+  ): Response {
+    return res.status(status).json({
+      error: {
+        message,
+        type,
+        param,
+        code
+      }
+    });
   }
 
   public start(): Promise<void> {

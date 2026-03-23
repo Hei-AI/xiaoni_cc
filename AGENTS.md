@@ -15,6 +15,33 @@
 - Traffic observability flow: `modules/http-traffic-monitor` writes `traffic-*.jsonl`; `admin-panel/backend` imports them into MySQL for admin querying and replay.
 - Prompt management flow: prompt data is managed locally through MySQL and admin APIs; do not assume a separate function registry service exists.
 
+## Embedding Capability
+- `qqbot-core` provides an OpenAI-compatible embedding gateway for local callers. This is infrastructure only and is not tied to queueing, RAG, message history, or other business flows.
+- Public embedding endpoints live on `qqbot-core`:
+  - `GET /v1/models`
+  - `POST /v1/embeddings`
+- `POST /v1/embeddings` accepts OpenAI-style fields including `input`, `model`, `encoding_format`, `dimensions`, and `user`.
+- Current constraints:
+  - The only supported public model id is `embeddinggemma-300m`.
+  - `input` must be a non-empty string or a non-empty array of non-empty strings.
+  - Only `encoding_format="float"` is supported.
+  - Only `dimensions=768` is supported.
+- Responses follow the OpenAI embeddings shape:
+  - `object: "list"`
+  - `data: [{ object: "embedding", index, embedding }]`
+  - `model`
+  - `usage`
+- Standard request errors are returned in OpenAI-style `error` payloads.
+- The backing model runtime is an internal `embedding-server` container built from `modules/embedding-server`, running `llama.cpp` with `EmbeddingGemma` (`hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf`).
+- `embedding-server` is an implementation detail on the internal Docker network and should not be treated as the public API surface.
+- Embedding configuration is controlled through:
+  - `EMBEDDING_ENABLED`
+  - `EMBEDDING_BASE_URL`
+  - `EMBEDDING_MODEL_ID`
+  - `EMBEDDING_MODEL_SOURCE`
+  - `EMBEDDING_TIMEOUT_MS`
+  - `EMBEDDING_NORMALIZE`
+
 ## Build, Test, and Development Commands
 - `npm run install:all`: install root-level tooling plus all three Node modules using their own lockfiles.
 - `npm run build`, `npm run test`, `npm run lint`, `npm run clean`: orchestrate the retained modules from the repository root.

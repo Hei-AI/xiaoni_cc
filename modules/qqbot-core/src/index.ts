@@ -4,6 +4,7 @@ import { DatabaseManager, getDatabaseManager } from './services/database';
 import WebSocketClient from './services/websocket-client';
 import HttpServer from './services/http-server';
 import AIService from './services/ai-service';
+import EmbeddingService from './services/embedding-service';
 import { SessionManager } from './services/session-manager';
 import { LoggingService } from './services/logging-service';
 import { ContextManager } from './services/context-manager';
@@ -58,6 +59,7 @@ class QQBot implements BatchHandler {
   private websocketClient: WebSocketClient;
   private httpServer: HttpServer;
   private aiService: AIService;
+  private embeddingService: EmbeddingService;
   private sessionManager: SessionManager;
   private loggingService: LoggingService;
   private contextManager: ContextManager;
@@ -102,6 +104,7 @@ class QQBot implements BatchHandler {
       config.ai.bot_qq_number
     );
     this.aiService = new AIService(config.ai, this.database, this.loggingService);
+    this.embeddingService = new EmbeddingService(config.ai);
     this.sessionManager = new SessionManager(this.database);
     this.chatViewportService = new ChatViewportService(this.database);
     this.contextManager = new ContextManager(this.database, this.chatViewportService);
@@ -343,6 +346,7 @@ class QQBot implements BatchHandler {
       debugService: this.debugService,
       qqBot: this, // Pass QQBot instance for test endpoints
       aiService: this.aiService,
+      embeddingService: this.embeddingService,
       messageQueueService: this.messageQueueService
     });
 

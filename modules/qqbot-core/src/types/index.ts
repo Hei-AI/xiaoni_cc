@@ -278,6 +278,12 @@ export interface AIConfig {
   gemini_cli_stream_path?: string;
   openai_api_key?: string;
   openai_base_url?: string;
+  embedding_enabled?: boolean;
+  embedding_base_url?: string;
+  embedding_model_id?: string;
+  embedding_model_source?: string;
+  embedding_timeout_ms?: number;
+  embedding_normalize?: number;
   codex_access_token?: string;
   codex_refresh_token?: string;
   codex_expires_at?: string | number;
