@@ -48,6 +48,11 @@ type PromptSummary = {
   id: string;
   prompt_name: string;
   model_name?: string | null;
+  system_instructions?: unknown;
+  user_prompt_template?: string | null;
+  context_variables?: unknown;
+  model_config?: unknown;
+  advanced_config?: unknown;
 };
 
 type OutputView = 'text' | 'tool' | 'raw';
@@ -88,6 +93,65 @@ function parseJsonText<T>(value: string, fallback: T): T {
 
 function stringifyJson(value: unknown): string {
   return JSON.stringify(value ?? {}, null, 2);
+}
+
+function parsePromptSystemInstruction(value: unknown): string {
+  const parsed = parseMaybeJson(value);
+  if (Array.isArray(parsed)) {
+    return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).join('\n\n');
+  }
+
+  return typeof parsed === 'string' ? parsed : '';
+}
+
+function parsePromptContextVariables(value: unknown): Record<string, unknown> {
+  const parsed = parseMaybeJson(value);
+  return asRecord(parsed) || {};
+}
+
+function normalizePromptProvider(value: unknown): PlaygroundProviderConfig['provider'] {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (normalized === 'openai') return 'openai';
+  if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
+  if (normalized === 'google-legacy' || normalized === 'gemini-api') return 'google-legacy';
+  return 'google-gemini-cli';
+}
+
+function buildProviderConfigFromPromptSummary(prompt: PromptSummary): PlaygroundProviderConfig {
+  const modelConfig = asRecord(parseMaybeJson(prompt.model_config)) || {};
+  const advancedConfig = asRecord(parseMaybeJson(prompt.advanced_config)) || {};
+  const advancedModel = asRecord(advancedConfig.model);
+  const provider = normalizePromptProvider(
+    modelConfig.provider
+    ?? advancedConfig.provider
+    ?? advancedModel?.provider
+  );
+  const generationConfig = asRecord(advancedConfig.generationConfig);
+  const providerSpecific = {
+    ...(asRecord(parseMaybeJson(modelConfig.providerSpecific)) || {}),
+    ...(asRecord(parseMaybeJson(advancedModel?.providerSpecific)) || {}),
+  };
+
+  return {
+    provider,
+    generation: generationConfig || {
+      temperature: modelConfig.temperature ?? 0.7,
+      topP: modelConfig.topP ?? 0.95,
+      topK: modelConfig.topK ?? 40,
+      maxOutputTokens: modelConfig.maxOutputTokens ?? 2048,
+    },
+    thinking: asRecord(advancedConfig.thinkingConfig) || {},
+    safety: Array.isArray(parseMaybeJson(advancedConfig.safetySettings))
+      ? (parseMaybeJson(advancedConfig.safetySettings) as Array<Record<string, unknown>>)
+      : [],
+    tools: asRecord(parseMaybeJson(advancedConfig.toolsConfig)) || {},
+    context: {
+      promptId: prompt.id,
+      promptName: prompt.prompt_name,
+      modelName: prompt.model_name || DEFAULT_PROVIDER_CONFIG.context?.modelName || 'gemini-2.5-flash',
+    },
+    providerSpecific,
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -582,8 +646,8 @@ export function PlaygroundPage() {
         caseId: selectedCaseId!,
         promptMode,
         promptId,
-        providerConfig,
-        promptInput,
+        providerConfig: buildCurrentProviderConfig(),
+        promptInput: buildCurrentPromptInput(),
         draftPrompt: {
           systemInstruction: draftSystemInstruction,
           userPromptTemplate: draftUserPromptTemplate,
@@ -727,6 +791,10 @@ export function PlaygroundPage() {
   }, [currentRun, rawProviderPayload, toolCall]);
 
   const prompts = promptData || [];
+  const selectedPrompt = useMemo(
+    () => prompts.find((prompt) => prompt.id === promptId) || null,
+    [promptId, prompts]
+  );
   const comparePromptOptions = prompts.filter((prompt) => prompt.id !== promptId);
   const getDesktopWindowWidth = (id: DesktopWindowId) =>
     Math.min(DESKTOP_WINDOW_MAX_WIDTH[id], Math.max(id === 'params' ? 280 : 260, viewportWidth - 104));
@@ -743,6 +811,70 @@ export function PlaygroundPage() {
   const showEditorEmptyState = editorView === 'prompt' && !selectedCaseId && !currentPromptText.trim() && !editorEmptyStateDismissed;
   const libraryErrorMessage =
     libraryActionError || (libraryQuery.error instanceof Error ? libraryQuery.error.message : null);
+
+  const buildCurrentPromptInput = (): PlaygroundPromptInput => ({
+    ...promptInput,
+    systemInstruction: promptMode === 'draft' ? draftSystemInstruction : promptInput.systemInstruction,
+    contextVariables: parseJsonText<Record<string, unknown>>(contextVariablesText, {}),
+  });
+
+  const buildCurrentProviderConfig = (): PlaygroundProviderConfig => ({
+    ...providerConfig,
+    providerSpecific: parseJsonText<Record<string, unknown>>(providerSpecificText, {}),
+    safety: parseJsonText<Array<Record<string, unknown>>>(safetyText, []),
+  });
+
+  const applyPromptSelectionToWorkspace = (nextPromptId: string | null) => {
+    if (!nextPromptId) {
+      return;
+    }
+
+    const prompt = prompts.find((item) => item.id === nextPromptId);
+    if (!prompt) {
+      return;
+    }
+
+    const systemInstruction = parsePromptSystemInstruction(prompt.system_instructions);
+    const contextVariables = parsePromptContextVariables(prompt.context_variables);
+
+    setPromptInput((prev) => ({
+      ...prev,
+      systemInstruction,
+      contextVariables,
+    }));
+    setDraftSystemInstruction(systemInstruction);
+    setDraftUserPromptTemplate(prompt.user_prompt_template || '');
+    setContextVariablesText(stringifyJson(contextVariables));
+    syncProviderTextFields(buildProviderConfigFromPromptSummary(prompt));
+  };
+
+  const handlePromptModeChange = (value: PlaygroundPromptMode) => {
+    if (value === promptMode) {
+      return;
+    }
+
+    if (value === 'saved' && promptId) {
+      applyPromptSelectionToWorkspace(promptId);
+    }
+
+    if (value === 'draft') {
+      setDraftSystemInstruction(promptInput.systemInstruction);
+      if (!draftUserPromptTemplate && selectedPrompt?.user_prompt_template) {
+        setDraftUserPromptTemplate(selectedPrompt.user_prompt_template);
+      }
+    }
+
+    setPromptMode(value);
+  };
+
+  const handlePromptSelectionChange = (value: string) => {
+    const nextPromptId = value === 'none' ? null : value;
+    setPromptId(nextPromptId);
+
+    if (promptMode === 'saved') {
+      applyPromptSelectionToWorkspace(nextPromptId);
+    }
+  };
 
   const handleDesktopWindowPointerDown = (id: DesktopWindowId) => (event: ReactPointerEvent<HTMLDivElement>) => {
     const current = desktopWindows[id];
@@ -843,16 +975,8 @@ export function PlaygroundPage() {
     updateCaseMutation.mutate({
       promptId,
       promptModeDefault: promptMode,
-      promptInput: {
-        ...promptInput,
-        systemInstruction: promptMode === 'draft' ? draftSystemInstruction : promptInput.systemInstruction,
-        contextVariables: parseJsonText<Record<string, unknown>>(contextVariablesText, {}),
-      },
-      providerConfig: {
-        ...providerConfig,
-        providerSpecific: parseJsonText<Record<string, unknown>>(providerSpecificText, {}),
-        safety: parseJsonText<Array<Record<string, unknown>>>(safetyText, []),
-      },
+      promptInput: buildCurrentPromptInput(),
+      providerConfig: buildCurrentProviderConfig(),
     });
   };
 
@@ -1260,7 +1384,7 @@ export function PlaygroundPage() {
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Select value={promptMode} onValueChange={(value) => setPromptMode(value as PlaygroundPromptMode)}>
+            <Select value={promptMode} onValueChange={(value) => handlePromptModeChange(value as PlaygroundPromptMode)}>
               <SelectTrigger className="h-9 w-[min(100%,180px)] bg-background sm:w-[clamp(150px,14vw,196px)]">
                 <SelectValue />
               </SelectTrigger>
@@ -1270,7 +1394,7 @@ export function PlaygroundPage() {
               </SelectContent>
             </Select>
 
-            <Select value={promptId || 'none'} onValueChange={(value) => setPromptId(value === 'none' ? null : value)}>
+            <Select value={promptId || 'none'} onValueChange={handlePromptSelectionChange}>
               <SelectTrigger className="h-9 w-[min(100%,320px)] bg-background sm:w-[clamp(220px,24vw,320px)]">
                 <SelectValue placeholder="选择 Prompt" />
               </SelectTrigger>
@@ -1294,6 +1418,12 @@ export function PlaygroundPage() {
               Model: {String(providerConfig.context?.modelName || prompts.find((item) => item.id === promptId)?.model_name || providerConfig.provider)}
             </div>
           </div>
+
+          {promptMode === 'saved' ? (
+            <div className="mt-3 rounded-2xl border border-border/70 bg-background/70 px-4 py-3 text-xs leading-6 text-muted-foreground">
+              Saved Prompt 会以数据库里的 Prompt 作为基线，但当前工作台里改过的 System Instruction 和 Context Variables 会作为本次 Run 的临时覆盖，不会回写正式 Prompt。
+            </div>
+          ) : null}
 
           {selectedCaseQuery.data?.source === 'span' && baselineSnapshot ? (
             <div className="mt-4 rounded-2xl border border-[hsl(var(--info))]/20 bg-[hsl(var(--info))]/5 px-4 py-3 text-xs leading-6 text-foreground/85">
@@ -1395,12 +1525,11 @@ export function PlaygroundPage() {
                         onChange={(event) => {
                           if (promptMode === 'draft') {
                             setDraftSystemInstruction(event.target.value);
-                          } else {
-                            setPromptInput((prev) => ({
-                              ...prev,
-                              systemInstruction: event.target.value,
-                            }));
                           }
+                          setPromptInput((prev) => ({
+                            ...prev,
+                            systemInstruction: event.target.value,
+                          }));
                         }}
                         placeholder="从 Library 选择一个样本 Case，或者直接在这里输入 Draft Prompt。"
                         className="h-full min-h-0 resize-none border-0 bg-transparent px-5 py-4 font-mono text-sm leading-7 shadow-none focus-visible:ring-0"

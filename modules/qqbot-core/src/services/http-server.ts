@@ -6,6 +6,9 @@ import EmbeddingService, {
   OpenAIEmbeddingListResponse,
   OpenAIModelListResponse
 } from './embedding-service';
+import {
+  AgentProactivityRuntimeConfig
+} from './agent-memory-service';
 
 interface HttpServerConfig {
   port?: number;
@@ -20,6 +23,8 @@ interface HttpServerServices {
   aiService?: any; // 🔥 新增：AI服务，用于内部LLM调试
   embeddingService?: EmbeddingService;
   messageQueueService?: MessageQueueService;
+  agentMemoryService?: any;
+  getProactivityDefaults?: () => AgentProactivityRuntimeConfig;
 }
 
 class HttpServer {
@@ -211,6 +216,9 @@ class HttpServer {
     this.app.post('/api/internal/llm/debug', async (req: Request, res: Response) => {
       try {
         const {
+          canonicalRequest,
+          configOverride,
+          executionMode,
           systemPrompt,
           userInput,
           messages = [],
@@ -218,21 +226,6 @@ class HttpServer {
           model = 'gemini-2.5-flash',
           conversation_id
         } = req.body;
-
-        const parameters = this.normalizeDebugParameters(incomingParameters);
-        const finalMessages = Array.isArray(messages) && messages.length > 0
-          ? messages
-          : (typeof userInput === 'string' && userInput.trim().length > 0
-            ? [{ role: 'user', content: userInput }]
-            : []);
-
-        if (finalMessages.length === 0) {
-          return res.status(400).json({
-            success: false,
-            error: 'Either messages array or userInput string is required',
-            timestamp: new Date().toISOString()
-          });
-        }
 
         if (!this.services.aiService) {
           return res.status(503).json({
@@ -242,12 +235,34 @@ class HttpServer {
           });
         }
 
-        const advancedConfig = parameters.advanced_config || {};
-        const modelConfig = parameters.model_config || {};
-        const provider = this.resolveDebugProvider(parameters, model);
-        const resolvedModel = typeof model === 'string' && model.trim().length > 0
-          ? model
-          : this.resolveDefaultModelForProvider(provider);
+        const hasCanonicalRequest = Boolean(
+          canonicalRequest &&
+          typeof canonicalRequest === 'object' &&
+          !Array.isArray(canonicalRequest)
+        );
+        const parameters = this.normalizeDebugParameters(incomingParameters);
+        const finalMessages = Array.isArray(messages) && messages.length > 0
+          ? messages
+          : (typeof userInput === 'string' && userInput.trim().length > 0
+            ? [{ role: 'user', content: userInput }]
+            : []);
+
+        const parsedConfigOverride = configOverride && typeof configOverride === 'object' && !Array.isArray(configOverride)
+          ? configOverride
+          : null;
+        const explicitProvider = typeof (parsedConfigOverride as any)?.model?.provider === 'string'
+          ? (parsedConfigOverride as any).model.provider
+          : null;
+        const provider = explicitProvider || this.resolveDebugProvider(parameters, model);
+        const canonicalRequestModel = typeof canonicalRequest?.model === 'string'
+          ? canonicalRequest.model
+          : typeof canonicalRequest?.model?.name === 'string'
+            ? canonicalRequest.model.name
+            : null;
+        const resolvedModel = canonicalRequestModel
+          || (typeof model === 'string' && model.trim().length > 0 ? model : '')
+          || (typeof (parsedConfigOverride as any)?.model?.name === 'string' ? (parsedConfigOverride as any).model.name : '')
+          || this.resolveDefaultModelForProvider(provider);
 
         const selectFirstDefined = <T>(...values: Array<T | undefined | null>): T | undefined => {
           for (const value of values) {
@@ -258,131 +273,167 @@ class HttpServer {
           return undefined;
         };
 
-        const mergedGenerationConfig = {
-          ...(advancedConfig.generationConfig && typeof advancedConfig.generationConfig === 'object'
-            ? advancedConfig.generationConfig
-            : {}),
-          ...(parameters.generationConfig && typeof parameters.generationConfig === 'object'
-            ? parameters.generationConfig
-            : {})
-        };
+        let requestBody: Record<string, unknown>;
+        let effectiveConfigOverride: Record<string, unknown> | null;
+        let contentMessages: Array<Record<string, unknown>>;
 
-        const generationConfig: Record<string, unknown> = {
-          ...mergedGenerationConfig,
-          temperature: selectFirstDefined(
-            mergedGenerationConfig.temperature,
-            advancedConfig.temperature,
-            modelConfig.temperature,
-            parameters.temperature
-          ) ?? 0.7,
-          maxOutputTokens: selectFirstDefined(
-            mergedGenerationConfig.maxOutputTokens,
-            advancedConfig.maxOutputTokens,
-            modelConfig.maxOutputTokens,
-            parameters.maxOutputTokens,
-            (parameters as any).max_output_tokens
-          ) ?? 1000,
-          topP: selectFirstDefined(
-            mergedGenerationConfig.topP,
-            advancedConfig.topP,
-            modelConfig.topP,
-            parameters.topP,
-            (parameters as any).top_p
-          ) ?? 0.95,
-          topK: selectFirstDefined(
-            mergedGenerationConfig.topK,
-            advancedConfig.topK,
-            modelConfig.topK,
-            parameters.topK,
-            (parameters as any).top_k
-          ) ?? 40
-        };
+        if (hasCanonicalRequest) {
+          requestBody = {
+            ...(canonicalRequest as Record<string, unknown>),
+            model: resolvedModel
+          };
+          effectiveConfigOverride = parsedConfigOverride;
+          contentMessages = Array.isArray((canonicalRequest as any).input)
+            ? (canonicalRequest as any).input.filter((item: any) => item?.type === 'message')
+            : [];
+        } else {
+          const systemPromptParts = [
+            typeof systemPrompt === 'string' ? systemPrompt.trim() : '',
+            ...finalMessages
+              .filter((message: any) => message?.role === 'system')
+              .map((message: any) => (typeof message?.content === 'string' ? message.content.trim() : ''))
+              .filter(Boolean)
+          ].filter(Boolean);
+          const mergedSystemPrompt = systemPromptParts.join('\n\n');
+          contentMessages = finalMessages.filter((message: any) => message?.role !== 'system');
 
-        const stopSequences = selectFirstDefined(
-          mergedGenerationConfig.stopSequences,
-          advancedConfig.stopSequences,
-          modelConfig.stopSequences,
-          parameters.stopSequences,
-          (parameters as any).stop_sequences
-        );
-        if (stopSequences !== undefined) {
-          generationConfig.stopSequences = stopSequences;
-        }
-
-        const rawThinkingConfig = selectFirstDefined(
-          mergedGenerationConfig.thinkingConfig,
-          advancedConfig.thinkingConfig,
-          parameters.thinkingConfig
-        );
-
-        const normalizedThinkingConfig: Record<string, unknown> = {};
-        if (rawThinkingConfig && typeof rawThinkingConfig === 'object') {
-          if (typeof rawThinkingConfig.includeThoughts === 'boolean') {
-            normalizedThinkingConfig.includeThoughts = rawThinkingConfig.includeThoughts;
+          if (contentMessages.length === 0) {
+            return res.status(400).json({
+              success: false,
+              error: 'At least one non-system message or userInput string is required',
+              timestamp: new Date().toISOString()
+            });
           }
-          if (
-            typeof rawThinkingConfig.thinkingBudget === 'number' &&
-            !Number.isNaN(rawThinkingConfig.thinkingBudget)
-          ) {
-            normalizedThinkingConfig.thinkingBudget = rawThinkingConfig.thinkingBudget;
+
+          const advancedConfig = parameters.advanced_config || {};
+          const modelConfig = parameters.model_config || {};
+          const mergedGenerationConfig = {
+            ...(advancedConfig.generationConfig && typeof advancedConfig.generationConfig === 'object'
+              ? advancedConfig.generationConfig
+              : {}),
+            ...(parameters.generationConfig && typeof parameters.generationConfig === 'object'
+              ? parameters.generationConfig
+              : {})
+          };
+
+          const generationConfig: Record<string, unknown> = {
+            ...mergedGenerationConfig,
+            temperature: selectFirstDefined(
+              mergedGenerationConfig.temperature,
+              advancedConfig.temperature,
+              modelConfig.temperature,
+              parameters.temperature
+            ) ?? 0.7,
+            maxOutputTokens: selectFirstDefined(
+              mergedGenerationConfig.maxOutputTokens,
+              advancedConfig.maxOutputTokens,
+              modelConfig.maxOutputTokens,
+              parameters.maxOutputTokens,
+              (parameters as any).max_output_tokens
+            ) ?? 1000,
+            topP: selectFirstDefined(
+              mergedGenerationConfig.topP,
+              advancedConfig.topP,
+              modelConfig.topP,
+              parameters.topP,
+              (parameters as any).top_p
+            ) ?? 0.95,
+            topK: selectFirstDefined(
+              mergedGenerationConfig.topK,
+              advancedConfig.topK,
+              modelConfig.topK,
+              parameters.topK,
+              (parameters as any).top_k
+            ) ?? 40
+          };
+
+          const stopSequences = selectFirstDefined(
+            mergedGenerationConfig.stopSequences,
+            advancedConfig.stopSequences,
+            modelConfig.stopSequences,
+            parameters.stopSequences,
+            (parameters as any).stop_sequences
+          );
+          if (stopSequences !== undefined) {
+            generationConfig.stopSequences = stopSequences;
           }
-          if ((rawThinkingConfig as any).responseSchema) {
-            generationConfig.responseSchema = (rawThinkingConfig as any).responseSchema;
+
+          const rawThinkingConfig = selectFirstDefined(
+            mergedGenerationConfig.thinkingConfig,
+            advancedConfig.thinkingConfig,
+            parameters.thinkingConfig
+          );
+
+          const normalizedThinkingConfig: Record<string, unknown> = {};
+          if (rawThinkingConfig && typeof rawThinkingConfig === 'object') {
+            if (typeof rawThinkingConfig.includeThoughts === 'boolean') {
+              normalizedThinkingConfig.includeThoughts = rawThinkingConfig.includeThoughts;
+            }
+            if (
+              typeof rawThinkingConfig.thinkingBudget === 'number' &&
+              !Number.isNaN(rawThinkingConfig.thinkingBudget)
+            ) {
+              normalizedThinkingConfig.thinkingBudget = rawThinkingConfig.thinkingBudget;
+            }
+            if ((rawThinkingConfig as any).responseSchema) {
+              generationConfig.responseSchema = (rawThinkingConfig as any).responseSchema;
+            }
           }
+
+          const toolsConfig = advancedConfig.toolsConfig && typeof advancedConfig.toolsConfig === 'object'
+            ? advancedConfig.toolsConfig
+            : {};
+          requestBody = {
+            contents: contentMessages.map((message: any) => ({
+              role: message.role === 'assistant' ? 'model' : 'user',
+              parts: [{ text: typeof message.content === 'string' ? message.content : '' }]
+            })),
+            generationConfig,
+            safetySettings: Array.isArray(advancedConfig.safetySettings) ? advancedConfig.safetySettings : []
+          };
+
+          const debugTools = this.buildDebugTools(toolsConfig);
+          if (debugTools.length > 0) {
+            requestBody.tools = debugTools;
+          }
+
+          const debugToolConfig = this.buildDebugToolConfig(toolsConfig);
+          if (debugToolConfig) {
+            requestBody.toolConfig = debugToolConfig;
+          }
+
+          if (Object.keys(normalizedThinkingConfig).length > 0) {
+            requestBody.thinkingConfig = normalizedThinkingConfig;
+          }
+
+          if (mergedSystemPrompt.length > 0) {
+            requestBody.systemInstruction = mergedSystemPrompt;
+          }
+
+          effectiveConfigOverride = this.buildDebugConfig({
+            provider,
+            modelName: resolvedModel,
+            systemPrompt: mergedSystemPrompt,
+            generationConfig,
+            thinkingConfig: normalizedThinkingConfig,
+            safetySettings: Array.isArray(advancedConfig.safetySettings) ? advancedConfig.safetySettings : [],
+            toolsConfig,
+            providerSpecific:
+              (modelConfig.providerSpecific && typeof modelConfig.providerSpecific === 'object')
+                ? modelConfig.providerSpecific
+                : {},
+            allowedTokenIds: Array.isArray(parameters.allowed_token_ids) ? parameters.allowed_token_ids : []
+          });
         }
-
-        const toolsConfig = advancedConfig.toolsConfig && typeof advancedConfig.toolsConfig === 'object'
-          ? advancedConfig.toolsConfig
-          : {};
-        const requestBody: Record<string, unknown> = {
-          contents: finalMessages.map((message: any) => ({
-            role: message.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: typeof message.content === 'string' ? message.content : '' }]
-          })),
-          generationConfig,
-          safetySettings: Array.isArray(advancedConfig.safetySettings) ? advancedConfig.safetySettings : []
-        };
-
-        const debugTools = this.buildDebugTools(toolsConfig);
-        if (debugTools.length > 0) {
-          requestBody.tools = debugTools;
-        }
-
-        const debugToolConfig = this.buildDebugToolConfig(toolsConfig);
-        if (debugToolConfig) {
-          requestBody.toolConfig = debugToolConfig;
-        }
-
-        if (Object.keys(normalizedThinkingConfig).length > 0) {
-          requestBody.thinkingConfig = normalizedThinkingConfig;
-        }
-
-        if (typeof systemPrompt === 'string' && systemPrompt.trim().length > 0) {
-          requestBody.systemInstruction = systemPrompt;
-        }
-
-        const configOverride = this.buildDebugConfig({
-          provider,
-          modelName: resolvedModel,
-          systemPrompt: typeof systemPrompt === 'string' ? systemPrompt : '',
-          generationConfig,
-          thinkingConfig: normalizedThinkingConfig,
-          safetySettings: Array.isArray(advancedConfig.safetySettings) ? advancedConfig.safetySettings : [],
-          toolsConfig,
-          providerSpecific:
-            (modelConfig.providerSpecific && typeof modelConfig.providerSpecific === 'object')
-              ? modelConfig.providerSpecific
-              : {},
-          allowedTokenIds: Array.isArray(parameters.allowed_token_ids) ? parameters.allowed_token_ids : []
-        });
 
         const startedAt = Date.now();
-        const llmResponse = await this.services.aiService.generateContent(requestBody, {
+        const debugTraceId = `playground_debug_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        const llmResponse = await this.services.aiService.generateContent(requestBody, debugTraceId, {
           modelName: resolvedModel,
           conversationId: conversation_id,
           agentType: 'playground_debug',
-          promptName: 'playground_debug',
-          configOverride
+          promptName: typeof executionMode === 'string' ? executionMode : 'playground_debug',
+          configOverride: effectiveConfigOverride as any
         });
 
         const aiResponse = this.extractResponseText(llmResponse);
@@ -405,7 +456,9 @@ class HttpServer {
           canonical_response: llmResponse.canonical_response || null,
           wire_response: llmResponse.wire_response || null,
           raw_response: llmResponse.raw_response || llmResponse,
+          effective_unified_config: effectiveConfigOverride || null,
           debug_metadata: llmResponse.debug_metadata || null,
+          trace_id: debugTraceId,
           timestamp: new Date().toISOString()
         });
 
@@ -413,7 +466,7 @@ class HttpServer {
           provider,
           model: resolvedModel,
           conversation_id,
-          messageCount: finalMessages.length,
+          messageCount: contentMessages.length,
           processingTimeMs
         });
       } catch (error: any) {
@@ -425,6 +478,68 @@ class HttpServer {
           success: false,
           error: 'Failed to execute debug request',
           message: error.message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
+    this.app.get('/api/internal/proactivity', async (_req: Request, res: Response) => {
+      try {
+        if (!this.services.agentMemoryService || !this.services.getProactivityDefaults) {
+          return res.status(503).json({
+            success: false,
+            error: 'Proactivity service not available',
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        const data = await this.services.agentMemoryService.getProactivityControls(
+          this.services.getProactivityDefaults()
+        );
+
+        return res.json({
+          success: true,
+          data,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error: any) {
+        this.moduleLogger.error('Failed to fetch proactivity controls', { error: error?.message || error });
+        return res.status(500).json({
+          success: false,
+          error: error?.message || 'Failed to fetch proactivity controls',
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
+    this.app.patch('/api/internal/proactivity', async (req: Request, res: Response) => {
+      try {
+        if (!this.services.agentMemoryService || !this.services.getProactivityDefaults) {
+          return res.status(503).json({
+            success: false,
+            error: 'Proactivity service not available',
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        const normalizedPatch = this.normalizeProactivityPatch(req.body);
+        const data = await this.services.agentMemoryService.updateProactivityControls(
+          normalizedPatch,
+          this.services.getProactivityDefaults()
+        );
+
+        return res.json({
+          success: true,
+          data,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error: any) {
+        const message = error instanceof Error ? error.message : 'Failed to update proactivity controls';
+        const status = message.includes('invalid') || message.includes('must') ? 400 : 500;
+        this.moduleLogger.error('Failed to update proactivity controls', { error: message });
+        return res.status(status).json({
+          success: false,
+          error: message,
           timestamp: new Date().toISOString()
         });
       }
@@ -971,6 +1086,92 @@ class HttpServer {
     });
 
     return normalized;
+  }
+
+  private normalizeProactivityPatch(body: Record<string, unknown> | undefined): Partial<AgentProactivityRuntimeConfig> {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new Error('invalid proactivity payload');
+    }
+
+    const patch: Partial<AgentProactivityRuntimeConfig> = {};
+
+    if (body.followup_enabled !== undefined) {
+      patch.followupEnabled = this.parseBooleanField(body.followup_enabled, 'followup_enabled');
+    }
+
+    if (body.is_paused !== undefined) {
+      patch.isPaused = this.parseBooleanField(body.is_paused, 'is_paused');
+    }
+
+    if (body.allowed_user_ids !== undefined) {
+      patch.allowedUserIds = this.parseAllowedUserIds(body.allowed_user_ids);
+    }
+
+    if (body.max_per_run !== undefined) {
+      patch.maxPerRun = this.parseIntegerField(body.max_per_run, 'max_per_run', 1, 5);
+    }
+
+    if (body.retry_delay_ms !== undefined) {
+      patch.retryDelayMs = this.parseIntegerField(body.retry_delay_ms, 'retry_delay_ms', 60_000);
+    }
+
+    return patch;
+  }
+
+  private parseBooleanField(value: unknown, fieldName: string): boolean {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (value === 1 || value === '1' || value === 'true') {
+      return true;
+    }
+    if (value === 0 || value === '0' || value === 'false') {
+      return false;
+    }
+    throw new Error(`${fieldName} must be a boolean`);
+  }
+
+  private parseIntegerField(value: unknown, fieldName: string, min: number, max?: number): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+      throw new Error(`${fieldName} must be an integer`);
+    }
+    if (parsed < min) {
+      throw new Error(`${fieldName} must be >= ${min}`);
+    }
+    if (typeof max === 'number' && parsed > max) {
+      throw new Error(`${fieldName} must be <= ${max}`);
+    }
+    return parsed;
+  }
+
+  private parseAllowedUserIds(value: unknown): number[] {
+    let rawValues: unknown[] = [];
+
+    if (Array.isArray(value)) {
+      rawValues = value;
+    } else if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return [];
+      }
+      try {
+        const parsed = JSON.parse(trimmed);
+        rawValues = Array.isArray(parsed) ? parsed : trimmed.split(',');
+      } catch {
+        rawValues = trimmed.split(',');
+      }
+    } else {
+      throw new Error('allowed_user_ids must be an array or comma-separated string');
+    }
+
+    return Array.from(
+      new Set(
+        rawValues
+          .map(item => Number(String(item).trim()))
+          .filter(item => Number.isFinite(item) && item > 0)
+      )
+    );
   }
 
   private sendOpenAIError(

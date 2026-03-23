@@ -1,9 +1,11 @@
-export type PlaygroundSourceType = 'traffic' | 'conversation';
+export type PlaygroundSourceType = 'traffic' | 'conversation' | 'span';
 export type PlaygroundCaseMode = 'contextual' | 'wire';
 export type PlaygroundPromptMode = 'saved' | 'draft';
+export type PlaygroundExecutionMode = 'exact_replay' | 'patched_replay';
+export type PlaygroundImportFidelity = 'exact' | 'partial' | 'unsupported';
 
 export interface PlaygroundMessage {
-  role: 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant';
   content: string;
 }
 
@@ -20,6 +22,37 @@ export interface PlaygroundProviderConfig {
   safety?: Array<Record<string, unknown>>;
   tools?: Record<string, unknown>;
   context?: Record<string, unknown>;
+  providerSpecific?: Record<string, unknown>;
+}
+
+export interface PlaygroundBaselineSnapshot {
+  traceId?: string | null;
+  conversationId?: string | null;
+  llmCallId?: string | null;
+  spanId?: string | null;
+  agentTurn?: number | null;
+  provider?: string | null;
+  modelName?: string | null;
+  canonicalRequest: Record<string, unknown> | null;
+  canonicalResponse?: unknown;
+  wireRequest?: unknown;
+  wireResponse?: unknown;
+  requestFormatVersion?: string | null;
+  wireProviderFormat?: string | null;
+  effectiveUnifiedConfig?: Record<string, unknown> | null;
+}
+
+export interface PlaygroundRequestPatch {
+  instructions?: string;
+  input?: unknown[];
+  tools?: unknown;
+  tool_choice?: unknown;
+  max_output_tokens?: number | null;
+  temperature?: number | null;
+  top_p?: number | null;
+  stop?: unknown;
+  provider?: PlaygroundProviderConfig['provider'];
+  modelName?: string | null;
   providerSpecific?: Record<string, unknown>;
 }
 
@@ -45,6 +78,7 @@ export interface PlaygroundTraceContext {
   toolCallId?: string | null;
   agentTurn?: number | null;
   trafficLogId?: number | null;
+  spanId?: string | null;
 }
 
 export interface PlaygroundCase {
@@ -58,6 +92,9 @@ export interface PlaygroundCase {
   promptModeDefault: PlaygroundPromptMode;
   promptInput: PlaygroundPromptInput;
   providerConfig: PlaygroundProviderConfig;
+  baselineSnapshot?: PlaygroundBaselineSnapshot | null;
+  currentPatch?: PlaygroundRequestPatch | null;
+  importFidelity?: PlaygroundImportFidelity;
   baselineOutput?: PlaygroundBaselineOutput | null;
   rawEvidence: Record<string, unknown>;
   tags: string[];
@@ -71,11 +108,16 @@ export interface PlaygroundCase {
 export interface PlaygroundRun {
   id: string;
   caseId: string;
+  executionMode?: PlaygroundExecutionMode;
   promptMode: PlaygroundPromptMode;
   promptId?: string | null;
   promptSnapshot?: Record<string, unknown> | null;
   providerConfigSnapshot: PlaygroundProviderConfig;
   inputSnapshot: PlaygroundPromptInput;
+  baselineSnapshot?: PlaygroundBaselineSnapshot | null;
+  requestPatch?: PlaygroundRequestPatch | null;
+  effectiveRequest?: Record<string, unknown> | null;
+  effectiveConfig?: Record<string, unknown> | null;
   outputSnapshot?: {
     responseText?: string;
     thinking?: string;
@@ -100,6 +142,7 @@ export interface PlaygroundRun {
     currentText?: string;
     previousRunText?: string;
   } | null;
+  diffSnapshot?: Record<string, unknown> | null;
   modelName?: string | null;
   provider?: string | null;
   status: 'completed' | 'failed';

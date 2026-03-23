@@ -1,5 +1,6 @@
 import type {
   PlaygroundCase,
+  PlaygroundExecutionMode,
   PlaygroundLibraryPayload,
   PlaygroundPromptInput,
   PlaygroundPromptMode,
@@ -41,6 +42,19 @@ export async function createCaseFromConversation(conversationId: string, promptI
   return parseResponse<PlaygroundCase>(response);
 }
 
+export async function createCaseFromSpan(payload: {
+  traceId: string;
+  spanId: string;
+  promptId?: string | null;
+}): Promise<PlaygroundCase> {
+  const response = await fetch('/api/playground/cases/from-span', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse<PlaygroundCase>(response);
+}
+
 export async function fetchPlaygroundCase(caseId: string): Promise<PlaygroundCase> {
   const response = await fetch(`/api/playground/cases/${caseId}`);
   return parseResponse<PlaygroundCase>(response);
@@ -62,6 +76,7 @@ export async function fetchPlaygroundRuns(caseId: string): Promise<PlaygroundRun
 
 export async function createPlaygroundRun(payload: {
   caseId: string;
+  executionMode?: PlaygroundExecutionMode;
   promptMode: PlaygroundPromptMode;
   promptId?: string | null;
   providerConfig: PlaygroundProviderConfig;

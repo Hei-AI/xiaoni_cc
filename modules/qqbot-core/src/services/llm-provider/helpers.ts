@@ -300,7 +300,8 @@ export function geminiRequestToOpenResponseRequest(
   providerConfig?: { generation?: any }
 ): OpenResponseCreateRequest {
   const generationConfig = request.generationConfig || providerConfig?.generation || {};
-  const input = geminiContentsToOpenResponseInput(request.contents || [], request.systemInstruction);
+  // Keep systemInstruction as `instructions` instead of duplicating it into `input`.
+  const input = geminiContentsToOpenResponseInput(request.contents || [], undefined);
   const instructionsFromSystem = normalizeSystemInstruction(request.systemInstruction);
   const tools = extractToolDeclarations(request.tools || []);
   const toolChoice = functionCallingModeToOpenAIToolChoice(request?.toolConfig?.functionCallingConfig?.mode);

@@ -1,8 +1,12 @@
 import express from 'express';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
-import { PlaygroundCaseBuilder } from '../services/playground-case-builder';
+import { PlaygroundCaseBuilder, PlaygroundCompatibilityError } from '../services/playground-case-builder';
 import { PlaygroundRunService } from '../services/playground-run-service';
+
+function errorStatusCode(error: unknown): number {
+  return error instanceof PlaygroundCompatibilityError ? error.statusCode : 500;
+}
 
 export function createPlaygroundRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
@@ -82,9 +86,46 @@ export function createPlaygroundRoutes(database: DatabaseManager, logger: winsto
       });
     } catch (error) {
       logger.error('Failed to create playground case from conversation', { error, conversationId: req.params.conversationId });
-      res.status(500).json({
+      res.status(errorStatusCode(error)).json({
         success: false,
         error: 'Failed to create playground case from conversation',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.post('/playground/cases/from-span', async (req, res) => {
+    try {
+      await ready;
+      if (typeof req.body?.traceId !== 'string' || typeof req.body?.spanId !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'traceId and spanId are required',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const record = await caseBuilder.createCaseFromSpan(
+        req.body.traceId,
+        req.body.spanId,
+        typeof req.body?.promptId === 'string' ? req.body.promptId : null
+      );
+
+      res.json({
+        success: true,
+        data: record,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to create playground case from span', {
+        error,
+        traceId: req.body?.traceId,
+        spanId: req.body?.spanId
+      });
+      res.status(errorStatusCode(error)).json({
+        success: false,
+        error: 'Failed to create playground case from span',
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString()
       });
@@ -172,6 +213,7 @@ export function createPlaygroundRoutes(database: DatabaseManager, logger: winsto
       await ready;
       const record = await runService.createRun({
         caseId: req.body.caseId,
+        executionMode: req.body.executionMode,
         promptMode: req.body.promptMode,
         promptId: req.body.promptId,
         providerConfig: req.body.providerConfig,

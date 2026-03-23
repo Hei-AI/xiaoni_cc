@@ -27,6 +27,8 @@ function CaseCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const sourceLabel = item.tags.includes('span') ? 'span' : item.source;
+
   return (
     <button
       type="button"
@@ -42,7 +44,7 @@ function CaseCard({
           <div className="line-clamp-1 text-sm font-semibold text-foreground">{item.name}</div>
           <div className="mt-1 flex flex-wrap gap-1.5">
             <Badge variant="outline">{item.caseMode}</Badge>
-            <Badge variant="secondary">{item.source}</Badge>
+            <Badge variant="secondary">{sourceLabel}</Badge>
             {item.promptId ? <Badge variant="outline">saved prompt</Badge> : null}
           </div>
         </div>

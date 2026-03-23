@@ -792,6 +792,7 @@ export class AIService {
             wireRequest: response.wireRequest,
             requestFormatVersion: response.requestFormatVersion,
             wireProviderFormat: response.wireProviderFormat,
+            effectiveUnifiedConfig: this.buildEffectiveUnifiedConfigSnapshot(config, config.model.name, response.provider),
             inputTokens: inputTokens,
             canonicalResponse: response.canonicalResponse,
             wireResponse: response.wireResponse,
@@ -868,6 +869,7 @@ export class AIService {
             wireRequest: undefined,
             requestFormatVersion: 'openresponse/v1',
             wireProviderFormat: `${providerId}/unknown`,
+            effectiveUnifiedConfig: this.buildEffectiveUnifiedConfigSnapshot(config, config.model.name, providerId),
             inputTokens: Math.ceil(prompt.length / 4),
             canonicalResponse: undefined,
             wireResponse: undefined,
@@ -1121,6 +1123,7 @@ export class AIService {
             wireRequest: response.wireRequest,
             requestFormatVersion: response.requestFormatVersion,
             wireProviderFormat: response.wireProviderFormat,
+            effectiveUnifiedConfig: this.buildEffectiveUnifiedConfigSnapshot(resolvedPromptConfig, targetModel, response.provider),
             inputTokens,
             canonicalResponse: response.canonicalResponse,
             wireResponse: response.wireResponse,
@@ -1208,6 +1211,7 @@ export class AIService {
             wireRequest: undefined,
             requestFormatVersion: 'openresponse/v1',
             wireProviderFormat: `${providerId}/unknown`,
+            effectiveUnifiedConfig: this.buildEffectiveUnifiedConfigSnapshot(resolvedPromptConfig, targetModel, providerId),
             inputTokens: 0,
             canonicalResponse: undefined,
             wireResponse: undefined,
@@ -1258,6 +1262,24 @@ export class AIService {
     }
 
     return geminiRequestToOpenResponseRequest(request, modelName, providerConfig);
+  }
+
+  private buildEffectiveUnifiedConfigSnapshot(
+    config: UnifiedLLMConfig | null | undefined,
+    modelName: string,
+    provider: string
+  ): Record<string, unknown> | null {
+    if (!config) {
+      return null;
+    }
+
+    const snapshot = JSON.parse(JSON.stringify(config)) as UnifiedLLMConfig;
+    snapshot.model = {
+      ...(snapshot.model || {}),
+      name: modelName,
+      provider: provider as UnifiedLLMConfig['model']['provider']
+    };
+    return snapshot as unknown as Record<string, unknown>;
   }
 
   private async resolveProviderConfigForGenerateContent(

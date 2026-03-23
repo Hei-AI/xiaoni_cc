@@ -72,6 +72,7 @@ const CREATE_TABLES_SQL = [
     wire_request JSON NOT NULL COMMENT '实际发送给 provider 的请求体快照',
     request_format_version VARCHAR(32) NOT NULL DEFAULT 'openresponse/v1' COMMENT '统一请求格式版本',
     wire_provider_format VARCHAR(64) NOT NULL COMMENT 'provider wire payload 格式标识',
+    effective_unified_config JSON NULL COMMENT '实际生效的 unified provider 配置快照',
     input_tokens INT NULL COMMENT '输入token数量',
     
     -- 输出信息

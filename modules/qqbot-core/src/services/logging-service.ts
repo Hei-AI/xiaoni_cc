@@ -45,6 +45,7 @@ export interface LLMCallLogData {
   wireRequest: any;
   requestFormatVersion?: string;
   wireProviderFormat?: string;
+  effectiveUnifiedConfig?: any;
   inputTokens?: number;
   canonicalResponse?: any;
   wireResponse?: any;
@@ -162,6 +163,7 @@ export class LoggingService {
   // 移除内存中的序列号管理，改用数据库原子操作保证一致性
   private sequenceLocks: Map<string, Promise<number>> = new Map(); // 按trace_id的序列锁
   private pendingLifecycleSpans: Map<string, string[]> = new Map();
+  private llmCallSchemaEnsured = false;
 
   constructor(database: DatabaseManager) {
     this.database = database;
@@ -195,6 +197,35 @@ export class LoggingService {
     return await sequencePromise;
   }
 
+  private async ensureLlmCallSchema(): Promise<void> {
+    if (this.llmCallSchemaEnsured) {
+      return;
+    }
+
+    const rows = await this.database.executeQuery<{ total: number }>(
+      `
+        SELECT COUNT(*) AS total
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'llm_call_logs'
+          AND column_name = 'effective_unified_config'
+      `
+    );
+
+    if ((rows[0]?.total || 0) === 0) {
+      await this.database.executeUpdate(
+        `
+          ALTER TABLE llm_call_logs
+          ADD COLUMN effective_unified_config JSON NULL
+          COMMENT '实际生效的 unified provider 配置快照'
+          AFTER wire_provider_format
+        `
+      );
+    }
+
+    this.llmCallSchemaEnsured = true;
+  }
+
   private preview(value: any, maxLength = 160): string {
     if (value === null || value === undefined || value === '') {
       return 'No summary available';
@@ -206,6 +237,19 @@ export class LoggingService {
       return 'No summary available';
     }
     return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
+  }
+
+  private normalizeRequiredJsonSnapshot(
+    value: unknown,
+    fieldName: 'canonical_request' | 'wire_request'
+  ): string {
+    const snapshot = value ?? {
+      missing: true,
+      reason: `${fieldName}_not_captured`,
+      generatedBy: 'logging-service'
+    };
+
+    return JSON.stringify(snapshot);
   }
 
   private spanStatusFromLegacyStatus(value?: string | null): 'unset' | 'ok' | 'error' {
@@ -561,6 +605,8 @@ export class LoggingService {
    */
   async logLLMCall(data: LLMCallLogData): Promise<number> {
     try {
+      await this.ensureLlmCallSchema();
+
       // 使用内存锁和数据库确保序列号的原子性
       let callSequence: number;
       if (data.callSequence) {
@@ -582,10 +628,11 @@ export class LoggingService {
         model_name: data.modelName,
         model_provider: data.modelProvider || 'google-gemini-cli',
         prompt_template: data.promptTemplate || null,
-        canonical_request: data.canonicalRequest ? JSON.stringify(data.canonicalRequest) : null,
-        wire_request: data.wireRequest ? JSON.stringify(data.wireRequest) : null,
+        canonical_request: this.normalizeRequiredJsonSnapshot(data.canonicalRequest, 'canonical_request'),
+        wire_request: this.normalizeRequiredJsonSnapshot(data.wireRequest, 'wire_request'),
         request_format_version: data.requestFormatVersion || 'openresponse/v1',
         wire_provider_format: data.wireProviderFormat || `${data.modelProvider || 'unknown'}/unknown`,
+        effective_unified_config: data.effectiveUnifiedConfig ? JSON.stringify(data.effectiveUnifiedConfig) : null,
         input_tokens: data.inputTokens || null,
         canonical_response: data.canonicalResponse ? JSON.stringify(data.canonicalResponse) : null,
         wire_response: data.wireResponse ? JSON.stringify(data.wireResponse) : null,
@@ -606,11 +653,11 @@ export class LoggingService {
       const sql = `
         INSERT INTO llm_call_logs (
           trace_id, llm_call_id, conversation_id, session_id, call_sequence, agent_turn, agent_type, model_name, model_provider,
-          prompt_template, canonical_request, wire_request, request_format_version, wire_provider_format,
+          prompt_template, canonical_request, wire_request, request_format_version, wire_provider_format, effective_unified_config,
           input_tokens, canonical_response, wire_response, processed_response, output_tokens,
           api_call_time_ms, processing_time_ms, timestamp, started_at, completed_at, status, error_message, error_code,
           cost_estimate, token_usage, user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       // 🔥 使用应用程序层面的高精度时间戳，确保毫秒精度
@@ -621,7 +668,7 @@ export class LoggingService {
         logData.agent_turn,
         logData.agent_type, logData.model_name, logData.model_provider,
         logData.prompt_template, logData.canonical_request, logData.wire_request,
-        logData.request_format_version, logData.wire_provider_format, logData.input_tokens,
+        logData.request_format_version, logData.wire_provider_format, logData.effective_unified_config, logData.input_tokens,
         logData.canonical_response, logData.wire_response, logData.processed_response,
         logData.output_tokens, logData.api_call_time_ms, logData.processing_time_ms,
         preciseTimestamp, logData.started_at, logData.completed_at, logData.status, logData.error_message, logData.error_code,
@@ -656,7 +703,8 @@ export class LoggingService {
           input: {
             prompt_template: data.promptTemplate,
             canonical_request: data.canonicalRequest,
-            wire_request: data.wireRequest
+            wire_request: data.wireRequest,
+            effective_unified_config: data.effectiveUnifiedConfig
           },
           output: {
             processed_response: data.processedResponse,
