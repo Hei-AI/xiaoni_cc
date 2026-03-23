@@ -116,3 +116,48 @@ describe('DecisionEngine directed reply rules', () => {
     expect(decision.suggestedNextStep).toBe('end');
   });
 });
+
+describe('DecisionEngine stats', () => {
+  it('reads decision statistics from conversations instead of returning placeholders', async () => {
+    const database = {
+      executeQuery: jest
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            totalDecisions: 12,
+            respondedCount: 9,
+            averageConfidence: 0.8123
+          }
+        ])
+        .mockResolvedValueOnce([
+          { source: 'direct_mention', total: 3 },
+          { source: 'reply_context', total: 2 },
+          { source: 'private_message', total: 4 },
+          { source: 'ai_analysis', total: 2 },
+          { source: 'rule_skip', total: 1 }
+        ])
+    };
+
+    const engine = new DecisionEngine({} as any, {
+      gemini_api_keys: [],
+      model_name: 'gemini-2.5-flash',
+      authorized_user_id: 85178516,
+      bot_qq_number: 1129974489
+    }, database as any);
+
+    const stats = await engine.getDecisionStats();
+
+    expect(stats).toEqual({
+      totalDecisions: 12,
+      responseRate: 75,
+      averageConfidence: 0.8123,
+      sourceBreakdown: {
+        direct_mention: 3,
+        reply_context: 2,
+        private_message: 4,
+        ai_analysis: 2,
+        rule_skip: 1
+      }
+    });
+  });
+});

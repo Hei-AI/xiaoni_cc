@@ -10,6 +10,7 @@
 
 import { logger } from '../utils/logger';
 import { AIService } from '../services/ai-service';
+import { DatabaseManager } from '../services/database';
 import { QQMessage, DecisionResult, MessageContext, AIConfig } from '../types';
 import { extractNormalizedMessageText } from '../utils/reply-intent';
 
@@ -40,11 +41,13 @@ interface AIAnalysisDecision {
 
 export class DecisionEngine {
   private aiService: AIService;
+  private database?: DatabaseManager;
   private moduleLogger = logger.createModuleLogger('decision-engine');
   private config: AIConfig;
   
-  constructor(aiService: AIService, config?: AIConfig) {
+  constructor(aiService: AIService, config?: AIConfig, database?: DatabaseManager) {
     this.aiService = aiService;
+    this.database = database;
     this.config = config || {
       gemini_api_keys: [],
       model_name: 'gemini-2.5-flash',
@@ -640,19 +643,74 @@ ${context.currentMessage.group_id ? `群聊ID: ${context.currentMessage.group_id
     averageConfidence: number;
     sourceBreakdown: Record<string, number>;
   }> {
-    // TODO: 从数据库获取统计信息
-    // 当前返回模拟数据，后续需要实现真实的统计查询
-    return {
-      totalDecisions: 0,
-      responseRate: 0,
-      averageConfidence: 0,
-      sourceBreakdown: {
-        direct_mention: 0,
-        reply_context: 0,
-        private_message: 0,
-        ai_analysis: 0,
-        rule_skip: 0
+    if (!this.database) {
+      return {
+        totalDecisions: 0,
+        responseRate: 0,
+        averageConfidence: 0,
+        sourceBreakdown: {
+          direct_mention: 0,
+          reply_context: 0,
+          private_message: 0,
+          ai_analysis: 0,
+          rule_skip: 0
+        }
+      };
+    }
+
+    const [stats] = await this.database.executeQuery<{
+      totalDecisions: number;
+      respondedCount: number;
+      averageConfidence: number | null;
+    }>(`
+      SELECT
+        COUNT(*) as totalDecisions,
+        SUM(CASE WHEN ai_response IS NOT NULL AND ai_response <> '' THEN 1 ELSE 0 END) as respondedCount,
+        AVG(
+          COALESCE(
+            CAST(JSON_UNQUOTE(JSON_EXTRACT(raw_response, '$.decision.confidence')) AS DECIMAL(10,4)),
+            CAST(JSON_UNQUOTE(JSON_EXTRACT(raw_response, '$.confidence')) AS DECIMAL(10,4))
+          )
+        ) as averageConfidence
+      FROM conversations
+    `);
+
+    const sourceRows = await this.database.executeQuery<{
+      source: string | null;
+      total: number;
+    }>(`
+      SELECT
+        COALESCE(
+          JSON_UNQUOTE(JSON_EXTRACT(raw_response, '$.decision.source')),
+          JSON_UNQUOTE(JSON_EXTRACT(raw_response, '$.source')),
+          'unknown'
+        ) as source,
+        COUNT(*) as total
+      FROM conversations
+      GROUP BY 1
+    `);
+
+    const sourceBreakdown = {
+      direct_mention: 0,
+      reply_context: 0,
+      private_message: 0,
+      ai_analysis: 0,
+      rule_skip: 0
+    };
+
+    for (const row of sourceRows) {
+      if (!row.source || !(row.source in sourceBreakdown)) {
+        continue;
       }
+      sourceBreakdown[row.source as keyof typeof sourceBreakdown] = row.total;
+    }
+
+    const totalDecisions = stats?.totalDecisions || 0;
+    return {
+      totalDecisions,
+      responseRate: totalDecisions > 0 ? Number((((stats?.respondedCount || 0) / totalDecisions) * 100).toFixed(2)) : 0,
+      averageConfidence: Number((stats?.averageConfidence || 0).toFixed(4)),
+      sourceBreakdown
     };
   }
 }

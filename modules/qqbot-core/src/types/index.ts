@@ -195,7 +195,7 @@ export type NewAgentObservationRecord = Omit<
 >;
 
 export type AgentBeliefSubjectType = 'user' | 'group' | 'self' | 'conversation';
-export type AgentBeliefType = 'identity_fact' | 'preference' | 'commitment';
+export type AgentBeliefType = 'identity_fact' | 'preference' | 'commitment' | 'relationship';
 export type AgentBeliefPolarity = 'positive' | 'negative' | 'neutral';
 export type AgentBeliefStatus = 'active' | 'revised' | 'stale';
 
@@ -265,6 +265,36 @@ export interface AgentMemoryRecord {
 
 export type NewAgentMemoryRecord = Omit<
   AgentMemoryRecord,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export type AgentRelationshipBoundaryStrategy =
+  | 'allow_proactive'
+  | 'observe_only'
+  | 'do_not_contact';
+
+export interface AgentRelationshipMemoryRecord {
+  id: number;
+  target_user_id: number;
+  field_scope?: AgentObservationFieldScope | null;
+  group_id?: number | null;
+  relationship_summary: string;
+  interaction_style?: string | null;
+  boundary_notes?: string | null;
+  confidence: number;
+  status: AgentMemoryStatus;
+  source_reflection_id?: number | null;
+  last_evidence_id?: number | null;
+  last_observed_at: Date;
+  is_current: boolean;
+  boundary_strategy?: AgentRelationshipBoundaryStrategy | null;
+  notes_json?: any;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export type NewAgentRelationshipMemoryRecord = Omit<
+  AgentRelationshipMemoryRecord,
   'id' | 'created_at' | 'updated_at'
 >;
 
@@ -345,6 +375,8 @@ export interface AgentPlanRecord {
   scheduled_start_at?: Date | null;
   scheduled_end_at?: Date | null;
   source_reflection_id?: number | null;
+  source_plan_id?: number | null;
+  plan_metadata_json?: any;
   created_at: Date;
   updated_at: Date;
 }
@@ -372,11 +404,67 @@ export type NewAgentActionLogRecord = Omit<
   'id' | 'created_at'
 >;
 
+export type AgentFeedbackJudgement = 'positive' | 'neutral' | 'negative';
+
+export interface AgentFeedbackEventRecord {
+  id: number;
+  field_key: string;
+  target_user_id?: number | null;
+  target_group_id?: number | null;
+  source_action_log_id: number;
+  judgement: AgentFeedbackJudgement;
+  reason_code: string;
+  explanation_json?: any;
+  llm_trace_id?: string | null;
+  occurred_at: Date;
+  created_at: Date;
+}
+
+export type NewAgentFeedbackEventRecord = Omit<
+  AgentFeedbackEventRecord,
+  'id' | 'created_at'
+>;
+
+export interface AgentWalkCandidateRecord {
+  id: number;
+  field_key: string;
+  field_scope: AgentObservationFieldScope;
+  target_user_id?: number | null;
+  target_group_id?: number | null;
+  priority_score: number;
+  selected_reason: string;
+  suppressed_reason?: string | null;
+  can_speak_now: boolean;
+  source_relationship_id?: number | null;
+  source_plan_ids_json?: number[];
+  source_memory_ids_json?: number[];
+  source_belief_ids_json?: number[];
+  trigger_sources_json?: string[];
+  compiler_inputs_json?: any;
+  computed_at: Date;
+  created_at: Date;
+}
+
 export interface AgentInternalStateSnapshot {
   availability?: string | null;
   energy?: string | null;
   current_concerns?: string[];
 }
+
+export interface AgentCognitionEditRecord {
+  id: number;
+  entity_type: 'belief' | 'memory' | 'relationship';
+  entity_id: number;
+  action_type: 'patch' | 'disable' | 'promote' | 'rebuild';
+  reason: string;
+  before_json: any;
+  after_json: any;
+  impact_json?: any;
+  operator_id: string;
+  created_at: Date;
+}
+
+export type NewAgentCognitionEditRecord = Omit<AgentCognitionEditRecord, 'id'>;
 
 export interface GroupMessageHistoryRecord {
   id: number;
@@ -1308,6 +1396,7 @@ export interface MessageContext {
   replyIntentContext?: ReplyIntentContext;
   selfModel?: AgentSelfModelRecord;
   internalState?: AgentInternalStateSnapshot;
+  relationshipContext?: AgentRelationshipMemoryRecord;
   activePlans?: AgentPlanRecord[];
   retrievedStableMemories?: AgentMemoryRecord[];
   recentEvidence?: AgentObservationRecord[];

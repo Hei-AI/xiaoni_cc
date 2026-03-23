@@ -16,6 +16,14 @@ import { useNavigate } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -34,32 +42,51 @@ import { StructuredDataViewer } from '@/components/StructuredDataViewer';
 import { formatTimestamp } from '@/lib/utils';
 import {
   CognitionBelief,
+  CognitionCandidate,
+  CognitionEdit,
+  CognitionField,
+  CognitionPatchEntityType,
+  CognitionPatchPreviewResponse,
   CognitionEvidence,
   CognitionMemory,
   CognitionObservation,
   CognitionPlan,
+  CognitionRelationship,
+  patchCognitionBelief,
+  patchCognitionMemory,
+  patchCognitionRelationship,
   CognitionReflection,
   CognitionSelfModel,
   updateCognitionProactivity,
   useCognitionBeliefs,
+  useCognitionEdits,
   useCognitionEvidence,
+  useCognitionFieldDetail,
+  useCognitionFields,
+  useCognitionCandidates,
   useCognitionMemories,
   useCognitionObservations,
   useCognitionOverview,
   useCognitionPlans,
   useCognitionProactivity,
+  useCognitionRelationships,
   useCognitionReflections,
   useCognitionSelfModels,
 } from '@/lib/cognitionApi';
 
 type CognitionTab =
+  | 'workbench'
   | 'observations'
   | 'beliefs'
   | 'memories'
   | 'evidence'
   | 'reflections'
   | 'self-model'
-  | 'plans';
+  | 'plans'
+  | 'relationships'
+  | 'candidates'
+  | 'fields'
+  | 'edits';
 
 function scopeLabel(scope: string): string {
   switch (scope) {
@@ -135,10 +162,47 @@ function planStatusTone(status: string): 'success' | 'warning' | 'neutral' | 'in
   return 'neutral';
 }
 
+function boundaryTone(boundary?: string | null): 'success' | 'warning' | 'neutral' | 'info' {
+  if (boundary === 'allow_proactive') {
+    return 'success';
+  }
+  if (boundary === 'observe_only') {
+    return 'warning';
+  }
+  if (boundary === 'do_not_contact') {
+    return 'neutral';
+  }
+  return 'info';
+}
+
+function fieldStatusTone(status: string): 'success' | 'warning' | 'neutral' | 'info' {
+  if (status === 'active') {
+    return 'success';
+  }
+  if (status === 'suppressed') {
+    return 'warning';
+  }
+  return 'neutral';
+}
+
+type BeliefPatchFormState = {
+  confidence: string;
+  status: 'active' | 'stale' | 'revised';
+};
+
+type MemoryPatchFormState = {
+  status: 'active' | 'disabled';
+};
+
+type RelationshipPatchFormState = {
+  boundary_strategy: 'allow_proactive' | 'observe_only' | 'do_not_contact';
+  boundary_notes: string;
+};
+
 export const CognitionPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<CognitionTab>('observations');
+  const [activeTab, setActiveTab] = useState<CognitionTab>('workbench');
   const [observationPage, setObservationPage] = useState(1);
   const [beliefPage, setBeliefPage] = useState(1);
   const [memoryPage, setMemoryPage] = useState(1);
@@ -146,11 +210,16 @@ export const CognitionPage: React.FC = () => {
   const [reflectionPage, setReflectionPage] = useState(1);
   const [selfModelPage, setSelfModelPage] = useState(1);
   const [planPage, setPlanPage] = useState(1);
+  const [relationshipPage, setRelationshipPage] = useState(1);
+  const [candidatePage, setCandidatePage] = useState(1);
+  const [fieldPage, setFieldPage] = useState(1);
+  const [editPage, setEditPage] = useState(1);
   const [observationScope, setObservationScope] = useState<'all' | 'private' | 'group'>('all');
   const [beliefScope, setBeliefScope] = useState<'all' | 'private' | 'group'>('all');
   const [memoryScope, setMemoryScope] = useState<'all' | 'private' | 'group' | 'self'>('all');
   const [evidenceScope, setEvidenceScope] = useState<'all' | 'private' | 'group' | 'self'>('all');
   const [planScope, setPlanScope] = useState<'all' | 'private' | 'group' | 'self'>('all');
+  const [relationshipScope, setRelationshipScope] = useState<'all' | 'private' | 'group' | 'self'>('all');
   const [observationSearch, setObservationSearch] = useState('');
   const [beliefSearch, setBeliefSearch] = useState('');
   const [memorySearch, setMemorySearch] = useState('');
@@ -158,6 +227,10 @@ export const CognitionPage: React.FC = () => {
   const [reflectionSearch, setReflectionSearch] = useState('');
   const [selfModelSearch, setSelfModelSearch] = useState('');
   const [planSearch, setPlanSearch] = useState('');
+  const [relationshipSearch, setRelationshipSearch] = useState('');
+  const [candidateSearch, setCandidateSearch] = useState('');
+  const [fieldSearch, setFieldSearch] = useState('');
+  const [editSearch, setEditSearch] = useState('');
   const [selectedObservation, setSelectedObservation] = useState<CognitionObservation | null>(null);
   const [selectedBelief, setSelectedBelief] = useState<CognitionBelief | null>(null);
   const [selectedMemory, setSelectedMemory] = useState<CognitionMemory | null>(null);
@@ -165,12 +238,33 @@ export const CognitionPage: React.FC = () => {
   const [selectedReflection, setSelectedReflection] = useState<CognitionReflection | null>(null);
   const [selectedSelfModel, setSelectedSelfModel] = useState<CognitionSelfModel | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<CognitionPlan | null>(null);
+  const [selectedRelationship, setSelectedRelationship] = useState<CognitionRelationship | null>(null);
+  const [selectedCandidate, setSelectedCandidate] = useState<CognitionCandidate | null>(null);
+  const [selectedField, setSelectedField] = useState<CognitionField | null>(null);
+  const [selectedEdit, setSelectedEdit] = useState<CognitionEdit | null>(null);
+  const [patchDialogOpen, setPatchDialogOpen] = useState(false);
+  const [patchEntityType, setPatchEntityType] = useState<CognitionPatchEntityType>('belief');
+  const [patchReason, setPatchReason] = useState('');
+  const [patchPreviewResult, setPatchPreviewResult] = useState<CognitionPatchPreviewResponse['data'] | null>(null);
+  const [beliefPatchForm, setBeliefPatchForm] = useState<BeliefPatchFormState>({
+    confidence: '0.8',
+    status: 'active',
+  });
+  const [memoryPatchForm, setMemoryPatchForm] = useState<MemoryPatchFormState>({
+    status: 'disabled',
+  });
+  const [relationshipPatchForm, setRelationshipPatchForm] = useState<RelationshipPatchFormState>({
+    boundary_strategy: 'observe_only',
+    boundary_notes: '',
+  });
   const [proactivityForm, setProactivityForm] = useState({
     followupEnabled: true,
     isPaused: false,
     maxPerRun: '1',
     retryDelayMinutes: '360',
     allowedUserIdsText: '',
+    observedGroupIdsText: '',
+    allowedGroupIdsText: '',
   });
 
   const limit = 20;
@@ -216,6 +310,28 @@ export const CognitionPage: React.FC = () => {
     scope: planScope,
     search: planSearch || undefined,
   });
+  const relationshipsQuery = useCognitionRelationships({
+    page: relationshipPage,
+    limit,
+    scope: relationshipScope,
+    search: relationshipSearch || undefined,
+  });
+  const candidatesQuery = useCognitionCandidates({
+    page: candidatePage,
+    limit,
+    search: candidateSearch || undefined,
+  });
+  const fieldsQuery = useCognitionFields({
+    page: fieldPage,
+    limit,
+    search: fieldSearch || undefined,
+  });
+  const fieldDetailQuery = useCognitionFieldDetail(selectedField?.field_key);
+  const editsQuery = useCognitionEdits({
+    page: editPage,
+    limit,
+    search: editSearch || undefined,
+  });
   const proactivityQuery = useCognitionProactivity();
 
   const observations = observationsQuery.data?.data || [];
@@ -225,6 +341,10 @@ export const CognitionPage: React.FC = () => {
   const reflections = reflectionsQuery.data?.data || [];
   const selfModels = selfModelsQuery.data?.data || [];
   const plans = plansQuery.data?.data || [];
+  const relationships = relationshipsQuery.data?.data || [];
+  const candidates = candidatesQuery.data?.data || [];
+  const fields = fieldsQuery.data?.data || [];
+  const edits = editsQuery.data?.data || [];
   const observationPagination = observationsQuery.data?.pagination;
   const beliefPagination = beliefsQuery.data?.pagination;
   const memoryPagination = memoriesQuery.data?.pagination;
@@ -232,6 +352,10 @@ export const CognitionPage: React.FC = () => {
   const reflectionPagination = reflectionsQuery.data?.pagination;
   const selfModelPagination = selfModelsQuery.data?.pagination;
   const planPagination = plansQuery.data?.pagination;
+  const relationshipPagination = relationshipsQuery.data?.pagination;
+  const candidatePagination = candidatesQuery.data?.pagination;
+  const fieldPagination = fieldsQuery.data?.pagination;
+  const editPagination = editsQuery.data?.pagination;
   const overview = overviewQuery.data?.data;
   const proactivity = proactivityQuery.data?.data;
   const latestOverviewAt =
@@ -255,6 +379,8 @@ export const CognitionPage: React.FC = () => {
       maxPerRun: String(proactivity.maxPerRun),
       retryDelayMinutes: String(Math.max(1, Math.round(proactivity.retryDelayMs / 60000))),
       allowedUserIdsText: proactivity.allowedUserIds.join(', '),
+      observedGroupIdsText: proactivity.observedGroupIds.join(', '),
+      allowedGroupIdsText: proactivity.allowedGroupIds.join(', '),
     });
   }, [proactivity]);
 
@@ -335,16 +461,104 @@ export const CognitionPage: React.FC = () => {
     }
   }, [plans, selectedPlan]);
 
+  useEffect(() => {
+    if (relationships.length === 0) {
+      setSelectedRelationship(null);
+      return;
+    }
+
+    if (!selectedRelationship || !relationships.some((item) => item.id === selectedRelationship.id)) {
+      setSelectedRelationship(relationships[0]);
+    }
+  }, [relationships, selectedRelationship]);
+
+  useEffect(() => {
+    if (candidates.length === 0) {
+      setSelectedCandidate(null);
+      return;
+    }
+
+    if (!selectedCandidate || !candidates.some((item) => item.id === selectedCandidate.id)) {
+      setSelectedCandidate(candidates[0]);
+    }
+  }, [candidates, selectedCandidate]);
+
+  useEffect(() => {
+    if (fields.length === 0) {
+      setSelectedField(null);
+      return;
+    }
+
+    if (!selectedField || !fields.some((item) => item.id === selectedField.id)) {
+      setSelectedField(fields[0]);
+    }
+  }, [fields, selectedField]);
+
+  useEffect(() => {
+    if (edits.length === 0) {
+      setSelectedEdit(null);
+      return;
+    }
+
+    if (!selectedEdit || !edits.some((item) => item.id === selectedEdit.id)) {
+      setSelectedEdit(edits[0]);
+    }
+  }, [edits, selectedEdit]);
+
   const updateProactivityMutation = useMutation({
     mutationFn: (payload: {
       followup_enabled: boolean;
       is_paused: boolean;
       allowed_user_ids: number[];
+      observed_group_ids: number[];
+      allowed_group_ids: number[];
       max_per_run: number;
       retry_delay_ms: number;
     }) => updateCognitionProactivity(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cognition-proactivity'] });
+      queryClient.invalidateQueries({ queryKey: ['cognition-plans'] });
+      queryClient.invalidateQueries({ queryKey: ['cognition-overview'] });
+      queryClient.invalidateQueries({ queryKey: ['cognition-candidates'] });
+      queryClient.invalidateQueries({ queryKey: ['cognition-fields'] });
+    },
+  });
+
+  const patchMutation = useMutation({
+    mutationFn: async ({
+      entityType,
+      recordId,
+      reason,
+      patch,
+      previewOnly,
+    }: {
+      entityType: CognitionPatchEntityType;
+      recordId: number;
+      reason: string;
+      patch: Record<string, unknown>;
+      previewOnly: boolean;
+    }) => {
+      if (entityType === 'memory') {
+        return patchCognitionMemory(recordId, { reason, patch, preview_only: previewOnly });
+      }
+      if (entityType === 'relationship') {
+        return patchCognitionRelationship(recordId, { reason, patch, preview_only: previewOnly });
+      }
+      return patchCognitionBelief(recordId, { reason, patch, preview_only: previewOnly });
+    },
+    onSuccess: (response, variables) => {
+      setPatchPreviewResult(response.data);
+      if (variables.previewOnly) {
+        return;
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['cognition-beliefs'] });
+      queryClient.invalidateQueries({ queryKey: ['cognition-memories'] });
+      queryClient.invalidateQueries({ queryKey: ['cognition-relationships'] });
+      queryClient.invalidateQueries({ queryKey: ['cognition-candidates'] });
+      queryClient.invalidateQueries({ queryKey: ['cognition-fields'] });
+      queryClient.invalidateQueries({ queryKey: ['cognition-field-detail'] });
+      queryClient.invalidateQueries({ queryKey: ['cognition-edits'] });
       queryClient.invalidateQueries({ queryKey: ['cognition-plans'] });
       queryClient.invalidateQueries({ queryKey: ['cognition-overview'] });
     },
@@ -373,8 +587,113 @@ export const CognitionPage: React.FC = () => {
       followup_enabled: proactivityForm.followupEnabled,
       is_paused: proactivityForm.isPaused,
       allowed_user_ids: parseAllowedUserIds(proactivityForm.allowedUserIdsText),
+      observed_group_ids: parseAllowedUserIds(proactivityForm.observedGroupIdsText),
+      allowed_group_ids: parseAllowedUserIds(proactivityForm.allowedGroupIdsText),
       max_per_run: maxPerRun,
       retry_delay_ms: retryDelayMinutes * 60_000,
+    });
+  };
+
+  const openRelationshipBoundaryPatch = (relationship: CognitionRelationship | null, boundary: string) => {
+    if (!relationship) {
+      return;
+    }
+    setSelectedRelationship(relationship);
+    setPatchEntityType('relationship');
+    setPatchReason('');
+    setRelationshipPatchForm({
+      boundary_strategy: boundary as RelationshipPatchFormState['boundary_strategy'],
+      boundary_notes: relationship.boundary_notes || '',
+    });
+    setPatchPreviewResult(null);
+    setPatchDialogOpen(true);
+  };
+
+  const openBeliefConfidencePatch = (belief: CognitionBelief | null, confidence: number, status?: 'active' | 'stale') => {
+    if (!belief) {
+      return;
+    }
+    setSelectedBelief(belief);
+    setPatchEntityType('belief');
+    setPatchReason('');
+    setBeliefPatchForm({
+      confidence: confidence.toString(),
+      status: status || belief.status,
+    });
+    setPatchPreviewResult(null);
+    setPatchDialogOpen(true);
+  };
+
+  const openMemoryStatusPatch = (memory: CognitionMemory | null, status: 'active' | 'disabled') => {
+    if (!memory) {
+      return;
+    }
+    setSelectedMemory(memory);
+    setPatchEntityType('memory');
+    setPatchReason('');
+    setMemoryPatchForm({ status });
+    setPatchPreviewResult(null);
+    setPatchDialogOpen(true);
+  };
+
+  const resolvePatchRecordId = (): number | null => {
+    if (patchEntityType === 'memory') {
+      return selectedMemory?.record_id ?? null;
+    }
+    if (patchEntityType === 'relationship') {
+      return selectedRelationship?.record_id ?? null;
+    }
+    return selectedBelief?.record_id ?? null;
+  };
+
+  const buildPatchPayload = (): Record<string, unknown> => {
+    if (patchEntityType === 'relationship') {
+      return {
+        boundary_strategy: relationshipPatchForm.boundary_strategy,
+        boundary_notes: relationshipPatchForm.boundary_notes.trim(),
+      };
+    }
+
+    if (patchEntityType === 'memory') {
+      return {
+        status: memoryPatchForm.status,
+      };
+    }
+
+    const confidence = Math.max(0, Math.min(1, Number.parseFloat(beliefPatchForm.confidence) || 0));
+    return {
+      confidence,
+      status: beliefPatchForm.status,
+    };
+  };
+
+  const handlePreviewPatch = async () => {
+    const recordId = resolvePatchRecordId();
+    if (!recordId) {
+      return;
+    }
+
+    await patchMutation.mutateAsync({
+      entityType: patchEntityType,
+      recordId,
+      reason: patchReason,
+      patch: buildPatchPayload(),
+      previewOnly: true,
+    });
+  };
+
+  const handleCommitPatch = async () => {
+    const recordId = resolvePatchRecordId();
+    if (!recordId) {
+      return;
+    }
+
+    await patchMutation.mutateAsync({
+      entityType: patchEntityType,
+      recordId,
+      reason: patchReason,
+      patch: buildPatchPayload(),
+      previewOnly: false,
     });
   };
 
@@ -383,7 +702,7 @@ export const CognitionPage: React.FC = () => {
       <PageHeader
         eyebrow="Cognition"
         title="小腻认知视图"
-        description="只读查看 observation、belief、memory 与 evidence。表不存在时会优雅空态，不阻塞主线。"
+        description="围绕虚拟行走主链查看关系、candidate、followup 和纠偏收敛；深查时再下钻到原始 cognition 表。"
         icon={<BrainCircuit className="h-5 w-5" />}
         badge={
           <PageHeaderBadge>
@@ -461,6 +780,7 @@ export const CognitionPage: React.FC = () => {
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CognitionTab)}>
         <TabsList>
+          <TabsTrigger value="workbench">Virtual Walk</TabsTrigger>
           <TabsTrigger value="observations">Observations</TabsTrigger>
           <TabsTrigger value="beliefs">Beliefs</TabsTrigger>
           <TabsTrigger value="memories">Memories</TabsTrigger>
@@ -468,7 +788,230 @@ export const CognitionPage: React.FC = () => {
           <TabsTrigger value="reflections">Reflections</TabsTrigger>
           <TabsTrigger value="self-model">Self Model</TabsTrigger>
           <TabsTrigger value="plans">Plans</TabsTrigger>
+          <TabsTrigger value="relationships">Relationships</TabsTrigger>
+          <TabsTrigger value="candidates">Candidates</TabsTrigger>
+          <TabsTrigger value="fields">Fields</TabsTrigger>
+          <TabsTrigger value="edits">Edits</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="workbench" className="space-y-5">
+          <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+            <SectionPanel
+              title="关系 -> Candidate -> 行动"
+              description="先看哪里、为什么看这里、为什么此刻不说话，都在这一层收口。"
+              icon={<GitBranch className="h-4 w-4 text-primary" />}
+              contentClassName="space-y-4"
+            >
+              <div className="grid gap-4 md:grid-cols-3">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm">当前关系快照</CardTitle>
+                    <CardDescription>边界决定能不能主动，不由热度自动放宽。</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    {selectedRelationship ? (
+                      <>
+                        <div className="font-medium text-foreground">{selectedRelationship.target_label}</div>
+                        <StatusPill tone={boundaryTone(selectedRelationship.boundary_strategy)}>
+                          {selectedRelationship.boundary_strategy || 'unknown'}
+                        </StatusPill>
+                        <div className="text-muted-foreground">{selectedRelationship.relationship_summary}</div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" variant="outline" onClick={() => openRelationshipBoundaryPatch(selectedRelationship, 'allow_proactive')}>
+                            放开主动
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => openRelationshipBoundaryPatch(selectedRelationship, 'observe_only')}>
+                            改为观察
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => openRelationshipBoundaryPatch(selectedRelationship, 'do_not_contact')}>
+                            禁止联系
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">当前没有可编辑的 relationship snapshot。</div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm">当前 Walk Candidate</CardTitle>
+                    <CardDescription>candidate 是主动链正式上游，不是解释页面。</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    {selectedCandidate ? (
+                      <>
+                        <div className="font-medium text-foreground">{selectedCandidate.field_key}</div>
+                        <div className="text-muted-foreground">{selectedCandidate.selected_reason}</div>
+                        <div className="flex flex-wrap gap-2">
+                          <StatusPill tone={selectedCandidate.can_speak_now ? 'success' : 'warning'}>
+                            {selectedCandidate.can_speak_now ? 'can_speak_now' : 'observe_only'}
+                          </StatusPill>
+                          <StatusPill tone="info">
+                            score {selectedCandidate.priority_score.toFixed(2)}
+                          </StatusPill>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          触发源：{selectedCandidate.trigger_sources.join(', ') || 'none'}
+                        </div>
+                        <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+                          为什么没说话：{selectedCandidate.suppressed_reason || '当前未被 suppress，可进入 compiler。'}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">当前没有最新 candidate。</div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm">当前行动来源</CardTitle>
+                    <CardDescription>followup_queue 必须能追到 plan / memory / relationship / candidate 来源。</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    {plans.filter((plan) => plan.plan_type === 'followup_queue').slice(0, 3).map((plan) => (
+                      <div key={plan.id} className="rounded-md border p-3">
+                        <div className="font-medium text-foreground">{plan.goal}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{plan.trigger_condition || '无 trigger_condition'}</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <StatusPill tone={planStatusTone(plan.status)}>{plan.status}</StatusPill>
+                          <StatusPill tone="info">{plan.target_label}</StatusPill>
+                        </div>
+                      </div>
+                    ))}
+                    {plans.filter((plan) => plan.plan_type === 'followup_queue').length === 0 ? (
+                      <div className="text-sm text-muted-foreground">当前没有 queued/active followup。</div>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm">Walk Candidate 列表</CardTitle>
+                    <CardDescription>统一池里比较私聊和群聊，先决定今天看哪里。</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={candidateSearch}
+                        onChange={(event) => {
+                          setCandidateSearch(event.target.value);
+                          setCandidatePage(1);
+                        }}
+                        placeholder="搜索 field_key、原因或目标"
+                        className="pl-9"
+                      />
+                    </div>
+                    {candidatesQuery.error ? (
+                      <ErrorState onRetry={() => candidatesQuery.refetch()} />
+                    ) : candidates.length === 0 ? (
+                      <EmptyState
+                        icon={<GitBranch className="h-10 w-10" />}
+                        title="没有 candidate"
+                        description="先触发 recompute 或等待新 observation 写入。"
+                      />
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>场域</TableHead>
+                            <TableHead>Score</TableHead>
+                            <TableHead>状态</TableHead>
+                            <TableHead>触发</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {candidates.map((item) => (
+                            <TableRow
+                              key={item.id}
+                              className="cursor-pointer"
+                              data-state={selectedCandidate?.id === item.id ? 'selected' : undefined}
+                              onClick={() => {
+                                setSelectedCandidate(item);
+                                const matchedField = fields.find((field) => field.field_key === item.field_key);
+                                if (matchedField) {
+                                  setSelectedField(matchedField);
+                                }
+                              }}
+                            >
+                              <TableCell className="font-medium text-foreground">{item.field_key}</TableCell>
+                              <TableCell>{item.priority_score.toFixed(2)}</TableCell>
+                              <TableCell>
+                                <StatusPill tone={item.can_speak_now ? 'success' : 'warning'}>
+                                  {item.can_speak_now ? '可说' : '观察'}
+                                </StatusPill>
+                              </TableCell>
+                              <TableCell className="max-w-[220px]">
+                                <div className="line-clamp-2 text-sm text-muted-foreground">{item.trigger_sources.join(', ') || '-'}</div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                    <div className="flex items-center justify-between text-sm text-muted-foreground">
+                      <span>第 {candidatePagination?.page || 1} / {candidatePagination?.totalPages || 1} 页</span>
+                      <Button variant="outline" size="sm" onClick={() => candidatesQuery.refetch()} disabled={candidatesQuery.isFetching}>
+                        <RefreshCw className={`mr-2 h-4 w-4 ${candidatesQuery.isFetching ? 'animate-spin' : ''}`} />
+                        刷新 candidate
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm">最小纠偏面</CardTitle>
+                    <CardDescription>先做三类专用操作：关系边界、belief 置信/状态、memory 启停。</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="rounded-md border p-3">
+                      <div className="text-sm font-medium text-foreground">Belief 纠偏</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {selectedBelief ? `${selectedBelief.subject_name} / ${selectedBelief.title}` : '先在 Beliefs tab 选中一个 belief。'}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" disabled={!selectedBelief} onClick={() => openBeliefConfidencePatch(selectedBelief, 0.9, 'active')}>
+                          提升到 0.90
+                        </Button>
+                        <Button size="sm" variant="outline" disabled={!selectedBelief} onClick={() => openBeliefConfidencePatch(selectedBelief, 0.45, 'active')}>
+                          下调到 0.45
+                        </Button>
+                        <Button size="sm" variant="outline" disabled={!selectedBelief} onClick={() => openBeliefConfidencePatch(selectedBelief, selectedBelief?.confidence ?? 0.5, 'stale')}>
+                          标记 stale
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-md border p-3">
+                      <div className="text-sm font-medium text-foreground">Memory 纠偏</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {selectedMemory ? `${selectedMemory.subject_name} / ${selectedMemory.memory_type}` : '先在 Memories tab 选中一条 stable memory。'}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" disabled={!selectedMemory} onClick={() => openMemoryStatusPatch(selectedMemory, 'disabled')}>
+                          停用 memory
+                        </Button>
+                        <Button size="sm" variant="outline" disabled={!selectedMemory} onClick={() => openMemoryStatusPatch(selectedMemory, 'active')}>
+                          恢复 active
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+                      当前 field detail 会显示 candidate 决策链和 suppress reason；commit 之后会自动刷新 relationship、candidate、field、edits 和 plans。
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </SectionPanel>
+          </div>
+        </TabsContent>
 
         <TabsContent value="observations" className="space-y-5">
           <FilterBar>
@@ -774,6 +1317,19 @@ export const CognitionPage: React.FC = () => {
             title="选中 Belief"
             description="选中条目的稳定状态和来源详情。"
             icon={<Sparkles className="h-4 w-4 text-primary" />}
+            action={selectedBelief ? (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => openBeliefConfidencePatch(selectedBelief, 0.9, 'active')}>
+                  提升到 0.90
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => openBeliefConfidencePatch(selectedBelief, 0.45, 'active')}>
+                  下调到 0.45
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => openBeliefConfidencePatch(selectedBelief, selectedBelief.confidence, 'stale')}>
+                  标记 stale
+                </Button>
+              </div>
+            ) : null}
           >
             {selectedBelief ? (
               <div className="grid gap-4 lg:grid-cols-2">
@@ -963,6 +1519,16 @@ export const CognitionPage: React.FC = () => {
             title="选中 Memory"
             description="稳定记忆与证据引用的详情。"
             icon={<Sparkles className="h-4 w-4 text-primary" />}
+            action={selectedMemory ? (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => openMemoryStatusPatch(selectedMemory, 'disabled')}>
+                  停用 memory
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => openMemoryStatusPatch(selectedMemory, 'active')}>
+                  恢复 active
+                </Button>
+              </div>
+            ) : null}
           >
             {selectedMemory ? (
               <div className="grid gap-4 lg:grid-cols-2">
@@ -1624,6 +2190,33 @@ export const CognitionPage: React.FC = () => {
                       </div>
                     </div>
 
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="proactivity-observed-groups">观察中的群列表</Label>
+                        <Input
+                          id="proactivity-observed-groups"
+                          value={proactivityForm.observedGroupIdsText}
+                          onChange={(event) => setProactivityForm((current) => ({ ...current, observedGroupIdsText: event.target.value }))}
+                          placeholder="群号，逗号分隔；留空表示默认不进入观察层"
+                        />
+                        <div className="text-sm leading-6 text-muted-foreground">
+                          这里控制 ingest 之后，哪些群会进入虚拟行走的 candidate / field 观察层。
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="proactivity-allowed-groups">允许主动的群列表</Label>
+                        <Input
+                          id="proactivity-allowed-groups"
+                          value={proactivityForm.allowedGroupIdsText}
+                          onChange={(event) => setProactivityForm((current) => ({ ...current, allowedGroupIdsText: event.target.value }))}
+                          placeholder="群号，逗号分隔；留空表示默认不主动发言"
+                        />
+                        <div className="text-sm leading-6 text-muted-foreground">
+                          旧群自动回复开关只用于初始迁移；当前虚拟行走是否能主动发群消息，以这里的白名单为准。
+                        </div>
+                      </div>
+                    </div>
+
                     {updateProactivityMutation.error ? (
                       <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                         {updateProactivityMutation.error instanceof Error ? updateProactivityMutation.error.message : '保存失败'}
@@ -1660,6 +2253,12 @@ export const CognitionPage: React.FC = () => {
                         allowlist {proactivity?.allowedUserIds.length || 0}
                       </StatusPill>
                       <StatusPill tone="info">
+                        observed groups {proactivity?.observedGroupIds.length || 0}
+                      </StatusPill>
+                      <StatusPill tone="info">
+                        proactive groups {proactivity?.allowedGroupIds.length || 0}
+                      </StatusPill>
+                      <StatusPill tone="info">
                         max/run {proactivity?.maxPerRun || 0}
                       </StatusPill>
                     </div>
@@ -1679,6 +2278,8 @@ export const CognitionPage: React.FC = () => {
                       <StatusRow label="重试延迟">
                         {proactivity ? `${Math.round(proactivity.retryDelayMs / 60000)} 分钟` : '-'}
                       </StatusRow>
+                      <StatusRow label="群观察名单">{String(proactivity?.observedGroupIds.length || 0)}</StatusRow>
+                      <StatusRow label="群主动白名单">{String(proactivity?.allowedGroupIds.length || 0)}</StatusRow>
                       <StatusRow label="近 7 天 action logs">{String(proactivity?.recentActionLogCount || 0)}</StatusRow>
                       <StatusRow label="最近动作">
                         {formatTimestamp(proactivity?.lastActionAt || undefined, { fallback: '-' })}
@@ -1876,7 +2477,796 @@ export const CognitionPage: React.FC = () => {
             )}
           </SectionPanel>
         </TabsContent>
+
+        <TabsContent value="relationships" className="space-y-5">
+          <FilterBar>
+            <div className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={relationshipSearch}
+                  onChange={(event) => {
+                    setRelationshipSearch(event.target.value);
+                    setRelationshipPage(1);
+                  }}
+                  placeholder="搜索用户、群、关系摘要或边界"
+                  className="pl-9"
+                />
+              </div>
+              <Select
+                value={relationshipScope}
+                onValueChange={(value) => {
+                  setRelationshipScope(value as 'all' | 'private' | 'group' | 'self');
+                  setRelationshipPage(1);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Scope" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部范围</SelectItem>
+                  <SelectItem value="private">私聊</SelectItem>
+                  <SelectItem value="group">群聊</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => relationshipsQuery.refetch()} disabled={relationshipsQuery.isFetching}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${relationshipsQuery.isFetching ? 'animate-spin' : ''}`} />
+                  刷新列表
+                </Button>
+                <StatusPill tone="warning">
+                  {relationshipPagination ? `${relationshipPagination.total} rows` : 'loading'}
+                </StatusPill>
+              </div>
+            </div>
+          </FilterBar>
+
+          <SectionPanel
+            title="Relationship Snapshots"
+            description="当前关系快照、边界策略和证据链入口。"
+            icon={<BrainCircuit className="h-4 w-4 text-primary" />}
+            contentClassName="pt-0"
+          >
+            {relationshipsQuery.error ? (
+              <ErrorState onRetry={() => relationshipsQuery.refetch()} />
+            ) : relationships.length === 0 ? (
+              <EmptyState
+                icon={<BrainCircuit className="h-10 w-10" />}
+                title="没有 relationship snapshot"
+                description="当前环境还没有关系快照，或筛选条件没有命中。"
+              />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>更新时间</TableHead>
+                    <TableHead>目标</TableHead>
+                    <TableHead>边界</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead>摘要</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {relationships.map((item) => (
+                    <TableRow
+                      key={item.id}
+                      className="cursor-pointer"
+                      data-state={selectedRelationship?.id === item.id ? 'selected' : undefined}
+                      onClick={() => setSelectedRelationship(item)}
+                    >
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {formatTimestamp(item.updated_at, { fallback: '-' })}
+                      </TableCell>
+                      <TableCell className="text-foreground">{item.target_label}</TableCell>
+                      <TableCell>
+                        <StatusPill tone={boundaryTone(item.boundary_strategy)}>
+                          {item.boundary_strategy || '-'}
+                        </StatusPill>
+                      </TableCell>
+                      <TableCell>
+                        <StatusPill tone={statusTone(item.status)}>{item.status}</StatusPill>
+                      </TableCell>
+                      <TableCell className="max-w-[420px]">
+                        <div className="line-clamp-2 text-sm leading-6 text-foreground">{formatPreview(item.relationship_summary, 120)}</div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <div className="text-sm text-muted-foreground">
+                第 {relationshipPagination?.page || 1} / {relationshipPagination?.totalPages || 1} 页
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={relationshipPage <= 1} onClick={() => setRelationshipPage((page) => Math.max(1, page - 1))}>
+                  上一页
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!relationshipPagination || relationshipPage >= relationshipPagination.totalPages}
+                  onClick={() => setRelationshipPage((page) => page + 1)}
+                >
+                  下一页
+                </Button>
+              </div>
+            </div>
+          </SectionPanel>
+
+          <SectionPanel
+            title="选中 Relationship"
+            description="查看关系摘要、互动风格、边界备注和反思来源。"
+            icon={<Sparkles className="h-4 w-4 text-primary" />}
+            action={selectedRelationship ? (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => openRelationshipBoundaryPatch(selectedRelationship, 'allow_proactive')}>
+                  allow_proactive
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => openRelationshipBoundaryPatch(selectedRelationship, 'observe_only')}>
+                  observe_only
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => openRelationshipBoundaryPatch(selectedRelationship, 'do_not_contact')}>
+                  do_not_contact
+                </Button>
+              </div>
+            ) : null}
+          >
+            {selectedRelationship ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-3">
+                  <StatusRow label="目标">{selectedRelationship.target_label}</StatusRow>
+                  <StatusRow label="Field Scope">{selectedRelationship.field_scope || '-'}</StatusRow>
+                  <StatusRow label="Boundary">
+                    <StatusPill tone={boundaryTone(selectedRelationship.boundary_strategy)}>
+                      {selectedRelationship.boundary_strategy || '-'}
+                    </StatusPill>
+                  </StatusRow>
+                  <StatusRow label="Status">
+                    <StatusPill tone={statusTone(selectedRelationship.status)}>
+                      {selectedRelationship.status}
+                    </StatusPill>
+                  </StatusRow>
+                  <StatusRow label="Confidence">{String(selectedRelationship.confidence)}</StatusRow>
+                  <StatusRow label="Last Observed">
+                    {formatTimestamp(selectedRelationship.last_observed_at || undefined, { fallback: '-' })}
+                  </StatusRow>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Relationship Summary</div>
+                    <div className="mt-1 whitespace-pre-wrap rounded-lg border border-border bg-card p-3 text-sm leading-6 text-foreground">
+                      {selectedRelationship.relationship_summary}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Interaction Style</div>
+                    <div className="mt-1 whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-3 text-sm leading-6 text-foreground">
+                      {selectedRelationship.interaction_style || '-'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Boundary Notes</div>
+                    <div className="mt-1 whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-3 text-sm leading-6 text-foreground">
+                      {selectedRelationship.boundary_notes || '-'}
+                    </div>
+                  </div>
+                  <StructuredDataViewer
+                    title="Notes / Evidence"
+                    value={selectedRelationship.raw_payload}
+                    emptyLabel="No notes json"
+                    heightClassName="h-[14rem]"
+                  />
+                  <StructuredDataViewer
+                    title="Edit History"
+                    value={edits
+                      .filter((edit) => edit.entity_type === 'relationship' && edit.entity_id === selectedRelationship.record_id)
+                      .slice(0, 8)}
+                    emptyLabel="No edit history"
+                    heightClassName="h-[12rem]"
+                  />
+                </div>
+              </div>
+            ) : (
+              <EmptyState
+                icon={<BrainCircuit className="h-10 w-10" />}
+                title="未选择 relationship"
+                description="点击上方表格中的一行查看关系快照详情。"
+              />
+            )}
+          </SectionPanel>
+        </TabsContent>
+
+        <TabsContent value="candidates" className="space-y-5">
+          <FilterBar>
+            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={candidateSearch}
+                  onChange={(event) => {
+                    setCandidateSearch(event.target.value);
+                    setCandidatePage(1);
+                  }}
+                  placeholder="搜索 candidate / field / suppress reason"
+                  className="pl-9"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => candidatesQuery.refetch()} disabled={candidatesQuery.isFetching}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${candidatesQuery.isFetching ? 'animate-spin' : ''}`} />
+                  刷新列表
+                </Button>
+                <StatusPill tone="info">
+                  {candidatePagination ? `${candidatePagination.total} rows` : 'loading'}
+                </StatusPill>
+              </div>
+            </div>
+          </FilterBar>
+
+          <SectionPanel
+            title="Virtual Walk Candidates"
+            description="candidate 先决定看哪里，再把能说的话送入 compiler。"
+            icon={<GitBranch className="h-4 w-4 text-primary" />}
+            contentClassName="pt-0"
+          >
+            {candidatesQuery.error ? (
+              <ErrorState onRetry={() => candidatesQuery.refetch()} />
+            ) : candidates.length === 0 ? (
+              <EmptyState
+                icon={<GitBranch className="h-10 w-10" />}
+                title="没有 candidate 数据"
+                description="先触发 recompute 或等待后台 tick。"
+              />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Field</TableHead>
+                    <TableHead>Priority</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead>Selected Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {candidates.map((item) => (
+                    <TableRow
+                      key={item.id}
+                      className="cursor-pointer"
+                      data-state={selectedCandidate?.id === item.id ? 'selected' : undefined}
+                      onClick={() => setSelectedCandidate(item)}
+                    >
+                      <TableCell className="font-medium text-foreground">{item.field_key}</TableCell>
+                      <TableCell>{item.priority_score.toFixed(2)}</TableCell>
+                      <TableCell>
+                        <StatusPill tone={item.can_speak_now ? 'success' : 'warning'}>
+                          {item.can_speak_now ? 'can_speak_now' : 'suppressed'}
+                        </StatusPill>
+                      </TableCell>
+                      <TableCell className="max-w-[420px]">
+                        <div className="line-clamp-2 text-sm leading-6 text-foreground">{item.selected_reason}</div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </SectionPanel>
+
+          <SectionPanel
+            title="选中 Candidate"
+            description="这里是“为什么今天看这里”“为什么暂时不说话”的单点解释。"
+            icon={<Sparkles className="h-4 w-4 text-primary" />}
+          >
+            {selectedCandidate ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-3">
+                  <StatusRow label="Field">{selectedCandidate.field_key}</StatusRow>
+                  <StatusRow label="Priority">{selectedCandidate.priority_score.toFixed(2)}</StatusRow>
+                  <StatusRow label="Can Speak Now">
+                    <StatusPill tone={selectedCandidate.can_speak_now ? 'success' : 'warning'}>
+                      {selectedCandidate.can_speak_now ? 'true' : 'false'}
+                    </StatusPill>
+                  </StatusRow>
+                  <StatusRow label="Triggers">{selectedCandidate.trigger_sources.join(', ') || '-'}</StatusRow>
+                  <StatusRow label="Suppression">{selectedCandidate.suppressed_reason || '-'}</StatusRow>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Selected Reason</div>
+                    <div className="mt-1 whitespace-pre-wrap rounded-lg border border-border bg-card p-3 text-sm leading-6 text-foreground">
+                      {selectedCandidate.selected_reason}
+                    </div>
+                  </div>
+                  <StructuredDataViewer
+                    title="Compiler Inputs"
+                    value={selectedCandidate.compiler_inputs}
+                    emptyLabel="No compiler inputs"
+                    heightClassName="h-[14rem]"
+                  />
+                </div>
+              </div>
+            ) : (
+              <EmptyState
+                icon={<GitBranch className="h-10 w-10" />}
+                title="未选择 candidate"
+                description="点击上方表格中的一行查看 candidate 详情。"
+              />
+            )}
+          </SectionPanel>
+        </TabsContent>
+
+        <TabsContent value="fields" className="space-y-5">
+          <FilterBar>
+            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={fieldSearch}
+                  onChange={(event) => {
+                    setFieldSearch(event.target.value);
+                    setFieldPage(1);
+                  }}
+                  placeholder="搜索 field key / title / suppression reason"
+                  className="pl-9"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => fieldsQuery.refetch()} disabled={fieldsQuery.isFetching}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${fieldsQuery.isFetching ? 'animate-spin' : ''}`} />
+                  刷新列表
+                </Button>
+                <StatusPill tone="info">
+                  {fieldPagination ? `${fieldPagination.total} rows` : 'loading'}
+                </StatusPill>
+              </div>
+            </div>
+          </FilterBar>
+
+          <SectionPanel
+            title="Virtual Walk Fields"
+            description="查看当前场域优先级、抑制原因和解释链。"
+            icon={<Database className="h-4 w-4 text-primary" />}
+            contentClassName="pt-0"
+          >
+            {fieldsQuery.error ? (
+              <ErrorState onRetry={() => fieldsQuery.refetch()} />
+            ) : fields.length === 0 ? (
+              <EmptyState
+                icon={<Database className="h-10 w-10" />}
+                title="没有 field 数据"
+                description="先触发一次 recompute 或等待后台 tick。"
+              />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Field</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead>Priority</TableHead>
+                    <TableHead>Plan</TableHead>
+                    <TableHead>Boundary</TableHead>
+                    <TableHead>Suppression</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {fields.map((item) => (
+                    <TableRow
+                      key={item.id}
+                      className="cursor-pointer"
+                      data-state={selectedField?.id === item.id ? 'selected' : undefined}
+                      onClick={() => setSelectedField(item)}
+                    >
+                      <TableCell>
+                        <div className="min-w-0">
+                          <div className="font-medium text-foreground">{item.title}</div>
+                          <div className="text-xs text-muted-foreground">{item.field_key}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <StatusPill tone={fieldStatusTone(item.status)}>{item.status}</StatusPill>
+                      </TableCell>
+                      <TableCell className="text-foreground">{item.priority_score.toFixed(4)}</TableCell>
+                      <TableCell className="text-foreground">{item.plan_score.toFixed(4)}</TableCell>
+                      <TableCell className="text-foreground">{item.boundary_penalty.toFixed(4)}</TableCell>
+                      <TableCell className="max-w-[240px] text-sm text-muted-foreground">{item.suppression_reason || '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <div className="text-sm text-muted-foreground">
+                第 {fieldPagination?.page || 1} / {fieldPagination?.totalPages || 1} 页
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={fieldPage <= 1} onClick={() => setFieldPage((page) => Math.max(1, page - 1))}>
+                  上一页
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!fieldPagination || fieldPage >= fieldPagination.totalPages}
+                  onClick={() => setFieldPage((page) => page + 1)}
+                >
+                  下一页
+                </Button>
+              </div>
+            </div>
+          </SectionPanel>
+
+          <SectionPanel
+            title="选中 Field"
+            description="查看 score、candidate 和边连接，解释为什么系统现在看向这里，以及为什么暂时不说话。"
+            icon={<Sparkles className="h-4 w-4 text-primary" />}
+          >
+            {selectedField ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-3">
+                  <StatusRow label="Field Key">{selectedField.field_key}</StatusRow>
+                  <StatusRow label="Scope">{selectedField.field_scope}</StatusRow>
+                  <StatusRow label="Status">
+                    <StatusPill tone={fieldStatusTone(selectedField.status)}>
+                      {selectedField.status}
+                    </StatusPill>
+                  </StatusRow>
+                  <StatusRow label="Priority">{selectedField.priority_score.toFixed(4)}</StatusRow>
+                  <StatusRow label="Suppression">{selectedField.suppression_reason || '-'}</StatusRow>
+                  <StatusRow label="Last Active">
+                    {formatTimestamp(selectedField.last_active_at, { fallback: '-' })}
+                  </StatusRow>
+                </div>
+                <div className="space-y-3">
+                  <StructuredDataViewer
+                    title="Latest Score Explanation"
+                    value={fieldDetailQuery.data?.data.scores?.[0]?.explanation_json ?? selectedField.raw_payload}
+                    emptyLabel="No score explanation"
+                    heightClassName="h-[10rem]"
+                  />
+                  <StructuredDataViewer
+                    title="Score History"
+                    value={fieldDetailQuery.data?.data.scores ?? []}
+                    emptyLabel="No score history"
+                    heightClassName="h-[10rem]"
+                  />
+                  <StructuredDataViewer
+                    title="Candidates / Why Not Speaking"
+                    value={fieldDetailQuery.data?.data.candidates ?? []}
+                    emptyLabel="No candidate detail"
+                    heightClassName="h-[10rem]"
+                  />
+                  <StructuredDataViewer
+                    title="Recent Actions"
+                    value={fieldDetailQuery.data?.data.recent_action_logs ?? []}
+                    emptyLabel="No action logs"
+                    heightClassName="h-[10rem]"
+                  />
+                  <StructuredDataViewer
+                    title="Recent Feedback"
+                    value={fieldDetailQuery.data?.data.recent_feedback_events ?? []}
+                    emptyLabel="No feedback events"
+                    heightClassName="h-[10rem]"
+                  />
+                  <StructuredDataViewer
+                    title="Edges"
+                    value={fieldDetailQuery.data?.data.edges ?? []}
+                    emptyLabel="No edges"
+                    heightClassName="h-[10rem]"
+                  />
+                </div>
+              </div>
+            ) : (
+              <EmptyState
+                icon={<Database className="h-10 w-10" />}
+                title="未选择 field"
+                description="点击上方表格中的一行查看场域详情。"
+              />
+            )}
+          </SectionPanel>
+        </TabsContent>
+
+        <TabsContent value="edits" className="space-y-5">
+          <FilterBar>
+            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={editSearch}
+                  onChange={(event) => {
+                    setEditSearch(event.target.value);
+                    setEditPage(1);
+                  }}
+                  placeholder="搜索实体类型、reason、operator"
+                  className="pl-9"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => editsQuery.refetch()} disabled={editsQuery.isFetching}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${editsQuery.isFetching ? 'animate-spin' : ''}`} />
+                  刷新列表
+                </Button>
+                <StatusPill tone="warning">
+                  {editPagination ? `${editPagination.total} rows` : 'loading'}
+                </StatusPill>
+              </div>
+            </div>
+          </FilterBar>
+
+          <SectionPanel
+            title="Cognition Edit Audit"
+            description="查看每次纠偏的 before / after / impact 和操作理由。"
+            icon={<FileText className="h-4 w-4 text-primary" />}
+            contentClassName="pt-0"
+          >
+            {editsQuery.error ? (
+              <ErrorState onRetry={() => editsQuery.refetch()} />
+            ) : edits.length === 0 ? (
+              <EmptyState
+                icon={<FileText className="h-10 w-10" />}
+                title="没有 cognition edit"
+                description="做一次 commit patch 后，这里会出现完整审计记录。"
+              />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>时间</TableHead>
+                    <TableHead>实体</TableHead>
+                    <TableHead>动作</TableHead>
+                    <TableHead>Operator</TableHead>
+                    <TableHead>Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {edits.map((item) => (
+                    <TableRow
+                      key={item.id}
+                      className="cursor-pointer"
+                      data-state={selectedEdit?.id === item.id ? 'selected' : undefined}
+                      onClick={() => setSelectedEdit(item)}
+                    >
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {formatTimestamp(item.created_at, { fallback: '-' })}
+                      </TableCell>
+                      <TableCell className="text-foreground">{item.entity_type} #{item.entity_id ?? '-'}</TableCell>
+                      <TableCell>
+                        <StatusPill tone="info">{item.action_type}</StatusPill>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{item.operator_id}</TableCell>
+                      <TableCell className="max-w-[420px]">
+                        <div className="line-clamp-2 text-sm leading-6 text-foreground">{formatPreview(item.reason, 120)}</div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <div className="text-sm text-muted-foreground">
+                第 {editPagination?.page || 1} / {editPagination?.totalPages || 1} 页
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={editPage <= 1} onClick={() => setEditPage((page) => Math.max(1, page - 1))}>
+                  上一页
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!editPagination || editPage >= editPagination.totalPages}
+                  onClick={() => setEditPage((page) => page + 1)}
+                >
+                  下一页
+                </Button>
+              </div>
+            </div>
+          </SectionPanel>
+
+          <SectionPanel
+            title="选中 Edit"
+            description="审计记录的完整 before / after / impact。"
+            icon={<Sparkles className="h-4 w-4 text-primary" />}
+          >
+            {selectedEdit ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-3">
+                  <StatusRow label="Entity">{selectedEdit.entity_type} #{selectedEdit.entity_id ?? '-'}</StatusRow>
+                  <StatusRow label="Action">{selectedEdit.action_type}</StatusRow>
+                  <StatusRow label="Operator">{selectedEdit.operator_id}</StatusRow>
+                  <StatusRow label="Created At">
+                    {formatTimestamp(selectedEdit.created_at, { fallback: '-' })}
+                  </StatusRow>
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Reason</div>
+                    <div className="mt-1 whitespace-pre-wrap rounded-lg border border-border bg-card p-3 text-sm leading-6 text-foreground">
+                      {selectedEdit.reason}
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <StructuredDataViewer
+                    title="Before"
+                    value={selectedEdit.before_json}
+                    emptyLabel="No before json"
+                    heightClassName="h-[8rem]"
+                  />
+                  <StructuredDataViewer
+                    title="After"
+                    value={selectedEdit.after_json}
+                    emptyLabel="No after json"
+                    heightClassName="h-[8rem]"
+                  />
+                  <StructuredDataViewer
+                    title="Impact"
+                    value={selectedEdit.impact_json}
+                    emptyLabel="No impact json"
+                    heightClassName="h-[8rem]"
+                  />
+                </div>
+              </div>
+            ) : (
+              <EmptyState
+                icon={<FileText className="h-10 w-10" />}
+                title="未选择 edit"
+                description="点击上方表格中的一行查看纠偏审计详情。"
+              />
+            )}
+          </SectionPanel>
+        </TabsContent>
       </Tabs>
+
+      <Dialog open={patchDialogOpen} onOpenChange={setPatchDialogOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>专用纠偏 Preview / Commit</DialogTitle>
+            <DialogDescription>
+              先 preview，再 commit。当前目标是 {patchEntityType}，默认走专用表单而不是通用 JSON patch。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="patch-reason">Reason</Label>
+                <Input
+                  id="patch-reason"
+                  value={patchReason}
+                  onChange={(event) => setPatchReason(event.target.value)}
+                  placeholder="说明这次纠偏为什么必要"
+                />
+              </div>
+              {patchEntityType === 'belief' ? (
+                <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="belief-confidence">Confidence</Label>
+                    <Input
+                      id="belief-confidence"
+                      value={beliefPatchForm.confidence}
+                      onChange={(event) => setBeliefPatchForm((current) => ({ ...current, confidence: event.target.value }))}
+                      placeholder="0.72"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="belief-status">Status</Label>
+                    <Select
+                      value={beliefPatchForm.status}
+                      onValueChange={(value) =>
+                        setBeliefPatchForm((current) => ({
+                          ...current,
+                          status: value as BeliefPatchFormState['status'],
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="belief-status">
+                        <SelectValue placeholder="选择 status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">active</SelectItem>
+                        <SelectItem value="stale">stale</SelectItem>
+                        <SelectItem value="revised">revised</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              ) : null}
+              {patchEntityType === 'memory' ? (
+                <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="memory-status">Status</Label>
+                    <Select
+                      value={memoryPatchForm.status}
+                      onValueChange={(value) =>
+                        setMemoryPatchForm({ status: value as MemoryPatchFormState['status'] })
+                      }
+                    >
+                      <SelectTrigger id="memory-status">
+                        <SelectValue placeholder="选择 status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">active</SelectItem>
+                        <SelectItem value="disabled">disabled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              ) : null}
+              {patchEntityType === 'relationship' ? (
+                <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="relationship-boundary">Boundary</Label>
+                    <Select
+                      value={relationshipPatchForm.boundary_strategy}
+                      onValueChange={(value) =>
+                        setRelationshipPatchForm((current) => ({
+                          ...current,
+                          boundary_strategy: value as RelationshipPatchFormState['boundary_strategy'],
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="relationship-boundary">
+                        <SelectValue placeholder="选择 boundary" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="allow_proactive">allow_proactive</SelectItem>
+                        <SelectItem value="observe_only">observe_only</SelectItem>
+                        <SelectItem value="do_not_contact">do_not_contact</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="relationship-notes">Boundary Notes</Label>
+                    <Input
+                      id="relationship-notes"
+                      value={relationshipPatchForm.boundary_notes}
+                      onChange={(event) =>
+                        setRelationshipPatchForm((current) => ({
+                          ...current,
+                          boundary_notes: event.target.value,
+                        }))
+                      }
+                      placeholder="说明为什么要调整边界"
+                    />
+                  </div>
+                </div>
+              ) : null}
+              <StructuredDataViewer
+                title="Computed Patch"
+                value={buildPatchPayload()}
+                emptyLabel="No patch payload"
+                heightClassName="h-[10rem]"
+              />
+              {patchMutation.error ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {patchMutation.error instanceof Error ? patchMutation.error.message : '纠偏请求失败'}
+                </div>
+              ) : null}
+            </div>
+            <div className="space-y-3">
+              <StructuredDataViewer
+                title="Preview Result"
+                value={patchPreviewResult}
+                emptyLabel="还没有 preview 结果"
+                heightClassName="h-[22rem]"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPatchDialogOpen(false)}>
+              关闭
+            </Button>
+            <Button variant="outline" onClick={() => void handlePreviewPatch()} disabled={patchMutation.isPending}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${patchMutation.isPending ? 'animate-spin' : ''}`} />
+              Preview
+            </Button>
+            <Button onClick={() => void handleCommitPatch()} disabled={patchMutation.isPending || !patchPreviewResult}>
+              Commit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 };

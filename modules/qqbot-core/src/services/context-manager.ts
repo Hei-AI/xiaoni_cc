@@ -146,8 +146,9 @@ export class ContextManager {
       this.moduleLogger.info('Step 3 completed: Built user info', { hasUserInfo: !!userInfo });
 
       this.moduleLogger.info('Step 3.5: Building cognition context...');
-      const [selfModel, activePlans, retrievedStableMemories] = await Promise.all([
+      const [selfModel, relationshipContext, activePlans, retrievedStableMemories] = await Promise.all([
         this.agentMemoryService.getCurrentSelfModel(),
+        this.agentMemoryService.getRelationshipContextForMessage(message),
         this.agentMemoryService.getActivePlansForMessage(message, 3),
         this.agentMemoryService.getRetrievedMemoriesForMessage(message, 6)
       ]);
@@ -163,6 +164,7 @@ export class ContextManager {
       };
       this.moduleLogger.info('Step 3.5 completed: Built cognition context', {
         hasSelfModel: !!selfModel,
+        hasRelationshipContext: !!relationshipContext,
         activePlans: activePlans.length,
         retrievedStableMemories: retrievedStableMemories.length,
         recentEvidence: recentEvidence.length
@@ -181,6 +183,7 @@ export class ContextManager {
           replyIntentContext: message.reply_intent_context,
           selfModel,
           internalState,
+          relationshipContext,
           activePlans,
           retrievedStableMemories,
           recentEvidence,
@@ -206,6 +209,7 @@ export class ContextManager {
           replyIntentContext: message.reply_intent_context,
           selfModel,
           internalState,
+          relationshipContext,
           activePlans,
           retrievedStableMemories,
           recentEvidence,
@@ -558,6 +562,12 @@ export class ContextManager {
     append(`availability=${context.internalState?.availability || 'unknown'}`);
     append(`energy=${context.internalState?.energy || 'unknown'}`);
     append(`current_concerns=${(context.internalState?.current_concerns || []).join(' / ') || 'none'}`);
+
+    append('--- Relationship Context ---');
+    append(`relationship_summary=${context.relationshipContext?.relationship_summary || '尚未建立稳定关系快照'}`);
+    append(`interaction_style=${context.relationshipContext?.interaction_style || '默认顺势回应'}`);
+    append(`boundary_strategy=${context.relationshipContext?.boundary_strategy || 'unknown'}`);
+    append(`boundary_notes=${context.relationshipContext?.boundary_notes || 'none'}`);
 
     append('--- Active Plans ---');
     if (context.activePlans && context.activePlans.length > 0) {

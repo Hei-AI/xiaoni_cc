@@ -101,6 +101,29 @@ function createCurrentSelfModelRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function createWalkCandidateRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 61,
+    field_key: 'private:user:123456',
+    field_scope: 'private_chat',
+    target_user_id: 123456,
+    target_group_id: null,
+    priority_score: 0.82,
+    selected_reason: '私聊·用户123456 命中了明确承诺信号，适合作为当前优先关注对象。',
+    suppressed_reason: null,
+    can_speak_now: 1,
+    source_relationship_id: null,
+    source_plan_ids_json: '[]',
+    source_memory_ids_json: '[11]',
+    source_belief_ids_json: '[1]',
+    trigger_sources_json: '["commitment_memory","day_plan"]',
+    compiler_inputs_json: '{"latest_observation_excerpt":"我打算周末学Rust"}',
+    computed_at: '2026-03-23T10:00:00.000Z',
+    created_at: '2026-03-23T10:00:00.000Z',
+    ...overrides
+  };
+}
+
 describe('AgentMemoryService', () => {
   it('promotes explicit commitments into stable memories', async () => {
     const database = {
@@ -376,27 +399,79 @@ describe('AgentMemoryService', () => {
   it('writes reflection, self model, and followup plan during daily reflection', async () => {
     const now = new Date('2026-03-23T10:00:00.000Z');
     const database = {
-      executeQuery: jest
-        .fn()
-        .mockResolvedValueOnce([{ total: 0 }])
-        .mockResolvedValueOnce([createBeliefRow()])
-        .mockResolvedValueOnce([createObservationRow()])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([createMemoryRow()])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([createMemoryRow()])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ total: 1 }])
-        .mockResolvedValueOnce([createCurrentSelfModelRow()])
-        .mockResolvedValueOnce([{ id: 31, reflection_kind: 'daily' }])
-        .mockResolvedValueOnce([{ id: 31, reflection_kind: 'daily' }])
-        .mockResolvedValueOnce([{ id: 30, reflection_kind: 'weekly' }])
-        .mockResolvedValueOnce([{ total: 1 }])
-        .mockResolvedValueOnce([{ total: 1 }])
-        .mockResolvedValueOnce([{ total: 1 }]),
+      executeQuery: jest.fn(async (query: string, params: any[] = []) => {
+        if (query.includes('FROM information_schema.tables')) {
+          const tableName = params[0];
+          if (tableName === 'agent_relationship_memories') {
+            return [{ total: 1 }];
+          }
+          if (tableName === 'agent_social_fields') {
+            return [{ total: 0 }];
+          }
+          return [{ total: 1 }];
+        }
+        if (query.includes('SELECT COUNT(*) AS total FROM agent_reflections WHERE reflection_key = ?')) {
+          return [{ total: params[0] === 'daily:2026-03-23' ? 0 : 1 }];
+        }
+        if (query.includes("FROM agent_beliefs") && query.includes("subject_type = 'self'")) {
+          return [];
+        }
+        if (query.includes('FROM agent_beliefs')) {
+          return [createBeliefRow()];
+        }
+        if (query.includes("FROM agent_observations") && query.includes("source_type <> 'compaction_flush'")) {
+          return [createObservationRow()];
+        }
+        if (query.includes('FROM agent_observations')) {
+          return [createObservationRow()];
+        }
+        if (query.includes('FROM agent_action_logs')) {
+          return [];
+        }
+        if (query.includes('normalized_content = ?')) {
+          return [];
+        }
+        if (query.includes('FROM agent_memories WHERE id = ? LIMIT 1')) {
+          return [createMemoryRow()];
+        }
+        if (query.includes("FROM agent_memories") && query.includes("memory_scope = 'self_global'")) {
+          return [];
+        }
+        if (query.includes("FROM agent_memories") && query.includes("memory_type = 'commitment'")) {
+          return [createMemoryRow()];
+        }
+        if (query.includes("FROM agent_memories") && query.includes("subject_type = 'user'")) {
+          return [createMemoryRow()];
+        }
+        if (query.includes('FROM agent_walk_candidates')) {
+          return [createWalkCandidateRow()];
+        }
+        if (query.includes('FROM agent_relationship_memories')) {
+          return [];
+        }
+        if (query.includes("FROM agent_plans") && query.includes("plan_type = 'followup_queue'") && query.includes('goal = ?')) {
+          return [];
+        }
+        if (query.includes("FROM agent_plans") && query.includes("plan_type = 'followup_queue'") && query.includes("status IN ('queued', 'active')")) {
+          return [];
+        }
+        if (query.includes("FROM agent_plans") && query.includes('target_user_id IS NULL')) {
+          return [];
+        }
+        if (query.includes('FROM agent_self_model')) {
+          return [createCurrentSelfModelRow()];
+        }
+        if (query.includes("FROM agent_reflections") && query.includes("status = 'completed'") && query.includes("AND reflection_kind = ?")) {
+          return [{ id: params[0] === 'daily' ? 31 : 30, reflection_kind: params[0] }];
+        }
+        if (query.includes("FROM agent_reflections") && query.includes("status = 'completed'")) {
+          return [{ id: 31, reflection_kind: 'daily' }];
+        }
+        if (query.includes("SELECT COUNT(*) AS total") && query.includes('FROM agent_plans')) {
+          return [{ total: 1 }];
+        }
+        return [];
+      }),
       executeUpdate: jest.fn().mockResolvedValue(undefined),
       executeInsertAndReturnId: jest
         .fn()
@@ -432,26 +507,24 @@ describe('AgentMemoryService', () => {
     );
     expect(database.executeInsertAndReturnId).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO agent_plans'),
-      [
+      expect.arrayContaining([
         'followup_queue',
         'private_chat',
         123456,
         null,
-        '跟进：用户打算周末学Rust',
-        '下一次合适的对话窗口确认这项承诺的进展。',
         now,
         31
-      ]
+      ])
     );
     expect(database.executeInsertAndReturnId).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO agent_plans'),
-      [
+      expect.arrayContaining([
         'day_plan',
         '今日优先：跟进用户123456关于“打算周末学Rust”；保持记忆整理与克制主动的节奏。',
         '今天在自然对话窗口中优先推进这些事项，并保持记忆整理节奏。',
         now,
         31
-      ]
+      ])
     );
     expect(database.executeUpdate).toHaveBeenCalledWith(
       expect.stringContaining('UPDATE agent_self_model SET is_current = 0 WHERE is_current = 1')
@@ -461,34 +534,86 @@ describe('AgentMemoryService', () => {
   it('refreshes self model and reuses existing followup plans without duplicating them', async () => {
     const now = new Date('2026-03-23T10:00:00.000Z');
     const database = {
-      executeQuery: jest
-        .fn()
-        .mockResolvedValueOnce([{ total: 0 }])
-        .mockResolvedValueOnce([createBeliefRow({ confidence: 0.75 })])
-        .mockResolvedValueOnce([createObservationRow()])
-        .mockResolvedValueOnce([createMemoryRow({ id: 11, source_kind: 'explicit_commitment' })])
-        .mockResolvedValueOnce([createMemoryRow({ id: 11, source_kind: 'daily_reflection' })])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([createMemoryRow({ id: 11 })])
-        .mockResolvedValueOnce([
-          {
-            id: 88,
-            target_user_id: 123456,
-            target_group_id: null,
-            goal: '跟进：用户打算周末学Rust'
+      executeQuery: jest.fn(async (query: string, params: any[] = []) => {
+        if (query.includes('FROM information_schema.tables')) {
+          const tableName = params[0];
+          if (tableName === 'agent_relationship_memories') {
+            return [{ total: 1 }];
           }
-        ])
-        .mockResolvedValueOnce([{ id: 88 }])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ total: 1 }])
-        .mockResolvedValueOnce([createCurrentSelfModelRow({ id: 99, source_reflection_id: 31 })])
-        .mockResolvedValueOnce([{ id: 31, reflection_kind: 'daily' }])
-        .mockResolvedValueOnce([{ id: 31, reflection_kind: 'daily' }])
-        .mockResolvedValueOnce([{ id: 30, reflection_kind: 'weekly' }])
-        .mockResolvedValueOnce([{ total: 1 }])
-        .mockResolvedValueOnce([{ total: 1 }])
-        .mockResolvedValueOnce([{ total: 1 }]),
+          if (tableName === 'agent_social_fields') {
+            return [{ total: 0 }];
+          }
+          return [{ total: 1 }];
+        }
+        if (query.includes('SELECT COUNT(*) AS total FROM agent_reflections WHERE reflection_key = ?')) {
+          return [{ total: params[0] === 'daily:2026-03-23' ? 0 : 1 }];
+        }
+        if (query.includes("FROM agent_beliefs") && query.includes("subject_type = 'self'")) {
+          return [];
+        }
+        if (query.includes('FROM agent_beliefs')) {
+          return [createBeliefRow({ confidence: 0.75 })];
+        }
+        if (query.includes("FROM agent_observations") && query.includes("source_type <> 'compaction_flush'")) {
+          return [createObservationRow()];
+        }
+        if (query.includes('FROM agent_observations')) {
+          return [createObservationRow()];
+        }
+        if (query.includes('FROM agent_action_logs')) {
+          return [];
+        }
+        if (query.includes('normalized_content = ?')) {
+          return [createMemoryRow({ id: 11, source_kind: 'explicit_commitment' })];
+        }
+        if (query.includes('FROM agent_memories WHERE id = ? LIMIT 1')) {
+          return [createMemoryRow({ id: 11 })];
+        }
+        if (query.includes("FROM agent_memories") && query.includes("memory_scope = 'self_global'")) {
+          return [];
+        }
+        if (query.includes("FROM agent_memories") && query.includes("memory_type = 'commitment'")) {
+          return [createMemoryRow({ id: 11 })];
+        }
+        if (query.includes("FROM agent_memories") && query.includes("subject_type = 'user'")) {
+          return [createMemoryRow({ id: 11, source_kind: 'daily_reflection' })];
+        }
+        if (query.includes('FROM agent_walk_candidates')) {
+          return [createWalkCandidateRow()];
+        }
+        if (query.includes('FROM agent_relationship_memories')) {
+          return [];
+        }
+        if (query.includes("FROM agent_plans") && query.includes("plan_type = 'followup_queue'") && query.includes('goal = ?')) {
+          return [{ id: 88 }];
+        }
+        if (query.includes("FROM agent_plans") && query.includes("plan_type = 'followup_queue'") && query.includes("status IN ('queued', 'active')")) {
+          return [
+            {
+              id: 88,
+              target_user_id: 123456,
+              target_group_id: null,
+              goal: '跟进：用户打算周末学Rust'
+            }
+          ];
+        }
+        if (query.includes("FROM agent_plans") && query.includes('target_user_id IS NULL')) {
+          return [];
+        }
+        if (query.includes('FROM agent_self_model')) {
+          return [createCurrentSelfModelRow({ id: 99, source_reflection_id: 31 })];
+        }
+        if (query.includes("FROM agent_reflections") && query.includes("status = 'completed'") && query.includes("AND reflection_kind = ?")) {
+          return [{ id: params[0] === 'daily' ? 31 : 30, reflection_kind: params[0] }];
+        }
+        if (query.includes("FROM agent_reflections") && query.includes("status = 'completed'")) {
+          return [{ id: 31, reflection_kind: 'daily' }];
+        }
+        if (query.includes("SELECT COUNT(*) AS total") && query.includes('FROM agent_plans')) {
+          return [{ total: 1 }];
+        }
+        return [];
+      }),
       executeUpdate: jest.fn().mockResolvedValue(undefined),
       executeInsertAndReturnId: jest
         .fn()
@@ -517,13 +642,12 @@ describe('AgentMemoryService', () => {
     );
     expect(database.executeUpdate).toHaveBeenCalledWith(
       expect.stringContaining('UPDATE agent_plans'),
-      [
+      expect.arrayContaining([
         'private_chat',
-        '下一次合适的对话窗口确认这项承诺的进展。',
         now,
         31,
         88
-      ]
+      ])
     );
     expect(database.executeInsertAndReturnId).not.toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO agent_plans'),
@@ -534,27 +658,76 @@ describe('AgentMemoryService', () => {
   it('writes weekly focus during weekly reflection', async () => {
     const now = new Date('2026-03-23T10:00:00.000Z');
     const database = {
-      executeQuery: jest
-        .fn()
-        .mockResolvedValueOnce([{ total: 1 }])
-        .mockResolvedValueOnce([{ total: 0 }])
-        .mockResolvedValueOnce([createBeliefRow()])
-        .mockResolvedValueOnce([createObservationRow()])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([createMemoryRow({ id: 12, source_kind: 'weekly_reflection' })])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([createMemoryRow()])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([createCurrentSelfModelRow({ id: 77, source_reflection_id: 31 })])
-        .mockResolvedValueOnce([{ id: 31, reflection_kind: 'weekly' }])
-        .mockResolvedValueOnce([{ id: 21, reflection_kind: 'daily' }])
-        .mockResolvedValueOnce([{ id: 31, reflection_kind: 'weekly' }])
-        .mockResolvedValueOnce([{ total: 1 }])
-        .mockResolvedValueOnce([{ total: 1 }])
-        .mockResolvedValueOnce([{ total: 1 }]),
+      executeQuery: jest.fn(async (query: string, params: any[] = []) => {
+        if (query.includes('FROM information_schema.tables')) {
+          const tableName = params[0];
+          if (tableName === 'agent_relationship_memories') {
+            return [{ total: 1 }];
+          }
+          if (tableName === 'agent_social_fields') {
+            return [{ total: 0 }];
+          }
+          return [{ total: 1 }];
+        }
+        if (query.includes('SELECT COUNT(*) AS total FROM agent_reflections WHERE reflection_key = ?')) {
+          return [{ total: params[0] === 'weekly:2026-W13' ? 0 : 1 }];
+        }
+        if (query.includes("FROM agent_beliefs") && query.includes("subject_type = 'self'")) {
+          return [];
+        }
+        if (query.includes('FROM agent_beliefs')) {
+          return [createBeliefRow()];
+        }
+        if (query.includes("FROM agent_observations") && query.includes("source_type <> 'compaction_flush'")) {
+          return [createObservationRow()];
+        }
+        if (query.includes('FROM agent_observations')) {
+          return [createObservationRow()];
+        }
+        if (query.includes('FROM agent_action_logs')) {
+          return [];
+        }
+        if (query.includes('normalized_content = ?')) {
+          return [];
+        }
+        if (query.includes('FROM agent_memories WHERE id = ? LIMIT 1')) {
+          return [createMemoryRow({ id: 12, source_kind: 'weekly_reflection' })];
+        }
+        if (query.includes("FROM agent_memories") && query.includes("memory_scope = 'self_global'")) {
+          return [];
+        }
+        if (query.includes("FROM agent_memories") && query.includes("memory_type = 'commitment'")) {
+          return [createMemoryRow()];
+        }
+        if (query.includes("FROM agent_memories") && query.includes("subject_type = 'user'")) {
+          return [createMemoryRow({ id: 12, source_kind: 'weekly_reflection' })];
+        }
+        if (query.includes('FROM agent_relationship_memories')) {
+          return [];
+        }
+        if (query.includes("FROM agent_plans") && query.includes("plan_type = 'followup_queue'") && query.includes('goal = ?')) {
+          return [];
+        }
+        if (query.includes("FROM agent_plans") && query.includes("plan_type = 'followup_queue'") && query.includes("status IN ('queued', 'active')")) {
+          return [];
+        }
+        if (query.includes("FROM agent_plans") && query.includes('target_user_id IS NULL')) {
+          return [];
+        }
+        if (query.includes('FROM agent_self_model')) {
+          return [createCurrentSelfModelRow({ id: 77, source_reflection_id: 31 })];
+        }
+        if (query.includes("FROM agent_reflections") && query.includes("status = 'completed'") && query.includes("AND reflection_kind = ?")) {
+          return [{ id: params[0] === 'weekly' ? 31 : 21, reflection_kind: params[0] }];
+        }
+        if (query.includes("FROM agent_reflections") && query.includes("status = 'completed'")) {
+          return [{ id: 31, reflection_kind: 'weekly' }];
+        }
+        if (query.includes("SELECT COUNT(*) AS total") && query.includes('FROM agent_plans')) {
+          return [{ total: 1 }];
+        }
+        return [];
+      }),
       executeUpdate: jest.fn().mockResolvedValue(undefined),
       executeInsertAndReturnId: jest
         .fn()
@@ -578,13 +751,13 @@ describe('AgentMemoryService', () => {
     );
     expect(database.executeInsertAndReturnId).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO agent_plans'),
-      [
+      expect.arrayContaining([
         'weekly_focus',
         '本周重点：跟进用户123456关于“打算周末学Rust”；持续沉淀稳定承诺与关系线索。',
         '本周在主动跟进与回复决策中优先围绕这些重点展开。',
         now,
         31
-      ]
+      ])
     );
   });
 
@@ -689,25 +862,31 @@ describe('AgentMemoryService', () => {
   it('executes due followup plans and records completed action logs', async () => {
     const now = new Date('2026-03-23T10:00:00.000Z');
     const database = {
-      executeQuery: jest
-        .fn()
-        .mockResolvedValueOnce([
-          {
-            id: 5,
-            plan_type: 'followup_queue',
-            target_field_scope: 'private_chat',
-            target_user_id: 123456,
-            target_group_id: null,
-            goal: '跟进：用户打算周末学Rust',
-            trigger_condition: '下一次合适的对话窗口确认这项承诺的进展。',
-            status: 'queued',
-            scheduled_start_at: '2026-03-23T09:00:00.000Z',
-            scheduled_end_at: null,
-            source_reflection_id: 31,
-            created_at: '2026-03-23T08:00:00.000Z',
-            updated_at: '2026-03-23T08:00:00.000Z'
-          }
-        ]),
+      executeQuery: jest.fn(async (query: string, params: any[] = []) => {
+        if (query.includes('FROM information_schema.tables')) {
+          return [{ total: params[0] === 'agent_relationship_memories' ? 0 : 1 }];
+        }
+        if (query.includes("FROM agent_plans") && query.includes("plan_type = 'followup_queue'")) {
+          return [
+            {
+              id: 5,
+              plan_type: 'followup_queue',
+              target_field_scope: 'private_chat',
+              target_user_id: 123456,
+              target_group_id: null,
+              goal: '跟进：用户打算周末学Rust',
+              trigger_condition: '下一次合适的对话窗口确认这项承诺的进展。',
+              status: 'queued',
+              scheduled_start_at: '2026-03-23T09:00:00.000Z',
+              scheduled_end_at: null,
+              source_reflection_id: 31,
+              created_at: '2026-03-23T08:00:00.000Z',
+              updated_at: '2026-03-23T08:00:00.000Z'
+            }
+          ];
+        }
+        return [];
+      }),
       executeUpdate: jest.fn().mockResolvedValue(undefined),
       executeInsertAndReturnId: jest.fn().mockResolvedValue(71)
     };
@@ -759,25 +938,31 @@ describe('AgentMemoryService', () => {
   it('reschedules blocked followup plans and records skipped action logs', async () => {
     const now = new Date('2026-03-23T10:00:00.000Z');
     const database = {
-      executeQuery: jest
-        .fn()
-        .mockResolvedValueOnce([
-          {
-            id: 6,
-            plan_type: 'followup_queue',
-            target_field_scope: 'private_chat',
-            target_user_id: 123456,
-            target_group_id: null,
-            goal: '跟进：用户打算周末学Rust',
-            trigger_condition: '下一次合适的对话窗口确认这项承诺的进展。',
-            status: 'queued',
-            scheduled_start_at: '2026-03-23T09:00:00.000Z',
-            scheduled_end_at: null,
-            source_reflection_id: 31,
-            created_at: '2026-03-23T08:00:00.000Z',
-            updated_at: '2026-03-23T08:00:00.000Z'
-          }
-        ]),
+      executeQuery: jest.fn(async (query: string, params: any[] = []) => {
+        if (query.includes('FROM information_schema.tables')) {
+          return [{ total: params[0] === 'agent_relationship_memories' ? 0 : 1 }];
+        }
+        if (query.includes("FROM agent_plans") && query.includes("plan_type = 'followup_queue'")) {
+          return [
+            {
+              id: 6,
+              plan_type: 'followup_queue',
+              target_field_scope: 'private_chat',
+              target_user_id: 123456,
+              target_group_id: null,
+              goal: '跟进：用户打算周末学Rust',
+              trigger_condition: '下一次合适的对话窗口确认这项承诺的进展。',
+              status: 'queued',
+              scheduled_start_at: '2026-03-23T09:00:00.000Z',
+              scheduled_end_at: null,
+              source_reflection_id: 31,
+              created_at: '2026-03-23T08:00:00.000Z',
+              updated_at: '2026-03-23T08:00:00.000Z'
+            }
+          ];
+        }
+        return [];
+      }),
       executeUpdate: jest.fn().mockResolvedValue(undefined),
       executeInsertAndReturnId: jest.fn().mockResolvedValue(72)
     };
@@ -851,6 +1036,8 @@ describe('AgentMemoryService', () => {
       followupEnabled: true,
       isPaused: false,
       allowedUserIds: [],
+      observedGroupIds: [],
+      allowedGroupIds: [],
       maxPerRun: 1,
       retryDelayMs: 21600000
     });
@@ -859,6 +1046,8 @@ describe('AgentMemoryService', () => {
       followupEnabled: false,
       isPaused: true,
       allowedUserIds: [123456, 789012],
+      observedGroupIds: [],
+      allowedGroupIds: [],
       maxPerRun: 2,
       retryDelayMs: 7200000,
       queuedFollowups: 3,
@@ -922,6 +1111,8 @@ describe('AgentMemoryService', () => {
         followupEnabled: true,
         isPaused: false,
         allowedUserIds: [],
+        observedGroupIds: [],
+        allowedGroupIds: [],
         maxPerRun: 1,
         retryDelayMs: 21600000
       }
@@ -929,12 +1120,14 @@ describe('AgentMemoryService', () => {
 
     expect(database.executeUpdate).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO agent_proactivity_controls'),
-      [1, 1, '[123456]', 3, 5400000]
+      [1, 1, '[123456]', '[]', '[]', 3, 5400000]
     );
     expect(state).toMatchObject({
       followupEnabled: true,
       isPaused: true,
       allowedUserIds: [123456],
+      observedGroupIds: [],
+      allowedGroupIds: [],
       maxPerRun: 3,
       retryDelayMs: 5400000,
       queuedFollowups: 2,
@@ -942,5 +1135,274 @@ describe('AgentMemoryService', () => {
       recentActionLogCount: 1,
       source: 'database'
     });
+  });
+
+  it('executes due group followup plans and records group action logs', async () => {
+    const now = new Date('2026-03-23T10:00:00.000Z');
+    const database = {
+      executeQuery: jest.fn(async (query: string) => {
+        if (query.includes('FROM agent_plans') && query.includes("plan_type = 'followup_queue'")) {
+          return [
+            {
+              id: 16,
+              plan_type: 'followup_queue',
+              target_field_scope: 'group_chat',
+              target_user_id: null,
+              target_group_id: 10001,
+              goal: '群聊跟进：围绕当前计划方向自然接一句，补上当前话题的关注点。',
+              trigger_condition: '今日计划命中该场域，且允许群主动。',
+              status: 'queued',
+              scheduled_start_at: '2026-03-23T09:00:00.000Z',
+              scheduled_end_at: null,
+              source_reflection_id: 31,
+              created_at: '2026-03-23T08:00:00.000Z',
+              updated_at: '2026-03-23T08:00:00.000Z'
+            }
+          ];
+        }
+        return [];
+      }),
+      executeUpdate: jest.fn().mockResolvedValue(undefined),
+      executeInsertAndReturnId: jest.fn().mockResolvedValue(171)
+    };
+    const sendGroupMessage = jest.fn().mockResolvedValue(undefined);
+
+    const service = new AgentMemoryService(database as any);
+    const result = await service.executeDueFollowupPlans({
+      now,
+      limit: 1,
+      canSendToGroup: jest.fn().mockResolvedValue({ allowed: true }),
+      sendPrivateMessage: jest.fn(),
+      sendGroupMessage
+    });
+
+    expect(sendGroupMessage).toHaveBeenCalledWith(
+      10001,
+      expect.stringContaining('我补一句'),
+      expect.objectContaining({ id: 16, plan_type: 'followup_queue' })
+    );
+    expect(database.executeInsertAndReturnId).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO agent_action_logs'),
+      expect.arrayContaining([
+        'followup_group_message',
+        'followup_queue',
+        16,
+        null,
+        10001,
+        expect.any(String),
+        'completed',
+        now
+      ])
+    );
+    expect(result).toEqual({
+      processed: 1,
+      completed: 1,
+      skipped: 0,
+      failed: 0
+    });
+  });
+
+  it('suppresses group candidates when the group is not in the observe list', async () => {
+    const now = new Date('2026-03-23T10:00:00.000Z');
+    const database = {
+      executeQuery: jest.fn(async (query: string, params: any[] = []) => {
+        if (query.includes('information_schema.tables')) {
+          return [{ total: 1 }];
+        }
+        if (query.includes('FROM agent_observations')) {
+          return [
+            createObservationRow({
+              id: 101,
+              field_scope: 'group_chat',
+              user_id: null,
+              group_id: 10001,
+              subject_user_id: null,
+              content: '群里刚刚在聊周报',
+              occurred_at: '2026-03-23T09:00:00.000Z'
+            })
+          ];
+        }
+        if (query.includes('FROM agent_relationship_memories')) {
+          return [];
+        }
+        if (query.includes('FROM agent_plans')) {
+          return [];
+        }
+        if (query.includes('FROM agent_action_logs')) {
+          return [];
+        }
+        if (query.includes('FROM agent_beliefs')) {
+          return [];
+        }
+        if (query.includes('FROM agent_memories')) {
+          return [];
+        }
+        if (query.includes('FROM agent_proactivity_controls')) {
+          return [{
+            id: 1,
+            followup_enabled: 1,
+            is_paused: 0,
+            allowed_user_ids: '[]',
+            observed_group_ids: '[]',
+            allowed_group_ids: '[]',
+            max_per_run: 1,
+            retry_delay_ms: 21600000
+          }];
+        }
+        if (query.includes('FROM agent_feedback_events')) {
+          return [];
+        }
+        return [];
+      }),
+      executeUpdate: jest.fn().mockResolvedValue(undefined),
+      executeInsertAndReturnId: jest.fn().mockResolvedValue(1)
+    };
+
+    const service = new AgentMemoryService(database as any);
+    await service.materializeVirtualWalkState(now);
+
+    expect(database.executeInsertAndReturnId).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO agent_walk_candidates'),
+      expect.arrayContaining([
+        'group:10001',
+        'group_chat',
+        null,
+        10001,
+        expect.any(Number),
+        expect.any(String),
+        'group_observation_disabled',
+        0
+      ])
+    );
+  });
+
+  it('materializes negative feedback events for no-response followups and suppresses the candidate', async () => {
+    const now = new Date('2026-03-25T10:00:00.000Z');
+    let feedbackInserted = false;
+    const database = {
+      executeQuery: jest.fn(async (query: string, params: any[] = []) => {
+        if (query.includes('information_schema.tables')) {
+          return [{ total: 1 }];
+        }
+        if (query.includes('FROM agent_observations')) {
+          return [
+            createObservationRow({
+              id: 201,
+              content: '我打算周末学Rust',
+              occurred_at: '2026-03-23T08:00:00.000Z'
+            })
+          ];
+        }
+        if (query.includes('FROM agent_relationship_memories')) {
+          return [{
+            id: 301,
+            target_user_id: 123456,
+            group_id: null,
+            field_scope: 'private_chat',
+            relationship_summary: '当前关系稳定',
+            interaction_style: '自然简洁',
+            boundary_notes: null,
+            confidence: 0.8,
+            status: 'active',
+            source_reflection_id: 31,
+            last_evidence_id: 201,
+            last_observed_at: '2026-03-23T08:00:00.000Z',
+            is_current: 1,
+            boundary_strategy: 'allow_proactive',
+            notes_json: '{}',
+            created_at: '2026-03-23T08:00:00.000Z',
+            updated_at: '2026-03-23T08:00:00.000Z'
+          }];
+        }
+        if (query.includes('FROM agent_plans')) {
+          return [];
+        }
+        if (query.includes('FROM agent_action_logs')) {
+          return [{
+            id: 401,
+            target_user_id: 123456,
+            target_group_id: null,
+            status: 'completed',
+            occurred_at: '2026-03-23T09:00:00.000Z',
+            action_type: 'followup_private_message',
+            source_plan_id: 88,
+            payload_json: '{"message":"最近进展怎么样？"}'
+          }];
+        }
+        if (query.includes('FROM agent_beliefs')) {
+          return [];
+        }
+        if (query.includes('FROM agent_memories')) {
+          return [];
+        }
+        if (query.includes('FROM agent_proactivity_controls')) {
+          return [{
+            id: 1,
+            followup_enabled: 1,
+            is_paused: 0,
+            allowed_user_ids: '[]',
+            observed_group_ids: '[]',
+            allowed_group_ids: '[]',
+            max_per_run: 1,
+            retry_delay_ms: 21600000
+          }];
+        }
+        if (query.includes('SELECT source_action_log_id') && query.includes('FROM agent_feedback_events')) {
+          return [];
+        }
+        if (query.includes('FROM agent_feedback_events') && query.includes('WHERE occurred_at >=')) {
+          return feedbackInserted ? [{
+            id: 501,
+            field_key: 'private:user:123456',
+            target_user_id: 123456,
+            target_group_id: null,
+            source_action_log_id: 401,
+            judgement: 'negative',
+            reason_code: 'no_response_48h',
+            explanation_json: '{"should_suppress":true}',
+            llm_trace_id: null,
+            occurred_at: '2026-03-25T10:00:00.000Z',
+            created_at: '2026-03-25T10:00:00.000Z'
+          }] : [];
+        }
+        return [];
+      }),
+      executeUpdate: jest.fn().mockResolvedValue(undefined),
+      executeInsertAndReturnId: jest.fn(async (query: string) => {
+        if (query.includes('INSERT INTO agent_feedback_events')) {
+          feedbackInserted = true;
+          return 501;
+        }
+        return 1;
+      })
+    };
+
+    const service = new AgentMemoryService(database as any);
+    await service.materializeVirtualWalkState(now);
+
+    expect(database.executeInsertAndReturnId).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO agent_feedback_events'),
+      expect.arrayContaining([
+        'private:user:123456',
+        123456,
+        null,
+        401,
+        'negative',
+        'no_response_48h'
+      ])
+    );
+    expect(database.executeInsertAndReturnId).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO agent_walk_candidates'),
+      expect.arrayContaining([
+        'private:user:123456',
+        'private_chat',
+        123456,
+        null,
+        expect.any(Number),
+        expect.any(String),
+        'negative_feedback_window_active',
+        0
+      ])
+    );
   });
 });

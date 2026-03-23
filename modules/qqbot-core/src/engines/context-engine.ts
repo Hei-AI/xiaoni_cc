@@ -10,7 +10,7 @@
 
 import { logger } from '../utils/logger';
 import { DatabaseManager } from '../services/database';
-import { QQMessage } from '../types';
+import { ConversationData, QQMessage } from '../types';
 
 export interface MessageContext {
   currentMessage: QQMessage;
@@ -124,12 +124,31 @@ export class ContextEngine {
    * 获取当前消息（从数据库或缓存）
    */
   private async getCurrentMessage(messageId: string): Promise<QQMessage | null> {
-    // 这里需要从数据库获取消息，目前先返回null
-    // TODO: 实现真实的消息查询
-    this.moduleLogger.warn('getCurrentMessage not implemented, returning null', {
-      messageId
-    });
-    return null;
+    const numericMessageId = Number.parseInt(messageId, 10);
+    const params: Array<string | number> = [messageId];
+    let query = `
+      SELECT *
+      FROM conversations
+      WHERE id = ?
+    `;
+
+    if (Number.isFinite(numericMessageId) && numericMessageId > 0) {
+      query = `
+        SELECT *
+        FROM conversations
+        WHERE message_id = ? OR id = ?
+        ORDER BY timestamp DESC
+        LIMIT 1
+      `;
+      params.unshift(numericMessageId);
+    }
+
+    const rows = await this.database.executeQuery<ConversationData>(query, params);
+    if (rows.length === 0) {
+      return null;
+    }
+
+    return this.mapConversationToQQMessage(rows[0]);
   }
 
   /**
@@ -137,22 +156,41 @@ export class ContextEngine {
    */
   private async getRecentMessages(currentMessage: QQMessage): Promise<QQMessage[]> {
     try {
-      const timeWindowMs = this.TIME_WINDOW_MINUTES * 60 * 1000;
-      const cutoffTime = new Date(Date.now() - timeWindowMs);
+      const cutoffTime = new Date((currentMessage.time * 1000) - this.TIME_WINDOW_MINUTES * 60 * 1000);
+      const currentTimestamp = new Date(currentMessage.time * 1000);
+      let query = `
+        SELECT *
+        FROM conversations
+        WHERE user_id = ?
+          AND timestamp BETWEEN ? AND ?
+      `;
+      const params: Array<string | number | Date> = [
+        currentMessage.user_id,
+        cutoffTime,
+        currentTimestamp
+      ];
 
-      // TODO: 实现真实的历史消息查询
-      // const messages = await this.database.getRecentMessages(searchContext);
-      
-      // Stage 1临时实现：返回空数组
-      this.moduleLogger.debug(
-        'Recent messages query not implemented, returning empty array',
-        {
-          userId: currentMessage.user_id,
-          groupId: currentMessage.group_id,
-          cutoffTime: cutoffTime.toISOString()
-        }
-      );
-      const messages: QQMessage[] = [];
+      if (currentMessage.group_id) {
+        query = `
+          SELECT *
+          FROM conversations
+          WHERE group_id = ?
+            AND timestamp BETWEEN ? AND ?
+        `;
+        params[0] = currentMessage.group_id;
+      }
+
+      if (currentMessage.message_id) {
+        query += ' AND (message_id IS NULL OR message_id <> ?)';
+        params.push(currentMessage.message_id);
+      }
+
+      query += ` ORDER BY timestamp DESC LIMIT ${this.MAX_RECENT_MESSAGES}`;
+
+      const rows = await this.database.executeQuery<ConversationData>(query, params);
+      const messages = rows
+        .map((row) => this.mapConversationToQQMessage(row))
+        .filter((message): message is QQMessage => message !== null);
 
       // 按时间排序（最新的在前）
       return messages.sort((a, b) => b.time - a.time);
@@ -170,14 +208,38 @@ export class ContextEngine {
    */
   private async buildUserInfo(userId: number): Promise<UserInfo> {
     try {
-      // TODO: 从数据库获取用户统计信息
-      // 目前返回基础信息
-      
+      const [stats] = await this.database.executeQuery<{
+        message_count: number;
+        last_interaction: Date | null;
+      }>(
+        `
+          SELECT
+            COUNT(*) as message_count,
+            MAX(timestamp) as last_interaction
+          FROM conversations
+          WHERE user_id = ?
+        `,
+        [userId]
+      );
+      const [latestMessage] = await this.database.executeQuery<ConversationData>(
+        `
+          SELECT *
+          FROM conversations
+          WHERE user_id = ?
+          ORDER BY timestamp DESC
+          LIMIT 1
+        `,
+        [userId]
+      );
+      const latestQQMessage = latestMessage ? this.mapConversationToQQMessage(latestMessage) : null;
+      const recentInteractionCount = stats?.message_count || 0;
+
       const userInfo: UserInfo = {
         user_id: userId,
-        nickname: `User_${userId}`, // 临时昵称
-        recent_interaction_count: 0,
-        is_frequent_user: false
+        nickname: latestQQMessage?.sender?.nickname || `用户${userId}`,
+        recent_interaction_count: recentInteractionCount,
+        last_interaction: stats?.last_interaction || undefined,
+        is_frequent_user: recentInteractionCount >= 10
       };
 
       return userInfo;
@@ -191,7 +253,7 @@ export class ContextEngine {
       // 返回最小化用户信息
       return {
         user_id: userId,
-        nickname: `User_${userId}`,
+        nickname: `用户${userId}`,
         recent_interaction_count: 0,
         is_frequent_user: false
       };
@@ -203,12 +265,29 @@ export class ContextEngine {
    */
   private async buildGroupInfo(groupId: number): Promise<GroupInfo> {
     try {
-      // TODO: 从数据库获取群聊统计信息
-      
+      const [stats] = await this.database.executeQuery<{
+        message_count: number;
+        participant_count: number;
+      }>(
+        `
+          SELECT
+            COUNT(*) as message_count,
+            COUNT(DISTINCT user_id) as participant_count
+          FROM conversations
+          WHERE group_id = ?
+            AND timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        `,
+        [groupId]
+      );
+
+      const recentActivity = stats?.message_count || 0;
+      const recent_activity_level: GroupInfo['recent_activity_level'] =
+        recentActivity >= 20 ? 'high' : recentActivity >= 5 ? 'medium' : 'low';
+
       const groupInfo: GroupInfo = {
         group_id: groupId,
-        recent_activity_level: 'medium',
-        participant_count: 0
+        recent_activity_level,
+        participant_count: stats?.participant_count || 0
       };
 
       return groupInfo;
@@ -224,6 +303,65 @@ export class ContextEngine {
         recent_activity_level: 'low',
         participant_count: 0
       };
+    }
+  }
+
+  private mapConversationToQQMessage(row: ConversationData): QQMessage | null {
+    const rawRequest = this.parseJson<Record<string, any>>(row.raw_request);
+    const rawMessage = typeof rawRequest?.raw_message === 'string' ? rawRequest.raw_message : row.user_message;
+    const message = rawRequest?.message ?? row.user_message;
+    const messageType = rawRequest?.message_type === 'group' || row.group_id ? 'group' : 'private';
+    const senderPayload = rawRequest?.sender;
+    const senderNickname =
+      senderPayload?.card ||
+      senderPayload?.nickname ||
+      (messageType === 'group' ? `群成员${row.user_id}` : `用户${row.user_id}`);
+
+    return {
+      time: rawRequest?.time ? Number(rawRequest.time) : Math.floor(new Date(row.timestamp).getTime() / 1000),
+      post_type: rawRequest?.post_type === 'message_sent' ? 'message_sent' : 'message',
+      message_type: messageType,
+      sub_type: rawRequest?.sub_type || '',
+      message_id: row.message_id || Number(rawRequest?.message_id) || 0,
+      user_id: row.user_id,
+      message,
+      raw_message: rawMessage,
+      font: Number(rawRequest?.font) || 0,
+      sender: {
+        user_id: row.user_id,
+        nickname: senderNickname,
+        sex: senderPayload?.sex || 'unknown',
+        ...(messageType === 'group'
+          ? {
+              card: senderPayload?.card,
+              role: senderPayload?.role || 'member',
+              title: senderPayload?.title,
+              level: senderPayload?.level,
+            }
+          : {})
+      } as QQMessage['sender'],
+      group_id: row.group_id || rawRequest?.group_id,
+      self_id: Number(rawRequest?.self_id) || 0,
+      normalized_text: typeof rawRequest?.normalized_text === 'string' ? rawRequest.normalized_text : undefined,
+      attachments: Array.isArray(rawRequest?.attachments) ? rawRequest.attachments : undefined,
+      segments: Array.isArray(rawRequest?.segments) ? rawRequest.segments : undefined,
+      local_attachments: Array.isArray(rawRequest?.local_attachments) ? rawRequest.local_attachments : undefined,
+      reply_intent_context: rawRequest?.reply_intent_context
+    };
+  }
+
+  private parseJson<T>(value?: string | null): T | null {
+    if (!value) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(value) as T;
+    } catch (error) {
+      this.moduleLogger.debug('Failed to parse JSON payload in context engine', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return null;
     }
   }
 

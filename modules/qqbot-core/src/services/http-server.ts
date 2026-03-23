@@ -545,6 +545,50 @@ class HttpServer {
       }
     });
 
+    this.app.post('/api/internal/cognition/recompute', async (req: Request, res: Response) => {
+      try {
+        if (!this.services.agentMemoryService) {
+          return res.status(503).json({
+            success: false,
+            error: 'Cognition service not available',
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        const subjectType = String(req.body?.subject_type || '').trim();
+        const subjectId = req.body?.subject_id;
+        const groupId = req.body?.group_id ?? null;
+
+        if (!['user', 'group', 'self'].includes(subjectType) || subjectId === undefined || subjectId === null || subjectId === '') {
+          return res.status(400).json({
+            success: false,
+            error: 'subject_type and subject_id are required',
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        const data = await this.services.agentMemoryService.recomputeDerivedPlansForSubject({
+          subjectType,
+          subjectId,
+          groupId
+        });
+
+        return res.json({
+          success: true,
+          data,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error: any) {
+        const message = error instanceof Error ? error.message : 'Failed to recompute cognition state';
+        this.moduleLogger.error('Failed to recompute cognition state', { error: message });
+        return res.status(500).json({
+          success: false,
+          error: message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
     if (this.services.messageQueueService) {
       this.setupSimpleQueueRoutes();
     }
@@ -1105,6 +1149,14 @@ class HttpServer {
 
     if (body.allowed_user_ids !== undefined) {
       patch.allowedUserIds = this.parseAllowedUserIds(body.allowed_user_ids);
+    }
+
+    if (body.observed_group_ids !== undefined) {
+      patch.observedGroupIds = this.parseAllowedUserIds(body.observed_group_ids);
+    }
+
+    if (body.allowed_group_ids !== undefined) {
+      patch.allowedGroupIds = this.parseAllowedUserIds(body.allowed_group_ids);
     }
 
     if (body.max_per_run !== undefined) {

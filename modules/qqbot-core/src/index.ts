@@ -84,6 +84,8 @@ class QQBot implements BatchHandler {
   private enableHumanLikeProcessing: boolean;
   private proactiveFollowupEnabled: boolean;
   private proactiveFollowupAllowedUserIds: Set<number>;
+  private proactiveObservedGroupIds: Set<number>;
+  private proactiveAllowedGroupIds: Set<number>;
   private proactiveFollowupMaxPerRun: number;
   private proactiveFollowupRetryDelayMs: number;
 
@@ -116,7 +118,13 @@ class QQBot implements BatchHandler {
     this.aiService = new AIService(config.ai, this.database, this.loggingService);
     this.embeddingService = new EmbeddingService(config.ai);
     this.cognitionEmbeddingStore = new CognitionEmbeddingStore(this.database, this.embeddingService);
-    this.agentMemoryService = new AgentMemoryService(this.database, this.cognitionEmbeddingStore);
+    this.agentMemoryService = new AgentMemoryService(
+      this.database,
+      this.cognitionEmbeddingStore,
+      {
+        feedbackEvaluator: params => this.evaluateVirtualWalkFeedbackWithLLM(params)
+      }
+    );
     this.sessionManager = new SessionManager(this.database);
     this.chatViewportService = new ChatViewportService(this.database);
     this.contextManager = new ContextManager(this.database, this.chatViewportService, this.agentMemoryService);
@@ -125,13 +133,19 @@ class QQBot implements BatchHandler {
 
     // Initialize Stage 1 Engines
     this.contextEngine = new ContextEngine(this.database);
-    this.decisionEngine = new DecisionEngine(this.aiService, config.ai);
+    this.decisionEngine = new DecisionEngine(this.aiService, config.ai, this.database);
 
     // Initialize Human-like Processing
     this.enableHumanLikeProcessing = process.env.ENABLE_HUMAN_LIKE_PROCESSING === 'true';
     this.proactiveFollowupEnabled = process.env.PROACTIVITY_ENABLED === 'true';
     this.proactiveFollowupAllowedUserIds = this.parseAllowedUserIds(
       process.env.PROACTIVE_FOLLOWUP_ALLOWED_USER_IDS
+    );
+    this.proactiveObservedGroupIds = this.parseAllowedUserIds(
+      process.env.PROACTIVE_OBSERVED_GROUP_IDS
+    );
+    this.proactiveAllowedGroupIds = this.parseAllowedUserIds(
+      process.env.PROACTIVE_ALLOWED_GROUP_IDS
     );
     this.proactiveFollowupMaxPerRun = Math.max(
       1,
@@ -1267,6 +1281,10 @@ class QQBot implements BatchHandler {
           'filtered_no_response',
           `Decision engine: ${decision.reason}`
         );
+        await this.agentMemoryService.cancelMicroIntentionForMessage(
+          enrichedMessage,
+          `decision_no_response:${decision.reason}`
+        );
 
         return;
       }
@@ -1313,6 +1331,10 @@ class QQBot implements BatchHandler {
         conversationId,
         'failed',
         `Processing error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+      await this.agentMemoryService.cancelMicroIntentionForMessage(
+        enrichedMessage,
+        `private_processing_error:${error instanceof Error ? error.message : 'unknown_error'}`
       );
     }
   }
@@ -1549,6 +1571,10 @@ class QQBot implements BatchHandler {
           'filtered_no_response',
           `Decision engine: ${decision.reason}`
         );
+        await this.agentMemoryService.cancelMicroIntentionForMessage(
+          enrichedMessage,
+          `decision_no_response:${decision.reason}`
+        );
 
         return;
       }
@@ -1588,6 +1614,10 @@ class QQBot implements BatchHandler {
         conversationId,
         'failed',
         `Processing error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+      await this.agentMemoryService.cancelMicroIntentionForMessage(
+        baseEnrichedMessage,
+        `group_processing_error:${error instanceof Error ? error.message : 'unknown_error'}`
       );
     }
   }
@@ -2410,6 +2440,10 @@ class QQBot implements BatchHandler {
             'AI service unavailable - all API tokens are unavailable'
           );
         }
+        await this.agentMemoryService.cancelMicroIntentionForMessage(
+          originalMessage,
+          'ai_service_unavailable'
+        );
         return;
       }
       
@@ -2424,6 +2458,10 @@ class QQBot implements BatchHandler {
             'AI response was empty'
           );
         }
+        await this.agentMemoryService.cancelMicroIntentionForMessage(
+          originalMessage,
+          'ai_response_empty'
+        );
         return;
       }
 
@@ -2477,6 +2515,10 @@ class QQBot implements BatchHandler {
           this.moduleLogger.debug('Group chat auto reply disabled, skipping message send', { 
             group_id: originalMessage.group_id 
           });
+          await this.agentMemoryService.cancelMicroIntentionForMessage(
+            originalMessage,
+            'group_auto_reply_disabled_after_generation'
+          );
           return; // 不发送回复，但LLM处理已完成并记录
         }
         
@@ -2507,6 +2549,10 @@ class QQBot implements BatchHandler {
           this.moduleLogger.debug('Private chat auto reply disabled, skipping message send', { 
             user_id: userId 
           });
+          await this.agentMemoryService.cancelMicroIntentionForMessage(
+            originalMessage,
+            'private_auto_reply_disabled_after_generation'
+          );
           return; // 不发送回复，但LLM处理已完成并记录
         }
         
@@ -2536,6 +2582,7 @@ class QQBot implements BatchHandler {
         inferredUserRelation,
         isGroupMessage: originalMessage.message_type === 'group'
       });
+      await this.agentMemoryService.completeMicroIntentionForMessage(originalMessage);
 
     } catch (error) {
       this.moduleLogger.error('Failed to handle enhanced AI conversation', { 
@@ -2552,6 +2599,10 @@ class QQBot implements BatchHandler {
           `Enhanced AI conversation error: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
       }
+      await this.agentMemoryService.cancelMicroIntentionForMessage(
+        originalMessage,
+        `enhanced_ai_error:${error instanceof Error ? error.message : 'unknown_error'}`
+      );
       
       // 不再发送错误消息给用户，只记录日志
     }
@@ -2762,6 +2813,25 @@ class QQBot implements BatchHandler {
 
         return { allowed: true };
       },
+      canSendToGroup: async (groupId) => {
+        if (
+          proactivityState.allowedGroupIds.length === 0 ||
+          !proactivityState.allowedGroupIds.includes(groupId)
+        ) {
+          return { allowed: false, reason: 'group_not_allowed' };
+        }
+
+        const groupSettings = await this.database.getGroupChatSettingById(groupId);
+        if (!groupSettings) {
+          return { allowed: false, reason: 'missing_group_chat_settings' };
+        }
+
+        if (!isDbBooleanEnabled(groupSettings.is_enabled)) {
+          return { allowed: false, reason: 'group_ingest_disabled' };
+        }
+
+        return { allowed: true };
+      },
       sendPrivateMessage: async (userId, message, plan) => {
         const traceId = uuidv4();
         const metadata = {
@@ -2787,12 +2857,40 @@ class QQBot implements BatchHandler {
             goal: plan.goal
           }
         );
+      },
+      sendGroupMessage: async (groupId, message, plan) => {
+        const traceId = uuidv4();
+        const metadata = {
+          source_plan_id: plan.id,
+          plan_type: plan.plan_type,
+          goal: plan.goal,
+          trigger_kind: 'followup_queue',
+          proactive: true
+        };
+        await this.websocketClient.waitUntilConnected();
+        await this.websocketClient.sendGroupMessage(groupId, message, {
+          traceId,
+          rawPayload: metadata
+        });
+        await this.loggingService.logInstantEvent(
+          traceId,
+          'agent',
+          'followup.executed',
+          undefined,
+          {
+            groupId,
+            planId: plan.id,
+            goal: plan.goal
+          }
+        );
       }
     });
 
     if (execution.processed > 0) {
       this.moduleLogger.info('Processed followup queue background task', execution);
     }
+
+    await this.agentMemoryService.materializeVirtualWalkState(new Date());
   }
 
   private parseAllowedUserIds(rawValue?: string): Set<number> {
@@ -2808,11 +2906,127 @@ class QQBot implements BatchHandler {
     );
   }
 
+  private async evaluateVirtualWalkFeedbackWithLLM(params: {
+    fieldKey: string;
+    targetUserId: number | null;
+    targetGroupId: number | null;
+    actionLog: {
+      id: number;
+      action_type: string;
+      status: string;
+      occurred_at: Date;
+      payload_json: any;
+    };
+    subsequentObservations: Array<{ content: string; occurred_at: Date }>;
+    relationship: {
+      relationship_summary?: string | null;
+      interaction_style?: string | null;
+      boundary_strategy?: string | null;
+      confidence?: number | null;
+    } | null;
+    fallback: {
+      judgement: 'positive' | 'neutral' | 'negative';
+      reason_code: string;
+      confidence?: number;
+      explanation?: string;
+      should_suppress?: boolean;
+    };
+    now: Date;
+  }): Promise<{
+    judgement: 'positive' | 'neutral' | 'negative';
+    reason_code: string;
+    confidence?: number;
+    explanation?: string;
+    should_suppress?: boolean;
+    llm_trace_id?: string | null;
+  } | null> {
+    const traceId = uuidv4();
+    const prompt = [
+      '你是小腻虚拟行走的反馈判定器。你只输出 JSON，不输出任何额外文字。',
+      'JSON schema:',
+      '{"judgement":"positive|neutral|negative","reason_code":"snake_case","confidence":0-1,"explanation":"...","should_suppress":true|false}',
+      `field_key=${params.fieldKey}`,
+      `target_user_id=${params.targetUserId ?? 'null'}`,
+      `target_group_id=${params.targetGroupId ?? 'null'}`,
+      `action_type=${params.actionLog.action_type}`,
+      `action_occurred_at=${params.actionLog.occurred_at.toISOString()}`,
+      `action_payload=${JSON.stringify(params.actionLog.payload_json ?? null)}`,
+      `relationship=${JSON.stringify(params.relationship ?? null)}`,
+      `subsequent_observations=${JSON.stringify(
+        params.subsequentObservations.slice(0, 6).map(item => ({
+          content: item.content,
+          occurred_at: item.occurred_at.toISOString()
+        }))
+      )}`,
+      `fallback=${JSON.stringify(params.fallback)}`,
+      '判定规则：',
+      '1. 明确拒绝、冷淡、要求暂停联系 -> negative。',
+      '2. 主动动作后对方继续接话、展开、推进承诺 -> positive。',
+      '3. 仅有礼貌短回复或仍在等待窗口，可以判 neutral。',
+      '4. should_suppress 只在 negative 时通常为 true。'
+    ].join('\n');
+
+    try {
+      const response = await this.aiService.generateContent(
+        {
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.1,
+            responseMimeType: 'application/json'
+          }
+        },
+        traceId,
+        {
+          agentType: 'tool_system',
+          promptName: 'virtual_walk_feedback'
+        }
+      );
+
+      const rawText =
+        (typeof response?.text === 'string' && response.text) ||
+        (typeof response?.processedResponse === 'string' && response.processedResponse) ||
+        '';
+      const parsed = rawText ? JSON.parse(rawText) : null;
+      if (!parsed || typeof parsed !== 'object') {
+        return null;
+      }
+
+      const judgement = parsed.judgement;
+      const reasonCode = typeof parsed.reason_code === 'string' ? parsed.reason_code.trim() : '';
+      if (
+        (judgement !== 'positive' && judgement !== 'neutral' && judgement !== 'negative') ||
+        !reasonCode
+      ) {
+        return null;
+      }
+
+      return {
+        judgement,
+        reason_code: reasonCode,
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : undefined,
+        explanation: typeof parsed.explanation === 'string' ? parsed.explanation : undefined,
+        should_suppress: typeof parsed.should_suppress === 'boolean'
+          ? parsed.should_suppress
+          : judgement === 'negative',
+        llm_trace_id: traceId
+      };
+    } catch (error) {
+      this.moduleLogger.warn('virtual_walk_feedback_llm_failed', {
+        traceId,
+        fieldKey: params.fieldKey,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
   private getProactivityDefaults(): AgentProactivityRuntimeConfig {
     return {
       followupEnabled: this.proactiveFollowupEnabled,
       isPaused: false,
       allowedUserIds: Array.from(this.proactiveFollowupAllowedUserIds),
+      observedGroupIds: Array.from(this.proactiveObservedGroupIds),
+      allowedGroupIds: Array.from(this.proactiveAllowedGroupIds),
       maxPerRun: this.proactiveFollowupMaxPerRun,
       retryDelayMs: this.proactiveFollowupRetryDelayMs
     };

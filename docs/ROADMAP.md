@@ -15,6 +15,7 @@
 - 收敛 Admin 的 Prompt 调试和对话重试能力，减少后端占位接口。
 - 完善会话管理与消息历史工具，方便后续重构期间回归验证。
 - 持续优化流量回放工具链，使其更贴近管理端日常调试场景。
+- 按 [XIAONI_V2_COMPLETION_PLAN.md](./XIAONI_V2_COMPLETION_PLAN.md) 收口小腻 V1 已承诺但尚未完整闭环的关系记忆、纠偏、虚拟行走图谱与主动触发能力。
 
 ## 远期方向
 
@@ -28,3 +29,5 @@
 - 为 `qqbot-core` 补齐真实上下文查询、统计与调度数据，替换占位实现。
 - 收敛管理端可见能力，避免继续保留无后端支撑或仅返回占位结果的入口。
 - 按 [XIAONI_V1_IMPLEMENTATION_PROGRESS.md](./XIAONI_V1_IMPLEMENTATION_PROGRESS.md) 推进小腻 V1 的文档、认知底座、反思、计划与主动行为实现。
+- 以 [XIAONI_V2_COMPLETION_PLAN.md](./XIAONI_V2_COMPLETION_PLAN.md) 作为 V2 收口与路演准备的事实源。
+- 以 [TODO.md](./TODO.md) 作为当前“实际未完成项”的事实源，优先收口 legacy 关系系统退场、专用纠偏入口、真实上下文查询与决策统计。

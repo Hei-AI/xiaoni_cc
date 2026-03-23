@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 export type CognitionObservationScope = 'all' | 'private' | 'group';
 export type CognitionBeliefScope = 'all' | 'private' | 'group';
 export type CognitionMemoryScope = 'all' | 'private' | 'group' | 'self';
+export type CognitionPatchEntityType = 'belief' | 'memory' | 'relationship';
 
 export interface CognitionOverview {
   observations: {
@@ -190,10 +191,187 @@ export interface CognitionPlan {
   raw_payload?: unknown;
 }
 
+export interface CognitionRelationship {
+  id: string;
+  record_id: number;
+  scope_type: 'private_user' | 'group_context' | string;
+  target_label: string;
+  target_user_id: number | null;
+  target_group_id: number | null;
+  field_scope: string | null;
+  relationship_summary: string;
+  interaction_style: string | null;
+  boundary_notes: string | null;
+  boundary_strategy: 'allow_proactive' | 'observe_only' | 'do_not_contact' | string | null;
+  confidence: number;
+  status: 'active' | 'superseded' | 'disabled' | string;
+  is_current: boolean;
+  source_reflection_id: number | null;
+  last_evidence_id: number | null;
+  last_observed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  raw_payload?: unknown;
+}
+
+export interface CognitionField {
+  id: string;
+  field_key: string;
+  field_scope: 'private_chat' | 'group_chat' | 'thread' | 'tool_channel' | string;
+  title: string;
+  status: 'active' | 'suppressed' | 'archived' | string;
+  user_id: number | null;
+  group_id: number | null;
+  thread_key: string | null;
+  last_active_at: string;
+  priority_score: number;
+  inbound_score: number;
+  relationship_score: number;
+  plan_score: number;
+  novelty_score: number;
+  cooldown_penalty: number;
+  boundary_penalty: number;
+  suppression_reason: string | null;
+  computed_at: string | null;
+  raw_payload?: unknown;
+}
+
+export interface CognitionFieldDetail {
+  field: {
+    field_key: string;
+    field_scope: string;
+    title: string;
+    status: string;
+    user_id: number | null;
+    group_id: number | null;
+    thread_key: string | null;
+    last_active_at: string;
+    updated_at?: string;
+    created_at?: string;
+  };
+  scores: Array<{
+    id: number;
+    field_key: string;
+    priority_score: number;
+    inbound_score: number;
+    relationship_score: number;
+    plan_score: number;
+    novelty_score: number;
+    cooldown_penalty: number;
+    boundary_penalty: number;
+    suppression_reason: string | null;
+    explanation_json?: unknown;
+    computed_at: string;
+  }>;
+  edges: Array<{
+    id: number;
+    source_field_key: string;
+    target_field_key: string;
+    edge_type: string;
+    weight: number;
+    last_observed_at: string;
+    updated_at?: string;
+  }>;
+  candidates?: Array<{
+    id: number;
+    field_key: string;
+    field_scope: string;
+    target_user_id: number | null;
+    target_group_id: number | null;
+    priority_score: number;
+    selected_reason: string;
+    suppressed_reason: string | null;
+    can_speak_now: boolean;
+    source_relationship_id: number | null;
+    source_plan_ids_json?: number[];
+    source_memory_ids_json?: number[];
+    source_belief_ids_json?: number[];
+    trigger_sources_json?: string[];
+    compiler_inputs_json?: unknown;
+    computed_at: string;
+    created_at?: string;
+  }>;
+  recent_action_logs?: Array<{
+    id: number | null;
+    action_type: string;
+    trigger_kind: string | null;
+    source_plan_id: number | null;
+    target_user_id: number | null;
+    target_group_id: number | null;
+    payload_json?: unknown;
+    status: string;
+    occurred_at: string;
+    created_at?: string;
+  }>;
+  recent_feedback_events?: Array<{
+    id: number | null;
+    field_key: string;
+    target_user_id: number | null;
+    target_group_id: number | null;
+    source_action_log_id: number | null;
+    judgement: 'positive' | 'neutral' | 'negative' | string;
+    reason_code: string;
+    explanation_json?: unknown;
+    llm_trace_id?: string | null;
+    occurred_at: string;
+    created_at?: string;
+  }>;
+}
+
+export interface CognitionCandidate {
+  id: string;
+  record_id: number | null;
+  field_key: string;
+  field_scope: string;
+  target_user_id: number | null;
+  target_group_id: number | null;
+  priority_score: number;
+  selected_reason: string;
+  suppressed_reason: string | null;
+  can_speak_now: boolean;
+  source_relationship_id: number | null;
+  source_plan_ids: number[];
+  source_memory_ids: number[];
+  source_belief_ids: number[];
+  trigger_sources: string[];
+  compiler_inputs?: unknown;
+  computed_at: string;
+  created_at: string;
+}
+
+export interface CognitionEdit {
+  id: string;
+  record_id: number;
+  entity_type: CognitionPatchEntityType | string;
+  entity_id: number | null;
+  action_type: string;
+  reason: string;
+  operator_id: string;
+  before_json?: unknown;
+  after_json?: unknown;
+  impact_json?: unknown;
+  created_at: string;
+}
+
+export interface CognitionPatchPreviewResponse {
+  success: boolean;
+  data: {
+    before: unknown;
+    after: unknown;
+    impact_summary: string;
+    affected_plan_ids: number[];
+    edit_id?: number;
+    recompute?: unknown;
+  };
+  timestamp: string;
+}
+
 export interface CognitionProactivityState {
   followupEnabled: boolean;
   isPaused: boolean;
   allowedUserIds: number[];
+  observedGroupIds: number[];
+  allowedGroupIds: number[];
   maxPerRun: number;
   retryDelayMs: number;
   queuedFollowups: number;
@@ -241,6 +419,18 @@ export interface CognitionMemoryListParams {
   limit?: number;
   scope?: CognitionMemoryScope;
   search?: string;
+}
+
+export interface CognitionFieldDetailResponse {
+  success: boolean;
+  data: CognitionFieldDetail;
+  timestamp: string;
+}
+
+export interface CognitionPatchPayload {
+  reason: string;
+  patch: Record<string, unknown>;
+  preview_only?: boolean;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -359,6 +549,61 @@ export const fetchCognitionPlans = async (
   return fetchJson<CognitionListResponse<CognitionPlan>>(`/api/cognition/plans?${query.toString()}`);
 };
 
+export const fetchCognitionRelationships = async (
+  params: CognitionMemoryListParams = {}
+): Promise<CognitionListResponse<CognitionRelationship>> => {
+  const query = new URLSearchParams();
+  query.set('page', String(params.page ?? 1));
+  query.set('limit', String(params.limit ?? 20));
+  query.set('scope', params.scope ?? 'all');
+  if (params.search) {
+    query.set('search', params.search);
+  }
+  return fetchJson<CognitionListResponse<CognitionRelationship>>(`/api/cognition/relationships?${query.toString()}`);
+};
+
+export const fetchCognitionFields = async (
+  params: CognitionListParams = {}
+): Promise<CognitionListResponse<CognitionField>> => {
+  const query = new URLSearchParams();
+  query.set('page', String(params.page ?? 1));
+  query.set('limit', String(params.limit ?? 20));
+  if (params.search) {
+    query.set('search', params.search);
+  }
+  return fetchJson<CognitionListResponse<CognitionField>>(`/api/cognition/fields?${query.toString()}`);
+};
+
+export const fetchCognitionCandidates = async (
+  params: CognitionListParams = {}
+): Promise<CognitionListResponse<CognitionCandidate>> => {
+  const query = new URLSearchParams();
+  query.set('page', String(params.page ?? 1));
+  query.set('limit', String(params.limit ?? 20));
+  if (params.search) {
+    query.set('search', params.search);
+  }
+  return fetchJson<CognitionListResponse<CognitionCandidate>>(`/api/cognition/candidates?${query.toString()}`);
+};
+
+export const fetchCognitionFieldDetail = async (
+  fieldKey: string
+): Promise<CognitionFieldDetailResponse> => {
+  return fetchJson<CognitionFieldDetailResponse>(`/api/cognition/fields/${encodeURIComponent(fieldKey)}`);
+};
+
+export const fetchCognitionEdits = async (
+  params: CognitionListParams = {}
+): Promise<CognitionListResponse<CognitionEdit>> => {
+  const query = new URLSearchParams();
+  query.set('page', String(params.page ?? 1));
+  query.set('limit', String(params.limit ?? 20));
+  if (params.search) {
+    query.set('search', params.search);
+  }
+  return fetchJson<CognitionListResponse<CognitionEdit>>(`/api/cognition/edits?${query.toString()}`);
+};
+
 export const fetchCognitionProactivity = async (): Promise<CognitionProactivityResponse> => {
   return fetchJson<CognitionProactivityResponse>('/api/cognition/proactivity');
 };
@@ -367,10 +612,33 @@ export const updateCognitionProactivity = async (payload: {
   followup_enabled?: boolean;
   is_paused?: boolean;
   allowed_user_ids?: number[];
+  observed_group_ids?: number[];
+  allowed_group_ids?: number[];
   max_per_run?: number;
   retry_delay_ms?: number;
 }): Promise<CognitionProactivityResponse> => {
   return sendJson<CognitionProactivityResponse>('/api/cognition/proactivity', 'PATCH', payload);
+};
+
+export const patchCognitionBelief = async (
+  beliefId: number,
+  payload: CognitionPatchPayload
+): Promise<CognitionPatchPreviewResponse> => {
+  return sendJson<CognitionPatchPreviewResponse>(`/api/cognition/beliefs/${beliefId}`, 'PATCH', payload);
+};
+
+export const patchCognitionMemory = async (
+  memoryId: number,
+  payload: CognitionPatchPayload
+): Promise<CognitionPatchPreviewResponse> => {
+  return sendJson<CognitionPatchPreviewResponse>(`/api/cognition/memories/${memoryId}`, 'PATCH', payload);
+};
+
+export const patchCognitionRelationship = async (
+  relationshipId: number,
+  payload: CognitionPatchPayload
+): Promise<CognitionPatchPreviewResponse> => {
+  return sendJson<CognitionPatchPreviewResponse>(`/api/cognition/relationships/${relationshipId}`, 'PATCH', payload);
 };
 
 export const useCognitionOverview = () => {
@@ -433,6 +701,47 @@ export const useCognitionPlans = (params: CognitionMemoryListParams) => {
   return useQuery({
     queryKey: ['cognition-plans', params],
     queryFn: () => fetchCognitionPlans(params),
+    staleTime: 10_000,
+  });
+};
+
+export const useCognitionRelationships = (params: CognitionMemoryListParams) => {
+  return useQuery({
+    queryKey: ['cognition-relationships', params],
+    queryFn: () => fetchCognitionRelationships(params),
+    staleTime: 10_000,
+  });
+};
+
+export const useCognitionFields = (params: CognitionListParams) => {
+  return useQuery({
+    queryKey: ['cognition-fields', params],
+    queryFn: () => fetchCognitionFields(params),
+    staleTime: 10_000,
+  });
+};
+
+export const useCognitionCandidates = (params: CognitionListParams) => {
+  return useQuery({
+    queryKey: ['cognition-candidates', params],
+    queryFn: () => fetchCognitionCandidates(params),
+    staleTime: 10_000,
+  });
+};
+
+export const useCognitionFieldDetail = (fieldKey?: string | null) => {
+  return useQuery({
+    queryKey: ['cognition-field-detail', fieldKey],
+    queryFn: () => fetchCognitionFieldDetail(String(fieldKey)),
+    staleTime: 10_000,
+    enabled: Boolean(fieldKey),
+  });
+};
+
+export const useCognitionEdits = (params: CognitionListParams) => {
+  return useQuery({
+    queryKey: ['cognition-edits', params],
+    queryFn: () => fetchCognitionEdits(params),
     staleTime: 10_000,
   });
 };
