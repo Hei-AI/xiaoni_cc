@@ -124,6 +124,12 @@ describe('buildTraceFlowViewModel', () => {
       'GET api.openai.com',
     ]);
     expect(viewModel.rows.find((row) => row.id === 'llm-1')?.subtitle).toBe('openai / gpt-5.4-mini');
+    expect(viewModel.rows.find((row) => row.id === 'llm-1')?.inspector.sections.map((section) => section.id)).toEqual([
+      'input',
+      'output',
+      'evidence',
+    ]);
+    expect('rawEvidenceSections' in viewModel).toBe(false);
   });
 
   it('keeps nested child-agent branches readable and auto-selects first error', () => {

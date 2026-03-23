@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Alert, AlertDescription } from '../components/ui/alert';
+import { StructuredDataViewer } from '../components/StructuredDataViewer';
 import {
   ArrowLeft,
   Copy,
@@ -232,19 +233,6 @@ export function HttpTrafficDetailPage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
   };
 
-  const prettyPrintJson = (jsonString?: string) => {
-    if (!jsonString) return '';
-    try {
-      return JSON.stringify(JSON.parse(jsonString), null, 2);
-    } catch {
-      return jsonString;
-    }
-  };
-
-  const isJsonContent = (contentType?: string) => {
-    return contentType?.includes('application/json') || false;
-  };
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-64">
@@ -289,6 +277,53 @@ export function HttpTrafficDetailPage() {
       </div>
     );
   }
+
+  const metadataSnapshot = {
+    request: {
+      request_id: log.request_id || null,
+      trace_id: log.trace_id || null,
+      method: log.method,
+      url: log.url,
+      host: log.host,
+      path: log.path || null,
+      query_params: log.query_params || {},
+      content_type: log.request_content_type || null,
+      size: log.request_size || null,
+      timestamp: log.request_timestamp || log.timestamp,
+    },
+    response: {
+      status: log.response_status || null,
+      content_type: log.response_content_type || null,
+      size: log.response_size || null,
+      timestamp: log.response_timestamp || null,
+      is_truncated: Boolean(log.is_truncated),
+      is_binary_data: Boolean(log.is_binary_data),
+      error_message: log.error_message || null,
+      error_code: log.error_code || null,
+    },
+    runtime: {
+      container_name: log.container_name || null,
+      service_name: log.service_name || null,
+      api_type: log.api_type || null,
+      api_version: log.api_version || null,
+      retry_count: log.retry_count || 0,
+      is_cached_response: Boolean(log.is_cached_response),
+      original_encoding: log.original_encoding || null,
+      client_ip: log.client_ip || null,
+      user_agent: log.user_agent || null,
+      referer: log.referer || null,
+      conversation_id: log.conversation_id || null,
+      user_id: log.user_id || null,
+      session_id: log.session_id || null,
+    },
+    timing: {
+      duration_ms: log.duration_ms || null,
+      dns_lookup_ms: log.dns_lookup_ms || null,
+      tcp_connect_ms: log.tcp_connect_ms || null,
+      tls_handshake_ms: log.tls_handshake_ms || null,
+      server_processing_ms: log.server_processing_ms || null,
+    },
+  };
 
   return (
     <div className="space-y-6">
@@ -388,17 +423,19 @@ export function HttpTrafficDetailPage() {
       <Card>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <CardHeader>
-            <TabsList className="grid w-full min-w-[760px] grid-cols-7">
-              <TabsTrigger value="overview">概览</TabsTrigger>
-              <TabsTrigger value="request">请求</TabsTrigger>
-              <TabsTrigger value="response">响应</TabsTrigger>
-              <TabsTrigger value="headers">请求头</TabsTrigger>
-              <TabsTrigger value="response-headers">响应头</TabsTrigger>
-              <TabsTrigger value="metadata">元数据</TabsTrigger>
-              <TabsTrigger value="replay">
-                重放 {replayHistory.length > 0 && `(${replayHistory.length})`}
-              </TabsTrigger>
-            </TabsList>
+            <div className="overflow-x-auto">
+              <TabsList className="grid w-full min-w-[760px] grid-cols-7">
+                <TabsTrigger value="overview">概览</TabsTrigger>
+                <TabsTrigger value="request">请求</TabsTrigger>
+                <TabsTrigger value="response">响应</TabsTrigger>
+                <TabsTrigger value="headers">请求头</TabsTrigger>
+                <TabsTrigger value="response-headers">响应头</TabsTrigger>
+                <TabsTrigger value="metadata">元数据</TabsTrigger>
+                <TabsTrigger value="replay">
+                  重放 {replayHistory.length > 0 && `(${replayHistory.length})`}
+                </TabsTrigger>
+              </TabsList>
+            </div>
           </CardHeader>
 
           <CardContent>
@@ -544,34 +581,20 @@ export function HttpTrafficDetailPage() {
               </div>
 
               {log.query_params && Object.keys(log.query_params).length > 0 && (
-                <div>
-                  <label className="text-sm font-medium mb-2 block">查询参数</label>
-                  <div className="p-3 bg-muted rounded-md">
-                    <pre className="text-sm font-mono">
-                      {JSON.stringify(log.query_params, null, 2)}
-                    </pre>
-                  </div>
-                </div>
+                <StructuredDataViewer
+                  title="Query Params"
+                  value={log.query_params}
+                  heightClassName="h-56"
+                />
               )}
 
               {log.request_body && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-medium">请求体</label>
-                    <Button variant="ghost" size="sm" onClick={() => handleCopy(log.request_body!)}>
-                      <Copy className="h-3 w-3 mr-1" />
-                      复制
-                    </Button>
-                  </div>
-                  <div className="p-3 bg-muted rounded-md max-h-96 overflow-auto">
-                    <pre className="text-sm font-mono whitespace-pre-wrap">
-                      {isJsonContent(log.request_content_type)
-                        ? prettyPrintJson(log.request_body)
-                        : log.request_body
-                      }
-                    </pre>
-                  </div>
-                </div>
+                <StructuredDataViewer
+                  title="Request Body"
+                  value={log.request_body}
+                  emptyLabel="无请求体"
+                  heightClassName="h-[26rem]"
+                />
               )}
             </TabsContent>
 
@@ -603,49 +626,24 @@ export function HttpTrafficDetailPage() {
               )}
 
               {log.response_body && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-medium">响应体</label>
-                    <Button variant="ghost" size="sm" onClick={() => handleCopy(log.response_body!)}>
-                      <Copy className="h-3 w-3 mr-1" />
-                      复制
-                    </Button>
-                  </div>
-                  <div className="p-3 bg-muted rounded-md max-h-96 overflow-auto">
-                    {Boolean(log.is_truncated) && (
-                      <div className="mb-2 text-sm text-yellow-600 bg-yellow-50 p-2 rounded">
-                        ⚠️ 响应体过大，已截断显示
-                      </div>
-                    )}
-                    <pre className="text-sm font-mono whitespace-pre-wrap">
-                      {isJsonContent(log.response_content_type)
-                        ? prettyPrintJson(log.response_body)
-                        : log.response_body
-                      }
-                    </pre>
-                  </div>
-                </div>
+                <StructuredDataViewer
+                  title="Response Body"
+                  value={log.response_body}
+                  emptyLabel="无响应体"
+                  heightClassName="h-[26rem]"
+                  notice={Boolean(log.is_truncated) ? '响应体过大，当前内容为截断后的展示结果。' : undefined}
+                />
               )}
             </TabsContent>
 
             <TabsContent value="headers" className="space-y-4">
               <h3 className="font-semibold">请求头</h3>
               {log.request_headers && Object.keys(log.request_headers).length > 0 ? (
-                <div className="space-y-2">
-                  {Object.entries(log.request_headers).map(([key, value]) => (
-                    <div key={key} className="flex items-center justify-between p-2 border rounded">
-                      <span className="font-mono text-sm font-medium">{key}:</span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm max-w-xs truncate" title={value}>
-                          {value}
-                        </span>
-                        <Button variant="ghost" size="sm" onClick={() => handleCopy(`${key}: ${value}`)}>
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <StructuredDataViewer
+                  title="Request Headers"
+                  value={log.request_headers}
+                  heightClassName="h-[28rem]"
+                />
               ) : (
                 <p className="text-muted-foreground">无请求头信息</p>
               )}
@@ -654,21 +652,11 @@ export function HttpTrafficDetailPage() {
             <TabsContent value="response-headers" className="space-y-4">
               <h3 className="font-semibold">响应头</h3>
               {log.response_headers && Object.keys(log.response_headers).length > 0 ? (
-                <div className="space-y-2">
-                  {Object.entries(log.response_headers).map(([key, value]) => (
-                    <div key={key} className="flex items-center justify-between p-2 border rounded">
-                      <span className="font-mono text-sm font-medium">{key}:</span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm max-w-xs truncate" title={value}>
-                          {value}
-                        </span>
-                        <Button variant="ghost" size="sm" onClick={() => handleCopy(`${key}: ${value}`)}>
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <StructuredDataViewer
+                  title="Response Headers"
+                  value={log.response_headers}
+                  heightClassName="h-[28rem]"
+                />
               ) : (
                 <p className="text-muted-foreground">无响应头信息</p>
               )}
@@ -717,6 +705,12 @@ export function HttpTrafficDetailPage() {
                   </div>
                 </div>
               </div>
+
+              <StructuredDataViewer
+                title="Metadata Snapshot"
+                value={metadataSnapshot}
+                heightClassName="h-[26rem]"
+              />
             </TabsContent>
 
             {/* 重放 Tab */}

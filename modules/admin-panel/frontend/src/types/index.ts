@@ -303,6 +303,7 @@ export interface TraceSpanRecord {
   links: TraceSpanLink[];
   confidence: 'observed' | 'derived' | 'missing';
   source_ref: string | number | null;
+  playground_capability?: 'exact' | 'partial' | 'unsupported';
 }
 
 export interface ConversationTraceData {
@@ -323,7 +324,7 @@ export interface ConversationTraceData {
 }
 
 export interface TraceInspectorSection {
-  id: 'overview' | 'input' | 'output' | 'evidence';
+  id: 'input' | 'output' | 'evidence';
   label: string;
   value: any;
   emptyLabel?: string;
@@ -357,6 +358,7 @@ export interface TraceWaterfallRow {
   badges: string[];
   meta: TraceWaterfallMeta[];
   sourceRef?: string | number | null;
+  playgroundCapability?: 'exact' | 'partial' | 'unsupported';
   inspector: {
     title?: string;
     subtitle?: string | null;
@@ -378,9 +380,4 @@ export interface TraceWaterfallViewModel {
   traceDurationMs: number;
   metrics: TraceMetric[];
   metadataBadges: string[];
-  rawEvidenceSections: Array<{
-    id: string;
-    label: string;
-    value: any;
-  }>;
 }

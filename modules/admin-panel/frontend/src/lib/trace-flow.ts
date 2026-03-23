@@ -60,6 +60,16 @@ function semanticRole(record: TraceSpanRecord): string {
   return String(record.attributes['semantic.role'] || record.kind);
 }
 
+function playgroundCapability(record: TraceSpanRecord): 'exact' | 'partial' | 'unsupported' {
+  const explicit = record.playground_capability
+    || record.evidence?.playground_capability
+    || record.attributes['playground.capability'];
+  if (explicit === 'exact' || explicit === 'partial') {
+    return explicit;
+  }
+  return 'unsupported';
+}
+
 function displayName(record: TraceSpanRecord): string {
   return String(record.attributes['semantic.display_name'] || record.name);
 }
@@ -122,16 +132,6 @@ function buildMeta(record: TraceSpanRecord): TraceWaterfallMeta[] {
 
 function createInspectorSections(record: TraceSpanRecord): TraceInspectorSection[] {
   return [
-    {
-      id: 'overview',
-      label: 'Overview',
-      value: {
-        summary: record.summary,
-        attributes: record.attributes,
-        confidence: record.confidence,
-      },
-      emptyLabel: 'No overview',
-    },
     { id: 'input', label: 'Input', value: record.input, emptyLabel: 'No input captured' },
     { id: 'output', label: 'Output', value: record.output, emptyLabel: 'No output captured' },
     { id: 'evidence', label: 'Evidence', value: record.evidence, emptyLabel: 'No evidence captured' },
@@ -199,6 +199,7 @@ function buildRows(trace: ConversationTraceData): TraceWaterfallRow[] {
       badges: buildBadges(record),
       meta: buildMeta(record),
       sourceRef: record.source_ref,
+      playgroundCapability: playgroundCapability(record),
       inspector: {
         title,
         subtitle,
@@ -267,16 +268,6 @@ export function buildTraceFlowViewModel(trace: ConversationTraceData): TraceWate
       ...(trace.batch_id ? [`batch_id: ${trace.batch_id}`] : []),
       `status: ${trace.trace.status}`,
       `data_quality: ${trace.data_quality.overall || 'partial'}`,
-    ],
-    rawEvidenceSections: [
-      { id: 'conversation', label: 'conversation', value: trace.raw_evidence.conversation },
-      { id: 'websocket_logs', label: 'websocket_logs', value: trace.raw_evidence.websocket_logs },
-      { id: 'timeline_events', label: 'timeline_events', value: trace.raw_evidence.timeline_events },
-      { id: 'llm_calls', label: 'llm_calls', value: trace.raw_evidence.llm_calls },
-      { id: 'tool_calls', label: 'tool_calls', value: trace.raw_evidence.tool_calls },
-      { id: 'http_logs', label: 'http_logs', value: trace.raw_evidence.http_logs },
-      { id: 'llm_jobs', label: 'llm_jobs', value: trace.raw_evidence.llm_jobs },
-      { id: 'data_quality', label: 'data_quality', value: trace.data_quality },
     ],
   };
 }

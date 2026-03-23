@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, Search, Shrink, UnfoldVertical } from 'lucide-react';
+import { ChevronDown, ChevronRight, Search, Shrink, UnfoldVertical, Waypoints } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +11,8 @@ interface TraceWaterfallProps {
   viewModel: TraceWaterfallViewModel;
   selectedSpanId: string | null;
   onSelectSpan: (spanId: string) => void;
+  onImportSpan?: (spanId: string) => void;
+  importingSpanId?: string | null;
 }
 
 function statusTone(status: TraceWaterfallRow['status']) {
@@ -89,7 +91,7 @@ function buildVisibleRows(
   });
 }
 
-export function TraceWaterfall({ viewModel, selectedSpanId, onSelectSpan }: TraceWaterfallProps) {
+export function TraceWaterfall({ viewModel, selectedSpanId, onSelectSpan, onImportSpan, importingSpanId }: TraceWaterfallProps) {
   const [search, setSearch] = React.useState('');
   const [expanded, setExpanded] = React.useState<Set<string>>(
     () => new Set(viewModel.rows.filter((row) => row.defaultExpanded).map((row) => row.id))
@@ -110,10 +112,6 @@ export function TraceWaterfall({ viewModel, selectedSpanId, onSelectSpan }: Trac
   );
 
   const selectedRow = selectedSpanId ? rowsById.get(selectedSpanId) || null : null;
-  const topLevelRows = React.useMemo(
-    () => viewModel.rows.filter((row) => row.depth === 1),
-    [viewModel.rows]
-  );
 
   const toggleRow = React.useCallback((rowId: string) => {
     setExpanded((current) => {
@@ -174,36 +172,6 @@ export function TraceWaterfall({ viewModel, selectedSpanId, onSelectSpan }: Trac
               收起分支
             </Button>
           </div>
-        </div>
-      </div>
-
-      <div className="border-b border-border px-5 py-4">
-        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Trace Overview</div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {topLevelRows.map((row) => (
-            <button
-              key={row.id}
-              type="button"
-              onClick={() => onSelectSpan(row.id)}
-              className={cn(
-                'rounded-2xl border p-3 text-left transition hover:border-primary/40 hover:bg-primary/5',
-                selectedSpanId === row.id ? 'border-primary bg-primary/5' : 'border-border bg-background/70'
-              )}
-            >
-              <div className="text-sm font-semibold text-foreground">{row.title}</div>
-              <div className="mt-1 text-xs text-muted-foreground">{row.summary}</div>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full"
-                  style={{
-                    marginLeft: `${(row.timelineOffsetMs / viewModel.traceDurationMs) * 100}%`,
-                    width: `${row.timelineWidthRatio * 100}%`,
-                    backgroundColor: kindColor(row.kind),
-                  }}
-                />
-              </div>
-            </button>
-          ))}
         </div>
       </div>
 
@@ -274,6 +242,21 @@ export function TraceWaterfall({ viewModel, selectedSpanId, onSelectSpan }: Trac
                       <div className="mt-2 line-clamp-2 text-sm text-foreground/85">{row.summary}</div>
 
                       <div className="mt-3 flex flex-wrap gap-2">
+                        {row.playgroundCapability === 'exact' && onImportSpan ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 rounded-full px-2 text-[10px]"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onImportSpan(row.spanId);
+                            }}
+                            disabled={importingSpanId === row.spanId}
+                          >
+                            <Waypoints className="mr-1 h-3 w-3" />
+                            {importingSpanId === row.spanId ? '导入中' : 'Playground'}
+                          </Button>
+                        ) : null}
                         {row.meta.map((item) => (
                           <Badge key={`${row.id}-${item.label}`} variant="outline" className="border-border/80 bg-muted/30 text-[10px] font-normal">
                             {item.label}: {item.value}

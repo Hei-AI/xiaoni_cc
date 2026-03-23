@@ -1,32 +1,23 @@
-import { ChevronDown, Database, FileJson, FileSearch, Info } from 'lucide-react';
+import React from 'react';
+import { createPortal } from 'react-dom';
+import { StructuredDataViewer } from '@/components/StructuredDataViewer';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn, formatTimestamp } from '@/lib/utils';
-import { TraceWaterfallRow, TraceWaterfallViewModel } from '@/types';
+import { TraceInspectorSection, TraceWaterfallRow } from '@/types';
 
-function JsonBlock({ value, emptyLabel = 'No data captured' }: { value: any; emptyLabel?: string }) {
-  if (value === null || value === undefined || value === '') {
-    return <div className="rounded-xl border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">{emptyLabel}</div>;
-  }
+type InspectorTab = TraceInspectorSection['id'];
 
-  if (typeof value === 'string') {
-    return <pre className="overflow-auto rounded-xl bg-slate-950 p-4 text-xs leading-6 text-slate-100 whitespace-pre-wrap">{value}</pre>;
-  }
-
-  return (
-    <pre className="overflow-auto rounded-xl bg-slate-950 p-4 text-xs leading-6 text-slate-100 whitespace-pre-wrap">
-      {JSON.stringify(value, null, 2)}
-    </pre>
-  );
-}
+const FLOATING_WIDTH = 560;
+const FLOATING_HEIGHT = 760;
+const FLOATING_MARGIN = 16;
 
 function statusTone(status: string) {
   switch (status) {
-    case 'success':
+    case 'ok':
       return 'border-[hsl(var(--success))]/35 bg-[hsl(var(--success))]/10 text-[hsl(var(--success))]';
     case 'error':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
@@ -35,34 +26,99 @@ function statusTone(status: string) {
   }
 }
 
-interface TraceInspectorPanelProps {
+function getFloatingBounds() {
+  const width = Math.min(FLOATING_WIDTH, Math.max(360, window.innerWidth - FLOATING_MARGIN * 2));
+  const height = Math.min(FLOATING_HEIGHT, Math.max(480, window.innerHeight - FLOATING_MARGIN * 2));
+  return {
+    width,
+    height,
+    maxX: Math.max(FLOATING_MARGIN, window.innerWidth - width - FLOATING_MARGIN),
+    maxY: Math.max(FLOATING_MARGIN, window.innerHeight - height - FLOATING_MARGIN),
+  };
+}
+
+function clampFloatingPosition(position: { x: number; y: number }) {
+  const bounds = getFloatingBounds();
+  return {
+    x: Math.min(Math.max(position.x, FLOATING_MARGIN), bounds.maxX),
+    y: Math.min(Math.max(position.y, FLOATING_MARGIN), bounds.maxY),
+  };
+}
+
+function getSection(node: TraceWaterfallRow, sectionId: InspectorTab) {
+  return node.inspector.sections.find((section) => section.id === sectionId) || null;
+}
+
+interface TraceInspectorSurfaceProps {
   node: TraceWaterfallRow | null;
   metadataBadges: string[];
+  activeTab: InspectorTab;
+  onActiveTabChange: (tab: InspectorTab) => void;
+  allowFloating: boolean;
+  detached: boolean;
+  onImportToPlayground?: () => void;
+  isImportingToPlayground?: boolean;
+  onToggleDetached?: () => void;
+  onDragStart?: (event: React.MouseEvent<HTMLDivElement>) => void;
   className?: string;
 }
 
-export function TraceInspectorPanel({ node, metadataBadges, className }: TraceInspectorPanelProps) {
+function TraceInspectorSurface({
+  node,
+  metadataBadges,
+  activeTab,
+  onActiveTabChange,
+  allowFloating,
+  detached,
+  onImportToPlayground,
+  isImportingToPlayground,
+  onToggleDetached,
+  onDragStart,
+  className,
+}: TraceInspectorSurfaceProps) {
   if (!node) {
     return (
-        <Card className={cn('h-full min-h-[420px] rounded-[22px]', className)}>
+      <Card className={cn('h-full min-h-[420px] rounded-[22px]', className)}>
         <CardContent className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-          选择任意 span 后，这里会显示该步骤的输入、输出、属性和原始证据。
+          选择任意 span 后，这里会显示该步骤的输入、输出和 evidence。
         </CardContent>
       </Card>
     );
   }
 
-  const overviewSection = node.inspector.sections.find((section) => section.id === 'overview');
-  const inputSection = node.inspector.sections.find((section) => section.id === 'input');
-  const outputSection = node.inspector.sections.find((section) => section.id === 'output');
-  const evidenceSection = node.inspector.sections.find((section) => section.id === 'evidence');
+  const activeSection = getSection(node, activeTab);
 
   return (
     <Card className={cn('h-full min-h-[420px] rounded-[22px] bg-[linear-gradient(180deg,#fff,#faf8f5)]', className)}>
-      <CardContent className="flex h-full flex-col p-5">
-        <div className="inline-flex w-fit rounded-full border border-[hsl(var(--info))]/20 bg-[hsl(var(--info))]/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--info))]">
-          Selected Span
+      <CardContent className="flex h-full min-h-0 flex-col p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="inline-flex w-fit rounded-full border border-[hsl(var(--info))]/20 bg-[hsl(var(--info))]/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--info))]">
+            {detached ? 'Detached Inspector' : 'Selected Span'}
+          </div>
+          <div className="flex items-center gap-2">
+            {node.playgroundCapability === 'exact' && onImportToPlayground ? (
+              <Button type="button" variant="outline" size="sm" onClick={onImportToPlayground} disabled={isImportingToPlayground}>
+                {isImportingToPlayground ? '导入中...' : '在 Playground 复测'}
+              </Button>
+            ) : null}
+            {allowFloating && onToggleDetached ? (
+              <Button type="button" variant="outline" size="sm" onClick={onToggleDetached}>
+                {detached ? '收回右侧' : '拖成浮窗'}
+              </Button>
+            ) : null}
+          </div>
         </div>
+
+        {detached ? (
+          <div
+            role="presentation"
+            onMouseDown={onDragStart}
+            className="mt-3 rounded-xl border border-dashed border-border bg-background/80 px-3 py-2 text-xs text-muted-foreground cursor-move select-none"
+          >
+            拖拽这里移动 Inspector 浮窗。
+          </div>
+        ) : null}
+
         <h2 className="mt-3 text-[1.9rem] font-semibold leading-none text-foreground">{node.title}</h2>
         {node.subtitle ? <div className="mt-2 text-sm text-muted-foreground">{node.subtitle}</div> : null}
 
@@ -88,48 +144,197 @@ export function TraceInspectorPanel({ node, metadataBadges, className }: TraceIn
           {node.summary}
         </div>
 
-        <Tabs defaultValue="overview" className="mt-5 flex min-h-0 flex-1 flex-col">
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
+        {node.meta.length > 0 ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {node.meta.map((item) => (
+              <div key={`${node.id}-${item.label}`} className="rounded-xl border border-border bg-background/85 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{item.label}</div>
+                <div className="mt-2 text-sm font-medium text-foreground">{item.value}</div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <Tabs value={activeTab} onValueChange={(value) => onActiveTabChange(value as InspectorTab)} className="mt-5 flex min-h-0 flex-1 flex-col">
+          <TabsList className="w-full justify-start gap-5 overflow-x-auto">
             <TabsTrigger value="input">Input</TabsTrigger>
             <TabsTrigger value="output">Output</TabsTrigger>
             <TabsTrigger value="evidence">Evidence</TabsTrigger>
           </TabsList>
-          <ScrollArea className="mt-3 flex-1 pr-1">
-            <TabsContent value="overview" className="space-y-4">
-              <div className="rounded-xl border border-border bg-muted/20 p-4">
-                <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  <Info className="h-3.5 w-3.5" />
-                  What Happened
-                </div>
-                <div className="text-sm leading-6 text-foreground/90">
-                  {typeof overviewSection?.value === 'string' ? overviewSection.value : node.summary}
-                </div>
-              </div>
-              {node.meta.length > 0 ? (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {node.meta.map((item) => (
-                    <div key={`${node.id}-${item.label}`} className="rounded-xl border border-border bg-background/85 p-4">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{item.label}</div>
-                      <div className="mt-2 text-sm font-medium text-foreground">{item.value}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </TabsContent>
-            <TabsContent value="input">
-              <JsonBlock value={inputSection?.value} emptyLabel={inputSection?.emptyLabel} />
-            </TabsContent>
-            <TabsContent value="output">
-              <JsonBlock value={outputSection?.value} emptyLabel={outputSection?.emptyLabel} />
-            </TabsContent>
-            <TabsContent value="evidence">
-              <JsonBlock value={evidenceSection?.value} emptyLabel={evidenceSection?.emptyLabel} />
-            </TabsContent>
-          </ScrollArea>
+          <TabsContent value="input" className="mt-3 flex-1">
+            <StructuredDataViewer
+              title="Input"
+              value={getSection(node, 'input')?.value}
+              emptyLabel={getSection(node, 'input')?.emptyLabel}
+              heightClassName="h-[28rem] xl:h-[min(60vh,36rem)]"
+            />
+          </TabsContent>
+          <TabsContent value="output" className="mt-3 flex-1">
+            <StructuredDataViewer
+              title="Output"
+              value={getSection(node, 'output')?.value}
+              emptyLabel={getSection(node, 'output')?.emptyLabel}
+              heightClassName="h-[28rem] xl:h-[min(60vh,36rem)]"
+            />
+          </TabsContent>
+          <TabsContent value="evidence" className="mt-3 flex-1">
+            <StructuredDataViewer
+              title="Evidence"
+              value={activeSection?.value}
+              emptyLabel={activeSection?.emptyLabel}
+              heightClassName="h-[28rem] xl:h-[min(60vh,36rem)]"
+            />
+          </TabsContent>
         </Tabs>
       </CardContent>
     </Card>
+  );
+}
+
+interface TraceInspectorPanelProps {
+  node: TraceWaterfallRow | null;
+  metadataBadges: string[];
+  className?: string;
+  allowFloating?: boolean;
+  onImportToPlayground?: () => void;
+  isImportingToPlayground?: boolean;
+}
+
+export function TraceInspectorPanel({
+  node,
+  metadataBadges,
+  className,
+  allowFloating = true,
+  onImportToPlayground,
+  isImportingToPlayground = false,
+}: TraceInspectorPanelProps) {
+  const [activeTab, setActiveTab] = React.useState<InspectorTab>('input');
+  const [detached, setDetached] = React.useState(false);
+  const [dragOffset, setDragOffset] = React.useState<{ x: number; y: number } | null>(null);
+  const [floatingPosition, setFloatingPosition] = React.useState({ x: FLOATING_MARGIN, y: FLOATING_MARGIN });
+
+  React.useEffect(() => {
+    if (!allowFloating) {
+      setDetached(false);
+    }
+  }, [allowFloating]);
+
+  React.useEffect(() => {
+    if (!detached) {
+      return undefined;
+    }
+
+    const bounds = getFloatingBounds();
+    setFloatingPosition({
+      x: bounds.maxX,
+      y: FLOATING_MARGIN + 8,
+    });
+
+    const handleResize = () => {
+      setFloatingPosition((current) => clampFloatingPosition(current));
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [detached]);
+
+  React.useEffect(() => {
+    if (!dragOffset) {
+      return undefined;
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      setFloatingPosition(
+        clampFloatingPosition({
+          x: event.clientX - dragOffset.x,
+          y: event.clientY - dragOffset.y,
+        })
+      );
+    };
+
+    const handleMouseUp = () => setDragOffset(null);
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [dragOffset]);
+
+  const handleDragStart = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('button')) {
+      return;
+    }
+
+    const floatingCard = event.currentTarget.closest('[data-floating-inspector]');
+    const currentTarget = (floatingCard instanceof HTMLElement ? floatingCard : event.currentTarget).getBoundingClientRect();
+    setDragOffset({
+      x: event.clientX - currentTarget.left,
+      y: event.clientY - currentTarget.top,
+    });
+  };
+
+  const floatingBounds = typeof window === 'undefined' ? null : getFloatingBounds();
+  const floatingStyle = floatingBounds
+    ? {
+        left: floatingPosition.x,
+        top: floatingPosition.y,
+        width: `${floatingBounds.width}px`,
+        height: `${floatingBounds.height}px`,
+      }
+    : undefined;
+
+  return (
+    <>
+      {detached ? (
+        <Card className={cn('h-full min-h-[420px] rounded-[22px] border-dashed bg-muted/20', className)}>
+          <CardContent className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+            <div className="max-w-xs text-sm leading-6 text-muted-foreground">
+              Inspector 已拖成浮窗，继续在左侧点 span 即可同步查看。
+            </div>
+            <Button type="button" variant="outline" onClick={() => setDetached(false)}>
+              收回右侧
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <TraceInspectorSurface
+          node={node}
+          metadataBadges={metadataBadges}
+          activeTab={activeTab}
+          onActiveTabChange={setActiveTab}
+          allowFloating={allowFloating}
+          detached={false}
+          onImportToPlayground={onImportToPlayground}
+          isImportingToPlayground={isImportingToPlayground}
+          onToggleDetached={allowFloating ? () => setDetached(true) : undefined}
+          className={className}
+        />
+      )}
+
+      {detached && typeof document !== 'undefined' && floatingStyle
+        ? createPortal(
+            <div data-floating-inspector="true" className="fixed z-[80]" style={floatingStyle}>
+              <TraceInspectorSurface
+                node={node}
+                metadataBadges={metadataBadges}
+                activeTab={activeTab}
+                onActiveTabChange={setActiveTab}
+                allowFloating={allowFloating}
+                detached
+                onImportToPlayground={onImportToPlayground}
+                isImportingToPlayground={isImportingToPlayground}
+                onToggleDetached={() => setDetached(false)}
+                onDragStart={handleDragStart}
+                className="h-full shadow-2xl ring-1 ring-border/70"
+              />
+            </div>,
+            document.body
+          )
+        : null}
+    </>
   );
 }
 
@@ -138,9 +343,18 @@ interface TraceInspectorSheetProps {
   onOpenChange: (open: boolean) => void;
   node: TraceWaterfallRow | null;
   metadataBadges: string[];
+  onImportToPlayground?: () => void;
+  isImportingToPlayground?: boolean;
 }
 
-export function TraceInspectorSheet({ open, onOpenChange, node, metadataBadges }: TraceInspectorSheetProps) {
+export function TraceInspectorSheet({
+  open,
+  onOpenChange,
+  node,
+  metadataBadges,
+  onImportToPlayground,
+  isImportingToPlayground = false,
+}: TraceInspectorSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="h-[78vh] rounded-t-[22px] px-0 pb-0">
@@ -149,43 +363,16 @@ export function TraceInspectorSheet({ open, onOpenChange, node, metadataBadges }
           <SheetDescription>移动端在底部抽屉中查看所选 span 的输入、输出和证据。</SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-hidden px-4 pb-4">
-          <TraceInspectorPanel node={node} metadataBadges={metadataBadges} className="h-full min-h-0 border-none shadow-none" />
+          <TraceInspectorPanel
+            node={node}
+            metadataBadges={metadataBadges}
+            allowFloating={false}
+            onImportToPlayground={onImportToPlayground}
+            isImportingToPlayground={isImportingToPlayground}
+            className="h-full min-h-0 border-none shadow-none"
+          />
         </div>
       </SheetContent>
     </Sheet>
-  );
-}
-
-interface TraceRawEvidenceProps {
-  viewModel: TraceWaterfallViewModel;
-}
-
-export function TraceRawEvidence({ viewModel }: TraceRawEvidenceProps) {
-  return (
-    <Collapsible className="rounded-[22px] border border-border bg-card">
-      <div className="flex items-center justify-between gap-3 px-5 py-4">
-        <div>
-          <div className="text-base font-semibold text-foreground">Raw Evidence</div>
-          <div className="mt-1 text-sm text-muted-foreground">保留完整原始证据，但不放在主视觉阅读路径上。</div>
-        </div>
-        <CollapsibleTrigger className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm">
-          展开原始证据
-          <ChevronDown className="h-4 w-4" />
-        </CollapsibleTrigger>
-      </div>
-      <CollapsibleContent className="border-t border-border px-5 py-5">
-        <div className="grid gap-4 lg:grid-cols-2">
-          {viewModel.rawEvidenceSections.map((section) => (
-            <div key={section.id} className="rounded-2xl border border-border bg-muted/20 p-4">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                {section.id.includes('http') ? <FileSearch className="h-4 w-4" /> : section.id.includes('llm') ? <FileJson className="h-4 w-4" /> : <Database className="h-4 w-4" />}
-                {section.label}
-              </div>
-              <JsonBlock value={section.value} />
-            </div>
-          ))}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
   );
 }
