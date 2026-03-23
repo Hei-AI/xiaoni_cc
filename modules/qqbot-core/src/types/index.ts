@@ -157,6 +157,227 @@ export interface ConversationData {
 
 export type MessageContentType = 'text' | 'image' | 'audio' | 'video';
 
+export type AgentObservationSourceType =
+  | 'incoming_message'
+  | 'outgoing_message'
+  | 'reply_anchor'
+  | 'tool_result'
+  | 'compaction_flush'
+  | 'tick';
+
+export type AgentObservationFieldScope =
+  | 'private_chat'
+  | 'group_chat'
+  | 'thread'
+  | 'tool_channel';
+
+export interface AgentObservationRecord {
+  id: number;
+  trace_id?: string | null;
+  conversation_id?: string | null;
+  source_type: AgentObservationSourceType;
+  field_scope: AgentObservationFieldScope;
+  message_type?: 'private' | 'group' | null;
+  user_id?: number | null;
+  group_id?: number | null;
+  subject_user_id?: number | null;
+  counterparty_ids?: number[];
+  content: string;
+  tool_payload_ref?: string | null;
+  raw_payload?: any;
+  occurred_at: Date;
+  created_at: Date;
+}
+
+export type NewAgentObservationRecord = Omit<
+  AgentObservationRecord,
+  'id' | 'created_at'
+>;
+
+export type AgentBeliefSubjectType = 'user' | 'group' | 'self' | 'conversation';
+export type AgentBeliefType = 'identity_fact' | 'preference' | 'commitment';
+export type AgentBeliefPolarity = 'positive' | 'negative' | 'neutral';
+export type AgentBeliefStatus = 'active' | 'revised' | 'stale';
+
+export interface AgentBeliefRecord {
+  id: number;
+  subject_type: AgentBeliefSubjectType;
+  subject_id: string;
+  belief_type: AgentBeliefType;
+  belief_key: string;
+  claim: string;
+  normalized_claim: string;
+  polarity: AgentBeliefPolarity;
+  confidence: number;
+  status: AgentBeliefStatus;
+  observation_count: number;
+  last_evidence_id?: number | null;
+  first_observed_at: Date;
+  last_observed_at: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export type NewAgentBeliefRecord = Omit<
+  AgentBeliefRecord,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export type AgentMemoryScope = 'local_field' | 'person_global' | 'self_global';
+export type AgentMemoryType =
+  | 'identity_fact'
+  | 'preference'
+  | 'relationship'
+  | 'commitment'
+  | 'summary_insight';
+export type AgentMemoryStatus = 'active' | 'superseded' | 'disabled';
+export type AgentMemorySourceKind =
+  | 'explicit_fact'
+  | 'explicit_commitment'
+  | 'repeated_signal'
+  | 'daily_reflection'
+  | 'weekly_reflection';
+
+export interface AgentMemoryRecord {
+  id: number;
+  memory_scope: AgentMemoryScope;
+  memory_type: AgentMemoryType;
+  subject_type: AgentBeliefSubjectType;
+  subject_id: string;
+  field_scope?: AgentObservationFieldScope | null;
+  user_id?: number | null;
+  group_id?: number | null;
+  target_user_id?: number | null;
+  conversation_id?: string | null;
+  title: string;
+  content: string;
+  normalized_content: string;
+  confidence: number;
+  salience: number;
+  status: AgentMemoryStatus;
+  source_kind: AgentMemorySourceKind;
+  promoted_from_belief_id?: number | null;
+  last_recalled_at?: Date | null;
+  last_observed_at: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export type NewAgentMemoryRecord = Omit<
+  AgentMemoryRecord,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export type AgentMemoryEvidenceKind = 'observation' | 'belief' | 'manual';
+
+export interface AgentMemoryEvidenceRecord {
+  id: number;
+  memory_id: number;
+  observation_id?: number | null;
+  belief_id?: number | null;
+  evidence_kind: AgentMemoryEvidenceKind;
+  quote?: string | null;
+  created_at: Date;
+}
+
+export type NewAgentMemoryEvidenceRecord = Omit<
+  AgentMemoryEvidenceRecord,
+  'id' | 'created_at'
+>;
+
+export type AgentReflectionKind = 'daily' | 'weekly' | 'promotion';
+export type AgentReflectionStatus = 'completed' | 'failed';
+
+export interface AgentReflectionRecord {
+  id: number;
+  reflection_kind: AgentReflectionKind;
+  reflection_key: string;
+  status: AgentReflectionStatus;
+  summary?: string | null;
+  source_belief_ids?: number[];
+  source_observation_ids?: number[];
+  promoted_memory_ids?: number[];
+  started_at: Date;
+  completed_at?: Date | null;
+  created_at: Date;
+}
+
+export type NewAgentReflectionRecord = Omit<
+  AgentReflectionRecord,
+  'id' | 'created_at'
+>;
+
+export interface AgentSelfModelRecord {
+  id: number;
+  identity_summary?: string | null;
+  core_traits?: string[];
+  long_term_goals?: string[];
+  current_concerns?: string[];
+  availability?: string | null;
+  energy?: string | null;
+  source_reflection_id?: number | null;
+  is_current: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export type NewAgentSelfModelRecord = Omit<
+  AgentSelfModelRecord,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export type AgentPlanType =
+  | 'weekly_focus'
+  | 'day_plan'
+  | 'followup_queue'
+  | 'micro_intention';
+export type AgentPlanStatus = 'queued' | 'active' | 'completed' | 'cancelled';
+
+export interface AgentPlanRecord {
+  id: number;
+  plan_type: AgentPlanType;
+  target_field_scope?: AgentObservationFieldScope | null;
+  target_user_id?: number | null;
+  target_group_id?: number | null;
+  goal: string;
+  trigger_condition?: string | null;
+  status: AgentPlanStatus;
+  scheduled_start_at?: Date | null;
+  scheduled_end_at?: Date | null;
+  source_reflection_id?: number | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export type NewAgentPlanRecord = Omit<
+  AgentPlanRecord,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export interface AgentActionLogRecord {
+  id: number;
+  action_type: string;
+  trigger_kind?: string | null;
+  source_plan_id?: number | null;
+  target_user_id?: number | null;
+  target_group_id?: number | null;
+  payload_json?: any;
+  status: string;
+  occurred_at: Date;
+  created_at: Date;
+}
+
+export type NewAgentActionLogRecord = Omit<
+  AgentActionLogRecord,
+  'id' | 'created_at'
+>;
+
+export interface AgentInternalStateSnapshot {
+  availability?: string | null;
+  energy?: string | null;
+  current_concerns?: string[];
+}
+
 export interface GroupMessageHistoryRecord {
   id: number;
   conversation_id?: string | null;
@@ -1085,6 +1306,11 @@ export interface MessageContext {
   historyMessages: ContextHistoryMessage[];
   contextSummary: string;
   replyIntentContext?: ReplyIntentContext;
+  selfModel?: AgentSelfModelRecord;
+  internalState?: AgentInternalStateSnapshot;
+  activePlans?: AgentPlanRecord[];
+  retrievedStableMemories?: AgentMemoryRecord[];
+  recentEvidence?: AgentObservationRecord[];
   userInfo?: {
     user_id: number;
     nickname: string;

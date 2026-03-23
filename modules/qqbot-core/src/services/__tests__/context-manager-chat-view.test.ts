@@ -19,6 +19,13 @@ describe('ContextManager chat viewport integration', () => {
     source.split(needle).length - 1;
 
   it('should filter current message from private history when building message context', async () => {
+    const agentMemoryService = {
+      getCurrentSelfModel: jest.fn().mockResolvedValue(undefined),
+      getActivePlansForMessage: jest.fn().mockResolvedValue([]),
+      getRetrievedMemoriesForMessage: jest.fn().mockResolvedValue([]),
+      getRecentEvidenceForMessage: jest.fn().mockResolvedValue([])
+    };
+
     const database = {
       getPrivateMessageHistoryRecords: jest.fn().mockResolvedValue([
         {
@@ -51,7 +58,7 @@ describe('ContextManager chat viewport integration', () => {
       executeQuery: jest.fn().mockResolvedValue([{ message_count: 2 }])
     } as unknown as DatabaseManager;
 
-    const manager = new ContextManager(database);
+    const manager = new ContextManager(database, undefined, agentMemoryService as any);
 
     const context = await manager.buildMessageContext({
       message_type: 'private',
@@ -238,5 +245,81 @@ describe('ContextManager chat viewport integration', () => {
     expect(formatted.plainText).toContain('primary_addressee_reason=explicit_mention_in_current_message');
     expect(countOccurrences(formatted.plainText, '@1129974489')).toBe(1);
     expect(countOccurrences(formatted.plainText, '《阿花》→《鈰花》')).toBe(1);
+  });
+
+  it('builds cognition context blocks from self model, plans, memories and evidence', async () => {
+    const agentMemoryService = {
+      getCurrentSelfModel: jest.fn().mockResolvedValue({
+        id: 1,
+        identity_summary: '小腻保持观察和跟进',
+        core_traits: ['冷静', '克制'],
+        long_term_goals: ['维持长期关系记忆'],
+        current_concerns: ['周末 followup'],
+        availability: 'available',
+        energy: 'steady',
+        is_current: true,
+        created_at: new Date('2026-03-23T00:00:00.000Z'),
+        updated_at: new Date('2026-03-23T00:00:00.000Z')
+      }),
+      getActivePlansForMessage: jest.fn().mockResolvedValue([
+        {
+          id: 11,
+          plan_type: 'followup_queue',
+          status: 'queued',
+          goal: '跟进用户123456关于Rust学习进展'
+        }
+      ]),
+      getRetrievedMemoriesForMessage: jest.fn().mockResolvedValue([
+        {
+          id: 21,
+          memory_type: 'commitment',
+          memory_scope: 'person_global',
+          content: '用户打算周末学Rust',
+          confidence: 0.68,
+          salience: 0.73
+        }
+      ]),
+      getRecentEvidenceForMessage: jest.fn().mockResolvedValue([
+        {
+          id: 31,
+          source_type: 'incoming_message',
+          content: '我打算周末学Rust',
+          occurred_at: new Date('2026-03-23T00:00:00.000Z')
+        }
+      ])
+    };
+    const database = {
+      getPrivateMessageHistoryRecords: jest.fn().mockResolvedValue([]),
+      executeQuery: jest.fn().mockResolvedValue([{ message_count: 1 }])
+    } as unknown as DatabaseManager;
+    const viewportService = {
+      buildViewportForMessage: jest.fn().mockRejectedValue(new Error('force legacy'))
+    } as unknown as ChatViewportService;
+
+    const manager = new ContextManager(database, viewportService, agentMemoryService as any);
+    const context = await manager.buildMessageContext({
+      message_type: 'private',
+      user_id: 123456,
+      message_id: 1001,
+      message: '最近怎么样',
+      raw_message: '最近怎么样',
+      sender: { user_id: 123456, nickname: '李阿花' }
+    } as QQMessage);
+    const formatted = await manager.formatContextForAI(context);
+
+    expect(context.selfModel?.identity_summary).toBe('小腻保持观察和跟进');
+    expect(context.activePlans).toHaveLength(1);
+    expect(context.retrievedStableMemories).toHaveLength(1);
+    expect(context.recentEvidence).toHaveLength(1);
+    expect(formatted.plainText).toContain('--- Self Model ---');
+    expect(formatted.plainText).toContain('identity_summary=小腻保持观察和跟进');
+    expect(formatted.plainText).toContain('--- Current Internal State ---');
+    expect(formatted.plainText).toContain('availability=available');
+    expect(formatted.plainText).toContain('--- Active Plans ---');
+    expect(formatted.plainText).toContain('跟进用户123456关于Rust学习进展');
+    expect(formatted.plainText).toContain('--- Retrieved Stable Memories ---');
+    expect(formatted.plainText).toContain('用户打算周末学Rust');
+    expect(formatted.plainText).toContain('--- Recent Evidence ---');
+    expect(formatted.plainText).toContain('我打算周末学Rust');
   });
 });

@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "start": "vite preview --port 3003",
-    "test": "echo 'Frontend tests not configured yet'",
+    "test": "echo 'Use npm run test:e2e:cognition for admin cognition validation'",
+    "test:e2e:cognition": "playwright test tests/cognition-page.spec.ts",
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {

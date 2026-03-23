@@ -5,6 +5,7 @@ import WebSocketClient from './services/websocket-client';
 import HttpServer from './services/http-server';
 import AIService from './services/ai-service';
 import EmbeddingService from './services/embedding-service';
+import { CognitionEmbeddingStore } from './services/cognition-embedding-store';
 import { SessionManager } from './services/session-manager';
 import { LoggingService } from './services/logging-service';
 import { ContextManager } from './services/context-manager';
@@ -16,6 +17,9 @@ import ScheduleDispatcher from './services/schedule-dispatcher';
 import HumanLikeConfigService from './services/human-like-config-service';
 import DecisionEngine from './engines/decision-engine';
 import ContextEngine from './engines/context-engine';
+import { extractBeliefCandidatesFromMessage } from './services/agent-belief-service';
+import AgentMemoryService from './services/agent-memory-service';
+import type { AgentProactivityRuntimeConfig } from './services/agent-memory-service';
 // 🛠️ LLM 工具系统组件
 import { ToolRegistryService } from './services/tool-registry-service';
 import { FunctionCallDispatcher } from './services/function-call-dispatcher';
@@ -60,6 +64,8 @@ class QQBot implements BatchHandler {
   private httpServer: HttpServer;
   private aiService: AIService;
   private embeddingService: EmbeddingService;
+  private cognitionEmbeddingStore: CognitionEmbeddingStore;
+  private agentMemoryService: AgentMemoryService;
   private sessionManager: SessionManager;
   private loggingService: LoggingService;
   private contextManager: ContextManager;
@@ -76,6 +82,10 @@ class QQBot implements BatchHandler {
   private scheduleDispatcher: ScheduleDispatcher;
   private humanLikeConfigService: HumanLikeConfigService;
   private enableHumanLikeProcessing: boolean;
+  private proactiveFollowupEnabled: boolean;
+  private proactiveFollowupAllowedUserIds: Set<number>;
+  private proactiveFollowupMaxPerRun: number;
+  private proactiveFollowupRetryDelayMs: number;
 
   // 🛠️ LLM 工具系统组件
   private toolRegistryService: ToolRegistryService;
@@ -105,9 +115,11 @@ class QQBot implements BatchHandler {
     );
     this.aiService = new AIService(config.ai, this.database, this.loggingService);
     this.embeddingService = new EmbeddingService(config.ai);
+    this.cognitionEmbeddingStore = new CognitionEmbeddingStore(this.database, this.embeddingService);
+    this.agentMemoryService = new AgentMemoryService(this.database, this.cognitionEmbeddingStore);
     this.sessionManager = new SessionManager(this.database);
     this.chatViewportService = new ChatViewportService(this.database);
-    this.contextManager = new ContextManager(this.database, this.chatViewportService);
+    this.contextManager = new ContextManager(this.database, this.chatViewportService, this.agentMemoryService);
     this.debugService = new DebugService(this.database);
     this.memeLibrary = new MemeLibrary();
 
@@ -117,6 +129,18 @@ class QQBot implements BatchHandler {
 
     // Initialize Human-like Processing
     this.enableHumanLikeProcessing = process.env.ENABLE_HUMAN_LIKE_PROCESSING === 'true';
+    this.proactiveFollowupEnabled = process.env.PROACTIVITY_ENABLED === 'true';
+    this.proactiveFollowupAllowedUserIds = this.parseAllowedUserIds(
+      process.env.PROACTIVE_FOLLOWUP_ALLOWED_USER_IDS
+    );
+    this.proactiveFollowupMaxPerRun = Math.max(
+      1,
+      Math.min(5, parseInt(process.env.PROACTIVE_FOLLOWUP_MAX_PER_RUN || '1', 10))
+    );
+    this.proactiveFollowupRetryDelayMs = Math.max(
+      60_000,
+      parseInt(process.env.PROACTIVE_FOLLOWUP_RETRY_DELAY_MS || '21600000', 10)
+    );
     const humanLikeDefaults = {
       scanInterval: parseInt(process.env.HUMAN_LIKE_SCAN_INTERVAL || '8000', 10),
       minInterval: parseInt(process.env.HUMAN_LIKE_MIN_INTERVAL || '3000', 10),
@@ -134,6 +158,10 @@ class QQBot implements BatchHandler {
       humanLikeDefaults
     );
     this.scheduleDispatcher = new ScheduleDispatcher(this.messageQueueService, this, {
+      backgroundTaskRunner: async () => {
+        await this.runBackgroundCognitionTasks();
+      },
+      database: this.database,
       configProvider: this.humanLikeConfigService,
       configOverrides: {
         ...humanLikeDefaults,
@@ -347,7 +375,9 @@ class QQBot implements BatchHandler {
       qqBot: this, // Pass QQBot instance for test endpoints
       aiService: this.aiService,
       embeddingService: this.embeddingService,
-      messageQueueService: this.messageQueueService
+      messageQueueService: this.messageQueueService,
+      agentMemoryService: this.agentMemoryService,
+      getProactivityDefaults: () => this.getProactivityDefaults()
     });
 
     // Clear group settings cache to pick up any recent database changes
@@ -1129,6 +1159,8 @@ class QQBot implements BatchHandler {
 
       await this.database.saveConversation(initialConversation);
       this.moduleLogger.info('Initial conversation record created', { conversationId, batchId, status: 'pending' });
+      await this.recordReplyAnchorObservation(enrichedMessage, conversationId, traceId);
+      await this.updateBeliefsFromIncomingMessage(enrichedMessage);
 
       // 检查私聊设置（2层过滤控制）
       const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
@@ -1163,6 +1195,11 @@ class QQBot implements BatchHandler {
 
       // 更新状态为processing
       await this.database.updateConversationStatus(conversationId, 'processing');
+      await this.agentMemoryService.upsertMicroIntentionForMessage(enrichedMessage);
+      await this.agentMemoryService.maybeFlushDurableContext(enrichedMessage, {
+        conversationId,
+        traceId
+      });
 
       // 构建消息上下文（前20条消息）
       const contextStartTime = new Date();
@@ -1414,6 +1451,8 @@ class QQBot implements BatchHandler {
 
       await this.database.saveConversation(groupConversation);
       this.moduleLogger.info('Group conversation record created', { conversationId, batchId, groupId: enrichedMessage.group_id, traceId });
+      await this.recordReplyAnchorObservation(enrichedMessage, conversationId, traceId);
+      await this.updateBeliefsFromIncomingMessage(enrichedMessage);
 
       const groupSettings = enrichedMessage.group_id
         ? await this.database.getGroupChatSettingById(enrichedMessage.group_id)
@@ -1434,6 +1473,13 @@ class QQBot implements BatchHandler {
         group_id: enrichedMessage.group_id,
         is_enabled: groupSettings?.is_enabled ?? true,
         auto_reply_enabled: groupSettings?.auto_reply_enabled ?? false
+      });
+
+      await this.database.updateConversationStatus(conversationId, 'processing');
+      await this.agentMemoryService.upsertMicroIntentionForMessage(enrichedMessage);
+      await this.agentMemoryService.maybeFlushDurableContext(enrichedMessage, {
+        conversationId,
+        traceId
       });
 
       // 构建群聊消息上下文（前20条消息）
@@ -1511,9 +1557,6 @@ class QQBot implements BatchHandler {
       if (enrichedMessage.group_id) {
         await this.database.updateGroupActivity(enrichedMessage.group_id, 1, 0);
       }
-
-      // Update conversation status to processing
-      await this.database.updateConversationStatus(conversationId, 'processing');
 
       // Stage 1: Enhanced AI conversation for group messages
       const sessionContext = await this.sessionManager.processIncomingMessage(enrichedMessage);
@@ -1796,6 +1839,92 @@ class QQBot implements BatchHandler {
       reply_to_message_id: message.reply_intent_context?.semantic_anchor.message_id,
       reply_to_text: message.reply_intent_context?.semantic_anchor.text
     };
+  }
+
+  private async recordReplyAnchorObservation(
+    message: QQMessage,
+    conversationId: string,
+    traceId?: string
+  ): Promise<void> {
+    const replyIntent = message.reply_intent_context;
+    if (!replyIntent?.semantic_anchor?.message_id) {
+      return;
+    }
+
+    const occurredAt = typeof message.time === 'number'
+      ? new Date(message.time * 1000)
+      : new Date();
+
+    try {
+      await this.database.saveAgentObservation({
+        trace_id: traceId ?? null,
+        conversation_id: conversationId,
+        source_type: 'reply_anchor',
+        field_scope: message.message_type === 'group' ? 'group_chat' : 'private_chat',
+        message_type: message.message_type,
+        user_id: message.user_id,
+        group_id: message.group_id ?? null,
+        subject_user_id: replyIntent.semantic_anchor.sender_id ?? replyIntent.address_target.user_id ?? null,
+        counterparty_ids: [message.user_id],
+        content: `Reply anchor #${replyIntent.semantic_anchor.message_id}: ${replyIntent.semantic_anchor.text || replyIntent.interpretation}`,
+        raw_payload: replyIntent,
+        occurred_at: occurredAt
+      });
+    } catch (error) {
+      this.moduleLogger.warn('Failed to record reply anchor observation', {
+        conversationId,
+        messageId: message.message_id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  private async updateBeliefsFromIncomingMessage(message: QQMessage): Promise<void> {
+    const candidates = extractBeliefCandidatesFromMessage(message);
+    if (candidates.length === 0) {
+      return;
+    }
+
+    const evidenceOccurredAt = typeof message.time === 'number'
+      ? new Date(message.time * 1000)
+      : new Date();
+
+    try {
+      const recentObservations = await this.database.getRecentAgentObservations(5);
+      const incomingObservation = recentObservations.find(observation =>
+        observation.source_type === 'incoming_message' &&
+        observation.user_id === message.user_id &&
+        observation.occurred_at.getTime() <= evidenceOccurredAt.getTime() + 1000
+      );
+
+      for (const candidate of candidates) {
+        const beliefId = await this.database.upsertAgentBelief({
+          subject_type: candidate.subject_type,
+          subject_id: candidate.subject_id,
+          belief_type: candidate.belief_type,
+          belief_key: candidate.belief_key,
+          claim: candidate.claim,
+          normalized_claim: candidate.normalized_claim,
+          polarity: candidate.polarity,
+          confidence: candidate.confidence,
+          status: 'active',
+          observation_count: 1,
+          last_evidence_id: incomingObservation?.id ?? null,
+          first_observed_at: evidenceOccurredAt,
+          last_observed_at: evidenceOccurredAt
+        });
+
+        await this.agentMemoryService.maybePromoteBelief(beliefId, {
+          evidenceObservationId: incomingObservation?.id ?? null
+        });
+      }
+    } catch (error) {
+      this.moduleLogger.warn('Failed to update beliefs from incoming message', {
+        userId: message.user_id,
+        messageId: message.message_id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   /**
@@ -2594,6 +2723,99 @@ class QQBot implements BatchHandler {
 
   private async handleMessageSent(event: any, eventData?: any): Promise<void> {
     this.moduleLogger.debug('Bot message sent', event);
+  }
+
+  private async runBackgroundCognitionTasks(): Promise<void> {
+    await this.agentMemoryService.runScheduledReflectionsIfDue();
+
+    const proactivityState = await this.agentMemoryService.getProactivityControls(
+      this.getProactivityDefaults()
+    );
+
+    if (!proactivityState.followupEnabled || proactivityState.isPaused) {
+      return;
+    }
+
+    const execution = await this.agentMemoryService.executeDueFollowupPlans({
+      now: new Date(),
+      limit: proactivityState.maxPerRun,
+      retryDelayMs: proactivityState.retryDelayMs,
+      canSendToUser: async (userId) => {
+        if (
+          proactivityState.allowedUserIds.length > 0 &&
+          !proactivityState.allowedUserIds.includes(userId)
+        ) {
+          return { allowed: false, reason: 'user_not_allowed' };
+        }
+
+        const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
+        if (!privateChatSettings) {
+          return { allowed: false, reason: 'missing_private_chat_settings' };
+        }
+
+        if (
+          !isDbBooleanEnabled(privateChatSettings.is_enabled) ||
+          !isDbBooleanEnabled(privateChatSettings.auto_reply_enabled)
+        ) {
+          return { allowed: false, reason: 'auto_reply_disabled' };
+        }
+
+        return { allowed: true };
+      },
+      sendPrivateMessage: async (userId, message, plan) => {
+        const traceId = uuidv4();
+        const metadata = {
+          source_plan_id: plan.id,
+          plan_type: plan.plan_type,
+          goal: plan.goal,
+          trigger_kind: 'followup_queue',
+          proactive: true
+        };
+        await this.websocketClient.waitUntilConnected();
+        await this.websocketClient.sendPrivateMessage(userId, message, {
+          traceId,
+          rawPayload: metadata
+        });
+        await this.loggingService.logInstantEvent(
+          traceId,
+          'agent',
+          'followup.executed',
+          undefined,
+          {
+            userId,
+            planId: plan.id,
+            goal: plan.goal
+          }
+        );
+      }
+    });
+
+    if (execution.processed > 0) {
+      this.moduleLogger.info('Processed followup queue background task', execution);
+    }
+  }
+
+  private parseAllowedUserIds(rawValue?: string): Set<number> {
+    if (!rawValue || rawValue.trim().length === 0) {
+      return new Set();
+    }
+
+    return new Set(
+      rawValue
+        .split(',')
+        .map(value => Number(value.trim()))
+        .filter(value => Number.isFinite(value) && value > 0)
+    );
+  }
+
+  private getProactivityDefaults(): AgentProactivityRuntimeConfig {
+    return {
+      followupEnabled: this.proactiveFollowupEnabled,
+      isPaused: false,
+      allowedUserIds: Array.from(this.proactiveFollowupAllowedUserIds),
+      maxPerRun: this.proactiveFollowupMaxPerRun,
+      retryDelayMs: this.proactiveFollowupRetryDelayMs
+    };
   }
 
   private extractDisconnectReason(data: unknown): string | undefined {
