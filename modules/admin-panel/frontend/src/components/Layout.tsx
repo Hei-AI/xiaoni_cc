@@ -225,6 +225,18 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       ],
     },
     {
+      label: 'Intelligence',
+      items: [
+        {
+          href: '/cognition',
+          label: '认知架构',
+          icon: Sparkles,
+          description: 'Observations 与 Beliefs 的只读视图',
+          active: location.pathname.startsWith('/cognition'),
+        },
+      ],
+    },
+    {
       label: 'Observability',
       items: [
         {

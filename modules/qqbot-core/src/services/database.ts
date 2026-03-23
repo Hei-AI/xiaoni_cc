@@ -11,7 +11,11 @@ import {
   NewGroupMessageHistoryRecord,
   PrivateMessageHistoryRecord,
   NewPrivateMessageHistoryRecord,
-  MessageContentType
+  MessageContentType,
+  AgentBeliefRecord,
+  AgentObservationRecord,
+  NewAgentBeliefRecord,
+  NewAgentObservationRecord
 } from '../types';
 import { logger } from '../utils/logger';
 
@@ -221,6 +225,36 @@ export class DatabaseManager {
         tableName: 'agent_prompts',
         indexName: 'idx_agent_type_prompt_active_version',
         ddl: 'ALTER TABLE agent_prompts ADD INDEX idx_agent_type_prompt_active_version (agent_type, prompt_name, is_active, version)'
+      },
+      {
+        tableName: 'agent_observations',
+        indexName: 'idx_observation_scope_time',
+        ddl: 'ALTER TABLE agent_observations ADD INDEX idx_observation_scope_time (field_scope, occurred_at, id)'
+      },
+      {
+        tableName: 'agent_observations',
+        indexName: 'idx_observation_source_time',
+        ddl: 'ALTER TABLE agent_observations ADD INDEX idx_observation_source_time (source_type, occurred_at, id)'
+      },
+      {
+        tableName: 'agent_observations',
+        indexName: 'idx_observation_user_time',
+        ddl: 'ALTER TABLE agent_observations ADD INDEX idx_observation_user_time (user_id, occurred_at, id)'
+      },
+      {
+        tableName: 'agent_observations',
+        indexName: 'idx_observation_group_time',
+        ddl: 'ALTER TABLE agent_observations ADD INDEX idx_observation_group_time (group_id, occurred_at, id)'
+      },
+      {
+        tableName: 'agent_beliefs',
+        indexName: 'idx_belief_subject_status',
+        ddl: 'ALTER TABLE agent_beliefs ADD INDEX idx_belief_subject_status (subject_type, subject_id, status, last_observed_at, id)'
+      },
+      {
+        tableName: 'agent_beliefs',
+        indexName: 'idx_belief_type_status',
+        ddl: 'ALTER TABLE agent_beliefs ADD INDEX idx_belief_type_status (belief_type, status, last_observed_at, id)'
       }
     ];
 
@@ -1298,7 +1332,7 @@ export class DatabaseManager {
     return await this.getSessionByIdFromConversations(sessionId);
   }
 
-  private async executeInsertAndReturnId(
+  public async executeInsertAndReturnId(
     query: string,
     params: any[] = []
   ): Promise<number> {
@@ -2007,6 +2041,214 @@ export class DatabaseManager {
     ];
 
     return await this.executeInsertAndReturnId(query, params);
+  }
+
+  public async saveAgentObservation(record: NewAgentObservationRecord): Promise<number> {
+    const query = `
+      INSERT INTO agent_observations (
+        trace_id,
+        conversation_id,
+        source_type,
+        field_scope,
+        message_type,
+        user_id,
+        group_id,
+        subject_user_id,
+        counterparty_ids,
+        content,
+        tool_payload_ref,
+        raw_payload,
+        occurred_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const params = [
+      record.trace_id ?? null,
+      record.conversation_id ?? null,
+      record.source_type,
+      record.field_scope,
+      record.message_type ?? null,
+      record.user_id ?? null,
+      record.group_id ?? null,
+      record.subject_user_id ?? null,
+      record.counterparty_ids ? JSON.stringify(record.counterparty_ids) : null,
+      record.content,
+      record.tool_payload_ref ?? null,
+      record.raw_payload ? JSON.stringify(record.raw_payload) : null,
+      record.occurred_at
+    ];
+
+    return await this.executeInsertAndReturnId(query, params);
+  }
+
+  public async getAgentObservationById(id: number): Promise<AgentObservationRecord | null> {
+    const rows = await this.executeQuery<any>(
+      'SELECT * FROM agent_observations WHERE id = ? LIMIT 1',
+      [id]
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return this.mapAgentObservationRow(row);
+  }
+
+  public async getRecentAgentObservations(limit: number = 20): Promise<AgentObservationRecord[]> {
+    const safeLimit = Math.max(1, Math.floor(Number(limit)));
+    const rows = await this.executeQuery<any>(
+      `SELECT * FROM agent_observations ORDER BY occurred_at DESC, id DESC LIMIT ${safeLimit}`
+    );
+
+    return rows.map(row => this.mapAgentObservationRow(row));
+  }
+
+  public async getRecentAgentBeliefs(limit: number = 20): Promise<AgentBeliefRecord[]> {
+    const safeLimit = Math.max(1, Math.floor(Number(limit)));
+    const rows = await this.executeQuery<any>(
+      `SELECT * FROM agent_beliefs ORDER BY last_observed_at DESC, id DESC LIMIT ${safeLimit}`
+    );
+
+    return rows.map(row => this.mapAgentBeliefRow(row));
+  }
+
+  public async upsertAgentBelief(record: NewAgentBeliefRecord): Promise<number> {
+    const existingRows = await this.executeQuery<any>(
+      `SELECT *
+       FROM agent_beliefs
+       WHERE subject_type = ?
+         AND subject_id = ?
+         AND belief_type = ?
+         AND belief_key = ?
+         AND status = 'active'
+       ORDER BY id DESC`,
+      [
+        record.subject_type,
+        record.subject_id,
+        record.belief_type,
+        record.belief_key
+      ]
+    );
+
+    const exactMatch = existingRows.find(row =>
+      row.normalized_claim === record.normalized_claim &&
+      row.polarity === record.polarity
+    );
+
+    if (exactMatch) {
+      const existingConfidence = Number(exactMatch.confidence || 0);
+      const nextConfidence = Math.min(
+        1,
+        Math.max(existingConfidence, Number(record.confidence || 0)) + 0.05
+      );
+
+      await this.executeUpdate(
+        `UPDATE agent_beliefs
+         SET confidence = ?,
+             observation_count = observation_count + 1,
+             last_evidence_id = ?,
+             last_observed_at = ?,
+             updated_at = NOW(3)
+         WHERE id = ?`,
+        [
+          nextConfidence,
+          record.last_evidence_id ?? null,
+          record.last_observed_at,
+          exactMatch.id
+        ]
+      );
+
+      return exactMatch.id;
+    }
+
+    if (existingRows.length > 0) {
+      const existingIds = existingRows.map(row => row.id);
+      await this.executeUpdate(
+        `UPDATE agent_beliefs
+         SET status = 'revised',
+             updated_at = NOW(3)
+         WHERE id IN (${existingIds.map(() => '?').join(',')})`,
+        existingIds
+      );
+    }
+
+    const query = `
+      INSERT INTO agent_beliefs (
+        subject_type,
+        subject_id,
+        belief_type,
+        belief_key,
+        claim,
+        normalized_claim,
+        polarity,
+        confidence,
+        status,
+        observation_count,
+        last_evidence_id,
+        first_observed_at,
+        last_observed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const params = [
+      record.subject_type,
+      record.subject_id,
+      record.belief_type,
+      record.belief_key,
+      record.claim,
+      record.normalized_claim,
+      record.polarity,
+      record.confidence,
+      record.status,
+      record.observation_count,
+      record.last_evidence_id ?? null,
+      record.first_observed_at,
+      record.last_observed_at
+    ];
+
+    return await this.executeInsertAndReturnId(query, params);
+  }
+
+  private mapAgentObservationRow(row: any): AgentObservationRecord {
+    return {
+      id: row.id,
+      trace_id: row.trace_id ?? null,
+      conversation_id: row.conversation_id ?? null,
+      source_type: row.source_type,
+      field_scope: row.field_scope,
+      message_type: row.message_type ?? null,
+      user_id: row.user_id ?? null,
+      group_id: row.group_id ?? null,
+      subject_user_id: row.subject_user_id ?? null,
+      counterparty_ids: this.parseJsonField(row.counterparty_ids) ?? undefined,
+      content: row.content,
+      tool_payload_ref: row.tool_payload_ref ?? null,
+      raw_payload: this.parseJsonField(row.raw_payload),
+      occurred_at: row.occurred_at instanceof Date ? row.occurred_at : new Date(row.occurred_at),
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at)
+    };
+  }
+
+  private mapAgentBeliefRow(row: any): AgentBeliefRecord {
+    return {
+      id: row.id,
+      subject_type: row.subject_type,
+      subject_id: row.subject_id,
+      belief_type: row.belief_type,
+      belief_key: row.belief_key,
+      claim: row.claim,
+      normalized_claim: row.normalized_claim,
+      polarity: row.polarity,
+      confidence: Number(row.confidence),
+      status: row.status,
+      observation_count: Number(row.observation_count || 0),
+      last_evidence_id: row.last_evidence_id ?? null,
+      first_observed_at: row.first_observed_at instanceof Date ? row.first_observed_at : new Date(row.first_observed_at),
+      last_observed_at: row.last_observed_at instanceof Date ? row.last_observed_at : new Date(row.last_observed_at),
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at)
+    };
   }
 
   public async getGroupMessageHistoryRecords(

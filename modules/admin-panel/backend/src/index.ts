@@ -16,6 +16,7 @@ import { createChatRoutes } from './routes/chat-routes';
 import { createAgentRoutes } from './routes/agent-routes';
 import { createTrafficMonitorRoutes } from './routes/traffic-monitor-routes';
 import { createPlaygroundRoutes } from './routes/playground-routes';
+import { createCognitionRoutes } from './routes/cognition-routes';
 import { TrafficLogWatcher, DEFAULT_WATCHER_CONFIG } from './services/traffic-log-watcher';
 
 // Load environment variables
@@ -129,6 +130,8 @@ async function startServer() {
   app.use('/api', createChatRoutes(database, logger));          // Group & private chats
   logger.info('🔧 Registering agent routes...');
   app.use('/api', createAgentRoutes(database, logger));         // Agent types
+  logger.info('🔧 Registering cognition routes...');
+  app.use('/api', createCognitionRoutes(database, logger));     // Cognition overview / lists
   logger.info('🔧 Registering traffic monitor routes...');
   app.use('/api', createTrafficMonitorRoutes(database, logger)); // HTTP traffic monitoring
   logger.info('🔧 Registering playground routes...');

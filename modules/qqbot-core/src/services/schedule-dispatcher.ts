@@ -19,6 +19,7 @@ import { logger } from '../utils/logger';
 import { MessageQueueService } from './message-queue-service';
 import { BatchHandler, TriggerType } from './direct-notifier';
 import { HumanLikeConfigProvider, HumanLikeScheduleConfig } from './human-like-config-service';
+import { DatabaseManager } from './database';
 
 interface ScheduleEntry {
   sourceKey: string;
@@ -39,6 +40,8 @@ interface DispatcherConfig {
 interface ScheduleDispatcherOptions {
   configOverrides?: Partial<DispatcherConfig>;
   configProvider?: HumanLikeConfigProvider;
+  database?: DatabaseManager;
+  backgroundTaskRunner?: () => Promise<void>;
 }
 
 export class ScheduleDispatcher {
@@ -47,6 +50,9 @@ export class ScheduleDispatcher {
   private handler: BatchHandler;
   private config: DispatcherConfig;
   private configProvider?: HumanLikeConfigProvider;
+  private database?: DatabaseManager;
+  private backgroundTaskRunner?: () => Promise<void>;
+  private lastBackgroundTaskRunAt = 0;
 
   // 优先级队列：sourceKey → ScheduleEntry
   private scheduleQueue: Map<string, ScheduleEntry> = new Map();
@@ -75,6 +81,8 @@ export class ScheduleDispatcher {
     if (this.isOptionsObject(options)) {
       overrides = options.configOverrides;
       this.configProvider = options.configProvider;
+      this.database = options.database;
+      this.backgroundTaskRunner = options.backgroundTaskRunner;
     } else {
       overrides = options as Partial<DispatcherConfig> | undefined;
     }
@@ -213,6 +221,8 @@ export class ScheduleDispatcher {
    * Tick 循环：检查是否有需要处理的队列
    */
   private async tick(): Promise<void> {
+    await this.runBackgroundTasks();
+
     if (this.scheduleQueue.size === 0) {
       return;
     }
@@ -236,6 +246,11 @@ export class ScheduleDispatcher {
       sourceKeys: readySourceKeys
     });
 
+    await this.recordTickObservation('tick_scan', {
+      readySourceKeys,
+      queueSize: this.scheduleQueue.size
+    });
+
     // 处理所有就绪的 sourceKey
     for (const sourceKey of readySourceKeys) {
       await this.processSourceKey(sourceKey, 'scheduled');
@@ -254,6 +269,11 @@ export class ScheduleDispatcher {
 
       const startTime = Date.now();
       const perSourceConfig = await this.resolveConfigForSource(sourceKey);
+      await this.recordTickObservation(sourceKey, {
+        triggerType,
+        unreadCount: this.messageQueueService.getUnreadCount(sourceKey),
+        config: perSourceConfig
+      });
 
       // Drain 消息
       const messages = await this.messageQueueService.drain(sourceKey);
@@ -384,6 +404,58 @@ export class ScheduleDispatcher {
     });
 
     return nextCheckTime;
+  }
+
+  private async recordTickObservation(
+    sourceKey: string,
+    metadata: Record<string, any>
+  ): Promise<void> {
+    if (!this.database) {
+      return;
+    }
+
+    const scope = sourceKey.startsWith('group_') ? 'group_chat' : 'private_chat';
+    const numericId = Number(sourceKey.split('_')[1] || 0) || null;
+
+    try {
+      await this.database.saveAgentObservation({
+        source_type: 'tick',
+        field_scope: scope,
+        message_type: scope === 'group_chat' ? 'group' : 'private',
+        user_id: scope === 'private_chat' ? numericId : null,
+        group_id: scope === 'group_chat' ? numericId : null,
+        subject_user_id: scope === 'private_chat' ? numericId : null,
+        counterparty_ids: scope === 'private_chat' && numericId ? [numericId] : [],
+        content: `Scheduler tick for ${sourceKey}`,
+        raw_payload: metadata,
+        occurred_at: new Date()
+      });
+    } catch (error) {
+      this.moduleLogger.warn('Failed to record tick observation', {
+        sourceKey,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  private async runBackgroundTasks(): Promise<void> {
+    if (!this.backgroundTaskRunner) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - this.lastBackgroundTaskRunAt < 60_000) {
+      return;
+    }
+    this.lastBackgroundTaskRunAt = now;
+
+    try {
+      await this.backgroundTaskRunner();
+    } catch (error) {
+      this.moduleLogger.warn('Background task runner failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   /**

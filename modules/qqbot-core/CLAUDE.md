@@ -24,11 +24,11 @@ src/
 
 ### 重要服务
 - `services/message-queue-service.ts`：分区队列与优先级管理。
-- `services/schedule-dispatcher.ts`、`services/direct-notifier.ts`：拟人化调度与直连模式触发。
+- `services/schedule-dispatcher.ts`、`services/direct-notifier.ts`：现有消息调度与直连触发。
 - `services/llm-job-worker.ts`、`services/function-call-dispatcher.ts`、`services/tool-registry-service.ts`：LLM Function Calling 与工具分发。
 - `services/ai-service.ts`：Gemini 调用封装，包含 `generateContent` 等接口。
 
-完整实现说明见 [HUMAN_LIKE_PROCESSOR_FLOW.md](../../docs/HUMAN_LIKE_PROCESSOR_FLOW.md) 与 [LLM_TOOL_EXECUTION_DESIGN.md](../../docs/LLM_TOOL_EXECUTION_DESIGN.md)。
+认知架构与路线图见 [XIAONI_V1_COGNITIVE_ARCHITECTURE.md](../../docs/XIAONI_V1_COGNITIVE_ARCHITECTURE.md) 与 [XIAONI_V1_IMPLEMENTATION_PROGRESS.md](../../docs/XIAONI_V1_IMPLEMENTATION_PROGRESS.md)。工具链方案见 [LLM_TOOL_EXECUTION_DESIGN.md](../../docs/LLM_TOOL_EXECUTION_DESIGN.md)。
 
 ## 3. 常用命令
 ```bash
@@ -42,7 +42,7 @@ npm run build              # 构建
 ## 4. 配置与环境
 - `.env` / 配置中心：见 [src/config/index.ts](./src/config/index.ts)，优先使用环境变量注入。
 - 数据库连接：由 [services/database.ts](./src/services/database.ts) 和 `DatabaseManager` 维护。
-- 队列与调度开关：`ENABLE_HUMAN_LIKE_PROCESSING` 控制拟人化调度；`ENABLE_LLM_TOOLS` 控制异步工具链。自验证步骤记录在 [项目状态](../../docs/PROJECT_STATUS.md)。
+- 队列与调度开关：现有 `ENABLE_HUMAN_LIKE_PROCESSING` 仍控制旧的调度模式开关；新认知架构以 [XIAONI_V1_COGNITIVE_ARCHITECTURE.md](../../docs/XIAONI_V1_COGNITIVE_ARCHITECTURE.md) 为准。`ENABLE_LLM_TOOLS` 控制异步工具链。自验证步骤记录在 [项目状态](../../docs/PROJECT_STATUS.md)。
 
 ## 5. 消息处理流程摘要
 1. WebSocket 消息进入 `handlePrivateMessage`/`handleGroupMessage`。
@@ -59,4 +59,4 @@ npm run build              # 构建
 - 不要提交 `logs/`、`dist/`、`node_modules/`、`resource/napcat_qq_data/` 等目录。
 - 使用 `git status` 确认修改，按需 `git add <files>`，确保提交说明清晰。
 
-若需深入理解某部分逻辑，请先查阅上方提到的设计文档；遇到与现实实现不符的地方，以 [项目状态](../../docs/PROJECT_STATUS.md) 的最新描述为准。必要时与维护者确认后再调整。EOF
+若需深入理解某部分逻辑，请先查阅上方提到的设计文档；遇到与现实实现不符的地方，以 [项目状态](../../docs/PROJECT_STATUS.md) 的最新描述为准。必要时与维护者确认后再调整。

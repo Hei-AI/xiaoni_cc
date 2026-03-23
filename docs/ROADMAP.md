@@ -7,6 +7,7 @@
 - 完成主仓最小化，稳定保留消息主链、Prompt 配置、队列管理、流量查看/回放。
 - 清理运行资产、历史兼容层和已脱离主链的模块引用。
 - 建立可持续的重构基线，确保 `qqbot-core` 与 Admin 在无 `http-api` 的前提下稳定运行。
+- 启动小腻 V1 认知架构落地，路线图见 [XIAONI_V1_COGNITIVE_ARCHITECTURE.md](./XIAONI_V1_COGNITIVE_ARCHITECTURE.md)。
 
 ## 中期计划
 
@@ -26,3 +27,4 @@
 - 继续删除不再服务主链的遗留接口、测试脚本与重复工程副本。
 - 为 `qqbot-core` 补齐真实上下文查询、统计与调度数据，替换占位实现。
 - 收敛管理端可见能力，避免继续保留无后端支撑或仅返回占位结果的入口。
+- 按 [XIAONI_V1_IMPLEMENTATION_PROGRESS.md](./XIAONI_V1_IMPLEMENTATION_PROGRESS.md) 推进小腻 V1 的文档、认知底座、反思、计划与主动行为实现。

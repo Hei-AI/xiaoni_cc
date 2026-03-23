@@ -13,6 +13,7 @@ import {
 } from '../types';
 import { logger } from '../utils/logger';
 import { ChatViewportService } from './chat-viewport-service';
+import AgentMemoryService from './agent-memory-service';
 import {
   buildAttachmentHints,
   extractTextFromSegments,
@@ -60,11 +61,17 @@ interface PromptMessageWithAttachments {
 export class ContextManager {
   private database: DatabaseManager;
   private chatViewportService: ChatViewportService;
+  private agentMemoryService: AgentMemoryService;
   private moduleLogger = logger.createModuleLogger('context-manager');
 
-  constructor(database: DatabaseManager, chatViewportService?: ChatViewportService) {
+  constructor(
+    database: DatabaseManager,
+    chatViewportService?: ChatViewportService,
+    agentMemoryService?: AgentMemoryService
+  ) {
     this.database = database;
     this.chatViewportService = chatViewportService || new ChatViewportService(database);
+    this.agentMemoryService = agentMemoryService || new AgentMemoryService(database);
   }
 
   private async buildHistoryMessages(
@@ -138,6 +145,29 @@ export class ContextManager {
       const userInfo = await this.buildUserInfo(message.user_id);
       this.moduleLogger.info('Step 3 completed: Built user info', { hasUserInfo: !!userInfo });
 
+      this.moduleLogger.info('Step 3.5: Building cognition context...');
+      const [selfModel, activePlans, retrievedStableMemories] = await Promise.all([
+        this.agentMemoryService.getCurrentSelfModel(),
+        this.agentMemoryService.getActivePlansForMessage(message, 3),
+        this.agentMemoryService.getRetrievedMemoriesForMessage(message, 6)
+      ]);
+      const recentEvidence = await this.agentMemoryService.getRecentEvidenceForMessage(
+        message,
+        retrievedStableMemories.map(memory => memory.id),
+        4
+      );
+      const internalState = {
+        availability: selfModel?.availability ?? 'unknown',
+        energy: selfModel?.energy ?? 'unknown',
+        current_concerns: selfModel?.current_concerns ?? []
+      };
+      this.moduleLogger.info('Step 3.5 completed: Built cognition context', {
+        hasSelfModel: !!selfModel,
+        activePlans: activePlans.length,
+        retrievedStableMemories: retrievedStableMemories.length,
+        recentEvidence: recentEvidence.length
+      });
+
       // 构建群聊信息（如果是群聊）
       if (message.group_id) {
         this.moduleLogger.info('Step 4: Building group info...');
@@ -149,6 +179,11 @@ export class ContextManager {
           historyMessages,
           contextSummary,
           replyIntentContext: message.reply_intent_context,
+          selfModel,
+          internalState,
+          activePlans,
+          retrievedStableMemories,
+          recentEvidence,
           userInfo,
           groupInfo
         };
@@ -169,6 +204,11 @@ export class ContextManager {
           historyMessages,
           contextSummary,
           replyIntentContext: message.reply_intent_context,
+          selfModel,
+          internalState,
+          activePlans,
+          retrievedStableMemories,
+          recentEvidence,
           userInfo,
           groupInfo: undefined
         };
@@ -195,7 +235,10 @@ export class ContextManager {
         currentMessage: message,
         historyMessages: [],
         contextSummary: '无可用上下文信息',
-        replyIntentContext: message.reply_intent_context
+        replyIntentContext: message.reply_intent_context,
+        activePlans: [],
+        retrievedStableMemories: [],
+        recentEvidence: []
       };
     }
   }
@@ -320,6 +363,7 @@ export class ContextManager {
         context.currentMessage
       );
       return await this.buildViewportPrompt(
+        context,
         viewport,
         context.currentMessage,
         currentUserInput,
@@ -379,6 +423,7 @@ export class ContextManager {
       textFragments.push(normalized);
     };
 
+    this.buildCognitiveSectionLines(context).forEach(line => appendTextPart(line));
     appendTextPart('======已读消息========');
 
     for (const historyMessage of context.historyMessages) {
@@ -404,6 +449,7 @@ export class ContextManager {
   }
 
   private async buildViewportPrompt(
+    context: MessageContext,
     viewport: ChatViewportData,
     currentMessage: QQMessage,
     currentUserInput?: string,
@@ -429,6 +475,8 @@ export class ContextManager {
       parts.push({ text: normalized });
       textFragments.push(normalized);
     };
+
+    this.buildCognitiveSectionLines(context).forEach(line => appendTextPart(line));
 
     viewport.header_lines.forEach(line => appendTextPart(line));
 
@@ -487,6 +535,58 @@ export class ContextManager {
     if (addressTarget) {
       appendTextPart(`直接回应对象: ${addressTarget}`);
     }
+  }
+
+  private buildCognitiveSectionLines(context: MessageContext): string[] {
+    const lines: string[] = [];
+    const append = (value: string) => {
+      if (value && value.trim().length > 0) {
+        lines.push(value);
+      }
+    };
+
+    append('--- Self Model ---');
+    append(`identity_summary=${context.selfModel?.identity_summary || '尚未建立稳定自我模型'}`);
+    if (context.selfModel?.core_traits && context.selfModel.core_traits.length > 0) {
+      append(`core_traits=${context.selfModel.core_traits.join(' / ')}`);
+    }
+    if (context.selfModel?.long_term_goals && context.selfModel.long_term_goals.length > 0) {
+      append(`long_term_goals=${context.selfModel.long_term_goals.join(' / ')}`);
+    }
+
+    append('--- Current Internal State ---');
+    append(`availability=${context.internalState?.availability || 'unknown'}`);
+    append(`energy=${context.internalState?.energy || 'unknown'}`);
+    append(`current_concerns=${(context.internalState?.current_concerns || []).join(' / ') || 'none'}`);
+
+    append('--- Active Plans ---');
+    if (context.activePlans && context.activePlans.length > 0) {
+      context.activePlans.forEach(plan => {
+        append(`- [${plan.plan_type}/${plan.status}] ${plan.goal}`);
+      });
+    } else {
+      append('- none');
+    }
+
+    append('--- Retrieved Stable Memories ---');
+    if (context.retrievedStableMemories && context.retrievedStableMemories.length > 0) {
+      context.retrievedStableMemories.forEach(memory => {
+        append(`- [${memory.memory_type}/${memory.memory_scope}] ${this.truncateMessage(memory.content, 120)} (confidence=${memory.confidence.toFixed(2)}, salience=${memory.salience.toFixed(2)})`);
+      });
+    } else {
+      append('- none');
+    }
+
+    append('--- Recent Evidence ---');
+    if (context.recentEvidence && context.recentEvidence.length > 0) {
+      context.recentEvidence.forEach(observation => {
+        append(`- [${this.toIsoString(observation.occurred_at) || ''}/${observation.source_type}] ${this.truncateMessage(observation.content, 120)}`);
+      });
+    } else {
+      append('- none');
+    }
+
+    return lines;
   }
 
   private appendCurrentMessageBlock(

@@ -47,6 +47,9 @@ const HttpTrafficDetailPage = lazy(async () => ({
 const PlaygroundPage = lazy(async () => ({
   default: (await import('./pages/PlaygroundPage')).PlaygroundPage,
 }));
+const CognitionPage = lazy(async () => ({
+  default: (await import('./pages/CognitionPage')).CognitionPage,
+}));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -98,6 +101,7 @@ function App() {
               <Route path="/traffic" element={<HttpTrafficMonitorPage />} />
               <Route path="/traffic/:id" element={<HttpTrafficDetailPage />} />
               <Route path="/playground" element={<PlaygroundPage />} />
+              <Route path="/cognition" element={<CognitionPage />} />
             </Routes>
           </Suspense>
         </Layout>

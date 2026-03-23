@@ -1,10 +1,10 @@
 # LLM 工具编排落地方案（结合当前实现）
 
-> 本文基于现有 `modules/qqbot-core` 架构，给出可直接落地的 LLM 工具调用方案，涵盖消息节奏、人类化队列、静态/动态工具分类以及配套的存储、调试与上线计划。
+> 本文基于现有 `modules/qqbot-core` 架构，给出可直接落地的 LLM 工具调用方案，涵盖消息节奏、队列与调度、静态/动态工具分类以及配套的存储、调试与上线计划。
 
 ## 1. 范围与目标
 
-- 保留已上线的 Human-Like Processor：`MessageQueueService` → `DirectNotifier/ScheduleDispatcher` → `QQBot.handle*Batch` → Stage-1 AI pipeline。
+- 保留现有消息队列与调度链：`MessageQueueService` → `DirectNotifier/ScheduleDispatcher` → `QQBot.handle*Batch` → Stage-1 AI pipeline。
 - 在现有 `AIService` 基础上扩展 Gemini 函数调用能力，统一支持：
   - **静态工具**：开局即暴露给 LLM，可选“回传型 / 侧效应型”。
   - **动态工具**：通过 `search_tools` 发现，再用统一 `invoke(method_id, args)` 执行。
@@ -16,7 +16,7 @@
 | 模块 | 文件 | 作用 |
 | --- | --- | --- |
 | 消息分区/Drain | `services/message-queue.ts`、`message-queue-service.ts` | 按 user/group 入队，提供 drain + 优先级。 |
-| 调度 | `services/direct-notifier.ts`、`schedule-dispatcher.ts` | 控制直连/拟人化节奏。 |
+| 调度 | `services/direct-notifier.ts`、`schedule-dispatcher.ts` | 控制直连与调度节奏。 |
 | 批处理入口 | `index.ts` (`QQBot.handle*Batch`) | 遍历批次逐条执行 `_processSingle...`。 |
 | Stage-1 AI | `services/context-manager.ts`、`engines/decision-engine.ts`、`services/ai-service.ts` | 现以 Gemini REST 调用为主，记录 `llm_call_logs`。 |
 | 观测 | `services/logging-service.ts`、`debug-service.ts` | 写入 conversations、message_consumptions 等表。 |
@@ -191,4 +191,4 @@ sequenceDiagram
 
 ---
 
-本方案以当前项目的分层结构为基础：保留已落地的人类化消息处理流程，将 LLM 调用迁移至异步化队列，并引入可扩展的工具发现与执行体系。后续迭代可按“数据表 → 服务组件 → UI & 监控”的顺序逐步落地，保障开发和运维的可观测性与回滚能力。
+本方案以当前项目的分层结构为基础：保留已落地的消息队列与调度链，将 LLM 调用迁移至异步化队列，并引入可扩展的工具发现与执行体系。后续迭代可按“数据表 → 服务组件 → UI & 监控”的顺序逐步落地，保障开发和运维的可观测性与回滚能力。
