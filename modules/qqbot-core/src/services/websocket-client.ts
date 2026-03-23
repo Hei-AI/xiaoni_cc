@@ -1248,6 +1248,21 @@ export class WebSocketClient extends EventEmitter {
         raw_payload: options?.rawPayload ?? { message },
         sent_at: sentAt
       });
+
+      await this.database.saveAgentObservation({
+        trace_id: options?.traceId ?? null,
+        conversation_id: options?.conversationId ?? null,
+        source_type: 'outgoing_message',
+        field_scope: 'private_chat',
+        message_type: 'private',
+        user_id: userId,
+        group_id: null,
+        subject_user_id: userId,
+        counterparty_ids: [userId],
+        content: message,
+        raw_payload: options?.rawPayload ?? { message },
+        occurred_at: sentAt
+      });
     } catch (error) {
       this.moduleLogger.warn('Failed to record private message history', {
         error: error instanceof Error ? error.message : String(error),
@@ -1286,6 +1301,21 @@ export class WebSocketClient extends EventEmitter {
         content: message,
         raw_payload: options?.rawPayload ?? { message },
         sent_at: sentAt
+      });
+
+      await this.database.saveAgentObservation({
+        trace_id: options?.traceId ?? null,
+        conversation_id: options?.conversationId ?? null,
+        source_type: 'outgoing_message',
+        field_scope: 'group_chat',
+        message_type: 'group',
+        user_id: null,
+        group_id: groupId,
+        subject_user_id: null,
+        counterparty_ids: [],
+        content: message,
+        raw_payload: options?.rawPayload ?? { message },
+        occurred_at: sentAt
       });
     } catch (error) {
       this.moduleLogger.warn('Failed to record group message history', {
@@ -1334,6 +1364,21 @@ export class WebSocketClient extends EventEmitter {
           raw_payload: message,
           sent_at: sentAt
         });
+
+        await this.database.saveAgentObservation({
+          trace_id: traceId ?? null,
+          conversation_id: null,
+          source_type: 'incoming_message',
+          field_scope: 'private_chat',
+          message_type: 'private',
+          user_id: message.user_id,
+          group_id: null,
+          subject_user_id: message.user_id,
+          counterparty_ids: [message.user_id],
+          content: readableContent,
+          raw_payload: message,
+          occurred_at: sentAt
+        });
       } else if (message.message_type === 'group' && message.group_id) {
         await this.database.saveGroupMessageHistory({
           conversation_id: null,
@@ -1345,6 +1390,21 @@ export class WebSocketClient extends EventEmitter {
           content: readableContent,
           raw_payload: message,
           sent_at: sentAt
+        });
+
+        await this.database.saveAgentObservation({
+          trace_id: traceId ?? null,
+          conversation_id: null,
+          source_type: 'incoming_message',
+          field_scope: 'group_chat',
+          message_type: 'group',
+          user_id: message.user_id,
+          group_id: message.group_id,
+          subject_user_id: message.user_id,
+          counterparty_ids: [message.user_id],
+          content: readableContent,
+          raw_payload: message,
+          occurred_at: sentAt
         });
       }
     } catch (error) {

@@ -7,6 +7,7 @@ import { logger } from '../utils/logger';
 import { ToolRegistryService } from './tool-registry-service';
 import { v4 as uuidv4 } from 'uuid';
 import {
+  AgentObservationFieldScope,
   StaticTool,
   ToolContext,
   ToolResult,
@@ -219,6 +220,14 @@ export class FunctionCallDispatcher {
     );
 
     // 根据 expect_response 决定是否继续
+    await this.recordToolResultObservation(
+      method_id,
+      result.success,
+      toolArgs,
+      result.success ? result.data : { error: result.error },
+      context
+    );
+
     if (expect_response) {
       // 返回结果给LLM
       return {
@@ -328,6 +337,13 @@ export class FunctionCallDispatcher {
 
     // 记录执行日志
     await this.logStaticToolExecution(tool.name, tool.mode, toolContext, result, startedAt, completedAt);
+    await this.recordToolResultObservation(
+      tool.name,
+      result.success,
+      args,
+      result.success ? rawData : { error: result.error || 'Tool execution failed' },
+      context
+    );
 
     if (!result.success) {
       return {
@@ -365,6 +381,59 @@ export class FunctionCallDispatcher {
     };
   }
 
+  private async recordToolResultObservation(
+    toolName: string,
+    success: boolean,
+    args: any,
+    result: any,
+    context: {
+      traceId: string;
+      conversationId?: string;
+      userId?: number;
+      groupId?: number;
+      llmCallId?: string;
+    }
+  ): Promise<void> {
+    try {
+      const database = (this.toolRegistry as any).database;
+      if (!database?.saveAgentObservation) {
+        return;
+      }
+
+      const fieldScope: AgentObservationFieldScope = context.groupId
+        ? 'group_chat'
+        : context.userId
+          ? 'private_chat'
+          : 'tool_channel';
+
+      await database.saveAgentObservation({
+        trace_id: context.traceId,
+        conversation_id: context.conversationId ?? null,
+        source_type: 'tool_result',
+        field_scope: fieldScope,
+        message_type: context.groupId ? 'group' : context.userId ? 'private' : null,
+        user_id: context.userId ?? null,
+        group_id: context.groupId ?? null,
+        subject_user_id: context.userId ?? null,
+        counterparty_ids: context.userId ? [context.userId] : [],
+        content: `Tool ${toolName} ${success ? 'succeeded' : 'failed'}`,
+        tool_payload_ref: context.llmCallId ?? null,
+        raw_payload: {
+          tool_name: toolName,
+          success,
+          arguments: args,
+          result
+        },
+        occurred_at: new Date()
+      });
+    } catch (error) {
+      moduleLogger.warn('[FunctionCallDispatcher] Failed to record tool result observation', {
+        toolName,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
   /**
    * 记录静态工具执行日志
    */
@@ -387,7 +456,7 @@ export class FunctionCallDispatcher {
           tool_type, tool_name,
           arguments, result, status, error_message, duration_ms,
           execution_mode, side_effect, started_at, completed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'static', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, 'static', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           context.trace_id,
           context.tool_call_id || null,
