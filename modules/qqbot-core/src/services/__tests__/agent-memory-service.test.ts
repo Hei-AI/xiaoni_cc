@@ -124,71 +124,75 @@ function createWalkCandidateRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function createRelationshipSnapshotRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 301,
+    target_user_id: 123456,
+    group_id: null,
+    field_scope: 'private_chat',
+    relationship_summary: '当前关系稳定',
+    interaction_style: '自然简洁',
+    boundary_notes: null,
+    confidence: 0.8,
+    status: 'active',
+    source_reflection_id: 31,
+    last_evidence_id: 201,
+    last_observed_at: '2026-03-23T08:00:00.000Z',
+    is_current: 1,
+    boundary_strategy: 'allow_proactive',
+    notes_json: JSON.stringify({
+      impression_profile: {
+        familiarity: 0.72,
+        warmth: 0.66,
+        trust: 0.74,
+        engagement: 0.7,
+        fragility: 0.24
+      },
+      speech_policy: {
+        tone: 'warm',
+        directness: 'medium',
+        initiative: 'proactive_ok',
+        verbosity: 'adaptive'
+      },
+      memory_bias: {
+        promote_threshold_modifier: 0.25,
+        retrieve_boost_topics: ['Rust', '周末'],
+        sensitive_topics: ['催促']
+      }
+    }),
+    created_at: '2026-03-23T08:00:00.000Z',
+    updated_at: '2026-03-23T08:00:00.000Z',
+    ...overrides
+  };
+}
+
 describe('AgentMemoryService', () => {
   it('promotes explicit commitments into stable memories', async () => {
     const database = {
-      executeQuery: jest
-        .fn()
-        .mockResolvedValueOnce([
-          {
-            id: 1,
-            subject_type: 'user',
-            subject_id: '123456',
-            belief_type: 'commitment',
-            belief_key: 'commitment:周末学Rust',
-            claim: '用户打算周末学Rust',
-            normalized_claim: '用户打算周末学rust',
-            polarity: 'neutral',
-            confidence: 0.68,
-            status: 'active',
-            observation_count: 1,
-            last_evidence_id: 9,
-            first_observed_at: '2026-03-23T00:00:00.000Z',
-            last_observed_at: '2026-03-23T00:00:00.000Z',
-            created_at: '2026-03-23T00:00:00.000Z',
-            updated_at: '2026-03-23T00:00:00.000Z'
-          }
-        ])
-        .mockResolvedValueOnce([
-          {
-            id: 9,
-            source_type: 'incoming_message',
-            field_scope: 'private_chat',
-            user_id: 123456,
-            group_id: null,
-            subject_user_id: 123456,
-            content: '我打算周末学Rust',
-            occurred_at: '2026-03-23T00:00:00.000Z',
-            created_at: '2026-03-23T00:00:00.000Z'
-          }
-        ])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([
-          {
+      executeQuery: jest.fn(async (query: string) => {
+        if (query.includes('FROM agent_beliefs WHERE id = ? LIMIT 1')) {
+          return [createBeliefRow()];
+        }
+        if (query.includes('FROM agent_observations WHERE id = ? LIMIT 1')) {
+          return [createObservationRow()];
+        }
+        if (query.includes('FROM information_schema.tables')) {
+          return [{ total: 1 }];
+        }
+        if (query.includes('FROM agent_relationship_memories')) {
+          return [];
+        }
+        if (query.includes('normalized_content = ?')) {
+          return [];
+        }
+        if (query.includes('FROM agent_memories WHERE id = ? LIMIT 1')) {
+          return [createMemoryRow({
             id: 11,
-            memory_scope: 'person_global',
-            memory_type: 'commitment',
-            subject_type: 'user',
-            subject_id: '123456',
-            field_scope: 'private_chat',
-            user_id: 123456,
-            group_id: null,
-            target_user_id: null,
-            conversation_id: null,
-            title: 'commitment',
-            content: '用户打算周末学Rust',
-            normalized_content: '用户打算周末学Rust',
-            confidence: 0.68,
-            salience: 0.73,
-            status: 'active',
-            source_kind: 'explicit_commitment',
-            promoted_from_belief_id: 1,
-            last_recalled_at: null,
-            last_observed_at: '2026-03-23T00:00:00.000Z',
-            created_at: '2026-03-23T00:00:00.000Z',
-            updated_at: '2026-03-23T00:00:00.000Z'
-          }
-        ]),
+            source_kind: 'explicit_commitment'
+          })];
+        }
+        return [];
+      }),
       executeUpdate: jest.fn(),
       executeInsertAndReturnId: jest
         .fn()
@@ -215,58 +219,109 @@ describe('AgentMemoryService', () => {
     });
   });
 
+  it('promotes group evidence to person-global memory when relationship insight raises the threshold', async () => {
+    const database = {
+      executeQuery: jest.fn(async (query: string) => {
+        if (query.includes('FROM agent_beliefs WHERE id = ? LIMIT 1')) {
+          return [createBeliefRow()];
+        }
+        if (query.includes('FROM agent_observations WHERE id = ? LIMIT 1')) {
+          return [createObservationRow({
+            field_scope: 'group_chat',
+            message_type: 'group',
+            group_id: 10001,
+            content: '我打算周末学Rust'
+          })];
+        }
+        if (query.includes('FROM information_schema.tables')) {
+          return [{ total: 1 }];
+        }
+        if (query.includes('FROM agent_relationship_memories')) {
+          return [createRelationshipSnapshotRow({
+            field_scope: 'group_chat',
+            group_id: 10001
+          })];
+        }
+        if (query.includes('normalized_content = ?')) {
+          return [];
+        }
+        if (query.includes('FROM agent_memories WHERE id = ? LIMIT 1')) {
+          return [createMemoryRow({
+            id: 211,
+            memory_scope: 'person_global',
+            field_scope: 'group_chat',
+            group_id: 10001,
+            source_kind: 'explicit_commitment'
+          })];
+        }
+        return [];
+      }),
+      executeUpdate: jest.fn().mockResolvedValue(undefined),
+      executeInsertAndReturnId: jest
+        .fn()
+        .mockResolvedValueOnce(211)
+        .mockResolvedValueOnce(311)
+    };
+
+    const service = new AgentMemoryService(database as any);
+    const memory = await service.maybePromoteBelief(1, { evidenceObservationId: 9 });
+
+    expect(database.executeInsertAndReturnId).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO agent_memories'),
+      expect.arrayContaining([
+        'person_global',
+        'commitment',
+        'user',
+        '123456',
+        'group_chat',
+        123456,
+        10001
+      ])
+    );
+    expect(memory).toMatchObject({
+      id: 211,
+      memory_scope: 'person_global',
+      group_id: 10001
+    });
+  });
+
   it('prefers embedding-ranked memory candidates when available', async () => {
     const database = {
-      executeQuery: jest.fn().mockResolvedValueOnce([
-        {
-          id: 2,
-          memory_scope: 'person_global',
-          memory_type: 'preference',
-          subject_type: 'user',
-          subject_id: '123456',
-          field_scope: 'private_chat',
-          user_id: 123456,
-          group_id: null,
-          target_user_id: null,
-          conversation_id: null,
-          title: 'preference',
-          content: '用户喜欢芒果',
-          normalized_content: '用户喜欢芒果',
-          confidence: 0.8,
-          salience: 0.8,
-          status: 'active',
-          source_kind: 'repeated_signal',
-          promoted_from_belief_id: 2,
-          last_recalled_at: null,
-          last_observed_at: '2026-03-23T00:00:00.000Z',
-          created_at: '2026-03-23T00:00:00.000Z',
-          updated_at: '2026-03-23T00:00:00.000Z'
-        },
-        {
-          id: 1,
-          memory_scope: 'person_global',
-          memory_type: 'preference',
-          subject_type: 'user',
-          subject_id: '123456',
-          field_scope: 'private_chat',
-          user_id: 123456,
-          group_id: null,
-          target_user_id: null,
-          conversation_id: null,
-          title: 'preference',
-          content: '用户喜欢蓝莓',
-          normalized_content: '用户喜欢蓝莓',
-          confidence: 0.8,
-          salience: 0.8,
-          status: 'active',
-          source_kind: 'repeated_signal',
-          promoted_from_belief_id: 1,
-          last_recalled_at: null,
-          last_observed_at: '2026-03-23T00:00:00.000Z',
-          created_at: '2026-03-23T00:00:00.000Z',
-          updated_at: '2026-03-23T00:00:00.000Z'
+      executeQuery: jest.fn(async (query: string) => {
+        if (query.includes('FROM information_schema.tables')) {
+          return [{ total: 1 }];
         }
-      ]),
+        if (query.includes('FROM agent_relationship_memories')) {
+          return [];
+        }
+        if (query.includes('FROM agent_memories') && query.includes("status = 'active'")) {
+          return [
+            createMemoryRow({
+              id: 2,
+              memory_type: 'preference',
+              title: 'preference',
+              content: '用户喜欢芒果',
+              normalized_content: '用户喜欢芒果',
+              confidence: 0.8,
+              salience: 0.8,
+              source_kind: 'repeated_signal',
+              promoted_from_belief_id: 2
+            }),
+            createMemoryRow({
+              id: 1,
+              memory_type: 'preference',
+              title: 'preference',
+              content: '用户喜欢蓝莓',
+              normalized_content: '用户喜欢蓝莓',
+              confidence: 0.8,
+              salience: 0.8,
+              source_kind: 'repeated_signal',
+              promoted_from_belief_id: 1
+            })
+          ];
+        }
+        return [];
+      }),
       executeUpdate: jest.fn(),
       executeInsertAndReturnId: jest.fn()
     };
@@ -282,6 +337,57 @@ describe('AgentMemoryService', () => {
 
     expect(embeddingStore.searchByQuery).toHaveBeenCalled();
     expect(memories.map(memory => memory.id)).toEqual([2, 1]);
+  });
+
+  it('boosts retrieval for relationship insight topics during hybrid reranking', async () => {
+    const database = {
+      executeQuery: jest.fn(async (query: string) => {
+        if (query.includes('FROM information_schema.tables')) {
+          return [{ total: 1 }];
+        }
+        if (query.includes('FROM agent_relationship_memories')) {
+          return [createRelationshipSnapshotRow()];
+        }
+        if (query.includes('FROM agent_memories') && query.includes("status = 'active'")) {
+          return [
+            createMemoryRow({
+              id: 1,
+              content: '用户最近在准备周末继续学Rust',
+              normalized_content: '用户最近在准备周末继续学Rust',
+              title: 'commitment',
+              memory_type: 'commitment'
+            }),
+            createMemoryRow({
+              id: 2,
+              content: '用户最近工作有点忙',
+              normalized_content: '用户最近工作有点忙',
+              title: 'summary_insight',
+              memory_type: 'summary_insight'
+            })
+          ];
+        }
+        return [];
+      }),
+      executeUpdate: jest.fn().mockResolvedValue(undefined),
+      executeInsertAndReturnId: jest.fn()
+    };
+    const embeddingStore = {
+      searchByQuery: jest.fn().mockResolvedValue([
+        { entity_id: 2, similarity: 0.78 },
+        { entity_id: 1, similarity: 0.7 }
+      ])
+    };
+
+    const service = new AgentMemoryService(database as any, embeddingStore as any);
+    const memories = await service.getRetrievedMemoriesForMessage(
+      createMessage({
+        raw_message: '最近忙什么',
+        normalized_text: '最近忙什么'
+      }),
+      2
+    );
+
+    expect(memories.map(memory => memory.id)).toEqual([1, 2]);
   });
 
   it('reranks hybrid memory candidates with temporal decay instead of using semantic similarity alone', async () => {
@@ -876,6 +982,10 @@ describe('AgentMemoryService', () => {
               target_group_id: null,
               goal: '跟进：用户打算周末学Rust',
               trigger_condition: '下一次合适的对话窗口确认这项承诺的进展。',
+              plan_metadata_json: JSON.stringify({
+                draft_message: '先顺着你上次提到的 Rust 进展问一句，最近怎么样？',
+                tone_rationale: '关系快照偏暖，适合先轻一点开口。'
+              }),
               status: 'queued',
               scheduled_start_at: '2026-03-23T09:00:00.000Z',
               scheduled_end_at: null,
@@ -901,7 +1011,7 @@ describe('AgentMemoryService', () => {
 
     expect(sendPrivateMessage).toHaveBeenCalledWith(
       123456,
-      '前几天你提到打算周末学Rust，最近进展怎么样？',
+      '先顺着你上次提到的 Rust 进展问一句，最近怎么样？',
       expect.objectContaining({ id: 5, plan_type: 'followup_queue' })
     );
     expect(database.executeUpdate).toHaveBeenNthCalledWith(

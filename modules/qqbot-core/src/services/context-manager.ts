@@ -568,6 +568,18 @@ export class ContextManager {
     append(`interaction_style=${context.relationshipContext?.interaction_style || '默认顺势回应'}`);
     append(`boundary_strategy=${context.relationshipContext?.boundary_strategy || 'unknown'}`);
     append(`boundary_notes=${context.relationshipContext?.boundary_notes || 'none'}`);
+    if (context.relationshipContext?.impression_profile) {
+      const impression = context.relationshipContext.impression_profile;
+      append(`impression_profile=familiarity:${impression.familiarity.toFixed(2)} / warmth:${impression.warmth.toFixed(2)} / trust:${impression.trust.toFixed(2)} / engagement:${impression.engagement.toFixed(2)} / fragility:${impression.fragility.toFixed(2)}`);
+    }
+    if (context.relationshipContext?.speech_policy) {
+      const speechPolicy = context.relationshipContext.speech_policy;
+      append(`speech_policy=tone:${speechPolicy.tone} / directness:${speechPolicy.directness} / initiative:${speechPolicy.initiative} / verbosity:${speechPolicy.verbosity}`);
+    }
+    if (context.relationshipContext?.memory_bias) {
+      const memoryBias = context.relationshipContext.memory_bias;
+      append(`memory_bias=promote_threshold_modifier:${memoryBias.promote_threshold_modifier.toFixed(2)} / retrieve_boost_topics:${memoryBias.retrieve_boost_topics.join(' | ') || 'none'} / sensitive_topics:${memoryBias.sensitive_topics.join(' | ') || 'none'}`);
+    }
 
     append('--- Active Plans ---');
     if (context.activePlans && context.activePlans.length > 0) {

@@ -273,6 +273,27 @@ export type AgentRelationshipBoundaryStrategy =
   | 'observe_only'
   | 'do_not_contact';
 
+export interface AgentRelationshipImpressionProfile {
+  familiarity: number;
+  warmth: number;
+  trust: number;
+  engagement: number;
+  fragility: number;
+}
+
+export interface AgentRelationshipSpeechPolicy {
+  tone: 'reserved' | 'neutral' | 'warm' | 'playful';
+  directness: 'low' | 'medium' | 'high';
+  initiative: 'observe' | 'follow_window' | 'proactive_ok';
+  verbosity: 'brief' | 'adaptive' | 'detailed';
+}
+
+export interface AgentRelationshipMemoryBias {
+  promote_threshold_modifier: number;
+  retrieve_boost_topics: string[];
+  sensitive_topics: string[];
+}
+
 export interface AgentRelationshipMemoryRecord {
   id: number;
   target_user_id: number;
@@ -288,6 +309,9 @@ export interface AgentRelationshipMemoryRecord {
   last_observed_at: Date;
   is_current: boolean;
   boundary_strategy?: AgentRelationshipBoundaryStrategy | null;
+  impression_profile?: AgentRelationshipImpressionProfile | null;
+  speech_policy?: AgentRelationshipSpeechPolicy | null;
+  memory_bias?: AgentRelationshipMemoryBias | null;
   notes_json?: any;
   created_at: Date;
   updated_at: Date;
@@ -627,11 +651,11 @@ export interface LogEntry {
 
 export interface AgentPromptData {
   id: string;
-  agent_type: 'chat_bot' | 'intent_analyzer' | 'requirement_processor' | 'persona_chat' | 'custom';
+  agent_type: 'chat_bot' | 'intent_analyzer' | 'requirement_processor' | 'persona_chat' | 'tool_system' | 'custom';
   prompt_name: string;
   system_instructions: string[];
   user_prompt_template?: string;
-  context_variables?: Record<string, string>;
+  context_variables?: Record<string, any>;
   model_name?: string;
   model_config?: {
     temperature?: number;
@@ -676,7 +700,14 @@ export interface AgentAdvancedConfig {
     selectedTools?: string[]; // 🆕 使用预定义工具的key
     mode?: 'AUTO' | 'ANY' | 'NONE';
     allowedTools?: string[]; // 可调用的工具限制
+    functionCalling?: FunctionCallingConfig;
     functionCallingConfig?: FunctionCallingConfig;
+    customTools?: Array<{
+      id?: string;
+      name: string;
+      description?: string;
+      parameters?: any;
+    }>;
   };
   googleSearchConfig?: {
     enabled: boolean;

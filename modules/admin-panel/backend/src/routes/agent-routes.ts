@@ -2,58 +2,80 @@ import express from 'express';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
 
-// 创建Agent类型管理相关路由
+type AgentTypeDescriptor = {
+  value: string;
+  label: string;
+  description: string;
+};
+
+const BASE_AGENT_TYPES: AgentTypeDescriptor[] = [
+  {
+    value: 'chat_bot',
+    label: '聊天主链',
+    description: '面向常规对话和主回复链路的提示词。'
+  },
+  {
+    value: 'intent_analyzer',
+    label: '意图分析',
+    description: '解析用户意图、分类和上游决策的提示词。'
+  },
+  {
+    value: 'requirement_processor',
+    label: '需求处理',
+    description: '将自然语言需求加工为结构化结果的提示词。'
+  },
+  {
+    value: 'persona_chat',
+    label: '人格对话',
+    description: '面向人格态、角色态聊天的提示词。'
+  },
+  {
+    value: 'tool_system',
+    label: 'Tool 契约系统',
+    description: '关系洞察、虚拟行走 planner、反馈判定等结构化 tool prompts。'
+  },
+  {
+    value: 'custom',
+    label: '自定义',
+    description: '不属于标准链路的自定义 prompt 类型。'
+  }
+];
+
 export function createAgentRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
 
-  // 获取可用的Agent类型
-  router.get('/agent-types', async (req, res) => {
+  router.get('/agent-types', async (_req, res) => {
     try {
-      // 从agent_prompts表获取可用的agent类型
-      const agentTypes = await database.executeQuery(`
-        SELECT
-          id, prompt_name as agent_name, agent_type, system_instructions,
-          model_name, model_config, context_variables,
-          allowed_token_ids, is_active, created_at, updated_at
-        FROM agent_prompts
-        WHERE is_active = 1
-        ORDER BY prompt_name ASC
-      `);
+      const rows = await database.executeQuery<{ agent_type: string | null }>(
+        `
+          SELECT DISTINCT agent_type
+          FROM agent_prompts
+          WHERE agent_type IS NOT NULL
+            AND agent_type != ''
+          ORDER BY agent_type ASC
+        `
+      );
 
-      // 处理allowed_token_ids JSON字段
-      const processedAgentTypes = agentTypes.map((agent: any) => {
-        let allowedTokenIds: number[] = [];
-        try {
-          allowedTokenIds = agent.allowed_token_ids ? JSON.parse(agent.allowed_token_ids) : [];
-        } catch (e) {
-          logger.warn(`Invalid allowed_token_ids JSON for agent ${agent.id}`, { allowed_token_ids: agent.allowed_token_ids });
+      const seen = new Set(BASE_AGENT_TYPES.map(item => item.value));
+      const merged = [...BASE_AGENT_TYPES];
+
+      for (const row of rows) {
+        const agentType = row.agent_type?.trim();
+        if (!agentType || seen.has(agentType)) {
+          continue;
         }
-
-        return {
-          ...agent,
-          allowed_token_ids: allowedTokenIds,
-          token_count: allowedTokenIds.length
-        };
-      });
-
-      // 获取Agent使用统计
-      const usageStats = await database.executeQuery(`
-        SELECT
-          model_name,
-          COUNT(*) as usage_count,
-          COUNT(CASE WHEN status = 'success' THEN 1 END) as successful_calls,
-          AVG(processing_time_ms) as avg_processing_time
-        FROM llm_call_logs
-        WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-        GROUP BY model_name
-        ORDER BY usage_count DESC
-      `);
+        seen.add(agentType);
+        merged.push({
+          value: agentType,
+          label: agentType,
+          description: '数据库中已有的扩展 prompt 类型。'
+        });
+      }
 
       res.json({
         success: true,
-        data: processedAgentTypes,
-        total: processedAgentTypes.length,
-        usage_stats: usageStats,
+        data: merged,
+        total: merged.length,
         timestamp: new Date().toISOString()
       });
     } catch (error) {

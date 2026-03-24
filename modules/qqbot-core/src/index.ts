@@ -6,6 +6,7 @@ import HttpServer from './services/http-server';
 import AIService from './services/ai-service';
 import EmbeddingService from './services/embedding-service';
 import { CognitionEmbeddingStore } from './services/cognition-embedding-store';
+import { CognitionToolRuntime } from './services/cognition-tool-runtime';
 import { SessionManager } from './services/session-manager';
 import { LoggingService } from './services/logging-service';
 import { ContextManager } from './services/context-manager';
@@ -65,6 +66,7 @@ class QQBot implements BatchHandler {
   private aiService: AIService;
   private embeddingService: EmbeddingService;
   private cognitionEmbeddingStore: CognitionEmbeddingStore;
+  private cognitionToolRuntime: CognitionToolRuntime;
   private agentMemoryService: AgentMemoryService;
   private sessionManager: SessionManager;
   private loggingService: LoggingService;
@@ -118,11 +120,14 @@ class QQBot implements BatchHandler {
     this.aiService = new AIService(config.ai, this.database, this.loggingService);
     this.embeddingService = new EmbeddingService(config.ai);
     this.cognitionEmbeddingStore = new CognitionEmbeddingStore(this.database, this.embeddingService);
+    this.cognitionToolRuntime = new CognitionToolRuntime(this.aiService, this.database);
     this.agentMemoryService = new AgentMemoryService(
       this.database,
       this.cognitionEmbeddingStore,
       {
-        feedbackEvaluator: params => this.evaluateVirtualWalkFeedbackWithLLM(params)
+        feedbackEvaluator: params => this.evaluateVirtualWalkFeedbackWithLLM(params),
+        relationshipInsightEvaluator: params => this.evaluateRelationshipInsightWithLLM(params),
+        walkPlannerEvaluator: params => this.evaluateVirtualWalkPlannerWithLLM(params)
       }
     );
     this.sessionManager = new SessionManager(this.database);
@@ -742,6 +747,7 @@ class QQBot implements BatchHandler {
         throw new Error('Database connection failed');
       }
       await this.database.ensureOperationalIndexes();
+      await this.cognitionToolRuntime.ensureDefaultPrompts();
       this.moduleLogger.info('✅ Database connected');
 
       // 启动HTTP服务器
@@ -2906,6 +2912,175 @@ class QQBot implements BatchHandler {
     );
   }
 
+  private async evaluateRelationshipInsightWithLLM(params: {
+    targetUserId: number;
+    groupId: number | null;
+    fieldScope: 'private_chat' | 'group_chat';
+    memories: Array<{ content: string; confidence: number; last_observed_at: Date }>;
+    beliefs: Array<{ claim: string; confidence: number; last_observed_at: Date }>;
+    auxiliaryMemories: Array<{ content: string; memory_type: string; confidence: number }>;
+    observations: Array<{ content: string; occurred_at: Date }>;
+    actionRows: Array<{ status: string; occurred_at: Date }>;
+    existingSnapshot: {
+      relationship_summary?: string | null;
+      interaction_style?: string | null;
+      boundary_strategy?: string | null;
+      impression_profile?: any;
+      speech_policy?: any;
+      memory_bias?: any;
+    } | null;
+    reflectionKind: 'daily' | 'weekly' | 'promotion';
+    fallback: {
+      relationship_summary?: string;
+      interaction_style?: string;
+      boundary_notes?: string;
+      confidence?: number;
+      boundary_strategy?: string | null;
+      impression_profile?: any;
+      speech_policy?: any;
+      memory_bias?: any;
+    };
+    now: Date;
+  }): Promise<any | null> {
+    const result = await this.cognitionToolRuntime.executeStructuredTool<any>({
+      promptName: 'relationship_insight',
+      runtimeVariables: {
+        target_user_id: params.targetUserId,
+        group_id: params.groupId ?? 'null',
+        field_scope: params.fieldScope,
+        reflection_kind: params.reflectionKind,
+        now_iso: params.now.toISOString(),
+        strong_memories_json: JSON.stringify(params.memories.slice(0, 6).map(item => ({
+          content: item.content,
+          confidence: item.confidence,
+          last_observed_at: item.last_observed_at.toISOString()
+        }))),
+        strong_beliefs_json: JSON.stringify(params.beliefs.slice(0, 6).map(item => ({
+          claim: item.claim,
+          confidence: item.confidence,
+          last_observed_at: item.last_observed_at.toISOString()
+        }))),
+        auxiliary_memories_json: JSON.stringify(params.auxiliaryMemories.slice(0, 6)),
+        recent_observations_json: JSON.stringify(params.observations.slice(0, 8).map(item => ({
+          content: item.content,
+          occurred_at: item.occurred_at.toISOString()
+        }))),
+        recent_actions_json: JSON.stringify(params.actionRows.slice(0, 6).map(item => ({
+          status: item.status,
+          occurred_at: item.occurred_at.toISOString()
+        }))),
+        existing_snapshot_json: JSON.stringify(params.existingSnapshot ?? null),
+        fallback_json: JSON.stringify(params.fallback)
+      }
+    });
+
+    if (result.status !== 'accepted' || !result.args) {
+      return {
+        ...params.fallback,
+        llm_trace_id: result.traceId,
+        prompt_id: result.promptId,
+        prompt_name: result.promptName,
+        prompt_version: result.promptVersion,
+        tool_name: result.toolName,
+        tool_agent_type: result.toolAgentType,
+        contract_status: 'fallback',
+        contract_error_code: result.contractErrorCode ?? 'tool_contract_invalid'
+      };
+    }
+
+    return {
+      ...result.args,
+      llm_trace_id: result.traceId,
+      prompt_id: result.promptId,
+      prompt_name: result.promptName,
+      prompt_version: result.promptVersion,
+      tool_name: result.toolName,
+      tool_agent_type: result.toolAgentType,
+      contract_status: 'accepted',
+      contract_error_code: null
+    };
+  }
+
+  private async evaluateVirtualWalkPlannerWithLLM(params: {
+    field: {
+      fieldKey: string;
+      fieldScope: 'private_chat' | 'group_chat' | 'thread' | 'tool_channel';
+      targetUserId: number | null;
+      targetGroupId: number | null;
+      title: string;
+      latestObservationExcerpt: string | null;
+      priorityScore: number;
+      inboundScore: number;
+      relationshipScore: number;
+      planScore: number;
+      noveltyScore: number;
+      cooldownPenalty: number;
+      boundaryPenalty: number;
+      activePlanCount: number;
+      actionCount: number;
+      triggerSources: string[];
+      hardSuppressionReason: string | null;
+      latestActionAt: Date | null;
+      latestIncomingAt: Date | null;
+      latestFeedbackJudgement: 'positive' | 'neutral' | 'negative' | null;
+      latestFeedbackReasonCode: string | null;
+    };
+    relationship: {
+      relationship_summary?: string | null;
+      interaction_style?: string | null;
+      boundary_strategy?: string | null;
+      impression_profile?: any;
+      speech_policy?: any;
+      memory_bias?: any;
+    } | null;
+    strategicPlans: Array<{ plan_type: string; goal: string; trigger_condition?: string | null }>;
+    sourceMemories: Array<{ memory_type: string; content: string; salience: number; confidence: number }>;
+    sourceBeliefs: Array<{ belief_type: string; claim: string; confidence: number }>;
+    now: Date;
+  }): Promise<any | null> {
+    const result = await this.cognitionToolRuntime.executeStructuredTool<any>({
+      promptName: 'virtual_walk_planner',
+      runtimeVariables: {
+        now_iso: params.now.toISOString(),
+        field_json: JSON.stringify({
+          ...params.field,
+          latestActionAt: params.field.latestActionAt?.toISOString() ?? null,
+          latestIncomingAt: params.field.latestIncomingAt?.toISOString() ?? null
+        }),
+        relationship_json: JSON.stringify(params.relationship ?? null),
+        strategic_plans_json: JSON.stringify(params.strategicPlans.slice(0, 4)),
+        source_memories_json: JSON.stringify(params.sourceMemories.slice(0, 6)),
+        source_beliefs_json: JSON.stringify(params.sourceBeliefs.slice(0, 6))
+      }
+    });
+
+    if (result.status !== 'accepted' || !result.args) {
+      return {
+        action: params.field.hardSuppressionReason ? 'suppress' : 'observe',
+        llm_trace_id: result.traceId,
+        prompt_id: result.promptId,
+        prompt_name: result.promptName,
+        prompt_version: result.promptVersion,
+        tool_name: result.toolName,
+        tool_agent_type: result.toolAgentType,
+        contract_status: 'fallback',
+        contract_error_code: result.contractErrorCode ?? 'tool_contract_invalid'
+      };
+    }
+
+    return {
+      ...result.args,
+      llm_trace_id: result.traceId,
+      prompt_id: result.promptId,
+      prompt_name: result.promptName,
+      prompt_version: result.promptVersion,
+      tool_name: result.toolName,
+      tool_agent_type: result.toolAgentType,
+      contract_status: 'accepted',
+      contract_error_code: null
+    };
+  }
+
   private async evaluateVirtualWalkFeedbackWithLLM(params: {
     fieldKey: string;
     targetUserId: number | null;
@@ -2939,85 +3114,65 @@ class QQBot implements BatchHandler {
     explanation?: string;
     should_suppress?: boolean;
     llm_trace_id?: string | null;
+    prompt_id?: string | null;
+    prompt_name?: string | null;
+    prompt_version?: number | null;
+    tool_name?: string | null;
+    tool_agent_type?: string | null;
+    contract_status?: 'accepted' | 'fallback';
+    contract_error_code?: string | null;
   } | null> {
-    const traceId = uuidv4();
-    const prompt = [
-      '你是小腻虚拟行走的反馈判定器。你只输出 JSON，不输出任何额外文字。',
-      'JSON schema:',
-      '{"judgement":"positive|neutral|negative","reason_code":"snake_case","confidence":0-1,"explanation":"...","should_suppress":true|false}',
-      `field_key=${params.fieldKey}`,
-      `target_user_id=${params.targetUserId ?? 'null'}`,
-      `target_group_id=${params.targetGroupId ?? 'null'}`,
-      `action_type=${params.actionLog.action_type}`,
-      `action_occurred_at=${params.actionLog.occurred_at.toISOString()}`,
-      `action_payload=${JSON.stringify(params.actionLog.payload_json ?? null)}`,
-      `relationship=${JSON.stringify(params.relationship ?? null)}`,
-      `subsequent_observations=${JSON.stringify(
-        params.subsequentObservations.slice(0, 6).map(item => ({
-          content: item.content,
-          occurred_at: item.occurred_at.toISOString()
-        }))
-      )}`,
-      `fallback=${JSON.stringify(params.fallback)}`,
-      '判定规则：',
-      '1. 明确拒绝、冷淡、要求暂停联系 -> negative。',
-      '2. 主动动作后对方继续接话、展开、推进承诺 -> positive。',
-      '3. 仅有礼貌短回复或仍在等待窗口，可以判 neutral。',
-      '4. should_suppress 只在 negative 时通常为 true。'
-    ].join('\n');
-
-    try {
-      const response = await this.aiService.generateContent(
-        {
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.1,
-            responseMimeType: 'application/json'
-          }
-        },
-        traceId,
-        {
-          agentType: 'tool_system',
-          promptName: 'virtual_walk_feedback'
-        }
-      );
-
-      const rawText =
-        (typeof response?.text === 'string' && response.text) ||
-        (typeof response?.processedResponse === 'string' && response.processedResponse) ||
-        '';
-      const parsed = rawText ? JSON.parse(rawText) : null;
-      if (!parsed || typeof parsed !== 'object') {
-        return null;
+    const result = await this.cognitionToolRuntime.executeStructuredTool<any>({
+      promptName: 'virtual_walk_feedback',
+      runtimeVariables: {
+        field_key: params.fieldKey,
+        target_user_id: params.targetUserId ?? 'null',
+        target_group_id: params.targetGroupId ?? 'null',
+        action_type: params.actionLog.action_type,
+        action_occurred_at: params.actionLog.occurred_at.toISOString(),
+        action_payload_json: JSON.stringify(params.actionLog.payload_json ?? null),
+        relationship_json: JSON.stringify(params.relationship ?? null),
+        subsequent_observations_json: JSON.stringify(
+          params.subsequentObservations.slice(0, 6).map(item => ({
+            content: item.content,
+            occurred_at: item.occurred_at.toISOString()
+          }))
+        ),
+        fallback_json: JSON.stringify(params.fallback)
       }
+    });
 
-      const judgement = parsed.judgement;
-      const reasonCode = typeof parsed.reason_code === 'string' ? parsed.reason_code.trim() : '';
-      if (
-        (judgement !== 'positive' && judgement !== 'neutral' && judgement !== 'negative') ||
-        !reasonCode
-      ) {
-        return null;
-      }
-
+    if (result.status !== 'accepted' || !result.args) {
       return {
-        judgement,
-        reason_code: reasonCode,
-        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : undefined,
-        explanation: typeof parsed.explanation === 'string' ? parsed.explanation : undefined,
-        should_suppress: typeof parsed.should_suppress === 'boolean'
-          ? parsed.should_suppress
-          : judgement === 'negative',
-        llm_trace_id: traceId
+        ...params.fallback,
+        llm_trace_id: result.traceId,
+        prompt_id: result.promptId,
+        prompt_name: result.promptName,
+        prompt_version: result.promptVersion,
+        tool_name: result.toolName,
+        tool_agent_type: result.toolAgentType,
+        contract_status: 'fallback',
+        contract_error_code: result.contractErrorCode ?? 'tool_contract_invalid'
       };
-    } catch (error) {
-      this.moduleLogger.warn('virtual_walk_feedback_llm_failed', {
-        traceId,
-        fieldKey: params.fieldKey,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return null;
     }
+
+    return {
+      judgement: result.args.judgement,
+      reason_code: typeof result.args.reason_code === 'string' ? result.args.reason_code.trim() : '',
+      confidence: typeof result.args.confidence === 'number' ? result.args.confidence : undefined,
+      explanation: typeof result.args.explanation === 'string' ? result.args.explanation : undefined,
+      should_suppress: typeof result.args.should_suppress === 'boolean'
+        ? result.args.should_suppress
+        : result.args.judgement === 'negative',
+      llm_trace_id: result.traceId,
+      prompt_id: result.promptId,
+      prompt_name: result.promptName,
+      prompt_version: result.promptVersion,
+      tool_name: result.toolName,
+      tool_agent_type: result.toolAgentType,
+      contract_status: 'accepted',
+      contract_error_code: null
+    };
   }
 
   private getProactivityDefaults(): AgentProactivityRuntimeConfig {

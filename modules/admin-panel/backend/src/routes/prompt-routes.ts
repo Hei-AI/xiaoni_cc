@@ -35,6 +35,36 @@ export function createPromptRoutes(
   // 获取所有Prompt模板
   router.get('/prompts', async (req, res) => {
     try {
+      const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+      const limit = Math.max(1, Math.min(200, Number.parseInt(String(req.query.limit || '20'), 10) || 20));
+      const offset = (page - 1) * limit;
+      const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+      const agentType = typeof req.query.agent_type === 'string' ? req.query.agent_type.trim() : '';
+
+      const whereClauses: string[] = [];
+      const params: any[] = [];
+
+      if (search.length > 0) {
+        whereClauses.push('(prompt_name LIKE ? OR description LIKE ? OR agent_type LIKE ?)');
+        const likeValue = `%${search}%`;
+        params.push(likeValue, likeValue, likeValue);
+      }
+
+      if (agentType.length > 0) {
+        whereClauses.push('agent_type = ?');
+        params.push(agentType);
+      }
+
+      const whereSql = whereClauses.length > 0
+        ? `WHERE ${whereClauses.join(' AND ')}`
+        : '';
+
+      const totalRows = await database.executeQuery<{ total: number }>(
+        `SELECT COUNT(*) AS total FROM agent_prompts ${whereSql}`,
+        params
+      );
+      const total = Number(totalRows[0]?.total || 0);
+
       const prompts = await database.executeQuery(
         `SELECT
           id, prompt_name, agent_type, description, system_instructions,
@@ -42,12 +72,18 @@ export function createPromptRoutes(
           is_active, created_at, updated_at, version,
           model_name, allowed_token_ids, advanced_config
         FROM agent_prompts
-        ORDER BY created_at DESC`
+        ${whereSql}
+        ORDER BY created_at DESC
+        LIMIT ${limit} OFFSET ${offset}`,
+        params
       );
 
       res.json({
         success: true,
         data: prompts,
+        total,
+        page,
+        limit,
         timestamp: new Date().toISOString()
       });
 

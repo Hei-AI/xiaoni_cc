@@ -10,7 +10,10 @@ import {
   AgentObservationRecord,
   AgentPlanRecord,
   AgentRelationshipBoundaryStrategy,
+  AgentRelationshipImpressionProfile,
+  AgentRelationshipMemoryBias,
   AgentRelationshipMemoryRecord,
+  AgentRelationshipSpeechPolicy,
   AgentReflectionKind,
   AgentSelfModelRecord,
   AgentWalkCandidateRecord,
@@ -26,6 +29,9 @@ const REFLECTION_POLL_INTERVAL_MS = 60_000;
 const DEFAULT_HYBRID_CANDIDATE_LIMIT = 16;
 const DEFAULT_MEMORY_HALF_LIFE_DAYS = 14;
 const DEFAULT_EVIDENCE_HALF_LIFE_DAYS = 3;
+const DEFAULT_BM25_K1 = 1.2;
+const DEFAULT_BM25_B = 0.75;
+const MAX_VIRTUAL_WALK_PLANNER_CALLS = 12;
 const SILENT_FLUSH_MIN_PENDING_OBSERVATIONS = 12;
 const SILENT_FLUSH_MAX_SOURCE_OBSERVATIONS = 6;
 const SILENT_FLUSH_MIN_INTERVAL_MS = 30 * 60 * 1000;
@@ -36,14 +42,17 @@ interface HybridMemoryCandidate {
   structuredScore: number;
   lexicalScore: number;
   temporalScore: number;
+  importanceScore: number;
   finalScore: number;
 }
 
 interface HybridEvidenceCandidate {
   observation: AgentObservationRecord;
   semanticScore: number;
+  lexicalScore: number;
   relationScore: number;
   temporalScore: number;
+  importanceScore: number;
   finalScore: number;
 }
 
@@ -74,7 +83,55 @@ type FeedbackEvaluationResult = {
   explanation?: string;
   should_suppress?: boolean;
   llm_trace_id?: string | null;
+  prompt_id?: string | null;
+  prompt_name?: string | null;
+  prompt_version?: number | null;
+  tool_name?: string | null;
+  tool_agent_type?: string | null;
+  contract_status?: 'accepted' | 'fallback';
+  contract_error_code?: string | null;
   explanation_json?: any;
+};
+
+type RelationshipInsightEvaluationResult = {
+  relationship_summary?: string;
+  interaction_style?: string;
+  boundary_notes?: string;
+  confidence?: number;
+  boundary_strategy?: AgentRelationshipBoundaryStrategy | null;
+  impression_profile?: AgentRelationshipImpressionProfile | null;
+  speech_policy?: AgentRelationshipSpeechPolicy | null;
+  memory_bias?: AgentRelationshipMemoryBias | null;
+  llm_trace_id?: string | null;
+  prompt_id?: string | null;
+  prompt_name?: string | null;
+  prompt_version?: number | null;
+  tool_name?: string | null;
+  tool_agent_type?: string | null;
+  contract_status?: 'accepted' | 'fallback';
+  contract_error_code?: string | null;
+  notes_json?: any;
+};
+
+type WalkPlannerAction = 'observe' | 'speak' | 'suppress';
+
+type WalkPlannerEvaluationResult = {
+  action: WalkPlannerAction;
+  selected_reason?: string;
+  suppressed_reason?: string | null;
+  goal?: string;
+  trigger_condition?: string;
+  draft_message?: string;
+  tone_rationale?: string;
+  confidence?: number;
+  llm_trace_id?: string | null;
+  prompt_id?: string | null;
+  prompt_name?: string | null;
+  prompt_version?: number | null;
+  tool_name?: string | null;
+  tool_agent_type?: string | null;
+  contract_status?: 'accepted' | 'fallback';
+  contract_error_code?: string | null;
 };
 
 type AgentMemoryServiceOptions = {
@@ -94,12 +151,58 @@ type AgentMemoryServiceOptions = {
     fallback: FeedbackEvaluationResult;
     now: Date;
   }) => Promise<FeedbackEvaluationResult | null>;
+  relationshipInsightEvaluator?: (params: {
+    targetUserId: number;
+    groupId: number | null;
+    fieldScope: 'private_chat' | 'group_chat';
+    memories: AgentMemoryRecord[];
+    beliefs: AgentBeliefRecord[];
+    auxiliaryMemories: AgentMemoryRecord[];
+    observations: AgentObservationRecord[];
+    actionRows: any[];
+    existingSnapshot: AgentRelationshipMemoryRecord | null;
+    reflectionKind: AgentReflectionKind;
+    fallback: RelationshipInsightEvaluationResult;
+    now: Date;
+  }) => Promise<RelationshipInsightEvaluationResult | null>;
+  walkPlannerEvaluator?: (params: {
+    field: {
+      fieldKey: string;
+      fieldScope: 'private_chat' | 'group_chat' | 'thread' | 'tool_channel';
+      targetUserId: number | null;
+      targetGroupId: number | null;
+      title: string;
+      latestObservationExcerpt: string | null;
+      priorityScore: number;
+      inboundScore: number;
+      relationshipScore: number;
+      planScore: number;
+      noveltyScore: number;
+      cooldownPenalty: number;
+      boundaryPenalty: number;
+      activePlanCount: number;
+      actionCount: number;
+      triggerSources: string[];
+      hardSuppressionReason: string | null;
+      latestActionAt: Date | null;
+      latestIncomingAt: Date | null;
+      latestFeedbackJudgement: AgentFeedbackJudgement | null;
+      latestFeedbackReasonCode: string | null;
+    };
+    relationship: AgentRelationshipMemoryRecord | null;
+    strategicPlans: AgentPlanRecord[];
+    sourceMemories: AgentMemoryRecord[];
+    sourceBeliefs: AgentBeliefRecord[];
+    now: Date;
+  }) => Promise<WalkPlannerEvaluationResult | null>;
 };
 
 export class AgentMemoryService {
   private readonly moduleLogger = logger.createModuleLogger('agent-memory-service');
   private lastReflectionCheckAt = 0;
   private readonly feedbackEvaluator?: AgentMemoryServiceOptions['feedbackEvaluator'];
+  private readonly relationshipInsightEvaluator?: AgentMemoryServiceOptions['relationshipInsightEvaluator'];
+  private readonly walkPlannerEvaluator?: AgentMemoryServiceOptions['walkPlannerEvaluator'];
 
   constructor(
     private readonly database: DatabaseManager,
@@ -107,6 +210,8 @@ export class AgentMemoryService {
     options?: AgentMemoryServiceOptions
   ) {
     this.feedbackEvaluator = options?.feedbackEvaluator;
+    this.relationshipInsightEvaluator = options?.relationshipInsightEvaluator;
+    this.walkPlannerEvaluator = options?.walkPlannerEvaluator;
   }
 
   public async maybePromoteBelief(
@@ -703,6 +808,7 @@ export class AgentMemoryService {
     const fieldKeys = Array.from(fields.keys());
     const candidateRows: Array<Omit<AgentWalkCandidateRecord, 'id' | 'created_at'>> = [];
     if (fieldKeys.length > 0) {
+      let remainingPlannerCalls = this.walkPlannerEvaluator ? MAX_VIRTUAL_WALK_PLANNER_CALLS : 0;
       for (const field of fields.values()) {
         const observeEnabled = field.group_id ? observedGroupIds.has(field.group_id) : true;
         const proactiveEnabled = field.group_id ? allowedGroupIds.has(field.group_id) : true;
@@ -754,7 +860,7 @@ export class AgentMemoryService {
             : hasUnknownRelationship
               ? 0.55
               : 0;
-        const suppressionReason = this.buildWalkSuppressionReason({
+        const hardSuppressionReason = this.buildWalkSuppressionReason({
           fieldScope: field.field_scope,
           relationship: field.relationship,
           cooldownPenalty,
@@ -774,9 +880,75 @@ export class AgentMemoryService {
           cooldownPenalty -
           boundaryPenalty
         );
+        const plannerEligible = Boolean(
+          this.walkPlannerEvaluator &&
+          remainingPlannerCalls > 0 &&
+          (priorityScore >= 0.35 || triggerSources.length > 0 || Boolean(field.relationship))
+        );
+        const sourceMemories = field.user_id
+          ? [
+              ...(commitmentMemoriesByUser.get(field.user_id) ?? []),
+              ...(relationshipMemoriesByUser.get(field.user_id) ?? [])
+            ]
+          : [];
+        const sourceBeliefs = field.user_id
+          ? [
+              ...(commitmentBeliefsByUser.get(field.user_id) ?? []),
+              ...(relationshipBeliefsByUser.get(field.user_id) ?? [])
+            ]
+          : [];
+        const plannerResult = plannerEligible
+          ? await this.evaluateWalkPlanner({
+              field: {
+                fieldKey: field.field_key,
+                fieldScope: field.field_scope,
+                targetUserId: field.user_id,
+                targetGroupId: field.group_id,
+                title: field.title,
+                latestObservationExcerpt: field.latest_observation_excerpt,
+                priorityScore,
+                inboundScore,
+                relationshipScore,
+                planScore,
+                noveltyScore,
+                cooldownPenalty,
+                boundaryPenalty,
+                activePlanCount: field.active_plan_count,
+                actionCount: field.action_count,
+                triggerSources,
+                hardSuppressionReason,
+                latestActionAt: field.latest_action_at,
+                latestIncomingAt: field.latest_incoming_at,
+                latestFeedbackJudgement: field.latest_feedback_judgement,
+                latestFeedbackReasonCode: field.latest_feedback_reason_code
+              },
+              relationship: field.relationship,
+              strategicPlans,
+              sourceMemories,
+              sourceBeliefs,
+              now
+            })
+          : null;
+        if (plannerEligible) {
+          remainingPlannerCalls -= 1;
+        }
+        const plannerAction = plannerResult?.action ?? (hardSuppressionReason ? 'suppress' : triggerSources.length > 0 ? 'speak' : 'observe');
+        const rawSuppressionReason = hardSuppressionReason
+          ?? (plannerAction === 'suppress'
+            ? plannerResult?.suppressed_reason ?? 'planner_suppressed'
+            : plannerAction === 'observe'
+              ? plannerResult?.suppressed_reason ?? 'planner_observe'
+              : null);
+        const suppressionReason = rawSuppressionReason
+          ? this.truncateForFlush(rawSuppressionReason, 96)
+          : null;
         const canSpeakNow = suppressionReason === null &&
+          plannerAction === 'speak' &&
           Boolean(field.user_id || field.group_id) &&
           triggerSources.length > 0;
+        const rawSelectedReason = plannerResult?.selected_reason
+          ?? this.buildWalkSelectedReason(field, triggerSources);
+        const selectedReason = this.truncateForFlush(rawSelectedReason, 96);
 
         await this.database.executeUpdate(
           `
@@ -856,9 +1028,27 @@ export class AgentMemoryService {
               active_plan_count: field.active_plan_count,
               relationship_summary: field.relationship?.relationship_summary ?? null,
               boundary_strategy: field.relationship?.boundary_strategy ?? null,
+              impression_profile: field.relationship?.impression_profile ?? null,
+              speech_policy: field.relationship?.speech_policy ?? null,
+              memory_bias: field.relationship?.memory_bias ?? null,
               latest_observation_excerpt: field.latest_observation_excerpt,
               source_observation_ids: field.source_observation_ids.slice(0, 12),
               trigger_sources: triggerSources,
+              planner_action: plannerAction,
+              planner_selected_reason: rawSelectedReason,
+              planner_suppressed_reason: rawSuppressionReason,
+              planner_goal: plannerResult?.goal ?? null,
+              planner_trigger_condition: plannerResult?.trigger_condition ?? null,
+              planner_draft_message: plannerResult?.draft_message ?? null,
+              planner_tone_rationale: plannerResult?.tone_rationale ?? null,
+              planner_llm_trace_id: plannerResult?.llm_trace_id ?? null,
+              planner_prompt_id: plannerResult?.prompt_id ?? null,
+              planner_prompt_name: plannerResult?.prompt_name ?? null,
+              planner_prompt_version: plannerResult?.prompt_version ?? null,
+              planner_tool_name: plannerResult?.tool_name ?? null,
+              planner_tool_agent_type: plannerResult?.tool_agent_type ?? null,
+              planner_contract_status: plannerResult?.contract_status ?? null,
+              planner_contract_error_code: plannerResult?.contract_error_code ?? null,
               can_speak_now: canSpeakNow,
               latest_feedback_judgement: field.latest_feedback_judgement,
               latest_feedback_reason_code: field.latest_feedback_reason_code,
@@ -885,7 +1075,7 @@ export class AgentMemoryService {
             target_user_id: field.user_id,
             target_group_id: field.group_id,
             priority_score: priorityScore,
-            selected_reason: this.buildWalkSelectedReason(field, triggerSources),
+            selected_reason: selectedReason,
             suppressed_reason: suppressionReason,
             can_speak_now: canSpeakNow,
             source_relationship_id: field.relationship?.id ?? null,
@@ -905,7 +1095,27 @@ export class AgentMemoryService {
               relationship_snapshot_id: field.relationship?.id ?? null,
               latest_observation_excerpt: field.latest_observation_excerpt,
               latest_action_at: field.latest_action_at?.toISOString() ?? null,
-              latest_incoming_at: field.latest_incoming_at?.toISOString() ?? null
+              latest_incoming_at: field.latest_incoming_at?.toISOString() ?? null,
+              planner_action: plannerAction,
+              planner_goal: plannerResult?.goal ?? null,
+              planner_trigger_condition: plannerResult?.trigger_condition ?? null,
+              draft_message: plannerResult?.draft_message ?? null,
+              tone_rationale: plannerResult?.tone_rationale ?? null,
+              planner_llm_trace_id: plannerResult?.llm_trace_id ?? null,
+              planner_prompt_id: plannerResult?.prompt_id ?? null,
+              planner_prompt_name: plannerResult?.prompt_name ?? null,
+              planner_prompt_version: plannerResult?.prompt_version ?? null,
+              planner_tool_name: plannerResult?.tool_name ?? null,
+              planner_tool_agent_type: plannerResult?.tool_agent_type ?? null,
+              planner_contract_status: plannerResult?.contract_status ?? null,
+              planner_contract_error_code: plannerResult?.contract_error_code ?? null,
+              relationship_insight: field.relationship
+                ? {
+                    impression_profile: field.relationship.impression_profile ?? null,
+                    speech_policy: field.relationship.speech_policy ?? null,
+                    memory_bias: field.relationship.memory_bias ?? null
+                  }
+                : null
             },
             computed_at: now
           });
@@ -1072,6 +1282,7 @@ export class AgentMemoryService {
   ): Promise<AgentMemoryRecord[]> {
     const safeLimit = Math.max(1, Math.min(8, Math.floor(limit)));
     const queryText = this.extractMessageQueryText(message);
+    const relationshipContext = await this.getRelationshipContextForMessage(message);
     const candidateLimit = Math.max(DEFAULT_HYBRID_CANDIDATE_LIMIT, safeLimit * 3);
     const structuredMemories = await this.fetchStructuredMemoryCandidates(message, candidateLimit);
     const candidateMap = new Map<number, HybridMemoryCandidate>();
@@ -1080,6 +1291,7 @@ export class AgentMemoryService {
       candidateMap.set(memory.id, this.buildHybridMemoryCandidate(memory, {
         queryText,
         semanticScore: 0,
+        relationshipContext,
         now: new Date()
       }));
     });
@@ -1109,6 +1321,7 @@ export class AgentMemoryService {
               candidateMap.set(memory.id, this.buildHybridMemoryCandidate(memory, {
                 queryText,
                 semanticScore: embeddingScores.get(memory.id) || 0,
+                relationshipContext,
                 now: new Date()
               }));
             });
@@ -1123,6 +1336,7 @@ export class AgentMemoryService {
             candidateMap.set(memoryId, this.buildHybridMemoryCandidate(candidate.memory, {
               queryText,
               semanticScore,
+              relationshipContext,
               now: new Date()
             }));
           });
@@ -1136,7 +1350,7 @@ export class AgentMemoryService {
     }
 
     const memories = this.rerankMemoryCandidates(
-      Array.from(candidateMap.values()),
+      this.applyBm25ScoresToMemoryCandidates(Array.from(candidateMap.values()), queryText),
       safeLimit
     ).map(candidate => candidate.memory);
 
@@ -1159,6 +1373,7 @@ export class AgentMemoryService {
   ): Promise<AgentObservationRecord[]> {
     const safeLimit = Math.max(1, Math.min(4, Math.floor(limit)));
     const queryText = this.extractMessageQueryText(message);
+    const relationshipContext = await this.getRelationshipContextForMessage(message);
     const candidateLimit = Math.max(DEFAULT_HYBRID_CANDIDATE_LIMIT, safeLimit * 3);
     const candidateMap = new Map<number, HybridEvidenceCandidate>();
     const now = new Date();
@@ -1170,7 +1385,9 @@ export class AgentMemoryService {
           row.observation.id,
           this.buildHybridEvidenceCandidate(row.observation, {
             semanticScore: 0,
+            queryText,
             relationScore: 1,
+            relationshipContext,
             now
           })
         );
@@ -1204,7 +1421,9 @@ export class AgentMemoryService {
               row.observation.id,
               this.buildHybridEvidenceCandidate(row.observation, {
                 semanticScore,
+                queryText,
                 relationScore,
+                relationshipContext,
                 now
               })
             );
@@ -1224,18 +1443,20 @@ export class AgentMemoryService {
         return;
       }
 
-      candidateMap.set(
+        candidateMap.set(
         observation.id,
         this.buildHybridEvidenceCandidate(observation, {
           semanticScore: 0,
+          queryText,
           relationScore: 0.2,
+          relationshipContext,
           now
         })
       );
     });
 
     return this.rerankEvidenceCandidates(
-      Array.from(candidateMap.values()),
+      this.applyBm25ScoresToEvidenceCandidates(Array.from(candidateMap.values()), queryText),
       safeLimit
     ).map(candidate => candidate.observation);
   }
@@ -1851,7 +2072,7 @@ export class AgentMemoryService {
     const horizonStart = new Date(
       now.getTime() - (reflectionKind === 'weekly' ? 30 : 14) * 24 * 60 * 60 * 1000
     );
-    const [memoryRows, beliefRows, observationRows, actionRows, currentRows] = await Promise.all([
+    const [memoryRows, auxiliaryMemoryRows, beliefRows, observationRows, actionRows, currentRows] = await Promise.all([
       this.database.executeQuery<any>(
         `
           SELECT *
@@ -1862,6 +2083,19 @@ export class AgentMemoryService {
             AND last_observed_at >= ?
           ORDER BY salience DESC, confidence DESC, last_observed_at DESC, id DESC
           LIMIT 200
+        `,
+        [horizonStart]
+      ),
+      this.database.executeQuery<any>(
+        `
+          SELECT *
+          FROM agent_memories
+          WHERE status = 'active'
+            AND subject_type = 'user'
+            AND memory_type IN ('preference', 'summary_insight')
+            AND last_observed_at >= ?
+          ORDER BY salience DESC, confidence DESC, last_observed_at DESC, id DESC
+          LIMIT 240
         `,
         [horizonStart]
       ),
@@ -1914,15 +2148,18 @@ export class AgentMemoryService {
     ]);
 
     const relationshipMemories = memoryRows.map(row => this.mapAgentMemoryRow(row));
+    const auxiliaryMemories = auxiliaryMemoryRows.map(row => this.mapAgentMemoryRow(row));
     const relationshipBeliefs = beliefRows.map(row => this.mapAgentBeliefRow(row));
     const observations = observationRows.map(row => this.mapAgentObservationRow(row));
     const currentSnapshots = currentRows.map(row => this.mapAgentRelationshipMemoryRow(row));
+    const auxiliaryMemoriesByKey = new Map<string, AgentMemoryRecord[]>();
     const targets = new Map<string, {
       targetUserId: number;
       groupId: number | null;
       fieldScope: 'private_chat' | 'group_chat';
       observations: AgentObservationRecord[];
       memories: AgentMemoryRecord[];
+      auxiliaryMemories: AgentMemoryRecord[];
       beliefs: AgentBeliefRecord[];
       actionRows: any[];
       existingSnapshot: AgentRelationshipMemoryRecord | null;
@@ -1944,6 +2181,7 @@ export class AgentMemoryService {
         fieldScope,
         observations: [],
         memories: [],
+        auxiliaryMemories: [],
         beliefs: [],
         actionRows: [],
         existingSnapshot: null
@@ -1972,6 +2210,25 @@ export class AgentMemoryService {
       }
 
       ensureTarget(targetUserId, null, 'private_chat').beliefs.push(belief);
+    });
+
+    auxiliaryMemories.forEach(memory => {
+      const targetUserId = memory.user_id ?? this.parseNumericId(memory.subject_id);
+      if (!targetUserId) {
+        return;
+      }
+
+      const globalKey = `${targetUserId}:global`;
+      const globalExisting = auxiliaryMemoriesByKey.get(globalKey) ?? [];
+      globalExisting.push(memory);
+      auxiliaryMemoriesByKey.set(globalKey, globalExisting);
+
+      if (memory.group_id) {
+        const groupKey = `${targetUserId}:${memory.group_id}`;
+        const groupExisting = auxiliaryMemoriesByKey.get(groupKey) ?? [];
+        groupExisting.push(memory);
+        auxiliaryMemoriesByKey.set(groupKey, groupExisting);
+      }
     });
 
     currentSnapshots.forEach(snapshot => {
@@ -2026,6 +2283,10 @@ export class AgentMemoryService {
         ...target.memories.map(memory => memory.last_observed_at.getTime()),
         ...target.beliefs.map(belief => belief.last_observed_at.getTime())
       ].sort((a, b) => b - a)[0] ?? 0;
+      target.auxiliaryMemories = this.uniqueMemoryRecords([
+        ...(auxiliaryMemoriesByKey.get(`${target.targetUserId}:${target.groupId ?? 'global'}`) ?? []),
+        ...(target.groupId ? (auxiliaryMemoriesByKey.get(`${target.targetUserId}:global`) ?? []) : [])
+      ]).slice(0, 8);
       const existingOverride = target.existingSnapshot?.notes_json?.manual_override;
       const existingUpdatedAt = target.existingSnapshot?.updated_at?.getTime() ?? 0;
 
@@ -2037,21 +2298,67 @@ export class AgentMemoryService {
         continue;
       }
 
-      const boundaryStrategy = this.determineRelationshipBoundaryStrategy(
+      const fallbackBoundaryStrategy = this.determineRelationshipBoundaryStrategy(
         target.memories.length + target.beliefs.length,
         target.actionRows,
         target.observations
       );
+      const fallback: RelationshipInsightEvaluationResult = {
+        relationship_summary: this.buildRelationshipSummary(
+          target.targetUserId,
+          target.groupId,
+          target.memories,
+          target.beliefs
+        ),
+        interaction_style: this.buildRelationshipInteractionStyle(target.groupId),
+        boundary_notes: fallbackBoundaryStrategy === 'allow_proactive'
+          ? '允许在自然窗口中谨慎主动联系。'
+          : '当前以观察和顺势回复为主，不主动打扰。',
+        confidence: this.deriveRelationshipConfidence(target.memories.length, target.beliefs.length),
+        boundary_strategy: fallbackBoundaryStrategy,
+        impression_profile: this.buildFallbackImpressionProfile(target),
+        speech_policy: this.buildFallbackSpeechPolicy(target.groupId, fallbackBoundaryStrategy),
+        memory_bias: this.buildFallbackMemoryBias(target)
+      };
+      const evaluatedRelationship = await this.evaluateRelationshipInsight({
+        targetUserId: target.targetUserId,
+        groupId: target.groupId,
+        fieldScope: target.fieldScope,
+        memories: target.memories,
+        beliefs: target.beliefs,
+        auxiliaryMemories: target.auxiliaryMemories,
+        observations: target.observations,
+        actionRows: target.actionRows,
+        existingSnapshot: target.existingSnapshot,
+        reflectionKind,
+        fallback,
+        now
+      });
       const notesJson = {
         source_memory_ids: target.memories.slice(0, 8).map(memory => memory.id),
         source_belief_ids: target.beliefs.slice(0, 8).map(belief => belief.id),
+        auxiliary_memory_ids: target.auxiliaryMemories.slice(0, 8).map(memory => memory.id),
         recent_observation_ids: target.observations.slice(0, 8).map(observation => observation.id),
         recent_action_statuses: target.actionRows.slice(0, 6).map(action => ({
           status: action.status,
           occurred_at: action.occurred_at
         })),
         reflection_kind: reflectionKind,
-        manual_override: false
+        manual_override: false,
+        llm_trace_id: evaluatedRelationship.llm_trace_id ?? null,
+        prompt_id: evaluatedRelationship.prompt_id ?? null,
+        prompt_name: evaluatedRelationship.prompt_name ?? null,
+        prompt_version: evaluatedRelationship.prompt_version ?? null,
+        tool_name: evaluatedRelationship.tool_name ?? null,
+        tool_agent_type: evaluatedRelationship.tool_agent_type ?? null,
+        contract_status: evaluatedRelationship.contract_status ?? null,
+        contract_error_code: evaluatedRelationship.contract_error_code ?? null,
+        impression_profile: evaluatedRelationship.impression_profile ?? null,
+        speech_policy: evaluatedRelationship.speech_policy ?? null,
+        memory_bias: evaluatedRelationship.memory_bias ?? null,
+        ...(evaluatedRelationship.notes_json && typeof evaluatedRelationship.notes_json === 'object'
+          ? evaluatedRelationship.notes_json
+          : {})
       };
 
       await this.database.executeUpdate(
@@ -2091,16 +2398,14 @@ export class AgentMemoryService {
           target.targetUserId,
           target.fieldScope,
           target.groupId,
-          this.buildRelationshipSummary(target.targetUserId, target.groupId, target.memories, target.beliefs),
-          this.buildRelationshipInteractionStyle(target.groupId),
-          boundaryStrategy === 'allow_proactive'
-            ? '允许在自然窗口中谨慎主动联系。'
-            : '当前以观察和顺势回复为主，不主动打扰。',
-          this.deriveRelationshipConfidence(target.memories.length, target.beliefs.length),
+          evaluatedRelationship.relationship_summary ?? fallback.relationship_summary,
+          evaluatedRelationship.interaction_style ?? fallback.interaction_style,
+          evaluatedRelationship.boundary_notes ?? fallback.boundary_notes,
+          evaluatedRelationship.confidence ?? fallback.confidence,
           reflectionId,
           latestObservation?.id ?? target.beliefs[0]?.last_evidence_id ?? null,
           latestObservation?.occurred_at ?? new Date(latestStrongEvidenceAt || now.getTime()),
-          boundaryStrategy,
+          evaluatedRelationship.boundary_strategy ?? fallback.boundary_strategy,
           JSON.stringify(notesJson)
         ]
       );
@@ -2505,7 +2810,7 @@ export class AgentMemoryService {
         ?? null;
       const dedupeKey = `followup:${candidate.target_user_id ?? 'group'}:${candidate.target_group_id ?? 'private'}:${nowBucket}`;
       const goal = this.buildFollowupGoalFromCandidate(candidate);
-      const triggerCondition = this.buildFollowupTriggerCondition(candidate.trigger_sources_json ?? []);
+      const triggerCondition = this.buildFollowupTriggerCondition(candidate);
       const metadata = {
         compiler_source_kind: 'virtual_walk_compiler',
         reflection_kind: reflectionKind,
@@ -2519,6 +2824,16 @@ export class AgentMemoryService {
         selected_reason: candidate.selected_reason,
         suppressed_reason: candidate.suppressed_reason ?? null,
         compiler_inputs: candidate.compiler_inputs_json ?? {},
+        draft_message: candidate.compiler_inputs_json?.draft_message ?? null,
+        tone_rationale: candidate.compiler_inputs_json?.tone_rationale ?? null,
+        planner_llm_trace_id: candidate.compiler_inputs_json?.planner_llm_trace_id ?? null,
+        planner_prompt_id: candidate.compiler_inputs_json?.planner_prompt_id ?? null,
+        planner_prompt_name: candidate.compiler_inputs_json?.planner_prompt_name ?? null,
+        planner_prompt_version: candidate.compiler_inputs_json?.planner_prompt_version ?? null,
+        planner_tool_name: candidate.compiler_inputs_json?.planner_tool_name ?? null,
+        planner_tool_agent_type: candidate.compiler_inputs_json?.planner_tool_agent_type ?? null,
+        planner_contract_status: candidate.compiler_inputs_json?.planner_contract_status ?? null,
+        planner_contract_error_code: candidate.compiler_inputs_json?.planner_contract_error_code ?? null,
         boundary_strategy: boundaryStrategy ?? 'allow_proactive'
       };
 
@@ -2624,6 +2939,9 @@ export class AgentMemoryService {
 
   private buildFollowupGoalFromCandidate(candidate: AgentWalkCandidateRecord): string {
     const compilerInputs = candidate.compiler_inputs_json ?? {};
+    if (typeof compilerInputs.planner_goal === 'string' && compilerInputs.planner_goal.trim().length > 0) {
+      return compilerInputs.planner_goal.trim();
+    }
     const excerpt = typeof compilerInputs.latest_observation_excerpt === 'string'
       ? compilerInputs.latest_observation_excerpt
       : '';
@@ -2666,7 +2984,13 @@ export class AgentMemoryService {
     return '跟进：在合适窗口做一次低打扰确认。';
   }
 
-  private buildFollowupTriggerCondition(triggerSources: string[]): string {
+  private buildFollowupTriggerCondition(candidate: AgentWalkCandidateRecord): string {
+    const compilerInputs = candidate.compiler_inputs_json ?? {};
+    if (typeof compilerInputs.planner_trigger_condition === 'string' && compilerInputs.planner_trigger_condition.trim().length > 0) {
+      return compilerInputs.planner_trigger_condition.trim();
+    }
+
+    const triggerSources = candidate.trigger_sources_json ?? [];
     if (triggerSources.includes('day_plan')) {
       return '今日计划命中该场域，且关系边界允许在自然窗口中主动跟进。';
     }
@@ -3019,7 +3343,14 @@ export class AgentMemoryService {
             observation_excerpt: subsequentObservations[0]
               ? this.truncateForFlush(subsequentObservations[0].content, 120)
               : null,
-            fallback_reason_code: fallback.reason_code
+            fallback_reason_code: fallback.reason_code,
+            prompt_id: evaluated.prompt_id ?? null,
+            prompt_name: evaluated.prompt_name ?? null,
+            prompt_version: evaluated.prompt_version ?? null,
+            tool_name: evaluated.tool_name ?? null,
+            tool_agent_type: evaluated.tool_agent_type ?? null,
+            contract_status: evaluated.contract_status ?? null,
+            contract_error_code: evaluated.contract_error_code ?? null
           }),
           evaluated.llm_trace_id ?? null,
           params.now
@@ -3246,6 +3577,10 @@ export class AgentMemoryService {
   }
 
   private renderFollowupMessage(plan: AgentPlanRecord): string {
+    const metadata = plan.plan_metadata_json ?? {};
+    if (typeof metadata.draft_message === 'string' && metadata.draft_message.trim().length > 0) {
+      return metadata.draft_message.trim();
+    }
     const normalizedGoal = this.normalizeText(plan.goal.replace(/^跟进[:：]\s*/, ''));
     if (plan.target_field_scope === 'group_chat' || plan.target_group_id) {
       if (normalizedGoal.includes('顺着')) {
@@ -3646,6 +3981,200 @@ export class AgentMemoryService {
     return `${field.title} 保持在当前虚拟行走候选池中。`;
   }
 
+  private async evaluateRelationshipInsight(params: {
+    targetUserId: number;
+    groupId: number | null;
+    fieldScope: 'private_chat' | 'group_chat';
+    memories: AgentMemoryRecord[];
+    beliefs: AgentBeliefRecord[];
+    auxiliaryMemories: AgentMemoryRecord[];
+    observations: AgentObservationRecord[];
+    actionRows: any[];
+    existingSnapshot: AgentRelationshipMemoryRecord | null;
+    reflectionKind: AgentReflectionKind;
+    fallback: RelationshipInsightEvaluationResult;
+    now: Date;
+  }): Promise<RelationshipInsightEvaluationResult> {
+    if (!this.relationshipInsightEvaluator) {
+      return params.fallback;
+    }
+
+    try {
+      const evaluated = await this.relationshipInsightEvaluator(params);
+      if (!evaluated) {
+        return params.fallback;
+      }
+
+      return {
+        ...params.fallback,
+        ...evaluated,
+        impression_profile: this.normalizeImpressionProfile(evaluated.impression_profile ?? params.fallback.impression_profile),
+        speech_policy: this.normalizeSpeechPolicy(evaluated.speech_policy ?? params.fallback.speech_policy),
+        memory_bias: this.normalizeMemoryBias(evaluated.memory_bias ?? params.fallback.memory_bias)
+      };
+    } catch (error) {
+      this.moduleLogger.warn('relationship_insight_evaluator_failed', {
+        targetUserId: params.targetUserId,
+        groupId: params.groupId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return params.fallback;
+    }
+  }
+
+  private async evaluateWalkPlanner(params: {
+    field: {
+      fieldKey: string;
+      fieldScope: 'private_chat' | 'group_chat' | 'thread' | 'tool_channel';
+      targetUserId: number | null;
+      targetGroupId: number | null;
+      title: string;
+      latestObservationExcerpt: string | null;
+      priorityScore: number;
+      inboundScore: number;
+      relationshipScore: number;
+      planScore: number;
+      noveltyScore: number;
+      cooldownPenalty: number;
+      boundaryPenalty: number;
+      activePlanCount: number;
+      actionCount: number;
+      triggerSources: string[];
+      hardSuppressionReason: string | null;
+      latestActionAt: Date | null;
+      latestIncomingAt: Date | null;
+      latestFeedbackJudgement: AgentFeedbackJudgement | null;
+      latestFeedbackReasonCode: string | null;
+    };
+    relationship: AgentRelationshipMemoryRecord | null;
+    strategicPlans: AgentPlanRecord[];
+    sourceMemories: AgentMemoryRecord[];
+    sourceBeliefs: AgentBeliefRecord[];
+    now: Date;
+  }): Promise<WalkPlannerEvaluationResult | null> {
+    if (!this.walkPlannerEvaluator) {
+      return null;
+    }
+
+    try {
+      return await this.walkPlannerEvaluator(params);
+    } catch (error) {
+      this.moduleLogger.warn('walk_planner_evaluator_failed', {
+        fieldKey: params.field.fieldKey,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private buildFallbackImpressionProfile(target: {
+    observations: AgentObservationRecord[];
+    memories: AgentMemoryRecord[];
+    beliefs: AgentBeliefRecord[];
+    actionRows: any[];
+  }): AgentRelationshipImpressionProfile {
+    const base = target.memories.length + target.beliefs.length;
+    const hasRejection = target.observations.some(observation => this.hasExplicitRejectionSignal(observation.content));
+    const successfulSignals = target.observations.length > 0 ? 1 : 0;
+    return {
+      familiarity: this.clampScore(0.3 + base * 0.08),
+      warmth: this.clampScore(0.35 + successfulSignals * 0.08 - (hasRejection ? 0.15 : 0)),
+      trust: this.clampScore(0.35 + target.memories.length * 0.1),
+      engagement: this.clampScore(0.3 + target.observations.length * 0.04),
+      fragility: this.clampScore(hasRejection ? 0.75 : 0.25 + Math.max(0, target.actionRows.length - target.observations.length) * 0.08)
+    };
+  }
+
+  private buildFallbackSpeechPolicy(
+    groupId: number | null,
+    boundaryStrategy: AgentRelationshipBoundaryStrategy
+  ): AgentRelationshipSpeechPolicy {
+    if (boundaryStrategy === 'do_not_contact') {
+      return {
+        tone: 'reserved',
+        directness: 'low',
+        initiative: 'observe',
+        verbosity: 'brief'
+      };
+    }
+
+    if (boundaryStrategy === 'observe_only') {
+      return {
+        tone: 'neutral',
+        directness: 'low',
+        initiative: 'observe',
+        verbosity: 'brief'
+      };
+    }
+
+    return {
+      tone: groupId ? 'neutral' : 'warm',
+      directness: groupId ? 'low' : 'medium',
+      initiative: groupId ? 'follow_window' : 'proactive_ok',
+      verbosity: 'adaptive'
+    };
+  }
+
+  private buildFallbackMemoryBias(target: {
+    auxiliaryMemories: AgentMemoryRecord[];
+  }): AgentRelationshipMemoryBias {
+    const retrieveBoostTopics = target.auxiliaryMemories
+      .map(memory => this.truncateForFlush(memory.content, 32))
+      .filter(Boolean)
+      .slice(0, 4);
+    return {
+      promote_threshold_modifier: 0,
+      retrieve_boost_topics: this.uniqueStrings(retrieveBoostTopics),
+      sensitive_topics: []
+    };
+  }
+
+  private normalizeImpressionProfile(
+    profile?: AgentRelationshipImpressionProfile | null
+  ): AgentRelationshipImpressionProfile {
+    return {
+      familiarity: this.clampScore(profile?.familiarity ?? 0.3),
+      warmth: this.clampScore(profile?.warmth ?? 0.35),
+      trust: this.clampScore(profile?.trust ?? 0.35),
+      engagement: this.clampScore(profile?.engagement ?? 0.3),
+      fragility: this.clampScore(profile?.fragility ?? 0.25)
+    };
+  }
+
+  private normalizeSpeechPolicy(
+    policy?: AgentRelationshipSpeechPolicy | null
+  ): AgentRelationshipSpeechPolicy {
+    return {
+      tone: policy?.tone ?? 'neutral',
+      directness: policy?.directness ?? 'medium',
+      initiative: policy?.initiative ?? 'follow_window',
+      verbosity: policy?.verbosity ?? 'adaptive'
+    };
+  }
+
+  private normalizeMemoryBias(
+    memoryBias?: AgentRelationshipMemoryBias | null
+  ): AgentRelationshipMemoryBias {
+    return {
+      promote_threshold_modifier: Number.isFinite(memoryBias?.promote_threshold_modifier)
+        ? Number(memoryBias?.promote_threshold_modifier)
+        : 0,
+      retrieve_boost_topics: this.uniqueStrings(memoryBias?.retrieve_boost_topics ?? []),
+      sensitive_topics: this.uniqueStrings(memoryBias?.sensitive_topics ?? [])
+    };
+  }
+
+  private uniqueMemoryRecords(memories: AgentMemoryRecord[]): AgentMemoryRecord[] {
+    const seen = new Set<number>();
+    return memories.filter(memory => {
+      if (!memory || seen.has(memory.id)) {
+        return false;
+      }
+      seen.add(memory.id);
+      return true;
+    });
+  }
+
   private parseNumericId(value: string | number | null | undefined): number | null {
     if (value === null || value === undefined) {
       return null;
@@ -3809,11 +4338,21 @@ export class AgentMemoryService {
     const evidenceObservation = options.evidenceObservationId
       ? await this.getObservationById(options.evidenceObservationId)
       : null;
-    const memoryScope = this.resolveMemoryScope(belief, evidenceObservation);
+    const targetUserId = belief.subject_type === 'user'
+      ? this.parseNumericId(belief.subject_id)
+      : null;
+    const relationshipContext = targetUserId
+      ? await this.getCurrentRelationshipSnapshot(
+          targetUserId,
+          evidenceObservation?.group_id ?? null
+        )
+      : undefined;
+    const memoryScope = this.resolveMemoryScope(belief, evidenceObservation, relationshipContext);
     const fieldScope = evidenceObservation?.field_scope ?? null;
     const userId = evidenceObservation?.user_id ?? null;
     const groupId = evidenceObservation?.group_id ?? null;
     const normalizedContent = this.normalizeText(belief.claim);
+    const derivedSalience = this.deriveSalience(belief, relationshipContext);
 
     const existingRows = await this.database.executeQuery<any>(
       `
@@ -3864,7 +4403,7 @@ export class AgentMemoryService {
           belief.belief_type,
           belief.claim,
           belief.confidence,
-          this.deriveSalience(belief),
+          derivedSalience,
           promotion,
           belief.id,
           belief.last_observed_at,
@@ -3909,7 +4448,7 @@ export class AgentMemoryService {
           belief.claim,
           normalizedContent,
           belief.confidence,
-          this.deriveSalience(belief),
+          derivedSalience,
           promotion,
           belief.id,
           belief.last_observed_at
@@ -4115,6 +4654,7 @@ export class AgentMemoryService {
     options: {
       queryText: string;
       semanticScore: number;
+      relationshipContext?: AgentRelationshipMemoryRecord;
       now: Date;
     }
   ): HybridMemoryCandidate {
@@ -4128,11 +4668,19 @@ export class AgentMemoryService {
       options.now,
       DEFAULT_MEMORY_HALF_LIFE_DAYS
     );
+    const importanceScore = this.clampScore(memory.salience);
+    const retrievalBias = this.calculateRelationshipMemoryRetrievalBias(
+      `${memory.title}\n${memory.content}`,
+      memory.user_id ?? this.parseNumericId(memory.subject_id),
+      options.relationshipContext
+    );
     const finalScore = this.clampScore(
       options.semanticScore * 0.45 +
       structuredScore * 0.3 +
       lexicalScore * 0.1 +
-      temporalScore * 0.15
+      temporalScore * 0.1 +
+      importanceScore * 0.05 +
+      retrievalBias
     );
 
     return {
@@ -4141,6 +4689,7 @@ export class AgentMemoryService {
       structuredScore,
       lexicalScore,
       temporalScore,
+      importanceScore,
       finalScore
     };
   }
@@ -4159,6 +4708,10 @@ export class AgentMemoryService {
           return right.semanticScore - left.semanticScore;
         }
 
+        if (right.lexicalScore !== left.lexicalScore) {
+          return right.lexicalScore - left.lexicalScore;
+        }
+
         if (right.temporalScore !== left.temporalScore) {
           return right.temporalScore - left.temporalScore;
         }
@@ -4172,7 +4725,9 @@ export class AgentMemoryService {
     observation: AgentObservationRecord,
     options: {
       semanticScore: number;
+      queryText: string;
       relationScore: number;
+      relationshipContext?: AgentRelationshipMemoryRecord;
       now: Date;
     }
   ): HybridEvidenceCandidate {
@@ -4181,17 +4736,32 @@ export class AgentMemoryService {
       options.now,
       DEFAULT_EVIDENCE_HALF_LIFE_DAYS
     );
+    const lexicalScore = this.calculateLexicalMatchScore(
+      options.queryText,
+      observation.content
+    );
+    const importanceScore = this.calculateObservationImportanceScore(observation);
+    const retrievalBias = this.calculateRelationshipMemoryRetrievalBias(
+      observation.content,
+      observation.user_id ?? observation.subject_user_id ?? null,
+      options.relationshipContext
+    );
     const finalScore = this.clampScore(
-      options.semanticScore * 0.5 +
-      this.clampScore(options.relationScore) * 0.2 +
-      temporalScore * 0.3
+      options.semanticScore * 0.35 +
+      lexicalScore * 0.2 +
+      this.clampScore(options.relationScore) * 0.15 +
+      temporalScore * 0.15 +
+      importanceScore * 0.15 +
+      retrievalBias
     );
 
     return {
       observation,
       semanticScore: this.clampScore(options.semanticScore),
+      lexicalScore,
       relationScore: this.clampScore(options.relationScore),
       temporalScore,
+      importanceScore,
       finalScore
     };
   }
@@ -4208,6 +4778,10 @@ export class AgentMemoryService {
 
         if (right.semanticScore !== left.semanticScore) {
           return right.semanticScore - left.semanticScore;
+        }
+
+        if (right.lexicalScore !== left.lexicalScore) {
+          return right.lexicalScore - left.lexicalScore;
         }
 
         return right.observation.id - left.observation.id;
@@ -4278,6 +4852,97 @@ export class AgentMemoryService {
     );
   }
 
+  private applyBm25ScoresToMemoryCandidates(
+    candidates: HybridMemoryCandidate[],
+    queryText: string
+  ): HybridMemoryCandidate[] {
+    return this.applyBm25Scores(
+      candidates,
+      queryText,
+      candidate => `${candidate.memory.title}\n${candidate.memory.content}`,
+      (candidate, lexicalScore) => ({
+        ...candidate,
+        lexicalScore,
+        finalScore: this.clampScore(
+          candidate.semanticScore * 0.45 +
+          candidate.structuredScore * 0.3 +
+          lexicalScore * 0.1 +
+          candidate.temporalScore * 0.1 +
+          candidate.importanceScore * 0.05 +
+          (candidate.finalScore - this.clampScore(
+            candidate.semanticScore * 0.45 +
+            candidate.structuredScore * 0.3 +
+            candidate.lexicalScore * 0.1 +
+            candidate.temporalScore * 0.1 +
+            candidate.importanceScore * 0.05
+          ))
+        )
+      })
+    );
+  }
+
+  private applyBm25ScoresToEvidenceCandidates(
+    candidates: HybridEvidenceCandidate[],
+    queryText: string
+  ): HybridEvidenceCandidate[] {
+    return this.applyBm25Scores(
+      candidates,
+      queryText,
+      candidate => candidate.observation.content,
+      (candidate, lexicalScore) => ({
+        ...candidate,
+        lexicalScore,
+        finalScore: this.clampScore(
+          candidate.semanticScore * 0.35 +
+          lexicalScore * 0.2 +
+          candidate.relationScore * 0.15 +
+          candidate.temporalScore * 0.15 +
+          candidate.importanceScore * 0.15 +
+          (candidate.finalScore - this.clampScore(
+            candidate.semanticScore * 0.35 +
+            candidate.lexicalScore * 0.2 +
+            candidate.relationScore * 0.15 +
+            candidate.temporalScore * 0.15 +
+            candidate.importanceScore * 0.15
+          ))
+        )
+      })
+    );
+  }
+
+  private applyBm25Scores<T>(
+    candidates: T[],
+    queryText: string,
+    getText: (candidate: T) => string,
+    mapCandidate: (candidate: T, lexicalScore: number) => T
+  ): T[] {
+    if (!queryText || candidates.length === 0) {
+      return candidates;
+    }
+
+    const tokenizedDocs = candidates.map(candidate => this.tokenizeForBm25(getText(candidate)));
+    const averageDocLength = tokenizedDocs.reduce((sum, tokens) => sum + tokens.length, 0) / tokenizedDocs.length;
+    const docFrequency = new Map<string, number>();
+
+    tokenizedDocs.forEach(tokens => {
+      Array.from(new Set(tokens)).forEach(token => {
+        docFrequency.set(token, (docFrequency.get(token) ?? 0) + 1);
+      });
+    });
+
+    const queryTokens = this.tokenizeForBm25(queryText);
+    return candidates.map((candidate, index) => mapCandidate(
+      candidate,
+      this.calculateBm25Score(
+        queryTokens,
+        tokenizedDocs[index],
+        averageDocLength,
+        tokenizedDocs.length,
+        docFrequency
+      )
+    ));
+  }
+
   private calculateTemporalDecayScore(
     value: Date | null | undefined,
     now: Date,
@@ -4319,6 +4984,106 @@ export class AgentMemoryService {
 
     const matched = tokens.filter(token => normalizedCandidate.includes(token)).length;
     return this.clampScore(matched / tokens.length);
+  }
+
+  private tokenizeForBm25(value: string): string[] {
+    const normalized = this.normalizeText(value).toLowerCase();
+    if (!normalized) {
+      return [];
+    }
+
+    return normalized
+      .split(/[\s,.;:!?，。！？、】【（）()、/\\|"'`~\-_=+]+/g)
+      .map(token => token.trim())
+      .filter(token => token.length >= 2);
+  }
+
+  private calculateBm25Score(
+    queryTokens: string[],
+    documentTokens: string[],
+    averageDocLength: number,
+    documentCount: number,
+    docFrequency: Map<string, number>
+  ): number {
+    if (queryTokens.length === 0 || documentTokens.length === 0) {
+      return 0;
+    }
+
+    const termCounts = new Map<string, number>();
+    documentTokens.forEach(token => {
+      termCounts.set(token, (termCounts.get(token) ?? 0) + 1);
+    });
+
+    const normalizedQueryTokens = Array.from(new Set(queryTokens));
+    let score = 0;
+
+    normalizedQueryTokens.forEach(token => {
+      const termFrequency = termCounts.get(token) ?? 0;
+      if (termFrequency === 0) {
+        return;
+      }
+
+      const frequency = docFrequency.get(token) ?? 0;
+      const inverseDocumentFrequency = Math.log(1 + ((documentCount - frequency + 0.5) / (frequency + 0.5)));
+      const denominator =
+        termFrequency +
+        DEFAULT_BM25_K1 * (1 - DEFAULT_BM25_B + DEFAULT_BM25_B * (documentTokens.length / Math.max(1, averageDocLength)));
+      score += inverseDocumentFrequency * ((termFrequency * (DEFAULT_BM25_K1 + 1)) / Math.max(1e-6, denominator));
+    });
+
+    return this.clampScore(score / Math.max(1, normalizedQueryTokens.length * 2));
+  }
+
+  private calculateObservationImportanceScore(observation: AgentObservationRecord): number {
+    const rawImportance =
+      Number(observation.raw_payload?.insight_annotation?.importance_score)
+      || Number(observation.raw_payload?.importance_score)
+      || 0;
+    if (Number.isFinite(rawImportance) && rawImportance > 0) {
+      return this.clampScore(rawImportance);
+    }
+
+    if (observation.source_type === 'reply_anchor' || observation.source_type === 'tool_result') {
+      return 0.75;
+    }
+
+    if (this.hasExplicitRejectionSignal(observation.content)) {
+      return 0.9;
+    }
+
+    return observation.message_type === 'private' ? 0.55 : 0.4;
+  }
+
+  private calculateRelationshipMemoryRetrievalBias(
+    content: string,
+    targetUserId: number | null,
+    relationshipContext?: AgentRelationshipMemoryRecord
+  ): number {
+    if (!relationshipContext || !targetUserId || relationshipContext.target_user_id !== targetUserId) {
+      return 0;
+    }
+
+    const memoryBias = relationshipContext.memory_bias;
+    if (!memoryBias) {
+      return 0;
+    }
+
+    const normalizedContent = this.normalizeText(content).toLowerCase();
+    const boostTopics = Array.isArray(memoryBias.retrieve_boost_topics)
+      ? memoryBias.retrieve_boost_topics
+      : [];
+    const sensitiveTopics = Array.isArray(memoryBias.sensitive_topics)
+      ? memoryBias.sensitive_topics
+      : [];
+
+    const boost = boostTopics
+      .filter(topic => topic && normalizedContent.includes(this.normalizeText(topic).toLowerCase()))
+      .length;
+    const sensitivityPenalty = sensitiveTopics
+      .filter(topic => topic && normalizedContent.includes(this.normalizeText(topic).toLowerCase()))
+      .length;
+
+    return this.clampScore(boost * 0.08) - Math.min(0.12, sensitivityPenalty * 0.04);
   }
 
   private clampScore(value: number): number {
@@ -4390,21 +5155,36 @@ export class AgentMemoryService {
 
   private resolveMemoryScope(
     belief: AgentBeliefRecord,
-    evidenceObservation: AgentObservationRecord | null
+    evidenceObservation: AgentObservationRecord | null,
+    relationshipContext?: AgentRelationshipMemoryRecord
   ): AgentMemoryScope {
     if (belief.subject_type === 'self') {
       return 'self_global';
     }
 
     if (evidenceObservation?.field_scope === 'group_chat') {
+      const insightModifier = relationshipContext?.memory_bias?.promote_threshold_modifier ?? 0;
+      const impression = relationshipContext?.impression_profile;
+      const familiarity = impression?.familiarity ?? 0;
+      const trust = impression?.trust ?? 0;
+      const engagement = impression?.engagement ?? 0;
+      if (insightModifier >= 0.1 || familiarity >= 0.7 || trust >= 0.7 || engagement >= 0.7) {
+        return 'person_global';
+      }
       return 'local_field';
     }
 
     return 'person_global';
   }
 
-  private deriveSalience(belief: AgentBeliefRecord): number {
-    return Math.min(1, Math.max(0.6, belief.confidence + Math.min(0.2, belief.observation_count * 0.05)));
+  private deriveSalience(
+    belief: AgentBeliefRecord,
+    relationshipContext?: AgentRelationshipMemoryRecord
+  ): number {
+    const baseScore = belief.confidence + Math.min(0.2, belief.observation_count * 0.05);
+    const insightModifier = relationshipContext?.memory_bias?.promote_threshold_modifier ?? 0;
+    const engagement = relationshipContext?.impression_profile?.engagement ?? 0;
+    return Math.min(1, Math.max(0.6, baseScore + insightModifier * 0.15 + engagement * 0.05));
   }
 
   private mapMemoryScopeToEmbeddingScope(
@@ -4593,6 +5373,7 @@ export class AgentMemoryService {
   }
 
   private mapAgentRelationshipMemoryRow(row: any): AgentRelationshipMemoryRecord {
+    const notes = this.parseJsonField(row.notes_json);
     return {
       id: Number(row.id),
       target_user_id: Number(row.target_user_id),
@@ -4608,7 +5389,10 @@ export class AgentMemoryService {
       last_observed_at: this.parseDate(row.last_observed_at ?? row.updated_at),
       is_current: Boolean(row.is_current),
       boundary_strategy: row.boundary_strategy ?? null,
-      notes_json: this.parseJsonField(row.notes_json),
+      impression_profile: this.normalizeImpressionProfile(notes?.impression_profile),
+      speech_policy: this.normalizeSpeechPolicy(notes?.speech_policy),
+      memory_bias: this.normalizeMemoryBias(notes?.memory_bias),
+      notes_json: notes,
       created_at: this.parseDate(row.created_at),
       updated_at: this.parseDate(row.updated_at)
     };

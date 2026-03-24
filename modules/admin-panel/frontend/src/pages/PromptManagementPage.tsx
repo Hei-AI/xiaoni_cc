@@ -35,7 +35,7 @@ import { StatusPill } from '@/components/console/StatusPill';
 
 interface AgentPrompt {
   id: string;
-  agent_type: 'chat_bot' | 'intent_analyzer' | 'requirement_processor' | 'custom';
+  agent_type: 'chat_bot' | 'intent_analyzer' | 'requirement_processor' | 'tool_system' | 'custom' | string;
   prompt_name: string;
   system_instructions: string | string[];
   user_prompt_template?: string | null;
@@ -183,6 +183,8 @@ export const PromptManagementPage: React.FC = () => {
         return <Brain className="h-4 w-4" />;
       case 'requirement_processor':
         return <Code className="h-4 w-4" />;
+      case 'tool_system':
+        return <Cog className="h-4 w-4" />;
       case 'custom':
         return <Cog className="h-4 w-4" />;
       default:

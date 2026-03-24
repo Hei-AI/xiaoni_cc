@@ -2,60 +2,10 @@ import express from 'express';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
 import { buildConversationTracePayload } from '../services/trace-span-builder';
+import { renderPromptTemplate } from '../utils/prompt-template';
 
 // QQBot Core服务地址配置 (支持容器间通信)
 const QQBOT_CORE_URL = process.env.QQBOT_CORE_URL || 'http://qqbot-core:8081';
-
-// 🔥 上下文变量处理和模板替换功能
-function processContextVariables(
-  template: string,
-  contextVariables: any = {},
-  runtimeVariables: any = {}
-): string {
-  if (!template || typeof template !== 'string') {
-    return template || '';
-  }
-
-  let processedTemplate = template;
-
-  // 🔥 合并上下文变量和运行时变量
-  const allVariables = {
-    ...contextVariables,
-    ...runtimeVariables
-  };
-
-  // 🔥 替换 {{variable}} 格式的变量
-  processedTemplate = processedTemplate.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
-    if (allVariables.hasOwnProperty(varName)) {
-      const value = allVariables[varName];
-      return typeof value === 'string' ? value : JSON.stringify(value);
-    }
-    return match; // 保留未找到的变量
-  });
-
-  // 🔥 替换 ${variable} 格式的变量
-  processedTemplate = processedTemplate.replace(/\$\{(\w+)\}/g, (match, varName) => {
-    if (allVariables.hasOwnProperty(varName)) {
-      const value = allVariables[varName];
-      return typeof value === 'string' ? value : JSON.stringify(value);
-    }
-    return match; // 保留未找到的变量
-  });
-
-  // 🔥 处理动态日期时间变量
-  processedTemplate = processedTemplate.replace(/\{\{now\.(\w+)\}\}/g, (match, format) => {
-    const now = new Date();
-    switch (format) {
-      case 'iso': return now.toISOString();
-      case 'date': return now.toDateString();
-      case 'time': return now.toTimeString();
-      case 'locale': return now.toLocaleString('zh-CN');
-      default: return now.toISOString();
-    }
-  });
-
-  return processedTemplate;
-}
 
 function parseJsonField<T>(value: any, fallback: T): T {
   if (value === null || value === undefined) {
@@ -671,7 +621,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
             : promptConfig.system_instructions || '';
 
           // 🔥 处理上下文变量和模板替换
-          finalSystemPrompt = processContextVariables(rawSystemPrompt, promptConfig.context_variables, {
+          finalSystemPrompt = renderPromptTemplate(rawSystemPrompt, promptConfig.context_variables, {
             conversation_id: conversation_id || prompt_id,
             timestamp: new Date().toISOString(),
             model: promptConfig.model_name || model || 'gemini-2.5-flash'
@@ -722,7 +672,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
               conversation_id: conversation_id || prompt_id,
               timestamp: new Date().toISOString()
             };
-            const processedContent = processContextVariables(
+            const processedContent = renderPromptTemplate(
               promptConfig.user_prompt_template,
               promptConfig.context_variables,
               templateContext

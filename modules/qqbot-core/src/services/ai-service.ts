@@ -13,6 +13,7 @@ import {
 import { ProxyAgent, setGlobalDispatcher } from 'undici';
 import {
   AIConfig,
+  AgentPromptData,
   ConversationData,
   UnifiedLLMConfig,
   UnifiedToolConfig,
@@ -331,6 +332,19 @@ export class AIService {
 
   public async getConfigurationForAgent(agentType: string, promptName?: string): Promise<UnifiedLLMConfig | null> {
     return this.getConfiguration(agentType, promptName);
+  }
+
+  public async getPromptBundleForAgent(
+    agentType: string,
+    promptName?: string
+  ): Promise<{ prompt: AgentPromptData; config: UnifiedLLMConfig } | null> {
+    const prompt = await this.database.getAgentPrompt(agentType, promptName);
+    if (!prompt) {
+      return null;
+    }
+
+    const config = await this.convertToUnifiedConfig(prompt);
+    return { prompt, config };
   }
 
   /**

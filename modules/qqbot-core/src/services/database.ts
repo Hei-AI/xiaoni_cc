@@ -1146,18 +1146,7 @@ export class DatabaseManager {
     try {
       const results = await this.executeQuery<AgentPromptData>(query, params);
       if (results.length > 0) {
-        const prompt = results[0];
-        // 解析JSON字段
-        if (typeof prompt.system_instructions === 'string') {
-          prompt.system_instructions = JSON.parse(prompt.system_instructions);
-        }
-        if (typeof prompt.context_variables === 'string') {
-          prompt.context_variables = JSON.parse(prompt.context_variables);
-        }
-        if (typeof prompt.model_config === 'string') {
-          prompt.model_config = JSON.parse(prompt.model_config);
-        }
-        return prompt;
+        return this.parseAgentPromptRow(results[0]);
       }
       return null;
     } catch (error) {
@@ -1170,14 +1159,19 @@ export class DatabaseManager {
     const query = `
       INSERT INTO agent_prompts (
         id, agent_type, prompt_name, system_instructions, user_prompt_template,
-        context_variables, model_config, is_active, version, created_by,
+        context_variables, model_config, advanced_config, model_name, allowed_token_ids,
+        config_version, is_active, version, created_by,
         created_at, updated_at, description
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         system_instructions = VALUES(system_instructions),
         user_prompt_template = VALUES(user_prompt_template),
         context_variables = VALUES(context_variables),
         model_config = VALUES(model_config),
+        advanced_config = VALUES(advanced_config),
+        model_name = VALUES(model_name),
+        allowed_token_ids = VALUES(allowed_token_ids),
+        config_version = VALUES(config_version),
         is_active = VALUES(is_active),
         updated_at = VALUES(updated_at),
         description = VALUES(description)
@@ -1192,6 +1186,10 @@ export class DatabaseManager {
         promptData.user_prompt_template || null,
         JSON.stringify(promptData.context_variables || {}),
         JSON.stringify(promptData.model_config || {}),
+        JSON.stringify(promptData.advanced_config || {}),
+        promptData.model_name || null,
+        JSON.stringify(promptData.allowed_token_ids || []),
+        promptData.config_version || null,
         promptData.is_active,
         promptData.version,
         promptData.created_by,
@@ -1227,19 +1225,7 @@ export class DatabaseManager {
 
     try {
       const results = await this.executeQuery<AgentPromptData>(query, params);
-      return results.map(prompt => {
-        // 解析JSON字段
-        if (typeof prompt.system_instructions === 'string') {
-          prompt.system_instructions = JSON.parse(prompt.system_instructions);
-        }
-        if (typeof prompt.context_variables === 'string') {
-          prompt.context_variables = JSON.parse(prompt.context_variables);
-        }
-        if (typeof prompt.model_config === 'string') {
-          prompt.model_config = JSON.parse(prompt.model_config);
-        }
-        return prompt;
-      });
+      return results.map(prompt => this.parseAgentPromptRow(prompt));
     } catch (error) {
       this.moduleLogger.error('Failed to get agent prompts', { error, agentType });
       return [];
@@ -1252,24 +1238,7 @@ export class DatabaseManager {
     try {
       const results = await this.executeQuery<AgentPromptData>(query, [id]);
       if (results.length > 0) {
-        const prompt = results[0];
-        // 解析JSON字段
-        if (typeof prompt.system_instructions === 'string') {
-          prompt.system_instructions = JSON.parse(prompt.system_instructions);
-        }
-        if (typeof prompt.context_variables === 'string') {
-          prompt.context_variables = JSON.parse(prompt.context_variables);
-        }
-        if (typeof prompt.model_config === 'string') {
-          prompt.model_config = JSON.parse(prompt.model_config);
-        }
-        if (typeof prompt.advanced_config === 'string') {
-          prompt.advanced_config = JSON.parse(prompt.advanced_config);
-        }
-        if (typeof prompt.allowed_token_ids === 'string') {
-          prompt.allowed_token_ids = JSON.parse(prompt.allowed_token_ids);
-        }
-        return prompt;
+        return this.parseAgentPromptRow(results[0]);
       }
       return null;
     } catch (error) {
@@ -1330,6 +1299,25 @@ export class DatabaseManager {
     // For now, always use the conversations fallback until session tables are properly set up
     this.moduleLogger.info('Using conversations fallback for session by ID', { sessionId });
     return await this.getSessionByIdFromConversations(sessionId);
+  }
+
+  private parseAgentPromptRow(prompt: AgentPromptData): AgentPromptData {
+    if (typeof prompt.system_instructions === 'string') {
+      prompt.system_instructions = JSON.parse(prompt.system_instructions);
+    }
+    if (typeof prompt.context_variables === 'string') {
+      prompt.context_variables = JSON.parse(prompt.context_variables);
+    }
+    if (typeof prompt.model_config === 'string') {
+      prompt.model_config = JSON.parse(prompt.model_config);
+    }
+    if (typeof prompt.advanced_config === 'string') {
+      prompt.advanced_config = JSON.parse(prompt.advanced_config);
+    }
+    if (typeof prompt.allowed_token_ids === 'string') {
+      prompt.allowed_token_ids = JSON.parse(prompt.allowed_token_ids);
+    }
+    return prompt;
   }
 
   public async executeInsertAndReturnId(

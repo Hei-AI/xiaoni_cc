@@ -93,6 +93,7 @@ export const PromptDetailPage: React.FC = () => {
       case 'chat_bot': return <MessageSquare className="h-4 w-4" />;
       case 'intent_analyzer': return <Brain className="h-4 w-4" />;
       case 'requirement_processor': return <Code className="h-4 w-4" />;
+      case 'tool_system': return <Cog className="h-4 w-4" />;
       case 'custom': return <Cog className="h-4 w-4" />;
       default: return <Bot className="h-4 w-4" />;
     }
