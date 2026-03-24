@@ -28,7 +28,11 @@ import { LLMJobWorker } from './services/llm-job-worker';
 import {
   createMessagingTools,
   type ReplyContextToolPayload,
-  type MessageAttachmentToolPayload
+  type MessageAttachmentToolPayload,
+  type SelfStateToolPayload,
+  type RelationshipSnapshotToolPayload,
+  type ActivePlansToolPayload,
+  type MemoryStreamToolPayload
 } from './tools/static-tools';
 import {
   ChatViewportData,
@@ -107,6 +111,14 @@ class QQBot implements BatchHandler {
   private readonly defaultChatPromptCandidates: string[] = ['basic_chat', 'echance_chat', 'enhanced_chat', 'default_chat'];
   private httpServerStarted = false;
   private websocketConnected = false;
+  private pendingCognitionRefreshes = new Map<string, {
+    subjectType: 'user' | 'group' | 'self';
+    subjectId: number | string;
+    groupId?: number | null;
+    reasons: Set<string>;
+  }>();
+  private cognitionRefreshScheduled = false;
+  private cognitionRefreshRunning = false;
 
   constructor() {
     this.database = getDatabaseManager(config.database);
@@ -223,6 +235,10 @@ class QQBot implements BatchHandler {
       jumpChatViewToLatest: (cursor, pageSize) => this.chatViewportService.jumpToLatest(cursor, pageSize),
       fetchReplyContext: metadata => this.fetchReplyContextToolPayload(metadata),
       readMessageAttachment: params => this.readMessageAttachmentToolPayload(params),
+      readSelfState: () => this.readSelfStateToolPayload(),
+      readRelationshipSnapshot: metadata => this.readRelationshipSnapshotToolPayload(metadata),
+      readActivePlans: params => this.readActivePlansToolPayload(params),
+      readMemoryStream: params => this.readMemoryStreamToolPayload(params),
       findMemeByTags: tags => this.memeLibrary.findBestMatch(tags),
       saveMemeImage: (imageBase64, tags) => this.memeLibrary.addMeme(imageBase64, tags),
       recordMemeUsage: memeId => this.memeLibrary.recordUsage(memeId)
@@ -268,6 +284,14 @@ class QQBot implements BatchHandler {
             toolName: outcome.toolName,
             conversationId: metadata?.conversationId
           });
+
+          if (outcome.kind === 'message_sent' || outcome.kind === 'ended_no_reply') {
+            this.queueCognitionRefreshForMessage({
+              message_type: metadata?.messageType === 'group' ? 'group' : 'private',
+              user_id: Number(metadata?.userId) || 0,
+              group_id: metadata?.groupId != null ? Number(metadata.groupId) : undefined
+            }, `chat_worker_${outcome.kind}`);
+          }
           return;
         }
 
@@ -451,7 +475,18 @@ class QQBot implements BatchHandler {
 
   private getImplicitChatToolNames(messageType: 'private' | 'group'): string[] {
     const sendTool = messageType === 'group' ? 'send_qq_group_message' : 'send_private_chat_message';
-    return [sendTool, 'chat_view_scroll_up', 'chat_view_jump_to_latest', 'reply_context_fetch', 'read_message_attachment', 'end'];
+    return [
+      sendTool,
+      'chat_view_scroll_up',
+      'chat_view_jump_to_latest',
+      'reply_context_fetch',
+      'read_message_attachment',
+      'read_self_state',
+      'read_relationship_snapshot',
+      'read_active_plans',
+      'read_memory_stream',
+      'end'
+    ];
   }
 
   private formatReplyTargetUser(
@@ -735,6 +770,330 @@ class QQBot implements BatchHandler {
         data: attachment.base64
       }
     };
+  }
+
+  private buildScopedMessageFromMetadata(metadata?: Record<string, any>): QQMessage | undefined {
+    const existing = metadata?.currentMessage;
+    if (existing && typeof existing === 'object') {
+      return existing as QQMessage;
+    }
+
+    const messageType = metadata?.messageType;
+    const userId = metadata?.userId != null ? Number(metadata.userId) : undefined;
+    if (messageType !== 'private' && messageType !== 'group') {
+      return undefined;
+    }
+    if (!Number.isFinite(userId)) {
+      return undefined;
+    }
+    const scopedUserId = Number(userId);
+
+    const groupId = metadata?.groupId != null ? Number(metadata.groupId) : undefined;
+    const normalizedText = typeof metadata?.currentMessageText === 'string'
+      ? metadata.currentMessageText
+      : '';
+    const replyIntentContext = metadata?.replyIntentContext && typeof metadata.replyIntentContext === 'object'
+      ? metadata.replyIntentContext as ReplyIntentContext
+      : undefined;
+
+    return {
+      time: Math.floor(Date.now() / 1000),
+      post_type: 'message',
+      message_type: messageType,
+      sub_type: messageType === 'group' ? 'normal' : 'friend',
+      message_id: metadata?.messageId != null ? Number(metadata.messageId) : Date.now(),
+      user_id: scopedUserId,
+      group_id: groupId,
+      message: normalizedText,
+      raw_message: normalizedText,
+      font: 14,
+      sender: messageType === 'group'
+        ? {
+            user_id: scopedUserId,
+            nickname: `用户${scopedUserId}`,
+            sex: 'unknown',
+            role: 'member'
+          }
+        : {
+            user_id: scopedUserId,
+            nickname: `用户${scopedUserId}`,
+            sex: 'unknown'
+          },
+      self_id: config.ai.bot_qq_number,
+      normalized_text: normalizedText || undefined,
+      reply_intent_context: replyIntentContext
+    };
+  }
+
+  private toIsoString(value?: Date | string | null): string | null {
+    if (!value) {
+      return null;
+    }
+
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+
+  private async readSelfStateToolPayload(): Promise<SelfStateToolPayload> {
+    const selfModel = await this.agentMemoryService.getCurrentSelfModel();
+    if (!selfModel) {
+      return {
+        status: 'empty',
+        snapshot: null
+      };
+    }
+
+    return {
+      status: 'ok',
+      snapshot: {
+        id: selfModel.id,
+        identity_summary: selfModel.identity_summary || '',
+        core_traits: selfModel.core_traits || [],
+        long_term_goals: selfModel.long_term_goals || [],
+        current_concerns: selfModel.current_concerns || [],
+        availability: selfModel.availability || 'unknown',
+        energy: selfModel.energy || 'unknown',
+        updated_at: selfModel.updated_at.toISOString()
+      }
+    };
+  }
+
+  private async readRelationshipSnapshotToolPayload(
+    metadata?: Record<string, any>
+  ): Promise<RelationshipSnapshotToolPayload> {
+    const message = this.buildScopedMessageFromMetadata(metadata);
+    if (!message) {
+      return {
+        status: 'missing_scope',
+        snapshot: null
+      };
+    }
+
+    const snapshot = await this.agentMemoryService.getRelationshipContextForMessage(message);
+    if (!snapshot) {
+      return {
+        status: 'empty',
+        snapshot: null
+      };
+    }
+
+    return {
+      status: 'ok',
+      snapshot: {
+        id: snapshot.id,
+        target_user_id: snapshot.target_user_id,
+        group_id: snapshot.group_id ?? null,
+        field_scope: snapshot.group_id ? 'group_chat' : 'private_chat',
+        relationship_summary: snapshot.relationship_summary,
+        interaction_style: snapshot.interaction_style || '',
+        boundary_strategy: snapshot.boundary_strategy || 'observe_only',
+        boundary_notes: snapshot.boundary_notes || '',
+        confidence: snapshot.confidence,
+        impression_profile: snapshot.impression_profile ?? null,
+        speech_policy: snapshot.speech_policy ?? null,
+        memory_bias: snapshot.memory_bias ?? null,
+        notes_json: snapshot.notes_json ?? null,
+        last_observed_at: this.toIsoString(snapshot.last_observed_at),
+        updated_at: snapshot.updated_at.toISOString()
+      }
+    };
+  }
+
+  private async readActivePlansToolPayload(params: {
+    metadata?: Record<string, any>;
+    limit?: number;
+  }): Promise<ActivePlansToolPayload> {
+    const limit = params.limit ?? 3;
+    const message = this.buildScopedMessageFromMetadata(params.metadata);
+    const plans = message
+      ? await this.agentMemoryService.getActivePlansForMessage(message, limit)
+      : [];
+
+    return {
+      status: 'ok',
+      limit,
+      plans: plans.map(plan => ({
+        id: plan.id,
+        plan_type: plan.plan_type,
+        goal: plan.goal,
+        trigger_condition: plan.trigger_condition ?? null,
+        status: plan.status,
+        target_user_id: plan.target_user_id ?? null,
+        target_group_id: plan.target_group_id ?? null,
+        target_field_scope: plan.target_field_scope ?? null,
+        source_plan_id: plan.source_plan_id ?? null,
+        plan_metadata_json: plan.plan_metadata_json ?? null,
+        scheduled_start_at: this.toIsoString(plan.scheduled_start_at),
+        updated_at: plan.updated_at.toISOString()
+      }))
+    };
+  }
+
+  private async readMemoryStreamToolPayload(params: {
+    metadata?: Record<string, any>;
+    stableLimit?: number;
+    evidenceLimit?: number;
+  }): Promise<MemoryStreamToolPayload> {
+    const stableLimit = params.stableLimit ?? 6;
+    const evidenceLimit = params.evidenceLimit ?? 4;
+    const message = this.buildScopedMessageFromMetadata(params.metadata);
+    if (!message) {
+      return {
+        status: 'missing_scope',
+        stable_limit: stableLimit,
+        evidence_limit: evidenceLimit,
+        retrieved_stable_memories: [],
+        recent_evidence: []
+      };
+    }
+
+    const retrievedStableMemories = await this.agentMemoryService.getRetrievedMemoriesForMessage(
+      message,
+      stableLimit
+    );
+    const recentEvidence = await this.agentMemoryService.getRecentEvidenceForMessage(
+      message,
+      retrievedStableMemories.map(memory => memory.id),
+      evidenceLimit
+    );
+
+    return {
+      status: 'ok',
+      stable_limit: stableLimit,
+      evidence_limit: evidenceLimit,
+      retrieved_stable_memories: retrievedStableMemories.map(memory => ({
+        id: memory.id,
+        memory_scope: memory.memory_scope,
+        memory_type: memory.memory_type,
+        title: memory.title,
+        content: memory.content,
+        confidence: memory.confidence,
+        salience: memory.salience,
+        user_id: memory.user_id ?? null,
+        group_id: memory.group_id ?? null,
+        target_user_id: memory.target_user_id ?? null,
+        last_observed_at: this.toIsoString(memory.last_observed_at),
+        updated_at: memory.updated_at.toISOString()
+      })),
+      recent_evidence: recentEvidence.map(observation => ({
+        id: observation.id,
+        source_type: observation.source_type,
+        field_scope: observation.field_scope,
+        message_type: observation.message_type ?? null,
+        user_id: observation.user_id ?? null,
+        group_id: observation.group_id ?? null,
+        subject_user_id: observation.subject_user_id ?? null,
+        content: observation.content,
+        occurred_at: observation.occurred_at.toISOString()
+      }))
+    };
+  }
+
+  private queueCognitionRefresh(params: {
+    subjectType: 'user' | 'group' | 'self';
+    subjectId: number | string;
+    groupId?: number | null;
+    reason: string;
+  }): void {
+    const key = `${params.subjectType}:${params.subjectId}:${params.groupId ?? 'global'}`;
+    const existing = this.pendingCognitionRefreshes.get(key);
+
+    if (existing) {
+      existing.reasons.add(params.reason);
+    } else {
+      this.pendingCognitionRefreshes.set(key, {
+        subjectType: params.subjectType,
+        subjectId: params.subjectId,
+        groupId: params.groupId ?? null,
+        reasons: new Set([params.reason])
+      });
+    }
+
+    if (!this.cognitionRefreshScheduled) {
+      this.cognitionRefreshScheduled = true;
+      setTimeout(() => {
+        void this.flushQueuedCognitionRefreshes();
+      }, 0);
+    }
+  }
+
+  private queueCognitionRefreshForMessage(
+    message: Pick<QQMessage, 'message_type' | 'user_id' | 'group_id'>,
+    reason: string
+  ): void {
+    if (message.user_id) {
+      this.queueCognitionRefresh({
+        subjectType: 'user',
+        subjectId: message.user_id,
+        groupId: message.message_type === 'group' ? (message.group_id ?? null) : null,
+        reason
+      });
+      return;
+    }
+
+    if (message.message_type === 'group' && message.group_id) {
+      this.queueCognitionRefresh({
+        subjectType: 'group',
+        subjectId: message.group_id,
+        groupId: message.group_id,
+        reason
+      });
+    }
+  }
+
+  private async flushQueuedCognitionRefreshes(): Promise<void> {
+    if (this.cognitionRefreshRunning) {
+      return;
+    }
+
+    this.cognitionRefreshRunning = true;
+    this.cognitionRefreshScheduled = false;
+
+    try {
+      while (this.pendingCognitionRefreshes.size > 0) {
+        const batch = Array.from(this.pendingCognitionRefreshes.values());
+        this.pendingCognitionRefreshes.clear();
+
+        for (const task of batch) {
+          try {
+            const result = await this.agentMemoryService.recomputeDerivedPlansForSubject({
+              subjectType: task.subjectType,
+              subjectId: task.subjectId,
+              groupId: task.groupId ?? null
+            });
+
+            this.moduleLogger.debug('Async cognition refresh completed', {
+              subjectType: task.subjectType,
+              subjectId: task.subjectId,
+              groupId: task.groupId ?? null,
+              reasons: Array.from(task.reasons),
+              cancelledPlanIds: result.cancelledPlanIds,
+              candidateCount: result.candidateCount
+            });
+          } catch (error) {
+            this.moduleLogger.warn('Async cognition refresh failed', {
+              subjectType: task.subjectType,
+              subjectId: task.subjectId,
+              groupId: task.groupId ?? null,
+              reasons: Array.from(task.reasons),
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
+      }
+    } finally {
+      this.cognitionRefreshRunning = false;
+      if (this.pendingCognitionRefreshes.size > 0 && !this.cognitionRefreshScheduled) {
+        this.cognitionRefreshScheduled = true;
+        setTimeout(() => {
+          void this.flushQueuedCognitionRefreshes();
+        }, 0);
+      }
+    }
   }
 
   public async start(): Promise<void> {
@@ -1181,6 +1540,7 @@ class QQBot implements BatchHandler {
       this.moduleLogger.info('Initial conversation record created', { conversationId, batchId, status: 'pending' });
       await this.recordReplyAnchorObservation(enrichedMessage, conversationId, traceId);
       await this.updateBeliefsFromIncomingMessage(enrichedMessage);
+      this.queueCognitionRefreshForMessage(enrichedMessage, 'incoming_message');
 
       // 检查私聊设置（2层过滤控制）
       const privateChatSettings = await this.database.getPrivateChatSettingById(userId);
@@ -1481,6 +1841,7 @@ class QQBot implements BatchHandler {
       this.moduleLogger.info('Group conversation record created', { conversationId, batchId, groupId: enrichedMessage.group_id, traceId });
       await this.recordReplyAnchorObservation(enrichedMessage, conversationId, traceId);
       await this.updateBeliefsFromIncomingMessage(enrichedMessage);
+      this.queueCognitionRefreshForMessage(enrichedMessage, 'incoming_message');
 
       const groupSettings = enrichedMessage.group_id
         ? await this.database.getGroupChatSettingById(enrichedMessage.group_id)
@@ -2372,6 +2733,8 @@ class QQBot implements BatchHandler {
           promptName,
           agentType: promptAgentType,
           modelName: promptConfig.model?.name || null,
+          currentMessage: originalMessage,
+          currentMessageText: userMessage,
           chatViewport: contextPrompt.chatViewport || null,
           replyIntentContext: originalMessage.reply_intent_context || messageContext.replyIntentContext || null,
           replyToMessageId: originalMessage.reply_intent_context?.semantic_anchor.message_id || null,
@@ -2589,6 +2952,7 @@ class QQBot implements BatchHandler {
         isGroupMessage: originalMessage.message_type === 'group'
       });
       await this.agentMemoryService.completeMicroIntentionForMessage(originalMessage);
+      this.queueCognitionRefreshForMessage(originalMessage, 'direct_reply_completed');
 
     } catch (error) {
       this.moduleLogger.error('Failed to handle enhanced AI conversation', { 
@@ -2783,6 +3147,7 @@ class QQBot implements BatchHandler {
   }
 
   private async runBackgroundCognitionTasks(): Promise<void> {
+    await this.flushQueuedCognitionRefreshes();
     await this.agentMemoryService.runScheduledReflectionsIfDue();
 
     const proactivityState = await this.agentMemoryService.getProactivityControls(
@@ -2852,6 +3217,12 @@ class QQBot implements BatchHandler {
           traceId,
           rawPayload: metadata
         });
+        this.queueCognitionRefresh({
+          subjectType: 'user',
+          subjectId: userId,
+          groupId: null,
+          reason: 'followup_private_message_sent'
+        });
         await this.loggingService.logInstantEvent(
           traceId,
           'agent',
@@ -2877,6 +3248,12 @@ class QQBot implements BatchHandler {
         await this.websocketClient.sendGroupMessage(groupId, message, {
           traceId,
           rawPayload: metadata
+        });
+        this.queueCognitionRefresh({
+          subjectType: 'group',
+          subjectId: groupId,
+          groupId,
+          reason: 'followup_group_message_sent'
         });
         await this.loggingService.logInstantEvent(
           traceId,

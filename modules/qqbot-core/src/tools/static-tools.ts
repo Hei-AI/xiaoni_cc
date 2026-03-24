@@ -31,6 +31,17 @@ export interface MessagingToolDependencies {
   findMemeByTags: (tags: string[]) => Promise<MemeLibraryEntry | null>;
   saveMemeImage: (imageBase64: string, tags: string[]) => Promise<MemeLibraryEntry>;
   recordMemeUsage?: (memeId: string) => Promise<void>;
+  readSelfState?: () => Promise<SelfStateToolPayload>;
+  readRelationshipSnapshot?: (metadata?: Record<string, any>) => Promise<RelationshipSnapshotToolPayload>;
+  readActivePlans?: (params: {
+    metadata?: Record<string, any>;
+    limit?: number;
+  }) => Promise<ActivePlansToolPayload>;
+  readMemoryStream?: (params: {
+    metadata?: Record<string, any>;
+    stableLimit?: number;
+    evidenceLimit?: number;
+  }) => Promise<MemoryStreamToolPayload>;
 }
 
 export interface MemeLibraryEntry {
@@ -80,6 +91,91 @@ export interface MessageAttachmentToolPayload {
     mimeType: string;
     data: string;
   };
+}
+
+export interface SelfStateToolPayload {
+  status: 'ok' | 'empty';
+  snapshot: {
+    id: number;
+    identity_summary: string;
+    core_traits: string[];
+    long_term_goals: string[];
+    current_concerns: string[];
+    availability: string;
+    energy: string;
+    updated_at: string;
+  } | null;
+}
+
+export interface RelationshipSnapshotToolPayload {
+  status: 'ok' | 'empty' | 'missing_scope';
+  snapshot: {
+    id: number;
+    target_user_id: number;
+    group_id: number | null;
+    field_scope: 'private_chat' | 'group_chat';
+    relationship_summary: string;
+    interaction_style: string;
+    boundary_strategy: string;
+    boundary_notes: string;
+    confidence: number;
+    impression_profile: Record<string, any> | null;
+    speech_policy: Record<string, any> | null;
+    memory_bias: Record<string, any> | null;
+    notes_json: Record<string, any> | null;
+    last_observed_at: string | null;
+    updated_at: string;
+  } | null;
+}
+
+export interface ActivePlansToolPayload {
+  status: 'ok';
+  limit: number;
+  plans: Array<{
+    id: number;
+    plan_type: string;
+    goal: string;
+    trigger_condition: string | null;
+    status: string;
+    target_user_id: number | null;
+    target_group_id: number | null;
+    target_field_scope: string | null;
+    source_plan_id: number | null;
+    plan_metadata_json: Record<string, any> | null;
+    scheduled_start_at: string | null;
+    updated_at: string;
+  }>;
+}
+
+export interface MemoryStreamToolPayload {
+  status: 'ok' | 'missing_scope';
+  stable_limit: number;
+  evidence_limit: number;
+  retrieved_stable_memories: Array<{
+    id: number;
+    memory_scope: string;
+    memory_type: string;
+    title: string;
+    content: string;
+    confidence: number;
+    salience: number;
+    user_id: number | null;
+    group_id: number | null;
+    target_user_id: number | null;
+    last_observed_at: string | null;
+    updated_at: string;
+  }>;
+  recent_evidence: Array<{
+    id: number;
+    source_type: string;
+    field_scope: string;
+    message_type: string | null;
+    user_id: number | null;
+    group_id: number | null;
+    subject_user_id: number | null;
+    content: string;
+    occurred_at: string;
+  }>;
 }
 
 const validateNumericId = (value: unknown, fieldName: string): number => {
@@ -226,6 +322,32 @@ const validateOptionalPositiveInteger = (
   }
 
   return Math.min(20, Math.floor(normalized));
+};
+
+const validateOptionalLimit = (
+  value: unknown,
+  fallback: number,
+  max: number,
+  fieldName: string
+): number => {
+  if (value == null) {
+    return fallback;
+  }
+
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    throw new Error(`${fieldName} must be a positive integer`);
+  }
+
+  return Math.min(max, Math.floor(normalized));
+};
+
+const validateReason = (value: unknown): string => {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error('reason must be a non-empty string');
+  }
+
+  return value.trim();
 };
 
 const validateViewportTarget = (value: unknown): 'current' | 'reply_anchor' => {
@@ -801,8 +923,13 @@ const createEndTool = (): StaticTool => ({
   },
   parameters: {
     type: 'object',
-    properties: {},
-    required: []
+    properties: {
+      reason: {
+        type: 'string',
+        description: '说明本轮为什么选择不回复，供审计与后续分析使用。'
+      }
+    },
+    required: ['reason']
   },
   registryMetadata: {
     displayName: 'End Conversation',
@@ -815,9 +942,230 @@ const createEndTool = (): StaticTool => ({
     createdBy: 'system',
     updatedBy: 'system'
   },
-  handler: async (): Promise<ToolResult> => ({
-    success: true
-  })
+  handler: async (ctx: ToolContext): Promise<ToolResult> => {
+    try {
+      const reason = validateReason(ctx.arguments?.reason);
+
+      return {
+        success: true,
+        data: {
+          status: 'ended',
+          reason
+        }
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || 'Failed to end conversation'
+      };
+    }
+  }
+});
+
+const createReadSelfStateTool = (
+  deps: MessagingToolDependencies
+): StaticTool => ({
+  name: 'read_self_state',
+  description: '读取当前稳定自我状态快照，包括身份摘要、长期目标与当前内部状态。',
+  mode: 'returnable',
+  loopBehavior: {
+    completion: 'continue'
+  },
+  parameters: {
+    type: 'object',
+    properties: {},
+    required: []
+  },
+  registryMetadata: {
+    displayName: 'Read Self State',
+    category: 'cognition',
+    tags: ['cognition', 'self', 'state'],
+    sideEffect: false,
+    expectResponse: true,
+    timeoutMs: 10000,
+    version: '1.0.0',
+    createdBy: 'system',
+    updatedBy: 'system'
+  },
+  handler: async (): Promise<ToolResult> => {
+    try {
+      if (typeof deps.readSelfState !== 'function') {
+        throw new Error('self state reading is not available');
+      }
+
+      const payload = await deps.readSelfState();
+      return {
+        success: true,
+        data: payload
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || 'Failed to read self state'
+      };
+    }
+  }
+});
+
+const createReadRelationshipSnapshotTool = (
+  deps: MessagingToolDependencies
+): StaticTool => ({
+  name: 'read_relationship_snapshot',
+  description: '读取当前消息作用域下的关系快照，不附带回复建议。',
+  mode: 'returnable',
+  loopBehavior: {
+    completion: 'continue'
+  },
+  parameters: {
+    type: 'object',
+    properties: {},
+    required: []
+  },
+  registryMetadata: {
+    displayName: 'Read Relationship Snapshot',
+    category: 'cognition',
+    tags: ['cognition', 'relationship', 'snapshot'],
+    sideEffect: false,
+    expectResponse: true,
+    timeoutMs: 10000,
+    version: '1.0.0',
+    createdBy: 'system',
+    updatedBy: 'system'
+  },
+  handler: async (ctx: ToolContext): Promise<ToolResult> => {
+    try {
+      if (typeof deps.readRelationshipSnapshot !== 'function') {
+        throw new Error('relationship snapshot reading is not available');
+      }
+
+      const payload = await deps.readRelationshipSnapshot(ctx.metadata);
+      return {
+        success: true,
+        data: payload
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || 'Failed to read relationship snapshot'
+      };
+    }
+  }
+});
+
+const createReadActivePlansTool = (
+  deps: MessagingToolDependencies
+): StaticTool => ({
+  name: 'read_active_plans',
+  description: '读取当前消息作用域相关的活动计划与排队计划，不附带动作建议。',
+  mode: 'returnable',
+  loopBehavior: {
+    completion: 'continue'
+  },
+  parameters: {
+    type: 'object',
+    properties: {
+      limit: {
+        type: 'integer',
+        description: '返回的计划数量上限，默认 3。'
+      }
+    },
+    required: []
+  },
+  registryMetadata: {
+    displayName: 'Read Active Plans',
+    category: 'cognition',
+    tags: ['cognition', 'plans'],
+    sideEffect: false,
+    expectResponse: true,
+    timeoutMs: 10000,
+    version: '1.0.0',
+    createdBy: 'system',
+    updatedBy: 'system'
+  },
+  handler: async (ctx: ToolContext): Promise<ToolResult> => {
+    try {
+      if (typeof deps.readActivePlans !== 'function') {
+        throw new Error('active plans reading is not available');
+      }
+
+      const limit = validateOptionalLimit(ctx.arguments?.limit, 3, 6, 'limit');
+      const payload = await deps.readActivePlans({
+        metadata: ctx.metadata,
+        limit
+      });
+
+      return {
+        success: true,
+        data: payload
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || 'Failed to read active plans'
+      };
+    }
+  }
+});
+
+const createReadMemoryStreamTool = (
+  deps: MessagingToolDependencies
+): StaticTool => ({
+  name: 'read_memory_stream',
+  description: '读取当前消息作用域相关的稳定记忆与近期证据流，不附带动作建议。',
+  mode: 'returnable',
+  loopBehavior: {
+    completion: 'continue'
+  },
+  parameters: {
+    type: 'object',
+    properties: {
+      stable_limit: {
+        type: 'integer',
+        description: '返回稳定记忆的上限，默认 6。'
+      },
+      evidence_limit: {
+        type: 'integer',
+        description: '返回近期证据的上限，默认 4。'
+      }
+    },
+    required: []
+  },
+  registryMetadata: {
+    displayName: 'Read Memory Stream',
+    category: 'cognition',
+    tags: ['cognition', 'memory', 'evidence'],
+    sideEffect: false,
+    expectResponse: true,
+    timeoutMs: 10000,
+    version: '1.0.0',
+    createdBy: 'system',
+    updatedBy: 'system'
+  },
+  handler: async (ctx: ToolContext): Promise<ToolResult> => {
+    try {
+      if (typeof deps.readMemoryStream !== 'function') {
+        throw new Error('memory stream reading is not available');
+      }
+
+      const stableLimit = validateOptionalLimit(ctx.arguments?.stable_limit, 6, 8, 'stable_limit');
+      const evidenceLimit = validateOptionalLimit(ctx.arguments?.evidence_limit, 4, 4, 'evidence_limit');
+      const payload = await deps.readMemoryStream({
+        metadata: ctx.metadata,
+        stableLimit,
+        evidenceLimit
+      });
+
+      return {
+        success: true,
+        data: payload
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || 'Failed to read memory stream'
+      };
+    }
+  }
 });
 
 const createChatViewScrollUpTool = (
@@ -1183,6 +1531,22 @@ export const createMessagingTools = (
 
   if (typeof deps.readMessageAttachment === 'function') {
     tools.push(createReadMessageAttachmentTool(deps));
+  }
+
+  if (typeof deps.readSelfState === 'function') {
+    tools.push(createReadSelfStateTool(deps));
+  }
+
+  if (typeof deps.readRelationshipSnapshot === 'function') {
+    tools.push(createReadRelationshipSnapshotTool(deps));
+  }
+
+  if (typeof deps.readActivePlans === 'function') {
+    tools.push(createReadActivePlansTool(deps));
+  }
+
+  if (typeof deps.readMemoryStream === 'function') {
+    tools.push(createReadMemoryStreamTool(deps));
   }
 
   tools.push(createEndTool());

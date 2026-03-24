@@ -25,6 +25,10 @@ describe('Messaging Static Tools', () => {
   let endTool: StaticTool;
   let replyContextTool: StaticTool | undefined;
   let readAttachmentTool: StaticTool | undefined;
+  let readSelfStateTool: StaticTool | undefined;
+  let readRelationshipSnapshotTool: StaticTool | undefined;
+  let readActivePlansTool: StaticTool | undefined;
+  let readMemoryStreamTool: StaticTool | undefined;
   let toolsByName: Map<string, StaticTool>;
 
   const buildContext = (
@@ -79,6 +83,87 @@ describe('Messaging Static Tools', () => {
           data: 'QUJDREVGRw=='
         }
       }),
+      readSelfState: jest.fn().mockResolvedValue({
+        status: 'ok',
+        snapshot: {
+          id: 1,
+          identity_summary: '小腻',
+          core_traits: ['敏锐'],
+          long_term_goals: ['长期陪伴'],
+          current_concerns: ['收口版本'],
+          availability: 'online',
+          energy: 'steady',
+          updated_at: '2026-03-24T00:00:00.000Z'
+        }
+      }),
+      readRelationshipSnapshot: jest.fn().mockResolvedValue({
+        status: 'ok',
+        snapshot: {
+          id: 2,
+          target_user_id: 123456,
+          group_id: null,
+          field_scope: 'private_chat',
+          relationship_summary: '熟悉但保持边界',
+          interaction_style: '顺势回应',
+          boundary_strategy: 'observe_only',
+          boundary_notes: '先观察',
+          confidence: 0.75,
+          impression_profile: { warmth: 0.6 },
+          speech_policy: { tone: 'neutral' },
+          memory_bias: { retrieve_boost_topics: ['项目'] },
+          notes_json: null,
+          last_observed_at: '2026-03-24T00:00:00.000Z',
+          updated_at: '2026-03-24T00:00:00.000Z'
+        }
+      }),
+      readActivePlans: jest.fn().mockResolvedValue({
+        status: 'ok',
+        limit: 3,
+        plans: [{
+          id: 3,
+          plan_type: 'day_plan',
+          goal: '推进收口',
+          trigger_condition: '用户发来新消息',
+          status: 'active',
+          target_user_id: 123456,
+          target_group_id: null,
+          target_field_scope: 'private_chat',
+          source_plan_id: null,
+          plan_metadata_json: { source: 'daily' },
+          scheduled_start_at: null,
+          updated_at: '2026-03-24T00:00:00.000Z'
+        }]
+      }),
+      readMemoryStream: jest.fn().mockResolvedValue({
+        status: 'ok',
+        stable_limit: 6,
+        evidence_limit: 4,
+        retrieved_stable_memories: [{
+          id: 4,
+          memory_scope: 'person_global',
+          memory_type: 'commitment',
+          title: '曾承诺跟进',
+          content: '上次说会继续看实现',
+          confidence: 0.8,
+          salience: 0.7,
+          user_id: 123456,
+          group_id: null,
+          target_user_id: 123456,
+          last_observed_at: '2026-03-23T00:00:00.000Z',
+          updated_at: '2026-03-24T00:00:00.000Z'
+        }],
+        recent_evidence: [{
+          id: 5,
+          source_type: 'incoming_message',
+          field_scope: 'private_chat',
+          message_type: 'private',
+          user_id: 123456,
+          group_id: null,
+          subject_user_id: 123456,
+          content: '催一下进度',
+          occurred_at: '2026-03-24T00:00:00.000Z'
+        }]
+      }),
       recordMemeUsage: jest.fn().mockResolvedValue(undefined)
     };
 
@@ -91,6 +176,10 @@ describe('Messaging Static Tools', () => {
     endTool = toolsByName.get('end')!;
     replyContextTool = toolsByName.get('reply_context_fetch');
     readAttachmentTool = toolsByName.get('read_message_attachment');
+    readSelfStateTool = toolsByName.get('read_self_state');
+    readRelationshipSnapshotTool = toolsByName.get('read_relationship_snapshot');
+    readActivePlansTool = toolsByName.get('read_active_plans');
+    readMemoryStreamTool = toolsByName.get('read_memory_stream');
   });
 
   it('should create both private and group messaging tools', () => {
@@ -102,6 +191,10 @@ describe('Messaging Static Tools', () => {
     expect(toolNames).toContain('save_meme_image');
     expect(toolNames).toContain('reply_context_fetch');
     expect(toolNames).toContain('read_message_attachment');
+    expect(toolNames).toContain('read_self_state');
+    expect(toolNames).toContain('read_relationship_snapshot');
+    expect(toolNames).toContain('read_active_plans');
+    expect(toolNames).toContain('read_memory_stream');
     expect(toolNames).toContain('end');
 
     expect(privateTool.mode).toBe('fire-and-forget');
@@ -111,6 +204,10 @@ describe('Messaging Static Tools', () => {
     expect(endTool.mode).toBe('fire-and-forget');
     expect(replyContextTool?.mode).toBe('returnable');
     expect(readAttachmentTool?.mode).toBe('returnable');
+    expect(readSelfStateTool?.mode).toBe('returnable');
+    expect(readRelationshipSnapshotTool?.mode).toBe('returnable');
+    expect(readActivePlansTool?.mode).toBe('returnable');
+    expect(readMemoryStreamTool?.mode).toBe('returnable');
 
     toolsByName.forEach(tool => {
       if (tool.parameters) {
@@ -119,7 +216,7 @@ describe('Messaging Static Tools', () => {
       expect(typeof tool.handler).toBe('function');
     });
 
-    expect(toolsByName.size).toBe(7);
+    expect(toolsByName.size).toBe(11);
   });
 
   describe('send_private_chat_message', () => {
@@ -346,15 +443,117 @@ describe('Messaging Static Tools', () => {
   });
 
   describe('end', () => {
-    it('should succeed without producing output or side effects', async () => {
-      const result = await endTool.handler(buildContext());
+    it('should succeed with an explicit reason and without side effects', async () => {
+      const result = await endTool.handler(buildContext({ reason: 'low_signal_turn' }));
 
       expect(result.success).toBe(true);
-      expect(result.data).toBeUndefined();
+      expect(result.data).toMatchObject({
+        status: 'ended',
+        reason: 'low_signal_turn'
+      });
       expect(result.error).toBeUndefined();
       expect(deps.sendPrivateMessage).not.toHaveBeenCalled();
       expect(deps.sendGroupMessage).not.toHaveBeenCalled();
       expect(deps.findMemeByTags).not.toHaveBeenCalled();
+    });
+
+    it('should reject missing reason', async () => {
+      const result = await endTool.handler(buildContext());
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('reason');
+    });
+  });
+
+  describe('cognition read tools', () => {
+    it('should return self state snapshot', async () => {
+      const result = await readSelfStateTool!.handler(buildContext());
+
+      expect(deps.readSelfState).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        status: 'ok',
+        snapshot: {
+          identity_summary: '小腻',
+          availability: 'online'
+        }
+      });
+    });
+
+    it('should return relationship snapshot using metadata scope', async () => {
+      const metadata = {
+        messageType: 'private',
+        userId: 123456,
+        currentMessageText: '你还记得吗'
+      };
+      const result = await readRelationshipSnapshotTool!.handler(
+        buildContext({}, { metadata })
+      );
+
+      expect(deps.readRelationshipSnapshot).toHaveBeenCalledWith(metadata);
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        status: 'ok',
+        snapshot: {
+          target_user_id: 123456,
+          boundary_strategy: 'observe_only'
+        }
+      });
+    });
+
+    it('should pass limit when reading active plans', async () => {
+      const metadata = {
+        messageType: 'private',
+        userId: 123456
+      };
+      const result = await readActivePlansTool!.handler(
+        buildContext({ limit: 2 }, { metadata })
+      );
+
+      expect(deps.readActivePlans).toHaveBeenCalledWith({
+        metadata,
+        limit: 2
+      });
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        limit: 3,
+        plans: [
+          expect.objectContaining({
+            goal: '推进收口'
+          })
+        ]
+      });
+    });
+
+    it('should pass stream limits when reading memory stream', async () => {
+      const metadata = {
+        messageType: 'private',
+        userId: 123456,
+        currentMessageText: '催一下进度'
+      };
+      const result = await readMemoryStreamTool!.handler(
+        buildContext({ stable_limit: 5, evidence_limit: 2 }, { metadata })
+      );
+
+      expect(deps.readMemoryStream).toHaveBeenCalledWith({
+        metadata,
+        stableLimit: 5,
+        evidenceLimit: 2
+      });
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        status: 'ok',
+        retrieved_stable_memories: [
+          expect.objectContaining({
+            memory_type: 'commitment'
+          })
+        ],
+        recent_evidence: [
+          expect.objectContaining({
+            source_type: 'incoming_message'
+          })
+        ]
+      });
     });
   });
 
