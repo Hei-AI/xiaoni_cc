@@ -465,6 +465,7 @@ export class AgentMemoryService {
       : this.normalizeProactivityConfig({});
     const observedGroupIds = new Set(proactivityConfig.observedGroupIds);
     const allowedGroupIds = new Set(proactivityConfig.allowedGroupIds);
+    const plannerRuntimeEnabled = proactivityConfig.followupEnabled && !proactivityConfig.isPaused;
 
     const fields = new Map<string, FieldAccumulator>();
     const edgeUpserts = new Map<string, {
@@ -881,6 +882,7 @@ export class AgentMemoryService {
           boundaryPenalty
         );
         const plannerEligible = Boolean(
+          plannerRuntimeEnabled &&
           this.walkPlannerEvaluator &&
           remainingPlannerCalls > 0 &&
           (priorityScore >= 0.35 || triggerSources.length > 0 || Boolean(field.relationship))
