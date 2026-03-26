@@ -289,6 +289,10 @@ class HTTPTrafficLogger:
             # 分析请求特征
             api_info = self._analyze_api_request(flow)
 
+            if not self._should_capture_flow(flow, api_info):
+                logger.debug(f"跳过非目标流量: {flow.request.method} {flow.request.pretty_url}")
+                return
+
             # 构造日志记录
             log_record = self._build_log_record(flow, duration_ms, api_info, start_time, end_time)
 
@@ -300,6 +304,38 @@ class HTTPTrafficLogger:
         except Exception as e:
             logger.error(f"响应记录处理失败: {e}")
             logger.error(traceback.format_exc())
+
+    def _should_capture_flow(self, flow: http.HTTPFlow, api_info: Dict[str, Any]) -> bool:
+        if api_info.get('is_ai_request'):
+            return True
+
+        if any(flow.metadata.get(key) for key in ('trace_id', 'conversation_id', 'session_id', 'llm_call_id', 'tool_call_id')):
+            return True
+
+        path = (flow.request.path or '').lower()
+        url = flow.request.pretty_url.lower()
+        content_type = (flow.request.headers.get('content-type') or '').lower()
+
+        if path.endswith(('.js', '.css', '.map', '.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff', '.woff2')):
+            return False
+
+        if '/logs' in path or '/logs' in url:
+            return False
+
+        relevant_internal_targets = (
+            '/api/internal/llm/debug',
+            '/api/simple-queue/',
+            '/api/simulate/',
+            '/api/test/simulate-message',
+            '/api/internal/send_private',
+            '/api/internal/send_group',
+            '/api/traffic/replay',
+            '/playground/',
+        )
+
+        return path.startswith(relevant_internal_targets) and (
+            'application/json' in content_type or 'application/x-www-form-urlencoded' in content_type
+        )
 
     def _extract_trace_id(self, flow: http.HTTPFlow) -> Optional[str]:
         """从请求中提取追踪ID"""

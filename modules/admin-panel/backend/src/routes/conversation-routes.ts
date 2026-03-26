@@ -28,6 +28,9 @@ export function createConversationRoutes(database: DatabaseManager, logger: wins
       res.json({
         success: true,
         data: conversations,
+        total,
+        page,
+        limit,
         pagination: {
           page,
           limit,

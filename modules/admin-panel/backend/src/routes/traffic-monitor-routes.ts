@@ -13,16 +13,50 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
   // 初始化流量重放服务
   const replayService = new TrafficReplayService(database);
 
+  const buildTimeCondition = (range: unknown, startTime: unknown, endTime: unknown) => {
+    const params: any[] = [];
+    const normalizedRange = typeof range === 'string' ? range : '24h';
+
+    if (normalizedRange === 'custom') {
+      const conditions: string[] = [];
+      if (typeof startTime === 'string' && startTime.trim()) {
+        conditions.push('request_timestamp >= ?');
+        params.push(startTime);
+      }
+      if (typeof endTime === 'string' && endTime.trim()) {
+        conditions.push('request_timestamp <= ?');
+        params.push(endTime);
+      }
+      return {
+        clause: conditions.length > 0 ? conditions.join(' AND ') : '1=1',
+        params
+      };
+    }
+
+    switch (normalizedRange) {
+      case '1h':
+        return { clause: 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 1 HOUR)', params };
+      case '7d':
+        return { clause: 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)', params };
+      case '30d':
+        return { clause: 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)', params };
+      case '24h':
+      default:
+        return { clause: 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)', params };
+    }
+  };
+
   // 获取HTTP流量记录列表
   router.get('/traffic/logs', async (req, res) => {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
       const offset = (page - 1) * limit;
+      const timeFilter = buildTimeCondition(req.query.range, req.query.start_time, req.query.end_time);
 
       // 构建查询条件
-      const filters = [];
-      const params = [];
+      const filters = [timeFilter.clause];
+      const params = [...timeFilter.params];
 
       if (req.query.method) {
         filters.push('method = ?');
@@ -57,16 +91,6 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
       if (req.query.trace_id) {
         filters.push('trace_id = ?');
         params.push(req.query.trace_id);
-      }
-
-      if (req.query.start_time) {
-        filters.push('request_timestamp >= ?');
-        params.push(req.query.start_time);
-      }
-
-      if (req.query.end_time) {
-        filters.push('request_timestamp <= ?');
-        params.push(req.query.end_time);
       }
 
       if (req.query.search) {
@@ -187,24 +211,7 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
   router.get('/traffic/stats', async (req, res) => {
     try {
       const timeRange = req.query.range || '24h'; // 24h, 7d, 30d
-
-      let timeCondition = '';
-      switch (timeRange) {
-        case '1h':
-          timeCondition = 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 1 HOUR)';
-          break;
-        case '24h':
-          timeCondition = 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)';
-          break;
-        case '7d':
-          timeCondition = 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
-          break;
-        case '30d':
-          timeCondition = 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)';
-          break;
-        default:
-          timeCondition = 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)';
-      }
+      const timeFilter = buildTimeCondition(timeRange, req.query.start_time, req.query.end_time);
 
       // 基础统计
       const overviewStats = await database.executeQuery<any>(
@@ -219,7 +226,8 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
           SUM(request_size) as total_request_bytes,
           SUM(response_size) as total_response_bytes
          FROM http_traffic_logs
-         WHERE ${timeCondition}`
+         WHERE ${timeFilter.clause}`,
+        timeFilter.params
       );
 
       // 按API类型统计
@@ -230,9 +238,10 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
           AVG(duration_ms) as avg_duration,
           COUNT(CASE WHEN response_status >= 400 THEN 1 END) as error_count
          FROM http_traffic_logs
-         WHERE ${timeCondition} AND is_ai_request = 1 AND api_type IS NOT NULL
+         WHERE ${timeFilter.clause} AND is_ai_request = 1 AND api_type IS NOT NULL
          GROUP BY api_type
-         ORDER BY request_count DESC`
+         ORDER BY request_count DESC`,
+        timeFilter.params
       );
 
       // 按Host统计
@@ -243,10 +252,11 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
           AVG(duration_ms) as avg_duration,
           COUNT(CASE WHEN response_status >= 400 THEN 1 END) as error_count
          FROM http_traffic_logs
-         WHERE ${timeCondition}
+         WHERE ${timeFilter.clause}
          GROUP BY host
          ORDER BY request_count DESC
-         LIMIT 10`
+         LIMIT 10`,
+        timeFilter.params
       );
 
       // 按小时统计 (用于图表)
@@ -257,9 +267,10 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
           COUNT(CASE WHEN is_ai_request = 1 THEN 1 END) as ai_request_count,
           AVG(duration_ms) as avg_duration
          FROM http_traffic_logs
-         WHERE ${timeCondition}
+         WHERE ${timeFilter.clause}
          GROUP BY DATE_FORMAT(request_timestamp, '%Y-%m-%d %H:00:00')
-         ORDER BY hour ASC`
+         ORDER BY hour ASC`,
+        timeFilter.params
       );
 
       // 状态码分布
@@ -274,9 +285,10 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
           END as status_group,
           COUNT(*) as count
          FROM http_traffic_logs
-         WHERE ${timeCondition} AND response_status IS NOT NULL
+         WHERE ${timeFilter.clause} AND response_status IS NOT NULL
          GROUP BY status_group
-         ORDER BY count DESC`
+         ORDER BY count DESC`,
+        timeFilter.params
       );
 
       res.json({
@@ -417,28 +429,15 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
       const format = req.query.format || 'csv'; // csv, json
       const timeRange = req.query.range || '24h';
       const includeBody = req.query.include_body === 'true';
-
-      let timeCondition = '';
-      switch (timeRange) {
-        case '1h':
-          timeCondition = 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 1 HOUR)';
-          break;
-        case '24h':
-          timeCondition = 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)';
-          break;
-        case '7d':
-          timeCondition = 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
-          break;
-        default:
-          timeCondition = 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)';
-      }
+      const timeFilter = buildTimeCondition(timeRange, req.query.start_time, req.query.end_time);
 
       const fields = includeBody
         ? 'id, trace_id, method, url, response_status, duration_ms, request_timestamp, is_ai_request, api_type, request_body, response_body'
         : 'id, trace_id, method, url, response_status, duration_ms, request_timestamp, is_ai_request, api_type';
 
       const exportData = await database.executeQuery<any>(
-        `SELECT ${fields} FROM http_traffic_logs WHERE ${timeCondition} ORDER BY request_timestamp DESC LIMIT 1000`
+        `SELECT ${fields} FROM http_traffic_logs WHERE ${timeFilter.clause} ORDER BY request_timestamp DESC LIMIT 1000`,
+        timeFilter.params
       );
 
       if (format === 'csv') {

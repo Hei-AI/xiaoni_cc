@@ -4,10 +4,10 @@ import { Link } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
+  Calendar,
   Clock,
   Download,
   Eye,
-  Filter,
   Globe,
   Play,
   PlayCircle,
@@ -108,7 +108,7 @@ export function HttpTrafficMonitorPage() {
     method: 'all',
     host: '',
     status: 'all',
-    is_ai_request: 'all',
+    is_ai_request: 'true',
     api_type: '',
     container_name: '',
     search: '',
@@ -116,17 +116,20 @@ export function HttpTrafficMonitorPage() {
     end_time: '',
   });
   const [timeRange, setTimeRange] = useState('24h');
-  const [showFilters, setShowFilters] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showBatchReplayDialog, setShowBatchReplayDialog] = useState(false);
 
   const { data: trafficData, isLoading: trafficLoading, refetch: refetchTraffic } = useQuery({
-    queryKey: ['traffic-logs', page, filters],
+    queryKey: ['traffic-logs', page, filters, timeRange],
     queryFn: async () => {
+      const normalizedFilters = Object.fromEntries(
+        Object.entries(filters).filter(([, value]) => value !== '' && value !== 'all'),
+      );
       const params = new URLSearchParams({
         page: page.toString(),
         limit: '50',
-        ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '' && value !== 'all')),
+        range: timeRange,
+        ...normalizedFilters,
       });
 
       const response = await fetch(`/api/traffic/logs?${params}`);
@@ -137,9 +140,18 @@ export function HttpTrafficMonitorPage() {
   });
 
   const { data: statsData, isLoading: statsLoading, refetch: refetchStats } = useQuery({
-    queryKey: ['traffic-stats', timeRange],
+    queryKey: ['traffic-stats', timeRange, filters.start_time, filters.end_time],
     queryFn: async () => {
-      const response = await fetch(`/api/traffic/stats?range=${timeRange}`);
+      const params = new URLSearchParams({ range: timeRange });
+      if (timeRange === 'custom') {
+        if (filters.start_time) {
+          params.set('start_time', new Date(filters.start_time).toISOString());
+        }
+        if (filters.end_time) {
+          params.set('end_time', new Date(filters.end_time).toISOString());
+        }
+      }
+      const response = await fetch(`/api/traffic/stats?${params}`);
       if (!response.ok) throw new Error('Failed to fetch traffic stats');
       return response.json();
     },
@@ -149,6 +161,14 @@ export function HttpTrafficMonitorPage() {
   const handleFilterChange = (key: string, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
     setPage(1);
+  };
+
+  const handleTimeRangeChange = (value: string) => {
+    setTimeRange(value);
+    setPage(1);
+    if (value !== 'custom') {
+      setFilters((prev) => ({ ...prev, start_time: '', end_time: '' }));
+    }
   };
 
   const handleRefresh = () => {
@@ -162,6 +182,14 @@ export function HttpTrafficMonitorPage() {
       range: timeRange,
       include_body: 'false',
     });
+    if (timeRange === 'custom') {
+      if (filters.start_time) {
+        params.set('start_time', new Date(filters.start_time).toISOString());
+      }
+      if (filters.end_time) {
+        params.set('end_time', new Date(filters.end_time).toISOString());
+      }
+    }
 
     const response = await fetch(`/api/traffic/export?${params}`);
     if (!response.ok) throw new Error('Failed to export data');
@@ -265,21 +293,6 @@ export function HttpTrafficMonitorPage() {
               <RefreshCw className={`mr-2 h-4 w-4 ${(trafficLoading || statsLoading) ? 'animate-spin' : ''}`} />
               刷新
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowFilters((value) => !value)}>
-              <Filter className="mr-2 h-4 w-4" />
-              筛选
-            </Button>
-            <Select value={timeRange} onValueChange={setTimeRange}>
-              <SelectTrigger className="w-[132px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1h">1小时</SelectItem>
-                <SelectItem value="24h">24小时</SelectItem>
-                <SelectItem value="7d">7天</SelectItem>
-                <SelectItem value="30d">30天</SelectItem>
-              </SelectContent>
-            </Select>
           </>
         }
       />
@@ -341,72 +354,132 @@ export function HttpTrafficMonitorPage() {
         </SectionPanel>
       </div>
 
-      {showFilters && (
-        <FilterBar>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <div>
-              <label className="mb-2 block text-sm font-medium">HTTP 方法</label>
-              <Select value={filters.method} onValueChange={(value) => handleFilterChange('method', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="选择方法" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部</SelectItem>
-                  <SelectItem value="GET">GET</SelectItem>
-                  <SelectItem value="POST">POST</SelectItem>
-                  <SelectItem value="PUT">PUT</SelectItem>
-                  <SelectItem value="DELETE">DELETE</SelectItem>
-                  <SelectItem value="PATCH">PATCH</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+      <FilterBar>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <div>
+            <label className="mb-2 block text-sm font-medium">时间范围</label>
+            <Select value={timeRange} onValueChange={handleTimeRangeChange}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1h">1小时</SelectItem>
+                <SelectItem value="24h">24小时</SelectItem>
+                <SelectItem value="7d">7天</SelectItem>
+                <SelectItem value="30d">30天</SelectItem>
+                <SelectItem value="custom">自定义</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium">状态码</label>
-              <Select value={filters.status} onValueChange={(value) => handleFilterChange('status', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="选择状态" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部</SelectItem>
-                  <SelectItem value="200">200 成功</SelectItem>
-                  <SelectItem value="400">400 请求错误</SelectItem>
-                  <SelectItem value="401">401 未授权</SelectItem>
-                  <SelectItem value="404">404 未找到</SelectItem>
-                  <SelectItem value="500">500 服务器错误</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div>
+            <label className="mb-2 block text-sm font-medium">HTTP 方法</label>
+            <Select value={filters.method} onValueChange={(value) => handleFilterChange('method', value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="选择方法" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部</SelectItem>
+                <SelectItem value="GET">GET</SelectItem>
+                <SelectItem value="POST">POST</SelectItem>
+                <SelectItem value="PUT">PUT</SelectItem>
+                <SelectItem value="DELETE">DELETE</SelectItem>
+                <SelectItem value="PATCH">PATCH</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium">AI 请求</label>
-              <Select value={filters.is_ai_request} onValueChange={(value) => handleFilterChange('is_ai_request', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="选择类型" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部</SelectItem>
-                  <SelectItem value="true">仅 AI 请求</SelectItem>
-                  <SelectItem value="false">非 AI 请求</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div>
+            <label className="mb-2 block text-sm font-medium">状态码</label>
+            <Select value={filters.status} onValueChange={(value) => handleFilterChange('status', value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="选择状态" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部</SelectItem>
+                <SelectItem value="200">200 成功</SelectItem>
+                <SelectItem value="400">400 请求错误</SelectItem>
+                <SelectItem value="401">401 未授权</SelectItem>
+                <SelectItem value="404">404 未找到</SelectItem>
+                <SelectItem value="500">500 服务器错误</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium">容器名称</label>
-              <Input placeholder="输入容器名称..." value={filters.container_name} onChange={(e) => handleFilterChange('container_name', e.target.value)} />
-            </div>
+          <div>
+            <label className="mb-2 block text-sm font-medium">AI 请求</label>
+            <Select value={filters.is_ai_request} onValueChange={(value) => handleFilterChange('is_ai_request', value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="选择类型" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="true">仅 AI 请求</SelectItem>
+                <SelectItem value="all">全部</SelectItem>
+                <SelectItem value="false">非 AI 请求</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium">搜索</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input placeholder="搜索 URL 或内容..." value={filters.search} onChange={(e) => handleFilterChange('search', e.target.value)} className="pl-9" />
-              </div>
+          <div>
+            <label className="mb-2 block text-sm font-medium">容器名称</label>
+            <Input placeholder="输入容器名称..." value={filters.container_name} onChange={(e) => handleFilterChange('container_name', e.target.value)} />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium">搜索</label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input placeholder="搜索 URL 或内容..." value={filters.search} onChange={(e) => handleFilterChange('search', e.target.value)} className="pl-9" />
             </div>
           </div>
-        </FilterBar>
-      )}
+        </div>
+
+        {timeRange === 'custom' && (
+          <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="datetime-local"
+                  step="1"
+                  value={filters.start_time}
+                  onChange={(e) => handleFilterChange('start_time', e.target.value)}
+                  className="w-full xl:w-56"
+                />
+              </div>
+              <span className="text-sm text-muted-foreground">至</span>
+              <Input
+                type="datetime-local"
+                step="1"
+                value={filters.end_time}
+                onChange={(e) => handleFilterChange('end_time', e.target.value)}
+                className="w-full xl:w-56"
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setTimeRange('24h');
+                setFilters({
+                  method: 'all',
+                  host: '',
+                  status: 'all',
+                  is_ai_request: 'true',
+                  api_type: '',
+                  container_name: '',
+                  search: '',
+                  start_time: '',
+                  end_time: '',
+                });
+                setPage(1);
+              }}
+            >
+              清除筛选
+            </Button>
+          </div>
+        )}
+      </FilterBar>
 
       {selectedIds.size > 0 && (
         <SelectionBar
@@ -473,7 +546,7 @@ export function HttpTrafficMonitorPage() {
                   }
                   meta={
                     <>
-                      <span>{log.container_name || 'qqbot-core'}</span>
+                      <span>{log.container_name || 'provider-service'}</span>
                       <span>{formatDuration(log.duration_ms)}</span>
                       <span>↑ {formatBytes(log.request_size)} / ↓ {formatBytes(log.response_size)}</span>
                     </>
@@ -533,7 +606,7 @@ export function HttpTrafficMonitorPage() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">{formatTimestamp(log.timestamp)}</TableCell>
                       <TableCell className="text-xs">
-                        <Badge variant="outline">{log.container_name || 'qqbot-core'}</Badge>
+                        <Badge variant="outline">{log.container_name || 'provider-service'}</Badge>
                       </TableCell>
                       <TableCell>
                         <Badge className={`border ${getMethodColor(log.method)}`}>{log.method}</Badge>

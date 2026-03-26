@@ -385,13 +385,14 @@ export class TrafficLogWatcher {
    * 批量插入数据库
    */
   private async insertBatch(records: TrafficLogRecord[]): Promise<void> {
-    if (records.length === 0) {
+    const acceptedRecords = records.filter((record) => this.shouldPersistRecord(record));
+    if (acceptedRecords.length === 0) {
       return;
     }
 
     try {
       // 生成占位符：(?,?,?,...), (?,?,?,...), ...
-      const placeholders = records.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+      const placeholders = acceptedRecords.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
 
       const sql = `
         INSERT INTO http_traffic_logs (
@@ -408,7 +409,7 @@ export class TrafficLogWatcher {
 
       // 扁平化参数数组
       const params: any[] = [];
-      for (const record of records) {
+      for (const record of acceptedRecords) {
         params.push(
           record.trace_id || null,
           record.conversation_id || null,
@@ -417,7 +418,7 @@ export class TrafficLogWatcher {
           record.agent_turn ?? null,
           record.llm_call_id || null,
           record.tool_call_id || null,
-          record.container_name || 'qqbot-core',
+          record.container_name || 'provider-service',
           record.service_name || null,
           record.request_id,
           record.method,
@@ -450,10 +451,10 @@ export class TrafficLogWatcher {
 
     } catch (error) {
       this.logger.error('[TrafficLogWatcher] Batch insert failed:', error);
-      if (records.length === 1) {
+      if (acceptedRecords.length === 1) {
         throw error;
       }
-      await this.insertIndividually(records, error);
+      await this.insertIndividually(acceptedRecords, error);
     }
   }
 
@@ -519,7 +520,7 @@ export class TrafficLogWatcher {
       agent_turn: this.normalizeInteger(record.agent_turn ?? record.agentTurn),
       llm_call_id: record.llm_call_id || record.llmCallId || null,
       tool_call_id: record.tool_call_id || record.toolCallId || null,
-      container_name: record.container_name || record.containerName || 'qqbot-core',
+      container_name: record.container_name || record.containerName || 'provider-service',
       service_name: record.service_name || record.serviceName,
       request_id: record.request_id || record.requestId || record.id || this.generateRequestId(),
       method: record.method || 'GET',
@@ -575,6 +576,52 @@ export class TrafficLogWatcher {
       is_ai_request: false,
       api_type: apiType || undefined
     };
+  }
+
+  private shouldPersistRecord(record: TrafficLogRecord): boolean {
+    if (record.is_ai_request) {
+      return true;
+    }
+
+    if (record.trace_id || record.conversation_id || record.session_id || record.llm_call_id || record.tool_call_id) {
+      return true;
+    }
+
+    const normalizedPath = (record.path || '').toLowerCase();
+    const normalizedUrl = (record.url || '').toLowerCase();
+    const normalizedContentType = (record.request_content_type || '').toLowerCase();
+
+    const isStaticAsset =
+      normalizedPath.endsWith('.js') ||
+      normalizedPath.endsWith('.css') ||
+      normalizedPath.endsWith('.map') ||
+      normalizedPath.endsWith('.png') ||
+      normalizedPath.endsWith('.jpg') ||
+      normalizedPath.endsWith('.jpeg') ||
+      normalizedPath.endsWith('.svg') ||
+      normalizedPath.endsWith('.ico') ||
+      normalizedPath.endsWith('.woff') ||
+      normalizedPath.endsWith('.woff2');
+
+    if (isStaticAsset || normalizedPath.includes('/logs') || normalizedUrl.includes('/logs')) {
+      return false;
+    }
+
+    const isRelevantInternalRequest =
+      normalizedPath.startsWith('/api/internal/llm/debug') ||
+      normalizedPath.startsWith('/api/simple-queue/') ||
+      normalizedPath.startsWith('/api/simulate/') ||
+      normalizedPath.startsWith('/api/test/simulate-message') ||
+      normalizedPath.startsWith('/api/internal/send_private') ||
+      normalizedPath.startsWith('/api/internal/send_group') ||
+      normalizedPath.startsWith('/api/traffic/replay') ||
+      normalizedPath.startsWith('/playground/');
+
+    const isStructuredApiRequest =
+      normalizedContentType.includes('application/json') ||
+      normalizedContentType.includes('application/x-www-form-urlencoded');
+
+    return isRelevantInternalRequest && isStructuredApiRequest;
   }
 
   /**
