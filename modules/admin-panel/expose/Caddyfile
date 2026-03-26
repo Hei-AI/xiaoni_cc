@@ -1,8 +1,9 @@
 :80 {
     encode gzip
 
-    basicauth * {
+    basic_auth * {
         admin $2a$14$iOCQYzUI/Vg92kNZy8zKOOikV1vfD5DUv55KVKmLeIZ62OMUGbpWa
+        import /etc/caddy/local/*.caddy
     }
 
     reverse_proxy admin-frontend:80

@@ -11,7 +11,9 @@ export default defineConfig({
     },
   },
   server: {
+    host: process.env.VITE_DEV_HOST || '127.0.0.1',
     port: 3003,
+    strictPort: true,
     cors: true,
     proxy: {
       // 全局API代理到Admin Panel Backend (port 9080)

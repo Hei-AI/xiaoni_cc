@@ -187,6 +187,7 @@ services:
       - qq_bot_network
     volumes:
       - ./modules/admin-panel/expose/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${HOME}/.qqbot-local/admin-expose:/etc/caddy/local:ro
 
   # Operational one-off tasks (invoke with: docker compose --profile ops run --rm <service>)
   init-db:

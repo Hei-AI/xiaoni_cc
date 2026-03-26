@@ -97,13 +97,15 @@ python3 scripts/start_modules.py status
 
 - 本地开发链路：`npm run deploy:local`
   - 使用 `scripts/start_modules.py`
-  - 前端直接跑在本机 `3003`
+  - 前端会以 `0.0.0.0:3003` 启动，便于宿主机 Chrome / Playwright MCP 访问
+  - 宿主机访问地址会写入 `/home/liahua/.qqbot-local/playwright/local-frontend-access.json`
   - 适合本地联调，不会更新公网管理端
 
 - 公网管理端链路：`npm run deploy`
   - 等价于 `npm run deploy:admin-public`
   - 会重建 Docker 的 `admin-frontend`，并重启 `admin-expose-proxy`
   - 这是 `qqbot-admin.liahuas.top` 实际使用的链路
+  - 部署时会自动生成生产调试 token，明文保存在 `/home/liahua/.qqbot-local/admin-debug-auth/qqbot-admin-debug.token`
   - 脚本会自动校验 `admin-backend` 健康接口和本机 `3903` 网关状态
 
 ## 本地文件约定

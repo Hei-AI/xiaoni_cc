@@ -52,6 +52,8 @@ class Logger:
 class ModuleManager:
     def __init__(self):
         self.project_root = Path(__file__).parent.parent
+        self.local_state_dir = Path.home() / '.qqbot-local'
+        self.local_frontend_access_file = self.local_state_dir / 'playwright' / 'local-frontend-access.json'
         self.root_project = {
             'name': 'Repository Root',
             'path': '.',
@@ -85,6 +87,44 @@ class ModuleManager:
         ]
         self.processes = {}
         self.pid_file = self.project_root / 'scripts' / 'module_pids.json'
+
+    def _get_host_access_ip(self) -> Optional[str]:
+        """获取宿主机浏览器应访问的 WSL IP"""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.connect(('8.8.8.8', 80))
+                ip_address = sock.getsockname()[0]
+                if ip_address and not ip_address.startswith('127.'):
+                    return ip_address
+        except OSError:
+            pass
+
+        return None
+
+    def _write_local_frontend_access_file(self) -> Optional[Path]:
+        """写出本地前端访问信息，供宿主机 Chrome / Playwright MCP 使用"""
+        host_access_ip = self._get_host_access_ip()
+        payload = {
+            'generated_at': int(time.time()),
+            'frontend_localhost_url': 'http://localhost:3003',
+            'frontend_host_browser_url': f'http://{host_access_ip}:3003' if host_access_ip else None,
+            'host_access_ip': host_access_ip
+        }
+
+        self.local_frontend_access_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.local_frontend_access_file, 'w', encoding='utf-8') as file:
+            json.dump(payload, file, indent=2, ensure_ascii=False)
+
+        return self.local_frontend_access_file
+
+    def _build_process_env(self, module: Dict) -> Dict[str, str]:
+        env = os.environ.copy()
+
+        if module['name'] == 'Admin Frontend':
+            # Host Chrome attaches from Windows, so expose Vite on the WSL interface.
+            env['VITE_DEV_HOST'] = env.get('VITE_DEV_HOST', '0.0.0.0')
+
+        return env
 
     def _package_dir(self, node_modules: Path, package_name: str) -> Path:
         if package_name.startswith('@'):
@@ -282,6 +322,7 @@ class ModuleManager:
             process = subprocess.Popen(
                 ['npm', 'run', module['npm_script']],
                 cwd=module_path,
+                env=self._build_process_env(module),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True
@@ -446,9 +487,20 @@ class ModuleManager:
     
     def _print_access_urls(self) -> None:
         """打印访问地址"""
+        access_file = self._write_local_frontend_access_file()
+        host_access_ip = self._get_host_access_ip()
         Logger.info("访问地址:")
         for module in self.modules:
-            Logger.info(f"  - {module['name']}: http://localhost:{module['port']}")
+            if module['name'] == 'Admin Frontend':
+                Logger.info(f"  - {module['name']} (WSL 内): http://localhost:{module['port']}")
+                if host_access_ip:
+                    Logger.info(f"  - {module['name']} (宿主机 Chrome / Playwright MCP): http://{host_access_ip}:{module['port']}")
+                else:
+                    Logger.warn(f"  - {module['name']} 宿主机地址解析失败，请查看 {access_file}")
+            else:
+                Logger.info(f"  - {module['name']}: http://localhost:{module['port']}")
+
+        Logger.info(f"  - 本地前端访问元数据: {access_file}")
 
 def main():
     """主函数"""
