@@ -1,23 +1,31 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
-- The active runtime stack in `docker-compose.yml` is `mysql` (3306), `qqbot-core` (8081), `admin-panel/backend` (9080), and `admin-panel/frontend` (3003).
+## Project Structure & Runtime Truth
+- The active runtime stack in `docker-compose.yml` is `postgres` (5432), `provider-service` (host `8091`, container `8090`), `admin-panel/backend` (9080), and `admin-panel/frontend` (3003).
 - NapCat is deployed separately via `docker-compose.napcat.yml` and provides OneBot HTTP/WebSocket endpoints on `3000/3001`.
-- `qqbot-core` is the central runtime: it consumes NapCat events, manages queues and context, runs AI/tool flows, writes to MySQL, and exposes health, debug, and `/api/simple-queue/*` operations.
-- `admin-panel/backend` is the operator API layer over MySQL and `qqbot-core`; it owns prompt management, conversations, queue operations, status/log views, and traffic replay/query APIs.
-- `admin-panel/frontend` is the operator UI and only talks to `admin-panel/backend`.
+- `modules/provider-service` is the runtime gateway. It owns provider debug, embeddings, NapCat outbound send, message simulation, and `/api/simple-queue/*`.
+- `modules/admin-panel/backend` is the operator API over PostgreSQL and `provider-service`; it owns prompt management, conversations, queue operations, status/log views, traffic replay/query APIs, and playground execution.
+- `modules/admin-panel/frontend` is the operator UI and only talks to `admin-panel/backend`.
 - `modules/http-traffic-monitor` is an admin-side observability toolchain for transparent proxy capture and replay support, not a standalone product service.
-- `http-api` and `queue-monitor` are no longer part of this repository's main architecture.
+- `modules/qqbot-core` is legacy reference code only. Do not treat it as the active runtime, current contract source, or deployment target.
 
 ## Current Architecture
-- Runtime topology: `NapCat -> qqbot-core -> MySQL`, with `admin-panel/backend` calling into `qqbot-core` for queue/debug operations and `admin-panel/frontend` calling only `admin-panel/backend`.
-- Queue management flow: Admin UI `/queue-management` -> `admin-panel/backend` `/api/queue-monitor/*` -> `qqbot-core` `/api/simple-queue/*`.
-- Traffic observability flow: `modules/http-traffic-monitor` writes `traffic-*.jsonl`; `admin-panel/backend` imports them into MySQL for admin querying and replay.
-- Prompt management flow: prompt data is managed locally through MySQL and admin APIs; do not assume a separate function registry service exists.
+- Runtime topology: `NapCat -> provider-service`, with `admin-panel/backend` calling `provider-service` for queue/debug/provider operations and `admin-panel/frontend` calling only `admin-panel/backend`.
+- Queue management flow: Admin UI `/queue-management` -> `admin-panel/backend` `/api/queue-monitor/*` or `/api/simple-queue/*` -> `provider-service` `/api/simple-queue/*`.
+- Message simulation flow: Admin UI -> `admin-panel/backend` `/api/simple-queue/simulate/*` -> `provider-service` simulator routes.
+- Provider debug flow: Admin UI / playground -> `admin-panel/backend` `/api/debug/prompt-v2` or playground services -> `provider-service` `/api/internal/llm/debug`.
+- Traffic observability flow: `modules/http-traffic-monitor` writes `traffic-*.jsonl`; `admin-panel/backend` imports them into PostgreSQL for admin querying and replay.
+- Prompt management flow: prompt data is managed locally through PostgreSQL and admin APIs; do not assume a separate function registry service exists.
+
+## Removed Or Legacy Areas
+- Cognition architecture is removed from the active admin/runtime product surface. Do not add new `/api/cognition/*` routes or frontend cognition pages back into the main flow.
+- `http-api` and `queue-monitor` are no longer part of this repository's main architecture.
+- `qqbot-core` business orchestration, cognition, proactivity, and legacy queue/debug assumptions are not the truth source for new work.
+- Historical MySQL-oriented scripts have been removed from `scripts/`. Do not reintroduce direct-DB maintenance or migration scripts as part of the default runtime workflow; prefer current HTTP smoke checks and admin/provider APIs.
 
 ## Embedding Capability
-- `qqbot-core` provides an OpenAI-compatible embedding gateway for local callers. This is infrastructure only and is not tied to queueing, RAG, message history, or other business flows.
-- Public embedding endpoints live on `qqbot-core`:
+- `provider-service` provides an OpenAI-compatible embedding gateway for local callers. This is infrastructure only and is not tied to queueing, RAG, message history, or other business flows.
+- Public embedding endpoints live on `provider-service`:
   - `GET /v1/models`
   - `POST /v1/embeddings`
 - `POST /v1/embeddings` accepts OpenAI-style fields including `input`, `model`, `encoding_format`, `dimensions`, and `user`.
@@ -43,17 +51,19 @@
   - `EMBEDDING_NORMALIZE`
 
 ## Build, Test, and Development Commands
-- `npm run install:all`: install root-level tooling plus all three Node modules using their own lockfiles.
-- `npm run build`, `npm run test`, `npm run lint`, `npm run clean`: orchestrate the retained modules from the repository root.
+- `npm run install:all`: install root-level tooling plus all three active Node modules using their own lockfiles.
+- `npm run build`, `npm run test`, `npm run lint`, `npm run clean`: orchestrate `provider-service`, `admin-panel/backend`, and `admin-panel/frontend` from the repository root.
 - `docker compose build` then `docker compose up -d`: rebuild and launch the main stack.
 - `docker compose ps`, `docker compose stop`: inspect or stop running services.
-- `docker logs -f qqbot-qqbot-core`: follow core runtime logs.
-- `npm run dev:qqbot-core`, `npm run dev:admin-backend`, `npm run dev:admin-frontend`: local smoke runs for retained modules.
+- `docker logs -f qqbot-provider-service`: follow provider runtime logs.
+- `npm run dev:provider-service`, `npm run dev:admin-backend`, `npm run dev:admin-frontend`: local smoke runs for retained modules.
 - `python3 scripts/start_modules.py <install|start|stop|status>`: local multi-module orchestrator.
+- `./scripts/self-verification.sh`: broad regression check for the current retained runtime.
+- `./scripts/test-queue-connection.sh`: focused queue/simulation/admin proxy smoke test.
 
 ## Dependency Management Conventions
 - The repository root is an orchestration layer, not an npm workspace. Do not add a `workspaces` field back to the root `package.json`.
-- `modules/qqbot-core`, `modules/admin-panel/backend`, and `modules/admin-panel/frontend` are independent Node projects. Each module owns its own `package.json`, `package-lock.json`, and `node_modules`.
+- `modules/provider-service`, `modules/admin-panel/backend`, and `modules/admin-panel/frontend` are independent Node projects. Each module owns its own `package.json`, `package-lock.json`, and `node_modules`.
 - Root-level commands must not rely on hoisted dependencies to satisfy module runtime or type resolution. If a module needs a package or `@types/*`, declare it in that module and install it in that module.
 - For local bootstrap, use `npm run install:all` from the repository root. For single-module work, use that module's own install/build/test commands inside the module directory.
 - When dependency manifests change, update the matching module `package-lock.json`. Root `package-lock.json` should only describe root-level tooling and scripts.
@@ -66,6 +76,7 @@
 - Frontend static apps should keep the existing `builder -> nginx runtime` shape and avoid installing builder-only tools in the nginx runtime stage.
 - When iterating on one service, prefer `docker compose build <service>` and only rebuild the touched images. After Dockerfile changes, verify with `docker compose build`, `docker compose up -d`, and health/log checks.
 - When a task changes code for a service that is expected to be running via `docker-compose.yml`, completion includes redeploying the affected container(s). Do not stop at local code edits or module-local builds; after validation, run the targeted `docker compose build <service>` and `docker compose up -d <service>` sequence, then confirm the container is healthy from `docker compose ps` and relevant logs.
+- Never run `docker compose up -d --remove-orphans` against the main stack unless you explicitly mean to clean unrelated containers under the same compose project. NapCat is managed separately and should not be restarted by accident.
 
 ## Coding Style & Naming Conventions
 - Prefer TypeScript with two-space indentation and modern ES modules. Classes use PascalCase, functions and variables camelCase, environment variables SCREAMING_SNAKE_CASE.
@@ -95,9 +106,10 @@
 ## Testing Guidelines
 - Jest drives unit tests; place tests adjacent to the code under test.
 - Re-run module tests after API or route changes.
-- After major queue, prompt, or traffic changes, run the relevant integration checks from `scripts/testing/`.
+- After major queue, prompt, traffic, or provider changes, prefer the retained smoke checks (`./scripts/test-queue-connection.sh`, `./scripts/self-verification.sh`) and only add script-level tests when they target the current architecture.
 - Use `./scripts/self-verification.sh` as the broad regression checklist before large merges.
 - For agent end-to-end self-tests on this workstation, prefer using OpenClaw to send a QQ private message to 小腻 (`1129974489`) yourself before asking the user to validate the flow manually.
+- When NapCat is not logged in, queue simulation, provider debug, admin proxy, and embeddings can still be verified independently; outbound QQ send cannot.
 
 ## Commit & Pull Request Guidelines
 - Prefix commit messages with scopes such as `feat:`, `fix:`, or `chore:`.
@@ -108,5 +120,6 @@
 ## Operations & Configuration Tips
 - Manage the transparent proxy via `python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py start --iptables`.
 - Keep NapCat config under `resource/napcat_config/` and local runtime data out of git.
-- Queue management APIs live under `admin-panel/backend` at `/api/queue-monitor/*`.
+- Queue management APIs live under `admin-panel/backend` at `/api/queue-monitor/*` and `/api/simple-queue/*`, backed by `provider-service`.
+- Provider runtime APIs live on `provider-service`, including `/health`, `/api/status`, `/api/internal/llm/debug`, `/v1/models`, `/v1/embeddings`, `/api/internal/send_private`, `/api/internal/send_group`, and `/api/simple-queue/*`.
 - Local sudo/root credentials for this workstation are out-of-band operational data and must never be written into tracked repository files; when they must be consulted locally, read `/home/liahua/.qqbot-local/credentials.md` on this workstation instead of recording the values in-repo.

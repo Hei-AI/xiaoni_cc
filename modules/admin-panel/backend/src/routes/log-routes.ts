@@ -71,8 +71,8 @@ export function createLogRoutes(database: DatabaseManager, logger: winston.Logge
          FROM websocket_logs
          ${whereClause}
          ORDER BY timestamp DESC
-         LIMIT ?, ?`,
-        [...params, offset, limit]
+         LIMIT ? OFFSET ?`,
+        [...params, limit, offset]
       );
 
       // 获取总数
@@ -141,15 +141,15 @@ export function createLogRoutes(database: DatabaseManager, logger: winston.Logge
       const logs = await database.executeQuery(
         `SELECT
           id, conversation_id, trace_id, session_id, model_name,
-          LEFT(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(canonical_request, '$.instructions')), CAST(canonical_request AS CHAR(2000))), 200) as prompt_preview,
+          LEFT(COALESCE(canonical_request::jsonb->>'instructions', CAST(canonical_request AS text)), 200) as prompt_preview,
           request_format_version, wire_provider_format,
           LEFT(processed_response, 200) as response_preview,
           status, timestamp as created_at, processing_time_ms, input_tokens, output_tokens
          FROM llm_call_logs
          ${whereClause}
          ORDER BY timestamp DESC
-         LIMIT ?, ?`,
-        [...params, offset, limit]
+         LIMIT ? OFFSET ?`,
+        [...params, limit, offset]
       );
 
       // 获取总数
@@ -218,8 +218,8 @@ export function createLogRoutes(database: DatabaseManager, logger: winston.Logge
          FROM conversation_sessions
          ${whereClause}
          ORDER BY last_activity DESC
-         LIMIT ?, ?`,
-        [...params, offset, limit]
+         LIMIT ? OFFSET ?`,
+        [...params, limit, offset]
       );
 
       // 获取总数

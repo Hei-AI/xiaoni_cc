@@ -11,7 +11,6 @@ import {
   Search,
   ShieldCheck,
   TrendingUp,
-  Wallet,
 } from 'lucide-react';
 import {
   Area,
@@ -37,7 +36,7 @@ import { StatusPill } from '@/components/console/StatusPill';
 import { EmptyState } from '@/components/console/EmptyState';
 import { ErrorState } from '@/components/console/ErrorState';
 import { formatTimestamp } from '@/lib/utils';
-import { useConversations, useDashboardStats, useTokenStats } from '../hooks/useDashboardData';
+import { useConversations, useDashboardStats } from '../hooks/useDashboardData';
 
 export const DashboardPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -55,8 +54,6 @@ export const DashboardPage: React.FC = () => {
   }, [searchTerm]);
 
   const { data: dashboardStats, isLoading: statsLoading } = useDashboardStats();
-  const { data: tokenStats, isLoading: tokenStatsLoading } = useTokenStats();
-
   const conversationsQuery = useConversations({
     limit: showAll ? 16 : 8,
     page: currentPage,
@@ -101,12 +98,8 @@ export const DashboardPage: React.FC = () => {
         name: 'Groups',
         value: dashboardStats?.activeGroups || 0,
       },
-      {
-        name: 'Tokens',
-        value: tokenStats?.activeTokens || 0,
-      },
     ],
-    [dashboardStats, tokenStats]
+    [dashboardStats]
   );
 
   const healthTone =
@@ -165,10 +158,10 @@ export const DashboardPage: React.FC = () => {
           tone="warning"
         />
         <MetricCard
-          label="Token 状态"
-          value={tokenStatsLoading ? <Loader2 className="h-7 w-7 animate-spin" /> : tokenStats?.activeTokens || 'N/A'}
-          detail={`今日成本 ¥${tokenStats?.todayCost || '0.00'}`}
-          icon={<Wallet className="h-5 w-5" />}
+          label="今日调用"
+          value={statsLoading ? <Loader2 className="h-7 w-7 animate-spin" /> : (dashboardStats?.aiResponses || 0).toLocaleString()}
+          detail={`最近 ${totalConversations.toLocaleString()} 条对话已纳入看板`}
+          icon={<Clock className="h-5 w-5" />}
           tone="default"
         />
       </div>

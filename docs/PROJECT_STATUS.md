@@ -2,51 +2,63 @@
 
 ## 当前主仓范围
 
-主仓保留：
+当前主仓保留：
 
-- `qqbot-core`
+- `provider-service`
 - `admin-panel/backend`
 - `admin-panel/frontend`
-- `mysql`
+- `postgres`
 - `docker-compose.napcat.yml`
 - `http-traffic-monitor` 运维工具链
 
-主仓已移除或正在移除：
+当前主仓已移除或已退出主链：
 
+- cognition 管理端与相关 API
 - `http-api`
 - `queue-monitor`
+- `qqbot-core` 运行职责
 
 ## 当前架构
 
 ```text
-NapCat -> qqbot-core -> MySQL
-                  \
-                   -> admin-backend -> admin-frontend
+NapCat -> provider-service
+                      \
+                       -> admin-backend -> admin-frontend
 ```
 
 补充说明：
 
-- Queue 管理由 Admin 后端代理到 `qqbot-core /api/simple-queue/*`
+- Queue 管理与消息模拟由 Admin 后端代理到 `provider-service /api/simple-queue/*`
 - Prompt 管理为本地数据库驱动
+- provider debug 和 embeddings 由 `provider-service` 提供
 - 流量监控/回放是管理端运维工具链，不是独立业务服务
 
 ## 当前保留的调试能力
 
-- `qqbot-core`
+- `provider-service`
   - 健康检查
   - 状态接口
   - 消息模拟
   - LLM 调试
   - 简单队列接口
-- `admin-panel`
-  - 会话 / 聊天查看
-  - 队列管理
-  - Prompt 管理 / 编辑 / 调试
-  - HTTP 流量查看 / 回放
-  - 状态 / 日志查询
+  - embeddings
+- `admin-panel/backend`
+  - conversations / timeline
+  - queue monitor / simple queue proxy
+  - prompt 管理与调试
+  - playground
+  - traffic replay / query
+  - runtime status / logs
+- `admin-panel/frontend`
+  - dashboard
+  - conversations
+  - queue management
+  - prompts
+  - playground
+  - traffic monitor / replay
 
-## 当前工作重点
+## 已知运行约束
 
-- 继续收口主仓内容，只保留当前主链需要的模块、接口与文档
-- 清理本地运行资产和历史兼容层
-- 验证在去除函数注册中心后主链仍稳定
+- NapCat 独立部署，不在主 compose 中。
+- NapCat 未登录时，provider-service 的 NapCat 探针会显示 degraded，但不会影响消息模拟、queue、provider debug 和 embeddings 的本地验证。
+- `modules/qqbot-core` 已从主仓运行面清理，不再作为运行、部署和接口真相源。

@@ -57,13 +57,13 @@ class ModuleManager:
         self.root_project = {
             'name': 'Repository Root',
             'path': '.',
-            'install_check_packages': ['axios', 'mysql2']
+            'install_check_packages': ['axios', 'typescript']
         }
         self.modules = [
             {
-                'name': 'QQBot Core',
-                'path': 'modules/qqbot-core', 
-                'port': 8081,
+                'name': 'Provider Service',
+                'path': 'modules/provider-service',
+                'port': 8091,
                 'health_endpoint': '/health',
                 'npm_script': 'dev',
                 'install_check_packages': ['express', 'ts-node']

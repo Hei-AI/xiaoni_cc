@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/ui/button';
@@ -7,6 +7,8 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
+import { ResizableSplit } from '../components/ui/resizable-split';
+import { FloatingWorkspacePanel, type FloatingWorkspacePanelState, type FloatingWorkspaceResizeMode } from '../components/ui/floating-workspace-panel';
 import {
   ArrowLeft,
   Send,
@@ -57,7 +59,6 @@ interface AgentPrompt {
   model_config?: any;
   advanced_config?: any;
   model_name?: string;
-  allowed_token_ids?: number[] | null;
   is_active: number;
   version: number;
   created_by: string;
@@ -126,6 +127,128 @@ export const PromptDebugPage: React.FC = () => {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveSessionName, setSaveSessionName] = useState('');
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [showConfigPanel, setShowConfigPanel] = useState(true);
+  const [isDesktopDebugLayout, setIsDesktopDebugLayout] = useState<boolean>(() => {
+    if (typeof window === 'undefined') {
+      return true;
+    }
+    return window.innerWidth >= 1024;
+  });
+  const [historyPanel, setHistoryPanel] = useState<FloatingWorkspacePanelState>({
+    collapsed: true,
+    x: 980,
+    y: 24,
+    width: 360,
+    height: 520,
+  });
+  const [configPanel, setConfigPanel] = useState<FloatingWorkspacePanelState>({
+    collapsed: false,
+    x: 980,
+    y: 110,
+    width: 340,
+    height: 380,
+  });
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    id: 'history' | 'config';
+    mode: FloatingWorkspaceResizeMode;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    originWidth: number;
+    originHeight: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const mediaQuery = window.matchMedia('(min-width: 1024px)');
+    const applyMatch = (matches: boolean) => setIsDesktopDebugLayout(matches);
+    applyMatch(mediaQuery.matches);
+    const listener = (event: MediaQueryListEvent) => applyMatch(event.matches);
+    mediaQuery.addEventListener('change', listener);
+    return () => mediaQuery.removeEventListener('change', listener);
+  }, []);
+
+  const clampFloatingPanel = (panel: FloatingWorkspacePanelState): FloatingWorkspacePanelState => {
+    const rect = workspaceRef.current?.getBoundingClientRect();
+    const boundsWidth = rect?.width ?? (typeof window === 'undefined' ? 1600 : window.innerWidth);
+    const boundsHeight = rect?.height ?? (typeof window === 'undefined' ? 1000 : window.innerHeight);
+    const width = Math.min(Math.max(panel.width, 320), Math.max(320, boundsWidth - 32));
+    const height = Math.min(Math.max(panel.height, 280), Math.max(280, boundsHeight - 32));
+    const x = Math.min(Math.max(panel.x, 16), Math.max(16, boundsWidth - width - 16));
+    const y = Math.min(Math.max(panel.y, 16), Math.max(16, boundsHeight - height - 16));
+    return { ...panel, width, height, x, y };
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const dragState = dragRef.current;
+      if (!dragState) {
+        return;
+      }
+
+      const deltaX = event.clientX - dragState.startX;
+      const deltaY = event.clientY - dragState.startY;
+      const updatePanel = dragState.id === 'history' ? setHistoryPanel : setConfigPanel;
+
+      updatePanel((current) => {
+        let next = current;
+        if (dragState.mode === 'move') {
+          next = { ...current, x: dragState.originX + deltaX, y: dragState.originY + deltaY };
+        } else if (dragState.mode === 'right') {
+          next = { ...current, width: dragState.originWidth + deltaX };
+        } else if (dragState.mode === 'bottom') {
+          next = { ...current, height: dragState.originHeight + deltaY };
+        } else {
+          next = { ...current, width: dragState.originWidth + deltaX, height: dragState.originHeight + deltaY };
+        }
+        return clampFloatingPanel(next);
+      });
+    };
+
+    const handlePointerUp = () => {
+      dragRef.current = null;
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isDesktopDebugLayout) {
+      return;
+    }
+    setHistoryPanel((current) => clampFloatingPanel(current));
+    setConfigPanel((current) => clampFloatingPanel(current));
+  }, [isDesktopDebugLayout]);
+
+  const handleFloatingPointerDown = (id: 'history' | 'config', mode: FloatingWorkspaceResizeMode) =>
+    (event: React.PointerEvent<HTMLElement>) => {
+      event.preventDefault();
+      const panel = id === 'history' ? historyPanel : configPanel;
+      dragRef.current = {
+        id,
+        mode,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: panel.x,
+        originY: panel.y,
+        originWidth: panel.width,
+        originHeight: panel.height,
+      };
+    };
 
   // 查询Prompt数据
   const {
@@ -352,16 +475,31 @@ export const PromptDebugPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
-            onClick={() => setShowHistoryPanel(!showHistoryPanel)}
+            onClick={() => {
+              const nextOpen = !showHistoryPanel;
+              setShowHistoryPanel(nextOpen);
+              setHistoryPanel((current) => ({ ...current, collapsed: !nextOpen }));
+            }}
             disabled={isLoadingSessions}
           >
             <History className="h-4 w-4 mr-2" />
-            调试历史
+            {showHistoryPanel ? '隐藏历史' : '调试历史'}
             {debugSessionsData?.data?.sessions && debugSessionsData.data.sessions.length > 0 && (
               <Badge variant="secondary" className="ml-2">
                 {debugSessionsData.data.sessions.length}
               </Badge>
             )}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const nextOpen = !showConfigPanel;
+              setShowConfigPanel(nextOpen);
+              setConfigPanel((current) => ({ ...current, collapsed: !nextOpen }));
+            }}
+          >
+            <Settings className="h-4 w-4 mr-2" />
+            {showConfigPanel ? '隐藏配置' : 'Prompt配置'}
           </Button>
           <Button
             variant="outline"
@@ -385,37 +523,259 @@ export const PromptDebugPage: React.FC = () => {
         </div>
       </div>
 
-      <div className={`grid gap-6 ${showHistoryPanel ? 'grid-cols-1 xl:grid-cols-5' : 'grid-cols-1 lg:grid-cols-4'}`}>
-        {/* 历史面板 (可选显示) */}
-        {showHistoryPanel && (
-          <div className="xl:col-span-1">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <History className="h-5 w-5" />
-                  调试历史
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 max-h-[600px] overflow-y-auto">
+      {isDesktopDebugLayout ? (
+        <div ref={workspaceRef} className="relative">
+          <Card className="flex h-[clamp(640px,72vh,920px)] min-h-0 flex-col">
+            <CardHeader className="flex-shrink-0">
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5" />
+                对话调试
+                <Badge variant="outline">{messages.length} 条消息</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="min-h-0 flex-1 overflow-hidden">
+              <ResizableSplit
+                direction="vertical"
+                disabled={!isDesktopDebugLayout}
+                defaultSize={78}
+                minFirstSize={300}
+                minSecondSize={140}
+                className="h-full"
+                firstClassName="h-full"
+                secondClassName="h-full"
+                handleLabel="调整消息列表与输入区高度"
+                first={(
+                  <div className="h-full min-h-0 space-y-4 overflow-y-auto pr-1">
+                    {messages.length === 0 ? (
+                      <div className="py-8 text-center text-muted-foreground">
+                        <Bot className="mx-auto mb-4 h-12 w-12 opacity-50" />
+                        <p>开始与AI对话，测试您的Prompt配置</p>
+                      </div>
+                    ) : (
+                      messages.map((message) => (
+                        <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[80%] ${message.role === 'user' ? 'order-2' : 'order-1'}`}>
+                            {message.role === 'assistant' && message.thought && (
+                              <>
+                                <div className="mb-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => toggleThought(message.id)}
+                                    className="h-auto p-1 text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning))]/10 hover:text-[hsl(var(--warning))]"
+                                  >
+                                    <Brain className="mr-1 h-3 w-3" />
+                                    <span className="text-xs">
+                                      {message.thoughtExpanded ? '收起思考过程' : '展开思考过程'}
+                                    </span>
+                                    {message.thoughtExpanded ? (
+                                      <EyeOff className="ml-1 h-3 w-3" />
+                                    ) : (
+                                      <Eye className="ml-1 h-3 w-3" />
+                                    )}
+                                  </Button>
+                                </div>
+                                {message.thoughtExpanded && (
+                                  <div className="mb-2 rounded-lg border border-[hsl(var(--warning))]/20 bg-[hsl(var(--warning))]/10 p-3">
+                                    <div className="mb-2 flex items-center gap-2">
+                                      <Brain className="h-4 w-4 text-[hsl(var(--warning))]" />
+                                      <span className="text-sm font-medium text-[hsl(var(--warning))]">思考过程</span>
+                                    </div>
+                                    <div className="whitespace-pre-wrap font-mono text-sm text-[hsl(var(--warning))]">
+                                      {message.thought}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            )}
+
+                            <div className="mb-1 flex items-center gap-1 opacity-60 transition-opacity hover:opacity-100">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => startEditMessage(message.id, message.content)}
+                                className="h-6 px-2 text-xs"
+                                disabled={editingMessageId === message.id}
+                              >
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => deleteMessage(message.id)}
+                                className="h-6 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+
+                            <div className={`rounded-lg p-3 ${
+                              message.role === 'user'
+                                ? 'border border-primary/15 bg-primary/10 text-foreground'
+                                : 'border border-border bg-muted/45 text-foreground'
+                            }`}>
+                              {editingMessageId === message.id ? (
+                                <div className="space-y-2">
+                                  <Textarea
+                                    value={editingContent}
+                                    onChange={(e) => setEditingContent(e.target.value)}
+                                    className="min-h-[60px] text-sm text-foreground"
+                                    autoFocus
+                                  />
+                                  <div className="flex gap-2">
+                                    <Button size="sm" onClick={() => saveEditMessage(message.id)} className="h-6 px-2 text-xs">
+                                      保存
+                                    </Button>
+                                    <Button variant="outline" size="sm" onClick={cancelEditMessage} className="h-6 px-2 text-xs">
+                                      取消
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="whitespace-pre-wrap">{message.content}</div>
+                              )}
+
+                              {message.metadata && !editingMessageId && (
+                                <div className="mt-2 border-t border-border pt-2">
+                                  <div className="space-x-4 text-xs opacity-75">
+                                    {message.metadata.model && <span>模型: {message.metadata.model}</span>}
+                                    {message.metadata.tokensUsed && <span>Tokens: {message.metadata.tokensUsed}</span>}
+                                    {message.metadata.processingTime && <span>耗时: {message.metadata.processingTime}ms</span>}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {message.timestamp.toLocaleTimeString()}
+                            </div>
+                          </div>
+
+                          <div className={`flex-shrink-0 ${message.role === 'user' ? 'order-1' : 'order-2'}`}>
+                            <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
+                              message.role === 'user' ? 'bg-primary/10' : 'bg-muted'
+                            }`}>
+                              {message.role === 'user' ? (
+                                <User className="h-4 w-4 text-primary" />
+                              ) : (
+                                <Bot className="h-4 w-4 text-foreground" />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+                second={(
+                  <div className="h-full min-h-0 overflow-auto border-t pt-4">
+                    <div className="flex gap-2">
+                      <Textarea
+                        value={userInput}
+                        onChange={(e) => setUserInput(e.target.value)}
+                        placeholder="输入消息开始调试..."
+                        disabled={isLoading}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendMessage();
+                          }
+                        }}
+                        rows={3}
+                        className="min-h-[110px] flex-1"
+                      />
+                      <Button onClick={handleSendMessage} disabled={!userInput.trim() || isLoading} className="px-4">
+                        {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      按 Enter 发送，Shift + Enter 换行
+                    </p>
+                  </div>
+                )}
+              />
+            </CardContent>
+          </Card>
+
+          {showConfigPanel ? (
+            <FloatingWorkspacePanel
+              title="Prompt配置"
+              x={configPanel.x}
+              y={configPanel.y}
+              width={configPanel.width}
+              height={configPanel.height}
+              onClose={() => {
+                setShowConfigPanel(false);
+                setConfigPanel((current) => ({ ...current, collapsed: true }));
+              }}
+              onDragPointerDown={handleFloatingPointerDown('config', 'move')}
+              onResizePointerDown={(mode) => handleFloatingPointerDown('config', mode)}
+              bodyClassName="overflow-auto"
+            >
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-sm font-medium">名称</Label>
+                  <p className="text-sm text-muted-foreground">{prompt.prompt_name}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">类型</Label>
+                  <Badge variant="secondary">{prompt.agent_type}</Badge>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">模型</Label>
+                  <p className="text-sm text-muted-foreground">{prompt.model_name || 'gemini-2.5-flash'}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">状态</Label>
+                  <Badge variant={prompt.is_active ? 'default' : 'secondary'}>
+                    {prompt.is_active ? '激活' : '禁用'}
+                  </Badge>
+                </div>
+                {prompt.description && (
+                  <div>
+                    <Label className="text-sm font-medium">描述</Label>
+                    <p className="text-sm text-muted-foreground">{prompt.description}</p>
+                  </div>
+                )}
+              </div>
+            </FloatingWorkspacePanel>
+          ) : null}
+
+          {showHistoryPanel ? (
+            <FloatingWorkspacePanel
+              title="调试历史"
+              x={historyPanel.x}
+              y={historyPanel.y}
+              width={historyPanel.width}
+              height={historyPanel.height}
+              onClose={() => {
+                setShowHistoryPanel(false);
+                setHistoryPanel((current) => ({ ...current, collapsed: true }));
+              }}
+              onDragPointerDown={handleFloatingPointerDown('history', 'move')}
+              onResizePointerDown={(mode) => handleFloatingPointerDown('history', mode)}
+              bodyClassName="overflow-auto"
+            >
+              <div className="space-y-2">
                 {isLoadingSessions ? (
-                  <div className="text-center py-4">
-                    <RefreshCw className="h-4 w-4 animate-spin mx-auto mb-2" />
+                  <div className="py-4 text-center">
+                    <RefreshCw className="mx-auto mb-2 h-4 w-4 animate-spin" />
                     <p className="text-sm text-muted-foreground">加载中...</p>
                   </div>
                 ) : !debugSessionsData?.data?.sessions || debugSessionsData.data.sessions.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <div className="py-8 text-center text-muted-foreground">
+                    <History className="mx-auto mb-2 h-8 w-8 opacity-50" />
                     <p className="text-sm">暂无调试历史</p>
                   </div>
                 ) : (
-                  debugSessionsData?.data.sessions.map((session) => (
+                  debugSessionsData.data.sessions.map((session) => (
                     <div
                       key={session.id}
-                      className="p-3 border rounded-lg hover:bg-muted/50 cursor-pointer group"
+                      className="group cursor-pointer rounded-lg border p-3 hover:bg-muted/50"
                       onClick={() => handleLoadSession(session.id)}
                     >
-                      <div className="flex items-start justify-between mb-2">
-                        <h4 className="font-medium text-sm truncate flex-1">
+                      <div className="mb-2 flex items-start justify-between">
+                        <h4 className="flex-1 truncate text-sm font-medium">
                           {session.session_name}
                         </h4>
                         <Button
@@ -439,240 +799,189 @@ export const PromptDebugPage: React.FC = () => {
                     </div>
                   ))
                 )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {/* 左侧：Prompt信息 */}
-        <div className={showHistoryPanel ? "xl:col-span-1" : "lg:col-span-1"}>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5" />
-                Prompt配置
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label className="text-sm font-medium">名称</Label>
-                <p className="text-sm text-muted-foreground">{prompt.prompt_name}</p>
               </div>
-              <div>
-                <Label className="text-sm font-medium">类型</Label>
-                <Badge variant="secondary">{prompt.agent_type}</Badge>
-              </div>
-              <div>
-                <Label className="text-sm font-medium">模型</Label>
-                <p className="text-sm text-muted-foreground">{prompt.model_name || 'gemini-2.5-flash'}</p>
-              </div>
-              <div>
-                <Label className="text-sm font-medium">状态</Label>
-                <Badge variant={prompt.is_active ? "default" : "secondary"}>
-                  {prompt.is_active ? "激活" : "禁用"}
-                </Badge>
-              </div>
-              {prompt.description && (
-                <div>
-                  <Label className="text-sm font-medium">描述</Label>
-                  <p className="text-sm text-muted-foreground">{prompt.description}</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            </FloatingWorkspacePanel>
+          ) : null}
         </div>
-
-        {/* 右侧：对话调试区域 */}
-        <div className={showHistoryPanel ? "xl:col-span-3" : "lg:col-span-3"}>
-          <Card className="h-[600px] flex flex-col">
-            <CardHeader className="flex-shrink-0">
-              <CardTitle className="flex items-center gap-2">
-                <MessageSquare className="h-5 w-5" />
-                对话调试
-                <Badge variant="outline">{messages.length} 条消息</Badge>
-              </CardTitle>
-            </CardHeader>
-
-            {/* 消息列表 */}
-            <CardContent className="flex-1 flex flex-col overflow-hidden">
-              <div className="flex-1 overflow-y-auto space-y-4 mb-4">
-                {messages.length === 0 ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    <Bot className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>开始与AI对话，测试您的Prompt配置</p>
-                  </div>
-                ) : (
-                  messages.map((message) => (
-                    <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[80%] ${message.role === 'user' ? 'order-2' : 'order-1'}`}>
-                        {/* 思考过程 (仅AI消息，可点击展开) */}
-                        {message.role === 'assistant' && message.thought && (
-                          <>
-                            <div className="mb-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => toggleThought(message.id)}
-                                className="h-auto p-1 text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning))]/10 hover:text-[hsl(var(--warning))]"
-                              >
-                                <Brain className="h-3 w-3 mr-1" />
-                                <span className="text-xs">
-                                  {message.thoughtExpanded ? '收起思考过程' : '展开思考过程'}
-                                </span>
-                                {message.thoughtExpanded ? (
-                                  <EyeOff className="h-3 w-3 ml-1" />
-                                ) : (
-                                  <Eye className="h-3 w-3 ml-1" />
-                                )}
-                              </Button>
-                            </div>
-                            {message.thoughtExpanded && (
-                              <div className="mb-2 rounded-lg border border-[hsl(var(--warning))]/20 bg-[hsl(var(--warning))]/10 p-3">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <Brain className="h-4 w-4 text-[hsl(var(--warning))]" />
-                                  <span className="text-sm font-medium text-[hsl(var(--warning))]">思考过程</span>
-                                </div>
-                                <div className="whitespace-pre-wrap font-mono text-sm text-[hsl(var(--warning))]">
-                                  {message.thought}
-                                </div>
-                              </div>
-                            )}
-                          </>
-                        )}
-
-                        {/* 消息操作按钮 */}
-                        <div className="flex items-center gap-1 mb-1 opacity-60 hover:opacity-100 transition-opacity">
+      ) : (
+        <div className={`grid gap-6 ${showHistoryPanel ? 'grid-cols-1 xl:grid-cols-5' : 'grid-cols-1 lg:grid-cols-4'}`}>
+          {showHistoryPanel && (
+            <div className="xl:col-span-1">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <History className="h-5 w-5" />
+                    调试历史
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 max-h-[600px] overflow-y-auto">
+                  {isLoadingSessions ? (
+                    <div className="py-4 text-center">
+                      <RefreshCw className="mx-auto mb-2 h-4 w-4 animate-spin" />
+                      <p className="text-sm text-muted-foreground">加载中...</p>
+                    </div>
+                  ) : !debugSessionsData?.data?.sessions || debugSessionsData.data.sessions.length === 0 ? (
+                    <div className="py-8 text-center text-muted-foreground">
+                      <History className="mx-auto mb-2 h-8 w-8 opacity-50" />
+                      <p className="text-sm">暂无调试历史</p>
+                    </div>
+                  ) : (
+                    debugSessionsData.data.sessions.map((session) => (
+                      <div
+                        key={session.id}
+                        className="group cursor-pointer rounded-lg border p-3 hover:bg-muted/50"
+                        onClick={() => handleLoadSession(session.id)}
+                      >
+                        <div className="mb-2 flex items-start justify-between">
+                          <h4 className="flex-1 truncate text-sm font-medium">
+                            {session.session_name}
+                          </h4>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => startEditMessage(message.id, message.content)}
-                            className="h-6 px-2 text-xs"
-                            disabled={editingMessageId === message.id}
-                          >
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => deleteMessage(message.id)}
-                            className="h-6 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteSession(session.id);
+                            }}
+                            className="h-6 w-6 p-0 text-destructive opacity-0 group-hover:opacity-100 hover:text-destructive"
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
                         </div>
-
-                        {/* 消息内容 */}
-                        <div className={`rounded-lg p-3 ${
-                          message.role === 'user'
-                            ? 'border border-primary/15 bg-primary/10 text-foreground'
-                            : 'border border-border bg-muted/45 text-foreground'
-                        }`}>
-                          {editingMessageId === message.id ? (
-                            <div className="space-y-2">
-                              <Textarea
-                                value={editingContent}
-                                onChange={(e) => setEditingContent(e.target.value)}
-                                className="min-h-[60px] text-sm text-foreground"
-                                autoFocus
-                              />
-                              <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  onClick={() => saveEditMessage(message.id)}
-                                  className="h-6 px-2 text-xs"
-                                >
-                                  保存
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={cancelEditMessage}
-                                  className="h-6 px-2 text-xs"
-                                >
-                                  取消
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="whitespace-pre-wrap">{message.content}</div>
-                          )}
-
-                          {/* 元数据 */}
-                          {message.metadata && !editingMessageId && (
-                            <div className="mt-2 border-t border-border pt-2">
-                              <div className="text-xs opacity-75 space-x-4">
-                                {message.metadata.model && (
-                                  <span>模型: {message.metadata.model}</span>
-                                )}
-                                {message.metadata.tokensUsed && (
-                                  <span>Tokens: {message.metadata.tokensUsed}</span>
-                                )}
-                                {message.metadata.processingTime && (
-                                  <span>耗时: {message.metadata.processingTime}ms</span>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {message.timestamp.toLocaleTimeString()}
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Clock className="h-3 w-3" />
+                          <span>{new Date(session.created_at).toLocaleDateString()}</span>
+                          <span>•</span>
+                          <span>{session.message_count || 0} 条消息</span>
                         </div>
                       </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
-                      <div className={`flex-shrink-0 ${message.role === 'user' ? 'order-1' : 'order-2'}`}>
-                        <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
-                          message.role === 'user' ? 'bg-primary/10' : 'bg-muted'
-                        }`}>
-                          {message.role === 'user' ? (
-                            <User className="h-4 w-4 text-primary" />
-                          ) : (
-                            <Bot className="h-4 w-4 text-foreground" />
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* 输入区域 */}
-              <div className="flex-shrink-0 border-t pt-4">
-                <div className="flex gap-2">
-                  <Textarea
-                    value={userInput}
-                    onChange={(e) => setUserInput(e.target.value)}
-                    placeholder="输入消息开始调试..."
-                    disabled={isLoading}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendMessage();
-                      }
-                    }}
-                    rows={2}
-                    className="flex-1"
-                  />
-                  <Button
-                    onClick={handleSendMessage}
-                    disabled={!userInput.trim() || isLoading}
-                    className="px-4"
-                  >
-                    {isLoading ? (
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                  </Button>
+          <div className={showHistoryPanel ? 'xl:col-span-1' : 'lg:col-span-1'}>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Settings className="h-5 w-5" />
+                  Prompt配置
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label className="text-sm font-medium">名称</Label>
+                  <p className="text-sm text-muted-foreground">{prompt.prompt_name}</p>
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  按 Enter 发送，Shift + Enter 换行
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+                <div>
+                  <Label className="text-sm font-medium">类型</Label>
+                  <Badge variant="secondary">{prompt.agent_type}</Badge>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">模型</Label>
+                  <p className="text-sm text-muted-foreground">{prompt.model_name || 'gemini-2.5-flash'}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">状态</Label>
+                  <Badge variant={prompt.is_active ? 'default' : 'secondary'}>
+                    {prompt.is_active ? '激活' : '禁用'}
+                  </Badge>
+                </div>
+                {prompt.description && (
+                  <div>
+                    <Label className="text-sm font-medium">描述</Label>
+                    <p className="text-sm text-muted-foreground">{prompt.description}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className={showHistoryPanel ? 'xl:col-span-3' : 'lg:col-span-3'}>
+            <Card className="flex h-[600px] flex-col">
+              <CardHeader className="flex-shrink-0">
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5" />
+                  对话调试
+                  <Badge variant="outline">{messages.length} 条消息</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-1 flex-col overflow-hidden">
+                <div className="mb-4 flex-1 space-y-4 overflow-y-auto">
+                  {messages.length === 0 ? (
+                    <div className="py-8 text-center text-muted-foreground">
+                      <Bot className="mx-auto mb-4 h-12 w-12 opacity-50" />
+                      <p>开始与AI对话，测试您的Prompt配置</p>
+                    </div>
+                  ) : (
+                    messages.map((message) => (
+                      <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[80%] ${message.role === 'user' ? 'order-2' : 'order-1'}`}>
+                          <div className={`rounded-lg p-3 ${
+                            message.role === 'user'
+                              ? 'border border-primary/15 bg-primary/10 text-foreground'
+                              : 'border border-border bg-muted/45 text-foreground'
+                          }`}>
+                            <div className="whitespace-pre-wrap">{message.content}</div>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {message.timestamp.toLocaleTimeString()}
+                          </div>
+                        </div>
+                        <div className={`flex-shrink-0 ${message.role === 'user' ? 'order-1' : 'order-2'}`}>
+                          <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
+                            message.role === 'user' ? 'bg-primary/10' : 'bg-muted'
+                          }`}>
+                            {message.role === 'user' ? (
+                              <User className="h-4 w-4 text-primary" />
+                            ) : (
+                              <Bot className="h-4 w-4 text-foreground" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="flex-shrink-0 border-t pt-4">
+                  <div className="flex gap-2">
+                    <Textarea
+                      value={userInput}
+                      onChange={(e) => setUserInput(e.target.value)}
+                      placeholder="输入消息开始调试..."
+                      disabled={isLoading}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendMessage();
+                        }
+                      }}
+                      rows={2}
+                      className="flex-1"
+                    />
+                    <Button
+                      onClick={handleSendMessage}
+                      disabled={!userInput.trim() || isLoading}
+                      className="px-4"
+                    >
+                      {isLoading ? (
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    按 Enter 发送，Shift + Enter 换行
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 保存会话对话框 */}
       {showSaveDialog && (

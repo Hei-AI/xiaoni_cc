@@ -43,9 +43,6 @@ interface GroupSettings {
   admin_user_id: number | null;
   agent_prompt_id: string | null;
   last_activity: string | null;
-  human_like_scan_interval_ms: number | null;
-  human_like_min_interval_ms: number | null;
-  human_like_max_interval_ms: number | null;
 }
 
 interface TodayStats {
@@ -248,22 +245,6 @@ export const GroupChatDetailPage: React.FC = () => {
     }));
   };
 
-  const handleIntervalChange = (field: string, value: string) => {
-    if (value === '') {
-      handleSettingsChange(field, null);
-      return;
-    }
-    const numericValue = parseInt(value, 10);
-    handleSettingsChange(field, Number.isFinite(numericValue) ? numericValue : null);
-  };
-
-  const formatIntervalValue = (value?: number | null) => {
-    if (value === null || value === undefined) {
-      return '默认';
-    }
-    return formatDuration(value);
-  };
-
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('zh-CN');
   };
@@ -405,45 +386,6 @@ export const GroupChatDetailPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <Label htmlFor="human_like_scan_interval_ms">扫描间隔 (毫秒)</Label>
-                      <Input
-                        id="human_like_scan_interval_ms"
-                        type="number"
-                        min={500}
-                        value={settingsForm.human_like_scan_interval_ms ?? ''}
-                        onChange={(e) => handleIntervalChange('human_like_scan_interval_ms', e.target.value)}
-                        placeholder="留空使用默认 8000"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">消息批次的目标周期</p>
-                    </div>
-                    <div>
-                      <Label htmlFor="human_like_min_interval_ms">最小间隔 (毫秒)</Label>
-                      <Input
-                        id="human_like_min_interval_ms"
-                        type="number"
-                        min={100}
-                        value={settingsForm.human_like_min_interval_ms ?? ''}
-                        onChange={(e) => handleIntervalChange('human_like_min_interval_ms', e.target.value)}
-                        placeholder="留空使用默认 3000"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">处理完成后最短等待时间</p>
-                    </div>
-                    <div>
-                      <Label htmlFor="human_like_max_interval_ms">最大间隔 (毫秒)</Label>
-                      <Input
-                        id="human_like_max_interval_ms"
-                        type="number"
-                        min={1000}
-                        value={settingsForm.human_like_max_interval_ms ?? ''}
-                        onChange={(e) => handleIntervalChange('human_like_max_interval_ms', e.target.value)}
-                        placeholder="留空使用默认 30000"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">连续消息的最长等待时间</p>
-                    </div>
-                  </div>
-                  
                   <div className="flex justify-end gap-2">
                     <Button 
                       variant="outline" 
@@ -460,7 +402,7 @@ export const GroupChatDetailPage: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div>
                     <p className="text-sm text-muted-foreground">群名称</p>
                     <p className="font-medium">{groupData.data.group_settings.group_name || '未设置'}</p>
@@ -476,18 +418,6 @@ export const GroupChatDetailPage: React.FC = () => {
                     <Badge variant={groupData.data.group_settings.auto_reply_enabled ? "default" : "outline"}>
                       {groupData.data.group_settings.auto_reply_enabled ? "开启" : "关闭"}
                     </Badge>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">扫描间隔</p>
-                    <p className="font-medium">{formatIntervalValue(groupData.data.group_settings.human_like_scan_interval_ms)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">最小间隔</p>
-                    <p className="font-medium">{formatIntervalValue(groupData.data.group_settings.human_like_min_interval_ms)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">最大间隔</p>
-                    <p className="font-medium">{formatIntervalValue(groupData.data.group_settings.human_like_max_interval_ms)}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">最后活跃</p>

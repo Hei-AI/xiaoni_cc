@@ -4,7 +4,7 @@ This repository contains the reduced QQ Bot main stack.
 
 ## 1. Active Services
 
-- `qqbot-core`: message ingestion, queueing, AI orchestration, outbound send
+- `provider-service`: provider debug, embeddings, NapCat send, message simulation, simple queue
 - `admin-panel/backend`: operator API, prompt config, queue ops, traffic/log/status
 - `admin-panel/frontend`: operator UI
 - `mysql`: persistence
@@ -20,15 +20,15 @@ Removed from the main repo architecture:
 Main runtime path:
 
 ```text
-NapCat -> qqbot-core -> MySQL
-                  \
-                   -> admin-backend -> admin-frontend
+NapCat -> provider-service
+                       \
+                        -> admin-backend -> admin-frontend
 ```
 
 Important notes:
 
 - Prompt management is DB-backed through admin APIs.
-- Queue operations proxy from admin-backend into `qqbot-core /api/simple-queue/*`.
+- Queue operations proxy from admin-backend into `provider-service /api/simple-queue/*`.
 - HTTP traffic capture/replay is an admin-side tooling capability driven by `modules/http-traffic-monitor`.
 
 ## 3. Commands
@@ -38,7 +38,7 @@ docker compose build
 docker compose up -d
 docker compose ps
 
-docker compose logs -f qqbot-qqbot-core
+docker compose logs -f qqbot-provider-service
 docker compose logs -f qqbot-admin-backend
 
 python3 scripts/start_modules.py start
@@ -59,7 +59,7 @@ docker compose -f docker-compose.napcat.yml up -d
 
 ## 5. Debug Surfaces To Preserve
 
-- `qqbot-core`: `/health`, `/api/status`, message simulation, LLM debug, simple queue APIs
+- `provider-service`: `/health`, `/api/status`, message simulation, LLM debug, embeddings, simple queue APIs
 - `admin-panel/backend`: prompt config/debug, conversations, queue ops, status/logs, traffic replay/query
 - `admin-panel/frontend`: dashboard, conversations, queue management, prompt pages, traffic monitor/replay
 

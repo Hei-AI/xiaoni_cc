@@ -319,14 +319,15 @@ function buildComparison(
 }
 
 export class PlaygroundRunService {
-  private readonly qqbotCoreUrl: string;
+  private readonly providerServiceUrl: string;
 
   constructor(
     private readonly db: DatabaseManager,
     private readonly logger: winston.Logger,
     private readonly caseBuilder: PlaygroundCaseBuilder
   ) {
-    this.qqbotCoreUrl = process.env.QQBOT_CORE_URL || 'http://qqbot-core:8081';
+    this.providerServiceUrl =
+      process.env.PROVIDER_SERVICE_URL || 'http://qqbot-provider-service:8090';
   }
 
   async createRun(input: RunExecutionInput): Promise<PlaygroundRun> {
@@ -344,7 +345,7 @@ export class PlaygroundRunService {
     const modelName = this.resolveModelName(provider, input.providerConfig, promptExecution.resolvedPrompt);
     const parameters = this.buildParameters(input.providerConfig);
 
-    const response = await fetch(`${this.qqbotCoreUrl}/api/internal/llm/debug`, {
+    const response = await fetch(`${this.providerServiceUrl}/api/internal/llm/debug`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -556,7 +557,7 @@ export class PlaygroundRunService {
     const modelName = this.resolveReplayModelName(baselineSnapshot, input.providerConfig);
     const provider = normalizeProvider(input.providerConfig.provider);
 
-    const response = await fetch(`${this.qqbotCoreUrl}/api/internal/llm/debug`, {
+    const response = await fetch(`${this.providerServiceUrl}/api/internal/llm/debug`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

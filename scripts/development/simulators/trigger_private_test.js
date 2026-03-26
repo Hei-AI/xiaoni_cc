@@ -34,7 +34,7 @@ function testPrivateMessage() {
     timeout: 5000 // 5 second timeout
   };
 
-  console.log('🧪 Sending test private message to QQBot Core...');
+  console.log('🧪 Sending test private message to provider-service simulator...');
   
   const req = http.request(options, (res) => {
     console.log(`✅ Response Status: ${res.statusCode}`);
@@ -46,7 +46,7 @@ function testPrivateMessage() {
     
     res.on('end', () => {
       console.log('📋 Response:', data || 'No response body');
-      console.log('📋 Check logs at: modules/qqbot-core/logs/main_2025-09-11.log');
+      console.log('📋 Check provider logs with: docker logs -f qqbot-provider-service');
     });
   });
 

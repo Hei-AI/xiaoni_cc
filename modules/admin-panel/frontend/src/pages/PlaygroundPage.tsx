@@ -10,7 +10,19 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
+import { ResizableSplit } from '@/components/ui/resizable-split';
 import { PageShell } from '@/components/console/PageShell';
+import {
+  applyPlaygroundModelOverride,
+  createPlaygroundToolDefinition,
+  defaultModelForPlaygroundProvider,
+  derivePlaygroundModelOverride,
+  duplicatePlaygroundToolDefinition,
+  getPromptDefaultModelName,
+  getPlaygroundToolDefinitionName,
+  normalizePlaygroundTools,
+  PLAYGROUND_PROVIDER_MODEL_OPTIONS,
+} from '@/lib/playground-models';
 import { cn, formatTimestamp } from '@/lib/utils';
 import {
   clonePlaygroundRun,
@@ -40,7 +52,10 @@ import {
   Settings2,
   Sparkles,
   AlertCircle,
+  Copy,
   Wand2,
+  Plus,
+  Trash2,
   X,
 } from 'lucide-react';
 
@@ -56,14 +71,15 @@ type PromptSummary = {
 };
 
 type OutputView = 'text' | 'tool' | 'raw';
-type DesktopWindowMode = 'docked' | 'floating';
 type DesktopWindowId = 'params' | 'compare';
+type DesktopWindowResizeMode = 'move' | 'right' | 'bottom' | 'corner';
 
 type DesktopWindowState = {
-  mode: DesktopWindowMode;
   collapsed: boolean;
   x: number;
   y: number;
+  width: number;
+  height: number;
 };
 
 type ToolCallPreview = {
@@ -77,6 +93,7 @@ type ToolCallPreview = {
 };
 
 type ToolEditorEntry = {
+  kind: 'definition' | 'extra';
   key: string;
   label: string;
   value: unknown;
@@ -93,6 +110,15 @@ function parseJsonText<T>(value: string, fallback: T): T {
 
 function stringifyJson(value: unknown): string {
   return JSON.stringify(value ?? {}, null, 2);
+}
+
+function isJsonTextValid(value: string): boolean {
+  try {
+    JSON.parse(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parsePromptSystemInstruction(value: unknown): string {
@@ -148,7 +174,6 @@ function buildProviderConfigFromPromptSummary(prompt: PromptSummary): Playground
     context: {
       promptId: prompt.id,
       promptName: prompt.prompt_name,
-      modelName: prompt.model_name || DEFAULT_PROVIDER_CONFIG.context?.modelName || 'gemini-2.5-flash',
     },
     providerSpecific,
   };
@@ -185,29 +210,13 @@ function pickFirstDefined(...values: unknown[]): unknown {
   return values.find((value) => value !== undefined && value !== null);
 }
 
-function getToolDefinitionName(value: unknown, index: number): string {
-  const record = asRecord(value);
-  const functionRecord = asRecord(record?.function);
-
-  const candidates = [
-    functionRecord?.name,
-    record?.name,
-    record?.toolName,
-    record?.id,
-  ];
-
-  const name = candidates.find((candidate) => typeof candidate === 'string' && candidate.trim().length > 0);
-  return typeof name === 'string' ? name : `#${index + 1}`;
-}
-
 function getToolEditorKeys(tools: Record<string, unknown> | undefined): string[] {
-  return Object.entries(tools || {}).flatMap(([toolKey, toolValue]) => {
-    if (toolKey === 'definitions' && Array.isArray(toolValue)) {
-      return toolValue.map((_, index) => `definitions:${index}`);
-    }
-
-    return [toolKey];
-  });
+  const normalized = normalizePlaygroundTools(tools);
+  return [
+    ...normalized.definitions.map((_, index) => `definitions:${index}`),
+    'toolChoice',
+    ...Object.keys(normalized.extras),
+  ];
 }
 
 function findToolCallCandidate(value: unknown, depth = 0): ToolCallPreview | null {
@@ -391,34 +400,39 @@ function EmptyState({
   );
 }
 
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
 function FloatingPanel({
   title,
   x,
   y,
+  width,
+  height,
   onClose,
-  onPointerDown,
+  onDragPointerDown,
+  onResizePointerDown,
   children,
-  className,
 }: {
   title: string;
   x: number;
   y: number;
+  width: number;
+  height: number;
   onClose: () => void;
-  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onDragPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onResizePointerDown: (mode: Exclude<DesktopWindowResizeMode, 'move'>) => (event: ReactPointerEvent<HTMLButtonElement>) => void;
   children: ReactNode;
-  className?: string;
 }) {
   return (
     <div
-      className={cn(
-        'absolute z-20 hidden overflow-hidden rounded-[24px] border border-border bg-background/95 shadow-[0_30px_80px_-35px_rgba(15,23,42,0.45)] backdrop-blur lg:flex lg:flex-col',
-        className
-      )}
-      style={{ left: x, top: y }}
+      className="absolute z-20 hidden overflow-hidden rounded-[24px] border border-border bg-background/95 shadow-[0_30px_80px_-35px_rgba(15,23,42,0.45)] backdrop-blur lg:flex lg:flex-col"
+      style={{ left: x, top: y, width, height }}
     >
       <div
         className="flex cursor-move items-center justify-between border-b border-border/80 bg-background/90 px-4 py-3"
-        onPointerDown={onPointerDown}
+        onPointerDown={onDragPointerDown}
       >
         <div className="flex items-center gap-2">
           <Move className="h-3.5 w-3.5 text-muted-foreground" />
@@ -428,76 +442,28 @@ function FloatingPanel({
           <X className="h-4 w-4" />
         </Button>
       </div>
-      <div className="flex-1 overflow-auto p-4">{children}</div>
-    </div>
-  );
-}
-
-function DockedPanel({
-  title,
-  onClose,
-  onPopOut,
-  onPointerDown,
-  children,
-  className,
-}: {
-  title: string;
-  onClose: () => void;
-  onPopOut: () => void;
-  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        'absolute inset-y-3 right-0 z-20 hidden overflow-hidden rounded-l-[28px] border border-border/80 border-r-0 bg-background/98 shadow-[-18px_0_48px_-32px_rgba(15,23,42,0.18)] backdrop-blur lg:flex lg:flex-col',
-        className
-      )}
-    >
-      <div
-        className="flex cursor-move items-center justify-between border-b border-border/80 bg-background px-4 py-3"
-        onPointerDown={onPointerDown}
+      <div className="min-h-0 flex-1 overflow-hidden p-4">{children}</div>
+      <button
+        type="button"
+        aria-label={`${title} 水平拉伸`}
+        className="absolute bottom-4 right-0 top-14 w-3 cursor-col-resize bg-transparent"
+        onPointerDown={onResizePointerDown('right')}
+      />
+      <button
+        type="button"
+        aria-label={`${title} 垂直拉伸`}
+        className="absolute bottom-0 left-4 right-4 h-3 cursor-row-resize bg-transparent"
+        onPointerDown={onResizePointerDown('bottom')}
+      />
+      <button
+        type="button"
+        aria-label={`${title} 双向拉伸`}
+        className="absolute bottom-0 right-0 h-5 w-5 cursor-nwse-resize bg-transparent"
+        onPointerDown={onResizePointerDown('corner')}
       >
-        <div className="flex items-center gap-2">
-          <Move className="h-3.5 w-3.5 text-muted-foreground" />
-          <div className="text-sm font-semibold text-foreground">{title}</div>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onPopOut}>
-            Pop out
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-      <div className="flex-1 overflow-auto p-4">{children}</div>
+        <span className="absolute bottom-1.5 right-1.5 h-2.5 w-2.5 rounded-sm border-r-2 border-b-2 border-border/70" />
+      </button>
     </div>
-  );
-}
-
-function DockHandle({
-  title,
-  onClick,
-  className,
-}: {
-  title: string;
-  onClick: () => void;
-  className?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'absolute right-0 z-10 hidden h-24 w-8 items-center justify-center rounded-l-xl border border-border/80 border-r-0 bg-[#fbf7f0]/98 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 shadow-[-12px_0_24px_-24px_rgba(15,23,42,0.45)] backdrop-blur transition hover:bg-primary/10 hover:text-foreground lg:flex',
-        className
-      )}
-      style={{ writingMode: 'vertical-rl' }}
-    >
-      {title}
-    </button>
   );
 }
 
@@ -525,14 +491,9 @@ const DEFAULT_PROMPT_INPUT: PlaygroundPromptInput = {
   contextVariables: {},
 };
 
-const DESKTOP_WINDOW_MAX_WIDTH: Record<DesktopWindowId, number> = {
-  params: 340,
-  compare: 300,
-};
-
 const DEFAULT_DESKTOP_WINDOWS: Record<DesktopWindowId, DesktopWindowState> = {
-  params: { mode: 'docked', collapsed: true, x: 840, y: 144 },
-  compare: { mode: 'docked', collapsed: true, x: 900, y: 220 },
+  params: { collapsed: false, x: 980, y: 136, width: 420, height: 620 },
+  compare: { collapsed: true, x: 1040, y: 220, width: 360, height: 420 },
 };
 
 export function PlaygroundPage() {
@@ -545,11 +506,14 @@ export function PlaygroundPage() {
   const [promptId, setPromptId] = useState<string | null>(searchParams.get('promptId'));
   const [promptInput, setPromptInput] = useState<PlaygroundPromptInput>(DEFAULT_PROMPT_INPUT);
   const [providerConfig, setProviderConfig] = useState<PlaygroundProviderConfig>(DEFAULT_PROVIDER_CONFIG);
+  const [modelOverrideText, setModelOverrideText] = useState('');
   const [draftSystemInstruction, setDraftSystemInstruction] = useState('');
   const [draftUserPromptTemplate, setDraftUserPromptTemplate] = useState('');
   const [contextVariablesText, setContextVariablesText] = useState(stringifyJson({}));
   const [providerSpecificText, setProviderSpecificText] = useState(stringifyJson({}));
   const [safetyText, setSafetyText] = useState(stringifyJson([]));
+  const [toolEditorTexts, setToolEditorTexts] = useState<Record<string, string>>({});
+  const [newExtraToolKey, setNewExtraToolKey] = useState('');
   const [outputView, setOutputView] = useState<OutputView>('text');
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryActionError, setLibraryActionError] = useState<string | null>(null);
@@ -561,13 +525,17 @@ export function PlaygroundPage() {
   const [expandedToolKey, setExpandedToolKey] = useState<string | null>(null);
   const [editorView, setEditorView] = useState<'prompt' | 'preview'>('prompt');
   const [editorEmptyStateDismissed, setEditorEmptyStateDismissed] = useState(false);
-  const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 1440 : window.innerWidth));
+  const [isDesktopLayout, setIsDesktopLayout] = useState(() => (typeof window === 'undefined' ? true : window.innerWidth >= 1024));
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{
     id: DesktopWindowId;
+    mode: DesktopWindowResizeMode;
     startX: number;
     startY: number;
     originX: number;
     originY: number;
+    originWidth: number;
+    originHeight: number;
   } | null>(null);
   const bootstrappedRef = useRef(false);
 
@@ -599,6 +567,7 @@ export function PlaygroundPage() {
     queryFn: () => fetchPlaygroundRuns(selectedCaseId!),
     enabled: Boolean(selectedCaseId),
   });
+  const prompts = promptData || [];
 
   const createFromTrafficMutation = useMutation({
     mutationFn: (trafficId: number) => createCaseFromTraffic(trafficId, promptId),
@@ -678,9 +647,24 @@ export function PlaygroundPage() {
     },
   });
 
+  const clampDesktopWindow = (windowState: DesktopWindowState) => {
+    const rect = workspaceRef.current?.getBoundingClientRect();
+    const boundsWidth = rect?.width ?? (typeof window === 'undefined' ? 1600 : window.innerWidth);
+    const boundsHeight = rect?.height ?? (typeof window === 'undefined' ? 1000 : window.innerHeight);
+    const width = clampNumber(windowState.width, 320, Math.max(320, boundsWidth - 32));
+    const height = clampNumber(windowState.height, 260, Math.max(260, boundsHeight - 32));
+    const x = clampNumber(windowState.x, 16, Math.max(16, boundsWidth - width - 16));
+    const y = clampNumber(windowState.y, 16, Math.max(16, boundsHeight - height - 16));
+    return { ...windowState, width, height, x, y };
+  };
+
   useEffect(() => {
     const handleResize = () => {
-      setViewportWidth(window.innerWidth);
+      setIsDesktopLayout(window.innerWidth >= 1024);
+      setDesktopWindows((prev) => ({
+        params: clampDesktopWindow(prev.params),
+        compare: clampDesktopWindow(prev.compare),
+      }));
     };
 
     window.addEventListener('resize', handleResize);
@@ -689,19 +673,56 @@ export function PlaygroundPage() {
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
-      if (!dragRef.current) {
+      const dragState = dragRef.current;
+      if (!dragState) {
         return;
       }
 
-      const { id, startX, startY, originX, originY } = dragRef.current;
-      setDesktopWindows((prev) => ({
-        ...prev,
-        [id]: {
-          ...prev[id],
-          x: Math.max(16, originX + event.clientX - startX),
-          y: Math.max(96, originY + event.clientY - startY),
-        },
-      }));
+      const rect = workspaceRef.current?.getBoundingClientRect();
+      const boundsWidth = rect?.width ?? window.innerWidth;
+      const boundsHeight = rect?.height ?? window.innerHeight;
+      const deltaX = event.clientX - dragState.startX;
+      const deltaY = event.clientY - dragState.startY;
+
+      setDesktopWindows((prev) => {
+        const current = prev[dragState.id];
+        let nextWindow = current;
+
+        if (dragState.mode === 'move') {
+          nextWindow = {
+            ...current,
+            x: dragState.originX + deltaX,
+            y: dragState.originY + deltaY,
+          };
+        } else if (dragState.mode === 'right') {
+          nextWindow = {
+            ...current,
+            width: dragState.originWidth + deltaX,
+          };
+        } else if (dragState.mode === 'bottom') {
+          nextWindow = {
+            ...current,
+            height: dragState.originHeight + deltaY,
+          };
+        } else {
+          nextWindow = {
+            ...current,
+            width: dragState.originWidth + deltaX,
+            height: dragState.originHeight + deltaY,
+          };
+        }
+
+        const clamped = clampDesktopWindow({
+          ...nextWindow,
+          width: clampNumber(nextWindow.width, 320, Math.max(320, boundsWidth - nextWindow.x - 16)),
+          height: clampNumber(nextWindow.height, 260, Math.max(260, boundsHeight - nextWindow.y - 16)),
+        });
+
+        return {
+          ...prev,
+          [dragState.id]: clamped,
+        };
+      });
     };
 
     const handlePointerUp = () => {
@@ -748,19 +769,25 @@ export function PlaygroundPage() {
       return;
     }
 
+    const currentPromptId = currentCase.promptId || searchParams.get('promptId');
+    const currentPrompt = prompts.find((prompt) => prompt.id === currentPromptId) || null;
+
     setPromptMode(currentCase.promptModeDefault);
-    setPromptId(currentCase.promptId || searchParams.get('promptId'));
+    setPromptId(currentPromptId);
     setPromptInput(currentCase.promptInput);
-    setProviderConfig(currentCase.providerConfig || DEFAULT_PROVIDER_CONFIG);
+    setProviderConfig(applyPlaygroundModelOverride(currentCase.providerConfig || DEFAULT_PROVIDER_CONFIG, ''));
+    setModelOverrideText(derivePlaygroundModelOverride(currentCase.providerConfig || DEFAULT_PROVIDER_CONFIG, currentPrompt));
     setDraftSystemInstruction(currentCase.promptInput.systemInstruction || '');
     setDraftUserPromptTemplate('');
     setContextVariablesText(stringifyJson(currentCase.promptInput.contextVariables || {}));
     setProviderSpecificText(stringifyJson(currentCase.providerConfig.providerSpecific || {}));
     setSafetyText(stringifyJson(currentCase.providerConfig.safety || []));
+    setToolEditorTexts({});
+    setNewExtraToolKey('');
     const toolKeys = getToolEditorKeys(currentCase.providerConfig.tools);
     setExpandedToolKey(toolKeys[0] || null);
     setActiveRunId(null);
-  }, [searchParams, selectedCaseQuery.data]);
+  }, [prompts, searchParams, selectedCaseQuery.data]);
 
   const runs = runsQuery.data || [];
   const currentRun = useMemo<PlaygroundRun | null>(() => {
@@ -790,21 +817,35 @@ export function PlaygroundPage() {
     }
   }, [currentRun, rawProviderPayload, toolCall]);
 
-  const prompts = promptData || [];
   const selectedPrompt = useMemo(
     () => prompts.find((prompt) => prompt.id === promptId) || null,
     [promptId, prompts]
   );
-  const comparePromptOptions = prompts.filter((prompt) => prompt.id !== promptId);
-  const getDesktopWindowWidth = (id: DesktopWindowId) =>
-    Math.min(DESKTOP_WINDOW_MAX_WIDTH[id], Math.max(id === 'params' ? 280 : 260, viewportWidth - 104));
-  const activeDockedWindowId = useMemo(
-    () =>
-      (Object.entries(desktopWindows).find(([, windowState]) => windowState.mode === 'docked' && !windowState.collapsed)?.[0] ??
-        null) as DesktopWindowId | null,
-    [desktopWindows]
+  const promptDefaultModel = useMemo(
+    () => getPromptDefaultModelName(selectedPrompt),
+    [selectedPrompt]
   );
-  const dockedPanelOffset = activeDockedWindowId ? getDesktopWindowWidth(activeDockedWindowId) + 12 : 0;
+  const modelOverride = modelOverrideText.trim();
+  const hasModelOverride = modelOverride.length > 0;
+  const providerDefaultModel = defaultModelForPlaygroundProvider(providerConfig.provider);
+  const effectiveModelName = hasModelOverride
+    ? modelOverride
+    : promptDefaultModel || providerDefaultModel;
+  const effectiveModelSource = hasModelOverride
+    ? 'override'
+    : promptDefaultModel
+      ? 'prompt-default'
+      : 'provider-default';
+  const effectiveModelSourceLabel = effectiveModelSource === 'override'
+    ? 'Playground override'
+    : effectiveModelSource === 'prompt-default'
+      ? 'Prompt default'
+      : 'Provider default';
+  const presetModelOptions = PLAYGROUND_PROVIDER_MODEL_OPTIONS[providerConfig.provider] || [];
+  const modelPresetValue = hasModelOverride
+    ? (presetModelOptions.includes(modelOverride) ? modelOverride : '__custom__')
+    : '__inherit__';
+  const comparePromptOptions = prompts.filter((prompt) => prompt.id !== promptId);
 
   const currentPromptText =
     promptMode === 'draft' ? draftSystemInstruction : promptInput.systemInstruction;
@@ -819,10 +860,140 @@ export function PlaygroundPage() {
   });
 
   const buildCurrentProviderConfig = (): PlaygroundProviderConfig => ({
-    ...providerConfig,
+    ...applyPlaygroundModelOverride(providerConfig, modelOverrideText),
     providerSpecific: parseJsonText<Record<string, unknown>>(providerSpecificText, {}),
     safety: parseJsonText<Array<Record<string, unknown>>>(safetyText, []),
   });
+
+  const normalizedTools = useMemo(
+    () => normalizePlaygroundTools(providerConfig.tools),
+    [providerConfig.tools]
+  );
+
+  const applyToolMutation = (
+    mutator: (tools: Record<string, unknown>) => Record<string, unknown>,
+    preferredExpandedKey?: string | null
+  ) => {
+    const nextTools = mutator(providerConfig.tools || {});
+    const nextKeys = getToolEditorKeys(nextTools);
+    setProviderConfig((prev) => ({
+      ...prev,
+      tools: nextTools,
+    }));
+    setExpandedToolKey((prev) => {
+      if (preferredExpandedKey && nextKeys.includes(preferredExpandedKey)) {
+        return preferredExpandedKey;
+      }
+
+      return prev && nextKeys.includes(prev) ? prev : nextKeys[0] || null;
+    });
+  };
+
+  const updateToolEditorText = (
+    key: string,
+    nextText: string,
+    onValidJson: (parsed: unknown) => void
+  ) => {
+    setToolEditorTexts((prev) => ({
+      ...prev,
+      [key]: nextText,
+    }));
+
+    try {
+      onValidJson(JSON.parse(nextText));
+    } catch {
+      // Preserve invalid drafts locally until the JSON is valid again.
+    }
+  };
+
+  const addToolDefinition = () => {
+    const nextDefinition = createPlaygroundToolDefinition(normalizedTools.definitions);
+    applyToolMutation((tools) => ({
+      ...tools,
+      definitions: [...normalizedTools.definitions, nextDefinition],
+    }), `definitions:${normalizedTools.definitions.length}`);
+  };
+
+  const duplicateToolDefinitionAt = (definitionIndex: number) => {
+    const target = normalizedTools.definitions[definitionIndex];
+    const duplicated = duplicatePlaygroundToolDefinition(target, normalizedTools.definitions);
+    applyToolMutation((tools) => ({
+      ...tools,
+      definitions: [...normalizedTools.definitions, duplicated],
+    }), `definitions:${normalizedTools.definitions.length}`);
+  };
+
+  const removeToolDefinitionAt = (definitionIndex: number) => {
+    applyToolMutation((tools) => ({
+      ...tools,
+      definitions: normalizedTools.definitions.filter((_, index) => index !== definitionIndex),
+    }));
+  };
+
+  const updateToolDefinition = (definitionIndex: number, nextText: string) => {
+    updateToolEditorText(`definitions:${definitionIndex}`, nextText, (parsed) => {
+      applyToolMutation((tools) => ({
+        ...tools,
+        definitions: normalizedTools.definitions.map((definition, index) =>
+          index === definitionIndex ? parsed : definition
+        ),
+      }), `definitions:${definitionIndex}`);
+    });
+  };
+
+  const updateToolChoice = (nextText: string) => {
+    updateToolEditorText('toolChoice', nextText, (parsed) => {
+      applyToolMutation((tools) => ({
+        ...tools,
+        toolChoice: parsed,
+      }), 'toolChoice');
+    });
+  };
+
+  const resetToolChoice = () => {
+    applyToolMutation((tools) => ({
+      ...tools,
+      toolChoice: null,
+    }), 'toolChoice');
+    setToolEditorTexts((prev) => ({
+      ...prev,
+      toolChoice: 'null',
+    }));
+  };
+
+  const addExtraToolConfig = () => {
+    const trimmedKey = newExtraToolKey.trim();
+    if (!trimmedKey || Object.prototype.hasOwnProperty.call(normalizedTools.extras, trimmedKey)) {
+      return;
+    }
+
+    applyToolMutation((tools) => ({
+      ...tools,
+      [trimmedKey]: {},
+    }), trimmedKey);
+    setToolEditorTexts((prev) => ({
+      ...prev,
+      [trimmedKey]: stringifyJson({}),
+    }));
+    setNewExtraToolKey('');
+  };
+
+  const removeExtraToolConfig = (toolKey: string) => {
+    applyToolMutation((tools) => {
+      const nextTools = { ...tools };
+      delete nextTools[toolKey];
+      return nextTools;
+    });
+  };
+
+  const updateExtraToolConfig = (toolKey: string, nextText: string) => {
+    updateToolEditorText(toolKey, nextText, (parsed) => {
+      applyToolMutation((tools) => ({
+        ...tools,
+        [toolKey]: parsed,
+      }), toolKey);
+    });
+  };
 
   const applyPromptSelectionToWorkspace = (nextPromptId: string | null) => {
     if (!nextPromptId) {
@@ -876,95 +1047,83 @@ export function PlaygroundPage() {
     }
   };
 
-  const handleDesktopWindowPointerDown = (id: DesktopWindowId) => (event: ReactPointerEvent<HTMLDivElement>) => {
-    const current = desktopWindows[id];
-    dragRef.current = {
-      id,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: current.x,
-      originY: current.y,
-    };
+  const openDesktopWindow = (id: DesktopWindowId) => {
+    setDesktopWindows((prev) => {
+      const current = prev[id];
+      const nextWindow = clampDesktopWindow({
+        ...current,
+        collapsed: false,
+        x: current.collapsed ? current.x : current.x,
+        y: current.collapsed ? current.y : current.y,
+      });
+
+      return {
+        ...prev,
+        [id]: current.collapsed
+          ? clampDesktopWindow({
+              ...nextWindow,
+              x: current.width > 0 ? nextWindow.x : 24,
+              y: id === 'params' ? 132 : 220,
+            })
+          : nextWindow,
+      };
+    });
   };
 
-  const openDockedWindow = (id: DesktopWindowId) => {
-    setDesktopWindows((prev) => ({
-      params:
-        id === 'params'
-          ? { ...prev.params, mode: 'docked', collapsed: false }
-          : prev.params.mode === 'docked'
-            ? { ...prev.params, collapsed: true }
-            : prev.params,
-      compare:
-        id === 'compare'
-          ? { ...prev.compare, mode: 'docked', collapsed: false }
-          : prev.compare.mode === 'docked'
-            ? { ...prev.compare, collapsed: true }
-            : prev.compare,
-    }));
-  };
-
-  const collapseWindow = (id: DesktopWindowId) => {
+  const closeDesktopWindow = (id: DesktopWindowId) => {
     setDesktopWindows((prev) => ({
       ...prev,
       [id]: {
         ...prev[id],
-        mode: 'docked',
         collapsed: true,
       },
     }));
   };
 
-  const toggleDockedWindow = (id: DesktopWindowId) => {
-    const current = desktopWindows[id];
-    if (current.mode === 'docked' && !current.collapsed) {
-      collapseWindow(id);
+  const toggleDesktopWindow = (id: DesktopWindowId) => {
+    if (desktopWindows[id].collapsed) {
+      openDesktopWindow(id);
       return;
     }
 
-    openDockedWindow(id);
+    closeDesktopWindow(id);
   };
 
-  const popOutWindow = (id: DesktopWindowId) => {
-    setDesktopWindows((prev) => ({
-      ...prev,
-      [id]: {
-        ...prev[id],
-        mode: 'floating',
-        collapsed: false,
-      },
-    }));
-  };
-
-  const startDockedWindowDrag = (id: DesktopWindowId) => (event: ReactPointerEvent<HTMLDivElement>) => {
-    const width = getDesktopWindowWidth(id);
-    const x = Math.max(24, window.innerWidth - width - 72);
-    const y = id === 'params' ? 140 : 220;
-    dragRef.current = {
-      id,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: x,
-      originY: y,
+  const handleDesktopWindowPointerDown = (id: DesktopWindowId, mode: DesktopWindowResizeMode) =>
+    (event: ReactPointerEvent<HTMLElement>) => {
+      event.preventDefault();
+      const current = desktopWindows[id];
+      dragRef.current = {
+        id,
+        mode,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: current.x,
+        originY: current.y,
+        originWidth: current.width,
+        originHeight: current.height,
+      };
     };
-    setDesktopWindows((prev) => ({
-      ...prev,
-      [id]: {
-        ...prev[id],
-        mode: 'floating',
-        collapsed: false,
-        x,
-        y,
-      },
-    }));
-  };
 
   const syncProviderTextFields = (next: PlaygroundProviderConfig) => {
     setProviderConfig(next);
     setProviderSpecificText(stringifyJson(next.providerSpecific || {}));
     setSafetyText(stringifyJson(next.safety || []));
+    setToolEditorTexts({});
+    setNewExtraToolKey('');
     const keys = getToolEditorKeys(next.tools);
     setExpandedToolKey((prev) => (prev && keys.includes(prev) ? prev : keys[0] || null));
+  };
+
+  const updateProviderSelection = (nextProvider: PlaygroundProviderConfig['provider']) => {
+    syncProviderTextFields({
+      ...providerConfig,
+      provider: nextProvider,
+    });
+  };
+
+  const setModelOverride = (nextValue: string) => {
+    setModelOverrideText(nextValue);
   };
 
   const handleSaveCase = () => {
@@ -1005,34 +1164,6 @@ export function PlaygroundPage() {
     });
   };
 
-  const updateToolConfig = (toolKey: string, nextText: string) => {
-    setProviderConfig((prev) => ({
-      ...prev,
-      tools: {
-        ...(prev.tools || {}),
-        [toolKey]: parseJsonText(nextText, (prev.tools || {})[toolKey] || {}),
-      },
-    }));
-  };
-
-  const updateToolDefinition = (definitionIndex: number, nextText: string) => {
-    setProviderConfig((prev) => {
-      const tools = prev.tools || {};
-      const definitions = Array.isArray(tools.definitions) ? tools.definitions : [];
-      const nextDefinitions = definitions.map((definition, index) =>
-        index === definitionIndex ? parseJsonText(nextText, definition) : definition
-      );
-
-      return {
-        ...prev,
-        tools: {
-          ...tools,
-          definitions: nextDefinitions,
-        },
-      };
-    });
-  };
-
   const setGenerationNumber = (key: string, value: number) => {
     setProviderConfig((prev) => ({
       ...prev,
@@ -1046,27 +1177,272 @@ export function PlaygroundPage() {
   const primaryUserMessage = getPrimaryUserMessage(promptInput.messages);
   const outputText = currentRun?.outputSnapshot?.responseText || currentRun?.outputSnapshot?.error || '';
   const promptPreview = buildPromptPreview(promptMode, draftSystemInstruction, draftUserPromptTemplate, promptInput);
-  const toolEditorEntries = useMemo<ToolEditorEntry[]>(() => {
-    const tools = providerConfig.tools || {};
+  const toolEditorSources = useMemo(() => ([
+    ...normalizedTools.definitions.map((definition, index) => ({
+      kind: 'definition' as const,
+      key: `definitions:${index}`,
+      label: `tool / definitions / ${getPlaygroundToolDefinitionName(definition, index)}`,
+      value: definition,
+    })),
+    ...Object.entries(normalizedTools.extras).map(([toolKey, toolValue]) => ({
+      kind: 'extra' as const,
+      key: toolKey,
+      label: `tool / ${toolKey}`,
+      value: toolValue,
+    })),
+  ]), [normalizedTools]);
 
-    return Object.entries(tools).flatMap(([toolKey, toolValue]) => {
-      if (toolKey === 'definitions' && Array.isArray(toolValue)) {
-        return toolValue.map((definition, index) => ({
-          key: `definitions:${index}`,
-          label: `tool / definitions / ${getToolDefinitionName(definition, index)}`,
-          value: definition,
-          onChange: (nextText: string) => updateToolDefinition(index, nextText),
-        }));
-      }
+  const toolEditorEntries = useMemo<ToolEditorEntry[]>(() => toolEditorSources.map((entry) => ({
+    ...entry,
+    onChange: (nextText: string) => (
+      entry.kind === 'definition'
+        ? updateToolDefinition(Number(entry.key.split(':')[1]), nextText)
+        : updateExtraToolConfig(entry.key, nextText)
+    ),
+  })), [toolEditorSources, updateExtraToolConfig, updateToolDefinition]);
 
-      return [{
-        key: toolKey,
-        label: `tool / ${toolKey}`,
-        value: toolValue,
-        onChange: (nextText: string) => updateToolConfig(toolKey, nextText),
-      }];
+  useEffect(() => {
+    const sourceEntries = [
+      { key: 'toolChoice', value: normalizedTools.toolChoice },
+      ...toolEditorSources.map((entry) => ({ key: entry.key, value: entry.value })),
+    ];
+
+    setToolEditorTexts((prev) => {
+      const next: Record<string, string> = {};
+      sourceEntries.forEach((entry) => {
+        next[entry.key] = prev[entry.key] ?? stringifyJson(entry.value ?? null);
+      });
+      return next;
     });
-  }, [providerConfig.tools]);
+  }, [normalizedTools.toolChoice, toolEditorSources]);
+
+  const modelSourceDescription = hasModelOverride
+    ? `Current override: ${effectiveModelName}`
+    : promptDefaultModel
+      ? `Using prompt default: ${promptDefaultModel}`
+      : `Using provider default: ${providerDefaultModel}`;
+
+  const renderToolsSection = (className: string) => {
+    const toolChoiceText = toolEditorTexts.toolChoice ?? stringifyJson(normalizedTools.toolChoice);
+    const toolChoiceExpanded = expandedToolKey === 'toolChoice';
+    const canAddExtraToolConfig =
+      newExtraToolKey.trim().length > 0 && !Object.prototype.hasOwnProperty.call(normalizedTools.extras, newExtraToolKey.trim());
+
+    return (
+      <div className={className}>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <FileJson2 className="h-4 w-4 text-primary" />
+            Tools
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={addToolDefinition}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Tool
+          </Button>
+        </div>
+
+        <div className="space-y-3">
+          <div className="overflow-hidden rounded-2xl border border-border/70 bg-background">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className={cn(
+                  'flex flex-1 items-center justify-between px-3 py-3 text-left text-sm font-medium transition',
+                  toolChoiceExpanded ? 'bg-primary/10' : 'bg-background hover:bg-muted/40'
+                )}
+                onClick={() => setExpandedToolKey((prev) => (prev === 'toolChoice' ? null : 'toolChoice'))}
+              >
+                <span>tool / toolChoice</span>
+                <span className="text-xs text-muted-foreground">{toolChoiceExpanded ? '收起编辑' : '点击展开'}</span>
+              </button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mr-2"
+                onClick={resetToolChoice}
+              >
+                Reset
+              </Button>
+            </div>
+            {toolChoiceExpanded ? (
+              <div className="border-t border-border/70 p-3">
+                <Textarea
+                  value={toolChoiceText}
+                  onChange={(event) => updateToolChoice(event.target.value)}
+                  className="min-h-[120px] bg-background font-mono text-xs"
+                />
+                {!isJsonTextValid(toolChoiceText) ? (
+                  <div className="mt-2 text-xs text-destructive">Invalid JSON. Changes apply after the JSON becomes valid.</div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-2xl border border-dashed border-border/70 bg-background p-3">
+            <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Add Extra Tool Config</Label>
+            <div className="mt-2 flex items-center gap-2">
+              <Input
+                value={newExtraToolKey}
+                onChange={(event) => setNewExtraToolKey(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addExtraToolConfig();
+                  }
+                }}
+                placeholder="customToolConfig"
+              />
+              <Button type="button" variant="outline" size="sm" onClick={addExtraToolConfig} disabled={!canAddExtraToolConfig}>
+                Add Key
+              </Button>
+            </div>
+          </div>
+
+          {toolEditorEntries.length > 0 ? (
+            <div className="space-y-2">
+              {toolEditorEntries.map((entry) => {
+                const isExpanded = expandedToolKey === entry.key;
+                const editorText = toolEditorTexts[entry.key] ?? stringifyJson(entry.value);
+                const invalidJson = !isJsonTextValid(editorText);
+                const definitionIndex = entry.kind === 'definition'
+                  ? Number(entry.key.split(':')[1])
+                  : null;
+
+                return (
+                  <div key={entry.key} className="overflow-hidden rounded-2xl border border-border/70 bg-background">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className={cn(
+                          'flex flex-1 items-center justify-between px-3 py-3 text-left text-sm font-medium transition',
+                          isExpanded ? 'bg-primary/10' : 'bg-background hover:bg-muted/40'
+                        )}
+                        onClick={() => setExpandedToolKey((prev) => (prev === entry.key ? null : entry.key))}
+                      >
+                        <span>{entry.label}</span>
+                        <span className="text-xs text-muted-foreground">{isExpanded ? '收起编辑' : '点击展开'}</span>
+                      </button>
+                      <div className="mr-2 flex items-center gap-1">
+                        {entry.kind === 'definition' && definitionIndex !== null ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => duplicateToolDefinitionAt(definitionIndex)}
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            if (entry.kind === 'definition' && definitionIndex !== null) {
+                              removeToolDefinitionAt(definitionIndex);
+                              return;
+                            }
+                            removeExtraToolConfig(entry.key);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    {isExpanded ? (
+                      <div className="border-t border-border/70 p-3">
+                        <Textarea
+                          value={editorText}
+                          onChange={(event) => entry.onChange(event.target.value)}
+                          className="min-h-[140px] bg-background font-mono text-xs"
+                        />
+                        {!invalidJson ? null : (
+                          <div className="mt-2 text-xs text-destructive">Invalid JSON. Changes apply after the JSON becomes valid.</div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState title="No tool definitions yet" description="现在可以直接新增 definition 或 extra config，不必先回到 Prompt 配置页。" />
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderModelControlSection = () => (
+    <div className="space-y-3 rounded-2xl border border-border/70 bg-background p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Model</div>
+          <div className="mt-1 text-sm font-medium text-foreground">{effectiveModelName}</div>
+        </div>
+        <Badge variant={hasModelOverride ? 'default' : 'outline'}>{effectiveModelSourceLabel}</Badge>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Preset Model</Label>
+        <Select
+          value={modelPresetValue}
+          onValueChange={(value) => {
+            if (value === '__inherit__') {
+              setModelOverride('');
+              return;
+            }
+
+            if (value === '__custom__') {
+              return;
+            }
+
+            setModelOverride(value);
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__inherit__">
+              {promptDefaultModel ? `Use prompt default (${promptDefaultModel})` : `Use provider default (${providerDefaultModel})`}
+            </SelectItem>
+            {presetModelOptions.map((modelName) => (
+              <SelectItem key={modelName} value={modelName}>
+                {modelName}
+              </SelectItem>
+            ))}
+            {hasModelOverride && !presetModelOptions.includes(modelOverride) ? (
+              <SelectItem value="__custom__">Custom override ({modelOverride})</SelectItem>
+            ) : null}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Custom Model Override</Label>
+        <Input
+          value={modelOverrideText}
+          placeholder={effectiveModelName}
+          onChange={(event) => setModelOverride(event.target.value)}
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>{modelSourceDescription}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          disabled={!hasModelOverride}
+          onClick={() => setModelOverride('')}
+        >
+          {promptDefaultModel ? 'Reset to Prompt Default' : 'Clear Override'}
+        </Button>
+      </div>
+    </div>
+  );
 
   useEffect(() => {
     if (selectedCaseId || currentPromptText.trim()) {
@@ -1075,157 +1451,139 @@ export function PlaygroundPage() {
   }, [currentPromptText, selectedCaseId]);
 
   const paramsPanelContent = (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-border/70 bg-muted/15 p-4">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <Settings2 className="h-4 w-4 text-primary" />
-          Common Params
-        </div>
-
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs uppercase tracking-[0.14em] text-muted-foreground">
-              <span>Temperature</span>
-              <span>{String(providerConfig.generation.temperature ?? 0.7)}</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="2"
-              step="0.1"
-              value={Number(providerConfig.generation.temperature ?? 0.7)}
-              onChange={(event) => setGenerationNumber('temperature', Number(event.target.value))}
-              className="w-full accent-[hsl(var(--info))]"
-            />
+    <ResizableSplit
+      direction="vertical"
+      disabled={!isDesktopLayout}
+      defaultSize={34}
+      minFirstSize={140}
+      minSecondSize={150}
+      className="h-full"
+      firstClassName="h-full"
+      secondClassName="h-full"
+      handleLabel="调整参数区与工具区高度"
+      first={(
+        <div className="h-full min-h-0 overflow-auto rounded-2xl border border-border/70 bg-muted/15 p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <Settings2 className="h-4 w-4 text-primary" />
+            Common Params
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs uppercase tracking-[0.14em] text-muted-foreground">
-              <span>Top P</span>
-              <span>{String(providerConfig.generation.topP ?? 0.95)}</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={Number(providerConfig.generation.topP ?? 0.95)}
-              onChange={(event) => setGenerationNumber('topP', Number(event.target.value))}
-              className="w-full accent-[hsl(var(--info))]"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-4">
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Max Tokens</Label>
-              <Input
-                value={String(providerConfig.generation.maxOutputTokens ?? 2048)}
-                onChange={(event) => setGenerationNumber('maxOutputTokens', Number(event.target.value || 0))}
+              <div className="flex items-center justify-between text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                <span>Temperature</span>
+                <span>{String(providerConfig.generation.temperature ?? 0.7)}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="2"
+                step="0.1"
+                value={Number(providerConfig.generation.temperature ?? 0.7)}
+                onChange={(event) => setGenerationNumber('temperature', Number(event.target.value))}
+                className="w-full accent-[hsl(var(--info))]"
               />
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Model Provider</Label>
-              <Select
-                value={providerConfig.provider}
-                onValueChange={(value) =>
-                  syncProviderTextFields({
-                    ...providerConfig,
-                    provider: value as PlaygroundProviderConfig['provider'],
-                  })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="google-gemini-cli">Google Gemini CLI</SelectItem>
-                  <SelectItem value="google-legacy">Google Legacy API</SelectItem>
-                  <SelectItem value="openai">OpenAI</SelectItem>
-                  <SelectItem value="codex">Codex</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                <span>Top P</span>
+                <span>{String(providerConfig.generation.topP ?? 0.95)}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={Number(providerConfig.generation.topP ?? 0.95)}
+                onChange={(event) => setGenerationNumber('topP', Number(event.target.value))}
+                className="w-full accent-[hsl(var(--info))]"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Max Tokens</Label>
+                <Input
+                  value={String(providerConfig.generation.maxOutputTokens ?? 2048)}
+                  onChange={(event) => setGenerationNumber('maxOutputTokens', Number(event.target.value || 0))}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Model Provider</Label>
+                <Select
+                  value={providerConfig.provider}
+                  onValueChange={(value) => updateProviderSelection(value as PlaygroundProviderConfig['provider'])}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="google-gemini-cli">Google Gemini CLI</SelectItem>
+                    <SelectItem value="google-legacy">Google Legacy API</SelectItem>
+                    <SelectItem value="openai">OpenAI</SelectItem>
+                    <SelectItem value="codex">Codex</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {renderModelControlSection()}
+
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Provider Specific</Label>
+              <Textarea
+                value={providerSpecificText}
+                onChange={(event) => {
+                  setProviderSpecificText(event.target.value);
+                  setProviderConfig((prev) => ({
+                    ...prev,
+                    providerSpecific: parseJsonText<Record<string, unknown>>(event.target.value, {}),
+                  }));
+                }}
+                className="min-h-[96px] bg-background font-mono text-xs"
+              />
             </div>
           </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Provider Specific</Label>
-            <Textarea
-              value={providerSpecificText}
-              onChange={(event) => {
-                setProviderSpecificText(event.target.value);
-                setProviderConfig((prev) => ({
-                  ...prev,
-                  providerSpecific: parseJsonText<Record<string, unknown>>(event.target.value, {}),
-                }));
-              }}
-              className="min-h-[96px] bg-background font-mono text-xs"
-            />
-          </div>
         </div>
-      </div>
-
-      <div className="rounded-2xl border border-border/70 bg-muted/15 p-4">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <FileJson2 className="h-4 w-4 text-primary" />
-          Tools
-        </div>
-
-        {toolEditorEntries.length > 0 ? (
-          <div className="space-y-2">
-            {toolEditorEntries.map((entry) => {
-              const isExpanded = expandedToolKey === entry.key;
-              return (
-                <div key={entry.key} className="overflow-hidden rounded-2xl border border-border/70 bg-background">
-                  <button
-                    type="button"
-                    className={cn(
-                      'flex w-full items-center justify-between px-3 py-3 text-left text-sm font-medium transition',
-                      isExpanded ? 'bg-primary/10' : 'bg-background hover:bg-muted/40'
-                    )}
-                    onClick={() => setExpandedToolKey((prev) => (prev === entry.key ? null : entry.key))}
-                  >
-                    <span>{entry.label}</span>
-                    <span className="text-xs text-muted-foreground">{isExpanded ? '展开编辑' : '点击展开'}</span>
-                  </button>
-                  {isExpanded ? (
-                    <div className="border-t border-border/70 p-3">
-                      <Textarea
-                        value={stringifyJson(entry.value)}
-                        onChange={(event) => entry.onChange(event.target.value)}
-                        className="min-h-[140px] bg-background font-mono text-xs"
-                      />
-                    </div>
-                  ) : null}
+      )}
+      second={(
+        <ResizableSplit
+          direction="vertical"
+          disabled={!isDesktopLayout}
+          defaultSize={76}
+          minFirstSize={96}
+          minSecondSize={72}
+          className="h-full"
+          firstClassName="h-full"
+          secondClassName="h-full"
+          handleLabel="调整工具区与辅助 JSON 高度"
+          first={renderToolsSection('h-full min-h-0 overflow-auto rounded-2xl border border-border/70 bg-muted/15 p-4')}
+          second={(
+            <div className="h-full min-h-0 overflow-auto rounded-2xl border border-border/70 bg-muted/15 p-4">
+              <div className="mb-3 text-sm font-semibold text-foreground">Auxiliary JSON</div>
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Safety</Label>
+                  <Textarea
+                    value={safetyText}
+                    onChange={(event) => {
+                      setSafetyText(event.target.value);
+                      setProviderConfig((prev) => ({
+                        ...prev,
+                        safety: parseJsonText<Array<Record<string, unknown>>>(event.target.value, []),
+                      }));
+                    }}
+                    className="min-h-[84px] bg-background font-mono text-xs"
+                  />
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState title="No tools configured" description="当前 provider 配置里还没有 tools，后续可以在这里逐项编辑工具 JSON。" />
-        )}
-      </div>
-
-      <div className="rounded-2xl border border-border/70 bg-muted/15 p-4">
-        <div className="mb-3 text-sm font-semibold text-foreground">Auxiliary JSON</div>
-        <div className="space-y-3">
-          <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Safety</Label>
-            <Textarea
-              value={safetyText}
-              onChange={(event) => {
-                setSafetyText(event.target.value);
-                setProviderConfig((prev) => ({
-                  ...prev,
-                  safety: parseJsonText<Array<Record<string, unknown>>>(event.target.value, []),
-                }));
-              }}
-              className="min-h-[84px] bg-background font-mono text-xs"
-            />
-          </div>
-        </div>
-      </div>
-    </div>
+              </div>
+            </div>
+          )}
+        />
+      )}
+    />
   );
   const comparePanelContent = (
     <div className="space-y-4">
@@ -1308,9 +1666,285 @@ export function PlaygroundPage() {
     </div>
   );
 
+  const editorPanel = (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[24px] border border-border/70 bg-white/80 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
+      <div className="border-b border-border/70 px-5 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="truncate text-sm font-medium text-foreground">
+              {selectedCaseQuery.data?.name || 'Draft Prompt'}
+            </div>
+            {selectedCaseQuery.data?.caseMode ? <Badge variant="secondary">{selectedCaseQuery.data.caseMode}</Badge> : null}
+            <Button
+              variant={editorView === 'prompt' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setEditorView('prompt')}
+            >
+              Prompt
+            </Button>
+            <Button
+              variant={editorView === 'preview' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setEditorView('preview')}
+            >
+              Rendered Preview
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Badge variant="outline">Resizable editor</Badge>
+            {promptMode === 'draft' ? <Badge variant="secondary">Draft mode</Badge> : <Badge variant="outline">Saved mode</Badge>}
+          </div>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1">
+        {editorView === 'prompt' ? (
+          <div className="flex h-full flex-col">
+            {showEditorEmptyState ? (
+              <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,rgba(248,103,34,0.07),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.78),rgba(255,253,248,0.92))] px-6 py-6">
+                <div className="grid w-full max-w-5xl gap-4 xl:grid-cols-2">
+                  <div className="rounded-[28px] border border-border/80 bg-white/90 p-6 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.28)]">
+                    <div className="text-sm font-semibold text-foreground">从样本开始</div>
+                    <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                      先从真实流量或历史会话生成 Case，参数、输出、对比面板都会立即有上下文，不会再出现一整块无意义白板。
+                    </div>
+                    <div className="mt-5">
+                      <Button onClick={() => setLibraryOpen(true)}>
+                        <Database className="mr-2 h-4 w-4" />
+                        Open Library
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[28px] border border-dashed border-border/80 bg-white/75 p-6">
+                    <div className="text-sm font-semibold text-foreground">直接写 Draft</div>
+                    <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                      如果你只是想起草 Prompt，也可以直接进入编辑器。这个入口只在空态出现，避免宽屏下整块区域看起来像布局坏掉。
+                    </div>
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setPromptMode('draft');
+                          setEditorEmptyStateDismissed(true);
+                        }}
+                      >
+                        Start Writing
+                      </Button>
+                      <Button variant="ghost" onClick={() => setInputOpen(true)}>
+                        <Wand2 className="mr-2 h-4 w-4" />
+                        User Input
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <Textarea
+                value={currentPromptText}
+                onChange={(event) => {
+                  if (promptMode === 'draft') {
+                    setDraftSystemInstruction(event.target.value);
+                  }
+                  setPromptInput((prev) => ({
+                    ...prev,
+                    systemInstruction: event.target.value,
+                  }));
+                }}
+                placeholder="从 Library 选择一个样本 Case，或者直接在这里输入 Draft Prompt。"
+                className="h-full min-h-0 resize-none border-0 bg-transparent px-5 py-4 font-mono text-sm leading-7 shadow-none focus-visible:ring-0"
+              />
+            )}
+          </div>
+        ) : (
+          <div className="h-full px-5 py-4">
+            <JsonBlock value={promptPreview} className="h-full bg-background/90 text-xs" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const textResponsePane = (
+    <div className="flex h-full min-h-[220px] flex-col overflow-hidden rounded-[18px] border border-border/70 bg-background">
+      <div className="border-b border-border/70 px-4 py-3">
+        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Text Response</div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
+        {outputText ? (
+          <div className="whitespace-pre-wrap text-sm leading-7 text-foreground">{outputText}</div>
+        ) : (
+          <EmptyState title="No text output yet" description="先运行当前 Prompt，或者切到 Tool / Raw 看其他结果。" />
+        )}
+      </div>
+    </div>
+  );
+
+  const runSummaryPane = (
+    <div className="flex h-full min-h-[220px] flex-col overflow-hidden rounded-[18px] border border-border/70 bg-background">
+      <div className="border-b border-border/70 px-4 py-3">
+        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Run Summary</div>
+      </div>
+      <div className="space-y-3 overflow-auto p-4 text-sm">
+        <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+          <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Status</div>
+          <div className="mt-2 font-medium text-foreground">{currentRun?.status || 'idle'}</div>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+          <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Executed At</div>
+          <div className="mt-2 font-medium text-foreground">
+            {currentRun ? formatTimestamp(currentRun.createdAt) : '-'}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+          <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Actions</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!currentRun}
+              onClick={() => currentRun && cloneRunMutation.mutate(currentRun.id)}
+            >
+              Clone Run
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!currentRun}
+              onClick={() => currentRun && handleSetBaseline(currentRun)}
+            >
+              Set Baseline
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const toolCallPane = (
+    <div className="flex h-full min-h-[220px] flex-col overflow-hidden rounded-[18px] border border-border/70 bg-background">
+      <div className="border-b border-border/70 px-4 py-3">
+        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Tool / Function Call</div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-4">
+        {toolCall ? (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-[120px_1fr] gap-2">
+              <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Tool</div>
+              <div className="font-medium text-foreground">{toolCall.name}</div>
+            </div>
+            <div className="grid grid-cols-[120px_1fr] gap-2">
+              <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Status</div>
+              <div className="font-medium text-foreground">{toolCall.status || currentRun?.status || '-'}</div>
+            </div>
+            <div className="grid grid-cols-[120px_1fr] gap-2">
+              <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Provider</div>
+              <div className="font-medium text-foreground">
+                {toolCall.provider || currentRun?.provider || '-'}
+                {toolCall.modelName ? ` / ${toolCall.modelName}` : ''}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">Arguments</div>
+              <JsonBlock value={toolCall.arguments ?? {}} />
+            </div>
+          </div>
+        ) : (
+          <EmptyState title="No tool call inferred" description="如果当前 run 是纯文本输出，这里会为空。存在 function/tool 调用时，会优先展示结构化调用卡片。" />
+        )}
+      </div>
+    </div>
+  );
+
+  const toolResultPane = (
+    <div className="flex h-full min-h-[220px] flex-col overflow-hidden rounded-[18px] border border-border/70 bg-background">
+      <div className="border-b border-border/70 px-4 py-3">
+        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Tool Result Summary</div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-4">
+        {toolCall ? (
+          <div className="space-y-3">
+            <JsonBlock value={toolCall.result ?? toolCall.raw ?? {}} />
+            {outputText ? (
+              <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+                <div className="mb-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">Assistant Interpretation</div>
+                <div className="whitespace-pre-wrap text-sm leading-7 text-foreground">{outputText}</div>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <EmptyState title="No tool result yet" description="没有可归一的 tool result 时，会退回到 Raw Provider Response 查看原始结构。" />
+        )}
+      </div>
+    </div>
+  );
+
+  const rawOutputPane = (
+    <div className="flex h-full min-h-[220px] flex-col overflow-hidden rounded-[18px] border border-border/70 bg-background">
+      <div className="border-b border-border/70 px-4 py-3">
+        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Raw Provider Response</div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-4">
+        {rawProviderPayload ? (
+          <JsonBlock value={rawProviderPayload} className="h-full min-h-[220px]" />
+        ) : (
+          <EmptyState title="No raw payload available" description="当前 run 没有可展示的 provider 原始结果，先运行一次或者切回 Text / Tool。" />
+        )}
+      </div>
+    </div>
+  );
+
+  const outputPanel = (
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-[24px] border border-border/70 bg-white/80 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
+      <div className="border-b border-border/70 bg-white/60 px-4 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-foreground">Current Output</div>
+            <div className="mt-1 text-xs text-muted-foreground">文本、工具调用和原始响应在这里切换查看。</div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant={outputView === 'text' ? 'default' : 'outline'} size="sm" onClick={() => setOutputView('text')}>
+              Text
+            </Button>
+            <Button variant={outputView === 'tool' ? 'default' : 'outline'} size="sm" onClick={() => setOutputView('tool')}>
+              Tool
+            </Button>
+            <Button variant={outputView === 'raw' ? 'default' : 'outline'} size="sm" onClick={() => setOutputView('raw')}>
+              Raw
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 p-4">
+        {outputView === 'raw' ? (
+          rawOutputPane
+        ) : (
+          <ResizableSplit
+            direction="horizontal"
+            disabled={!isDesktopLayout}
+            defaultSize={53}
+            minFirstSize={320}
+            minSecondSize={280}
+            className="h-full"
+            firstClassName="h-full"
+            secondClassName="h-full"
+            handleLabel="调整输出双栏宽度"
+            first={outputView === 'text' ? textResponsePane : toolCallPane}
+            second={outputView === 'text' ? runSummaryPane : toolResultPane}
+          />
+        )}
+      </div>
+    </section>
+  );
+
   return (
     <PageShell>
-      <div className="relative overflow-hidden rounded-[28px] border border-border/70 bg-[linear-gradient(180deg,#fffdf8_0%,#f7f2ea_100%)] shadow-[0_24px_80px_-45px_rgba(15,23,42,0.4)]">
+      <div
+        ref={workspaceRef}
+        className="relative overflow-hidden rounded-[28px] border border-border/70 bg-[linear-gradient(180deg,#fffdf8_0%,#f7f2ea_100%)] shadow-[0_24px_80px_-45px_rgba(15,23,42,0.4)]"
+      >
         <div className="border-b border-border/70 px-5 py-5 sm:px-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
@@ -1341,40 +1975,20 @@ export function PlaygroundPage() {
                 User Input
               </Button>
               <Button
-                variant={desktopWindows.params.mode === 'docked' && !desktopWindows.params.collapsed ? 'default' : 'outline'}
+                variant="outline"
                 size="sm"
-                className="lg:hidden"
-                onClick={() => setMobileParamsOpen(true)}
+                onClick={() => (isDesktopLayout ? toggleDesktopWindow('params') : setMobileParamsOpen(true))}
               >
                 <Settings2 className="mr-2 h-4 w-4" />
-                Params
+                {isDesktopLayout && !desktopWindows.params.collapsed ? 'Hide Params' : 'Params'}
               </Button>
               <Button
-                variant={desktopWindows.params.mode !== 'docked' || !desktopWindows.params.collapsed ? 'default' : 'outline'}
+                variant="outline"
                 size="sm"
-                className="hidden lg:inline-flex"
-                onClick={() => toggleDockedWindow('params')}
-              >
-                <Settings2 className="mr-2 h-4 w-4" />
-                Params
-              </Button>
-              <Button
-                variant={desktopWindows.compare.mode === 'docked' && !desktopWindows.compare.collapsed ? 'default' : 'outline'}
-                size="sm"
-                className="lg:hidden"
-                onClick={() => setMobileCompareOpen(true)}
+                onClick={() => (isDesktopLayout ? toggleDesktopWindow('compare') : setMobileCompareOpen(true))}
               >
                 <Sparkles className="mr-2 h-4 w-4" />
-                Compare
-              </Button>
-              <Button
-                variant={desktopWindows.compare.mode !== 'docked' || !desktopWindows.compare.collapsed ? 'default' : 'outline'}
-                size="sm"
-                className="hidden lg:inline-flex"
-                onClick={() => toggleDockedWindow('compare')}
-              >
-                <Sparkles className="mr-2 h-4 w-4" />
-                Compare
+                {isDesktopLayout && !desktopWindows.compare.collapsed ? 'Hide Compare' : 'Compare'}
               </Button>
               <Button onClick={() => runMutation.mutate()} disabled={!selectedCaseId || runMutation.isPending}>
                 <Play className="mr-2 h-4 w-4" />
@@ -1415,7 +2029,10 @@ export function PlaygroundPage() {
               Source: {selectedCaseQuery.data?.source || 'manual'}
             </div>
             <div className="rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs text-muted-foreground">
-              Model: {String(providerConfig.context?.modelName || prompts.find((item) => item.id === promptId)?.model_name || providerConfig.provider)}
+              Model: {effectiveModelName}
+            </div>
+            <div className="rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs text-muted-foreground">
+              Model Source: {effectiveModelSourceLabel}
             </div>
           </div>
 
@@ -1441,319 +2058,53 @@ export function PlaygroundPage() {
           ) : null}
         </div>
 
-        <div
-          className="grid min-h-0 gap-4 px-3 py-3 sm:px-4 sm:py-4 lg:grid-cols-[minmax(0,1fr)] lg:px-5"
-          style={{ paddingRight: dockedPanelOffset ? `${dockedPanelOffset + 12}px` : undefined }}
-        >
-          <section className="flex min-h-0 flex-col gap-4">
-            <div className="flex min-h-[clamp(320px,52vh,680px)] flex-col overflow-hidden rounded-[24px] border border-border/70 bg-white/80 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
-              <div className="border-b border-border/70 px-5 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="truncate text-sm font-medium text-foreground">
-                      {selectedCaseQuery.data?.name || 'Draft Prompt'}
-                    </div>
-                    {selectedCaseQuery.data?.caseMode ? <Badge variant="secondary">{selectedCaseQuery.data.caseMode}</Badge> : null}
-                    <Button
-                      variant={editorView === 'prompt' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setEditorView('prompt')}
-                    >
-                      Prompt
-                    </Button>
-                    <Button
-                      variant={editorView === 'preview' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setEditorView('preview')}
-                    >
-                      Rendered Preview
-                    </Button>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">Full-width editor</Badge>
-                    {promptMode === 'draft' ? <Badge variant="secondary">Draft mode</Badge> : <Badge variant="outline">Saved mode</Badge>}
-                  </div>
-                </div>
-              </div>
-
-              <div className="min-h-0 flex-1">
-                {editorView === 'prompt' ? (
-                  <div className="flex h-full flex-col">
-                    {showEditorEmptyState ? (
-                      <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,rgba(248,103,34,0.07),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.78),rgba(255,253,248,0.92))] px-6 py-6">
-                        <div className="grid w-full max-w-5xl gap-4 xl:grid-cols-2">
-                          <div className="rounded-[28px] border border-border/80 bg-white/90 p-6 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.28)]">
-                            <div className="text-sm font-semibold text-foreground">从样本开始</div>
-                            <div className="mt-2 text-sm leading-6 text-muted-foreground">
-                              先从真实流量或历史会话生成 Case，参数、输出、对比面板都会立即有上下文，不会再出现一整块无意义白板。
-                            </div>
-                            <div className="mt-5">
-                              <Button onClick={() => setLibraryOpen(true)}>
-                                <Database className="mr-2 h-4 w-4" />
-                                Open Library
-                              </Button>
-                            </div>
-                          </div>
-
-                          <div className="rounded-[28px] border border-dashed border-border/80 bg-white/75 p-6">
-                            <div className="text-sm font-semibold text-foreground">直接写 Draft</div>
-                            <div className="mt-2 text-sm leading-6 text-muted-foreground">
-                              如果你只是想起草 Prompt，也可以直接进入编辑器。这个入口只在空态出现，避免宽屏下整块区域看起来像布局坏掉。
-                            </div>
-                            <div className="mt-5 flex flex-wrap gap-2">
-                              <Button
-                                variant="outline"
-                                onClick={() => {
-                                  setPromptMode('draft');
-                                  setEditorEmptyStateDismissed(true);
-                                }}
-                              >
-                                Start Writing
-                              </Button>
-                              <Button variant="ghost" onClick={() => setInputOpen(true)}>
-                                <Wand2 className="mr-2 h-4 w-4" />
-                                User Input
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <Textarea
-                        value={currentPromptText}
-                        onChange={(event) => {
-                          if (promptMode === 'draft') {
-                            setDraftSystemInstruction(event.target.value);
-                          }
-                          setPromptInput((prev) => ({
-                            ...prev,
-                            systemInstruction: event.target.value,
-                          }));
-                        }}
-                        placeholder="从 Library 选择一个样本 Case，或者直接在这里输入 Draft Prompt。"
-                        className="h-full min-h-0 resize-none border-0 bg-transparent px-5 py-4 font-mono text-sm leading-7 shadow-none focus-visible:ring-0"
-                      />
-                    )}
-                  </div>
-                ) : (
-                  <div className="h-full px-5 py-4">
-                    <JsonBlock value={promptPreview} className="h-full bg-background/90 text-xs" />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <section className="flex min-h-[clamp(240px,30vh,360px)] flex-col overflow-hidden rounded-[24px] border border-border/70 bg-white/80 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
-              <div className="border-b border-border/70 bg-white/60 px-4 py-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-foreground">Current Output</div>
-                    <div className="mt-1 text-xs text-muted-foreground">文本、工具调用和原始响应在这里切换查看。</div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant={outputView === 'text' ? 'default' : 'outline'} size="sm" onClick={() => setOutputView('text')}>
-                      Text
-                    </Button>
-                    <Button variant={outputView === 'tool' ? 'default' : 'outline'} size="sm" onClick={() => setOutputView('tool')}>
-                      Tool
-                    </Button>
-                    <Button variant={outputView === 'raw' ? 'default' : 'outline'} size="sm" onClick={() => setOutputView('raw')}>
-                      Raw
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid min-h-0 flex-1 gap-3 p-4 lg:grid-cols-[1.05fr_0.95fr]">
-                {outputView === 'text' ? (
-                  <>
-                    <div className="flex min-h-[220px] flex-col overflow-hidden rounded-[18px] border border-border/70 bg-background">
-                      <div className="border-b border-border/70 px-4 py-3">
-                        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Text Response</div>
-                      </div>
-                      <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
-                        {outputText ? (
-                          <div className="whitespace-pre-wrap text-sm leading-7 text-foreground">{outputText}</div>
-                        ) : (
-                          <EmptyState title="No text output yet" description="先运行当前 Prompt，或者切到 Tool / Raw 看其他结果。" />
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex min-h-[220px] flex-col overflow-hidden rounded-[18px] border border-border/70 bg-background">
-                      <div className="border-b border-border/70 px-4 py-3">
-                        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Run Summary</div>
-                      </div>
-                      <div className="space-y-3 p-4 text-sm">
-                        <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-                          <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Status</div>
-                          <div className="mt-2 font-medium text-foreground">{currentRun?.status || 'idle'}</div>
-                        </div>
-                        <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-                          <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Executed At</div>
-                          <div className="mt-2 font-medium text-foreground">
-                            {currentRun ? formatTimestamp(currentRun.createdAt) : '-'}
-                          </div>
-                        </div>
-                        <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-                          <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Actions</div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={!currentRun}
-                              onClick={() => currentRun && cloneRunMutation.mutate(currentRun.id)}
-                            >
-                              Clone Run
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={!currentRun}
-                              onClick={() => currentRun && handleSetBaseline(currentRun)}
-                            >
-                              Set Baseline
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                ) : null}
-
-                {outputView === 'tool' ? (
-                  <>
-                    <div className="flex min-h-[220px] flex-col overflow-hidden rounded-[18px] border border-border/70 bg-background">
-                      <div className="border-b border-border/70 px-4 py-3">
-                        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Tool / Function Call</div>
-                      </div>
-                      <div className="min-h-0 flex-1 overflow-auto p-4">
-                        {toolCall ? (
-                          <div className="space-y-3 text-sm">
-                            <div className="grid grid-cols-[120px_1fr] gap-2">
-                              <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Tool</div>
-                              <div className="font-medium text-foreground">{toolCall.name}</div>
-                            </div>
-                            <div className="grid grid-cols-[120px_1fr] gap-2">
-                              <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Status</div>
-                              <div className="font-medium text-foreground">{toolCall.status || currentRun?.status || '-'}</div>
-                            </div>
-                            <div className="grid grid-cols-[120px_1fr] gap-2">
-                              <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Provider</div>
-                              <div className="font-medium text-foreground">
-                                {toolCall.provider || currentRun?.provider || '-'}
-                                {toolCall.modelName ? ` / ${toolCall.modelName}` : ''}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="mb-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">Arguments</div>
-                              <JsonBlock value={toolCall.arguments ?? {}} />
-                            </div>
-                          </div>
-                        ) : (
-                          <EmptyState title="No tool call inferred" description="如果当前 run 是纯文本输出，这里会为空。存在 function/tool 调用时，会优先展示结构化调用卡片。" />
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex min-h-[220px] flex-col overflow-hidden rounded-[18px] border border-border/70 bg-background">
-                      <div className="border-b border-border/70 px-4 py-3">
-                        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Tool Result Summary</div>
-                      </div>
-                      <div className="min-h-0 flex-1 overflow-auto p-4">
-                        {toolCall ? (
-                          <div className="space-y-3">
-                            <JsonBlock value={toolCall.result ?? toolCall.raw ?? {}} />
-                            {outputText ? (
-                              <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-                                <div className="mb-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">Assistant Interpretation</div>
-                                <div className="whitespace-pre-wrap text-sm leading-7 text-foreground">{outputText}</div>
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <EmptyState title="No tool result yet" description="没有可归一的 tool result 时，会退回到 Raw Provider Response 查看原始结构。" />
-                        )}
-                      </div>
-                    </div>
-                  </>
-                ) : null}
-
-                {outputView === 'raw' ? (
-                  <div className="flex min-h-[220px] flex-col overflow-hidden rounded-[18px] border border-border/70 bg-background lg:col-span-2">
-                    <div className="border-b border-border/70 px-4 py-3">
-                      <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Raw Provider Response</div>
-                    </div>
-                    <div className="min-h-0 flex-1 overflow-auto p-4">
-                      {rawProviderPayload ? (
-                        <JsonBlock value={rawProviderPayload} className="h-full min-h-[220px]" />
-                      ) : (
-                        <EmptyState title="No raw payload available" description="当前 run 没有可展示的 provider 原始结果，先运行一次或者切回 Text / Tool。" />
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </section>
-          </section>
+        <div className="px-3 py-3 sm:px-4 sm:py-4 lg:px-5">
+          <ResizableSplit
+            direction="vertical"
+            disabled={!isDesktopLayout}
+            defaultSize={58}
+            minFirstSize={320}
+            minSecondSize={260}
+            className="h-[clamp(760px,78vh,1100px)]"
+            firstClassName="h-full"
+            secondClassName="h-full"
+            handleLabel="调整编辑区与输出区高度"
+            first={editorPanel}
+            second={outputPanel}
+          />
         </div>
 
-        {desktopWindows.params.mode === 'docked' && desktopWindows.params.collapsed ? (
-          <DockHandle title="Params" className="top-[148px]" onClick={() => openDockedWindow('params')} />
-        ) : null}
-
-        {desktopWindows.compare.mode === 'docked' && desktopWindows.compare.collapsed ? (
-          <DockHandle title="Compare" className="top-[252px]" onClick={() => openDockedWindow('compare')} />
-        ) : null}
-
-        {desktopWindows.params.mode === 'docked' && !desktopWindows.params.collapsed ? (
-          <DockedPanel
-            title="Common Params"
-            onClose={() => collapseWindow('params')}
-            onPopOut={() => popOutWindow('params')}
-            onPointerDown={startDockedWindowDrag('params')}
-            className="w-[min(340px,calc(100vw-92px))]"
-          >
-            {paramsPanelContent}
-          </DockedPanel>
-        ) : null}
-
-        {desktopWindows.compare.mode === 'docked' && !desktopWindows.compare.collapsed ? (
-          <DockedPanel
-            title="Compare Nodes"
-            onClose={() => collapseWindow('compare')}
-            onPopOut={() => popOutWindow('compare')}
-            onPointerDown={startDockedWindowDrag('compare')}
-            className="w-[min(300px,calc(100vw-92px))]"
-          >
-            {comparePanelContent}
-          </DockedPanel>
-        ) : null}
-
-        {desktopWindows.params.mode === 'floating' ? (
+        {isDesktopLayout && !desktopWindows.params.collapsed ? (
           <FloatingPanel
-            title="Common Params"
+            title="Params & Tools"
             x={desktopWindows.params.x}
             y={desktopWindows.params.y}
-            onClose={() => collapseWindow('params')}
-            onPointerDown={handleDesktopWindowPointerDown('params')}
-            className="h-[640px] w-[min(360px,calc(100vw-96px))]"
+            width={desktopWindows.params.width}
+            height={desktopWindows.params.height}
+            onClose={() => closeDesktopWindow('params')}
+            onDragPointerDown={handleDesktopWindowPointerDown('params', 'move')}
+            onResizePointerDown={(mode) => handleDesktopWindowPointerDown('params', mode)}
           >
-            {paramsPanelContent}
+            <div className="h-full min-h-0">
+              {paramsPanelContent}
+            </div>
           </FloatingPanel>
         ) : null}
 
-        {desktopWindows.compare.mode === 'floating' ? (
+        {isDesktopLayout && !desktopWindows.compare.collapsed ? (
           <FloatingPanel
             title="Compare Nodes"
             x={desktopWindows.compare.x}
             y={desktopWindows.compare.y}
-            onClose={() => collapseWindow('compare')}
-            onPointerDown={handleDesktopWindowPointerDown('compare')}
-            className="h-[420px] w-[min(320px,calc(100vw-96px))]"
+            width={desktopWindows.compare.width}
+            height={desktopWindows.compare.height}
+            onClose={() => closeDesktopWindow('compare')}
+            onDragPointerDown={handleDesktopWindowPointerDown('compare', 'move')}
+            onResizePointerDown={(mode) => handleDesktopWindowPointerDown('compare', mode)}
           >
-            {comparePanelContent}
+            <div className="h-full min-h-0 overflow-auto">
+              {comparePanelContent}
+            </div>
           </FloatingPanel>
         ) : null}
       </div>
@@ -1907,13 +2258,31 @@ export function PlaygroundPage() {
         <SheetContent side="right" className="sm:max-w-md">
           <SheetHeader>
             <SheetTitle>Params & Tools</SheetTitle>
-            <SheetDescription>移动端降级为抽屉，桌面端使用浮窗。</SheetDescription>
+            <SheetDescription>移动端降级为抽屉，桌面端使用可拉伸侧栏。</SheetDescription>
           </SheetHeader>
           <div className="mt-4 overflow-y-auto pr-1">
             <div className="space-y-4">
               <div className="rounded-2xl border border-border/70 bg-background p-4">
                 <div className="mb-3 text-sm font-semibold text-foreground">Common Params</div>
                 <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Model Provider</Label>
+                    <Select
+                      value={providerConfig.provider}
+                      onValueChange={(value) => updateProviderSelection(value as PlaygroundProviderConfig['provider'])}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="google-gemini-cli">Google Gemini CLI</SelectItem>
+                        <SelectItem value="google-legacy">Google Legacy API</SelectItem>
+                        <SelectItem value="openai">OpenAI</SelectItem>
+                        <SelectItem value="codex">Codex</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {renderModelControlSection()}
                   <div className="space-y-2">
                     <Label>Temperature</Label>
                     <Input
@@ -1938,35 +2307,7 @@ export function PlaygroundPage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-border/70 bg-background p-4">
-                <div className="mb-3 text-sm font-semibold text-foreground">Tools</div>
-                <div className="space-y-2">
-                  {toolEditorEntries.map((entry) => {
-                    const isExpanded = expandedToolKey === entry.key;
-                    return (
-                      <div key={entry.key} className="overflow-hidden rounded-2xl border border-border/70">
-                        <button
-                          type="button"
-                          className="flex w-full items-center justify-between px-3 py-3 text-left text-sm font-medium"
-                          onClick={() => setExpandedToolKey((prev) => (prev === entry.key ? null : entry.key))}
-                        >
-                          <span>{entry.label}</span>
-                          <span className="text-xs text-muted-foreground">{isExpanded ? '展开编辑' : '点击展开'}</span>
-                        </button>
-                        {isExpanded ? (
-                          <div className="border-t border-border/70 p-3">
-                            <Textarea
-                              value={stringifyJson(entry.value)}
-                              onChange={(event) => entry.onChange(event.target.value)}
-                              className="min-h-[140px] bg-background font-mono text-xs"
-                            />
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              {renderToolsSection('rounded-2xl border border-border/70 bg-background p-4')}
             </div>
           </div>
         </SheetContent>

@@ -4,8 +4,8 @@ import winston from 'winston';
 import { buildConversationTracePayload } from '../services/trace-span-builder';
 import { renderPromptTemplate } from '../utils/prompt-template';
 
-// QQBot Core服务地址配置 (支持容器间通信)
-const QQBOT_CORE_URL = process.env.QQBOT_CORE_URL || 'http://qqbot-core:8081';
+// Provider Service服务地址配置 (支持容器间通信)
+const PROVIDER_SERVICE_URL = process.env.PROVIDER_SERVICE_URL || 'http://qqbot-provider-service:8090';
 
 function parseJsonField<T>(value: any, fallback: T): T {
   if (value === null || value === undefined) {
@@ -586,7 +586,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
           const promptQuery = `
             SELECT id, agent_type, prompt_name, system_instructions,
                    user_prompt_template, context_variables, model_config,
-                   advanced_config, model_name, allowed_token_ids, is_active
+                   advanced_config, model_name, is_active
             FROM agent_prompts
             WHERE id = ? AND is_active = 1
           `;
@@ -605,14 +605,12 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
           const parsedContextVariables = parseJsonField<Record<string, unknown>>(promptConfig.context_variables, {});
           const parsedModelConfig = parseJsonField<Record<string, unknown>>(promptConfig.model_config, {});
           const parsedAdvancedConfig = parseJsonField<Record<string, unknown>>(promptConfig.advanced_config, {});
-          const parsedAllowedTokenIds = parseJsonField<any[]>(promptConfig.allowed_token_ids, []);
 
           promptConfig = {
             ...promptConfig,
             context_variables: parsedContextVariables,
             model_config: parsedModelConfig,
-            advanced_config: parsedAdvancedConfig,
-            allowed_token_ids: Array.isArray(parsedAllowedTokenIds) ? parsedAllowedTokenIds : []
+            advanced_config: parsedAdvancedConfig
           };
 
           // 🔥 加载完整的系统指令
@@ -635,8 +633,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
             ...parameters,
             model_config: promptConfig.model_config,
             advanced_config: promptConfig.advanced_config,
-            context_variables: promptConfig.context_variables,
-            allowed_token_ids: promptConfig.allowed_token_ids
+            context_variables: promptConfig.context_variables
           };
 
           logger.info('Loaded prompt configuration', {
@@ -644,8 +641,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
             prompt_name: promptConfig.prompt_name,
             model: finalModel,
             hasAdvancedConfig: !!promptConfig.advanced_config,
-            hasContextVariables: !!promptConfig.context_variables,
-            allowedTokenIds: promptConfig.allowed_token_ids
+            hasContextVariables: !!promptConfig.context_variables
           });
 
         } catch (dbError) {
@@ -701,7 +697,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
         conversation_id: conversation_id || prompt_id
       };
 
-      const internalApiResponse = await fetch(`${QQBOT_CORE_URL}/api/internal/llm/debug`, {
+      const internalApiResponse = await fetch(`${PROVIDER_SERVICE_URL}/api/internal/llm/debug`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -720,7 +716,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
 
         return res.status(internalApiResponse.status).json({
           success: false,
-          error: `Bot Core API failed: ${internalApiResponse.statusText}`,
+          error: `Provider Service API failed: ${internalApiResponse.statusText}`,
           details: errorText,
           timestamp: new Date().toISOString()
         });
@@ -728,7 +724,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
 
       const apiResult = await internalApiResponse.json() as any;
 
-      logger.info('Debug Prompt V2 succeeded via Bot Core', {
+      logger.info('Debug Prompt V2 succeeded via Provider Service', {
         hasResponse: !!apiResult.response,
         model: apiResult.model,
         conversation_id: conversation_id || prompt_id,
@@ -754,7 +750,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
       logger.error('Debug Prompt V2 failed', { error, prompt_id: req.body.prompt_id });
       res.status(500).json({
         success: false,
-        error: 'Failed to execute debug prompt via Bot Core',
+        error: 'Failed to execute debug prompt via Provider Service',
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString()
       });

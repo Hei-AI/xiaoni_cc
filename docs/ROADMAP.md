@@ -1,33 +1,28 @@
 # 项目路线图
 
-> 当前路线图基于已收口后的主仓：`mysql + qqbot-core + admin-panel`。
+## 当前目标
 
-## 近期目标
+- 稳定当前主仓最小运行栈：`postgres + provider-service + admin-panel`
+- 继续清理旧 `qqbot-core` 业务编排痕迹、陈旧脚本和误导性文档
+- 把管理端保留能力收口到当前真实后端能力，避免再出现无效入口
+- 让 provider-service 成为唯一外部能力接入层，统一承接调试、模拟、NapCat 发送和 embeddings
 
-- 完成主仓最小化，稳定保留消息主链、Prompt 配置、队列管理、流量查看/回放。
-- 清理运行资产、历史兼容层和已脱离主链的模块引用。
-- 建立可持续的重构基线，确保 `qqbot-core` 与 Admin 在无 `http-api` 的前提下稳定运行。
-- 启动小腻 V1 认知架构落地，路线图见 [XIAONI_V1_COGNITIVE_ARCHITECTURE.md](./XIAONI_V1_COGNITIVE_ARCHITECTURE.md)。
+## 近期计划
+
+- 继续把仓库脚本、部署说明、环境变量命名统一到 `provider-service`
+- 继续清理残留的 `qqbot-core` 文案和旧脚本假设，避免误导运行与排障
+- 稳定 admin playground、queue management、traffic replay、conversation trace 等保留调试面
+- 为新的业务流程重建预留清晰边界：业务编排在新服务中实现，外部能力接入继续放在 `provider-service`
 
 ## 中期计划
 
-- 为 `qqbot-core` 补齐更真实的上下文查询与统计链路。
-- 收敛 Admin 的 Prompt 调试和对话重试能力，减少后端占位接口。
-- 完善会话管理与消息历史工具，方便后续重构期间回归验证。
-- 持续优化流量回放工具链，使其更贴近管理端日常调试场景。
-- 按 [XIAONI_V2_COMPLETION_PLAN.md](./XIAONI_V2_COMPLETION_PLAN.md) 收口小腻 V1 已承诺但尚未完整闭环的关系记忆、纠偏、虚拟行走图谱与主动触发能力。
+- 完成新的业务流程服务落地，并与 `provider-service` 通过稳定契约集成
+- 将 provider debug、trace、traffic replay 的语义对齐，减少导入/重跑链路中的语义损失
+- 继续优化 Admin 的对象选择、细节查看和排障工作流
+- 逐步清理只服务于旧认知架构的数据库表、脚本和文档
 
-## 远期方向
+## 长期方向
 
-- 规划新的扩展边界，避免把独立项目能力继续耦合回主仓。
-- 在稳定 QQ 主链后，再评估多通道接入与更复杂的外部集成。
-- 根据真实运行数据优化 LLM 并发、成本和缓存策略。
-
-## 当前待办方向
-
-- 继续删除不再服务主链的遗留接口、测试脚本与重复工程副本。
-- 为 `qqbot-core` 补齐真实上下文查询、统计与调度数据，替换占位实现。
-- 收敛管理端可见能力，避免继续保留无后端支撑或仅返回占位结果的入口。
-- 按 [XIAONI_V1_IMPLEMENTATION_PROGRESS.md](./XIAONI_V1_IMPLEMENTATION_PROGRESS.md) 推进小腻 V1 的文档、认知底座、反思、计划与主动行为实现。
-- 以 [XIAONI_V2_COMPLETION_PLAN.md](./XIAONI_V2_COMPLETION_PLAN.md) 作为 V2 收口与路演准备的事实源。
-- 以 [TODO.md](./TODO.md) 作为当前“实际未完成项”的事实源，优先收口 legacy 关系系统退场、专用纠偏入口、真实上下文查询与决策统计。
+- 在不重新耦合 NapCat 细节的前提下扩展更多 channel adapter 或 provider adapter
+- 用统一 trace/span 模型替换更多历史专用调试模型
+- 在运行链路稳定后，再评估新的业务侧能力与服务边界

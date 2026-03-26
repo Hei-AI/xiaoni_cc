@@ -9,7 +9,6 @@ interface PromptTemplate {
   context_variables: any;
   model_config: any;
   model_name: string;
-  allowed_token_ids: number[] | null;
   is_active: number;
   version: number;
   description: string | null;

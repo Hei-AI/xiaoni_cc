@@ -2,12 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { config } from 'dotenv';
+import { buildDatabaseUrl } from '@qq-bot/persistence';
 import winston from 'winston';
 import { DatabaseManager } from './services/database';
-import simpleQueueRoutes from './routes/simple-queue-monitor';
-import queueMonitorRoutes from './routes/queue-monitor';
+import inboxRoutes from './routes/inbox';
 import { createDebugRoutes } from './routes/debug-routes';
-import { createTokenRoutes } from './routes/token-management';
 import { createConversationRoutes } from './routes/conversation-routes';
 import { createLogRoutes } from './routes/log-routes';
 import { createStatusRoutes } from './routes/status-routes';
@@ -16,7 +15,7 @@ import { createChatRoutes } from './routes/chat-routes';
 import { createAgentRoutes } from './routes/agent-routes';
 import { createTrafficMonitorRoutes } from './routes/traffic-monitor-routes';
 import { createPlaygroundRoutes } from './routes/playground-routes';
-import { createCognitionRoutes } from './routes/cognition-routes';
+import simpleQueueRoutes from './routes/simple-queue';
 import { TrafficLogWatcher, DEFAULT_WATCHER_CONFIG } from './services/traffic-log-watcher';
 
 // Load environment variables
@@ -48,12 +47,18 @@ let database: DatabaseManager;
 async function initializeDatabase() {
   try {
     database = new DatabaseManager({
-      host: process.env.DB_HOST || 'qqbot-mysql',
-      port: parseInt(process.env.DB_PORT || '3306', 10),
+      databaseUrl: process.env.DATABASE_URL || buildDatabaseUrl({
+        host: process.env.DB_HOST || 'qqbot-postgres',
+        port: parseInt(process.env.DB_PORT || '5432', 10),
+        user: process.env.DB_USER || 'qqbot_user',
+        password: process.env.DB_PASSWORD || 'qqbot_password',
+        database: process.env.DB_NAME || 'qqbot_db'
+      }),
+      host: process.env.DB_HOST || 'qqbot-postgres',
+      port: parseInt(process.env.DB_PORT || '5432', 10),
       user: process.env.DB_USER || 'qqbot_user',
       password: process.env.DB_PASSWORD || 'qqbot_password',
       database: process.env.DB_NAME || 'qqbot_db',
-      charset: 'utf8mb4',
       timezone: process.env.DB_TIMEZONE || 'Z'
     }, logger);
 
@@ -124,24 +129,19 @@ async function startServer() {
   app.use('/api', createPromptRoutes(database, logger));        // Prompt management
   logger.info('🔧 Registering debug routes...');
   app.use('/api', createDebugRoutes(database, logger));         // Debug endpoints
-  logger.info('🔧 Registering token routes...');
-  app.use('/api', createTokenRoutes(database, logger));         // Token management
   logger.info('🔧 Registering chat routes...');
   app.use('/api', createChatRoutes(database, logger));          // Group & private chats
   logger.info('🔧 Registering agent routes...');
   app.use('/api', createAgentRoutes(database, logger));         // Agent types
-  logger.info('🔧 Registering cognition routes...');
-  app.use('/api', createCognitionRoutes(database, logger));     // Cognition overview / lists
   logger.info('🔧 Registering traffic monitor routes...');
   app.use('/api', createTrafficMonitorRoutes(database, logger)); // HTTP traffic monitoring
   logger.info('🔧 Registering playground routes...');
   app.use('/api', createPlaygroundRoutes(database, logger));     // Playground cases & runs
 
-  // 现有的专用路由
-  logger.info('🔧 Registering simple-queue routes...');
+  logger.info('🔧 Registering inbox routes...');
+  app.use('/api/inbox', inboxRoutes);
+  logger.info('🔧 Registering simple queue routes...');
   app.use('/api/simple-queue', simpleQueueRoutes);
-  logger.info('🔧 Registering queue-monitor routes...');
-  app.use('/api/queue-monitor', queueMonitorRoutes);
 
   logger.info('✅ All routes registered successfully');
 

@@ -6,24 +6,43 @@ FROM node:18-alpine AS base
 RUN apk add --no-cache curl tzdata
 ENV TZ=Asia/Shanghai
 RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-WORKDIR /app
+WORKDIR /app/modules/admin-panel/backend
 
 FROM base AS deps
-COPY package.json package-lock.json ./
+WORKDIR /app
+COPY packages/persistence/package.json packages/persistence/package-lock.json ./packages/persistence/
+COPY packages/persistence/index.js packages/persistence/index.d.ts ./packages/persistence/
+COPY packages/persistence/prisma ./packages/persistence/prisma
+RUN --mount=type=cache,target=/root/.npm \
+  npm --prefix ./packages/persistence ci --no-audit --no-fund \
+  && npm --prefix ./packages/persistence run generate
+WORKDIR /app/modules/admin-panel/backend
+COPY modules/admin-panel/backend/package.json modules/admin-panel/backend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
   npm config set registry ${NPM_REGISTRY} \
   && npm ci --include=dev --no-audit --no-fund \
   && npm config delete registry
 
 FROM base AS build
-COPY --from=deps /app/node_modules ./node_modules
-COPY package.json package-lock.json ./
-COPY src/ ./src/
-COPY tsconfig.json ./
+WORKDIR /app
+COPY --from=deps /app/packages/persistence ./packages/persistence
+COPY --from=deps /app/modules/admin-panel/backend/node_modules ./modules/admin-panel/backend/node_modules
+WORKDIR /app/modules/admin-panel/backend
+COPY modules/admin-panel/backend/package.json modules/admin-panel/backend/package-lock.json ./
+COPY modules/admin-panel/backend/src/ ./src/
+COPY modules/admin-panel/backend/tsconfig.json ./
 RUN npm run build
 
 FROM base AS prod-deps
-COPY package.json package-lock.json ./
+WORKDIR /app
+COPY packages/persistence/package.json packages/persistence/package-lock.json ./packages/persistence/
+COPY packages/persistence/index.js packages/persistence/index.d.ts ./packages/persistence/
+COPY packages/persistence/prisma ./packages/persistence/prisma
+RUN --mount=type=cache,target=/root/.npm \
+  npm --prefix ./packages/persistence ci --omit=dev --no-audit --no-fund \
+  && npm --prefix ./packages/persistence run generate
+WORKDIR /app/modules/admin-panel/backend
+COPY modules/admin-panel/backend/package.json modules/admin-panel/backend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
   npm config set registry ${NPM_REGISTRY} \
   && npm ci --omit=dev --no-audit --no-fund \
@@ -31,9 +50,11 @@ RUN --mount=type=cache,target=/root/.npm \
 
 FROM base AS runtime
 RUN mkdir -p /app/logs /app/resources/logs /app/resources/config /app/resources/uploads
-COPY package.json package-lock.json ./
-COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
+WORKDIR /app/modules/admin-panel/backend
+COPY modules/admin-panel/backend/package.json modules/admin-panel/backend/package-lock.json ./
+COPY --from=prod-deps /app/packages/persistence /app/packages/persistence
+COPY --from=prod-deps /app/modules/admin-panel/backend/node_modules ./node_modules
+COPY --from=build /app/modules/admin-panel/backend/dist ./dist
 
 # Install helper script for loading external CA certificates at runtime
 RUN cat <<'EOF' >/usr/local/bin/install-ca-from-volume.sh
@@ -61,13 +82,13 @@ EOF
 RUN chmod +x /usr/local/bin/install-ca-from-volume.sh
 
 # Entrypoint wrapper installs CA if present then launches the service
-COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY modules/admin-panel/backend/docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
 # 设置环境变量
 ENV NODE_ENV=production
-ENV DB_HOST=host.docker.internal
-ENV DB_PORT=3306
+ENV DB_HOST=qqbot-postgres
+ENV DB_PORT=5432
 ENV DB_USER=qqbot_user
 ENV DB_PASSWORD=qqbot_password
 ENV DB_NAME=qqbot_db

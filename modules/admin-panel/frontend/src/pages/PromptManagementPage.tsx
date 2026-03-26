@@ -42,7 +42,6 @@ interface AgentPrompt {
   context_variables?: unknown;
   model_config?: unknown;
   model_name?: string;
-  allowed_token_ids?: number[] | null;
   is_active: number;
   version: number;
   created_by: string;

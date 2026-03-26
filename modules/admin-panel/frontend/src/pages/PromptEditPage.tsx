@@ -10,6 +10,8 @@ import { Switch } from '../components/ui/switch';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { ScrollArea } from '../components/ui/scroll-area';
+import { ResizableSplit } from '../components/ui/resizable-split';
+import { FloatingWorkspacePanel, type FloatingWorkspacePanelState, type FloatingWorkspaceResizeMode } from '../components/ui/floating-workspace-panel';
 import { Alert, AlertTitle, AlertDescription } from '../components/ui/alert';
 import {
   Dialog,
@@ -70,7 +72,6 @@ interface AgentPrompt {
   model_config?: any;
   advanced_config?: any;
   model_name?: string;
-  allowed_token_ids?: number[] | null;
   is_active: number;
   version: number;
   created_by: string;
@@ -124,6 +125,8 @@ interface CustomToolConfigState {
   invokeMethod?: string;
   sideEffect?: boolean;
 }
+
+type PlaygroundDesktopPanelId = 'overview' | 'history';
 
 interface ToolsConfigState {
   functionCalling: {
@@ -1160,7 +1163,38 @@ export const PromptEditPage: React.FC = () => {
   const [saveSessionName, setSaveSessionName] = useState('');
   const prevEditingRef = useRef<boolean>(isEditing);
   const playgroundCardRef = useRef<HTMLDivElement | null>(null);
+  const playgroundWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const [playgroundMinHeight, setPlaygroundMinHeight] = useState<number | null>(null);
+  const [isPlaygroundDesktopLayout, setIsPlaygroundDesktopLayout] = useState<boolean>(() => {
+    if (typeof window === 'undefined') {
+      return true;
+    }
+    return window.innerWidth >= 1024;
+  });
+  const [overviewPanel, setOverviewPanel] = useState<FloatingWorkspacePanelState>({
+    collapsed: false,
+    x: 980,
+    y: 24,
+    width: 360,
+    height: 430,
+  });
+  const [historyPanel, setHistoryPanel] = useState<FloatingWorkspacePanelState>({
+    collapsed: true,
+    x: 1000,
+    y: 180,
+    width: 420,
+    height: 520,
+  });
+  const panelDragRef = useRef<{
+    id: PlaygroundDesktopPanelId;
+    mode: FloatingWorkspaceResizeMode;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    originWidth: number;
+    originHeight: number;
+  } | null>(null);
   const systemInstructionRef = useRef<HTMLTextAreaElement | null>(null);
   const userPromptTemplateRef = useRef<HTMLTextAreaElement | null>(null);
   const promptPreviewRef = useRef<HTMLDivElement | null>(null);
@@ -1168,6 +1202,19 @@ export const PromptEditPage: React.FC = () => {
   const [isConfigDrawerOpen, setIsConfigDrawerOpen] = useState(false);
   const [activeDrawerKey, setActiveDrawerKey] = useState<DrawerSectionKey | null>(null);
   const canUseSessionFeatures = !isNew && !!promptId && promptId !== 'new';
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const mediaQuery = window.matchMedia('(min-width: 1024px)');
+    const applyMatch = (matches: boolean) => setIsPlaygroundDesktopLayout(matches);
+    applyMatch(mediaQuery.matches);
+    const listener = (event: MediaQueryListEvent) => applyMatch(event.matches);
+    mediaQuery.addEventListener('change', listener);
+    return () => mediaQuery.removeEventListener('change', listener);
+  }, []);
 
   // 查询现有 Prompt 数据（仅编辑模式）
   const {
@@ -1748,7 +1795,17 @@ export const PromptEditPage: React.FC = () => {
     if (!canUseSessionFeatures) {
       return;
     }
-    setIsHistorySheetOpen(true);
+    if (isPlaygroundDesktopLayout) {
+      if (!historyPanel.collapsed) {
+        setHistoryPanel((current) => ({ ...current, collapsed: true }));
+        setIsHistorySheetOpen(false);
+        return;
+      }
+      setHistoryPanel((current) => ({ ...current, collapsed: false }));
+      setIsHistorySheetOpen(false);
+    } else {
+      setIsHistorySheetOpen(true);
+    }
     refetchDebugSessions();
   };
 
@@ -2129,7 +2186,8 @@ export const PromptEditPage: React.FC = () => {
     !contextVariablesError &&
     Boolean(formData.system_instructions.trim());
   const historyButtonLoading =
-    loadSessionMutation.isPending || (isHistorySheetOpen && isLoadingSessions);
+    loadSessionMutation.isPending ||
+    ((isHistorySheetOpen || (isPlaygroundDesktopLayout && !historyPanel.collapsed)) && isLoadingSessions);
   const customTools = useMemo(
     () => dedupeCustomTools(Array.isArray(toolsConfig.customTools) ? toolsConfig.customTools : []),
     [toolsConfig.customTools]
@@ -2353,6 +2411,85 @@ export const PromptEditPage: React.FC = () => {
       window.removeEventListener('resize', scheduleMeasure);
     };
   }, [isDraftMode, isEditing, isNew, contextVariablesError, messages.length, viewModeLabel]);
+
+  const clampFloatingPanel = (panel: FloatingWorkspacePanelState): FloatingWorkspacePanelState => {
+    const rect = playgroundWorkspaceRef.current?.getBoundingClientRect();
+    const boundsWidth = rect?.width ?? (typeof window === 'undefined' ? 1600 : window.innerWidth);
+    const boundsHeight = rect?.height ?? (typeof window === 'undefined' ? 1000 : window.innerHeight);
+    const width = Math.min(Math.max(panel.width, 320), Math.max(320, boundsWidth - 32));
+    const height = Math.min(Math.max(panel.height, 280), Math.max(280, boundsHeight - 32));
+    const x = Math.min(Math.max(panel.x, 16), Math.max(16, boundsWidth - width - 16));
+    const y = Math.min(Math.max(panel.y, 16), Math.max(16, boundsHeight - height - 16));
+    return { ...panel, width, height, x, y };
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const dragState = panelDragRef.current;
+      if (!dragState) {
+        return;
+      }
+
+      const deltaX = event.clientX - dragState.startX;
+      const deltaY = event.clientY - dragState.startY;
+      const updatePanel = dragState.id === 'overview' ? setOverviewPanel : setHistoryPanel;
+
+      updatePanel((current) => {
+        let next = current;
+        if (dragState.mode === 'move') {
+          next = { ...current, x: dragState.originX + deltaX, y: dragState.originY + deltaY };
+        } else if (dragState.mode === 'right') {
+          next = { ...current, width: dragState.originWidth + deltaX };
+        } else if (dragState.mode === 'bottom') {
+          next = { ...current, height: dragState.originHeight + deltaY };
+        } else {
+          next = { ...current, width: dragState.originWidth + deltaX, height: dragState.originHeight + deltaY };
+        }
+        return clampFloatingPanel(next);
+      });
+    };
+
+    const handlePointerUp = () => {
+      panelDragRef.current = null;
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isPlaygroundDesktopLayout) {
+      return;
+    }
+
+    setOverviewPanel((current) => clampFloatingPanel(current));
+    setHistoryPanel((current) => clampFloatingPanel(current));
+  }, [isPlaygroundDesktopLayout]);
+
+  const handleDesktopPanelPointerDown = (id: PlaygroundDesktopPanelId, mode: FloatingWorkspaceResizeMode) =>
+    (event: React.PointerEvent<HTMLElement>) => {
+      event.preventDefault();
+      const panel = id === 'overview' ? overviewPanel : historyPanel;
+      panelDragRef.current = {
+        id,
+        mode,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: panel.x,
+        originY: panel.y,
+        originWidth: panel.width,
+        originHeight: panel.height,
+      };
+    };
+
   const handleQuickNavClick = (key: (typeof quickNavItems)[number]['key']) => {
     if (key === 'playground') {
       scrollToSection(playgroundCardRef);
@@ -3610,12 +3747,12 @@ export const PromptEditPage: React.FC = () => {
 
       <div className="flex-1">
         <div className="mx-auto flex h-full w-full max-w-screen-2xl flex-col px-4 pb-40 pt-8 xl:max-w-none xl:px-8 2xl:px-12">
-          <div className="grid min-h-0 flex-1 gap-6 items-start lg:grid-cols-[minmax(0,1.85fr)_minmax(260px,0.85fr)]">
+          <div ref={playgroundWorkspaceRef} className="relative min-h-0 flex-1">
             <div className="flex min-h-0 flex-col gap-6">
               <Card
                 ref={playgroundCardRef}
                 className="flex min-h-0 flex-col bg-card shadow-sm"
-                style={playgroundMinHeight ? { minHeight: `${playgroundMinHeight}px` } : undefined}
+                style={playgroundMinHeight ? { height: `${playgroundMinHeight}px` } : undefined}
               >
               <CardHeader className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3655,6 +3792,15 @@ export const PromptEditPage: React.FC = () => {
                       type="button"
                       size="sm"
                       variant="outline"
+                      onClick={() => setOverviewPanel((current) => ({ ...current, collapsed: !current.collapsed }))}
+                    >
+                      <Navigation className="mr-2 h-3.5 w-3.5" />
+                      {overviewPanel.collapsed ? '概览面板' : '隐藏概览'}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
                       onClick={openHistoryPanel}
                       disabled={!canUseSessionFeatures || historyButtonLoading}
                     >
@@ -3663,7 +3809,7 @@ export const PromptEditPage: React.FC = () => {
                       ) : (
                         <History className="mr-2 h-3.5 w-3.5" />
                       )}
-                      调试历史
+                      {isPlaygroundDesktopLayout && !historyPanel.collapsed ? '隐藏历史' : '调试历史'}
                     </Button>
                     <Button
                       type="button"
@@ -3714,229 +3860,334 @@ export const PromptEditPage: React.FC = () => {
                 )}
 
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background">
-                  <div className="flex-1 space-y-4 overflow-y-auto p-4">
-                    {messages.length === 0 ? (
-                      <div className="flex h-[340px] flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-                        <Bot className="h-10 w-10 text-muted-foreground/60" />
-                        <p>输入消息开始对话调试，实时查看模型输出。</p>
-                        <p className="text-xs text-muted-foreground/80">
-                          {isNew
-                            ? '保存前的草稿配置同样生效，方便在同一页面快速迭代。'
-                            : '在下方输入框填写内容并点击“发送”即可触发调试。'}
-                        </p>
-                        {!isNew && !isEditing && (
-                          <p className="text-xs text-muted-foreground/80">
-                            当前为查看模式，调试将使用最近一次保存的参数。
-                          </p>
+                  <ResizableSplit
+                    direction="vertical"
+                    disabled={!isPlaygroundDesktopLayout}
+                    defaultSize={76}
+                    minFirstSize={280}
+                    minSecondSize={160}
+                    className="h-full"
+                    firstClassName="h-full"
+                    secondClassName="h-full"
+                    handleLabel="调整消息区与输入区高度"
+                    first={(
+                      <div className="h-full min-h-0 space-y-4 overflow-y-auto p-4">
+                        {messages.length === 0 ? (
+                          <div className="flex h-[340px] flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
+                            <Bot className="h-10 w-10 text-muted-foreground/60" />
+                            <p>输入消息开始对话调试，实时查看模型输出。</p>
+                            <p className="text-xs text-muted-foreground/80">
+                              {isNew
+                                ? '保存前的草稿配置同样生效，方便在同一页面快速迭代。'
+                                : '在下方输入框填写内容并点击“发送”即可触发调试。'}
+                            </p>
+                            {!isNew && !isEditing && (
+                              <p className="text-xs text-muted-foreground/80">
+                                当前为查看模式，调试将使用最近一次保存的参数。
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          messages.map((message) => {
+                            const timestamp = message.timestamp instanceof Date
+                              ? message.timestamp
+                              : new Date(message.timestamp);
+                            const isUser = message.role === 'user';
+                            return (
+                              <div
+                                key={message.id}
+                                className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
+                              >
+                                {!isUser && (
+                                  <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                                    <Bot className="h-4 w-4" />
+                                  </div>
+                                )}
+                                <div
+                                  className={`max-w-[75%] rounded-xl px-4 py-3 shadow-sm transition group-hover:shadow-md ${
+                                    isUser
+                                      ? 'bg-primary text-primary-foreground'
+                                      : 'bg-muted text-foreground'
+                                  }`}
+                                >
+                                  <div className="mb-2 flex items-center justify-between text-xs opacity-70">
+                                    <span>{isUser ? '用户' : '模型'}</span>
+                                    <span>{timestamp.toLocaleTimeString()}</span>
+                                  </div>
+                                  <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                                    {message.content || '（空响应）'}
+                                  </div>
+                                  {message.thought && (
+                                    <div className="mt-3 rounded-md border border-border bg-card/90 p-3 text-xs text-foreground">
+                                      <button
+                                        type="button"
+                                        className="mb-2 flex items-center gap-1 text-xs font-medium text-primary"
+                                        onClick={() => toggleThought(message.id)}
+                                      >
+                                        <Brain className="h-3 w-3" />
+                                        {message.showThought ? '收起思考过程' : '展开思考过程'}
+                                        {message.showThought ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                                      </button>
+                                      {message.showThought && (
+                                        <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                                          {message.thought}
+                                        </pre>
+                                      )}
+                                    </div>
+                                  )}
+                                  {message.metadata && (
+                                    <div className="mt-3 grid gap-2 rounded-md border border-border bg-card/90 p-2 text-xs text-muted-foreground">
+                                      {message.metadata.model && (
+                                        <div className="flex items-center justify-between">
+                                          <span>模型</span>
+                                          <code>{message.metadata.model}</code>
+                                        </div>
+                                      )}
+                                      {typeof message.metadata.tokensUsed !== 'undefined' && (
+                                        <div className="flex items-center justify-between">
+                                          <span>Tokens</span>
+                                          <span>{message.metadata.tokensUsed}</span>
+                                        </div>
+                                      )}
+                                      {message.metadata.tokenInfo && (
+                                        <div className="flex items-center justify-between">
+                                          <span>Token</span>
+                                          <span>
+                                            {message.metadata.tokenInfo.projectName || '未识别'}
+                                            {message.metadata.tokenInfo.tokenId
+                                              ? ` (ID: ${message.metadata.tokenInfo.tokenId})`
+                                              : ''}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {typeof message.metadata.processingTime !== 'undefined' && (
+                                        <div className="flex items-center justify-between">
+                                          <span>耗时</span>
+                                          <span>{message.metadata.processingTime} ms</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
                         )}
                       </div>
-                    ) : (
-                      messages.map((message) => {
-                        const timestamp = message.timestamp instanceof Date
-                          ? message.timestamp
-                          : new Date(message.timestamp);
-                        const isUser = message.role === 'user';
-                        return (
-                          <div
-                            key={message.id}
-                            className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
-                          >
-                            {!isUser && (
-                              <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                                <Bot className="h-4 w-4" />
-                              </div>
-                            )}
-                            <div
-                              className={`max-w-[75%] rounded-xl px-4 py-3 shadow-sm transition group-hover:shadow-md ${
-                                isUser
-                                  ? 'bg-primary text-primary-foreground'
-                                  : 'bg-muted text-foreground'
-                              }`}
-                            >
-                              <div className="mb-2 flex items-center justify-between text-xs opacity-70">
-                                <span>{isUser ? '用户' : '模型'}</span>
-                                <span>{timestamp.toLocaleTimeString()}</span>
-                              </div>
-                              <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                                {message.content || '（空响应）'}
-                              </div>
-                              {message.thought && (
-                                <div className="mt-3 rounded-md border border-border bg-card/90 p-3 text-xs text-foreground">
-                                  <button
-                                    type="button"
-                                    className="mb-2 flex items-center gap-1 text-xs font-medium text-primary"
-                                    onClick={() => toggleThought(message.id)}
-                                  >
-                                    <Brain className="h-3 w-3" />
-                                    {message.showThought ? '收起思考过程' : '展开思考过程'}
-                                    {message.showThought ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                                  </button>
-                                  {message.showThought && (
-                                    <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
-                                      {message.thought}
-                                    </pre>
-                                  )}
-                                </div>
-                              )}
-                              {message.metadata && (
-                                <div className="mt-3 grid gap-2 rounded-md border border-border bg-card/90 p-2 text-xs text-muted-foreground">
-                                  {message.metadata.model && (
-                                    <div className="flex items-center justify-between">
-                                      <span>模型</span>
-                                      <code>{message.metadata.model}</code>
-                                    </div>
-                                  )}
-                                  {typeof message.metadata.tokensUsed !== 'undefined' && (
-                                    <div className="flex items-center justify-between">
-                                      <span>Tokens</span>
-                                      <span>{message.metadata.tokensUsed}</span>
-                                    </div>
-                                  )}
-                                  {message.metadata.tokenInfo && (
-                                    <div className="flex items-center justify-between">
-                                      <span>Token</span>
-                                      <span>
-                                        {message.metadata.tokenInfo.projectName || '未识别'}
-                                        {message.metadata.tokenInfo.tokenId
-                                          ? ` (ID: ${message.metadata.tokenInfo.tokenId})`
-                                          : ''}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {typeof message.metadata.processingTime !== 'undefined' && (
-                                    <div className="flex items-center justify-between">
-                                      <span>耗时</span>
-                                      <span>{message.metadata.processingTime} ms</span>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
                     )}
-                  </div>
-                  <div className="border-t border-border bg-background p-4">
-                    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 sm:flex-row sm:items-end">
-                      <Textarea
-                        value={userInput}
-                        onChange={(e) => setUserInput(e.target.value)}
-                        placeholder="向模型发送一条调试消息..."
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' && !event.shiftKey) {
-                            event.preventDefault();
-                            handleSendMessage();
-                          }
-                        }}
-                        rows={3}
-                        className="flex-1 resize-none bg-card"
-                        disabled={isDebugging}
-                      />
-                      <div className="flex w-full justify-center sm:w-auto sm:justify-end">
-                        <Button
-                          type="button"
-                          onClick={handleSendMessage}
-                          disabled={!canSendMessage}
-                          className="w-full sm:w-auto"
-                        >
-                          {isDebugging ? (
-                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <Send className="mr-2 h-4 w-4" />
-                          )}
-                          发送
-                        </Button>
+                    second={(
+                      <div className="h-full min-h-0 overflow-auto border-t border-border bg-background p-4">
+                        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 sm:flex-row sm:items-end">
+                          <Textarea
+                            value={userInput}
+                            onChange={(e) => setUserInput(e.target.value)}
+                            placeholder="向模型发送一条调试消息..."
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' && !event.shiftKey) {
+                                event.preventDefault();
+                                handleSendMessage();
+                              }
+                            }}
+                            rows={4}
+                            className="h-full min-h-[120px] flex-1 resize-none bg-card"
+                            disabled={isDebugging}
+                          />
+                          <div className="flex w-full justify-center sm:w-auto sm:justify-end">
+                            <Button
+                              type="button"
+                              onClick={handleSendMessage}
+                              disabled={!canSendMessage}
+                              className="w-full sm:w-auto"
+                            >
+                              {isDebugging ? (
+                                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <Send className="mr-2 h-4 w-4" />
+                              )}
+                              发送
+                            </Button>
+                          </div>
+                        </div>
+                        <p className="mx-auto mt-2 w-full max-w-3xl text-right text-xs text-muted-foreground">
+                          按 Enter 发送，Shift + Enter 换行
+                        </p>
                       </div>
-                    </div>
-                    <p className="mx-auto mt-2 w-full max-w-3xl text-right text-xs text-muted-foreground">
-                      按 Enter 发送，Shift + Enter 换行
-                    </p>
-                  </div>
+                    )}
+                  />
                 </div>
               </CardContent>
             </Card>
-          </div>
-          <aside className="hidden lg:block">
-            <div className="space-y-4">
-              <Card className="bg-card shadow-sm">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                    <Bot className="h-4 w-4 text-primary" />
-                    Prompt 概览
-                  </CardTitle>
-                  <CardDescription>核心配置一目了然。</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">状态</span>
-                    <Badge variant={formData.is_active ? 'default' : 'secondary'}>
-                      {formData.is_active ? '激活' : '禁用'}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">模式</span>
-                    <span className="font-medium text-foreground">{viewModeLabel}</span>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">模型</p>
-                    <p className="font-medium text-foreground">{modelBadgeLabel}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">最近更新</p>
-                    <p>{lastUpdatedAt}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">创建人</p>
-                    <p>{formData.created_by || 'admin'}</p>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card className="bg-card shadow-sm">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                    <Navigation className="h-4 w-4 text-primary" />
-                    快速跳转
-                  </CardTitle>
-                  <CardDescription>定位到页面中的主要配置。</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {quickNavItems.map((item) => {
-                    const isActive = item.key !== 'playground' && activeDrawerKey === item.key;
-                    return (
-                      <Button
-                        key={item.key}
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className={`w-full justify-between rounded-lg border text-left text-sm transition ${
-                          isActive
-                            ? 'border-primary bg-primary/10 text-primary'
-                            : 'border-transparent text-foreground hover:border-border hover:bg-muted/40'
-                        }`}
-                        onClick={() => handleQuickNavClick(item.key)}
-                      >
-                        <span className="flex items-center gap-2">
-                          <item.icon className="h-4 w-4 text-muted-foreground" />
-                          {item.label}
-                        </span>
-                        <ChevronRight
-                          className={`h-4 w-4 ${isActive ? 'text-primary' : 'text-muted-foreground/70'}`}
-                        />
-                      </Button>
-                    );
-                  })}
-                </CardContent>
-              </Card>
             </div>
-          </aside>
+
+            {isPlaygroundDesktopLayout && !overviewPanel.collapsed ? (
+              <FloatingWorkspacePanel
+                title="Prompt 概览"
+                x={overviewPanel.x}
+                y={overviewPanel.y}
+                width={overviewPanel.width}
+                height={overviewPanel.height}
+                onClose={() => setOverviewPanel((current) => ({ ...current, collapsed: true }))}
+                onDragPointerDown={handleDesktopPanelPointerDown('overview', 'move')}
+                onResizePointerDown={(mode) => handleDesktopPanelPointerDown('overview', mode)}
+                bodyClassName="space-y-4 overflow-auto"
+              >
+                <Card className="bg-card shadow-sm">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                      <Bot className="h-4 w-4 text-primary" />
+                      Prompt 概览
+                    </CardTitle>
+                    <CardDescription>核心配置一目了然。</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">状态</span>
+                      <Badge variant={formData.is_active ? 'default' : 'secondary'}>
+                        {formData.is_active ? '激活' : '禁用'}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">模式</span>
+                      <span className="font-medium text-foreground">{viewModeLabel}</span>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">模型</p>
+                      <p className="font-medium text-foreground">{modelBadgeLabel}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">最近更新</p>
+                      <p>{lastUpdatedAt}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">创建人</p>
+                      <p>{formData.created_by || 'admin'}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-card shadow-sm">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                      <Navigation className="h-4 w-4 text-primary" />
+                      快速跳转
+                    </CardTitle>
+                    <CardDescription>定位到页面中的主要配置。</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {quickNavItems.map((item) => {
+                      const isActive = item.key !== 'playground' && activeDrawerKey === item.key;
+                      return (
+                        <Button
+                          key={item.key}
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className={`w-full justify-between rounded-lg border text-left text-sm transition ${
+                            isActive
+                              ? 'border-primary bg-primary/10 text-primary'
+                              : 'border-transparent text-foreground hover:border-border hover:bg-muted/40'
+                          }`}
+                          onClick={() => handleQuickNavClick(item.key)}
+                        >
+                          <span className="flex items-center gap-2">
+                            <item.icon className="h-4 w-4 text-muted-foreground" />
+                            {item.label}
+                          </span>
+                          <ChevronRight
+                            className={`h-4 w-4 ${isActive ? 'text-primary' : 'text-muted-foreground/70'}`}
+                          />
+                        </Button>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              </FloatingWorkspacePanel>
+            ) : null}
+
+            {isPlaygroundDesktopLayout && !historyPanel.collapsed ? (
+              <FloatingWorkspacePanel
+                title="调试历史"
+                x={historyPanel.x}
+                y={historyPanel.y}
+                width={historyPanel.width}
+                height={historyPanel.height}
+                onClose={() => {
+                  setHistoryPanel((current) => ({ ...current, collapsed: true }));
+                  setIsHistorySheetOpen(false);
+                }}
+                onDragPointerDown={handleDesktopPanelPointerDown('history', 'move')}
+                onResizePointerDown={(mode) => handleDesktopPanelPointerDown('history', mode)}
+                bodyClassName="overflow-auto"
+              >
+                <div className="space-y-3">
+                  {historyButtonLoading && (
+                    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-muted/40 p-6 text-sm text-muted-foreground">
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      <span>加载历史记录...</span>
+                    </div>
+                  )}
+                  {!historyButtonLoading &&
+                    (!debugSessionsData?.data?.sessions ||
+                      debugSessionsData.data.sessions.length === 0) && (
+                      <div className="rounded-lg border border-dashed border-muted/40 p-6 text-center text-sm text-muted-foreground">
+                        暂无调试历史，保存一次对话后会显示在这里。
+                      </div>
+                    )}
+                  {!historyButtonLoading &&
+                    debugSessionsData?.data.sessions?.map((session) => (
+                      <div
+                        key={session.id}
+                        className="group rounded-lg border border-border bg-card p-3 transition hover:border-primary/40 hover:bg-primary/5"
+                        onClick={() => handleLoadSession(session.id)}
+                        role="button"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h3 className="truncate text-sm font-medium text-foreground">
+                              {session.session_name || '未命名会话'}
+                            </h3>
+                            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                              <Clock className="h-3.5 w-3.5" />
+                              <span>
+                                {new Date(session.updated_at ?? session.created_at).toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                          <Badge variant="secondary" className="shrink-0 text-[11px] font-normal">
+                            {(session.message_count ?? 0).toString()} 条
+                          </Badge>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                          <span>输入消息: {session.input_count ?? session.message_count ?? 0}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs text-red-500 hover:text-red-600 group-hover:opacity-100"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDeleteSession(session.id);
+                            }}
+                            disabled={deleteSessionMutation.isPending}
+                          >
+                            <Trash2 className="mr-1 h-3 w-3" />
+                            删除
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </FloatingWorkspacePanel>
+            ) : null}
+          </div>
         </div>
       </div>
-    </div>
 
       <Sheet
-        open={isHistorySheetOpen}
+        open={!isPlaygroundDesktopLayout && isHistorySheetOpen}
         onOpenChange={(open) => {
+          if (isPlaygroundDesktopLayout) {
+            setIsHistorySheetOpen(false);
+            return;
+          }
           setIsHistorySheetOpen(open);
           if (open && canUseSessionFeatures) {
             refetchDebugSessions();

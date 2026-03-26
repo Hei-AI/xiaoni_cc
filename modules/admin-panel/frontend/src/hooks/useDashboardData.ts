@@ -127,18 +127,3 @@ export const useConversation = (id: string) => {
   });
 };
 
-// Hook for fetching token statistics (for cost calculations)
-export const useTokenStats = () => {
-  return useQuery({
-    queryKey: ['tokenStats'],
-    queryFn: async () => {
-      const response = await fetch('/api/tokens/stats');
-      if (!response.ok) {
-        throw new Error('Failed to fetch token stats');
-      }
-      return await response.json();
-    },
-    staleTime: 30000, // 30 seconds
-    refetchInterval: 60000, // Refetch every 1 minute
-  });
-};

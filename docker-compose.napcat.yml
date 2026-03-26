@@ -2,7 +2,6 @@
 # 用于稳定的QQ协议适配器服务，与主业务服务分离管理
 # 启动: docker compose -f docker-compose.napcat.yml up -d
 # 停止: docker compose -f docker-compose.napcat.yml down
-version: '3.8'
 
 services:
   # NapCat QQ协议适配器
@@ -24,6 +23,8 @@ services:
       - NAPCAT_GID=0
       - NAPCAT_UID=0
       - NAPCAT_TRACE=0
+      # 使用已缓存账号做快速登录，避免重启后重新扫码
+      - ACCOUNT=1129974489
     networks:
       - qq_bot_network
     healthcheck:

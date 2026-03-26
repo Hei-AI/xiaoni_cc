@@ -324,9 +324,7 @@ class HTTPTrafficLogger:
 
         relevant_internal_targets = (
             '/api/internal/llm/debug',
-            '/api/simple-queue/',
-            '/api/simulate/',
-            '/api/test/simulate-message',
+            '/api/inbox/',
             '/api/internal/send_private',
             '/api/internal/send_group',
             '/api/traffic/replay',

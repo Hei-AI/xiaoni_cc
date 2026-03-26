@@ -1,6 +1,6 @@
 # Docker 部署说明
 
-当前主仓只保留最小运行栈：`mysql + qqbot-core + admin-backend + admin-frontend`。NapCat 继续通过 `docker-compose.napcat.yml` 独立部署。
+当前主仓只保留最小运行栈：`mysql + provider-service + admin-backend + admin-frontend`。NapCat 继续通过 `docker-compose.napcat.yml` 独立部署。
 
 ## 1. Compose 文件
 
@@ -13,7 +13,7 @@
 | 服务 | 容器名 | 端口映射 | 说明 |
 | --- | --- | --- | --- |
 | mysql | `qqbot-mysql` | `3306:3306` | 主数据库，挂载 `database/mysql_data`。 |
-| qqbot-core | `qqbot-qqbot-core` | `8081:8081` | 核心机器人服务，直接连接 NapCat 与 MySQL。 |
+| provider-service | `qqbot-provider-service` | `8091:8090` | 统一能力层，承接 provider 调试、embeddings、NapCat 发送与消息模拟。 |
 | admin-backend | `qqbot-admin-backend` | `9080:9080` | 管理后台 API，负责会话、队列、Prompt、流量等运营接口。 |
 | admin-frontend | `qqbot-admin-frontend` | `3003:80` | 管理前端页面。 |
 
@@ -24,7 +24,7 @@
 ## 3. 网络关系
 
 - 主仓服务使用 `qq_bot_network`。
-- NapCat 需运行在同一网络中，供 `qqbot-core` 通过 `napcat:3001` 连接。
+- NapCat 需运行在同一网络中，供 `provider-service` 通过 `napcat:3000/3001` 访问。
 首次创建网络：
 
 ```bash
@@ -46,7 +46,7 @@ docker compose -f docker-compose.napcat.yml up -d
 
 ```bash
 docker compose ps
-docker compose logs -f qqbot-qqbot-core
+docker compose logs -f qqbot-provider-service
 docker compose down
 docker compose --profile ops run --rm init-db
 ```
@@ -55,8 +55,6 @@ docker compose --profile ops run --rm init-db
 
 - `database/mysql_data`
   - MySQL 本地运行数据，仓库层面已忽略目录内容
-- `modules/qqbot-core/resources/napcat_qq_data`
-  - 本地 NapCat 运行数据，仓库层面已忽略目录内容
 - `resource/napcat_config`
   - 仅保留模板配置，实例配置不再纳入版本控制
 
@@ -65,7 +63,7 @@ docker compose --profile ops run --rm init-db
 健康检查：
 
 ```bash
-curl http://localhost:8081/health
+curl http://localhost:8091/health
 curl http://localhost:9080/api/health
 ```
 

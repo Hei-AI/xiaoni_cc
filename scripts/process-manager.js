@@ -47,9 +47,9 @@ class ProcessManager {
     this.projectRoot = path.join(__dirname, '..');
     this.modules = [
       {
-        name: 'QQBot Core',
-        path: 'modules/qqbot-core',
-        port: 8081,
+        name: 'Provider Service',
+        path: 'modules/provider-service',
+        port: 8091,
         script: 'dev',
         installCheckPackages: ['express', 'ts-node']
       },

@@ -17,24 +17,23 @@ x-build-no-proxy: &build_no_proxy
   no_proxy: ""
 
 services:
-  # Shared MySQL Database
-  mysql:
-    image: mysql:8.0
-    container_name: qqbot-mysql
+  # Shared PostgreSQL Database
+  postgres:
+    image: postgres:16
+    container_name: qqbot-postgres
     environment:
-      MYSQL_ROOT_PASSWORD: root_password
-      MYSQL_DATABASE: qqbot_db
-      MYSQL_USER: qqbot_user
-      MYSQL_PASSWORD: qqbot_password
+      POSTGRES_DB: qqbot_db
+      POSTGRES_USER: qqbot_user
+      POSTGRES_PASSWORD: qqbot_password
     ports:
-      - "3306:3306"
+      - "5432:5432"
     volumes:
-      - ./database/mysql_data:/var/lib/mysql
-      - ./database/schema:/docker-entrypoint-initdb.d
+      - ./database/postgres_data:/var/lib/postgresql/data
+      - ./database/postgres:/docker-entrypoint-initdb.d
     networks:
       - qq_bot_network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uqqbot_user", "-pqqbot_password"]
+      test: ["CMD-SHELL", "pg_isready -U qqbot_user -d qqbot_db"]
       timeout: 20s
       retries: 10
 
@@ -63,37 +62,29 @@ services:
     networks:
       - qq_bot_network
 
-  # QQBot Core Service
-  qqbot-core:
-    image: qqbot-qqbot-core
+  # Provider Service
+  provider-service:
+    image: qqbot-provider-service
     build:
-      context: ./modules/qqbot-core
+      context: .
+      dockerfile: modules/provider-service/Dockerfile
       args: *build_no_proxy
-    container_name: qqbot-qqbot-core
+    container_name: qqbot-provider-service
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8091:8090"
     environment:
-      - MYSQL_HOST=qqbot-mysql
-      - MYSQL_PORT=3306
-      - MYSQL_USER=qqbot_user
-      - MYSQL_PASSWORD=qqbot_password
-      - MYSQL_DATABASE=qqbot_db
-      - HTTP_PORT=8081
-      - INTERNAL_HTTP_PORT=8081
+      - HTTP_PORT=8090
       - LOG_LEVEL=info
-      # WebSocket连接配置 - 连接主 NapCat 容器
+      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public
+      - DB_HOST=qqbot-postgres
+      - DB_PORT=5432
+      - DB_USER=qqbot_user
+      - DB_PASSWORD=qqbot_password
+      - DB_NAME=qqbot_db
       - BOT_QQ_NUMBER=1129974489
-      - WEBSOCKET_HOST=napcat
-      - WEBSOCKET_PORT=3001
-      - WEBSOCKET_ACCESS_TOKEN=w@123456
-      - ENABLE_FUNCTION_REGISTRY=false
-      # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
+      - NAPCAT_HTTP_BASE_URL=http://napcat:3000
+      - NAPCAT_HTTP_ACCESS_TOKEN=w@123456
       - NODE_TLS_REJECT_UNAUTHORIZED=0
-      - ENABLE_LLM_TOOLS=true
-      - LLM_MAX_CONCURRENT_JOBS=5
-      - LLM_POLL_INTERVAL_MS=1000
-      - LLM_JOB_TIMEOUT_MS=300000
-      - LLM_RETRY_DELAY_MS=5000
       - AI_MODEL_NAME=gpt-5.4-mini
       - EMBEDDING_ENABLED=true
       - EMBEDDING_BASE_URL=http://qqbot-embedding-server:8080
@@ -101,23 +92,17 @@ services:
       - EMBEDDING_MODEL_SOURCE=hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf
       - EMBEDDING_TIMEOUT_MS=30000
       - EMBEDDING_NORMALIZE=2
-      - PROACTIVITY_ENABLED=true
-      - PROACTIVE_FOLLOWUP_ALLOWED_USER_IDS=85178516
-      - PROACTIVE_FOLLOWUP_MAX_PER_RUN=1
-      - PROACTIVE_FOLLOWUP_RETRY_DELAY_MS=21600000
       - GEMINI_CLI_OAUTH_CLIENT_ID=${GEMINI_CLI_OAUTH_CLIENT_ID:-}
       - GEMINI_CLI_OAUTH_CLIENT_SECRET=${GEMINI_CLI_OAUTH_CLIENT_SECRET:-}
     depends_on:
-      - mysql
+      - postgres
       - embedding-server
     restart: unless-stopped
     dns:
       - 8.8.8.8
       - 1.1.1.1
     volumes:
-      - ./logs/qqbot-core:/app/logs
-      - ./modules/qqbot-core/resources/config:/app/resources/config
-      - ./modules/qqbot-core/resources/napcat_qq_data:/app/resources/napcat_qq_data
+      - ./logs/provider-service:/app/logs
       - ${HOME}/.codex:/root/.codex
       - ${HOME}/.gemini:/root/.gemini
     networks:
@@ -127,20 +112,22 @@ services:
   admin-backend:
     image: qqbot-admin-backend
     build:
-      context: ./modules/admin-panel/backend
+      context: .
+      dockerfile: modules/admin-panel/backend/Dockerfile
       args: *build_no_proxy
     container_name: qqbot-admin-backend
     ports:
       - "127.0.0.1:9080:9080"
     environment:
-      - DB_HOST=qqbot-mysql
-      - DB_PORT=3306
+      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public
+      - DB_HOST=qqbot-postgres
+      - DB_PORT=5432
       - DB_USER=qqbot_user
       - DB_PASSWORD=qqbot_password
       - DB_NAME=qqbot_db
       - ADMIN_PORT=9080
       - HTTP_PORT=9080
-      - QQBOT_CORE_URL=http://qqbot-qqbot-core:8081
+      - PROVIDER_SERVICE_URL=http://qqbot-provider-service:8090
       - LOG_LEVEL=info
       # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
       - NODE_TLS_REJECT_UNAUTHORIZED=0
@@ -149,8 +136,8 @@ services:
       - ./logs/qqbot-traffic:/app/logs/traffic:ro
       - ./modules/admin-panel/backend/resources/uploads:/app/resources/uploads
     depends_on:
-      - mysql
-      - qqbot-core
+      - postgres
+      - provider-service
     restart: unless-stopped
     networks:
       - qq_bot_network
@@ -191,15 +178,15 @@ services:
 
   # Operational one-off tasks (invoke with: docker compose --profile ops run --rm <service>)
   init-db:
-    image: mysql:8.0
+    image: postgres:16
     profiles: ["ops"]
-    command: ["sh", "-c", "mysql -hmysql -uroot < /scripts/init.sql"]
+    command: ["sh", "-c", "psql -h postgres -U qqbot_user -d qqbot_db -f /scripts/init.sql"]
     environment:
-      MYSQL_PWD: ${MYSQL_ROOT_PASSWORD:-root_password}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-qqbot_password}
     volumes:
-      - ./scripts/init-database-docker.sql:/scripts/init.sql:ro
+      - ./database/postgres/init.sql:/scripts/init.sql:ro
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
     networks:
       - qq_bot_network

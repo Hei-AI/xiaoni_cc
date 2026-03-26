@@ -1,182 +1,111 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Send, Wand2 } from 'lucide-react';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Switch } from './ui/switch';
 import { Textarea } from './ui/textarea';
-import { Send } from 'lucide-react';
 
-type SimulationType = 'private' | 'group';
-type SimulationPriority = 'HIGH' | 'MEDIUM' | 'LOW';
-
-export interface QueueSimulationContext {
-  name: string;
-  type: 'private' | 'group';
-  userId?: number;
-  groupId?: number;
-}
-
-export interface QueueSimulationOption {
-  label: string;
-  value: number;
+export interface InboxConversationContext {
+  sessionKey: string;
+  chatType: 'direct' | 'group';
+  peerId: string;
+  peerName?: string;
+  accountId: string;
+  latestSenderId?: string;
+  latestSenderName?: string;
 }
 
 interface QueueSimulationPanelProps {
-  selectedQueue?: QueueSimulationContext | null;
-  availableUsers?: QueueSimulationOption[];
-  availableGroups?: QueueSimulationOption[];
+  selectedConversation?: InboxConversationContext | null;
   onMessageSent?: () => Promise<void> | void;
 }
 
-interface SimulationFormState {
-  type: SimulationType;
-  userId: string;
-  userSelectionMode: 'custom' | 'predefined';
-  groupId: string;
-  groupSelectionMode: 'custom' | 'predefined';
-  message: string;
-  priority: SimulationPriority;
-  atBot: boolean;
-}
+function buildTemplate(chatType: 'direct' | 'group', selectedConversation?: InboxConversationContext | null) {
+  const peerId = selectedConversation?.peerId || (chatType === 'group' ? '10000000' : '85178516');
+  const accountId = selectedConversation?.accountId || '1129974489';
+  const senderId = selectedConversation?.latestSenderId || (chatType === 'group' ? '85178516' : peerId);
+  const senderName = selectedConversation?.latestSenderName || selectedConversation?.peerName || senderId;
+  const sessionKey = selectedConversation?.sessionKey
+    || (chatType === 'group' ? `qq:group:${peerId}` : `qq:direct:${accountId}:${peerId}`);
+  const to = chatType === 'group' ? `group:${peerId}` : `user:${peerId}`;
+  const from = chatType === 'group' ? `qq:group:${peerId}` : `qq:${senderId}`;
 
-const initialFormState: SimulationFormState = {
-  type: 'private',
-  userId: '',
-  userSelectionMode: 'custom',
-  groupId: '',
-  groupSelectionMode: 'custom',
-  message: '',
-  priority: 'HIGH',
-  atBot: false,
-};
-
-const QueueSimulationPanel: React.FC<QueueSimulationPanelProps> = ({
-  selectedQueue,
-  availableUsers = [],
-  availableGroups = [],
-  onMessageSent,
-}) => {
-  const [formState, setFormState] = useState<SimulationFormState>(initialFormState);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const canSubmit = useMemo(() => {
-    if (!formState.userId || !formState.message.trim()) {
-      return false;
-    }
-
-    if (formState.type === 'group' && !formState.groupId) {
-      return false;
-    }
-
-    return true;
-  }, [formState.groupId, formState.message, formState.type, formState.userId]);
-
-  useEffect(() => {
-    if (!selectedQueue) {
-      return;
-    }
-
-    const userIdStr = selectedQueue.userId ? String(selectedQueue.userId) : '';
-    const groupIdStr = selectedQueue.groupId ? String(selectedQueue.groupId) : '';
-
-    const hasUserOption = !!userIdStr && availableUsers.some((option) => String(option.value) === userIdStr);
-    const hasGroupOption = !!groupIdStr && availableGroups.some((option) => String(option.value) === groupIdStr);
-
-    setFormState((prev) => ({
-      ...prev,
-      type: selectedQueue.type,
-      userId: userIdStr,
-      userSelectionMode: hasUserOption ? 'predefined' : 'custom',
-      groupId: groupIdStr,
-      groupSelectionMode: hasGroupOption ? 'predefined' : 'custom',
-      message: '',
-      atBot: false,
-    }));
-  }, [selectedQueue?.name, selectedQueue?.type, selectedQueue?.userId, selectedQueue?.groupId, availableUsers, availableGroups]);
-
-  const handleUserPresetChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = event.target.value;
-    if (value === '__custom__') {
-      setFormState((prev) => ({
-        ...prev,
-        userSelectionMode: 'custom',
-        userId: '',
-      }));
-    } else {
-      setFormState((prev) => ({
-        ...prev,
-        userSelectionMode: 'predefined',
-        userId: value,
-      }));
+  return {
+    inboundContext: {
+      ChatType: chatType,
+      AccountId: accountId,
+      SenderId: senderId,
+      SenderName: senderName,
+      SenderUsername: senderName,
+      SessionKey: sessionKey,
+      NativeChannelId: peerId,
+      ConversationLabel: selectedConversation?.peerName || (chatType === 'group' ? `群 ${peerId}` : `QQ ${peerId}`),
+      GroupSubject: chatType === 'group' ? (selectedConversation?.peerName || `群 ${peerId}`) : undefined,
+      From: from,
+      To: to,
+      Body: chatType === 'group' ? '@小腻 测试 inbox' : '测试 inbox',
+      BodyForAgent: chatType === 'group' ? '@小腻 测试 inbox' : '测试 inbox',
+      RawBody: chatType === 'group' ? '@小腻 测试 inbox' : '测试 inbox',
+      CommandBody: '测试 inbox',
+      BodyForCommands: '测试 inbox',
+      Provider: 'qq',
+      Surface: 'simulator',
+      OriginatingChannel: 'qq',
+      OriginatingTo: to,
+      WasMentioned: chatType === 'group',
+    },
+    rawPayload: {
+      simulated: true,
+      source: 'admin-frontend'
     }
   };
+}
 
-  const handleGroupPresetChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = event.target.value;
-    if (value === '__custom__') {
-      setFormState((prev) => ({
-        ...prev,
-        groupSelectionMode: 'custom',
-        groupId: '',
-      }));
-    } else {
-      setFormState((prev) => ({
-        ...prev,
-        groupSelectionMode: 'predefined',
-        groupId: value,
-      }));
-    }
+const QueueSimulationPanel: React.FC<QueueSimulationPanelProps> = ({
+  selectedConversation,
+  onMessageSent,
+}) => {
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const conversationTemplate = useMemo(
+    () => buildTemplate(selectedConversation?.chatType || 'direct', selectedConversation),
+    [selectedConversation]
+  );
+
+  useEffect(() => {
+    setDraft(JSON.stringify(conversationTemplate, null, 2));
+    setError(null);
+  }, [conversationTemplate]);
+
+  const applyTemplate = (chatType: 'direct' | 'group') => {
+    setDraft(JSON.stringify(buildTemplate(chatType, selectedConversation), null, 2));
+    setError(null);
   };
 
   const simulateMessage = async () => {
-    if (!canSubmit) {
-      return;
-    }
-
-    const endpoint = formState.type === 'private'
-      ? '/api/simple-queue/simulate/private'
-      : '/api/simple-queue/simulate/group';
-
-    const payload = formState.type === 'private'
-      ? {
-          user_id: Number(formState.userId),
-          message: formState.message,
-          priority: formState.priority,
-        }
-      : {
-          user_id: Number(formState.userId),
-          group_id: Number(formState.groupId),
-          message: formState.message,
-          atBot: formState.atBot,
-          priority: formState.priority,
-        };
-
     try {
       setIsSubmitting(true);
+      setError(null);
 
-      const response = await fetch(endpoint, {
+      const parsed = JSON.parse(draft) as Record<string, unknown>;
+      const response = await fetch('/api/inbox/simulate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(parsed),
       });
 
       const result = await response.json();
-
       if (!response.ok || !result.success) {
         throw new Error(result.error || 'Simulation request failed');
       }
 
-      setFormState((prev) => ({
-        ...prev,
-        message: '',
-      }));
-
       if (onMessageSent) {
         await onMessageSent();
       }
-    } catch (error) {
-      console.error('Failed to simulate message:', error);
+    } catch (simulationError) {
+      setError(simulationError instanceof Error ? simulationError.message : 'Simulation request failed');
     } finally {
       setIsSubmitting(false);
     }
@@ -184,171 +113,53 @@ const QueueSimulationPanel: React.FC<QueueSimulationPanelProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-xl font-semibold">消息模拟器</h3>
+          <h3 className="text-xl font-semibold">内部消息体模拟器</h3>
           <p className="text-sm text-muted-foreground">
-            模拟私聊或群聊消息以验证队列处理流程
+            直接提交 `inboundContext` JSON，验证 provider inbox 接入链路。
           </p>
         </div>
-        {selectedQueue && (
-          <div className="text-xs text-muted-foreground text-right">
-            <div>当前队列: {selectedQueue.name}</div>
-            <div>
-              类型: {selectedQueue.type === 'group' ? '群聊' : '私聊'}
-            </div>
+        {selectedConversation ? (
+          <div className="text-right text-xs text-muted-foreground">
+            <div>{selectedConversation.chatType === 'group' ? '群聊' : '私聊'}</div>
+            <div className="font-mono">{selectedConversation.sessionKey}</div>
           </div>
-        )}
+        ) : null}
       </div>
 
-      <div className="flex space-x-4">
-        <label className="flex items-center space-x-2">
-          <input
-            type="radio"
-            value="private"
-            checked={formState.type === 'private'}
-            onChange={(event) =>
-              setFormState((prev) => ({
-                ...prev,
-                type: event.target.value as SimulationType,
-              }))
-            }
-          />
-          <span>私聊消息</span>
-        </label>
-        <label className="flex items-center space-x-2">
-          <input
-            type="radio"
-            value="group"
-            checked={formState.type === 'group'}
-            onChange={(event) =>
-              setFormState((prev) => ({
-                ...prev,
-                type: event.target.value as SimulationType,
-              }))
-            }
-          />
-          <span>群聊消息</span>
-        </label>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={() => applyTemplate('direct')}>
+          <Wand2 className="mr-2 h-4 w-4" />
+          私聊模板
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => applyTemplate('group')}>
+          <Wand2 className="mr-2 h-4 w-4" />
+          群聊模板
+        </Button>
+        {selectedConversation ? (
+          <Button type="button" variant="outline" size="sm" onClick={() => applyTemplate(selectedConversation.chatType)}>
+            <Wand2 className="mr-2 h-4 w-4" />
+            当前会话模板
+          </Button>
+        ) : null}
       </div>
 
-      <div>
-        <label className="block text-sm font-medium mb-1">用户ID</label>
-        <div className="space-y-2">
-          <select
-            className="w-full p-2 border rounded-md"
-            value={formState.userSelectionMode === 'predefined' ? formState.userId : '__custom__'}
-            onChange={handleUserPresetChange}
-          >
-            <option value="__custom__">自定义输入</option>
-            {availableUsers.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <Input
-            type="number"
-            placeholder="输入用户QQ号"
-            value={formState.userId}
-            onChange={(event) =>
-              setFormState((prev) => ({
-                ...prev,
-                userSelectionMode: 'custom',
-                userId: event.target.value,
-              }))
-            }
-          />
-        </div>
-      </div>
-
-      {formState.type === 'group' && (
-        <>
-          <div>
-            <label className="block text-sm font-medium mb-1">群组ID</label>
-            <div className="space-y-2">
-              <select
-                className="w-full p-2 border rounded-md"
-                value={formState.groupSelectionMode === 'predefined' ? formState.groupId : '__custom__'}
-                onChange={handleGroupPresetChange}
-              >
-                <option value="__custom__">自定义输入</option>
-                {availableGroups.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <Input
-                type="number"
-                placeholder="输入群聊号"
-                value={formState.groupId}
-                onChange={(event) =>
-                  setFormState((prev) => ({
-                    ...prev,
-                    groupSelectionMode: 'custom',
-                    groupId: event.target.value,
-                  }))
-                }
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <Switch
-              checked={formState.atBot}
-              onCheckedChange={(checked) =>
-                setFormState((prev) => ({
-                  ...prev,
-                  atBot: checked,
-                }))
-              }
-            />
-            <span className="text-sm">@机器人</span>
-          </div>
-        </>
-      )}
-
-      <div>
-        <label className="block text-sm font-medium mb-1">消息内容</label>
+      <div className="space-y-2">
+        <div className="text-sm font-medium">请求体 JSON</div>
         <Textarea
-          placeholder="输入要模拟的消息内容"
-          value={formState.message}
-          onChange={(event) =>
-            setFormState((prev) => ({
-              ...prev,
-              message: event.target.value,
-            }))
-          }
-          rows={3}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          className="min-h-[26rem] font-mono text-xs leading-6"
+          spellCheck={false}
         />
       </div>
 
-      <div>
-        <label className="block text-sm font-medium mb-1">优先级</label>
-        <select
-          className="w-full p-2 border rounded-md"
-          value={formState.priority}
-          onChange={(event) =>
-            setFormState((prev) => ({
-              ...prev,
-              priority: event.target.value as SimulationPriority,
-            }))
-          }
-        >
-          <option value="HIGH">高优先级</option>
-          <option value="MEDIUM">中优先级</option>
-          <option value="LOW">低优先级</option>
-        </select>
-      </div>
+      {error ? <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
 
-      <Button
-        onClick={simulateMessage}
-        className="w-full"
-        disabled={!canSubmit || isSubmitting}
-      >
-        <Send className="w-4 h-4 mr-2" />
-        {isSubmitting ? '发送中...' : '发送模拟消息'}
+      <Button onClick={simulateMessage} className="w-full" disabled={isSubmitting}>
+        <Send className="mr-2 h-4 w-4" />
+        {isSubmitting ? '提交中...' : '提交到 Inbox'}
       </Button>
     </div>
   );

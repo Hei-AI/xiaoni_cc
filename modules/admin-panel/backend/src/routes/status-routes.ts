@@ -3,20 +3,10 @@ import axios from 'axios';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
 
-const QQBOT_CORE_URL = process.env.QQBOT_CORE_URL || 'http://qqbot-qqbot-core:8081';
-const CORE_REQUEST_TIMEOUT_MS = 5000;
+const PROVIDER_SERVICE_URL = process.env.PROVIDER_SERVICE_URL || 'http://qqbot-provider-service:8090';
+const PROVIDER_REQUEST_TIMEOUT_MS = 5000;
 
-interface BotStatusRow {
-  bot_id: string;
-  status: 'online' | 'offline' | 'error';
-  websocket_connected: number | boolean;
-  http_server_running: number | boolean;
-  last_heartbeat: string | null;
-  error_message: string | null;
-  timestamp: string | null;
-}
-
-type CoreProbeResult =
+type ProviderProbeResult =
   | {
       ok: true;
       statusCode: number;
@@ -58,14 +48,14 @@ export function createStatusRoutes(database: DatabaseManager, logger: winston.Lo
 
   router.get('/runtime/status', async (_req, res) => {
     try {
-      const [databaseLive, coreProbe, botStatusRows] = await Promise.all([
+      const [databaseLive, providerProbe] = await Promise.all([
         database.testConnection(),
         axios
-          .get(`${QQBOT_CORE_URL}/health`, {
-            timeout: CORE_REQUEST_TIMEOUT_MS,
+          .get(`${PROVIDER_SERVICE_URL}/health`, {
+            timeout: PROVIDER_REQUEST_TIMEOUT_MS,
             validateStatus: () => true
           })
-          .then<CoreProbeResult>(response => {
+          .then<ProviderProbeResult>(response => {
             if (response.status >= 200 && response.status < 300) {
               return {
                 ok: true,
@@ -77,34 +67,30 @@ export function createStatusRoutes(database: DatabaseManager, logger: winston.Lo
             return {
               ok: false,
               statusCode: response.status,
-              error: `qqbot-core health check returned HTTP ${response.status}`
+              error: `provider-service health check returned HTTP ${response.status}`
             };
           })
-          .catch<CoreProbeResult>(error => ({
+          .catch<ProviderProbeResult>(error => ({
             ok: false,
             statusCode: null as number | null,
             error: error instanceof Error ? error.message : 'Unknown error'
-          })),
-        database.executeQuery<BotStatusRow>(
-          `SELECT bot_id, status, websocket_connected, http_server_running, last_heartbeat, error_message, timestamp
-           FROM bot_status
-           ORDER BY timestamp DESC
-           LIMIT 1`
-        )
+          }))
       ]);
-
-      const latestBotStatus = botStatusRows[0];
-      const websocketConnected = Boolean(latestBotStatus?.websocket_connected);
-      const httpServerRunning = coreProbe.ok || Boolean(latestBotStatus?.http_server_running);
-      const coreStatus =
-        !coreProbe.ok
-          ? 'offline'
-          : latestBotStatus?.status || (websocketConnected ? 'online' : 'offline');
+      const providerPayload = providerProbe.ok && typeof providerProbe.payload === 'object' && providerProbe.payload !== null
+        ? providerProbe.payload as Record<string, any>
+        : {};
+      const napcat = providerPayload.napcat && typeof providerPayload.napcat === 'object'
+        ? providerPayload.napcat as Record<string, any>
+        : {};
+      const providerConnected = Boolean(napcat.reachable);
+      const providerStatus = providerProbe.ok
+        ? (providerConnected ? 'online' : 'offline')
+        : 'offline';
 
       const overallStatus =
-        !coreProbe.ok
+        !providerProbe.ok
           ? 'offline'
-          : !databaseLive || coreStatus === 'error' || !websocketConnected
+          : !databaseLive || !providerConnected
             ? 'degraded'
             : 'healthy';
 
@@ -112,16 +98,16 @@ export function createStatusRoutes(database: DatabaseManager, logger: winston.Lo
         success: true,
         data: {
           status: overallStatus,
-          core: {
-            live: coreProbe.ok,
-            connected: websocketConnected,
-            status: coreStatus,
-            botId: latestBotStatus?.bot_id || null,
-            httpServerRunning,
-            lastHeartbeat: latestBotStatus?.last_heartbeat || latestBotStatus?.timestamp || null,
-            errorMessage: latestBotStatus?.error_message || (!coreProbe.ok ? coreProbe.error || 'qqbot-core health check failed' : null),
-            url: QQBOT_CORE_URL,
-            healthStatusCode: coreProbe.statusCode
+          provider: {
+            live: providerProbe.ok,
+            connected: providerConnected,
+            status: providerStatus,
+            botId: napcat.selfId ? String(napcat.selfId) : null,
+            httpServerRunning: providerProbe.ok,
+            lastHeartbeat: typeof providerPayload.timestamp === 'string' ? providerPayload.timestamp : null,
+            errorMessage: providerProbe.ok ? (napcat.error || null) : (providerProbe.error || 'provider-service health check failed'),
+            url: PROVIDER_SERVICE_URL,
+            healthStatusCode: providerProbe.statusCode
           },
           admin: {
             live: true,
@@ -159,18 +145,16 @@ export function createStatusRoutes(database: DatabaseManager, logger: winston.Lo
       // 并行获取各种统计数据
       const [
         conversationsResult,
-        tokensResult,
         sessionsResult,
         llmCallsResult
       ] = await Promise.all([
         database.executeQuery<{ count: number }>('SELECT COUNT(*) as count FROM conversations'),
-        database.executeQuery<{ count: number }>('SELECT COUNT(*) as count FROM api_tokens'),
         database.executeQuery<{ count: number }>('SELECT COUNT(*) as count FROM conversation_sessions WHERE status = "active"'),
         database.executeQuery<{ count: number }>(
           `SELECT COUNT(*) as count
            FROM llm_call_logs
-           WHERE timestamp >= CURDATE()
-             AND timestamp < DATE_ADD(CURDATE(), INTERVAL 1 DAY)`
+           WHERE timestamp >= CURRENT_DATE
+             AND timestamp < CURRENT_DATE + INTERVAL '1 day'`
         )
       ]);
 
@@ -178,7 +162,6 @@ export function createStatusRoutes(database: DatabaseManager, logger: winston.Lo
         success: true,
         data: {
           total_conversations: conversationsResult[0]?.count || 0,
-          total_tokens: tokensResult[0]?.count || 0,
           active_sessions: sessionsResult[0]?.count || 0,
           llm_calls_today: llmCallsResult[0]?.count || 0
         },

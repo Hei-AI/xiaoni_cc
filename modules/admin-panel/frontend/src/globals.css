@@ -53,6 +53,20 @@
       linear-gradient(180deg, #f7f5f2 0%, #f4f2ef 100%);
   }
 
+  body[data-resize-active="horizontal"] {
+    cursor: col-resize;
+    user-select: none;
+  }
+
+  body[data-resize-active="vertical"] {
+    cursor: row-resize;
+    user-select: none;
+  }
+
+  body[data-resize-active] * {
+    cursor: inherit !important;
+  }
+
   h1,
   h2,
   h3,

@@ -10,6 +10,7 @@ import { MetricCard } from '@/components/console/MetricCard';
 import { SectionPanel } from '@/components/console/SectionPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { FloatingWorkspacePanel, type FloatingWorkspacePanelState, type FloatingWorkspaceResizeMode } from '@/components/ui/floating-workspace-panel';
 import { createCaseFromSpan } from '@/lib/playgroundApi';
 import { buildTraceFlowViewModel } from '@/lib/trace-flow';
 import { useConversationTrace } from '../hooks/useConversationTrace';
@@ -46,6 +47,23 @@ export const ConversationTimelinePage: React.FC = () => {
   const [isMobileInspectorOpen, setIsMobileInspectorOpen] = React.useState(false);
   const [spanImportError, setSpanImportError] = React.useState<string | null>(null);
   const [importingSpanId, setImportingSpanId] = React.useState<string | null>(null);
+  const [inspectorPanel, setInspectorPanel] = React.useState<FloatingWorkspacePanelState>({
+    collapsed: false,
+    x: 980,
+    y: 24,
+    width: 420,
+    height: 720,
+  });
+  const workspaceRef = React.useRef<HTMLDivElement | null>(null);
+  const dragRef = React.useRef<{
+    mode: FloatingWorkspaceResizeMode;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    originWidth: number;
+    originHeight: number;
+  } | null>(null);
   const isDesktop = useDesktopInspector();
 
   if (!conversationId) {
@@ -114,6 +132,87 @@ export const ConversationTimelinePage: React.FC = () => {
     await handleImportSpan(selectedSpan.spanId);
   }, [handleImportSpan, selectedSpan]);
 
+  const clampPanel = React.useCallback((panel: FloatingWorkspacePanelState) => {
+    const rect = workspaceRef.current?.getBoundingClientRect();
+    const boundsWidth = rect?.width ?? (typeof window === 'undefined' ? 1600 : window.innerWidth);
+    const boundsHeight = rect?.height ?? (typeof window === 'undefined' ? 900 : window.innerHeight);
+    const width = Math.min(Math.max(panel.width, 320), Math.max(320, boundsWidth - 32));
+    const height = Math.min(Math.max(panel.height, 320), Math.max(320, boundsHeight - 32));
+    const x = Math.min(Math.max(panel.x, 16), Math.max(16, boundsWidth - width - 16));
+    const y = Math.min(Math.max(panel.y, 16), Math.max(16, boundsHeight - height - 16));
+    return { ...panel, width, height, x, y };
+  }, []);
+
+  React.useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const dragState = dragRef.current;
+      if (!dragState) {
+        return;
+      }
+
+      const deltaX = event.clientX - dragState.startX;
+      const deltaY = event.clientY - dragState.startY;
+      setInspectorPanel((current) => {
+        let next = current;
+        if (dragState.mode === 'move') {
+          next = {
+            ...current,
+            x: dragState.originX + deltaX,
+            y: dragState.originY + deltaY,
+          };
+        } else if (dragState.mode === 'right') {
+          next = {
+            ...current,
+            width: dragState.originWidth + deltaX,
+          };
+        } else if (dragState.mode === 'bottom') {
+          next = {
+            ...current,
+            height: dragState.originHeight + deltaY,
+          };
+        } else {
+          next = {
+            ...current,
+            width: dragState.originWidth + deltaX,
+            height: dragState.originHeight + deltaY,
+          };
+        }
+        return clampPanel(next);
+      });
+    };
+
+    const handlePointerUp = () => {
+      dragRef.current = null;
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [clampPanel]);
+
+  React.useEffect(() => {
+    if (!isDesktop) {
+      return;
+    }
+    setInspectorPanel((current) => clampPanel(current));
+  }, [clampPanel, isDesktop]);
+
+  const handlePanelPointerDown = (mode: FloatingWorkspaceResizeMode) => (event: React.PointerEvent<HTMLElement>) => {
+    event.preventDefault();
+    dragRef.current = {
+      mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: inspectorPanel.x,
+      originY: inspectorPanel.y,
+      originWidth: inspectorPanel.width,
+      originHeight: inspectorPanel.height,
+    };
+  };
+
   return (
     <PageShell>
       <PageHeader
@@ -156,6 +255,13 @@ export const ConversationTimelinePage: React.FC = () => {
             <Button variant="outline" size="sm" onClick={() => setIsDebugModalOpen(true)}>
               <Bug className="mr-2 h-4 w-4" />
               调试 Prompt
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setInspectorPanel((current) => ({ ...current, collapsed: !current.collapsed }))}
+            >
+              {inspectorPanel.collapsed ? '显示 Inspector' : '隐藏 Inspector'}
             </Button>
           </>
         }
@@ -214,38 +320,69 @@ export const ConversationTimelinePage: React.FC = () => {
             ))}
           </div>
 
-          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.55fr)_420px]">
-            <SectionPanel
-              title="Span Waterfall"
-              description="按 span 树、共享时间轴和路径层级阅读真实执行。"
-              contentClassName="pt-3"
-            >
-              <TraceWaterfall
-                viewModel={viewModel}
-                selectedSpanId={selectedSpanId}
-                onSelectSpan={handleSelectSpan}
-                onImportSpan={handleImportSpan}
-                importingSpanId={importingSpanId}
-              />
-            </SectionPanel>
-
-            {isDesktop ? (
+          {isDesktop ? (
+            <div ref={workspaceRef} className="relative min-h-[calc(100vh-19rem)]">
               <SectionPanel
-                title="Inspector"
-                description="点击任意 span 后，查看该步骤的输入、输出和证据。"
-                className="xl:sticky xl:top-5 xl:flex xl:min-h-[calc(100vh-1.5rem)] xl:flex-col xl:self-start"
+                title="Span Waterfall"
+                description="按 span 树、共享时间轴和路径层级阅读真实执行。"
+                className="flex min-h-[calc(100vh-19rem)] flex-col"
                 contentClassName="flex min-h-0 flex-1 flex-col pt-3"
               >
-                <TraceInspectorPanel
-                  node={selectedSpan}
-                  metadataBadges={viewModel.metadataBadges}
-                  onImportToPlayground={canImportSelectedSpan ? handleImportSelectedSpan : undefined}
-                  isImportingToPlayground={Boolean(importingSpanId)}
-                  className="h-full min-h-0"
+                <TraceWaterfall
+                  viewModel={viewModel}
+                  selectedSpanId={selectedSpanId}
+                  onSelectSpan={handleSelectSpan}
+                  onImportSpan={handleImportSpan}
+                  importingSpanId={importingSpanId}
                 />
               </SectionPanel>
-            ) : null}
-          </div>
+
+              {!inspectorPanel.collapsed ? (
+                <FloatingWorkspacePanel
+                  title="Inspector"
+                  x={inspectorPanel.x}
+                  y={inspectorPanel.y}
+                  width={inspectorPanel.width}
+                  height={inspectorPanel.height}
+                  onClose={() => setInspectorPanel((current) => ({ ...current, collapsed: true }))}
+                  onDragPointerDown={handlePanelPointerDown('move')}
+                  onResizePointerDown={(mode) => handlePanelPointerDown(mode)}
+                  bodyClassName="p-0"
+                >
+                  <SectionPanel
+                    title="Inspector"
+                    description="点击任意 span 后，查看该步骤的输入、输出和证据。"
+                    className="flex h-full min-h-0 flex-col border-0 shadow-none"
+                    contentClassName="flex min-h-0 flex-1 flex-col pt-3"
+                  >
+                    <TraceInspectorPanel
+                      node={selectedSpan}
+                      metadataBadges={viewModel.metadataBadges}
+                      onImportToPlayground={canImportSelectedSpan ? handleImportSelectedSpan : undefined}
+                      isImportingToPlayground={Boolean(importingSpanId)}
+                      className="h-full min-h-0"
+                    />
+                  </SectionPanel>
+                </FloatingWorkspacePanel>
+              ) : null}
+            </div>
+          ) : (
+            <div className="grid items-start gap-4">
+              <SectionPanel
+                title="Span Waterfall"
+                description="按 span 树、共享时间轴和路径层级阅读真实执行。"
+                contentClassName="pt-3"
+              >
+                <TraceWaterfall
+                  viewModel={viewModel}
+                  selectedSpanId={selectedSpanId}
+                  onSelectSpan={handleSelectSpan}
+                  onImportSpan={handleImportSpan}
+                  importingSpanId={importingSpanId}
+                />
+              </SectionPanel>
+            </div>
+          )}
 
           {!isDesktop ? (
             <TraceInspectorSheet

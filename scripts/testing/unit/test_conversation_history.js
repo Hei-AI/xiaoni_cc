@@ -64,8 +64,8 @@ const req = http.request(options, (res) => {
     console.log('Response Body:', data);
     console.log('\n🔍 You can now check the debug interface:');
     console.log('curl http://localhost:8081/api/debug/conversations');
-    console.log('\n📋 Check bot logs for conversation history retrieval:');
-    console.log('tail -f modules/qqbot-core/logs/main_2025-09-08.log');
+    console.log('\n📋 Check provider logs for conversation history retrieval:');
+    console.log('docker logs -f qqbot-provider-service');
   });
 });
 

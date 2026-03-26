@@ -29,7 +29,6 @@ interface AgentPrompt {
   context_variables?: any;
   model_config?: any;
   model_name?: string;
-  allowed_token_ids?: number[] | null;
   is_active: number;
   version: number;
   created_by: string;
@@ -297,19 +296,6 @@ export const PromptDetailPage: React.FC = () => {
               <h4 className="font-medium text-muted-foreground mb-2">模型名称</h4>
               <Badge variant="outline">{prompt.model_name || '未指定'}</Badge>
             </div>
-
-            {prompt.allowed_token_ids && prompt.allowed_token_ids.length > 0 && (
-              <div>
-                <h4 className="font-medium text-muted-foreground mb-2">允许的 Token IDs</h4>
-                <div className="flex flex-wrap gap-1">
-                  {prompt.allowed_token_ids.map((tokenId: number) => (
-                    <Badge key={tokenId} variant="secondary" className="text-xs">
-                      {tokenId}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
           {prompt.model_config && (

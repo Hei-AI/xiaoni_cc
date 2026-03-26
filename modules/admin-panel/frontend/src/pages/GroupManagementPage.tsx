@@ -1,9 +1,18 @@
 import React, { useMemo, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Eye,
   Filter,
+  Plus,
   MessageCircle,
   PauseCircle,
   PlayCircle,
@@ -15,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
@@ -97,6 +107,21 @@ const updateGroup = async (
   return response.json();
 };
 
+const createGroup = async (data: { group_id: number; group_name?: string }) => {
+  const response = await fetch('/api/group-chats', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to create group');
+  }
+  return response.json();
+};
+
 export const GroupManagementPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -105,6 +130,11 @@ export const GroupManagementPage: React.FC = () => {
     sortBy?: string;
   }>({});
   const [showFilters, setShowFilters] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    groupId: '',
+    groupName: '',
+  });
 
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -116,6 +146,15 @@ export const GroupManagementPage: React.FC = () => {
   });
 
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({});
+  const createGroupMutation = useMutation({
+    mutationFn: createGroup,
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      setCreateDialogOpen(false);
+      setCreateForm({ groupId: '', groupName: '' });
+      navigate(`/groups/${variables.group_id}`);
+    },
+  });
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -140,6 +179,19 @@ export const GroupManagementPage: React.FC = () => {
     } finally {
       setLoadingStates((prev) => ({ ...prev, [loadingKey]: false }));
     }
+  };
+
+  const handleCreateGroup = async () => {
+    const groupId = Number(createForm.groupId.trim());
+    if (!Number.isFinite(groupId) || groupId <= 0) {
+      window.alert('请输入合法群号');
+      return;
+    }
+
+    await createGroupMutation.mutateAsync({
+      group_id: groupId,
+      group_name: createForm.groupName.trim() || undefined,
+    });
   };
 
   const formatDate = (dateString: string | null) => {
@@ -178,6 +230,43 @@ export const GroupManagementPage: React.FC = () => {
 
   return (
     <PageShell>
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>添加群聊策略</DialogTitle>
+            <DialogDescription>输入指定群号后，默认会创建为“接收开启，自动回复关闭”。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="group-id">群号</Label>
+              <Input
+                id="group-id"
+                inputMode="numeric"
+                value={createForm.groupId}
+                onChange={(e) => setCreateForm((prev) => ({ ...prev, groupId: e.target.value }))}
+                placeholder="例如 123456789"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="group-name">群名称</Label>
+              <Input
+                id="group-name"
+                value={createForm.groupName}
+                onChange={(e) => setCreateForm((prev) => ({ ...prev, groupName: e.target.value }))}
+                placeholder="可选"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={() => void handleCreateGroup()} disabled={createGroupMutation.isPending}>
+              {createGroupMutation.isPending ? '创建中...' : '创建并进入详情'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <PageHeader
         eyebrow="Group Desk"
         title="群聊管理"
@@ -188,6 +277,10 @@ export const GroupManagementPage: React.FC = () => {
             <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isRefetching}>
               <RefreshCw className={`mr-2 h-4 w-4 ${isRefetching ? 'animate-spin' : ''}`} />
               刷新
+            </Button>
+            <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              添加群聊
             </Button>
             <Badge variant="outline">{data?.pagination.total || 0} 个群聊</Badge>
           </>

@@ -9,15 +9,15 @@ export function createPromptRoutes(
   logger: winston.Logger
 ) {
   const router = express.Router();
-  const qqbotCoreBaseUrl = process.env.QQBOT_CORE_URL || 'http://qqbot-core:8081';
+  const providerServiceBaseUrl = process.env.PROVIDER_SERVICE_URL || 'http://qqbot-provider-service:8090';
 
-  const clearCoreConfigCache = async (agentType?: string) => {
-    if (!qqbotCoreBaseUrl) {
+  const clearProviderConfigCache = async (agentType?: string) => {
+    if (!providerServiceBaseUrl) {
       return;
     }
 
     try {
-      await fetch(`${qqbotCoreBaseUrl}/api/internal/config-cache/clear`, {
+      await fetch(`${providerServiceBaseUrl}/api/internal/config-cache/clear`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -25,7 +25,7 @@ export function createPromptRoutes(
         body: JSON.stringify(agentType ? { agentType } : {})
       });
     } catch (error: any) {
-      logger.warn('Failed to clear qqbot-core configuration cache', {
+      logger.warn('Failed to clear provider-service configuration cache', {
         agentType,
         error: error?.message || error
       });
@@ -70,7 +70,7 @@ export function createPromptRoutes(
           id, prompt_name, agent_type, description, system_instructions,
           user_prompt_template, context_variables, model_config,
           is_active, created_at, updated_at, version,
-          model_name, allowed_token_ids, advanced_config
+          model_name, advanced_config
         FROM agent_prompts
         ${whereSql}
         ORDER BY created_at DESC
@@ -203,7 +203,7 @@ export function createPromptRoutes(
         timestamp: new Date().toISOString()
       });
 
-      await clearCoreConfigCache(agent_type || 'chat_bot');
+      await clearProviderConfigCache(agent_type || 'chat_bot');
 
     } catch (error) {
       logger.error('Failed to create prompt', { error, body: req.body });
@@ -296,9 +296,9 @@ export function createPromptRoutes(
 
       const previousAgentType = existingPrompt[0]?.agent_type || undefined;
       const nextAgentType = agent_type || previousAgentType;
-      await clearCoreConfigCache(previousAgentType);
+      await clearProviderConfigCache(previousAgentType);
       if (nextAgentType && nextAgentType !== previousAgentType) {
-        await clearCoreConfigCache(nextAgentType);
+        await clearProviderConfigCache(nextAgentType);
       }
 
     } catch (error) {
@@ -355,7 +355,7 @@ export function createPromptRoutes(
         timestamp: new Date().toISOString()
       });
 
-      await clearCoreConfigCache(existingPrompt[0].agent_type || undefined);
+      await clearProviderConfigCache(existingPrompt[0].agent_type || undefined);
 
     } catch (error) {
       logger.error('Failed to delete prompt', { error, promptId: req.params.id });
@@ -401,9 +401,8 @@ export function createPromptRoutes(
         message_count: number;
       }>(
         `SELECT id, session_name, input_count, created_at, updated_at,
-                COALESCE(JSON_LENGTH(messages), 0) as message_count
+                COALESCE(jsonb_array_length(COALESCE(messages, '[]'::jsonb)), 0) as message_count
          FROM prompt_debug_sessions
-         FORCE INDEX (idx_prompt_updated_at_id)
          WHERE prompt_id = ?
          ORDER BY updated_at DESC
          LIMIT ${limit} OFFSET ${offset}`,
@@ -552,12 +551,12 @@ export function createPromptRoutes(
 
       const sessionData = session[0];
 
-      // 处理messages字段 - MySQL驱动已经自动解析了JSON
+      // 处理messages字段 - PG JSONB/驱动会直接返回对象
       let messages = [];
 
-      // 简化处理逻辑：MySQL2驱动已经自动解析JSON字段
+      // 简化处理逻辑：数据库驱动已经自动解析JSON字段
       if (Array.isArray(sessionData.messages)) {
-        // MySQL驱动已经将JSON解析为数组，直接使用
+        // 驱动已经将JSON解析为数组，直接使用
         messages = sessionData.messages;
         logger.info('Messages loaded successfully', {
           sessionId,

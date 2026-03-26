@@ -679,134 +679,78 @@ export class PlaygroundCaseBuilder {
       CREATE TABLE IF NOT EXISTS playground_cases (
         id VARCHAR(36) PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
-        source ENUM('traffic', 'conversation', 'span') NOT NULL,
+        source VARCHAR(32) NOT NULL,
         source_ref VARCHAR(255) NOT NULL,
-        case_mode ENUM('contextual', 'wire') NOT NULL,
-        trace_context JSON NOT NULL,
+        case_mode VARCHAR(32) NOT NULL,
+        trace_context JSONB NOT NULL,
         prompt_id VARCHAR(36) NULL,
-        prompt_mode_default ENUM('saved', 'draft') NOT NULL DEFAULT 'draft',
-        prompt_input JSON NOT NULL,
-        provider_config JSON NOT NULL,
-        baseline_snapshot JSON NULL,
-        current_patch JSON NULL,
-        import_fidelity ENUM('exact', 'partial', 'unsupported') NOT NULL DEFAULT 'exact',
-        baseline_output JSON NULL,
-        raw_evidence JSON NOT NULL,
-        tags JSON NULL,
+        prompt_mode_default VARCHAR(32) NOT NULL DEFAULT 'draft',
+        prompt_input JSONB NOT NULL,
+        provider_config JSONB NOT NULL,
+        baseline_snapshot JSONB NULL,
+        current_patch JSONB NULL,
+        import_fidelity VARCHAR(32) NOT NULL DEFAULT 'exact',
+        baseline_output JSONB NULL,
+        raw_evidence JSONB NOT NULL,
+        tags JSONB NULL,
         notes TEXT NULL,
         is_favorite BOOLEAN NOT NULL DEFAULT FALSE,
         created_by VARCHAR(100) NOT NULL DEFAULT 'admin',
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_source_ref (source, source_ref),
-        INDEX idx_prompt_id (prompt_id),
-        INDEX idx_updated_at (updated_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     await this.db.executeUpdate(`
       CREATE TABLE IF NOT EXISTS playground_runs (
         id VARCHAR(36) PRIMARY KEY,
         case_id VARCHAR(36) NOT NULL,
-        execution_mode ENUM('exact_replay', 'patched_replay') NOT NULL DEFAULT 'exact_replay',
-        prompt_mode ENUM('saved', 'draft') NOT NULL,
+        execution_mode VARCHAR(32) NOT NULL DEFAULT 'exact_replay',
+        prompt_mode VARCHAR(32) NOT NULL,
         prompt_id VARCHAR(36) NULL,
-        prompt_snapshot JSON NULL,
-        provider_config_snapshot JSON NOT NULL,
-        input_snapshot JSON NOT NULL,
-        baseline_snapshot JSON NULL,
-        request_patch JSON NULL,
-        effective_request JSON NULL,
-        effective_config JSON NULL,
-        output_snapshot JSON NULL,
-        comparison_snapshot JSON NULL,
-        diff_snapshot JSON NULL,
+        prompt_snapshot JSONB NULL,
+        provider_config_snapshot JSONB NOT NULL,
+        input_snapshot JSONB NOT NULL,
+        baseline_snapshot JSONB NULL,
+        request_patch JSONB NULL,
+        effective_request JSONB NULL,
+        effective_config JSONB NULL,
+        output_snapshot JSONB NULL,
+        comparison_snapshot JSONB NULL,
+        diff_snapshot JSONB NULL,
         model_name VARCHAR(120) NULL,
         provider VARCHAR(50) NULL,
-        status ENUM('completed', 'failed') NOT NULL DEFAULT 'completed',
+        status VARCHAR(32) NOT NULL DEFAULT 'completed',
         executed_by VARCHAR(100) NOT NULL DEFAULT 'admin',
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_case_created_at (case_id, created_at),
-        INDEX idx_created_at (created_at),
+        created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT fk_playground_runs_case FOREIGN KEY (case_id) REFERENCES playground_cases(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      )
     `);
 
     await this.ensureIndex(
       'http_traffic_logs',
       'idx_ai_request_time_id',
-      'ALTER TABLE http_traffic_logs ADD INDEX idx_ai_request_time_id (is_ai_request, request_timestamp, id)'
+      'CREATE INDEX IF NOT EXISTS idx_ai_request_time_id ON http_traffic_logs (is_ai_request, request_timestamp, id)'
     );
     await this.ensureIndex(
       'playground_cases',
       'idx_library_sort',
-      'ALTER TABLE playground_cases ADD INDEX idx_library_sort (is_favorite, updated_at, id)'
+      'CREATE INDEX IF NOT EXISTS idx_library_sort ON playground_cases (is_favorite, updated_at, id)'
     );
     await this.ensureIndex(
       'playground_cases',
       'idx_prompt_library_sort',
-      'ALTER TABLE playground_cases ADD INDEX idx_prompt_library_sort (prompt_id, is_favorite, updated_at, id)'
+      'CREATE INDEX IF NOT EXISTS idx_prompt_library_sort ON playground_cases (prompt_id, is_favorite, updated_at, id)'
     );
     await this.ensureIndex(
       'playground_cases',
       'idx_source_ref_updated_at_id',
-      'ALTER TABLE playground_cases ADD INDEX idx_source_ref_updated_at_id (source, source_ref, updated_at, id)'
+      'CREATE INDEX IF NOT EXISTS idx_source_ref_updated_at_id ON playground_cases (source, source_ref, updated_at, id)'
     );
     await this.ensureIndex(
       'playground_runs',
       'idx_created_at_id',
-      'ALTER TABLE playground_runs ADD INDEX idx_created_at_id (created_at, id)'
-    );
-    await this.ensureColumn(
-      'playground_cases',
-      'baseline_snapshot',
-      'ALTER TABLE playground_cases ADD COLUMN baseline_snapshot JSON NULL AFTER provider_config'
-    );
-    await this.ensureColumn(
-      'playground_cases',
-      'current_patch',
-      'ALTER TABLE playground_cases ADD COLUMN current_patch JSON NULL AFTER baseline_snapshot'
-    );
-    await this.ensureColumn(
-      'playground_cases',
-      'import_fidelity',
-      "ALTER TABLE playground_cases ADD COLUMN import_fidelity ENUM('exact', 'partial', 'unsupported') NOT NULL DEFAULT 'exact' AFTER current_patch"
-    );
-    await this.ensureColumn(
-      'playground_runs',
-      'execution_mode',
-      "ALTER TABLE playground_runs ADD COLUMN execution_mode ENUM('exact_replay', 'patched_replay') NOT NULL DEFAULT 'exact_replay' AFTER case_id"
-    );
-    await this.ensureColumn(
-      'playground_runs',
-      'baseline_snapshot',
-      'ALTER TABLE playground_runs ADD COLUMN baseline_snapshot JSON NULL AFTER input_snapshot'
-    );
-    await this.ensureColumn(
-      'playground_runs',
-      'request_patch',
-      'ALTER TABLE playground_runs ADD COLUMN request_patch JSON NULL AFTER baseline_snapshot'
-    );
-    await this.db.executeUpdate(
-      'ALTER TABLE playground_cases MODIFY COLUMN source_ref VARCHAR(255) NOT NULL'
-    );
-    await this.ensureColumn(
-      'playground_runs',
-      'effective_request',
-      'ALTER TABLE playground_runs ADD COLUMN effective_request JSON NULL AFTER request_patch'
-    );
-    await this.ensureColumn(
-      'playground_runs',
-      'effective_config',
-      'ALTER TABLE playground_runs ADD COLUMN effective_config JSON NULL AFTER effective_request'
-    );
-    await this.ensureColumn(
-      'playground_runs',
-      'diff_snapshot',
-      'ALTER TABLE playground_runs ADD COLUMN diff_snapshot JSON NULL AFTER comparison_snapshot'
-    );
-    await this.db.executeUpdate(
-      "ALTER TABLE playground_cases MODIFY COLUMN source ENUM('traffic', 'conversation', 'span') NOT NULL"
+      'CREATE INDEX IF NOT EXISTS idx_created_at_id ON playground_runs (created_at, id)'
     );
   }
 
@@ -825,13 +769,11 @@ export class PlaygroundCaseBuilder {
       caseParams.push(searchLike, searchLike);
     }
     const caseWhere = caseFilters.length > 0 ? `WHERE ${caseFilters.join(' AND ')}` : '';
-    const caseIndexHint = params.promptId ? 'FORCE INDEX (idx_prompt_library_sort)' : 'FORCE INDEX (idx_library_sort)';
 
     const cases = await this.db.executeQuery<PlaygroundCaseRow>(
       `
         SELECT *
         FROM playground_cases
-        ${caseIndexHint}
         ${caseWhere}
         ORDER BY is_favorite DESC, updated_at DESC, id DESC
         LIMIT ${PlaygroundCaseBuilder.LIBRARY_CASE_LIMIT}
@@ -843,7 +785,6 @@ export class PlaygroundCaseBuilder {
       `
         SELECT *
         FROM playground_runs
-        FORCE INDEX (idx_created_at_id)
         ORDER BY created_at DESC, id DESC
         LIMIT ${PlaygroundCaseBuilder.LIBRARY_RUN_LIMIT}
       `
@@ -860,10 +801,10 @@ export class PlaygroundCaseBuilder {
     const rows = await this.db.executeQuery<{ total: number }>(
       `
         SELECT COUNT(*) AS total
-        FROM information_schema.statistics
-        WHERE table_schema = DATABASE()
-          AND table_name = ?
-          AND index_name = ?
+        FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND tablename = ?
+          AND indexname = ?
       `,
       [tableName, indexName]
     );
@@ -878,7 +819,7 @@ export class PlaygroundCaseBuilder {
       `
         SELECT COUNT(*) AS total
         FROM information_schema.columns
-        WHERE table_schema = DATABASE()
+        WHERE table_schema = current_schema()
           AND table_name = ?
           AND column_name = ?
       `,
@@ -1614,9 +1555,9 @@ export class PlaygroundCaseBuilder {
       `
         SELECT TABLE_NAME
         FROM information_schema.TABLES
-        WHERE TABLE_SCHEMA = DATABASE()
+        WHERE TABLE_SCHEMA = current_schema()
           AND TABLE_NAME IN ('llm_call_logs', 'llm_calls')
-        ORDER BY FIELD(TABLE_NAME, 'llm_call_logs', 'llm_calls')
+        ORDER BY CASE TABLE_NAME WHEN 'llm_call_logs' THEN 0 ELSE 1 END
         LIMIT 1
       `
     );

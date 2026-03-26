@@ -1,6 +1,6 @@
 /**
  * HTTP流量日志文件监听服务
- * 使用chokidar监听JSONL日志文件变化，增量导入到MySQL
+ * 使用chokidar监听JSONL日志文件变化，增量导入到数据库
  * 支持日志文件轮转（按天）
  */
 
@@ -11,7 +11,7 @@ import * as chokidar from 'chokidar';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
 
-const MYSQL_INT_UNSIGNED_MAX = Math.pow(2, 32) - 1;
+const DATABASE_INT_MAX = Math.pow(2, 32) - 1;
 
 // ==================== 类型定义 ====================
 
@@ -436,8 +436,8 @@ export class TrafficLogWatcher {
           record.response_content_type || null,
           record.response_size || 0,
           record.duration_ms ?? null,
-          this.convertToMySQLDatetime(record.request_timestamp),
-          record.response_timestamp ? this.convertToMySQLDatetime(record.response_timestamp) : null,
+          this.convertToDatabaseTimestamp(record.request_timestamp),
+          record.response_timestamp ? this.convertToDatabaseTimestamp(record.response_timestamp) : null,
           record.is_ai_request || false,
           record.api_type || null,
           record.api_version || null,
@@ -609,9 +609,7 @@ export class TrafficLogWatcher {
 
     const isRelevantInternalRequest =
       normalizedPath.startsWith('/api/internal/llm/debug') ||
-      normalizedPath.startsWith('/api/simple-queue/') ||
-      normalizedPath.startsWith('/api/simulate/') ||
-      normalizedPath.startsWith('/api/test/simulate-message') ||
+      normalizedPath.startsWith('/api/inbox/') ||
       normalizedPath.startsWith('/api/internal/send_private') ||
       normalizedPath.startsWith('/api/internal/send_group') ||
       normalizedPath.startsWith('/api/traffic/replay') ||
@@ -632,9 +630,9 @@ export class TrafficLogWatcher {
   }
 
   /**
-   * 转换ISO 8601时间戳为MySQL DATETIME格式
+   * 转换ISO 8601时间戳为数据库兼容的时间字符串
    */
-  private convertToMySQLDatetime(isoTimestamp: string): string {
+  private convertToDatabaseTimestamp(isoTimestamp: string): string {
     try {
       const date = new Date(isoTimestamp);
       if (isNaN(date.getTime())) {
@@ -649,7 +647,7 @@ export class TrafficLogWatcher {
   }
 
   /**
-   * 规范化耗时字段，避免插入负数或超出MySQL取值范围
+   * 规范化耗时字段，避免插入负数或超出整型范围
    */
   private normalizeDuration(value: unknown): number | null {
     if (value === null || value === undefined || value === '') {
@@ -680,11 +678,11 @@ export class TrafficLogWatcher {
       return 0;
     }
 
-    if (numericValue > MYSQL_INT_UNSIGNED_MAX) {
+    if (numericValue > DATABASE_INT_MAX) {
       this.logger.debug(
-        `[TrafficLogWatcher] duration_ms value ${numericValue} exceeds MySQL limit, clamping to ${MYSQL_INT_UNSIGNED_MAX}`
+        `[TrafficLogWatcher] duration_ms value ${numericValue} exceeds database limit, clamping to ${DATABASE_INT_MAX}`
       );
-      return MYSQL_INT_UNSIGNED_MAX;
+      return DATABASE_INT_MAX;
     }
 
     return Math.round(numericValue);

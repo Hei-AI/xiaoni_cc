@@ -83,7 +83,7 @@ main() {
     # 检查必要容器是否运行
     info "检查容器运行状态..."
 
-    containers=("qqbot-qqbot-core" "qqbot-mysql" "napcat")
+    containers=("qqbot-provider-service" "qqbot-postgres" "napcat")
     failed_containers=()
 
     for container in "${containers[@]}"; do
@@ -111,33 +111,33 @@ main() {
     # DNS解析测试
     echo "🔍 DNS解析测试:"
     ((total_tests++))
-    if test_dns "qqbot-qqbot-core" "qqbot-mysql" "QQBot Core -> MySQL"; then
+    if test_dns "qqbot-provider-service" "qqbot-postgres" "Provider Service -> PostgreSQL"; then
         ((passed_tests++))
     fi
 
     ((total_tests++))
-    if test_dns "qqbot-qqbot-core" "napcat" "QQBot Core -> NapCat"; then
+    if test_dns "qqbot-provider-service" "napcat" "Provider Service -> NapCat"; then
         ((passed_tests++))
     fi
 
     echo
     echo "🔗 网络连接测试:"
 
-    # MySQL连接测试
+    # PostgreSQL连接测试
     ((total_tests++))
-    if test_connection "qqbot-qqbot-core" "qqbot-mysql" "3306" "数据库连接"; then
+    if test_connection "qqbot-provider-service" "qqbot-postgres" "5432" "数据库连接"; then
         ((passed_tests++))
     fi
 
     # WebSocket连接测试
     ((total_tests++))
-    if test_connection "qqbot-qqbot-core" "napcat" "3001" "WebSocket连接"; then
+    if test_connection "qqbot-provider-service" "napcat" "3001" "WebSocket连接"; then
         ((passed_tests++))
     fi
 
     # NapCat HTTP API测试
     ((total_tests++))
-    if test_connection "qqbot-qqbot-core" "napcat" "3000" "NapCat HTTP API"; then
+    if test_connection "qqbot-provider-service" "napcat" "3000" "NapCat HTTP API"; then
         ((passed_tests++))
     fi
 
@@ -154,7 +154,7 @@ main() {
         echo
         info "网络架构验证成功："
         echo "  ✅ NapCat已成功加入qq_bot_network"
-        echo "  ✅ QQBot Core可以访问所有必要服务"
+        echo "  ✅ Provider Service 可以访问所有必要服务"
         echo "  ✅ DNS解析正常工作"
         echo "  ✅ 服务间通信正常"
         exit 0
@@ -181,7 +181,7 @@ show_network_info() {
 
     echo
     info "容器网络详情:"
-    for container in "qqbot-qqbot-core" "qqbot-mysql" "napcat"; do
+    for container in "qqbot-provider-service" "qqbot-postgres" "napcat"; do
         if check_container "$container"; then
             echo "📦 $container:"
             docker inspect "$container" | jq -r '.[0].NetworkSettings.Networks | keys[]' | sed 's/^/  - /'

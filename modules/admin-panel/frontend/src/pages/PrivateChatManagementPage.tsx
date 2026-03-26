@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
-  Download,
+  Plus,
   Eye,
   Filter,
   MessageCircle,
@@ -17,7 +17,16 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
 import { FilterBar } from '@/components/console/FilterBar';
@@ -93,6 +102,21 @@ const updatePrivateChat = async (userId: number, data: { is_enabled?: boolean; a
   return response.json();
 };
 
+const createPrivateChat = async (data: { user_id: number; username?: string }) => {
+  const response = await fetch('/api/private-chats', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to create private chat');
+  }
+  return response.json();
+};
+
 const batchUpdatePrivateChats = async (data: {
   user_ids: number[];
   is_enabled?: boolean;
@@ -138,20 +162,6 @@ const batchDeletePrivateChats = async (user_ids: number[]) => {
   return response.json();
 };
 
-const syncPrivateChatsFromNapCat = async () => {
-  const response = await fetch('/api/sync/private-chats', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to sync private chats from NapCat');
-  }
-  return response.json();
-};
-
 export const PrivateChatManagementPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -161,6 +171,11 @@ export const PrivateChatManagementPage: React.FC = () => {
   }>({});
   const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
   const [showFilters, setShowFilters] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    userId: '',
+    username: '',
+  });
 
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -181,10 +196,13 @@ export const PrivateChatManagementPage: React.FC = () => {
     },
   });
 
-  const syncPrivateChatsMutation = useMutation({
-    mutationFn: syncPrivateChatsFromNapCat,
-    onSuccess: () => {
+  const createPrivateChatMutation = useMutation({
+    mutationFn: createPrivateChat,
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['private-chats'] });
+      setCreateDialogOpen(false);
+      setCreateForm({ userId: '', username: '' });
+      navigate(`/private-chats/${variables.user_id}`);
     },
   });
 
@@ -248,6 +266,19 @@ export const PrivateChatManagementPage: React.FC = () => {
     }
   };
 
+  const handleCreatePrivateChat = async () => {
+    const userId = Number(createForm.userId.trim());
+    if (!Number.isFinite(userId) || userId <= 0) {
+      window.alert('请输入合法 QQ 号');
+      return;
+    }
+
+    await createPrivateChatMutation.mutateAsync({
+      user_id: userId,
+      username: createForm.username.trim() || undefined,
+    });
+  };
+
   const formatDate = (dateString: string) => new Date(dateString).toLocaleString('zh-CN');
 
   const rows = data?.data || [];
@@ -278,6 +309,43 @@ export const PrivateChatManagementPage: React.FC = () => {
 
   return (
     <PageShell>
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>添加私聊策略</DialogTitle>
+            <DialogDescription>输入指定 QQ 号后，默认会创建为“接收开启，自动回复关闭”。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="private-user-id">QQ号</Label>
+              <Input
+                id="private-user-id"
+                inputMode="numeric"
+                value={createForm.userId}
+                onChange={(e) => setCreateForm((prev) => ({ ...prev, userId: e.target.value }))}
+                placeholder="例如 1129974489"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="private-username">备注名称</Label>
+              <Input
+                id="private-username"
+                value={createForm.username}
+                onChange={(e) => setCreateForm((prev) => ({ ...prev, username: e.target.value }))}
+                placeholder="可选"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={() => void handleCreatePrivateChat()} disabled={createPrivateChatMutation.isPending}>
+              {createPrivateChatMutation.isPending ? '创建中...' : '创建并进入详情'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <PageHeader
         eyebrow="Direct Message Book"
         title="私聊管理"
@@ -285,9 +353,9 @@ export const PrivateChatManagementPage: React.FC = () => {
         icon={<User className="h-5 w-5" />}
         actions={
           <>
-            <Button variant="outline" size="sm" onClick={() => syncPrivateChatsMutation.mutate()} disabled={syncPrivateChatsMutation.isPending}>
-              <Download className={`mr-2 h-4 w-4 ${syncPrivateChatsMutation.isPending ? 'animate-spin' : ''}`} />
-              从 QQ 同步
+            <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              添加私聊
             </Button>
             <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isRefetching}>
               <RefreshCw className={`mr-2 h-4 w-4 ${isRefetching ? 'animate-spin' : ''}`} />

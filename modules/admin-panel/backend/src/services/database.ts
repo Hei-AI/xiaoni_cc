@@ -1,13 +1,13 @@
-import mysql from 'mysql2/promise';
+import { createSqlAdapter, getPrismaClient, type SqlAdapter } from '@qq-bot/persistence';
 import winston from 'winston';
 
 interface DatabaseConfig {
+  databaseUrl?: string;
   host: string;
   port: number;
   user: string;
   password: string;
   database: string;
-  charset: string;
   timezone: string;
 }
 
@@ -57,8 +57,9 @@ interface SessionData {
 }
 
 export class DatabaseManager {
-  private pool: mysql.Pool | null = null;
+  private sql: SqlAdapter | null = null;
   private config: DatabaseConfig;
+  private prisma!: ReturnType<typeof getPrismaClient>;
   private logger: winston.Logger;
   private operationalIndexesEnsured = false;
 
@@ -70,92 +71,61 @@ export class DatabaseManager {
 
   private createConnectionPool(): void {
     try {
-      this.pool = mysql.createPool({
+      this.sql = createSqlAdapter({
+        databaseUrl: this.config.databaseUrl,
         host: this.config.host,
         port: this.config.port,
         user: this.config.user,
         password: this.config.password,
         database: this.config.database,
-        charset: 'utf8mb4',
-        timezone: this.config.timezone || 'Z',
         connectionLimit: 10,
-        queueLimit: 0
+        applicationName: 'admin-backend'
+      });
+      this.prisma = getPrismaClient({
+        databaseUrl: this.config.databaseUrl,
+        host: this.config.host,
+        port: this.config.port,
+        user: this.config.user,
+        password: this.config.password,
+        database: this.config.database
       });
 
-      this.logger.info('Database connection pool initialized (Admin Backend)', {
-        connectionLimit: 10,
-        queueLimit: 0
-      });
+      this.logger.info('Database connection pool initialized (Admin Backend)', { connectionLimit: 10 });
     } catch (error) {
       this.logger.error('Error creating connection pool', { error });
-      this.pool = null;
+      this.sql = null;
     }
   }
 
   private handleConnectionLost(): void {
     this.logger.warn('Connection lost, attempting to recreate pool...');
-    if (this.pool) {
-      try {
-        this.pool.end();
-      } catch (error) {
-        this.logger.warn('Error closing old pool', { error });
-      }
-      this.pool = null;
-    }
+    this.sql = null;
     // 立即重建连接池，不等待
     this.createConnectionPool();
   }
 
   public async testConnection(): Promise<boolean> {
     try {
-      // 绕过连接池，直接创建连接进行测试
-      const connection = await mysql.createConnection({
-        host: this.config.host,
-        port: this.config.port,
-        user: this.config.user,
-        password: this.config.password,
-        database: this.config.database,
-        charset: 'utf8mb4',
-        timezone: this.config.timezone || 'Z'
-      });
-      
-      await connection.ping();
-      await connection.end();
-      this.logger.info('Database connection test successful (direct connection)');
-      return true;
+      if (!this.sql) {
+        this.createConnectionPool();
+      }
+      const healthy = await this.sql!.testConnection();
+      if (healthy) {
+        this.logger.info('Database connection test successful');
+      }
+      return healthy;
     } catch (error) {
-      this.logger.error('Database connection test failed (direct connection)', { error });
+      this.logger.error('Database connection test failed', { error });
       return false;
     }
   }
 
   public async executeQuery<T>(query: string, params: any[] = []): Promise<T[]> {
     try {
-      // 临时使用直连方式，绕过连接池问题
-      const connection = await mysql.createConnection({
-        host: this.config.host,
-        port: this.config.port,
-        user: this.config.user,
-        password: this.config.password,
-        database: this.config.database,
-        charset: 'utf8mb4',
-        timezone: this.config.timezone || 'Z'
-      });
-      
-      try {
-        const [rows] = await connection.execute(query, params);
-        return Array.isArray(rows) ? rows.map((row: any) => {
-          const processedRow = { ...row };
-          Object.keys(processedRow).forEach(key => {
-            if (processedRow[key] instanceof Date) {
-              processedRow[key] = processedRow[key].toISOString();
-            }
-          });
-          return processedRow;
-        }) : [];
-      } finally {
-        await connection.end();
+      if (!this.sql) {
+        this.createConnectionPool();
       }
+      return await this.sql!.query<T>(query, params);
     } catch (error) {
       this.logger.error('Database query failed', { query, params, error });
       throw error;
@@ -164,12 +134,10 @@ export class DatabaseManager {
 
   public async executeUpdate(query: string, params: any[] = []): Promise<number> {
     try {
-      if (!this.pool) {
+      if (!this.sql) {
         this.createConnectionPool();
       }
-      // 直接使用连接池的execute方法，让连接池自动管理连接
-      const [result] = await this.pool!.execute(query, params) as [mysql.ResultSetHeader, mysql.FieldPacket[]];
-      return result.affectedRows;
+      return await this.sql!.execute(query, params);
     } catch (error) {
       this.logger.error('Database update failed', { query, params, error });
       throw error;
@@ -178,15 +146,10 @@ export class DatabaseManager {
 
   public async executeInsert(query: string, params: any[] = []): Promise<{ insertId: number; affectedRows: number }> {
     try {
-      if (!this.pool) {
+      if (!this.sql) {
         this.createConnectionPool();
       }
-      // 直接使用连接池的execute方法，让连接池自动管理连接
-      const [result] = await this.pool!.execute(query, params) as [mysql.ResultSetHeader, mysql.FieldPacket[]];
-      return {
-        insertId: result.insertId,
-        affectedRows: result.affectedRows
-      };
+      return await this.sql!.insert(query, params);
     } catch (error) {
       this.logger.error('Database insert failed', { query, params, error });
       throw error;
@@ -456,23 +419,21 @@ export class DatabaseManager {
 
   public async updatePrivateChatPrompt(userId: number, promptId: string | null): Promise<boolean> {
     try {
-      const query = `
-        INSERT INTO private_chat_settings (
-          user_id, agent_prompt_id, is_enabled, auto_reply_enabled, created_at, updated_at
-        ) VALUES (?, ?, TRUE, FALSE, NOW(), NOW())
-        ON DUPLICATE KEY UPDATE
-          agent_prompt_id = VALUES(agent_prompt_id),
-          updated_at = NOW()
-      `;
+      await this.prisma.privateChatSetting.upsert({
+        where: { user_id: BigInt(userId) },
+        create: {
+          user_id: BigInt(userId),
+          agent_prompt_id: promptId,
+          is_enabled: 1,
+          auto_reply_enabled: 0
+        },
+        update: {
+          agent_prompt_id: promptId
+        }
+      });
 
-      const affectedRows = await this.executeUpdate(query, [userId, promptId]);
-
-      if (affectedRows > 0) {
-        this.logger.info('Private chat prompt mapping updated', { userId, promptId });
-        return true;
-      }
-
-      return false;
+      this.logger.info('Private chat prompt mapping updated', { userId, promptId });
+      return true;
     } catch (error) {
       this.logger.error('Failed to update private chat prompt', { error, userId, promptId });
       return false;
@@ -481,65 +442,65 @@ export class DatabaseManager {
 
   public async updateGroupChatPrompt(groupId: number, promptId: string | null): Promise<boolean> {
     try {
-      const query = `
-        INSERT INTO group_chat_settings (
-          group_id, agent_prompt_id, is_enabled, auto_reply_enabled, created_at, updated_at
-        ) VALUES (?, ?, TRUE, FALSE, NOW(), NOW())
-        ON DUPLICATE KEY UPDATE
-          agent_prompt_id = VALUES(agent_prompt_id),
-          updated_at = NOW()
-      `;
+      await this.prisma.groupChatSetting.upsert({
+        where: { group_id: BigInt(groupId) },
+        create: {
+          group_id: BigInt(groupId),
+          agent_prompt_id: promptId,
+          is_enabled: 1,
+          auto_reply_enabled: 0
+        },
+        update: {
+          agent_prompt_id: promptId
+        }
+      });
 
-      const affectedRows = await this.executeUpdate(query, [groupId, promptId]);
-
-      if (affectedRows > 0) {
-        this.logger.info('Group chat prompt mapping updated', { groupId, promptId });
-        return true;
-      }
-
-      return false;
+      this.logger.info('Group chat prompt mapping updated', { groupId, promptId });
+      return true;
     } catch (error) {
       this.logger.error('Failed to update group chat prompt', { error, groupId, promptId });
       return false;
     }
   }
 
-  public async updateGroupChatSettings(groupId: number, updates: Record<string, any>): Promise<boolean> {
+  public async upsertGroupChatSettings(groupId: number, updates: Record<string, any>): Promise<boolean> {
     try {
-      const updateFields: string[] = [];
-      const updateValues: any[] = [];
-
-      // Build SET clause from updates object
-      Object.entries(updates).forEach(([key, value]) => {
-        updateFields.push(`${key} = ?`);
-        updateValues.push(value);
-      });
-
-      if (updateFields.length === 0) {
+      const fields = Object.keys(updates);
+      if (fields.length === 0) {
         return false;
       }
+      await this.prisma.groupChatSetting.upsert({
+        where: { group_id: BigInt(groupId) },
+        create: {
+          group_id: BigInt(groupId),
+          is_enabled: 1,
+          auto_reply_enabled: 0,
+          ...updates
+        },
+        update: updates
+      });
 
-      // Add updated_at
-      updateFields.push('updated_at = NOW()');
-
-      const query = `
-        UPDATE group_chat_settings
-        SET ${updateFields.join(', ')}
-        WHERE group_id = ?
-      `;
-
-      updateValues.push(groupId);
-      const affectedRows = await this.executeUpdate(query, updateValues);
-
-      if (affectedRows > 0) {
-        this.logger.info('Group chat settings updated', { groupId, updates });
-        return true;
-      }
-
-      return false;
+      this.logger.info('Group chat settings upserted', { groupId, updates });
+      return true;
     } catch (error) {
-      this.logger.error('Failed to update group chat settings', { error, groupId, updates });
+      this.logger.error('Failed to upsert group chat settings', { error, groupId, updates });
       return false;
+    }
+  }
+
+  public async getPrivateChatSettingById(userId: number): Promise<any | null> {
+    try {
+      const query = `
+        SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
+               agent_prompt_id, last_activity, created_at, updated_at
+        FROM private_chat_settings
+        WHERE user_id = ?
+      `;
+      const results = await this.executeQuery<any>(query, [userId]);
+      return results[0] || null;
+    } catch (error) {
+      this.logger.error('Failed to get private chat settings', { error, userId });
+      return null;
     }
   }
 
@@ -547,7 +508,7 @@ export class DatabaseManager {
     const rows = await this.executeQuery<{ total: number }>(
       `SELECT COUNT(*) AS total
        FROM information_schema.tables
-       WHERE table_schema = DATABASE()
+       WHERE table_schema = current_schema()
          AND table_name = ?`,
       [tableName]
     );
@@ -562,10 +523,10 @@ export class DatabaseManager {
 
     const rows = await this.executeQuery<{ total: number }>(
       `SELECT COUNT(*) AS total
-       FROM information_schema.statistics
-       WHERE table_schema = DATABASE()
-         AND table_name = ?
-         AND index_name = ?`,
+       FROM pg_indexes
+       WHERE schemaname = current_schema()
+         AND tablename = ?
+         AND indexname = ?`,
       [tableName, indexName]
     );
 
@@ -577,7 +538,7 @@ export class DatabaseManager {
       await this.executeUpdate(ddl);
       this.logger.info('Ensured operational index', { tableName, indexName });
     } catch (error: any) {
-      if (error?.code === 'ER_DUP_KEYNAME' || error?.code === 'ER_DUP_ENTRY') {
+      if (error?.code === '42P07' || error?.code === '42710') {
         this.logger.info('Operational index already exists after concurrent creation', { tableName, indexName });
         return;
       }
@@ -596,92 +557,92 @@ export class DatabaseManager {
       {
         tableName: 'prompt_debug_sessions',
         indexName: 'idx_prompt_updated_at_id',
-        ddl: 'ALTER TABLE prompt_debug_sessions ADD INDEX idx_prompt_updated_at_id (prompt_id, updated_at, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_prompt_updated_at_id ON prompt_debug_sessions (prompt_id, updated_at, id)'
       },
       {
         tableName: 'llm_call_logs',
         indexName: 'idx_trace_timestamp_sequence_id',
-        ddl: 'ALTER TABLE llm_call_logs ADD INDEX idx_trace_timestamp_sequence_id (trace_id, timestamp, call_sequence, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_trace_timestamp_sequence_id ON llm_call_logs (trace_id, timestamp, call_sequence, id)'
       },
       {
         tableName: 'llm_call_logs',
         indexName: 'idx_conversation_started_id',
-        ddl: 'ALTER TABLE llm_call_logs ADD INDEX idx_conversation_started_id (conversation_id, started_at, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_conversation_started_id ON llm_call_logs (conversation_id, started_at, id)'
       },
       {
         tableName: 'llm_call_logs',
         indexName: 'idx_trace_started_id',
-        ddl: 'ALTER TABLE llm_call_logs ADD INDEX idx_trace_started_id (trace_id, started_at, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_trace_started_id ON llm_call_logs (trace_id, started_at, id)'
       },
       {
         tableName: 'llm_call_logs',
         indexName: 'idx_llm_call_started_id',
-        ddl: 'ALTER TABLE llm_call_logs ADD INDEX idx_llm_call_started_id (llm_call_id, started_at, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_llm_call_started_id ON llm_call_logs (llm_call_id, started_at, id)'
       },
       {
         tableName: 'http_traffic_logs',
         indexName: 'idx_trace_request_time_id',
-        ddl: 'ALTER TABLE http_traffic_logs ADD INDEX idx_trace_request_time_id (trace_id, request_timestamp, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_trace_request_time_id ON http_traffic_logs (trace_id, request_timestamp, id)'
       },
       {
         tableName: 'http_traffic_logs',
         indexName: 'idx_conversation_request_time_id',
-        ddl: 'ALTER TABLE http_traffic_logs ADD INDEX idx_conversation_request_time_id (conversation_id, request_timestamp, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_conversation_request_time_id ON http_traffic_logs (conversation_id, request_timestamp, id)'
       },
       {
         tableName: 'websocket_logs',
         indexName: 'idx_trace_timestamp_id',
-        ddl: 'ALTER TABLE websocket_logs ADD INDEX idx_trace_timestamp_id (trace_id, timestamp, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_trace_timestamp_id ON websocket_logs (trace_id, timestamp, id)'
       },
       {
         tableName: 'llm_jobs',
         indexName: 'idx_trace_created_id',
-        ddl: 'ALTER TABLE llm_jobs ADD INDEX idx_trace_created_id (trace_id, created_at, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_trace_created_id ON llm_jobs (trace_id, created_at, id)'
       },
       {
         tableName: 'tool_execution_logs',
         indexName: 'idx_trace_started_completed_id',
-        ddl: 'ALTER TABLE tool_execution_logs ADD INDEX idx_trace_started_completed_id (trace_id, started_at, completed_at, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_trace_started_completed_id ON tool_execution_logs (trace_id, started_at, completed_at, id)'
       },
       {
         tableName: 'traffic_replay_history',
         indexName: 'idx_original_log_replayed_at_id',
-        ddl: 'ALTER TABLE traffic_replay_history ADD INDEX idx_original_log_replayed_at_id (original_log_id, replayed_at, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_original_log_replayed_at_id ON traffic_replay_history (original_log_id, replayed_at, id)'
       },
       {
         tableName: 'group_message_history',
         indexName: 'idx_group_history_id',
-        ddl: 'ALTER TABLE group_message_history ADD INDEX idx_group_history_id (group_id, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_group_history_id ON group_message_history (group_id, id)'
       },
       {
         tableName: 'group_message_history',
         indexName: 'idx_group_message_id_lookup',
-        ddl: 'ALTER TABLE group_message_history ADD INDEX idx_group_message_id_lookup (group_id, message_id, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_group_message_id_lookup ON group_message_history (group_id, message_id, id)'
       },
       {
         tableName: 'private_message_history',
         indexName: 'idx_user_history_id',
-        ddl: 'ALTER TABLE private_message_history ADD INDEX idx_user_history_id (user_id, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_user_history_id ON private_message_history (user_id, id)'
       },
       {
         tableName: 'private_message_history',
         indexName: 'idx_private_message_id_lookup',
-        ddl: 'ALTER TABLE private_message_history ADD INDEX idx_private_message_id_lookup (user_id, message_id, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_private_message_id_lookup ON private_message_history (user_id, message_id, id)'
       },
       {
         tableName: 'conversation_batches',
         indexName: 'idx_source_created_at_id',
-        ddl: 'ALTER TABLE conversation_batches ADD INDEX idx_source_created_at_id (source_key, created_at, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_source_created_at_id ON conversation_batches (source_key, created_at, id)'
       },
       {
         tableName: 'conversations',
         indexName: 'idx_batch_created_at_id',
-        ddl: 'ALTER TABLE conversations ADD INDEX idx_batch_created_at_id (batch_id, created_at, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_batch_created_at_id ON conversations (batch_id, created_at, id)'
       },
       {
         tableName: 'llm_tools',
         indexName: 'idx_enabled_total_calls_success_calls_id',
-        ddl: 'ALTER TABLE llm_tools ADD INDEX idx_enabled_total_calls_success_calls_id (enabled, total_calls, success_calls, id)'
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_enabled_total_calls_success_calls_id ON llm_tools (enabled, total_calls, success_calls, id)'
       }
     ];
 
@@ -698,27 +659,19 @@ export class DatabaseManager {
       if (fields.length === 0) {
         return false;
       }
+      await this.prisma.privateChatSetting.upsert({
+        where: { user_id: BigInt(userId) },
+        create: {
+          user_id: BigInt(userId),
+          is_enabled: 1,
+          auto_reply_enabled: 0,
+          ...updates
+        },
+        update: updates
+      });
 
-      const columns = ['user_id', ...fields];
-      const placeholders = ['?', ...fields.map(() => '?')];
-      const params = [userId, ...fields.map(field => updates[field])];
-      const updateAssignments = fields.map(field => `${field} = VALUES(${field})`);
-      updateAssignments.push('updated_at = NOW()');
-
-      const query = `
-        INSERT INTO private_chat_settings (${columns.join(', ')})
-        VALUES (${placeholders.join(', ')})
-        ON DUPLICATE KEY UPDATE ${updateAssignments.join(', ')}
-      `;
-
-      const affectedRows = await this.executeUpdate(query, params);
-
-      if (affectedRows > 0) {
-        this.logger.info('Private chat settings upserted', { userId, updates });
-        return true;
-      }
-
-      return false;
+      this.logger.info('Private chat settings upserted', { userId, updates });
+      return true;
     } catch (error) {
       this.logger.error('Failed to upsert private chat settings', { error, userId, updates });
       return false;
@@ -729,8 +682,7 @@ export class DatabaseManager {
     try {
       const query = `
         SELECT group_id, group_name, is_enabled, auto_reply_enabled, welcome_message,
-               admin_user_id, agent_prompt_id, last_activity, created_at, updated_at,
-               human_like_scan_interval_ms, human_like_min_interval_ms, human_like_max_interval_ms
+               admin_user_id, agent_prompt_id, last_activity, created_at, updated_at
         FROM group_chat_settings
         WHERE group_id = ?
       `;
@@ -743,9 +695,9 @@ export class DatabaseManager {
   }
 
   public async close(): Promise<void> {
-    if (this.pool) {
-      await this.pool.end();
-      this.pool = null;
+    if (this.sql) {
+      await this.sql.close();
+      this.sql = null;
     }
     this.logger.info('Database connection pool closed');
   }

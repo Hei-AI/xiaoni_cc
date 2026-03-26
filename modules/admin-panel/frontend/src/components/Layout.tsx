@@ -68,7 +68,7 @@ function getInitialSidebarCollapsed(pathname: string): boolean {
 
 interface RuntimeStatusPayload {
   status: 'healthy' | 'degraded' | 'offline';
-  core: {
+  provider: {
     live: boolean;
     connected: boolean;
     status: 'online' | 'offline' | 'error';
@@ -113,18 +113,18 @@ function formatRuntimeTitle(runtimeStatus?: RuntimeStatusPayload): string {
 
 function formatRuntimeSummary(runtimeStatus?: RuntimeStatusPayload): string {
   if (!runtimeStatus) {
-    return '正在获取 Core / Admin / MySQL 状态';
+    return '正在获取 Provider / Admin / Database 状态';
   }
 
-  const coreLabel = runtimeStatus.core.live
-    ? runtimeStatus.core.connected
-      ? 'Core live'
-      : 'Core live / WS down'
-    : 'Core offline';
+  const providerLabel = runtimeStatus.provider.live
+    ? runtimeStatus.provider.connected
+      ? 'Provider live'
+      : 'Provider live / NapCat down'
+    : 'Provider offline';
   const adminLabel = runtimeStatus.admin.live ? 'Admin live' : 'Admin offline';
-  const databaseLabel = runtimeStatus.database.live ? 'MySQL live' : 'MySQL offline';
+  const databaseLabel = runtimeStatus.database.live ? 'PostgreSQL live' : 'PostgreSQL offline';
 
-  return `${coreLabel} • ${adminLabel} • ${databaseLabel}`;
+  return `${providerLabel} • ${adminLabel} • ${databaseLabel}`;
 }
 
 function formatHeartbeat(lastHeartbeat: string | null | undefined): string | null {
@@ -225,18 +225,6 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       ],
     },
     {
-      label: 'Intelligence',
-      items: [
-        {
-          href: '/cognition',
-          label: '认知架构',
-          icon: Sparkles,
-          description: 'Observations 与 Beliefs 的只读视图',
-          active: location.pathname.startsWith('/cognition'),
-        },
-      ],
-    },
-    {
       label: 'Observability',
       items: [
         {
@@ -265,8 +253,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const runtimeTitle = formatRuntimeTitle(runtimeStatus);
   const runtimeSummary = formatRuntimeSummary(runtimeStatus);
   const runtimeTone = runtimeToneMap[runtimeStatus?.status ?? 'degraded'];
-  const heartbeatLabel = formatHeartbeat(runtimeStatus?.core.lastHeartbeat);
-  const runtimeIssue = runtimeStatus?.core.errorMessage;
+  const heartbeatLabel = formatHeartbeat(runtimeStatus?.provider.lastHeartbeat);
+  const runtimeIssue = runtimeStatus?.provider.errorMessage;
   const sidebarWidthClass = sidebarCollapsed ? 'w-[68px]' : 'w-[240px]';
 
   useEffect(() => {
@@ -385,7 +373,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               </div>
               {heartbeatLabel && (
                 <div className="mt-1 text-[11px] leading-4.5 text-muted-foreground">
-                  Core heartbeat {heartbeatLabel}
+                  Provider heartbeat {heartbeatLabel}
                 </div>
               )}
               {runtimeIssue && runtimeTone !== 'success' && (

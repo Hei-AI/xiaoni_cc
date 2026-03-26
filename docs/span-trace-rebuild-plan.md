@@ -137,7 +137,7 @@
 - [x] 完成初始化脚本
 - [x] 完成迁移脚本
 
-### 3. qqbot-core 埋点
+### 3. runtime 埋点
 
 - [x] 实现 `startSpan`
 - [x] 实现 `endSpan`
@@ -145,9 +145,9 @@
 - [x] 实现 `recordSpanEvent`
 - [x] 实现 `recordSpanLink`
 - [x] 接入 ingress span
-- [x] 接入 queue/context/decision spans
+- [x] 接入 queue/runtime spans
 - [x] 接入 LLM generation span
-- [x] 接入 websocket message span
+- [x] 接入 NapCat message span
 
 ### 4. backend 接口
 

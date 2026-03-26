@@ -12,9 +12,6 @@ interface PrivateChatSettingRow {
   user_notes: string | null;
   agent_prompt_id: string | null;
   last_activity: string | null;
-  human_like_scan_interval_ms: number | null;
-  human_like_min_interval_ms: number | null;
-  human_like_max_interval_ms: number | null;
 }
 
 interface GroupChatSettingRow {
@@ -26,14 +23,53 @@ interface GroupChatSettingRow {
   admin_user_id: number | null;
   agent_prompt_id: string | null;
   last_activity: string | null;
-  human_like_scan_interval_ms: number | null;
-  human_like_min_interval_ms: number | null;
-  human_like_max_interval_ms: number | null;
 }
 
 // 创建聊天管理相关路由
 export function createChatRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
+
+  router.post('/group-chats', async (req, res) => {
+    try {
+      const groupId = Number(req.body?.group_id);
+      const groupName = typeof req.body?.group_name === 'string' ? req.body.group_name.trim() : '';
+
+      if (!Number.isFinite(groupId) || groupId <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid group ID',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const success = await database.upsertGroupChatSettings(groupId, {
+        group_name: groupName || null,
+        is_enabled: 1,
+        auto_reply_enabled: 0
+      });
+      const groupSettings = await database.getGroupChatSettingById(groupId);
+
+      res.status(success ? 201 : 200).json({
+        success: true,
+        message: 'Group created successfully',
+        data: groupSettings || {
+          group_id: groupId,
+          group_name: groupName || null,
+          is_enabled: 1,
+          auto_reply_enabled: 0
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to create group chat settings', { error });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to create group settings',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
 
   // 获取群聊列表和统计
   router.get('/group-chats', async (req, res) => {
@@ -73,9 +109,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           g.group_name,
           g.is_enabled,
           g.auto_reply_enabled,
-          g.human_like_scan_interval_ms,
-          g.human_like_min_interval_ms,
-          g.human_like_max_interval_ms,
           g.welcome_message,
           g.admin_user_id,
           g.agent_prompt_id,
@@ -170,21 +203,21 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       const auto_reply_enabled = req.query.auto_reply_enabled;
 
       // 构建查询条件
-      let whereConditions = ['c.group_id IS NULL']; // 只获取私聊对话
+      let whereConditions = ['1=1'];
       let queryParams: any[] = [];
 
       if (search) {
-        whereConditions.push('(pcs.username LIKE ? OR c.user_id LIKE ?)');
+        whereConditions.push('(pcs.username LIKE ? OR targets.user_id LIKE ?)');
         queryParams.push(`%${search}%`, `%${search}%`);
       }
 
       if (is_enabled !== undefined) {
-        whereConditions.push('pcs.is_enabled = ?');
+        whereConditions.push('COALESCE(pcs.is_enabled, 1) = ?');
         queryParams.push(is_enabled === 'true' ? 1 : 0);
       }
 
       if (auto_reply_enabled !== undefined) {
-        whereConditions.push('pcs.auto_reply_enabled = ?');
+        whereConditions.push('COALESCE(pcs.auto_reply_enabled, 0) = ?');
         queryParams.push(auto_reply_enabled === 'true' ? 1 : 0);
       }
 
@@ -193,42 +226,61 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       // 获取私聊用户列表和统计数据
       const privateChatUsers = await database.executeQuery(`
         SELECT
-          c.user_id,
-          COALESCE(pcs.username, CONCAT('用户', c.user_id)) as nickname,
-          MAX(c.timestamp) as last_conversation_time,
+          targets.user_id,
+          COALESCE(pcs.username, CONCAT('用户', targets.user_id)) as nickname,
+          stats.last_conversation_time,
           CASE
-            WHEN COUNT(CASE WHEN c.status = 'completed' AND c.ai_response IS NOT NULL AND c.ai_response != '' THEN 1 END) > 0 THEN 'success'
-            WHEN COUNT(CASE WHEN c.status = 'failed' OR c.ai_response IS NULL OR c.ai_response = '' THEN 1 END) > 0 THEN 'failed'
+            WHEN COALESCE(stats.successful_replies, 0) > 0 THEN 'success'
+            WHEN COALESCE(stats.failed_replies, 0) > 0 THEN 'failed'
             ELSE 'pending'
           END as status,
-          COUNT(*) as total_conversations,
-          COUNT(CASE WHEN c.status = 'completed' AND c.ai_response IS NOT NULL AND c.ai_response != '' THEN 1 END) as successful_replies,
-          COUNT(CASE WHEN c.status = 'failed' OR c.ai_response IS NULL OR c.ai_response = '' THEN 1 END) as failed_replies,
+          COALESCE(stats.total_conversations, 0) as total_conversations,
+          COALESCE(stats.successful_replies, 0) as successful_replies,
+          COALESCE(stats.failed_replies, 0) as failed_replies,
           CASE
-            WHEN COUNT(*) = 0 THEN 0
-            ELSE ROUND(COUNT(CASE WHEN c.status = 'completed' AND c.ai_response IS NOT NULL AND c.ai_response != '' THEN 1 END) * 100.0 / COUNT(*), 1)
+            WHEN COALESCE(stats.total_conversations, 0) = 0 THEN 0
+            ELSE ROUND(COALESCE(stats.successful_replies, 0) * 100.0 / stats.total_conversations, 1)
           END as success_rate,
           CASE
-            WHEN AVG(c.response_time) IS NULL THEN '0ms'
-            ELSE CONCAT(ROUND(AVG(c.response_time)), 'ms')
+            WHEN stats.avg_response_time IS NULL THEN '0ms'
+            ELSE CONCAT(ROUND(stats.avg_response_time), 'ms')
           END as avg_response_time,
           COALESCE(pcs.is_enabled, 1) as is_enabled,
           COALESCE(pcs.auto_reply_enabled, 0) as auto_reply_enabled,
           pcs.user_notes,
           pcs.agent_prompt_id
-        FROM conversations c
-        LEFT JOIN private_chat_settings pcs ON c.user_id = pcs.user_id
+        FROM (
+          SELECT user_id FROM private_chat_settings
+          UNION
+          SELECT DISTINCT user_id FROM conversations WHERE group_id IS NULL
+        ) targets
+        LEFT JOIN private_chat_settings pcs ON targets.user_id = pcs.user_id
+        LEFT JOIN (
+          SELECT
+            user_id,
+            MAX(timestamp) as last_conversation_time,
+            COUNT(*) as total_conversations,
+            COUNT(CASE WHEN status = 'completed' AND ai_response IS NOT NULL AND ai_response != '' THEN 1 END) as successful_replies,
+            COUNT(CASE WHEN status = 'failed' OR ai_response IS NULL OR ai_response = '' THEN 1 END) as failed_replies,
+            AVG(CASE WHEN response_time > 0 THEN response_time ELSE NULL END) as avg_response_time
+          FROM conversations
+          WHERE group_id IS NULL
+          GROUP BY user_id
+        ) stats ON targets.user_id = stats.user_id
         WHERE ${whereClause}
-        GROUP BY c.user_id, pcs.username, pcs.is_enabled, pcs.auto_reply_enabled, pcs.user_notes, pcs.agent_prompt_id
-        ORDER BY last_conversation_time DESC
+        ORDER BY COALESCE(stats.last_conversation_time, pcs.updated_at, pcs.created_at) DESC, targets.user_id DESC
         LIMIT ${limit} OFFSET ${offset}
       `, queryParams);
 
       // 获取总用户数
       const totalUsersResult = await database.executeQuery<{ total: number }>(`
-        SELECT COUNT(DISTINCT c.user_id) as total
-        FROM conversations c
-        LEFT JOIN private_chat_settings pcs ON c.user_id = pcs.user_id
+        SELECT COUNT(*) as total
+        FROM (
+          SELECT user_id FROM private_chat_settings
+          UNION
+          SELECT DISTINCT user_id FROM conversations WHERE group_id IS NULL
+        ) targets
+        LEFT JOIN private_chat_settings pcs ON targets.user_id = pcs.user_id
         WHERE ${whereClause}
       `, queryParams);
       const totalUsers = totalUsersResult[0]?.total || 0;
@@ -299,8 +351,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       // 获取用户设置
       const userSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
         SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
-               agent_prompt_id, last_activity,
-               human_like_scan_interval_ms, human_like_min_interval_ms, human_like_max_interval_ms
+               agent_prompt_id, last_activity
         FROM private_chat_settings
         WHERE user_id = ?
       `, [userId]);
@@ -314,10 +365,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         welcome_message: userSettingRow?.welcome_message || null,
         user_notes: userSettingRow?.user_notes || null,
         agent_prompt_id: userSettingRow?.agent_prompt_id || null,
-        last_activity: userSettingRow?.last_activity || null,
-        human_like_scan_interval_ms: userSettingRow?.human_like_scan_interval_ms ?? null,
-        human_like_min_interval_ms: userSettingRow?.human_like_min_interval_ms ?? null,
-        human_like_max_interval_ms: userSettingRow?.human_like_max_interval_ms ?? null
+        last_activity: userSettingRow?.last_activity || null
       };
 
       // 获取今日统计
@@ -350,7 +398,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         FROM conversations c
         WHERE ${whereClause}
         ORDER BY c.timestamp DESC
-        LIMIT ${offset}, ${limit}
+        LIMIT ${limit} OFFSET ${offset}
       `, queryParams);
 
       // 获取总数
@@ -474,6 +522,48 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
     }
   });
 
+  router.post('/private-chats', async (req, res) => {
+    try {
+      const userId = Number(req.body?.user_id);
+      const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
+
+      if (!Number.isFinite(userId) || userId <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid user ID',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const success = await database.upsertPrivateChatSettings(userId, {
+        username: username || null,
+        is_enabled: 1,
+        auto_reply_enabled: 0
+      });
+      const settings = await database.getPrivateChatSettingById(userId);
+
+      res.status(success ? 201 : 200).json({
+        success: true,
+        message: 'Private chat created successfully',
+        data: settings || {
+          user_id: userId,
+          username: username || null,
+          is_enabled: 1,
+          auto_reply_enabled: 0
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to create private chat settings', { error });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to create private chat settings',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   // 批量删除私聊用户
   router.delete('/private-chats/batch', async (req, res) => {
     try {
@@ -560,31 +650,13 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         'auto_reply_enabled',
         'welcome_message',
         'user_notes',
-        'agent_prompt_id',
-        'human_like_scan_interval_ms',
-        'human_like_min_interval_ms',
-        'human_like_max_interval_ms'
+        'agent_prompt_id'
       ]);
       const sanitizedUpdates: Record<string, any> = {};
       let validationError: string | null = null;
 
       Object.entries(updates || {}).forEach(([key, value]) => {
         if (!allowedFields.has(key) || value === undefined) {
-          return;
-        }
-
-        if (key.endsWith('_ms')) {
-          if (value === null || value === '') {
-            sanitizedUpdates[key] = null;
-            return;
-          }
-
-          const numericValue = Number(value);
-          if (!Number.isFinite(numericValue) || numericValue <= 0) {
-            validationError = `Invalid value for ${key}`;
-            return;
-          }
-          sanitizedUpdates[key] = Math.round(numericValue);
           return;
         }
 
@@ -612,36 +684,11 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         });
       }
 
-      const hasMin = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'human_like_min_interval_ms');
-      const hasMax = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'human_like_max_interval_ms');
-      const hasScan = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'human_like_scan_interval_ms');
-
-      const minValue = hasMin ? sanitizedUpdates.human_like_min_interval_ms : undefined;
-      const maxValue = hasMax ? sanitizedUpdates.human_like_max_interval_ms : undefined;
-      const scanValue = hasScan ? sanitizedUpdates.human_like_scan_interval_ms : undefined;
-
-      if (minValue !== undefined && maxValue !== undefined && minValue !== null && maxValue !== null && minValue > maxValue) {
-        return res.status(400).json({
-          success: false,
-          error: 'human_like_min_interval_ms must be less than or equal to human_like_max_interval_ms',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      if (scanValue !== undefined && minValue !== undefined && scanValue !== null && minValue !== null && scanValue < minValue) {
-        sanitizedUpdates.human_like_scan_interval_ms = minValue;
-      }
-
-      if (scanValue !== undefined && maxValue !== undefined && scanValue !== null && maxValue !== null && scanValue > maxValue) {
-        sanitizedUpdates.human_like_scan_interval_ms = maxValue;
-      }
-
       const success = await database.upsertPrivateChatSettings(userId, sanitizedUpdates);
 
       const updatedSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
         SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
-               agent_prompt_id, last_activity,
-               human_like_scan_interval_ms, human_like_min_interval_ms, human_like_max_interval_ms
+               agent_prompt_id, last_activity
         FROM private_chat_settings
         WHERE user_id = ?
       `, [userId]);
@@ -749,8 +796,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       // 获取群聊设置
       const groupSettingsRows = await database.executeQuery<GroupChatSettingRow>(`
         SELECT group_id, group_name, is_enabled, auto_reply_enabled, welcome_message,
-               admin_user_id, agent_prompt_id, last_activity,
-               human_like_scan_interval_ms, human_like_min_interval_ms, human_like_max_interval_ms
+               admin_user_id, agent_prompt_id, last_activity
         FROM group_chat_settings
         WHERE group_id = ?
       `, [groupId]);
@@ -764,10 +810,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         welcome_message: groupSettingsRow?.welcome_message || null,
         admin_user_id: groupSettingsRow?.admin_user_id || null,
         agent_prompt_id: groupSettingsRow?.agent_prompt_id || null,
-        last_activity: groupSettingsRow?.last_activity || null,
-        human_like_scan_interval_ms: groupSettingsRow?.human_like_scan_interval_ms ?? null,
-        human_like_min_interval_ms: groupSettingsRow?.human_like_min_interval_ms ?? null,
-        human_like_max_interval_ms: groupSettingsRow?.human_like_max_interval_ms ?? null
+        last_activity: groupSettingsRow?.last_activity || null
       };
 
       // 获取今日统计
@@ -796,7 +839,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         FROM conversations c
         WHERE ${whereClause}
         ORDER BY c.timestamp DESC
-        LIMIT ${offset}, ${limit}
+        LIMIT ${limit} OFFSET ${offset}
       `, queryParams);
 
       // 获取总数
@@ -854,29 +897,13 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         'is_enabled',
         'auto_reply_enabled',
         'welcome_message',
-        'admin_user_id',
-        'human_like_scan_interval_ms',
-        'human_like_min_interval_ms',
-        'human_like_max_interval_ms'
+        'admin_user_id'
       ]);
       const sanitizedUpdates: Record<string, any> = {};
       let validationError: string | null = null;
 
       Object.entries(updates || {}).forEach(([key, value]) => {
         if (allowedFields.has(key) && value !== undefined) {
-          if (key.endsWith('_ms')) {
-            if (value === null || value === '') {
-              sanitizedUpdates[key] = null;
-              return;
-            }
-            const numericValue = Number(value);
-            if (!Number.isFinite(numericValue) || numericValue <= 0) {
-              validationError = `Invalid value for ${key}`;
-              return;
-            }
-            sanitizedUpdates[key] = Math.round(numericValue);
-            return;
-          }
           sanitizedUpdates[key] = value;
         }
       });
@@ -897,31 +924,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         });
       }
 
-      const hasMin = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'human_like_min_interval_ms');
-      const hasMax = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'human_like_max_interval_ms');
-      const hasScan = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'human_like_scan_interval_ms');
-
-      const minValue = hasMin ? sanitizedUpdates.human_like_min_interval_ms : undefined;
-      const maxValue = hasMax ? sanitizedUpdates.human_like_max_interval_ms : undefined;
-      const scanValue = hasScan ? sanitizedUpdates.human_like_scan_interval_ms : undefined;
-
-      if (minValue !== undefined && maxValue !== undefined && minValue !== null && maxValue !== null && minValue > maxValue) {
-        return res.status(400).json({
-          success: false,
-          error: 'human_like_min_interval_ms must be less than or equal to human_like_max_interval_ms',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      if (scanValue !== undefined && minValue !== undefined && scanValue !== null && minValue !== null && scanValue < minValue) {
-        sanitizedUpdates.human_like_scan_interval_ms = minValue;
-      }
-
-      if (scanValue !== undefined && maxValue !== undefined && scanValue !== null && maxValue !== null && scanValue > maxValue) {
-        sanitizedUpdates.human_like_scan_interval_ms = maxValue;
-      }
-
-      const success = await database.updateGroupChatSettings(groupId, sanitizedUpdates);
+      const success = await database.upsertGroupChatSettings(groupId, sanitizedUpdates);
       const updatedSettings = await database.getGroupChatSettingById(groupId);
 
       if (!success) {
