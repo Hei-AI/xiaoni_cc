@@ -8,6 +8,118 @@ export interface TimelineEvent {
   metadata?: any;
 }
 
+export interface AgentRunSessionSummary {
+  session_key: string;
+  peer_name?: string | null;
+  chat_type: 'direct' | 'group';
+  latest_run_id: string;
+  latest_status: string;
+  last_termination_reason?: string | null;
+  last_finish_reason?: string | null;
+  last_finish_outcome?: string | null;
+  last_no_reply: boolean;
+  last_final_response?: string | null;
+  latest_started_at?: string | null;
+  latest_completed_at?: string | null;
+  latest_input_message_count: number;
+  latest_message_preview?: string | null;
+  total_runs: number;
+  failed_runs: number;
+  no_reply_runs: number;
+}
+
+export interface AgentRunListItem {
+  id: string;
+  batch_id: string;
+  trace_id: string;
+  conversation_id?: number | null;
+  session_key: string;
+  chat_type: 'direct' | 'group';
+  peer_id: string;
+  peer_name?: string | null;
+  status: string;
+  termination_reason?: string | null;
+  finish_reason?: string | null;
+  finish_outcome?: string | null;
+  no_reply: boolean;
+  final_response?: string | null;
+  total_turns: number;
+  error_message?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  input_message_count: number;
+  summary?: string | null;
+}
+
+export interface AgentRunInputMessage {
+  position: number;
+  queue_message_id: number;
+  message_sid?: string | null;
+  sender_id: string;
+  sender_name?: string | null;
+  body_for_agent: string;
+  raw_payload?: any;
+  inbound_context?: any;
+  created_at?: string | null;
+  processing_started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface AgentRunDetail {
+  session: {
+    session_key: string;
+    peer_id: string;
+    peer_name?: string | null;
+    chat_type: 'direct' | 'group';
+    account_id: string;
+  };
+  run: {
+    id: string;
+    batch_id: string;
+    trace_id: string;
+    conversation_id?: number | null;
+    status: string;
+    termination_reason?: string | null;
+    finish_reason?: string | null;
+    finish_outcome?: string | null;
+    no_reply: boolean;
+    final_response?: string | null;
+    error_message?: string | null;
+    total_turns: number;
+    started_at?: string | null;
+    completed_at?: string | null;
+    reason_for_start?: string | null;
+  };
+  input_batch: {
+    id: string;
+    message_count: number;
+    summary?: string | null;
+    messages: AgentRunInputMessage[];
+  };
+  decision: {
+    llm_calls_count: number;
+    tool_calls_count: number;
+    sent_messages_count: number;
+    llm_calls: any[];
+    tool_calls: any[];
+    timeline: any[];
+  };
+  result: {
+    final_response?: string | null;
+    sent_messages: string[];
+    no_reply: boolean;
+    termination_reason?: string | null;
+    finish_reason?: string | null;
+    finish_outcome?: string | null;
+    error_message?: string | null;
+  };
+  trace_summary: {
+    trace_id: string;
+    conversation_id?: number | null;
+  };
+}
+
 // New MESSAGE_FLOW_API types
 export interface LLMCallRecord {
   sequence: number;
@@ -33,6 +145,23 @@ export interface LLMCallRecord {
       input_tokens: number;
       output_tokens: number;
       total_tokens: number;
+    };
+    usage_details?: {
+      cached_input_tokens?: number;
+      reasoning_tokens?: number;
+      raw_usage?: any;
+    };
+    context_policy?: {
+      model?: string;
+      source?: string;
+      context_window_tokens?: number;
+      max_output_tokens?: number;
+      default_reply_budget_tokens?: number;
+      soft_trigger_ratio?: number;
+      hard_buffer_ratio?: number;
+      soft_trigger_tokens?: number;
+      hard_ceiling_tokens?: number;
+      reply_budget_tokens?: number;
     };
     performance: {
       api_call_time_ms: number;
@@ -184,6 +313,9 @@ export interface TimelineNode {
     input_tokens?: number;
     output_tokens?: number;
     total_tokens?: number;
+    cached_input_tokens?: number;
+    reasoning_tokens?: number;
+    context_policy?: LLMCallRecord['output']['context_policy'];
     processing_time_ms?: number;
     api_call_time_ms?: number;
     response_time_ms?: number;

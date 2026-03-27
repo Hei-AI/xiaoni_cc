@@ -186,8 +186,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           href: '/conversations',
           label: '对话流',
           icon: MessageCircle,
-          description: '全局会话记录与时间线',
-          active: location.pathname.startsWith('/conversation') || location.pathname.startsWith('/conversations'),
+          description: '按会话和 agent run 查看输入批次与回复原因',
+          active: location.pathname.startsWith('/conversations') || location.pathname.startsWith('/runs/'),
         },
         {
           href: '/groups',
@@ -231,7 +231,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           href: '/queue-management',
           label: '队列管理',
           icon: ClipboardList,
-          description: '运行时队列与消费状态',
+          description: '群聊/私聊对象列表与模拟投递',
           active: location.pathname === '/queue-management',
         },
         {

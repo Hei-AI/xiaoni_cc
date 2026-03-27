@@ -7,11 +7,11 @@ import './globals.css';
 const DashboardPage = lazy(async () => ({
   default: (await import('./pages/DashboardPage')).DashboardPage,
 }));
-const ConversationTimelinePage = lazy(async () => ({
-  default: (await import('./pages/ConversationTimelinePage')).ConversationTimelinePage,
-}));
 const ConversationsPage = lazy(async () => ({
   default: (await import('./pages/ConversationsPage')).ConversationsPage,
+}));
+const RunTracePage = lazy(async () => ({
+  default: (await import('./pages/RunTracePage')).RunTracePage,
 }));
 const GroupManagementPage = lazy(async () => ({
   default: (await import('./pages/GroupManagementPage')).GroupManagementPage,
@@ -82,8 +82,8 @@ function App() {
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/conversation/:conversationId/timeline" element={<ConversationTimelinePage />} />
               <Route path="/conversations" element={<ConversationsPage />} />
+              <Route path="/runs/:runId/trace" element={<RunTracePage />} />
               <Route path="/groups" element={<GroupManagementPage />} />
               <Route path="/groups/:groupId" element={<GroupChatDetailPage />} />
               <Route path="/private-chats" element={<PrivateChatManagementPage />} />

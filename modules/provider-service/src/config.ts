@@ -59,3 +59,7 @@ export const databaseConfig = {
   database: process.env.DB_NAME || 'qqbot_db',
   timezone: process.env.DB_TIMEZONE || 'Z'
 };
+
+export const agentRunConfig = {
+  batchWindowMs: Math.max(200, Number.parseInt(process.env.AGENT_RUN_BATCH_WINDOW_MS || '4000', 10))
+};

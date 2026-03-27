@@ -12,9 +12,9 @@ import { createLogRoutes } from './routes/log-routes';
 import { createStatusRoutes } from './routes/status-routes';
 import { createPromptRoutes } from './routes/prompt-routes';
 import { createChatRoutes } from './routes/chat-routes';
-import { createAgentRoutes } from './routes/agent-routes';
 import { createTrafficMonitorRoutes } from './routes/traffic-monitor-routes';
 import { createPlaygroundRoutes } from './routes/playground-routes';
+import { createRunRoutes } from './routes/run-routes';
 import simpleQueueRoutes from './routes/simple-queue';
 import { TrafficLogWatcher, DEFAULT_WATCHER_CONFIG } from './services/traffic-log-watcher';
 
@@ -88,6 +88,8 @@ app.use(cors({
   origin: [
     'http://localhost:3003',
     'http://127.0.0.1:3003',
+    'http://localhost:13003',
+    'http://127.0.0.1:13003',
     'http://qqbot-admin-frontend:3003'
   ],
   credentials: true,
@@ -131,12 +133,12 @@ async function startServer() {
   app.use('/api', createDebugRoutes(database, logger));         // Debug endpoints
   logger.info('🔧 Registering chat routes...');
   app.use('/api', createChatRoutes(database, logger));          // Group & private chats
-  logger.info('🔧 Registering agent routes...');
-  app.use('/api', createAgentRoutes(database, logger));         // Agent types
   logger.info('🔧 Registering traffic monitor routes...');
   app.use('/api', createTrafficMonitorRoutes(database, logger)); // HTTP traffic monitoring
   logger.info('🔧 Registering playground routes...');
   app.use('/api', createPlaygroundRoutes(database, logger));     // Playground cases & runs
+  logger.info('🔧 Registering run routes...');
+  app.use('/api', createRunRoutes(database, logger));            // Agent run workspace APIs
 
   logger.info('🔧 Registering inbox routes...');
   app.use('/api/inbox', inboxRoutes);

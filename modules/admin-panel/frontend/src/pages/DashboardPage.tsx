@@ -293,9 +293,9 @@ export const DashboardPage: React.FC = () => {
                     </>
                   }
                   action={
-                    <Link to={`/conversation/${conversation.id}/timeline`}>
+                    <Link to="/conversations">
                       <Button size="sm">
-                        时间线
+                        打开工作台
                         <ArrowRight className="ml-2 h-4 w-4" />
                       </Button>
                     </Link>
