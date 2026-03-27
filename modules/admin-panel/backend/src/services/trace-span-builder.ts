@@ -1,4 +1,5 @@
 import winston from 'winston';
+import { listTraceTrafficLogs } from '@qq-bot/persistence';
 import { DatabaseManager } from './database';
 
 type TraceConfidence = 'observed' | 'derived' | 'missing';
@@ -243,6 +244,32 @@ function normalizeHttpLog(log: any) {
     response_body: log.response_body || null,
     error_message: log.error_message || null,
     attribution: 'unattributed' as 'tool_call_id' | 'llm_call_id' | 'time_window' | 'unattributed'
+  };
+}
+
+function normalizeQueueMessage(row: any) {
+  return {
+    id: row.id,
+    trace_id: row.trace_id,
+    source: row.source || null,
+    message_sid: row.message_sid || null,
+    chat_type: row.chat_type || null,
+    session_key: row.session_key || null,
+    status: row.status || null,
+    sender_id: row.sender_id || null,
+    sender_name: row.sender_name || null,
+    peer_id: row.peer_id || null,
+    peer_name: row.peer_name || null,
+    body_for_agent: row.body_for_agent || null,
+    raw_payload: parseJsonField<any>(row.raw_payload, {}),
+    inbound_context: parseJsonField<any>(row.inbound_context, {}),
+    payload: parseJsonField<any>(row.payload, {}),
+    created_at: toIsoString(row.created_at),
+    processing_started_at: toIsoString(row.processing_started_at),
+    completed_at: toIsoString(row.completed_at),
+    conversation_id: row.conversation_id || null,
+    error_message: row.error_message || null,
+    result: parseJsonField<any>(row.result, {})
   };
 }
 
@@ -534,21 +561,6 @@ export async function buildConversationTracePayload(
     ORDER BY matched.timestamp ASC, matched.call_sequence ASC, matched.id ASC
   `;
 
-  const httpTrafficQuery = `
-    SELECT h.*
-    FROM http_traffic_logs h
-    INNER JOIN (
-      SELECT id, request_timestamp
-      FROM http_traffic_logs
-      WHERE trace_id = ?
-      UNION DISTINCT
-      SELECT id, request_timestamp
-      FROM http_traffic_logs
-      WHERE conversation_id = ?
-    ) matched ON matched.id = h.id
-    ORDER BY matched.request_timestamp ASC, matched.id ASC
-  `;
-
   const toolCallQuery = `
     SELECT t.*
     FROM tool_execution_logs t
@@ -560,7 +572,38 @@ export async function buildConversationTracePayload(
     ORDER BY matched.sort_time ASC, matched.id ASC
   `;
 
-  const [llmCallRows, toolCallRows, httpRows, websocketRows, timelineRows, llmJobRows] = await Promise.all([
+  const queueQuery = `
+    SELECT q.*
+    FROM agent_queue_messages q
+    INNER JOIN (
+      SELECT id, created_at
+      FROM agent_queue_messages
+      WHERE trace_id = ?
+      UNION DISTINCT
+      SELECT id, created_at
+      FROM agent_queue_messages
+      WHERE conversation_id = ?
+    ) matched ON matched.id = q.id
+    ORDER BY matched.created_at ASC, matched.id ASC
+  `;
+
+  const safeTrafficQuery = async () => {
+    try {
+      return await listTraceTrafficLogs({
+        traceId,
+        conversationId
+      });
+    } catch (error) {
+      logger.warn('Trace query failed: traffic persistence', {
+        error: error instanceof Error ? error.message : String(error),
+        conversationId,
+        traceId
+      });
+      return [];
+    }
+  };
+
+  const [llmCallRows, toolCallRows, httpRows, websocketRows, timelineRows, llmJobRows, queueRows] = await Promise.all([
     safeQuery(
       llmCallQuery,
       [traceId, conversationId],
@@ -571,11 +614,7 @@ export async function buildConversationTracePayload(
       [traceId],
       'tool_execution_logs'
     ),
-    safeQuery(
-      httpTrafficQuery,
-      [traceId, conversationId],
-      'http_traffic_logs'
-    ),
+    safeTrafficQuery(),
     safeQuery(
       `SELECT * FROM websocket_logs
        WHERE trace_id = ?
@@ -596,6 +635,11 @@ export async function buildConversationTracePayload(
        ORDER BY created_at ASC, id ASC`,
       [traceId],
       'llm_jobs'
+    ),
+    safeQuery(
+      queueQuery,
+      [traceId, conversationId],
+      'agent_queue_messages'
     )
   ]);
 
@@ -616,6 +660,7 @@ export async function buildConversationTracePayload(
     });
   const toolCalls = (toolCallRows as any[]).map(normalizeToolCall);
   const httpLogs = (httpRows as any[]).map(normalizeHttpLog);
+  const queueMessages = (queueRows as any[]).map(normalizeQueueMessage);
   const unattributedHttp = attachHttpLogs(toolCalls, llmCalls, httpLogs);
   const lifecycleSpans = pairTimelineEvents(timelineRows as any[]);
   const latestJob = (llmJobRows as any[]).length > 0 ? (llmJobRows as any[])[(llmJobRows as any[]).length - 1] : null;
@@ -629,6 +674,7 @@ export async function buildConversationTracePayload(
     ...llmCalls.map((call) => call.started_at),
     ...toolCalls.map((call) => call.started_at),
     ...httpLogs.map((log) => log.request_timestamp),
+    ...queueMessages.map((message) => message.created_at),
     ...(websocketRows as any[]).map((row) => toIsoString(row.timestamp)),
     toIsoString(conversation.timestamp)
   ].filter(Boolean).sort()[0] || null;
@@ -638,6 +684,7 @@ export async function buildConversationTracePayload(
     ...llmCalls.map((call) => call.completed_at),
     ...toolCalls.map((call) => call.completed_at),
     ...httpLogs.map((log) => log.response_timestamp),
+    ...queueMessages.map((message) => message.completed_at || message.processing_started_at || message.created_at),
     ...(websocketRows as any[]).map((row) => toIsoString(row.timestamp)),
     latestJob?.completed_at,
     toIsoString(conversation.timestamp)
@@ -709,6 +756,34 @@ export async function buildConversationTracePayload(
       links: [],
       confidence: 'observed',
       source_ref: firstInboundRow.id
+    }));
+  } else if (queueMessages.length > 0) {
+    const firstQueuedMessage = queueMessages[0];
+    spanRecords.push(createSpan({
+      span_id: `queue-ingress:${firstQueuedMessage.id}`,
+      parent_span_id: rootSpanId,
+      trace_id: traceId,
+      conversation_id: conversationId,
+      name: 'ingress.message',
+      kind: 'server',
+      status_code: firstQueuedMessage.error_message ? 'error' : 'ok',
+      status_message: firstQueuedMessage.error_message,
+      started_at: firstQueuedMessage.created_at,
+      ended_at: firstQueuedMessage.created_at,
+      duration_ms: null,
+      summary: safePreview(firstQueuedMessage.body_for_agent || firstQueuedMessage.raw_payload?.raw_message),
+      attributes: {
+        'semantic.role': 'ingress',
+        'message.type': firstQueuedMessage.chat_type,
+        'message.source': firstQueuedMessage.source
+      },
+      input: firstQueuedMessage.raw_payload,
+      output: firstQueuedMessage.inbound_context,
+      evidence: firstQueuedMessage,
+      events: [],
+      links: [],
+      confidence: 'observed',
+      source_ref: firstQueuedMessage.id
     }));
   }
 
@@ -1045,7 +1120,8 @@ export async function buildConversationTracePayload(
       llm_calls: llmCallRows,
       tool_calls: toolCallRows,
       http_logs: httpRows,
-      llm_jobs: llmJobRows
+      llm_jobs: llmJobRows,
+      queue_messages: queueRows
     },
     data_quality: {
       ...dataQuality,

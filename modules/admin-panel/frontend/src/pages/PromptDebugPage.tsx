@@ -43,8 +43,17 @@ interface DebugMessage {
   isEditing?: boolean;
   metadata?: {
     model: string;
-    tokensUsed?: number;
+    totalTokens?: number;
+    cachedInputTokens?: number;
+    reasoningTokens?: number;
     processingTime?: number;
+    contextPolicy?: {
+      source?: string;
+      contextWindowTokens?: number;
+      softTriggerTokens?: number;
+      hardCeilingTokens?: number;
+      replyBudgetTokens?: number;
+    };
   };
 }
 
@@ -110,6 +119,44 @@ const debugPrompt = async (promptId: string, messages: DebugMessage[], userInput
   }
 
   return response.json();
+};
+
+const toNumber = (value: unknown): number | undefined => {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+};
+
+const normalizeDebugMetadata = (response: any) => {
+  const totalTokens =
+    toNumber(response?.usage?.total_tokens) ??
+    toNumber(response?.usage?.totalTokenCount) ??
+    toNumber(response?.usageMetadata?.totalTokenCount);
+  const cachedInputTokens =
+    toNumber(response?.usage_details?.cached_input_tokens) ??
+    toNumber(response?.usage?.cached_input_tokens);
+  const reasoningTokens =
+    toNumber(response?.usage_details?.reasoning_tokens) ??
+    toNumber(response?.usage?.reasoning_tokens);
+  const processingTime =
+    toNumber(response?.performance?.duration_ms) ??
+    toNumber(response?.performance?.processing_time_ms) ??
+    toNumber(response?.processingTime);
+  const contextPolicy = response?.context_policy
+    ? {
+        source: typeof response.context_policy.source === 'string' ? response.context_policy.source : undefined,
+        contextWindowTokens: toNumber(response.context_policy.context_window_tokens),
+        softTriggerTokens: toNumber(response.context_policy.soft_trigger_tokens),
+        hardCeilingTokens: toNumber(response.context_policy.hard_ceiling_tokens),
+        replyBudgetTokens: toNumber(response.context_policy.reply_budget_tokens)
+      }
+    : undefined;
+
+  return {
+    totalTokens,
+    cachedInputTokens,
+    reasoningTokens,
+    processingTime,
+    contextPolicy
+  };
 };
 
 export const PromptDebugPage: React.FC = () => {
@@ -353,8 +400,7 @@ export const PromptDebugPage: React.FC = () => {
         timestamp: new Date(),
         metadata: {
           model: response.model || 'unknown',
-          tokensUsed: response.usage?.totalTokenCount || response.usageMetadata?.totalTokenCount,
-          processingTime: response.processingTime
+          ...normalizeDebugMetadata(response)
         }
       };
 
@@ -637,10 +683,25 @@ export const PromptDebugPage: React.FC = () => {
 
                               {message.metadata && !editingMessageId && (
                                 <div className="mt-2 border-t border-border pt-2">
-                                  <div className="space-x-4 text-xs opacity-75">
+                                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs opacity-75">
                                     {message.metadata.model && <span>模型: {message.metadata.model}</span>}
-                                    {message.metadata.tokensUsed && <span>Tokens: {message.metadata.tokensUsed}</span>}
-                                    {message.metadata.processingTime && <span>耗时: {message.metadata.processingTime}ms</span>}
+                                    {typeof message.metadata.totalTokens !== 'undefined' && <span>Total: {message.metadata.totalTokens}</span>}
+                                    {typeof message.metadata.cachedInputTokens !== 'undefined' && <span>Cached: {message.metadata.cachedInputTokens}</span>}
+                                    {typeof message.metadata.reasoningTokens !== 'undefined' && <span>Reasoning: {message.metadata.reasoningTokens}</span>}
+                                    {typeof message.metadata.processingTime !== 'undefined' && <span>耗时: {message.metadata.processingTime}ms</span>}
+                                    {typeof message.metadata.contextPolicy?.contextWindowTokens !== 'undefined' && (
+                                      <span>窗口: {message.metadata.contextPolicy.contextWindowTokens}</span>
+                                    )}
+                                    {typeof message.metadata.contextPolicy?.softTriggerTokens !== 'undefined' && (
+                                      <span>Soft: {message.metadata.contextPolicy.softTriggerTokens}</span>
+                                    )}
+                                    {typeof message.metadata.contextPolicy?.hardCeilingTokens !== 'undefined' && (
+                                      <span>Hard: {message.metadata.contextPolicy.hardCeilingTokens}</span>
+                                    )}
+                                    {typeof message.metadata.contextPolicy?.replyBudgetTokens !== 'undefined' && (
+                                      <span>Reply: {message.metadata.contextPolicy.replyBudgetTokens}</span>
+                                    )}
+                                    {message.metadata.contextPolicy?.source && <span>策略: {message.metadata.contextPolicy.source}</span>}
                                   </div>
                                 </div>
                               )}

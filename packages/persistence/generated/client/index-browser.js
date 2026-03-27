@@ -177,12 +177,92 @@ exports.Prisma.AgentInboundMessageScalarFieldEnum = {
   updated_at: 'updated_at'
 };
 
+exports.Prisma.HttpTrafficLogScalarFieldEnum = {
+  id: 'id',
+  request_id: 'request_id',
+  trace_id: 'trace_id',
+  conversation_id: 'conversation_id',
+  user_id: 'user_id',
+  session_id: 'session_id',
+  agent_turn: 'agent_turn',
+  llm_call_id: 'llm_call_id',
+  tool_call_id: 'tool_call_id',
+  container_name: 'container_name',
+  service_name: 'service_name',
+  method: 'method',
+  url: 'url',
+  host: 'host',
+  path: 'path',
+  query_params: 'query_params',
+  request_headers: 'request_headers',
+  request_body: 'request_body',
+  request_content_type: 'request_content_type',
+  request_size: 'request_size',
+  response_status: 'response_status',
+  response_headers: 'response_headers',
+  response_body: 'response_body',
+  response_content_type: 'response_content_type',
+  response_size: 'response_size',
+  duration_ms: 'duration_ms',
+  request_timestamp: 'request_timestamp',
+  response_timestamp: 'response_timestamp',
+  is_ai_request: 'is_ai_request',
+  api_type: 'api_type',
+  api_version: 'api_version',
+  client_ip: 'client_ip',
+  user_agent: 'user_agent',
+  error_message: 'error_message',
+  created_at: 'created_at'
+};
+
+exports.Prisma.TrafficReplayHistoryScalarFieldEnum = {
+  id: 'id',
+  original_log_id: 'original_log_id',
+  replay_name: 'replay_name',
+  target_url: 'target_url',
+  request_method: 'request_method',
+  request_headers: 'request_headers',
+  request_body: 'request_body',
+  response_status: 'response_status',
+  response_headers: 'response_headers',
+  response_body: 'response_body',
+  duration_ms: 'duration_ms',
+  status: 'status',
+  error_message: 'error_message',
+  replayed_at: 'replayed_at',
+  replayed_by: 'replayed_by',
+  modified_method: 'modified_method',
+  modified_url: 'modified_url',
+  modified_headers: 'modified_headers',
+  modified_body: 'modified_body',
+  modification_summary: 'modification_summary',
+  replay_request_headers: 'replay_request_headers',
+  replay_request_body: 'replay_request_body',
+  replay_response_status: 'replay_response_status',
+  replay_duration_ms: 'replay_duration_ms',
+  replay_response_headers: 'replay_response_headers',
+  replay_response_body: 'replay_response_body',
+  replay_response_size: 'replay_response_size',
+  diff_summary: 'diff_summary',
+  status_code_match: 'status_code_match',
+  response_body_match: 'response_body_match',
+  duration_diff_ms: 'duration_diff_ms',
+  body_size_diff: 'body_size_diff',
+  success: 'success',
+  template_id: 'template_id'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
 };
 
 exports.Prisma.JsonNullValueInput = {
+  JsonNull: Prisma.JsonNull
+};
+
+exports.Prisma.NullableJsonNullValueInput = {
+  DbNull: Prisma.DbNull,
   JsonNull: Prisma.JsonNull
 };
 
@@ -206,7 +286,9 @@ exports.Prisma.JsonNullValueFilter = {
 exports.Prisma.ModelName = {
   GroupChatSetting: 'GroupChatSetting',
   PrivateChatSetting: 'PrivateChatSetting',
-  AgentInboundMessage: 'AgentInboundMessage'
+  AgentInboundMessage: 'AgentInboundMessage',
+  HttpTrafficLog: 'HttpTrafficLog',
+  TrafficReplayHistory: 'TrafficReplayHistory'
 };
 
 /**

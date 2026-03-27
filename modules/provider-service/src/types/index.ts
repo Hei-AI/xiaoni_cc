@@ -202,3 +202,26 @@ export interface InboxStats {
   lastReceivedAt?: string | null;
   runtimeUnreadMessages: number;
 }
+
+export interface SemanticInboundMessage {
+  traceId: string;
+  source: string;
+  messageId: number;
+  messageSid: string;
+  dedupeKey?: string;
+  chatType: 'direct' | 'group';
+  sessionKey: string;
+  peerId: string;
+  peerName?: string;
+  senderId: string;
+  senderName?: string;
+  accountId: string;
+  bodyForAgent: string;
+  rawBody: string;
+  commandBody: string;
+  wasMentioned: boolean;
+  receivedAt: string;
+  messageTimestamp?: string | null;
+  rawPayload: Record<string, unknown>;
+  inboundContext: FinalizedInboundContext;
+}

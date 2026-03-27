@@ -1,6 +1,9 @@
+import { v4 as uuidv4 } from 'uuid';
 import { UnifiedLLMConfig } from '../types';
 import { createProviderClient, resolveProviderId } from './llm-provider';
+import { computeContextThresholds, resolveModelContextPolicy } from './llm-provider/model-context-policy';
 import { OpenResponseCreateRequest, OpenResponseInputItem } from './llm-provider/types';
+import { runtimeStoreService } from './runtime-store-service';
 
 type DebugPayload = {
   canonicalRequest?: Record<string, any>;
@@ -12,6 +15,14 @@ type DebugPayload = {
   parameters?: Record<string, any>;
   model?: string;
   conversation_id?: string;
+};
+
+type AgentExecutePayload = DebugPayload & {
+  trace_id?: string;
+  agent_turn?: number;
+  agent_type?: string;
+  prompt_name?: string;
+  llm_call_id?: string;
 };
 
 function normalizeStringArray(value: unknown): string[] | undefined {
@@ -52,7 +63,7 @@ function buildMessagesInput(systemPrompt: string | undefined, messages: Array<{ 
   return input;
 }
 
-function buildUnifiedConfig(
+export function buildUnifiedConfig(
   modelName: string,
   provider: ReturnType<typeof resolveProviderId>,
   parameters: Record<string, any> = {},
@@ -161,7 +172,11 @@ function buildRequestFromMessages(
   };
 }
 
-export async function executeDebugRequest(payload: DebugPayload) {
+async function executeProviderRequest(
+  payload: AgentExecutePayload,
+  executionMode: string,
+  persistLlmCall: boolean
+) {
   const canonicalRequest = payload.canonicalRequest && typeof payload.canonicalRequest === 'object'
     ? payload.canonicalRequest as OpenResponseCreateRequest
     : null;
@@ -189,17 +204,57 @@ export async function executeDebugRequest(payload: DebugPayload) {
   );
   const request = canonicalRequest || buildRequestFromMessages(modelName, payload.systemPrompt, messages, config);
   const client = createProviderClient(providerId);
+  const startedAt = Date.now();
   const result = await client.generateContent({
     request,
     modelName,
     providerConfig: config,
     context: {
-      conversationId: payload.conversation_id
+      traceId: payload.trace_id,
+      conversationId: payload.conversation_id,
+      agentTurn: payload.agent_turn,
+      agentType: payload.agent_type,
+      llmCallId: payload.llm_call_id
     }
   });
+  const finishedAt = Date.now();
+  const contextPolicy = resolveModelContextPolicy(modelName, config);
+  const contextThresholds = contextPolicy
+    ? computeContextThresholds(contextPolicy, request.max_output_tokens)
+    : null;
+
+  const llmCallId = payload.llm_call_id
+    || result.canonicalResponse?.id
+    || `llm_${Date.now()}_${uuidv4().slice(0, 8)}`;
+
+  if (persistLlmCall) {
+    await runtimeStoreService.recordLlmCall({
+      traceId: payload.trace_id,
+      conversationId: payload.conversation_id,
+      llmCallId,
+      agentTurn: payload.agent_turn,
+      agentType: payload.agent_type,
+      promptName: payload.prompt_name,
+      modelName: result.modelName,
+      modelProvider: result.provider,
+      canonicalRequest: result.canonicalRequest as Record<string, unknown>,
+      wireRequest: result.wireRequest as Record<string, unknown>,
+      canonicalResponse: result.canonicalResponse as Record<string, unknown>,
+      wireResponse: result.wireResponse as Record<string, unknown>,
+      effectiveUnifiedConfig: config as unknown as Record<string, unknown>,
+      processedResponse: result.text,
+      usage: {
+        ...result.usage,
+        processingTimeMs: result.usage.processingTimeMs || (finishedAt - startedAt)
+      },
+      requestFormatVersion: result.requestFormatVersion,
+      wireProviderFormat: result.wireProviderFormat
+    });
+  }
 
   return {
     success: true,
+    llm_call_id: llmCallId,
     response: result.text,
     thinking: '',
     model: result.modelName,
@@ -207,7 +262,13 @@ export async function executeDebugRequest(payload: DebugPayload) {
     usage: {
       input_tokens: result.usage.inputTokens,
       output_tokens: result.usage.outputTokens,
-      total_tokens: result.usage.inputTokens + result.usage.outputTokens
+      total_tokens: result.usage.totalTokens
+    },
+    usage_details: {
+      total_tokens: result.usage.totalTokens,
+      cached_input_tokens: result.usage.cachedInputTokens || 0,
+      reasoning_tokens: result.usage.reasoningTokens || 0,
+      raw_usage: result.usage.rawUsage || {}
     },
     performance: {
       processing_time_ms: result.usage.processingTimeMs
@@ -217,9 +278,39 @@ export async function executeDebugRequest(payload: DebugPayload) {
     canonical_response: result.canonicalResponse,
     wire_response: result.wireResponse,
     raw_response: result.rawResponse,
+    context_policy: contextPolicy
+      ? {
+          model: contextPolicy.model,
+          source: contextPolicy.source,
+          context_window_tokens: contextPolicy.contextWindowTokens,
+          max_output_tokens: contextPolicy.maxOutputTokens,
+          default_reply_budget_tokens: contextPolicy.defaultReplyBudgetTokens,
+          soft_trigger_ratio: contextPolicy.softTriggerRatio,
+          hard_buffer_ratio: contextPolicy.hardBufferRatio,
+          soft_trigger_tokens: contextThresholds?.softTriggerTokens || null,
+          hard_ceiling_tokens: contextThresholds?.hardCeilingTokens || null,
+          reply_budget_tokens: contextThresholds?.replyBudgetTokens || null
+        }
+      : null,
     debug_metadata: {
-      execution_mode: payload.executionMode || (canonicalRequest ? 'exact_replay' : 'prompt_debug'),
+      execution_mode: executionMode,
       config_override_applied: Boolean(configOverride)
     }
   };
+}
+
+export async function executeDebugRequest(payload: DebugPayload) {
+  return executeProviderRequest(
+    payload,
+    payload.executionMode || (payload.canonicalRequest ? 'exact_replay' : 'prompt_debug'),
+    false
+  );
+}
+
+export async function executeAgentRequest(payload: AgentExecutePayload) {
+  return executeProviderRequest(
+    payload,
+    payload.executionMode || 'agent_loop',
+    true
+  );
 }

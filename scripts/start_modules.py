@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-QQ Bot - 3模块自动启动管理脚本
+QQ Bot - 模块自动启动管理脚本
 解决端口冲突，并行启动，错误处理
 """
 
@@ -54,6 +54,8 @@ class ModuleManager:
         self.project_root = Path(__file__).parent.parent
         self.local_state_dir = Path.home() / '.qqbot-local'
         self.local_frontend_access_file = self.local_state_dir / 'playwright' / 'local-frontend-access.json'
+        self.local_frontend_port = 13003
+        self.local_backend_proxy_target = 'http://127.0.0.1:9080'
         self.root_project = {
             'name': 'Repository Root',
             'path': '.',
@@ -61,25 +63,9 @@ class ModuleManager:
         }
         self.modules = [
             {
-                'name': 'Provider Service',
-                'path': 'modules/provider-service',
-                'port': 8091,
-                'health_endpoint': '/health',
-                'npm_script': 'dev',
-                'install_check_packages': ['express', 'ts-node']
-            },
-            {
-                'name': 'Admin Backend',
-                'path': 'modules/admin-panel/backend',
-                'port': 9080,
-                'health_endpoint': '/health', 
-                'npm_script': 'dev',
-                'install_check_packages': ['express', 'ts-node']
-            },
-            {
                 'name': 'Admin Frontend',
                 'path': 'modules/admin-panel/frontend',
-                'port': 3003,
+                'port': self.local_frontend_port,
                 'health_endpoint': '/',
                 'npm_script': 'dev',
                 'install_check_packages': ['vite', 'react']
@@ -87,6 +73,26 @@ class ModuleManager:
         ]
         self.processes = {}
         self.pid_file = self.project_root / 'scripts' / 'module_pids.json'
+
+    def _module_log_files(self, module: Dict) -> Tuple[Path, Path]:
+        safe_name = module['name'].lower().replace(' ', '-')
+        log_dir = self.project_root / 'logs' / 'local-dev'
+        log_dir.mkdir(parents=True, exist_ok=True)
+        return (
+            log_dir / f'{safe_name}.stdout.log',
+            log_dir / f'{safe_name}.stderr.log'
+        )
+
+    def _read_log_tail(self, log_file: Path, max_lines: int = 20) -> str:
+        if not log_file.exists():
+            return ''
+
+        try:
+            lines = log_file.read_text(encoding='utf-8', errors='replace').splitlines()
+        except OSError:
+            return ''
+
+        return '\n'.join(lines[-max_lines:]).strip()
 
     def _get_host_access_ip(self) -> Optional[str]:
         """获取宿主机浏览器应访问的 WSL IP"""
@@ -106,9 +112,10 @@ class ModuleManager:
         host_access_ip = self._get_host_access_ip()
         payload = {
             'generated_at': int(time.time()),
-            'frontend_localhost_url': 'http://localhost:3003',
-            'frontend_host_browser_url': f'http://{host_access_ip}:3003' if host_access_ip else None,
-            'host_access_ip': host_access_ip
+            'frontend_localhost_url': f'http://localhost:{self.local_frontend_port}',
+            'frontend_host_browser_url': f'http://{host_access_ip}:{self.local_frontend_port}' if host_access_ip else None,
+            'host_access_ip': host_access_ip,
+            'backend_proxy_target': self.local_backend_proxy_target
         }
 
         self.local_frontend_access_file.parent.mkdir(parents=True, exist_ok=True)
@@ -121,8 +128,9 @@ class ModuleManager:
         env = os.environ.copy()
 
         if module['name'] == 'Admin Frontend':
-            # Host Chrome attaches from Windows, so expose Vite on the WSL interface.
             env['VITE_DEV_HOST'] = env.get('VITE_DEV_HOST', '0.0.0.0')
+            env['VITE_DEV_PORT'] = env.get('VITE_DEV_PORT', str(self.local_frontend_port))
+            env['VITE_API_PROXY_TARGET'] = env.get('VITE_API_PROXY_TARGET', self.local_backend_proxy_target)
 
         return env
 
@@ -223,7 +231,7 @@ class ModuleManager:
             Logger.info(f"已清理端口: {', '.join(map(str, cleaned))}")
         else:
             Logger.info("无需清理端口")
-    
+
     def _is_port_in_use(self, port: int) -> bool:
         """检查端口是否被占用"""
         try:
@@ -233,6 +241,34 @@ class ModuleManager:
                 return result == 0
         except:
             return False
+
+    def _port_owned_by_process_tree(self, port: int, pid: int) -> bool:
+        """检查端口是否由指定进程或其子进程占用"""
+        try:
+            root_process = psutil.Process(pid)
+        except psutil.NoSuchProcess:
+            return False
+
+        process_tree = {pid}
+        try:
+            process_tree.update(child.pid for child in root_process.children(recursive=True))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+        for proc in psutil.process_iter(['pid']):
+            try:
+                if proc.pid not in process_tree:
+                    continue
+
+                for conn in proc.connections(kind='inet'):
+                    if conn.status != psutil.CONN_LISTEN or not conn.laddr:
+                        continue
+                    if conn.laddr.port == port:
+                        return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+        return False
     
     def _kill_port_processes(self, port: int) -> bool:
         """杀死占用端口的进程"""
@@ -318,28 +354,33 @@ class ModuleManager:
         Logger.step(f"启动 {module['name']}...")
         
         try:
+            stdout_log, stderr_log = self._module_log_files(module)
+
             # 启动npm进程
-            process = subprocess.Popen(
-                ['npm', 'run', module['npm_script']],
-                cwd=module_path,
-                env=self._build_process_env(module),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
+            with open(stdout_log, 'a', encoding='utf-8') as stdout_handle, open(stderr_log, 'a', encoding='utf-8') as stderr_handle:
+                process = subprocess.Popen(
+                    ['npm', 'run', module['npm_script']],
+                    cwd=module_path,
+                    env=self._build_process_env(module),
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout_handle,
+                    stderr=stderr_handle,
+                    text=True,
+                    start_new_session=True
+                )
             
             # 等待服务启动
             max_attempts = 60  # 60秒超时
             for attempt in range(max_attempts):
                 if process.poll() is not None:
-                    # 进程已退出
-                    stdout, stderr = process.communicate()
                     Logger.error(f"{module['name']} 启动失败，进程已退出")
-                    Logger.error(f"错误输出: {stderr}")
+                    stderr_tail = self._read_log_tail(stderr_log)
+                    stdout_tail = self._read_log_tail(stdout_log)
+                    Logger.error(f"错误输出: {stderr_tail or stdout_tail or '无日志输出'}")
                     return False, None
                 
                 # 检查端口是否监听
-                if self._is_port_in_use(module['port']):
+                if self._port_owned_by_process_tree(module['port'], process.pid):
                     Logger.success(f"{module['name']} 启动成功 (端口: {module['port']})")
                     return True, process.pid
                 
@@ -359,7 +400,7 @@ class ModuleManager:
     def start_all_modules(self) -> bool:
         """启动所有模块"""
         Logger.info("🚀 开始启动所有模块...")
-        
+
         # 清理端口
         self.cleanup_ports()
         
@@ -367,38 +408,10 @@ class ModuleManager:
         if not self.check_dependencies():
             return False
         
-        # 并行启动前三个模块
-        frontend_module = self.modules.pop()  # 取出前端模块
-        
-        def start_single_module(module):
-            return self.start_module(module)
-        
-        # 并行启动后端模块
-        Logger.step("并行启动后端模块...")
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = {executor.submit(start_single_module, module): module for module in self.modules}
-            
-            success_count = 0
-            for future in as_completed(futures):
-                module = futures[future]
-                try:
-                    success, pid = future.result()
-                    if success:
-                        success_count += 1
-                        self.processes[module['name']] = pid
-                except Exception as e:
-                    Logger.error(f"启动 {module['name']} 时出错: {e}")
-        
-        if success_count != len(self.modules):
-            Logger.error("后端模块启动失败")
-            return False
-        
-        # 启动前端模块
-        Logger.step("启动前端模块...")
+        frontend_module = self.modules[0]
         success, pid = self.start_module(frontend_module)
         if success:
             self.processes[frontend_module['name']] = pid
-            self.modules.append(frontend_module)  # 重新加入列表
         else:
             Logger.error("前端模块启动失败")
             return False
@@ -497,6 +510,7 @@ class ModuleManager:
                     Logger.info(f"  - {module['name']} (宿主机 Chrome / Playwright MCP): http://{host_access_ip}:{module['port']}")
                 else:
                     Logger.warn(f"  - {module['name']} 宿主机地址解析失败，请查看 {access_file}")
+                Logger.info(f"  - {module['name']} API 代理: {self.local_backend_proxy_target}")
             else:
                 Logger.info(f"  - {module['name']}: http://localhost:{module['port']}")
 
@@ -519,7 +533,7 @@ def main():
     command = sys.argv[1] if len(sys.argv) > 1 else 'start'
     
     if command == 'start':
-        Logger.info("🚀 QQ Bot - 4模块自动启动脚本")
+        Logger.info("🚀 QQ Bot - 本地前端联调启动脚本")
         Logger.info("=" * 50)
         success = manager.start_all_modules()
         if not success:

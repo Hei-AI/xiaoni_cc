@@ -21,6 +21,15 @@ export interface GeminiCompatibleUsage {
   totalTokenCount?: number;
 }
 
+export interface NormalizedUsageDetails {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedInputTokens: number;
+  reasoningTokens: number;
+  rawUsage: Record<string, any>;
+}
+
 export function cloneValue<T>(value: T): T {
   if (value === null || value === undefined) {
     return value;
@@ -402,14 +411,64 @@ export function toOpenResponseUsage(params: {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  rawUsage?: Record<string, any>;
 }): OpenResponseUsage {
   const inputTokens = params.inputTokens ?? 0;
   const outputTokens = params.outputTokens ?? 0;
   const totalTokens = params.totalTokens ?? (inputTokens + outputTokens);
+  const rawUsage = params.rawUsage && typeof params.rawUsage === 'object' ? params.rawUsage : {};
+  const inputTokenDetails = rawUsage.input_tokens_details && typeof rawUsage.input_tokens_details === 'object'
+    ? cloneValue(rawUsage.input_tokens_details)
+    : {};
+  const outputTokenDetails = rawUsage.output_tokens_details && typeof rawUsage.output_tokens_details === 'object'
+    ? cloneValue(rawUsage.output_tokens_details)
+    : {};
+
+  if (params.cachedInputTokens !== undefined) {
+    inputTokenDetails.cached_tokens = params.cachedInputTokens;
+  }
+  if (params.reasoningTokens !== undefined) {
+    outputTokenDetails.reasoning_tokens = params.reasoningTokens;
+  }
+
   return {
     input_tokens: inputTokens,
     output_tokens: outputTokens,
-    total_tokens: totalTokens
+    total_tokens: totalTokens,
+    ...(Object.keys(inputTokenDetails).length > 0 ? { input_tokens_details: inputTokenDetails } : {}),
+    ...(Object.keys(outputTokenDetails).length > 0 ? { output_tokens_details: outputTokenDetails } : {})
+  };
+}
+
+export function normalizeUsageDetails(rawUsage: any, fallbackOutputTokens: number = 0): NormalizedUsageDetails {
+  const usage = rawUsage && typeof rawUsage === 'object' ? cloneValue(rawUsage) : {};
+  const inputTokens = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0);
+  const outputTokens = Number(usage.output_tokens ?? usage.completion_tokens ?? fallbackOutputTokens);
+  const totalTokens = Number(usage.total_tokens ?? (inputTokens + outputTokens));
+  const inputTokenDetails = usage.input_tokens_details && typeof usage.input_tokens_details === 'object'
+    ? usage.input_tokens_details
+    : usage.prompt_tokens_details && typeof usage.prompt_tokens_details === 'object'
+      ? usage.prompt_tokens_details
+      : {};
+  const outputTokenDetails = usage.output_tokens_details && typeof usage.output_tokens_details === 'object'
+    ? usage.output_tokens_details
+    : usage.completion_tokens_details && typeof usage.completion_tokens_details === 'object'
+      ? usage.completion_tokens_details
+      : {};
+
+  return {
+    inputTokens: Number.isFinite(inputTokens) ? inputTokens : 0,
+    outputTokens: Number.isFinite(outputTokens) ? outputTokens : fallbackOutputTokens,
+    totalTokens: Number.isFinite(totalTokens) ? totalTokens : ((Number.isFinite(inputTokens) ? inputTokens : 0) + (Number.isFinite(outputTokens) ? outputTokens : fallbackOutputTokens)),
+    cachedInputTokens: Number.isFinite(Number(inputTokenDetails.cached_tokens))
+      ? Number(inputTokenDetails.cached_tokens)
+      : 0,
+    reasoningTokens: Number.isFinite(Number(outputTokenDetails.reasoning_tokens))
+      ? Number(outputTokenDetails.reasoning_tokens)
+      : 0,
+    rawUsage: usage
   };
 }
 

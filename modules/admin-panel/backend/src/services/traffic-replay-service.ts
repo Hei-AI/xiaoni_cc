@@ -4,6 +4,12 @@
  */
 
 import axios from 'axios';
+import {
+  createTrafficReplayHistory,
+  ensureReplayHistorySchema,
+  getTrafficLogById,
+  listTrafficReplayHistory
+} from '@qq-bot/persistence';
 import { DatabaseManager } from './database';
 import { ResponseComparator } from './response-comparator';
 
@@ -103,11 +109,9 @@ interface ReplayHistory {
 // ==================== TrafficReplayService类 ====================
 
 export class TrafficReplayService {
-  private db: DatabaseManager;
   private comparator: ResponseComparator;
 
-  constructor(db: DatabaseManager) {
-    this.db = db;
+  constructor(_db: DatabaseManager) {
     this.comparator = new ResponseComparator();
   }
 
@@ -116,6 +120,7 @@ export class TrafficReplayService {
    */
   async replayRequest(config: ReplayRequest): Promise<ReplayResult> {
     try {
+      await ensureReplayHistorySchema();
       console.log(`[TrafficReplay] Replaying request for log ID: ${config.originalLogId}`);
 
       // 1. 加载原始日志
@@ -296,12 +301,7 @@ export class TrafficReplayService {
    */
   async getReplayHistory(originalLogId: number): Promise<ReplayHistory[]> {
     try {
-      const results = await this.db.executeQuery<any>(
-        `SELECT * FROM traffic_replay_history
-         WHERE original_log_id = ?
-         ORDER BY replayed_at DESC`,
-        [originalLogId]
-      );
+      const results = await listTrafficReplayHistory(originalLogId);
 
       return results.map(row => ({
         id: row.id,
@@ -333,16 +333,10 @@ export class TrafficReplayService {
    * 加载原始日志
    */
   private async loadOriginalLog(logId: number): Promise<TrafficLog | null> {
-    const results = await this.db.executeQuery<any>(
-      'SELECT * FROM http_traffic_logs WHERE id = ?',
-      [logId]
-    );
-
-    if (results.length === 0) {
+    const row = await getTrafficLogById(logId);
+    if (!row) {
       return null;
     }
-
-    const row = results[0];
     return {
       id: row.id,
       trace_id: row.trace_id,
@@ -455,59 +449,31 @@ export class TrafficReplayService {
     errorMessage?: string;
   }): Promise<number> {
     try {
-      const sql = `
-        INSERT INTO traffic_replay_history (
-          original_log_id,
-          replayed_by,
-          modified_method,
-          modified_url,
-          modified_headers,
-          modified_body,
-          modification_summary,
-          replay_request_headers,
-          replay_request_body,
-          replay_response_status,
-          replay_duration_ms,
-          replay_response_headers,
-          replay_response_body,
-          replay_response_size,
-          diff_summary,
-          status_code_match,
-          response_body_match,
-          duration_diff_ms,
-          body_size_diff,
-          success,
-          error_message
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `;
+      const row = await createTrafficReplayHistory({
+        original_log_id: params.originalLogId,
+        replayed_by: 'admin',
+        modified_method: params.modifiedRequest.method || null,
+        modified_url: params.modifiedRequest.url || null,
+        modified_headers: params.modifiedRequest.headers || {},
+        modified_body: params.modifiedRequest.body || null,
+        modification_summary: params.modificationSummary,
+        replay_request_headers: params.modifiedRequest.headers || {},
+        replay_request_body: params.modifiedRequest.body || null,
+        replay_response_status: params.replayResponse.status || null,
+        replay_duration_ms: params.replayResponse.duration || null,
+        replay_response_headers: params.replayResponse.headers || {},
+        replay_response_body: params.replayResponse.body || null,
+        replay_response_size: params.replayResponse.size || null,
+        diff_summary: this.comparator.generateDiffSummary(params.comparison) || {},
+        status_code_match: params.comparison.statusMatch || false,
+        response_body_match: params.comparison.bodyMatch || false,
+        duration_diff_ms: params.comparison.durationDiff || null,
+        body_size_diff: params.comparison.bodySizeDiff || null,
+        success: params.success !== false,
+        error_message: params.errorMessage || null
+      });
 
-      const values = [
-        params.originalLogId,
-        'admin',  // TODO: 从请求上下文获取实际用户
-        params.modifiedRequest.method || null,
-        params.modifiedRequest.url || null,
-        JSON.stringify(params.modifiedRequest.headers || {}),
-        params.modifiedRequest.body || null,
-        JSON.stringify(params.modificationSummary),
-        JSON.stringify(params.modifiedRequest.headers || {}),
-        params.modifiedRequest.body || null,
-        params.replayResponse.status || null,
-        params.replayResponse.duration || null,
-        JSON.stringify(params.replayResponse.headers || {}),
-        params.replayResponse.body || null,
-        params.replayResponse.size || null,
-        JSON.stringify(this.comparator.generateDiffSummary(params.comparison) || {}),
-        params.comparison.statusMatch || false,
-        params.comparison.bodyMatch || false,
-        params.comparison.durationDiff || null,
-        params.comparison.bodySizeDiff || null,
-        params.success !== false,
-        params.errorMessage || null
-      ];
-
-      const result = await this.db.executeInsert(sql, values);
-
-      return result.insertId || 0;
+      return Number(row.id) || 0;
 
     } catch (error) {
       console.error('[TrafficReplay] Failed to save replay history:', error);

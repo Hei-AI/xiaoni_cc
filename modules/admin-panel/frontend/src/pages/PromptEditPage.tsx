@@ -11,7 +11,7 @@ import { Badge } from '../components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { ResizableSplit } from '../components/ui/resizable-split';
-import { FloatingWorkspacePanel, type FloatingWorkspacePanelState, type FloatingWorkspaceResizeMode } from '../components/ui/floating-workspace-panel';
+import { type FloatingWorkspacePanelState } from '../components/ui/floating-workspace-panel';
 import { Alert, AlertTitle, AlertDescription } from '../components/ui/alert';
 import {
   Dialog,
@@ -61,6 +61,14 @@ import {
   saveDebugSession,
   deleteDebugSession
 } from '../lib/promptDebugApi';
+import {
+  PLAYGROUND_PROVIDER_MODEL_OPTIONS,
+  PROVIDER_OPTIONS,
+  defaultModelForProvider,
+  inferProviderFromModelName,
+  normalizePromptProvider,
+  resolvePromptProviderConfig
+} from '@/lib/provider-config';
 
 interface AgentPrompt {
   id: string;
@@ -96,10 +104,19 @@ interface DebugMessage {
   metadata?: {
     model?: string;
     tokensUsed?: number | string;
+    cachedInputTokens?: number;
+    reasoningTokens?: number;
     processingTime?: number;
     tokenInfo?: {
       projectName?: string;
       tokenId?: string;
+    };
+    contextPolicy?: {
+      source?: string;
+      contextWindowTokens?: number;
+      softTriggerTokens?: number;
+      hardCeilingTokens?: number;
+      replyBudgetTokens?: number;
     };
   };
 }
@@ -126,7 +143,9 @@ interface CustomToolConfigState {
   sideEffect?: boolean;
 }
 
-type PlaygroundDesktopPanelId = 'overview' | 'history';
+const toNumber = (value: unknown): number | undefined => {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+};
 
 interface ToolsConfigState {
   functionCalling: {
@@ -225,23 +244,13 @@ const MEDIA_RESOLUTION_OPTIONS = [
   { value: 'MEDIA_RESOLUTION_LOW', label: '低分辨率' }
 ] as const;
 
-const MODEL_OPTIONS = [
-  {
-    value: 'gemini-2.5-pro',
-    label: 'Gemini 2.5 Pro',
-    description: '复杂推理与持久对话首选'
-  },
-  {
-    value: 'gemini-2.5-flash',
-    label: 'Gemini 2.5 Flash',
-    description: '平衡质量与延迟，生产默认'
-  },
-  {
-    value: 'gemini-flash-latest',
-    label: 'Gemini Flash Latest',
-    description: '最新轻量版本，适合快速迭代'
-  }
-] as const;
+const PROVIDER_MODEL_DESCRIPTIONS: Record<string, string> = {
+  'gemini-2.5-flash': '平衡质量与延迟，生产默认',
+  'gemini-2.5-pro': '复杂推理与持久对话首选',
+  'gpt-5.4-mini': '轻量通用默认值，适合快速迭代',
+  'gpt-5.4': '高质量输出与复杂任务',
+  'gpt-5.3-codex': '偏工具与代码执行场景'
+};
 
 const normalizeStopSequencesList = (value: any): string[] => {
   if (!Array.isArray(value)) {
@@ -460,17 +469,22 @@ const ensureAdvancedConfigDefaults = (advancedConfig: any): any => {
     base.safetySettings = DEFAULT_SAFETY_SETTINGS.map((setting) => ({ ...setting }));
   }
   if (!base.generationConfig) {
-    base.generationConfig = {
-      thinkingConfig: {
-        thinkingBudget: -1,
-        includeThoughts: true
-      }
-    };
-  } else if (!base.generationConfig.thinkingConfig) {
-    base.generationConfig.thinkingConfig = {
-      thinkingBudget: -1,
-      includeThoughts: true
-    };
+    base.generationConfig = {};
+  }
+
+  if (!base.thinkingConfig || typeof base.thinkingConfig !== 'object') {
+    const legacyThinking = base.generationConfig?.thinkingConfig;
+    base.thinkingConfig =
+      legacyThinking && typeof legacyThinking === 'object'
+        ? { ...(legacyThinking as Record<string, unknown>) }
+        : {
+            thinkingBudget: -1,
+            includeThoughts: true
+          };
+  }
+
+  if (base.generationConfig?.thinkingConfig) {
+    delete base.generationConfig.thinkingConfig;
   }
 
   base.toolsConfig = normalizeToolsConfig(base.toolsConfig);
@@ -522,25 +536,6 @@ interface GetConfigJsonParams {
   stopSequences?: string[];
 }
 
-const PREDEFINED_TOOL_FIELD_MAP: Record<string, string> = {
-  google_search: 'googleSearch',
-  googlesearch: 'googleSearch',
-  googleSearch: 'googleSearch',
-  google_search_retrieval: 'googleSearchRetrieval',
-  googlesearchretrieval: 'googleSearchRetrieval',
-  googleSearchRetrieval: 'googleSearchRetrieval',
-  code_execution: 'codeExecution',
-  codeexecution: 'codeExecution',
-  codeExecution: 'codeExecution',
-  vertex_ai_search: 'vertexAISearch',
-  vertexaisearch: 'vertexAISearch',
-  vertexAISearch: 'vertexAISearch',
-  retrieval: 'retrieval',
-  url_context: 'retrieval',
-  urlcontext: 'retrieval',
-  urlContext: 'retrieval'
-};
-
 const generateGetConfigJson = ({
   modelName,
   systemInstruction,
@@ -556,139 +551,6 @@ const generateGetConfigJson = ({
   const trimmedInstruction =
     typeof systemInstruction === 'string' ? systemInstruction.trim() : '';
 
-  const generation: Record<string, any> = {};
-  if (generationConfig && typeof generationConfig === 'object') {
-    Object.entries(generationConfig).forEach(([key, value]) => {
-      if (key === 'thinkingConfig' && value && typeof value === 'object') {
-        generation.thinkingConfig = { ...(value as Record<string, any>) };
-      } else {
-        generation[key] = value;
-      }
-    });
-  }
-
-  const numericModelKeys = [
-    'temperature',
-    'topP',
-    'topK',
-    'candidateCount',
-    'maxOutputTokens',
-    'responseLogprobs',
-    'logprobs',
-    'presencePenalty',
-    'frequencyPenalty',
-    'seed'
-  ];
-
-  numericModelKeys.forEach((key) => {
-    const coerced = coerceNumber(modelConfig?.[key]);
-    if (coerced !== undefined) {
-      generation[key] = coerced;
-    }
-  });
-
-  if (modelConfig?.responseMimeType) {
-    generation.responseMimeType = modelConfig.responseMimeType;
-  }
-  if (modelConfig?.responseSchema) {
-    generation.responseSchema = modelConfig.responseSchema;
-  }
-
-  let effectiveStopSequences: string[] = [];
-  if (Array.isArray(stopSequences) && stopSequences.length > 0) {
-    effectiveStopSequences = stopSequences;
-  } else if (Array.isArray(modelConfig?.stopSequences)) {
-    effectiveStopSequences = modelConfig.stopSequences;
-  } else if (Array.isArray(generation.stopSequences)) {
-    effectiveStopSequences = generation.stopSequences;
-  }
-  if (effectiveStopSequences.length > 0) {
-    generation.stopSequences = effectiveStopSequences;
-  }
-
-  const config: Record<string, any> = {};
-  if (trimmedInstruction.length > 0) {
-    config.systemInstruction = {
-      role: 'system',
-      parts: [{ text: trimmedInstruction }]
-    };
-  }
-
-  const generationKeyOrder = [
-    'temperature',
-    'topP',
-    'topK',
-    'candidateCount',
-    'maxOutputTokens',
-    'stopSequences',
-    'responseLogprobs',
-    'logprobs',
-    'presencePenalty',
-    'frequencyPenalty',
-    'seed',
-    'responseMimeType',
-    'responseSchema'
-  ];
-
-  generationKeyOrder.forEach((key) => {
-    if (generation[key] !== undefined) {
-      config[key] = generation[key];
-    }
-  });
-
-  const mediaResolution =
-    typeof modelConfig?.mediaResolution === 'string' && modelConfig.mediaResolution.length > 0
-      ? modelConfig.mediaResolution
-      : typeof advancedConfig?.mediaResolution === 'string'
-        ? advancedConfig.mediaResolution
-        : undefined;
-
-  if (mediaResolution) {
-    config.mediaResolution = mediaResolution;
-  }
-
-  if (Array.isArray(advancedConfig?.responseModalities)) {
-    config.responseModalities = advancedConfig.responseModalities;
-  }
-
-  if (advancedConfig?.httpOptions) {
-    config.httpOptions = advancedConfig.httpOptions;
-  }
-
-  if (advancedConfig?.labels) {
-    config.labels = advancedConfig.labels;
-  }
-
-  if (advancedConfig?.cachedContent) {
-    config.cachedContent = advancedConfig.cachedContent;
-  }
-
-  if (advancedConfig?.audioTimestamp !== undefined) {
-    config.audioTimestamp = advancedConfig.audioTimestamp;
-  }
-
-  if (advancedConfig?.speechConfig) {
-    config.speechConfig = advancedConfig.speechConfig;
-  }
-
-  if (advancedConfig?.routingConfig) {
-    config.routingConfig = advancedConfig.routingConfig;
-  }
-
-  const thinking = generation.thinkingConfig;
-  if (thinking && typeof thinking === 'object') {
-    const thinkingConfig: Record<string, any> = {};
-    if (typeof thinking.includeThoughts === 'boolean') {
-      thinkingConfig.includeThoughts = thinking.includeThoughts;
-    }
-    if (typeof thinking.thinkingBudget === 'number' && thinking.thinkingBudget >= 0) {
-      thinkingConfig.thinkingBudget = thinking.thinkingBudget;
-    }
-    if (Object.keys(thinkingConfig).length > 0) {
-      config.thinkingConfig = thinkingConfig;
-    }
-  }
-
   const normalizedSafety = Array.isArray(safetySettings)
     ? safetySettings.filter(
         (setting) =>
@@ -700,109 +562,52 @@ const generateGetConfigJson = ({
       )
     : [];
 
-  if (normalizedSafety.length > 0) {
-    config.safetySettings = normalizedSafety.map((setting) => ({
-      category: setting.category,
-      threshold: setting.threshold
-    }));
-  }
-
-  const toolPayloads: any[] = [];
-
-  if (Array.isArray(toolsConfig?.customTools)) {
-    const customDeclarations = toolsConfig.customTools
-      .map((tool) => {
-        if (!tool || typeof tool !== 'object' || !tool.name) {
-          return null;
-        }
-        const declaration: Record<string, any> = {
-          name: tool.name
-        };
-        if (tool.description && tool.description.trim().length > 0) {
-          declaration.description = tool.description.trim();
-        }
-        if (tool.parameters && typeof tool.parameters === 'object' && Object.keys(tool.parameters).length > 0) {
-          declaration.parameters = tool.parameters;
-        }
-        if ((tool as any).response && typeof (tool as any).response === 'object') {
-          declaration.response = (tool as any).response;
-        }
-        return declaration;
-      })
-      .filter(Boolean);
-
-    if (customDeclarations.length > 0) {
-      toolPayloads.push({ functionDeclarations: customDeclarations });
-    }
-  }
-
-  const predefinedEnabled = Array.isArray(toolsConfig?.predefinedTools?.enabledTools)
-    ? toolsConfig.predefinedTools.enabledTools
-    : [];
-  const addedPredefined = new Set<string>();
-
-  predefinedEnabled.forEach((toolName) => {
-    if (typeof toolName !== 'string') {
-      return;
-    }
-    const trimmed = toolName.trim();
-    if (!trimmed) {
-      return;
-    }
-    const lower = trimmed.toLowerCase();
-    const mappedField = PREDEFINED_TOOL_FIELD_MAP[trimmed] || PREDEFINED_TOOL_FIELD_MAP[lower];
-    if (!mappedField || addedPredefined.has(mappedField)) {
-      return;
-    }
-    let payload: any = undefined;
-    if (mappedField === 'googleSearch' && toolsConfig.googleSearch && typeof toolsConfig.googleSearch === 'object') {
-      payload = toolsConfig.googleSearch;
-    } else if (mappedField === 'retrieval' && toolsConfig.urlContext && typeof toolsConfig.urlContext === 'object') {
-      payload = toolsConfig.urlContext;
-    } else if (mappedField === 'googleSearchRetrieval' && toolsConfig.googleSearch && typeof toolsConfig.googleSearch === 'object') {
-      payload = toolsConfig.googleSearch;
-    }
-
-    toolPayloads.push(
-      payload && Object.keys(payload).length > 0
-        ? { [mappedField]: payload }
-        : { [mappedField]: {} }
-    );
-    addedPredefined.add(mappedField);
-  });
-
-  if (toolPayloads.length > 0) {
-    config.tools = toolPayloads;
-  }
-
-  const functionCallingMode = toolsConfig?.functionCalling?.mode || 'NONE';
-  const allowedFunctionNames = Array.isArray(toolsConfig?.functionCalling?.allowedFunctionNames)
-    ? toolsConfig.functionCalling.allowedFunctionNames.filter(
-        (name) => typeof name === 'string' && name.trim().length > 0
-      )
-    : [];
-
-  if (functionCallingMode && functionCallingMode !== 'NONE') {
-    const functionCallingConfig: Record<string, any> = {
-      mode: functionCallingMode
-    };
-    if (functionCallingMode === 'ANY' && allowedFunctionNames.length > 0) {
-      functionCallingConfig.allowedFunctionNames = allowedFunctionNames;
-    }
-    config.toolConfig = {
-      functionCallingConfig
-    };
-  }
-
+  const provider = normalizePromptProvider(
+    modelConfig?.provider || advancedConfig?.provider || inferProviderFromModelName(safeModelName)
+  );
+  const providerSpecific =
+    modelConfig?.providerSpecific && typeof modelConfig.providerSpecific === 'object'
+      ? modelConfig.providerSpecific
+      : {};
+  const generation = {
+    ...(generationConfig && typeof generationConfig === 'object' ? generationConfig : {}),
+    temperature: coerceNumber(modelConfig?.temperature) ?? coerceNumber(generationConfig?.temperature),
+    topP: coerceNumber(modelConfig?.topP) ?? coerceNumber(generationConfig?.topP),
+    topK: coerceNumber(modelConfig?.topK) ?? coerceNumber(generationConfig?.topK),
+    maxOutputTokens:
+      coerceNumber(modelConfig?.maxOutputTokens) ?? coerceNumber(generationConfig?.maxOutputTokens),
+    stopSequences:
+      Array.isArray(stopSequences) && stopSequences.length > 0
+        ? stopSequences
+        : Array.isArray(modelConfig?.stopSequences)
+          ? modelConfig.stopSequences
+          : generationConfig?.stopSequences,
+  };
+  const tools = {
+    ...toolsConfig,
+    functionCallingConfig:
+      toolsConfig?.functionCalling?.mode && toolsConfig.functionCalling.mode !== 'NONE'
+        ? {
+            mode: toolsConfig.functionCalling.mode,
+            ...(toolsConfig.functionCalling.mode === 'ANY' &&
+            Array.isArray(toolsConfig.functionCalling.allowedFunctionNames) &&
+            toolsConfig.functionCalling.allowedFunctionNames.length > 0
+              ? { allowedFunctionNames: toolsConfig.functionCalling.allowedFunctionNames }
+              : {})
+          }
+        : undefined
+  };
   const payload = {
-    model: safeModelName,
-    config,
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: 'INSERT_INPUT_HERE' }]
-      }
-    ]
+    model: {
+      provider,
+      name: safeModelName,
+      providerSpecific
+    },
+    generation,
+    thinking: advancedConfig?.thinkingConfig || {},
+    safety: normalizedSafety,
+    tools,
+    context: trimmedInstruction ? { systemInstruction: trimmedInstruction } : undefined
   };
 
   const cleaned = deepCleanValue(payload) ?? {};
@@ -1124,6 +929,8 @@ export const PromptEditPage: React.FC = () => {
     user_prompt_template: '',
     context_variables: {},
     model_config: {
+      provider: 'google-gemini-cli',
+      providerSpecific: {},
       topK: 40,
       topP: 0.95,
       temperature: 1.0,
@@ -1133,11 +940,10 @@ export const PromptEditPage: React.FC = () => {
     },
     advanced_config: ensureAdvancedConfigDefaults({
       safetySettings: DEFAULT_SAFETY_SETTINGS.map((setting) => ({ ...setting })),
-      generationConfig: {
-        thinkingConfig: {
-          thinkingBudget: -1,
-          includeThoughts: true
-        }
+      generationConfig: {},
+      thinkingConfig: {
+        thinkingBudget: -1,
+        includeThoughts: true
       },
       toolsConfig: createDefaultToolsConfig()
     }),
@@ -1155,6 +961,8 @@ export const PromptEditPage: React.FC = () => {
   const [isDebugging, setIsDebugging] = useState(false);
   const [useDraftConfig, setUseDraftConfig] = useState<boolean>(() => isNew);
   const [newStopSequence, setNewStopSequence] = useState('');
+  const [providerSpecificText, setProviderSpecificText] = useState('{}');
+  const [providerSpecificError, setProviderSpecificError] = useState<string | null>(null);
   const [configJsonCopied, setConfigJsonCopied] = useState(false);
   const [systemInstructionsCopied, setSystemInstructionsCopied] = useState(false);
   const [isSafetyDialogOpen, setIsSafetyDialogOpen] = useState(false);
@@ -1164,6 +972,7 @@ export const PromptEditPage: React.FC = () => {
   const prevEditingRef = useRef<boolean>(isEditing);
   const playgroundCardRef = useRef<HTMLDivElement | null>(null);
   const playgroundWorkspaceRef = useRef<HTMLDivElement | null>(null);
+  const configContentRef = useRef<HTMLDivElement | null>(null);
   const [playgroundMinHeight, setPlaygroundMinHeight] = useState<number | null>(null);
   const [isPlaygroundDesktopLayout, setIsPlaygroundDesktopLayout] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
@@ -1185,22 +994,12 @@ export const PromptEditPage: React.FC = () => {
     width: 420,
     height: 520,
   });
-  const panelDragRef = useRef<{
-    id: PlaygroundDesktopPanelId;
-    mode: FloatingWorkspaceResizeMode;
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-    originWidth: number;
-    originHeight: number;
-  } | null>(null);
   const systemInstructionRef = useRef<HTMLTextAreaElement | null>(null);
   const userPromptTemplateRef = useRef<HTMLTextAreaElement | null>(null);
   const promptPreviewRef = useRef<HTMLDivElement | null>(null);
   const [activePromptSection, setActivePromptSection] = useState<'system' | 'user' | 'preview'>('system');
   const [isConfigDrawerOpen, setIsConfigDrawerOpen] = useState(false);
-  const [activeDrawerKey, setActiveDrawerKey] = useState<DrawerSectionKey | null>(null);
+  const [activeDrawerKey, setActiveDrawerKey] = useState<DrawerSectionKey | null>('basic');
   const canUseSessionFeatures = !isNew && !!promptId && promptId !== 'new';
 
   useEffect(() => {
@@ -1215,6 +1014,12 @@ export const PromptEditPage: React.FC = () => {
     mediaQuery.addEventListener('change', listener);
     return () => mediaQuery.removeEventListener('change', listener);
   }, []);
+
+  useEffect(() => {
+    if (isPlaygroundDesktopLayout && !activeDrawerKey) {
+      setActiveDrawerKey('basic');
+    }
+  }, [activeDrawerKey, isPlaygroundDesktopLayout]);
 
   // 查询现有 Prompt 数据（仅编辑模式）
   const {
@@ -1297,6 +1102,8 @@ export const PromptEditPage: React.FC = () => {
       const prompt = promptData.data;
       const parsedContext = parseJsonField<Record<string, any>>(prompt.context_variables, {});
       const parsedModelConfig = parseJsonField(prompt.model_config, {
+        provider: 'google-gemini-cli',
+        providerSpecific: {},
         topK: 40,
         topP: 0.95,
         temperature: 1.0,
@@ -1304,8 +1111,16 @@ export const PromptEditPage: React.FC = () => {
         stopSequences: [] as string[],
         mediaResolution: 'MEDIA_RESOLUTION_DEFAULT'
       });
+      const resolvedProviderConfig = resolvePromptProviderConfig(prompt);
       const normalizedModelConfig = {
         ...parsedModelConfig,
+        provider: resolvedProviderConfig.provider,
+        providerSpecific: resolvedProviderConfig.providerSpecific || {},
+        topK: resolvedProviderConfig.generation?.topK ?? (parsedModelConfig as any).topK ?? 40,
+        topP: resolvedProviderConfig.generation?.topP ?? (parsedModelConfig as any).topP ?? 0.95,
+        temperature: resolvedProviderConfig.generation?.temperature ?? (parsedModelConfig as any).temperature ?? 1.0,
+        maxOutputTokens:
+          resolvedProviderConfig.generation?.maxOutputTokens ?? (parsedModelConfig as any).maxOutputTokens ?? 65536,
         stopSequences: normalizeStopSequencesList((parsedModelConfig as any).stopSequences),
         mediaResolution:
           typeof (parsedModelConfig as any).mediaResolution === 'string'
@@ -1314,15 +1129,36 @@ export const PromptEditPage: React.FC = () => {
       };
       const parsedAdvancedConfig = parseJsonField(prompt.advanced_config, {
         safetySettings: DEFAULT_SAFETY_SETTINGS.map((setting) => ({ ...setting })),
-        generationConfig: {
-          thinkingConfig: {
-            thinkingBudget: -1,
-            includeThoughts: true
-          }
+        generationConfig: {},
+        thinkingConfig: {
+          thinkingBudget: -1,
+          includeThoughts: true
         },
         toolsConfig: createDefaultToolsConfig()
       });
-      const normalizedAdvancedConfig = ensureAdvancedConfigDefaults(parsedAdvancedConfig);
+      const normalizedAdvancedConfig = ensureAdvancedConfigDefaults({
+        ...parsedAdvancedConfig,
+        generationConfig: {
+          ...(parsedAdvancedConfig?.generationConfig && typeof parsedAdvancedConfig.generationConfig === 'object'
+            ? parsedAdvancedConfig.generationConfig
+            : {}),
+          temperature: resolvedProviderConfig.generation?.temperature ?? (parsedAdvancedConfig?.generationConfig as any)?.temperature,
+          topP: resolvedProviderConfig.generation?.topP ?? (parsedAdvancedConfig?.generationConfig as any)?.topP,
+          topK: resolvedProviderConfig.generation?.topK ?? (parsedAdvancedConfig?.generationConfig as any)?.topK,
+          maxOutputTokens:
+            resolvedProviderConfig.generation?.maxOutputTokens ??
+            (parsedAdvancedConfig?.generationConfig as any)?.maxOutputTokens,
+          stopSequences:
+            normalizeStopSequencesList(
+              resolvedProviderConfig.generation?.stopSequences ??
+              (parsedAdvancedConfig?.generationConfig as any)?.stopSequences
+            )
+        },
+        thinkingConfig:
+          resolvedProviderConfig.thinking && Object.keys(resolvedProviderConfig.thinking).length > 0
+            ? resolvedProviderConfig.thinking
+            : parsedAdvancedConfig?.thinkingConfig
+      });
 
       setFormData({
         agent_type: prompt.agent_type,
@@ -1348,7 +1184,7 @@ export const PromptEditPage: React.FC = () => {
         context_variables: parsedContext,
         model_config: normalizedModelConfig,
         advanced_config: normalizedAdvancedConfig,
-        model_name: prompt.model_name || 'gemini-2.5-flash',
+        model_name: prompt.model_name || defaultModelForProvider(resolvedProviderConfig.provider),
         description: prompt.description || '',
         is_active: Boolean(prompt.is_active),
         created_by: prompt.created_by || 'admin',
@@ -1364,6 +1200,8 @@ export const PromptEditPage: React.FC = () => {
         : [createContextVariableRow()];
       setContextVariableRows(rows);
       setContextVariablesError(validateContextVariableRows(rows));
+      setProviderSpecificText(JSON.stringify(normalizedModelConfig.providerSpecific || {}, null, 2));
+      setProviderSpecificError(null);
       setFormData((prev) => ({
         ...prev,
         context_variables: rowsToContextObject(rows)
@@ -1378,6 +1216,14 @@ export const PromptEditPage: React.FC = () => {
       setContextVariablesError(validateContextVariableRows(rows));
     }
   }, [isNew, contextVariableRows.length]);
+
+  useEffect(() => {
+    if (!isNew) {
+      return;
+    }
+    setProviderSpecificText(JSON.stringify(formData.model_config?.providerSpecific || {}, null, 2));
+    setProviderSpecificError(null);
+  }, [isNew, formData.model_config?.providerSpecific]);
 
   const handleSubmit = () => {
     if (saveMutation.isPending) {
@@ -1399,12 +1245,22 @@ export const PromptEditPage: React.FC = () => {
       return;
     }
 
+    if (providerSpecificError) {
+      alert('Provider 专属配置 JSON 格式有误，请修正后再试');
+      return;
+    }
+
     const contextVariablesObject = rowsToContextObject(contextVariableRows);
 
     const submitAdvancedConfig = advancedConfigSnapshot;
+    const effectiveProvider = normalizePromptProvider(
+      formData.model_config?.provider || inferProviderFromModelName(formData.model_name)
+    );
+    const effectiveModelName = formData.model_name?.trim() || defaultModelForProvider(effectiveProvider);
 
     const submitData = {
       ...formData,
+      model_name: effectiveModelName,
       system_instructions: formData.system_instructions
         .split('\n\n')
         .map((inst: string) => inst.trim())
@@ -1413,6 +1269,11 @@ export const PromptEditPage: React.FC = () => {
         ? contextVariablesObject
         : undefined,
       user_prompt_template: formData.user_prompt_template.trim() || undefined,
+      model_config: {
+        ...formData.model_config,
+        provider: effectiveProvider,
+        providerSpecific: formData.model_config?.providerSpecific || {}
+      },
       advanced_config: submitAdvancedConfig
     };
 
@@ -1469,6 +1330,29 @@ export const PromptEditPage: React.FC = () => {
         [key]: value
       }
     }));
+  };
+
+  const handleProviderSpecificTextChange = (value: string) => {
+    setProviderSpecificText(value);
+
+    try {
+      const parsed = JSON.parse(value);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        setProviderSpecificError('Provider 专属配置必须是 JSON 对象');
+        return;
+      }
+
+      setProviderSpecificError(null);
+      setFormData((prev) => ({
+        ...prev,
+        model_config: {
+          ...prev.model_config,
+          providerSpecific: parsed
+        }
+      }));
+    } catch {
+      setProviderSpecificError('Provider 专属配置 JSON 解析失败');
+    }
   };
 
   const handleAdvancedConfigChange = (section: string, key: string, value: any) => {
@@ -1598,7 +1482,7 @@ export const PromptEditPage: React.FC = () => {
       const runtimeVariables = {
         conversation_id: conversationId,
         timestamp: new Date().toISOString(),
-        model: formData.model_name || 'gemini-2.5-flash'
+        model: formData.model_name || defaultModelForProvider(selectedProvider)
       };
 
       payload.systemPrompt = applyContextVariables(
@@ -1606,7 +1490,7 @@ export const PromptEditPage: React.FC = () => {
         formData.context_variables,
         runtimeVariables
       );
-      payload.model = formData.model_name || 'gemini-2.5-flash';
+      payload.model = formData.model_name || defaultModelForProvider(selectedProvider);
 
       payload.messages = baseMessages.map((message, index) => {
         if (message.role !== 'user' || !formData.user_prompt_template) {
@@ -1629,8 +1513,12 @@ export const PromptEditPage: React.FC = () => {
       });
 
       payload.parameters = {
-        model_config: formData.model_config,
-        advanced_config: formData.advanced_config,
+        model_config: {
+          ...formData.model_config,
+          provider: selectedProvider,
+          providerSpecific: formData.model_config?.providerSpecific || {}
+        },
+        advanced_config: advancedConfigSnapshot,
         context_variables: formData.context_variables,
         user_prompt_template: formData.user_prompt_template
       };
@@ -1734,6 +1622,15 @@ export const PromptEditPage: React.FC = () => {
         response.performance?.processing_time_ms ??
         response.performance?.processingTimeMs ??
         response.processingTime;
+      const contextPolicy = response.context_policy
+        ? {
+            source: typeof response.context_policy.source === 'string' ? response.context_policy.source : undefined,
+            contextWindowTokens: toNumber(response.context_policy.context_window_tokens),
+            softTriggerTokens: toNumber(response.context_policy.soft_trigger_tokens),
+            hardCeilingTokens: toNumber(response.context_policy.hard_ceiling_tokens),
+            replyBudgetTokens: toNumber(response.context_policy.reply_budget_tokens)
+          }
+        : undefined;
 
       const assistantMessage: DebugMessage = {
         id: `assistant-${Date.now()}`,
@@ -1744,8 +1641,15 @@ export const PromptEditPage: React.FC = () => {
         metadata: {
           model: response.model || formData.model_name,
           tokensUsed: resolvedTokenUsage,
+          cachedInputTokens:
+            toNumber(response.usage_details?.cached_input_tokens) ??
+            toNumber(response.usage?.cached_input_tokens),
+          reasoningTokens:
+            toNumber(response.usage_details?.reasoning_tokens) ??
+            toNumber(response.usage?.reasoning_tokens),
           processingTime: resolvedProcessingTime,
-          tokenInfo: normalizedTokenInfo
+          tokenInfo: normalizedTokenInfo,
+          contextPolicy
         }
       };
 
@@ -2148,6 +2052,10 @@ export const PromptEditPage: React.FC = () => {
 
   const openDrawer = (key: DrawerSectionKey) => {
     setActiveDrawerKey(key);
+    if (isPlaygroundDesktopLayout) {
+      requestAnimationFrame(() => scrollToSection(configContentRef));
+      return;
+    }
     setIsConfigDrawerOpen(true);
   };
 
@@ -2176,14 +2084,19 @@ export const PromptEditPage: React.FC = () => {
   }, [location.hash]);
 
   const isDraftMode = isNew ? true : useDraftConfig;
-  const selectedModelOption = MODEL_OPTIONS.find((option) => option.value === formData.model_name);
-  const modelBadgeLabel = selectedModelOption
-    ? selectedModelOption.label
-    : formData.model_name || 'Gemini 2.5 Flash';
+  const selectedProvider = normalizePromptProvider(
+    formData.model_config?.provider || inferProviderFromModelName(formData.model_name)
+  );
+  const providerModelOptions = PLAYGROUND_PROVIDER_MODEL_OPTIONS[selectedProvider] || [];
+  const selectedModelOption = providerModelOptions.find((option) => option === formData.model_name);
+  const modelBadgeLabel = selectedModelOption || formData.model_name || defaultModelForProvider(selectedProvider);
+  const providerBadgeLabel = PROVIDER_OPTIONS.find((option) => option.value === selectedProvider)?.label || selectedProvider;
+  const isGoogleProvider = selectedProvider === 'google-gemini-cli' || selectedProvider === 'google-legacy';
   const canSendMessage =
     Boolean(userInput.trim()) &&
     !isDebugging &&
     !contextVariablesError &&
+    !providerSpecificError &&
     Boolean(formData.system_instructions.trim());
   const historyButtonLoading =
     loadSessionMutation.isPending ||
@@ -2226,7 +2139,7 @@ export const PromptEditPage: React.FC = () => {
   const structuredOutputEnabled = Boolean((formData.advanced_config as any)?.structuredOutput);
   const googleSearchEnabled = Boolean((formData.advanced_config as any)?.googleSearch);
   const urlContextEnabled = Boolean((formData.advanced_config as any)?.urlContext);
-  const thinkingConfig = formData.advanced_config.generationConfig?.thinkingConfig ?? {
+  const thinkingConfig = formData.advanced_config.thinkingConfig ?? {
     thinkingBudget: -1,
     includeThoughts: true
   };
@@ -2254,26 +2167,40 @@ export const PromptEditPage: React.FC = () => {
       ...formData.advanced_config,
       toolsConfig: sanitizedTools
     });
-
-    const maxOutputTokensValue = Number(formData.model_config?.maxOutputTokens);
-    if (!Number.isNaN(maxOutputTokensValue) && maxOutputTokensValue > 0) {
-      advancedConfig.maxOutputTokens = maxOutputTokensValue;
-      advancedConfig.generationConfig = {
-        ...(advancedConfig.generationConfig || {}),
-        maxOutputTokens: maxOutputTokensValue
-      };
-    } else {
-      delete advancedConfig.maxOutputTokens;
-      if (advancedConfig.generationConfig) {
-        delete advancedConfig.generationConfig.maxOutputTokens;
-      }
+    const generationConfig = {
+      ...(advancedConfig.generationConfig || {}),
+      temperature: coerceNumber(formData.model_config?.temperature),
+      topP: coerceNumber(formData.model_config?.topP),
+      topK: coerceNumber(formData.model_config?.topK),
+      maxOutputTokens: coerceNumber(formData.model_config?.maxOutputTokens),
+      ...(stopSequences.length > 0 ? { stopSequences } : {})
+    };
+    if (!stopSequences.length) {
+      delete generationConfig.stopSequences;
     }
+    advancedConfig.generationConfig = generationConfig;
+    advancedConfig.thinkingConfig = {
+      ...(advancedConfig.thinkingConfig || {})
+    };
+    advancedConfig.toolsConfig = {
+      ...sanitizedTools,
+      functionCallingConfig:
+        sanitizedFunctionCalling.mode !== 'NONE'
+          ? {
+              mode: sanitizedFunctionCalling.mode,
+              ...(sanitizedFunctionCalling.mode === 'ANY' && sanitizedFunctionCalling.allowedFunctionNames.length > 0
+                ? { allowedFunctionNames: sanitizedFunctionCalling.allowedFunctionNames }
+                : {})
+            }
+          : undefined
+    };
+    delete advancedConfig.maxOutputTokens;
 
     return {
       advancedConfigSnapshot: advancedConfig,
       sanitizedToolsConfig: sanitizedTools
     };
-  }, [formData.advanced_config, formData.model_config?.maxOutputTokens]);
+  }, [formData.advanced_config, formData.model_config, stopSequences]);
 
   const modelConfigSnapshot = useMemo(
     () => ({ ...(formData.model_config || {}) }),
@@ -2283,7 +2210,7 @@ export const PromptEditPage: React.FC = () => {
   const configJsonPreview = useMemo(
     () =>
       generateGetConfigJson({
-        modelName: formData.model_name || 'gemini-2.5-flash',
+        modelName: formData.model_name || defaultModelForProvider(selectedProvider),
         systemInstruction: formData.system_instructions || '',
         modelConfig: modelConfigSnapshot,
         generationConfig: advancedConfigSnapshot?.generationConfig,
@@ -2297,6 +2224,7 @@ export const PromptEditPage: React.FC = () => {
       formData.model_name,
       formData.system_instructions,
       modelConfigSnapshot,
+      selectedProvider,
       sanitizedToolsConfig,
       stopSequences
     ]
@@ -2320,8 +2248,8 @@ export const PromptEditPage: React.FC = () => {
   const headerMetaItems = [
     {
       key: 'model',
-      label: '模型',
-      value: modelBadgeLabel
+      label: 'Provider / 模型',
+      value: `${providerBadgeLabel} / ${modelBadgeLabel}`
     },
     {
       key: 'version',
@@ -2356,7 +2284,7 @@ export const PromptEditPage: React.FC = () => {
     { key: 'runtime', label: '运行参数', icon: SlidersHorizontal },
     { key: 'safety', label: '内容安全', icon: ShieldCheck },
     { key: 'preview', label: '配置预览', icon: Eye },
-    { key: 'code', label: 'Get config JSON', icon: Copy }
+    { key: 'code', label: 'Unified Config JSON', icon: Copy }
   ];
   const quickNavItems = [
     { key: 'playground', label: 'Prompt Playground', icon: MessageSquare },
@@ -2367,10 +2295,10 @@ export const PromptEditPage: React.FC = () => {
     prompt: '使用分段描述复杂任务，保存时会自动拆分为数组。',
     variables: '这些变量会在生成系统指令与用户模板时自动替换。',
     functions: '配置模型可调用的本地工具声明以及调用策略，帮助自动化处理结构化任务。',
-    runtime: '同步 Google AI Studio 的推理设置。',
-    safety: '映射 HarmBlockThreshold 配置项。',
+    runtime: '维护通用 provider 的模型与运行参数。',
+    safety: 'Google provider 可视化安全设置，其余 provider 保留 JSON 扩展。',
     preview: 'JSON 视图便于再次确认。',
-    code: '导出符合 Gemini API 的请求配置。'
+    code: '导出统一 provider 配置快照。'
   };
   const activeDrawerNavItem = activeDrawerKey
     ? drawerNavItems.find((item) => item.key === activeDrawerKey)
@@ -2411,84 +2339,6 @@ export const PromptEditPage: React.FC = () => {
       window.removeEventListener('resize', scheduleMeasure);
     };
   }, [isDraftMode, isEditing, isNew, contextVariablesError, messages.length, viewModeLabel]);
-
-  const clampFloatingPanel = (panel: FloatingWorkspacePanelState): FloatingWorkspacePanelState => {
-    const rect = playgroundWorkspaceRef.current?.getBoundingClientRect();
-    const boundsWidth = rect?.width ?? (typeof window === 'undefined' ? 1600 : window.innerWidth);
-    const boundsHeight = rect?.height ?? (typeof window === 'undefined' ? 1000 : window.innerHeight);
-    const width = Math.min(Math.max(panel.width, 320), Math.max(320, boundsWidth - 32));
-    const height = Math.min(Math.max(panel.height, 280), Math.max(280, boundsHeight - 32));
-    const x = Math.min(Math.max(panel.x, 16), Math.max(16, boundsWidth - width - 16));
-    const y = Math.min(Math.max(panel.y, 16), Math.max(16, boundsHeight - height - 16));
-    return { ...panel, width, height, x, y };
-  };
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return undefined;
-    }
-
-    const handlePointerMove = (event: PointerEvent) => {
-      const dragState = panelDragRef.current;
-      if (!dragState) {
-        return;
-      }
-
-      const deltaX = event.clientX - dragState.startX;
-      const deltaY = event.clientY - dragState.startY;
-      const updatePanel = dragState.id === 'overview' ? setOverviewPanel : setHistoryPanel;
-
-      updatePanel((current) => {
-        let next = current;
-        if (dragState.mode === 'move') {
-          next = { ...current, x: dragState.originX + deltaX, y: dragState.originY + deltaY };
-        } else if (dragState.mode === 'right') {
-          next = { ...current, width: dragState.originWidth + deltaX };
-        } else if (dragState.mode === 'bottom') {
-          next = { ...current, height: dragState.originHeight + deltaY };
-        } else {
-          next = { ...current, width: dragState.originWidth + deltaX, height: dragState.originHeight + deltaY };
-        }
-        return clampFloatingPanel(next);
-      });
-    };
-
-    const handlePointerUp = () => {
-      panelDragRef.current = null;
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isPlaygroundDesktopLayout) {
-      return;
-    }
-
-    setOverviewPanel((current) => clampFloatingPanel(current));
-    setHistoryPanel((current) => clampFloatingPanel(current));
-  }, [isPlaygroundDesktopLayout]);
-
-  const handleDesktopPanelPointerDown = (id: PlaygroundDesktopPanelId, mode: FloatingWorkspaceResizeMode) =>
-    (event: React.PointerEvent<HTMLElement>) => {
-      event.preventDefault();
-      const panel = id === 'overview' ? overviewPanel : historyPanel;
-      panelDragRef.current = {
-        id,
-        mode,
-        startX: event.clientX,
-        startY: event.clientY,
-        originX: panel.x,
-        originY: panel.y,
-        originWidth: panel.width,
-        originHeight: panel.height,
-      };
-    };
 
   const handleQuickNavClick = (key: (typeof quickNavItems)[number]['key']) => {
     if (key === 'playground') {
@@ -3107,43 +2957,99 @@ export const PromptEditPage: React.FC = () => {
         <Card className="bg-card shadow-sm">
           <CardHeader>
             <CardTitle className="text-base font-semibold">运行参数</CardTitle>
-            <CardDescription>同步 Google AI Studio 的推理设置。</CardDescription>
+            <CardDescription>按内部通用 provider contract 维护模型、推理参数和 provider 专属扩展。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div>
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">Provider</Label>
+              <select
+                value={selectedProvider}
+                onChange={(e) => {
+                  if (!isEditing) return;
+                  const nextProvider = normalizePromptProvider(e.target.value);
+                  const previousProvider = selectedProvider;
+                  const previousDefault = defaultModelForProvider(previousProvider);
+                  const nextDefault = defaultModelForProvider(nextProvider);
+                  setFormData((prev) => ({
+                    ...prev,
+                    model_name:
+                      !prev.model_name?.trim() || prev.model_name === previousDefault
+                        ? nextDefault
+                        : prev.model_name,
+                    model_config: {
+                      ...prev.model_config,
+                      provider: nextProvider
+                    }
+                  }));
+                }}
+                disabled={!isEditing}
+                className="mt-3 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm disabled:bg-muted/80 disabled:opacity-60"
+              >
+                {PROVIDER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
               <Label className="text-xs uppercase tracking-wide text-muted-foreground">模型</Label>
               <div className="mt-3 grid gap-2">
-                {MODEL_OPTIONS.map((option) => {
-                  const isActiveModel = formData.model_name === option.value;
+                {providerModelOptions.map((option) => {
+                  const isActiveModel = formData.model_name === option;
                   return (
                     <Button
-                      key={option.value}
+                      key={option}
                       type="button"
                       variant={isActiveModel ? 'default' : 'outline'}
                       className="justify-between"
                       disabled={!isEditing}
                       onClick={() => {
                         if (!isEditing) return;
-                        setFormData((prev) => ({ ...prev, model_name: option.value }));
+                        setFormData((prev) => ({ ...prev, model_name: option }));
                       }}
                     >
-                      <span>{option.label}</span>
-                      <span className="text-xs text-muted-foreground">{option.description}</span>
+                      <span>{option}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {PROVIDER_MODEL_DESCRIPTIONS[option] || '当前 provider 的常用预设'}
+                      </span>
                     </Button>
                   );
                 })}
+                {providerModelOptions.length === 0 && (
+                  <Button type="button" variant="outline" disabled className="justify-between">
+                    <span>无预设模型</span>
+                    <span className="text-xs text-muted-foreground">请直接填写自定义模型 ID</span>
+                  </Button>
+                )}
               </div>
             </div>
-            <div>
-              <Label htmlFor="model_name">自定义模型名称</Label>
-              <Input
-                id="model_name"
-                value={formData.model_name}
-                onChange={(e) => setFormData((prev) => ({ ...prev, model_name: e.target.value }))}
-                placeholder="例如：gemini-2.5-flash"
-                disabled={!isEditing}
-              />
-              <p className="mt-1 text-xs text-muted-foreground">覆盖按钮选择时，可直接填写完整模型 ID。</p>
+            <div className="space-y-4 rounded-xl border border-border bg-muted/45 p-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="model_name">自定义模型名称</Label>
+                  <Input
+                    id="model_name"
+                    value={formData.model_name}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, model_name: e.target.value }))}
+                    placeholder={`例如：${defaultModelForProvider(selectedProvider)}`}
+                    disabled={!isEditing}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">预设仅帮助选型，最终仍以这里的完整模型 ID 为准。</p>
+                </div>
+                <div>
+                  <Label className="mb-2 block">providerSpecific JSON</Label>
+                  <Textarea
+                    value={providerSpecificText}
+                    onChange={(e) => handleProviderSpecificTextChange(e.target.value)}
+                    className={`min-h-[120px] font-mono text-xs ${providerSpecificError ? 'border-destructive' : ''}`}
+                    disabled={!isEditing}
+                  />
+                  <p className={`mt-2 text-xs ${providerSpecificError ? 'text-destructive' : 'text-muted-foreground'}`}>
+                    {providerSpecificError || '用于 baseUrl、responsesPath、reasoningEffort、textVerbosity 等 provider 专属字段。'}
+                  </p>
+                </div>
+              </div>
             </div>
             <div className="space-y-4">
               <div>
@@ -3220,10 +3126,13 @@ export const PromptEditPage: React.FC = () => {
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-muted-foreground">低分辨率适合多媒体调试，默认保持原画质。</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {isGoogleProvider ? '低分辨率适合多媒体调试，默认保持原画质。' : '该配置仅对 Google provider 生效；其他 provider 会忽略。'}
+                </p>
               </div>
               <div className="rounded-xl border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground">
-                <p className="font-medium text-foreground">当前模型</p>
+                <p className="font-medium text-foreground">当前 Provider / 模型</p>
+                <p className="mt-1 break-all">{providerBadgeLabel}</p>
                 <p className="mt-1 break-all">{formData.model_name || '未设置'}</p>
               </div>
             </div>
@@ -3297,10 +3206,7 @@ export const PromptEditPage: React.FC = () => {
                         : checked
                           ? thinkingConfig.thinkingBudget
                           : -1;
-                    handleAdvancedConfigChange('generationConfig', 'thinkingConfig', {
-                      ...thinkingConfig,
-                      thinkingBudget: nextBudget ?? 4096
-                    });
+                    handleAdvancedConfigChange('thinkingConfig', 'thinkingBudget', nextBudget ?? 4096);
                   }}
                   disabled={!isEditing}
                 />
@@ -3318,10 +3224,7 @@ export const PromptEditPage: React.FC = () => {
                   min="0"
                   value={manualThinkingEnabled ? thinkingConfig.thinkingBudget ?? 0 : thinkingBudgetValue}
                   onChange={(e) =>
-                    handleAdvancedConfigChange('generationConfig', 'thinkingConfig', {
-                      ...thinkingConfig,
-                      thinkingBudget: Math.max(0, parseInt(e.target.value || '0', 10))
-                    })
+                    handleAdvancedConfigChange('thinkingConfig', 'thinkingBudget', Math.max(0, parseInt(e.target.value || '0', 10)))
                   }
                   disabled={!isEditing || !manualThinkingEnabled}
                 />
@@ -3334,12 +3237,7 @@ export const PromptEditPage: React.FC = () => {
                 <Switch
                   id="includeThoughts"
                   checked={thinkingConfig.includeThoughts ?? true}
-                  onCheckedChange={(checked) =>
-                    handleAdvancedConfigChange('generationConfig', 'thinkingConfig', {
-                      ...thinkingConfig,
-                      includeThoughts: checked
-                    })
-                  }
+                  onCheckedChange={(checked) => handleAdvancedConfigChange('thinkingConfig', 'includeThoughts', checked)}
                   disabled={!isEditing}
                 />
               </div>
@@ -3394,25 +3292,29 @@ export const PromptEditPage: React.FC = () => {
               <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
                 <div>
                   <p className="text-sm font-medium">Google Search</p>
-                  <p className="text-xs text-muted-foreground">为回答补充实时网页内容。</p>
+                  <p className="text-xs text-muted-foreground">
+                    {isGoogleProvider ? '为回答补充实时网页内容。' : '当前 provider 不提供可视化开关，建议改 provider 或直接编辑 JSON。'}
+                  </p>
                 </div>
                 <Switch
                   id="google-search-toggle"
                   checked={googleSearchEnabled}
                   onCheckedChange={handleAdvancedFlagToggle('googleSearch')}
-                  disabled={!isEditing}
+                  disabled={!isEditing || !isGoogleProvider}
                 />
               </div>
               <div className="flex items-center justify-between rounded-lg border bg-background/60 px-3 py-2">
                 <div>
                   <p className="text-sm font-medium">URL Context</p>
-                  <p className="text-xs text-muted-foreground">在推理前抓取网页内容作为上下文。</p>
+                  <p className="text-xs text-muted-foreground">
+                    {isGoogleProvider ? '在推理前抓取网页内容作为上下文。' : '当前 provider 不提供可视化开关，建议改 provider 或直接编辑 JSON。'}
+                  </p>
                 </div>
                 <Switch
                   id="url-context-toggle"
                   checked={urlContextEnabled}
                   onCheckedChange={handleAdvancedFlagToggle('urlContext')}
-                  disabled={!isEditing}
+                  disabled={!isEditing || !isGoogleProvider}
                 />
               </div>
             </div>
@@ -3423,9 +3325,21 @@ export const PromptEditPage: React.FC = () => {
         <Card className="bg-card shadow-sm">
           <CardHeader>
             <CardTitle className="text-base font-semibold">内容安全</CardTitle>
-            <CardDescription>映射 HarmBlockThreshold 配置项。</CardDescription>
+            <CardDescription>
+              {isGoogleProvider
+                ? 'Google provider 可视化编辑安全阈值。'
+                : '非 Google provider 默认不暴露可视化安全控件，保留已有配置并通过 JSON 扩展。'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {!isGoogleProvider && (
+              <Alert>
+                <AlertTitle>当前 provider 不是 Google</AlertTitle>
+                <AlertDescription>
+                  安全设置会继续保留在配置中，但本页不再用 Gemini 专属控件误导你。需要细调时，请在 providerSpecific 或高级 JSON 中处理。
+                </AlertDescription>
+              </Alert>
+            )}
             <div className="rounded-xl border border-border bg-muted/45 p-4">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">当前策略</p>
               <div className="mt-3 space-y-2">
@@ -3454,7 +3368,7 @@ export const PromptEditPage: React.FC = () => {
 
             <Dialog open={isSafetyDialogOpen} onOpenChange={setIsSafetyDialogOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline" disabled={!isEditing} className="w-full sm:w-auto">
+                <Button variant="outline" disabled={!isEditing || !isGoogleProvider} className="w-full sm:w-auto">
                   调整安全设置
                 </Button>
               </DialogTrigger>
@@ -3558,8 +3472,8 @@ export const PromptEditPage: React.FC = () => {
         <Card className="bg-card shadow-sm">
           <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <CardTitle className="text-base font-semibold">Get config JSON</CardTitle>
-              <CardDescription>复制到 API 请求或配置模板。</CardDescription>
+              <CardTitle className="text-base font-semibold">Unified Config JSON</CardTitle>
+              <CardDescription>复制当前 Prompt 的 provider-aware 配置快照。</CardDescription>
             </div>
             <Button
               type="button"
@@ -3637,7 +3551,7 @@ export const PromptEditPage: React.FC = () => {
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    参照 Google AI Studio，在一个工作台中完成 Prompt 配置、变量和调试。
+                    在一个工作台中维护 Prompt、Provider、变量与调试闭环。
                   </p>
                 </div>
               </div>
@@ -3747,435 +3661,513 @@ export const PromptEditPage: React.FC = () => {
 
       <div className="flex-1">
         <div className="mx-auto flex h-full w-full max-w-screen-2xl flex-col px-4 pb-40 pt-8 xl:max-w-none xl:px-8 2xl:px-12">
-          <div ref={playgroundWorkspaceRef} className="relative min-h-0 flex-1">
-            <div className="flex min-h-0 flex-col gap-6">
+          <div
+            ref={playgroundWorkspaceRef}
+            className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]"
+          >
+            <div className="min-w-0 space-y-6">
               <Card
                 ref={playgroundCardRef}
                 className="flex min-h-0 flex-col bg-card shadow-sm"
                 style={playgroundMinHeight ? { height: `${playgroundMinHeight}px` } : undefined}
               >
-              <CardHeader className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                    <MessageSquare className="h-4 w-4" />
-                    Prompt Playground
-                  </CardTitle>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant={isDraftMode ? 'default' : 'secondary'}>
-                      {isDraftMode ? '草稿配置' : '已保存配置'}
-                    </Badge>
-                    <Badge variant="outline">{modelBadgeLabel}</Badge>
-                  </div>
-                </div>
-                <CardDescription>
-                  不离开页面即可调试提示词，实时查看模型回复与思考过程。
-                </CardDescription>
-                <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="draft-mode"
-                      checked={isDraftMode}
-                      disabled={isNew}
-                      onCheckedChange={(checked) => setUseDraftConfig(checked)}
-                    />
-                    <label htmlFor="draft-mode" className="cursor-pointer text-xs font-medium">
-                      使用草稿配置调试
-                    </label>
-                    {isNew && (
-                      <span className="rounded-full bg-primary/10 px-2 py-[2px] text-[10px] font-medium text-primary">
-                        新建提示默认启用
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setOverviewPanel((current) => ({ ...current, collapsed: !current.collapsed }))}
-                    >
-                      <Navigation className="mr-2 h-3.5 w-3.5" />
-                      {overviewPanel.collapsed ? '概览面板' : '隐藏概览'}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={openHistoryPanel}
-                      disabled={!canUseSessionFeatures || historyButtonLoading}
-                    >
-                      {historyButtonLoading ? (
-                        <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <History className="mr-2 h-3.5 w-3.5" />
-                      )}
-                      {isPlaygroundDesktopLayout && !historyPanel.collapsed ? '隐藏历史' : '调试历史'}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={openSaveSessionDialog}
-                      disabled={!canUseSessionFeatures || !messages.length}
-                    >
-                      {saveSessionMutation.isPending ? (
-                        <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Save className="mr-2 h-3.5 w-3.5" />
-                      )}
-                      保存会话
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={clearMessages}
-                      disabled={!messages.length}
-                      className="h-7 px-2 text-xs"
-                    >
-                      <Trash2 className="mr-1 h-3 w-3" />
-                      清空对话
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
-                {isNew && (
-                  <div className="rounded-xl border border-dashed border-muted/50 bg-card px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-                    草稿模式默认开启，填写左侧信息并保存后即可验证最新版本。
-                  </div>
-                )}
-
-                {!isNew && !isEditing && (
-                  <div className="rounded-xl border border-dashed border-muted/50 bg-card px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-                    当前处于查看模式，调试仍会调用最新保存的配置。若需更新 Prompt，请先点击右上角的“编辑”按钮。
-                  </div>
-                )}
-
-                {contextVariablesError && (
-                  <Alert variant="destructive">
-                    <AlertTitle>上下文变量配置存在问题</AlertTitle>
-                    <AlertDescription>修复后才能确保草稿配置与正式配置保持一致。</AlertDescription>
-                  </Alert>
-                )}
-
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background">
-                  <ResizableSplit
-                    direction="vertical"
-                    disabled={!isPlaygroundDesktopLayout}
-                    defaultSize={76}
-                    minFirstSize={280}
-                    minSecondSize={160}
-                    className="h-full"
-                    firstClassName="h-full"
-                    secondClassName="h-full"
-                    handleLabel="调整消息区与输入区高度"
-                    first={(
-                      <div className="h-full min-h-0 space-y-4 overflow-y-auto p-4">
-                        {messages.length === 0 ? (
-                          <div className="flex h-[340px] flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-                            <Bot className="h-10 w-10 text-muted-foreground/60" />
-                            <p>输入消息开始对话调试，实时查看模型输出。</p>
-                            <p className="text-xs text-muted-foreground/80">
-                              {isNew
-                                ? '保存前的草稿配置同样生效，方便在同一页面快速迭代。'
-                                : '在下方输入框填写内容并点击“发送”即可触发调试。'}
-                            </p>
-                            {!isNew && !isEditing && (
-                              <p className="text-xs text-muted-foreground/80">
-                                当前为查看模式，调试将使用最近一次保存的参数。
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          messages.map((message) => {
-                            const timestamp = message.timestamp instanceof Date
-                              ? message.timestamp
-                              : new Date(message.timestamp);
-                            const isUser = message.role === 'user';
-                            return (
-                              <div
-                                key={message.id}
-                                className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
-                              >
-                                {!isUser && (
-                                  <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                                    <Bot className="h-4 w-4" />
-                                  </div>
-                                )}
-                                <div
-                                  className={`max-w-[75%] rounded-xl px-4 py-3 shadow-sm transition group-hover:shadow-md ${
-                                    isUser
-                                      ? 'bg-primary text-primary-foreground'
-                                      : 'bg-muted text-foreground'
-                                  }`}
-                                >
-                                  <div className="mb-2 flex items-center justify-between text-xs opacity-70">
-                                    <span>{isUser ? '用户' : '模型'}</span>
-                                    <span>{timestamp.toLocaleTimeString()}</span>
-                                  </div>
-                                  <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                                    {message.content || '（空响应）'}
-                                  </div>
-                                  {message.thought && (
-                                    <div className="mt-3 rounded-md border border-border bg-card/90 p-3 text-xs text-foreground">
-                                      <button
-                                        type="button"
-                                        className="mb-2 flex items-center gap-1 text-xs font-medium text-primary"
-                                        onClick={() => toggleThought(message.id)}
-                                      >
-                                        <Brain className="h-3 w-3" />
-                                        {message.showThought ? '收起思考过程' : '展开思考过程'}
-                                        {message.showThought ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                                      </button>
-                                      {message.showThought && (
-                                        <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
-                                          {message.thought}
-                                        </pre>
-                                      )}
-                                    </div>
-                                  )}
-                                  {message.metadata && (
-                                    <div className="mt-3 grid gap-2 rounded-md border border-border bg-card/90 p-2 text-xs text-muted-foreground">
-                                      {message.metadata.model && (
-                                        <div className="flex items-center justify-between">
-                                          <span>模型</span>
-                                          <code>{message.metadata.model}</code>
-                                        </div>
-                                      )}
-                                      {typeof message.metadata.tokensUsed !== 'undefined' && (
-                                        <div className="flex items-center justify-between">
-                                          <span>Tokens</span>
-                                          <span>{message.metadata.tokensUsed}</span>
-                                        </div>
-                                      )}
-                                      {message.metadata.tokenInfo && (
-                                        <div className="flex items-center justify-between">
-                                          <span>Token</span>
-                                          <span>
-                                            {message.metadata.tokenInfo.projectName || '未识别'}
-                                            {message.metadata.tokenInfo.tokenId
-                                              ? ` (ID: ${message.metadata.tokenInfo.tokenId})`
-                                              : ''}
-                                          </span>
-                                        </div>
-                                      )}
-                                      {typeof message.metadata.processingTime !== 'undefined' && (
-                                        <div className="flex items-center justify-between">
-                                          <span>耗时</span>
-                                          <span>{message.metadata.processingTime} ms</span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    )}
-                    second={(
-                      <div className="h-full min-h-0 overflow-auto border-t border-border bg-background p-4">
-                        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 sm:flex-row sm:items-end">
-                          <Textarea
-                            value={userInput}
-                            onChange={(e) => setUserInput(e.target.value)}
-                            placeholder="向模型发送一条调试消息..."
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' && !event.shiftKey) {
-                                event.preventDefault();
-                                handleSendMessage();
-                              }
-                            }}
-                            rows={4}
-                            className="h-full min-h-[120px] flex-1 resize-none bg-card"
-                            disabled={isDebugging}
-                          />
-                          <div className="flex w-full justify-center sm:w-auto sm:justify-end">
-                            <Button
-                              type="button"
-                              onClick={handleSendMessage}
-                              disabled={!canSendMessage}
-                              className="w-full sm:w-auto"
-                            >
-                              {isDebugging ? (
-                                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                              ) : (
-                                <Send className="mr-2 h-4 w-4" />
-                              )}
-                              发送
-                            </Button>
-                          </div>
-                        </div>
-                        <p className="mx-auto mt-2 w-full max-w-3xl text-right text-xs text-muted-foreground">
-                          按 Enter 发送，Shift + Enter 换行
-                        </p>
-                      </div>
-                    )}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-            </div>
-
-            {isPlaygroundDesktopLayout && !overviewPanel.collapsed ? (
-              <FloatingWorkspacePanel
-                title="Prompt 概览"
-                x={overviewPanel.x}
-                y={overviewPanel.y}
-                width={overviewPanel.width}
-                height={overviewPanel.height}
-                onClose={() => setOverviewPanel((current) => ({ ...current, collapsed: true }))}
-                onDragPointerDown={handleDesktopPanelPointerDown('overview', 'move')}
-                onResizePointerDown={(mode) => handleDesktopPanelPointerDown('overview', mode)}
-                bodyClassName="space-y-4 overflow-auto"
-              >
-                <Card className="bg-card shadow-sm">
-                  <CardHeader className="pb-3">
+                <CardHeader className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                      <Bot className="h-4 w-4 text-primary" />
-                      Prompt 概览
+                      <MessageSquare className="h-4 w-4" />
+                      Prompt Playground
                     </CardTitle>
-                    <CardDescription>核心配置一目了然。</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">状态</span>
-                      <Badge variant={formData.is_active ? 'default' : 'secondary'}>
-                        {formData.is_active ? '激活' : '禁用'}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={isDraftMode ? 'default' : 'secondary'}>
+                        {isDraftMode ? '草稿配置' : '已保存配置'}
                       </Badge>
+                      <Badge variant="outline">{modelBadgeLabel}</Badge>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">模式</span>
-                      <span className="font-medium text-foreground">{viewModeLabel}</span>
+                  </div>
+                  <CardDescription>
+                    在同一工作台里完成调试，再继续编辑配置。桌面端默认采用稳定的主区 + 侧栏，不再用漂浮窗口打断操作。
+                  </CardDescription>
+                  <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="draft-mode"
+                        checked={isDraftMode}
+                        disabled={isNew}
+                        onCheckedChange={(checked) => setUseDraftConfig(checked)}
+                      />
+                      <label htmlFor="draft-mode" className="cursor-pointer text-xs font-medium">
+                        使用草稿配置调试
+                      </label>
+                      {isNew && (
+                        <span className="rounded-full bg-primary/10 px-2 py-[2px] text-[10px] font-medium text-primary">
+                          新建提示默认启用
+                        </span>
+                      )}
                     </div>
-                    <div>
-                      <p className="text-muted-foreground">模型</p>
-                      <p className="font-medium text-foreground">{modelBadgeLabel}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setOverviewPanel((current) => ({ ...current, collapsed: !current.collapsed }))}
+                      >
+                        <Navigation className="mr-2 h-3.5 w-3.5" />
+                        {overviewPanel.collapsed ? '显示侧栏' : '隐藏侧栏'}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          if (isPlaygroundDesktopLayout && overviewPanel.collapsed) {
+                            setOverviewPanel((current) => ({ ...current, collapsed: false }));
+                          }
+                          openHistoryPanel();
+                        }}
+                        disabled={!canUseSessionFeatures || historyButtonLoading}
+                      >
+                        {historyButtonLoading ? (
+                          <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <History className="mr-2 h-3.5 w-3.5" />
+                        )}
+                        {isPlaygroundDesktopLayout && !historyPanel.collapsed ? '收起历史' : '调试历史'}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={openSaveSessionDialog}
+                        disabled={!canUseSessionFeatures || !messages.length}
+                      >
+                        {saveSessionMutation.isPending ? (
+                          <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Save className="mr-2 h-3.5 w-3.5" />
+                        )}
+                        保存会话
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearMessages}
+                        disabled={!messages.length}
+                        className="h-7 px-2 text-xs"
+                      >
+                        <Trash2 className="mr-1 h-3 w-3" />
+                        清空对话
+                      </Button>
                     </div>
-                    <div>
-                      <p className="text-muted-foreground">最近更新</p>
-                      <p>{lastUpdatedAt}</p>
+                  </div>
+                </CardHeader>
+                <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
+                  {isNew && (
+                    <div className="rounded-xl border border-dashed border-muted/50 bg-card px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+                      草稿模式默认开启，先在这里验证，再向下进入基础信息、变量和运行参数。
                     </div>
-                    <div>
-                      <p className="text-muted-foreground">创建人</p>
-                      <p>{formData.created_by || 'admin'}</p>
+                  )}
+
+                  {!isNew && !isEditing && (
+                    <div className="rounded-xl border border-dashed border-muted/50 bg-card px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+                      当前处于查看模式，调试仍会调用最新保存的配置。若需更新 Prompt，请先点击右上角的“编辑”按钮。
                     </div>
-                  </CardContent>
-                </Card>
-                <Card className="bg-card shadow-sm">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                      <Navigation className="h-4 w-4 text-primary" />
-                      快速跳转
-                    </CardTitle>
-                    <CardDescription>定位到页面中的主要配置。</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {quickNavItems.map((item) => {
-                      const isActive = item.key !== 'playground' && activeDrawerKey === item.key;
-                      return (
+                  )}
+
+                  {contextVariablesError && (
+                    <Alert variant="destructive">
+                      <AlertTitle>上下文变量配置存在问题</AlertTitle>
+                      <AlertDescription>修复后才能确保草稿配置与正式配置保持一致。</AlertDescription>
+                    </Alert>
+                  )}
+
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background">
+                    <ResizableSplit
+                      direction="vertical"
+                      disabled={!isPlaygroundDesktopLayout}
+                      defaultSize={76}
+                      minFirstSize={280}
+                      minSecondSize={160}
+                      className="h-full"
+                      firstClassName="h-full"
+                      secondClassName="h-full"
+                      handleLabel="调整消息区与输入区高度"
+                      first={(
+                        <div className="h-full min-h-0 space-y-4 overflow-y-auto p-4">
+                          {messages.length === 0 ? (
+                            <div className="flex h-[340px] flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
+                              <Bot className="h-10 w-10 text-muted-foreground/60" />
+                              <p>输入消息开始对话调试，实时查看模型输出。</p>
+                              <p className="text-xs text-muted-foreground/80">
+                                {isNew
+                                  ? '保存前的草稿配置同样生效，方便在同一页面快速迭代。'
+                                  : '在下方输入框填写内容并点击“发送”即可触发调试。'}
+                              </p>
+                              {!isNew && !isEditing && (
+                                <p className="text-xs text-muted-foreground/80">
+                                  当前为查看模式，调试将使用最近一次保存的参数。
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            messages.map((message) => {
+                              const timestamp = message.timestamp instanceof Date
+                                ? message.timestamp
+                                : new Date(message.timestamp);
+                              const isUser = message.role === 'user';
+                              return (
+                                <div
+                                  key={message.id}
+                                  className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
+                                >
+                                  {!isUser && (
+                                    <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                                      <Bot className="h-4 w-4" />
+                                    </div>
+                                  )}
+                                  <div
+                                    className={`max-w-[75%] rounded-xl px-4 py-3 shadow-sm transition group-hover:shadow-md ${
+                                      isUser
+                                        ? 'bg-primary text-primary-foreground'
+                                        : 'bg-muted text-foreground'
+                                    }`}
+                                  >
+                                    <div className="mb-2 flex items-center justify-between text-xs opacity-70">
+                                      <span>{isUser ? '用户' : '模型'}</span>
+                                      <span>{timestamp.toLocaleTimeString()}</span>
+                                    </div>
+                                    <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                                      {message.content || '（空响应）'}
+                                    </div>
+                                    {message.thought && (
+                                      <div className="mt-3 rounded-md border border-border bg-card/90 p-3 text-xs text-foreground">
+                                        <button
+                                          type="button"
+                                          className="mb-2 flex items-center gap-1 text-xs font-medium text-primary"
+                                          onClick={() => toggleThought(message.id)}
+                                        >
+                                          <Brain className="h-3 w-3" />
+                                          {message.showThought ? '收起思考过程' : '展开思考过程'}
+                                          {message.showThought ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                                        </button>
+                                        {message.showThought && (
+                                          <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                                            {message.thought}
+                                          </pre>
+                                        )}
+                                      </div>
+                                    )}
+                                    {message.metadata && (
+                                      <div className="mt-3 grid gap-2 rounded-md border border-border bg-card/90 p-2 text-xs text-muted-foreground">
+                                        {message.metadata.model && (
+                                          <div className="flex items-center justify-between">
+                                            <span>模型</span>
+                                            <code>{message.metadata.model}</code>
+                                          </div>
+                                        )}
+                                        {typeof message.metadata.tokensUsed !== 'undefined' && (
+                                          <div className="flex items-center justify-between">
+                                            <span>Tokens</span>
+                                            <span>{message.metadata.tokensUsed}</span>
+                                          </div>
+                                        )}
+                                        {typeof message.metadata.cachedInputTokens !== 'undefined' && (
+                                          <div className="flex items-center justify-between">
+                                            <span>Cached Input</span>
+                                            <span>{message.metadata.cachedInputTokens}</span>
+                                          </div>
+                                        )}
+                                        {typeof message.metadata.reasoningTokens !== 'undefined' && (
+                                          <div className="flex items-center justify-between">
+                                            <span>Reasoning</span>
+                                            <span>{message.metadata.reasoningTokens}</span>
+                                          </div>
+                                        )}
+                                        {message.metadata.tokenInfo && (
+                                          <div className="flex items-center justify-between">
+                                            <span>Token</span>
+                                            <span>
+                                              {message.metadata.tokenInfo.projectName || '未识别'}
+                                              {message.metadata.tokenInfo.tokenId
+                                                ? ` (ID: ${message.metadata.tokenInfo.tokenId})`
+                                                : ''}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {typeof message.metadata.processingTime !== 'undefined' && (
+                                          <div className="flex items-center justify-between">
+                                            <span>耗时</span>
+                                            <span>{message.metadata.processingTime} ms</span>
+                                          </div>
+                                        )}
+                                        {typeof message.metadata.contextPolicy?.contextWindowTokens !== 'undefined' && (
+                                          <div className="flex items-center justify-between">
+                                            <span>Context Window</span>
+                                            <span>{message.metadata.contextPolicy.contextWindowTokens}</span>
+                                          </div>
+                                        )}
+                                        {typeof message.metadata.contextPolicy?.softTriggerTokens !== 'undefined' && (
+                                          <div className="flex items-center justify-between">
+                                            <span>Soft Trigger</span>
+                                            <span>{message.metadata.contextPolicy.softTriggerTokens}</span>
+                                          </div>
+                                        )}
+                                        {typeof message.metadata.contextPolicy?.hardCeilingTokens !== 'undefined' && (
+                                          <div className="flex items-center justify-between">
+                                            <span>Hard Ceiling</span>
+                                            <span>{message.metadata.contextPolicy.hardCeilingTokens}</span>
+                                          </div>
+                                        )}
+                                        {typeof message.metadata.contextPolicy?.replyBudgetTokens !== 'undefined' && (
+                                          <div className="flex items-center justify-between">
+                                            <span>Reply Budget</span>
+                                            <span>{message.metadata.contextPolicy.replyBudgetTokens}</span>
+                                          </div>
+                                        )}
+                                        {message.metadata.contextPolicy?.source && (
+                                          <div className="flex items-center justify-between">
+                                            <span>策略来源</span>
+                                            <span>{message.metadata.contextPolicy.source}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                      second={(
+                        <div className="h-full min-h-0 overflow-auto border-t border-border bg-background p-4">
+                          <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 sm:flex-row sm:items-end">
+                            <Textarea
+                              value={userInput}
+                              onChange={(e) => setUserInput(e.target.value)}
+                              placeholder="向模型发送一条调试消息..."
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' && !event.shiftKey) {
+                                  event.preventDefault();
+                                  handleSendMessage();
+                                }
+                              }}
+                              rows={4}
+                              className="h-full min-h-[120px] flex-1 resize-none bg-card"
+                              disabled={isDebugging}
+                            />
+                            <div className="flex w-full justify-center sm:w-auto sm:justify-end">
+                              <Button
+                                type="button"
+                                onClick={handleSendMessage}
+                                disabled={!canSendMessage}
+                                className="w-full sm:w-auto"
+                              >
+                                {isDebugging ? (
+                                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Send className="mr-2 h-4 w-4" />
+                                )}
+                                发送
+                              </Button>
+                            </div>
+                          </div>
+                          <p className="mx-auto mt-2 w-full max-w-3xl text-right text-xs text-muted-foreground">
+                            按 Enter 发送，Shift + Enter 换行
+                          </p>
+                        </div>
+                      )}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {isPlaygroundDesktopLayout && activeDrawerKey ? (
+                <div ref={configContentRef} className="space-y-4">
+                  <Card className="bg-card shadow-sm">
+                    <CardHeader className="pb-4">
+                      <CardTitle className="text-base font-semibold">配置工作区</CardTitle>
+                      <CardDescription>按“基础信息 → 提示内容 → 变量 → 参数”的顺序维护 Prompt。</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-wrap gap-2">
+                      {drawerNavItems.map((item) => (
                         <Button
                           key={item.key}
                           type="button"
-                          variant="ghost"
+                          variant={activeDrawerKey === item.key ? 'default' : 'outline'}
                           size="sm"
-                          className={`w-full justify-between rounded-lg border text-left text-sm transition ${
-                            isActive
-                              ? 'border-primary bg-primary/10 text-primary'
-                              : 'border-transparent text-foreground hover:border-border hover:bg-muted/40'
-                          }`}
-                          onClick={() => handleQuickNavClick(item.key)}
+                          onClick={() => setActiveDrawerKey(item.key)}
                         >
-                          <span className="flex items-center gap-2">
-                            <item.icon className="h-4 w-4 text-muted-foreground" />
-                            {item.label}
-                          </span>
-                          <ChevronRight
-                            className={`h-4 w-4 ${isActive ? 'text-primary' : 'text-muted-foreground/70'}`}
-                          />
+                          <item.icon className="mr-2 h-4 w-4" />
+                          {item.label}
                         </Button>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
-              </FloatingWorkspacePanel>
-            ) : null}
+                      ))}
+                    </CardContent>
+                  </Card>
+                  {renderDrawerContent()}
+                </div>
+              ) : null}
+            </div>
 
-            {isPlaygroundDesktopLayout && !historyPanel.collapsed ? (
-              <FloatingWorkspacePanel
-                title="调试历史"
-                x={historyPanel.x}
-                y={historyPanel.y}
-                width={historyPanel.width}
-                height={historyPanel.height}
-                onClose={() => {
-                  setHistoryPanel((current) => ({ ...current, collapsed: true }));
-                  setIsHistorySheetOpen(false);
-                }}
-                onDragPointerDown={handleDesktopPanelPointerDown('history', 'move')}
-                onResizePointerDown={(mode) => handleDesktopPanelPointerDown('history', mode)}
-                bodyClassName="overflow-auto"
-              >
-                <div className="space-y-3">
-                  {historyButtonLoading && (
-                    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-muted/40 p-6 text-sm text-muted-foreground">
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                      <span>加载历史记录...</span>
-                    </div>
-                  )}
-                  {!historyButtonLoading &&
-                    (!debugSessionsData?.data?.sessions ||
-                      debugSessionsData.data.sessions.length === 0) && (
-                      <div className="rounded-lg border border-dashed border-muted/40 p-6 text-center text-sm text-muted-foreground">
-                        暂无调试历史，保存一次对话后会显示在这里。
+            {isPlaygroundDesktopLayout && !overviewPanel.collapsed ? (
+              <aside className="hidden lg:block">
+                <div className="space-y-4 lg:sticky lg:top-28">
+                  <Card className="bg-card shadow-sm">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                        <Bot className="h-4 w-4 text-primary" />
+                        Prompt 概览
+                      </CardTitle>
+                      <CardDescription>编辑时只看关键状态，避免视线被 JSON 和工具选项打断。</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">状态</span>
+                        <Badge variant={formData.is_active ? 'default' : 'secondary'}>
+                          {formData.is_active ? '激活' : '禁用'}
+                        </Badge>
                       </div>
-                    )}
-                  {!historyButtonLoading &&
-                    debugSessionsData?.data.sessions?.map((session) => (
-                      <div
-                        key={session.id}
-                        className="group rounded-lg border border-border bg-card p-3 transition hover:border-primary/40 hover:bg-primary/5"
-                        onClick={() => handleLoadSession(session.id)}
-                        role="button"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <h3 className="truncate text-sm font-medium text-foreground">
-                              {session.session_name || '未命名会话'}
-                            </h3>
-                            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                              <Clock className="h-3.5 w-3.5" />
-                              <span>
-                                {new Date(session.updated_at ?? session.created_at).toLocaleString()}
-                              </span>
-                            </div>
-                          </div>
-                          <Badge variant="secondary" className="shrink-0 text-[11px] font-normal">
-                            {(session.message_count ?? 0).toString()} 条
-                          </Badge>
-                        </div>
-                        <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-                          <span>输入消息: {session.input_count ?? session.message_count ?? 0}</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">模式</span>
+                        <span className="font-medium text-foreground">{viewModeLabel}</span>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">模型</p>
+                        <p className="font-medium text-foreground">{modelBadgeLabel}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">最近更新</p>
+                        <p>{lastUpdatedAt}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">创建人</p>
+                        <p>{formData.created_by || 'admin'}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-card shadow-sm">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                        <Navigation className="h-4 w-4 text-primary" />
+                        快速跳转
+                      </CardTitle>
+                      <CardDescription>固定在右侧，主区滚动时也能稳定切换当前任务。</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {quickNavItems.map((item) => {
+                        const isActive = item.key !== 'playground' && activeDrawerKey === item.key;
+                        return (
                           <Button
+                            key={item.key}
+                            type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-6 px-2 text-xs text-red-500 hover:text-red-600 group-hover:opacity-100"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleDeleteSession(session.id);
-                            }}
-                            disabled={deleteSessionMutation.isPending}
+                            className={`w-full justify-between rounded-lg border text-left text-sm transition ${
+                              isActive
+                                ? 'border-primary bg-primary/10 text-primary'
+                                : 'border-transparent text-foreground hover:border-border hover:bg-muted/40'
+                            }`}
+                            onClick={() => handleQuickNavClick(item.key)}
                           >
-                            <Trash2 className="mr-1 h-3 w-3" />
-                            删除
+                            <span className="flex items-center gap-2">
+                              <item.icon className="h-4 w-4 text-muted-foreground" />
+                              {item.label}
+                            </span>
+                            <ChevronRight
+                              className={`h-4 w-4 ${isActive ? 'text-primary' : 'text-muted-foreground/70'}`}
+                            />
+                          </Button>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+
+                  {canUseSessionFeatures ? (
+                    <Card className="bg-card shadow-sm">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                              <History className="h-4 w-4 text-primary" />
+                              调试历史
+                            </CardTitle>
+                            <CardDescription>恢复之前的对话，不必在独立浮窗里找记录。</CardDescription>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={openHistoryPanel}
+                            disabled={historyButtonLoading}
+                          >
+                            {historyPanel.collapsed ? '展开' : '收起'}
                           </Button>
                         </div>
-                      </div>
-                    ))}
+                      </CardHeader>
+                      {!historyPanel.collapsed ? (
+                        <CardContent className="space-y-3">
+                          {historyButtonLoading && (
+                            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-muted/40 p-6 text-sm text-muted-foreground">
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                              <span>加载历史记录...</span>
+                            </div>
+                          )}
+                          {!historyButtonLoading &&
+                            (!debugSessionsData?.data?.sessions ||
+                              debugSessionsData.data.sessions.length === 0) && (
+                              <div className="rounded-lg border border-dashed border-muted/40 p-6 text-center text-sm text-muted-foreground">
+                                暂无调试历史，保存一次对话后会显示在这里。
+                              </div>
+                            )}
+                          {!historyButtonLoading &&
+                            debugSessionsData?.data.sessions?.map((session) => (
+                              <div
+                                key={session.id}
+                                className="group rounded-lg border border-border bg-card p-3 transition hover:border-primary/40 hover:bg-primary/5"
+                                onClick={() => handleLoadSession(session.id)}
+                                role="button"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <h3 className="truncate text-sm font-medium text-foreground">
+                                      {session.session_name || '未命名会话'}
+                                    </h3>
+                                    <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                                      <Clock className="h-3.5 w-3.5" />
+                                      <span>
+                                        {new Date(session.updated_at ?? session.created_at).toLocaleString()}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <Badge variant="secondary" className="shrink-0 text-[11px] font-normal">
+                                    {(session.message_count ?? 0).toString()} 条
+                                  </Badge>
+                                </div>
+                                <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                                  <span>输入消息: {session.input_count ?? session.message_count ?? 0}</span>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs text-red-500 hover:text-red-600 group-hover:opacity-100"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleDeleteSession(session.id);
+                                    }}
+                                    disabled={deleteSessionMutation.isPending}
+                                  >
+                                    <Trash2 className="mr-1 h-3 w-3" />
+                                    删除
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                        </CardContent>
+                      ) : null}
+                    </Card>
+                  ) : null}
                 </div>
-              </FloatingWorkspacePanel>
+              </aside>
             ) : null}
           </div>
         </div>

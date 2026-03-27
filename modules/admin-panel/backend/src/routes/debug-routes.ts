@@ -67,6 +67,137 @@ function buildMessageOutput(conversation: any) {
   };
 }
 
+type DisplayModelContextPolicy = {
+  model: string;
+  source: string;
+  context_window_tokens: number;
+  max_output_tokens: number;
+  default_reply_budget_tokens: number;
+  soft_trigger_ratio: number;
+  hard_buffer_ratio: number;
+  soft_trigger_tokens: number;
+  hard_ceiling_tokens: number;
+  reply_budget_tokens: number;
+};
+
+type DisplayModelContextPolicyDefinition = {
+  contextWindowTokens: number;
+  maxOutputTokens: number;
+  defaultReplyBudgetTokens?: number;
+  softTriggerRatio?: number;
+  softTriggerTokens?: number;
+  hardBufferRatio?: number;
+};
+
+const DISPLAY_MODEL_CONTEXT_DEFAULTS: Record<string, DisplayModelContextPolicyDefinition> = {
+  'gpt-5-mini': { contextWindowTokens: 400000, maxOutputTokens: 128000 },
+  'gpt-5.4': { contextWindowTokens: 1050000, maxOutputTokens: 128000 },
+  'gpt-5-codex': { contextWindowTokens: 400000, maxOutputTokens: 128000 },
+  'gpt-5.2-codex': { contextWindowTokens: 400000, maxOutputTokens: 128000 },
+  'gpt-5.3-codex': { contextWindowTokens: 400000, maxOutputTokens: 128000, softTriggerTokens: 200000 },
+  'codex-mini-latest': { contextWindowTokens: 200000, maxOutputTokens: 100000 },
+};
+
+const DISPLAY_MODEL_CONTEXT_ALIASES: Record<string, string> = {
+  'gpt-5.4-mini': 'gpt-5-mini',
+  gmini: 'gpt-5-mini'
+};
+
+let cachedDisplayPolicyOverrides: Record<string, Partial<DisplayModelContextPolicyDefinition>> | null | undefined;
+
+function loadDisplayModelContextOverrides(): Record<string, Partial<DisplayModelContextPolicyDefinition>> {
+  if (cachedDisplayPolicyOverrides !== undefined) {
+    return cachedDisplayPolicyOverrides || {};
+  }
+
+  const raw = process.env.MODEL_CONTEXT_POLICIES_JSON;
+  if (!raw) {
+    cachedDisplayPolicyOverrides = {};
+    return cachedDisplayPolicyOverrides;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    cachedDisplayPolicyOverrides = parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    cachedDisplayPolicyOverrides = {};
+  }
+
+  return cachedDisplayPolicyOverrides || {};
+}
+
+function resolveDisplayModelContextPolicy(modelName: any): DisplayModelContextPolicy | null {
+  const rawName = typeof modelName === 'string' ? modelName.trim() : '';
+  if (!rawName) {
+    return null;
+  }
+
+  const normalizedName = rawName.toLowerCase();
+  const canonicalName = DISPLAY_MODEL_CONTEXT_ALIASES[normalizedName] || normalizedName;
+  const overrides = loadDisplayModelContextOverrides();
+  const basePolicy = DISPLAY_MODEL_CONTEXT_DEFAULTS[canonicalName];
+  const overridePolicy = overrides[canonicalName];
+
+  if (!basePolicy && !overridePolicy) {
+    return null;
+  }
+
+  const contextWindowTokens = Number(
+    overridePolicy?.contextWindowTokens ?? basePolicy?.contextWindowTokens ?? 0
+  );
+  const maxOutputTokens = Number(
+    overridePolicy?.maxOutputTokens ?? basePolicy?.maxOutputTokens ?? 0
+  );
+  if (!Number.isFinite(contextWindowTokens) || contextWindowTokens <= 0 || !Number.isFinite(maxOutputTokens) || maxOutputTokens <= 0) {
+    return null;
+  }
+
+  const defaultReplyBudgetTokens = Number(
+    overridePolicy?.defaultReplyBudgetTokens ?? basePolicy?.defaultReplyBudgetTokens ?? 8192
+  );
+  const softTriggerRatio = Number(
+    overridePolicy?.softTriggerRatio ?? basePolicy?.softTriggerRatio ?? 0.5
+  );
+  const hardBufferRatio = Number(
+    overridePolicy?.hardBufferRatio ?? basePolicy?.hardBufferRatio ?? 0.1
+  );
+  const replyBudgetTokens = Math.min(defaultReplyBudgetTokens, maxOutputTokens);
+  const softTriggerTokens = Number(
+    overridePolicy?.softTriggerTokens ?? basePolicy?.softTriggerTokens ?? Math.floor(contextWindowTokens * softTriggerRatio)
+  );
+  const hardCeilingTokens = Math.floor((contextWindowTokens - replyBudgetTokens) * (1 - hardBufferRatio));
+
+  return {
+    model: rawName,
+    source: overridePolicy ? 'env_override' : 'built_in',
+    context_window_tokens: contextWindowTokens,
+    max_output_tokens: maxOutputTokens,
+    default_reply_budget_tokens: defaultReplyBudgetTokens,
+    soft_trigger_ratio: softTriggerRatio,
+    hard_buffer_ratio: hardBufferRatio,
+    soft_trigger_tokens: softTriggerTokens,
+    hard_ceiling_tokens: hardCeilingTokens,
+    reply_budget_tokens: replyBudgetTokens
+  };
+}
+
+function extractUsageDetails(tokenUsage: any) {
+  const usage = tokenUsage && typeof tokenUsage === 'object' ? tokenUsage : {};
+  return {
+    cached_input_tokens: toNumber(
+      usage.cached_input_tokens
+      ?? usage.input_tokens_details?.cached_tokens
+      ?? usage.prompt_tokens_details?.cached_tokens
+    ) ?? 0,
+    reasoning_tokens: toNumber(
+      usage.reasoning_tokens
+      ?? usage.output_tokens_details?.reasoning_tokens
+      ?? usage.completion_tokens_details?.reasoning_tokens
+    ) ?? 0,
+    raw_usage: usage
+  };
+}
+
 function normalizeProcessingEvents(events: any[]) {
   return events.map((event) => ({
     event_id: String(event.id),
@@ -425,31 +556,31 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
       // 获取LLM调用记录
       const llmCallsQuery = `
         SELECT
-          id,
-          conversation_id,
-          trace_id,
-          call_sequence,
-          agent_type,
-          model_name,
-          model_provider,
-          prompt_template,
-          canonical_request,
-          wire_request,
-          request_format_version,
-          wire_provider_format,
-          input_tokens,
-          canonical_response,
-          wire_response,
-          processed_response,
-          output_tokens,
-          api_call_time_ms,
-          processing_time_ms,
-          timestamp,
-          status,
-          error_message,
-          error_code,
-          cost_estimate,
-          token_usage
+          l.id,
+          l.conversation_id,
+          l.trace_id,
+          l.call_sequence,
+          l.agent_type,
+          l.model_name,
+          l.model_provider,
+          l.prompt_template,
+          l.canonical_request,
+          NULL::jsonb AS wire_request,
+          l.request_format_version,
+          l.wire_provider_format,
+          l.input_tokens,
+          NULL::jsonb AS canonical_response,
+          l.raw_response AS wire_response,
+          l.processed_response,
+          l.output_tokens,
+          l.api_call_time_ms,
+          l.processing_time_ms,
+          l.timestamp,
+          l.status,
+          l.error_message,
+          l.error_code,
+          NULL::numeric AS cost_estimate,
+          l.token_usage
         FROM llm_call_logs l
         INNER JOIN (
           SELECT id, timestamp, call_sequence
@@ -498,35 +629,87 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
       const messageOutput = buildMessageOutput(conversation);
       const processingEvents = normalizeProcessingEvents(timelineEvents);
 
+      const normalizedLlmCalls = llmCalls.map((call: any, index: number) => {
+        const tokenUsage = parseJsonField<any>(call.token_usage, {});
+        const usageDetails = extractUsageDetails(tokenUsage);
+        const promptTokens = toNumber(tokenUsage.input_tokens ?? call.input_tokens) ?? 0;
+        const completionTokens = toNumber(tokenUsage.output_tokens ?? call.output_tokens) ?? 0;
+        const totalTokens = toNumber(tokenUsage.total_tokens) ?? (promptTokens + completionTokens);
+        const contextPolicy = resolveDisplayModelContextPolicy(call.model_name);
+        const status = ((call.status ?? '').toString().toUpperCase() || 'ERROR') as 'SUCCESS' | 'ERROR' | 'TIMEOUT' | 'SKIPPED';
+
+        return {
+          sequence: toNumber(call.call_sequence) ?? index + 1,
+          stage: 'llm_pipeline',
+          agent_type: call.agent_type || 'unknown',
+          purpose: call.prompt_template || 'llm_call',
+          input: {
+            model_name: call.model_name || 'unknown',
+            model_provider: call.model_provider || 'unknown',
+            prompt_template: call.prompt_template || 'default',
+            canonical_request: parseJsonField<any>(call.canonical_request, null),
+            wire_request: parseJsonField<any>(call.wire_request, null),
+            request_format_version: call.request_format_version || undefined,
+            wire_provider_format: call.wire_provider_format || undefined,
+            timestamp: call.timestamp ? new Date(call.timestamp).toISOString() : new Date().toISOString()
+          },
+          output: {
+            status,
+            canonical_response: parseJsonField<any>(call.canonical_response, null),
+            wire_response: parseJsonField<any>(call.wire_response, null),
+            processed_response: call.processed_response || '',
+            token_usage: {
+              input_tokens: promptTokens,
+              output_tokens: completionTokens,
+              total_tokens: totalTokens
+            },
+            usage_details: usageDetails,
+            context_policy: contextPolicy,
+            performance: {
+              api_call_time_ms: toNumber(call.api_call_time_ms) ?? 0,
+              processing_time_ms: toNumber(call.processing_time_ms) ?? 0
+            },
+            cost_estimate: toNumber(call.cost_estimate) ?? undefined,
+            error_info: call.error_message
+              ? {
+                  error_message: call.error_message,
+                  error_code: call.error_code || 'UNKNOWN_ERROR',
+                  retry_count: 0
+                }
+              : undefined,
+            timestamp: call.timestamp ? new Date(call.timestamp).toISOString() : new Date().toISOString()
+          }
+        };
+      });
+
       const responseData = {
         conversation_id: conversationId,
         trace_id: traceId,
         message_input: messageInput,
         message_output: messageOutput,
-        llm_call_chain: llmCalls,
+        llm_call_chain: normalizedLlmCalls,
         processing_events: processingEvents,
         flow_summary: {
           total_processing_time_ms: Number(conversation.response_time) || 0,
           queue_wait_time_ms: 0,
-          llm_processing_time_ms: llmCalls.reduce((sum: number, call: any) => sum + (Number(call.processing_time_ms) || 0), 0),
-          total_llm_calls: llmCalls.length,
-          successful_calls: llmCalls.filter((call: any) => call.status === 'SUCCESS').length,
-          failed_calls: llmCalls.filter((call: any) => call.status === 'ERROR').length,
-          skipped_calls: llmCalls.filter((call: any) => call.status === 'SKIPPED').length,
-          total_tokens_used: llmCalls.reduce((sum: number, call: any) => {
-            const usage = parseJsonField<any>(call.token_usage, {});
-            return sum + Number(usage.total_tokens ?? 0);
+          llm_processing_time_ms: normalizedLlmCalls.reduce((sum: number, call: any) => sum + (Number(call.output.performance.processing_time_ms) || 0), 0),
+          total_llm_calls: normalizedLlmCalls.length,
+          successful_calls: normalizedLlmCalls.filter((call: any) => call.output.status === 'SUCCESS').length,
+          failed_calls: normalizedLlmCalls.filter((call: any) => call.output.status === 'ERROR').length,
+          skipped_calls: normalizedLlmCalls.filter((call: any) => call.output.status === 'SKIPPED').length,
+          total_tokens_used: normalizedLlmCalls.reduce((sum: number, call: any) => {
+            return sum + Number(call.output.token_usage.total_tokens ?? 0);
           }, 0),
-          total_cost_estimate: llmCalls.reduce((sum: number, call: any) => sum + (Number(call.cost_estimate) || 0), 0),
-          success_rate: llmCalls.length > 0
-            ? (llmCalls.filter((call: any) => call.status === 'SUCCESS').length / llmCalls.length) * 100
+          total_cost_estimate: normalizedLlmCalls.reduce((sum: number, call: any) => sum + (Number(call.output.cost_estimate) || 0), 0),
+          success_rate: normalizedLlmCalls.length > 0
+            ? (normalizedLlmCalls.filter((call: any) => call.output.status === 'SUCCESS').length / normalizedLlmCalls.length) * 100
             : 100,
           efficiency_score: 0
         },
         debug_info: {
           data_completeness: {
             conversation_record: 'complete',
-            llm_call_logs: llmCalls.length > 0 ? 'complete' : 'missing',
+            llm_call_logs: normalizedLlmCalls.length > 0 ? 'complete' : 'missing',
             queue_logs: websocketLogs.length > 0 ? 'complete' : 'missing',
             processing_events: processingEvents.length > 0 ? 'complete' : 'missing'
           },
@@ -737,7 +920,15 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
         thinking: apiResult.thinking,           // 🔥 支持思考过程
         token_used: apiResult.token_used,
         model: apiResult.model,
+        usage: apiResult.usage || null,
+        usage_details: apiResult.usage_details || null,
         performance: apiResult.performance,
+        context_policy: apiResult.context_policy || null,
+        canonical_request: apiResult.canonical_request || null,
+        wire_request: apiResult.wire_request || null,
+        canonical_response: apiResult.canonical_response || null,
+        wire_response: apiResult.wire_response || null,
+        raw_response: apiResult.raw_response || null,
         prompt_config: promptConfig ? {         // 🔥 返回使用的配置信息
           prompt_name: promptConfig.prompt_name,
           agent_type: promptConfig.agent_type,

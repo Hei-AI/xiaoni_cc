@@ -1,7 +1,7 @@
 import express from 'express';
 import { aiConfig, serverConfig } from './config';
 import EmbeddingService from './services/embedding-service';
-import { executeDebugRequest } from './services/provider-debug-service';
+import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
 import { NapcatClient } from './services/napcat-client';
 import { ChatPolicyService } from './services/chat-policy-service';
 import {
@@ -11,7 +11,11 @@ import {
   rememberInboundContext,
 } from './services/agent-im-input-adapter';
 import { InboundInboxService } from './services/inbound-inbox-service';
+import { ConversationStoreService } from './services/conversation-store-service';
+import { SessionTranscriptService } from './services/session-transcript-service';
+import { TranscriptSnapshotService } from './services/transcript-snapshot-service';
 import { FinalizedInboundContext } from './types';
+import { runtimeStoreService } from './services/runtime-store-service';
 import { logger } from './utils/logger';
 
 const app = express();
@@ -21,6 +25,18 @@ const napcatClient = new NapcatClient();
 const inboxService = new InboundInboxService();
 const chatPolicyService = new ChatPolicyService();
 const recentMessageCache = new RecentMessageCache();
+const conversationStoreService = new ConversationStoreService();
+const transcriptSnapshotService = new TranscriptSnapshotService();
+const transcriptService = new SessionTranscriptService({
+  conversationStore: conversationStoreService,
+  snapshotService: transcriptSnapshotService,
+  systemPrompt: process.env.CHATBOT_SYSTEM_PROMPT || [
+    'You are a QQ chat bot.',
+    'Reply naturally, directly, and briefly in Chinese by default.',
+    'In group chats, keep responses short unless the user explicitly asks for detail.'
+  ].join('\n'),
+  summaryWebhookUrl: process.env.TRANSCRIPT_SUMMARY_WEBHOOK_URL || undefined
+});
 
 type ProviderMessageType = 'private' | 'group';
 
@@ -30,6 +46,43 @@ type SimpleQueueSimulationPayload = {
   message?: string;
   priority?: string;
 };
+
+function normalizeOutboundMessages(body: Record<string, unknown>) {
+  const messages: string[] = [];
+
+  if (typeof body.message === 'string' && body.message.trim()) {
+    messages.push(body.message.trim());
+  }
+
+  if (Array.isArray(body.messages)) {
+    for (const item of body.messages) {
+      if (typeof item !== 'string' || !item.trim()) {
+        throw new Error('messages must be an array of non-empty strings');
+      }
+      messages.push(item.trim());
+    }
+  }
+
+  return messages;
+}
+
+function normalizeOptionalNumericIdList(value: unknown, fieldName: string) {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an array of numeric ids`);
+  }
+
+  return Array.from(new Set(value.map((item) => {
+    const numeric = Number(item);
+    if (!Number.isFinite(numeric)) {
+      throw new Error(`${fieldName} must be an array of numeric ids`);
+    }
+    return Math.trunc(numeric);
+  })));
+}
 
 function markIncomingActivityAsync(params: { messageType: ProviderMessageType; userId: number; groupId?: number }) {
   void chatPolicyService.markIncomingActivity(params).catch((error) => {
@@ -138,7 +191,28 @@ async function simulateSimpleQueueMessage(messageType: ProviderMessageType, payl
     groupId: messageType === 'group' ? Number(payload.group_id) : undefined
   });
 
-  return result;
+  const finalizedContext = inboxService.finalizeSimulationContext(
+    inboundContext,
+    String(aiConfig.bot_qq_number),
+    result.traceId
+  );
+  const autoReply = await processAutoReply({
+    inboxEvent: result.event,
+    inboundContext: finalizedContext,
+    rawPayload: {
+      simulated: true,
+      source: 'simple-queue',
+      messageType,
+      payload
+    },
+    traceId: result.traceId,
+    source: 'simulator'
+  });
+
+  return {
+    ...result,
+    autoReply
+  };
 }
 
 async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
@@ -152,6 +226,10 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
 
   if (messageType === 'group' && !Number.isFinite(groupId)) {
     return { accepted: false, reason: 'invalid_group_message' as const };
+  }
+
+  if (userId === aiConfig.bot_qq_number) {
+    return { accepted: false, reason: 'self_message' as const };
   }
 
   const policy = await chatPolicyService.checkIncomingPolicy({
@@ -203,10 +281,99 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     wasMentioned: inboundContext.WasMentioned === true
   });
 
+  const autoReply = await processAutoReply({
+    inboxEvent: result.event,
+    inboundContext,
+    rawPayload: message as Record<string, unknown>,
+    traceId: result.traceId,
+    source: 'napcat'
+  });
+
   return {
     accepted: true,
     policy,
+    autoReply,
     ...result
+  };
+}
+
+async function processAutoReply(params: {
+  inboxEvent: Awaited<ReturnType<InboundInboxService['ingestIncomingMessage']>>['event'];
+  inboundContext: FinalizedInboundContext;
+  rawPayload: Record<string, unknown>;
+  traceId: string;
+  source: 'napcat' | 'simulator';
+}) {
+  const policyTargets = inferPolicyTargets(params.inboundContext);
+  if (!policyTargets) {
+    return {
+      attempted: false,
+      reason: 'invalid_policy_targets'
+    };
+  }
+
+  const policy = await chatPolicyService.checkAutoReplyPolicy(policyTargets);
+  if (!policy.allowed) {
+    return {
+      attempted: false,
+      reason: policy.reason,
+      policy
+    };
+  }
+  await runtimeStoreService.logTimelineEvent({
+    traceId: params.traceId,
+    eventType: 'queue',
+    eventName: 'normalize',
+    eventPhase: 'start',
+    metadata: {
+      source: params.source,
+      chat_type: params.inboxEvent.chatType,
+      session_key: params.inboxEvent.sessionKey
+    }
+  });
+  const semanticMessage = runtimeStoreService.buildSemanticInboundMessage(params.inboxEvent, {
+    source: params.source,
+    rawPayload: params.rawPayload,
+    inboundContext: params.inboundContext
+  });
+  await runtimeStoreService.logTimelineEvent({
+    traceId: params.traceId,
+    eventType: 'queue',
+    eventName: 'normalize',
+    eventPhase: 'end',
+    metadata: {
+      source: params.source,
+      dedupe_key: semanticMessage.dedupeKey || null
+    }
+  });
+  await runtimeStoreService.logTimelineEvent({
+    traceId: params.traceId,
+    eventType: 'queue',
+    eventName: 'enqueue',
+    eventPhase: 'start',
+    metadata: {
+      message_sid: semanticMessage.messageSid,
+      source: params.source
+    }
+  });
+  const queueResult = await runtimeStoreService.enqueueSemanticMessage(semanticMessage);
+  await runtimeStoreService.logTimelineEvent({
+    traceId: params.traceId,
+    eventType: 'queue',
+    eventName: 'enqueue',
+    eventPhase: 'end',
+    metadata: {
+      queue_id: queueResult.queueId,
+      queue_status: queueResult.status
+    }
+  });
+
+  return {
+    attempted: true,
+    queued: true,
+    queueId: queueResult.queueId,
+    queueStatus: queueResult.status,
+    traceId: params.traceId
   };
 }
 
@@ -242,12 +409,12 @@ app.get('/api/status', async (_req, res) => {
 app.post('/api/internal/send_private', async (req, res) => {
   try {
     const userId = Number(req.body?.user_id);
-    const message = typeof req.body?.message === 'string' ? req.body.message : '';
+    const messages = normalizeOutboundMessages(req.body || {});
     const enforcePolicy = Boolean(req.body?.enforce_policy);
-    if (!Number.isFinite(userId) || !message.trim()) {
+    if (!Number.isFinite(userId) || messages.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required parameters: user_id, message'
+        error: 'Missing required parameters: user_id, message or messages'
       });
     }
 
@@ -266,7 +433,10 @@ app.post('/api/internal/send_private', async (req, res) => {
       }
     }
 
-    const data = await napcatClient.sendPrivateMessage(userId, message);
+    const data = [];
+    for (const message of messages) {
+      data.push(await napcatClient.sendPrivateMessage(userId, message));
+    }
     res.json({
       success: true,
       data,
@@ -284,12 +454,13 @@ app.post('/api/internal/send_private', async (req, res) => {
 app.post('/api/internal/send_group', async (req, res) => {
   try {
     const groupId = Number(req.body?.group_id);
-    const message = typeof req.body?.message === 'string' ? req.body.message : '';
+    const messages = normalizeOutboundMessages(req.body || {});
+    const mentionUserIds = normalizeOptionalNumericIdList(req.body?.mention_user_ids, 'mention_user_ids');
     const enforcePolicy = Boolean(req.body?.enforce_policy);
-    if (!Number.isFinite(groupId) || !message.trim()) {
+    if (!Number.isFinite(groupId) || messages.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required parameters: group_id, message'
+        error: 'Missing required parameters: group_id, message or messages'
       });
     }
 
@@ -309,7 +480,14 @@ app.post('/api/internal/send_group', async (req, res) => {
       }
     }
 
-    const data = await napcatClient.sendGroupMessage(groupId, message);
+    const data = [];
+    for (const [index, message] of messages.entries()) {
+      data.push(await napcatClient.sendGroupMessage(
+        groupId,
+        message,
+        index === 0 ? mentionUserIds : []
+      ));
+    }
     res.json({
       success: true,
       data,
@@ -365,6 +543,122 @@ app.post('/api/internal/llm/debug', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'LLM debug failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/agent/execute', async (req, res) => {
+  try {
+    const result = await executeAgentRequest(req.body || {});
+    res.json(result);
+  } catch (error) {
+    moduleLogger.error('Agent execution request failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Agent execution failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/transcript-summary/result', async (req, res) => {
+  try {
+    const status = req.body?.status === 'failed' ? 'failed' : 'ready';
+    const sessionId = typeof req.body?.session_id === 'string' ? req.body.session_id.trim() : '';
+    const summaryJobId = typeof req.body?.job_id === 'string' ? req.body.job_id.trim() : null;
+
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: session_id',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (status === 'failed') {
+      await transcriptSnapshotService.markFailed({
+        sessionId,
+        summaryJobId,
+        summaryFormatVersion: typeof req.body?.summary_format_version === 'string'
+          ? req.body.summary_format_version
+          : 'failed'
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          session_id: sessionId,
+          status: 'failed'
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const chatType = req.body?.chat_type === 'group'
+      ? 'group'
+      : req.body?.chat_type === 'direct'
+        ? 'direct'
+        : null;
+    const summaryText = typeof req.body?.summary_text === 'string' ? req.body.summary_text.trim() : '';
+    const summaryFormatVersion = typeof req.body?.summary_format_version === 'string'
+      ? req.body.summary_format_version.trim()
+      : 'v1';
+    const summarizedThroughConversationId = Number(req.body?.summarized_through_conversation_id);
+    const privateUserId = req.body?.private_user_id !== undefined ? Number(req.body.private_user_id) : null;
+    const groupId = req.body?.group_id !== undefined ? Number(req.body.group_id) : null;
+
+    if (!chatType) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: chat_type',
+        timestamp: new Date().toISOString()
+      });
+    }
+    if (!summaryText) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: summary_text',
+        timestamp: new Date().toISOString()
+      });
+    }
+    if (!Number.isFinite(summarizedThroughConversationId) || summarizedThroughConversationId <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: summarized_through_conversation_id',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    await transcriptSnapshotService.applySummaryResult({
+      sessionId,
+      chatType,
+      privateUserId: Number.isFinite(privateUserId) ? privateUserId : null,
+      groupId: Number.isFinite(groupId) ? groupId : null,
+      summaryText,
+      summaryFormatVersion,
+      summarizedThroughConversationId,
+      summaryJobId
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        session_id: sessionId,
+        status: 'ready',
+        summarized_through_conversation_id: summarizedThroughConversationId
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    moduleLogger.error('Failed to apply transcript summary result', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to apply transcript summary result',
       timestamp: new Date().toISOString()
     });
   }
@@ -794,6 +1088,9 @@ app.get('/api/internal/embedding/health', async (_req, res) => {
 
 async function startServer() {
   await inboxService.initialize();
+  await conversationStoreService.initialize();
+  await transcriptSnapshotService.initialize();
+  await runtimeStoreService.initialize();
 
   app.listen(serverConfig.port, serverConfig.host, () => {
     moduleLogger.info('Provider service started', {
@@ -807,6 +1104,21 @@ async function shutdown(signal: string) {
   moduleLogger.info('Shutting down provider service', { signal });
   await inboxService.close().catch((error) => {
     moduleLogger.warn('Failed to close inbox service cleanly', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
+  await conversationStoreService.close().catch((error) => {
+    moduleLogger.warn('Failed to close conversation store cleanly', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
+  await transcriptSnapshotService.close().catch((error) => {
+    moduleLogger.warn('Failed to close transcript snapshot service cleanly', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
+  await runtimeStoreService.close().catch((error) => {
+    moduleLogger.warn('Failed to close runtime store cleanly', {
       error: error instanceof Error ? error.message : String(error)
     });
   });

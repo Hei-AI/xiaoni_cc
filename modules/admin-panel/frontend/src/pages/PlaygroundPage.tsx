@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { SampleLibraryPanel } from '@/components/SampleLibraryPanel';
@@ -23,6 +23,11 @@ import {
   normalizePlaygroundTools,
   PLAYGROUND_PROVIDER_MODEL_OPTIONS,
 } from '@/lib/playground-models';
+import {
+  asRecord,
+  parseMaybeJson,
+  resolvePromptProviderConfig,
+} from '@/lib/provider-config';
 import { cn, formatTimestamp } from '@/lib/utils';
 import {
   clonePlaygroundRun,
@@ -45,7 +50,6 @@ import type {
 import {
   Database,
   FileJson2,
-  Move,
   Play,
   RefreshCw,
   Save,
@@ -56,7 +60,6 @@ import {
   Wand2,
   Plus,
   Trash2,
-  X,
 } from 'lucide-react';
 
 type PromptSummary = {
@@ -72,15 +75,7 @@ type PromptSummary = {
 
 type OutputView = 'text' | 'tool' | 'raw';
 type DesktopWindowId = 'params' | 'compare';
-type DesktopWindowResizeMode = 'move' | 'right' | 'bottom' | 'corner';
-
-type DesktopWindowState = {
-  collapsed: boolean;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
+type DesktopWindowState = { collapsed: boolean };
 
 type ToolCallPreview = {
   name: string;
@@ -133,77 +128,6 @@ function parsePromptSystemInstruction(value: unknown): string {
 function parsePromptContextVariables(value: unknown): Record<string, unknown> {
   const parsed = parseMaybeJson(value);
   return asRecord(parsed) || {};
-}
-
-function normalizePromptProvider(value: unknown): PlaygroundProviderConfig['provider'] {
-  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (normalized === 'openai') return 'openai';
-  if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
-  if (normalized === 'google-legacy' || normalized === 'gemini-api') return 'google-legacy';
-  return 'google-gemini-cli';
-}
-
-function buildProviderConfigFromPromptSummary(prompt: PromptSummary): PlaygroundProviderConfig {
-  const modelConfig = asRecord(parseMaybeJson(prompt.model_config)) || {};
-  const advancedConfig = asRecord(parseMaybeJson(prompt.advanced_config)) || {};
-  const advancedModel = asRecord(advancedConfig.model);
-  const provider = normalizePromptProvider(
-    modelConfig.provider
-    ?? advancedConfig.provider
-    ?? advancedModel?.provider
-  );
-  const generationConfig = asRecord(advancedConfig.generationConfig);
-  const providerSpecific = {
-    ...(asRecord(parseMaybeJson(modelConfig.providerSpecific)) || {}),
-    ...(asRecord(parseMaybeJson(advancedModel?.providerSpecific)) || {}),
-  };
-
-  return {
-    provider,
-    generation: generationConfig || {
-      temperature: modelConfig.temperature ?? 0.7,
-      topP: modelConfig.topP ?? 0.95,
-      topK: modelConfig.topK ?? 40,
-      maxOutputTokens: modelConfig.maxOutputTokens ?? 2048,
-    },
-    thinking: asRecord(advancedConfig.thinkingConfig) || {},
-    safety: Array.isArray(parseMaybeJson(advancedConfig.safetySettings))
-      ? (parseMaybeJson(advancedConfig.safetySettings) as Array<Record<string, unknown>>)
-      : [],
-    tools: asRecord(parseMaybeJson(advancedConfig.toolsConfig)) || {},
-    context: {
-      promptId: prompt.id,
-      promptName: prompt.prompt_name,
-    },
-    providerSpecific,
-  };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function parseMaybeJson(value: unknown): unknown {
-  if (typeof value !== 'string') {
-    return value;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return value;
-  }
-
-  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      return value;
-    }
-  }
-
-  return value;
 }
 
 function pickFirstDefined(...values: unknown[]): unknown {
@@ -400,73 +324,6 @@ function EmptyState({
   );
 }
 
-function clampNumber(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function FloatingPanel({
-  title,
-  x,
-  y,
-  width,
-  height,
-  onClose,
-  onDragPointerDown,
-  onResizePointerDown,
-  children,
-}: {
-  title: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  onClose: () => void;
-  onDragPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  onResizePointerDown: (mode: Exclude<DesktopWindowResizeMode, 'move'>) => (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      className="absolute z-20 hidden overflow-hidden rounded-[24px] border border-border bg-background/95 shadow-[0_30px_80px_-35px_rgba(15,23,42,0.45)] backdrop-blur lg:flex lg:flex-col"
-      style={{ left: x, top: y, width, height }}
-    >
-      <div
-        className="flex cursor-move items-center justify-between border-b border-border/80 bg-background/90 px-4 py-3"
-        onPointerDown={onDragPointerDown}
-      >
-        <div className="flex items-center gap-2">
-          <Move className="h-3.5 w-3.5 text-muted-foreground" />
-          <div className="text-sm font-semibold text-foreground">{title}</div>
-        </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden p-4">{children}</div>
-      <button
-        type="button"
-        aria-label={`${title} 水平拉伸`}
-        className="absolute bottom-4 right-0 top-14 w-3 cursor-col-resize bg-transparent"
-        onPointerDown={onResizePointerDown('right')}
-      />
-      <button
-        type="button"
-        aria-label={`${title} 垂直拉伸`}
-        className="absolute bottom-0 left-4 right-4 h-3 cursor-row-resize bg-transparent"
-        onPointerDown={onResizePointerDown('bottom')}
-      />
-      <button
-        type="button"
-        aria-label={`${title} 双向拉伸`}
-        className="absolute bottom-0 right-0 h-5 w-5 cursor-nwse-resize bg-transparent"
-        onPointerDown={onResizePointerDown('corner')}
-      >
-        <span className="absolute bottom-1.5 right-1.5 h-2.5 w-2.5 rounded-sm border-r-2 border-b-2 border-border/70" />
-      </button>
-    </div>
-  );
-}
-
 const DEFAULT_PROVIDER_CONFIG: PlaygroundProviderConfig = {
   provider: 'google-gemini-cli',
   generation: {
@@ -492,8 +349,8 @@ const DEFAULT_PROMPT_INPUT: PlaygroundPromptInput = {
 };
 
 const DEFAULT_DESKTOP_WINDOWS: Record<DesktopWindowId, DesktopWindowState> = {
-  params: { collapsed: false, x: 980, y: 136, width: 420, height: 620 },
-  compare: { collapsed: true, x: 1040, y: 220, width: 360, height: 420 },
+  params: { collapsed: false },
+  compare: { collapsed: true },
 };
 
 export function PlaygroundPage() {
@@ -526,17 +383,6 @@ export function PlaygroundPage() {
   const [editorView, setEditorView] = useState<'prompt' | 'preview'>('prompt');
   const [editorEmptyStateDismissed, setEditorEmptyStateDismissed] = useState(false);
   const [isDesktopLayout, setIsDesktopLayout] = useState(() => (typeof window === 'undefined' ? true : window.innerWidth >= 1024));
-  const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<{
-    id: DesktopWindowId;
-    mode: DesktopWindowResizeMode;
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-    originWidth: number;
-    originHeight: number;
-  } | null>(null);
   const bootstrappedRef = useRef(false);
 
   const { data: promptData } = useQuery({
@@ -647,94 +493,13 @@ export function PlaygroundPage() {
     },
   });
 
-  const clampDesktopWindow = (windowState: DesktopWindowState) => {
-    const rect = workspaceRef.current?.getBoundingClientRect();
-    const boundsWidth = rect?.width ?? (typeof window === 'undefined' ? 1600 : window.innerWidth);
-    const boundsHeight = rect?.height ?? (typeof window === 'undefined' ? 1000 : window.innerHeight);
-    const width = clampNumber(windowState.width, 320, Math.max(320, boundsWidth - 32));
-    const height = clampNumber(windowState.height, 260, Math.max(260, boundsHeight - 32));
-    const x = clampNumber(windowState.x, 16, Math.max(16, boundsWidth - width - 16));
-    const y = clampNumber(windowState.y, 16, Math.max(16, boundsHeight - height - 16));
-    return { ...windowState, width, height, x, y };
-  };
-
   useEffect(() => {
     const handleResize = () => {
       setIsDesktopLayout(window.innerWidth >= 1024);
-      setDesktopWindows((prev) => ({
-        params: clampDesktopWindow(prev.params),
-        compare: clampDesktopWindow(prev.compare),
-      }));
     };
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      const dragState = dragRef.current;
-      if (!dragState) {
-        return;
-      }
-
-      const rect = workspaceRef.current?.getBoundingClientRect();
-      const boundsWidth = rect?.width ?? window.innerWidth;
-      const boundsHeight = rect?.height ?? window.innerHeight;
-      const deltaX = event.clientX - dragState.startX;
-      const deltaY = event.clientY - dragState.startY;
-
-      setDesktopWindows((prev) => {
-        const current = prev[dragState.id];
-        let nextWindow = current;
-
-        if (dragState.mode === 'move') {
-          nextWindow = {
-            ...current,
-            x: dragState.originX + deltaX,
-            y: dragState.originY + deltaY,
-          };
-        } else if (dragState.mode === 'right') {
-          nextWindow = {
-            ...current,
-            width: dragState.originWidth + deltaX,
-          };
-        } else if (dragState.mode === 'bottom') {
-          nextWindow = {
-            ...current,
-            height: dragState.originHeight + deltaY,
-          };
-        } else {
-          nextWindow = {
-            ...current,
-            width: dragState.originWidth + deltaX,
-            height: dragState.originHeight + deltaY,
-          };
-        }
-
-        const clamped = clampDesktopWindow({
-          ...nextWindow,
-          width: clampNumber(nextWindow.width, 320, Math.max(320, boundsWidth - nextWindow.x - 16)),
-          height: clampNumber(nextWindow.height, 260, Math.max(260, boundsHeight - nextWindow.y - 16)),
-        });
-
-        return {
-          ...prev,
-          [dragState.id]: clamped,
-        };
-      });
-    };
-
-    const handlePointerUp = () => {
-      dragRef.current = null;
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
   }, []);
 
   useEffect(() => {
@@ -1016,7 +781,7 @@ export function PlaygroundPage() {
     setDraftSystemInstruction(systemInstruction);
     setDraftUserPromptTemplate(prompt.user_prompt_template || '');
     setContextVariablesText(stringifyJson(contextVariables));
-    syncProviderTextFields(buildProviderConfigFromPromptSummary(prompt));
+    syncProviderTextFields(resolvePromptProviderConfig(prompt));
   };
 
   const handlePromptModeChange = (value: PlaygroundPromptMode) => {
@@ -1048,26 +813,10 @@ export function PlaygroundPage() {
   };
 
   const openDesktopWindow = (id: DesktopWindowId) => {
-    setDesktopWindows((prev) => {
-      const current = prev[id];
-      const nextWindow = clampDesktopWindow({
-        ...current,
-        collapsed: false,
-        x: current.collapsed ? current.x : current.x,
-        y: current.collapsed ? current.y : current.y,
-      });
-
-      return {
-        ...prev,
-        [id]: current.collapsed
-          ? clampDesktopWindow({
-              ...nextWindow,
-              x: current.width > 0 ? nextWindow.x : 24,
-              y: id === 'params' ? 132 : 220,
-            })
-          : nextWindow,
-      };
-    });
+    setDesktopWindows((prev) => ({
+      ...prev,
+      [id]: { collapsed: false },
+    }));
   };
 
   const closeDesktopWindow = (id: DesktopWindowId) => {
@@ -1088,22 +837,6 @@ export function PlaygroundPage() {
 
     closeDesktopWindow(id);
   };
-
-  const handleDesktopWindowPointerDown = (id: DesktopWindowId, mode: DesktopWindowResizeMode) =>
-    (event: ReactPointerEvent<HTMLElement>) => {
-      event.preventDefault();
-      const current = desktopWindows[id];
-      dragRef.current = {
-        id,
-        mode,
-        startX: event.clientX,
-        startY: event.clientY,
-        originX: current.x,
-        originY: current.y,
-        originWidth: current.width,
-        originHeight: current.height,
-      };
-    };
 
   const syncProviderTextFields = (next: PlaygroundProviderConfig) => {
     setProviderConfig(next);
@@ -1408,7 +1141,7 @@ export function PlaygroundPage() {
             <SelectItem value="__inherit__">
               {promptDefaultModel ? `Use prompt default (${promptDefaultModel})` : `Use provider default (${providerDefaultModel})`}
             </SelectItem>
-            {presetModelOptions.map((modelName) => (
+            {presetModelOptions.map((modelName: string) => (
               <SelectItem key={modelName} value={modelName}>
                 {modelName}
               </SelectItem>
@@ -1941,10 +1674,7 @@ export function PlaygroundPage() {
 
   return (
     <PageShell>
-      <div
-        ref={workspaceRef}
-        className="relative overflow-hidden rounded-[28px] border border-border/70 bg-[linear-gradient(180deg,#fffdf8_0%,#f7f2ea_100%)] shadow-[0_24px_80px_-45px_rgba(15,23,42,0.4)]"
-      >
+      <div className="relative overflow-visible rounded-[28px] border border-border/70 bg-[linear-gradient(180deg,#fffdf8_0%,#f7f2ea_100%)] shadow-[0_24px_80px_-45px_rgba(15,23,42,0.4)]">
         <div className="border-b border-border/70 px-5 py-5 sm:px-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
@@ -1980,7 +1710,7 @@ export function PlaygroundPage() {
                 onClick={() => (isDesktopLayout ? toggleDesktopWindow('params') : setMobileParamsOpen(true))}
               >
                 <Settings2 className="mr-2 h-4 w-4" />
-                {isDesktopLayout && !desktopWindows.params.collapsed ? 'Hide Params' : 'Params'}
+                {isDesktopLayout && !desktopWindows.params.collapsed ? '隐藏参数' : '参数'}
               </Button>
               <Button
                 variant="outline"
@@ -1988,7 +1718,7 @@ export function PlaygroundPage() {
                 onClick={() => (isDesktopLayout ? toggleDesktopWindow('compare') : setMobileCompareOpen(true))}
               >
                 <Sparkles className="mr-2 h-4 w-4" />
-                {isDesktopLayout && !desktopWindows.compare.collapsed ? 'Hide Compare' : 'Compare'}
+                {isDesktopLayout && !desktopWindows.compare.collapsed ? '隐藏对比' : '对比'}
               </Button>
               <Button onClick={() => runMutation.mutate()} disabled={!selectedCaseId || runMutation.isPending}>
                 <Play className="mr-2 h-4 w-4" />
@@ -2042,6 +1772,15 @@ export function PlaygroundPage() {
             </div>
           ) : null}
 
+          {libraryErrorMessage ? (
+            <Alert variant="destructive" className="mt-3">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                样本库当前不可用：{libraryErrorMessage}。你仍可直接起草 Prompt，但无法从真实样本创建 Case。
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           {selectedCaseQuery.data?.source === 'span' && baselineSnapshot ? (
             <div className="mt-4 rounded-2xl border border-[hsl(var(--info))]/20 bg-[hsl(var(--info))]/5 px-4 py-3 text-xs leading-6 text-foreground/85">
               <div className="font-medium text-foreground">Span Baseline</div>
@@ -2059,54 +1798,112 @@ export function PlaygroundPage() {
         </div>
 
         <div className="px-3 py-3 sm:px-4 sm:py-4 lg:px-5">
-          <ResizableSplit
-            direction="vertical"
-            disabled={!isDesktopLayout}
-            defaultSize={58}
-            minFirstSize={320}
-            minSecondSize={260}
-            className="h-[clamp(760px,78vh,1100px)]"
-            firstClassName="h-full"
-            secondClassName="h-full"
-            handleLabel="调整编辑区与输出区高度"
-            first={editorPanel}
-            second={outputPanel}
-          />
+          {isDesktopLayout ? (
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_380px]">
+              <ResizableSplit
+                direction="vertical"
+                disabled={!isDesktopLayout}
+                defaultSize={58}
+                minFirstSize={320}
+                minSecondSize={260}
+                className="h-[clamp(760px,78vh,1100px)]"
+                firstClassName="h-full"
+                secondClassName="h-full"
+                handleLabel="调整编辑区与输出区高度"
+                first={editorPanel}
+                second={outputPanel}
+              />
+
+              <aside className="hidden lg:block">
+                <div className="space-y-4 lg:sticky lg:top-24">
+                  <section className="rounded-[24px] border border-border/70 bg-white/85 p-4 shadow-[0_20px_40px_-32px_rgba(15,23,42,0.32)]">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-foreground">使用顺序</div>
+                        <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                          先拿到 Case，再改 Prompt，再跑结果。右侧参数和对比固定停靠，不再漂浮遮挡主画布。
+                        </div>
+                      </div>
+                      <Badge variant="outline">{selectedCaseId ? 'Case ready' : 'Need case'}</Badge>
+                    </div>
+                    <div className="mt-4 grid gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setLibraryOpen(true)}>
+                        <Database className="mr-2 h-4 w-4" />
+                        1. 选择样本
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setInputOpen(true)}>
+                        <Wand2 className="mr-2 h-4 w-4" />
+                        2. 编辑输入
+                      </Button>
+                      <Button size="sm" onClick={() => runMutation.mutate()} disabled={!selectedCaseId || runMutation.isPending}>
+                        <Play className="mr-2 h-4 w-4" />
+                        3. 运行当前配置
+                      </Button>
+                    </div>
+                  </section>
+
+                  {!desktopWindows.params.collapsed ? (
+                    <section className="overflow-hidden rounded-[24px] border border-border/70 bg-white/85 shadow-[0_20px_40px_-32px_rgba(15,23,42,0.32)]">
+                      <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">参数与工具</div>
+                          <div className="mt-1 text-xs text-muted-foreground">固定在右侧，边改边看输出。</div>
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => closeDesktopWindow('params')}>
+                          收起
+                        </Button>
+                      </div>
+                      <div className="max-h-[calc(100vh-19rem)] overflow-auto p-4">
+                        {paramsPanelContent}
+                      </div>
+                    </section>
+                  ) : (
+                    <Button variant="outline" className="w-full justify-start" onClick={() => openDesktopWindow('params')}>
+                      <Settings2 className="mr-2 h-4 w-4" />
+                      展开参数与工具
+                    </Button>
+                  )}
+
+                  {!desktopWindows.compare.collapsed ? (
+                    <section className="overflow-hidden rounded-[24px] border border-border/70 bg-white/85 shadow-[0_20px_40px_-32px_rgba(15,23,42,0.32)]">
+                      <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">对比节点</div>
+                          <div className="mt-1 text-xs text-muted-foreground">对比候选和运行历史固定在同一位置。</div>
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => closeDesktopWindow('compare')}>
+                          收起
+                        </Button>
+                      </div>
+                      <div className="max-h-[calc(100vh-21rem)] overflow-auto p-4">
+                        {comparePanelContent}
+                      </div>
+                    </section>
+                  ) : (
+                    <Button variant="outline" className="w-full justify-start" onClick={() => openDesktopWindow('compare')}>
+                      <Sparkles className="mr-2 h-4 w-4" />
+                      展开对比节点
+                    </Button>
+                  )}
+                </div>
+              </aside>
+            </div>
+          ) : (
+            <ResizableSplit
+              direction="vertical"
+              disabled={!isDesktopLayout}
+              defaultSize={58}
+              minFirstSize={320}
+              minSecondSize={260}
+              className="h-[clamp(760px,78vh,1100px)]"
+              firstClassName="h-full"
+              secondClassName="h-full"
+              handleLabel="调整编辑区与输出区高度"
+              first={editorPanel}
+              second={outputPanel}
+            />
+          )}
         </div>
-
-        {isDesktopLayout && !desktopWindows.params.collapsed ? (
-          <FloatingPanel
-            title="Params & Tools"
-            x={desktopWindows.params.x}
-            y={desktopWindows.params.y}
-            width={desktopWindows.params.width}
-            height={desktopWindows.params.height}
-            onClose={() => closeDesktopWindow('params')}
-            onDragPointerDown={handleDesktopWindowPointerDown('params', 'move')}
-            onResizePointerDown={(mode) => handleDesktopWindowPointerDown('params', mode)}
-          >
-            <div className="h-full min-h-0">
-              {paramsPanelContent}
-            </div>
-          </FloatingPanel>
-        ) : null}
-
-        {isDesktopLayout && !desktopWindows.compare.collapsed ? (
-          <FloatingPanel
-            title="Compare Nodes"
-            x={desktopWindows.compare.x}
-            y={desktopWindows.compare.y}
-            width={desktopWindows.compare.width}
-            height={desktopWindows.compare.height}
-            onClose={() => closeDesktopWindow('compare')}
-            onDragPointerDown={handleDesktopWindowPointerDown('compare', 'move')}
-            onResizePointerDown={(mode) => handleDesktopWindowPointerDown('compare', mode)}
-          >
-            <div className="h-full min-h-0 overflow-auto">
-              {comparePanelContent}
-            </div>
-          </FloatingPanel>
-        ) : null}
       </div>
 
       <Sheet open={libraryOpen} onOpenChange={setLibraryOpen}>

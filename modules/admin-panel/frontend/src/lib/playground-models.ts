@@ -1,4 +1,12 @@
 import type { PlaygroundProviderConfig } from '@/types/playground';
+import {
+  PLAYGROUND_PROVIDER_MODEL_OPTIONS,
+  asRecord,
+  defaultModelForProvider,
+  normalizePromptProvider,
+  parseMaybeJson,
+  resolvePromptProviderConfig,
+} from '@/lib/provider-config';
 
 type PromptModelLike = {
   model_name?: string | null;
@@ -10,34 +18,17 @@ export type PlaygroundNormalizedTools = {
   extras: Record<string, unknown>;
 };
 
-export const PLAYGROUND_PROVIDER_MODEL_OPTIONS: Record<PlaygroundProviderConfig['provider'], string[]> = {
-  'google-gemini-cli': [
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-  ],
-  'google-legacy': [
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-  ],
-  openai: [
-    'gpt-5.4-mini',
-    'gpt-5.4',
-  ],
-  codex: [
-    'gpt-5.4-mini',
-    'gpt-5.3-codex',
-  ],
-};
-
 function normalizeModelName(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
+export {
+  PLAYGROUND_PROVIDER_MODEL_OPTIONS,
+  asRecord,
+  normalizePromptProvider,
+  parseMaybeJson,
+  resolvePromptProviderConfig,
+};
 
 function buildUniqueToolName(existingDefinitions: unknown[], baseName: string): string {
   const existingNames = new Set(
@@ -152,17 +143,7 @@ export function duplicatePlaygroundToolDefinition(
 export function defaultModelForPlaygroundProvider(
   provider: PlaygroundProviderConfig['provider']
 ): string {
-  switch (provider) {
-    case 'openai':
-      return 'gpt-5.4-mini';
-    case 'codex':
-      return 'gpt-5.4-mini';
-    case 'google-legacy':
-      return 'gemini-2.5-flash';
-    case 'google-gemini-cli':
-    default:
-      return 'gemini-2.5-flash';
-  }
+  return defaultModelForProvider(provider);
 }
 
 export function getPromptDefaultModelName(prompt: PromptModelLike): string | null {

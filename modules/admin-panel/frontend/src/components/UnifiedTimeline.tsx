@@ -1068,7 +1068,7 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
                                   <div>
                                     <label className="text-sm font-medium mb-2 block">Token使用详情</label>
                                     <div className="bg-orange-50 dark:bg-orange-950 p-4 rounded-lg">
-                                      <div className="grid grid-cols-3 gap-4 text-sm">
+                                      <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-3 xl:grid-cols-5">
                                         <div>
                                           <span className="font-medium">输入:</span>
                                           <span className="ml-2 text-muted-foreground">
@@ -1087,6 +1087,72 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
                                             {event.metadata.output.token_usage.total_tokens} tokens
                                           </span>
                                         </div>
+                                        {typeof event.metadata.output?.usage_details?.cached_input_tokens !== 'undefined' && (
+                                          <div>
+                                            <span className="font-medium">Cached Input:</span>
+                                            <span className="ml-2 text-muted-foreground">
+                                              {event.metadata.output.usage_details.cached_input_tokens} tokens
+                                            </span>
+                                          </div>
+                                        )}
+                                        {typeof event.metadata.output?.usage_details?.reasoning_tokens !== 'undefined' && (
+                                          <div>
+                                            <span className="font-medium">Reasoning:</span>
+                                            <span className="ml-2 text-muted-foreground">
+                                              {event.metadata.output.usage_details.reasoning_tokens} tokens
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {event.metadata.output?.context_policy && (
+                                  <div>
+                                    <label className="text-sm font-medium mb-2 block">上下文策略</label>
+                                    <div className="bg-sky-50 dark:bg-sky-950 p-4 rounded-lg">
+                                      <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2 xl:grid-cols-5">
+                                        {typeof event.metadata.output.context_policy.context_window_tokens !== 'undefined' && (
+                                          <div>
+                                            <span className="font-medium">Context Window:</span>
+                                            <span className="ml-2 text-muted-foreground">
+                                              {event.metadata.output.context_policy.context_window_tokens}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {typeof event.metadata.output.context_policy.soft_trigger_tokens !== 'undefined' && (
+                                          <div>
+                                            <span className="font-medium">Soft Trigger:</span>
+                                            <span className="ml-2 text-muted-foreground">
+                                              {event.metadata.output.context_policy.soft_trigger_tokens}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {typeof event.metadata.output.context_policy.hard_ceiling_tokens !== 'undefined' && (
+                                          <div>
+                                            <span className="font-medium">Hard Ceiling:</span>
+                                            <span className="ml-2 text-muted-foreground">
+                                              {event.metadata.output.context_policy.hard_ceiling_tokens}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {typeof event.metadata.output.context_policy.reply_budget_tokens !== 'undefined' && (
+                                          <div>
+                                            <span className="font-medium">Reply Budget:</span>
+                                            <span className="ml-2 text-muted-foreground">
+                                              {event.metadata.output.context_policy.reply_budget_tokens}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {event.metadata.output.context_policy.source && (
+                                          <div>
+                                            <span className="font-medium">Source:</span>
+                                            <span className="ml-2 text-muted-foreground">
+                                              {event.metadata.output.context_policy.source}
+                                            </span>
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </div>

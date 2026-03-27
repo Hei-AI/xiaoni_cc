@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import winston from 'winston';
+import { getTrafficLogById, listAiTrafficSamples } from '@qq-bot/persistence';
 import { DatabaseManager } from './database';
 import {
   PlaygroundBaselineOutput,
@@ -194,9 +195,9 @@ function normalizeProvider(value?: string | null): PlaygroundProviderConfig['pro
 function defaultModelForProvider(provider: PlaygroundProviderConfig['provider']): string {
   switch (provider) {
     case 'openai':
-      return 'gpt-5-mini';
+      return 'gpt-5.4-mini';
     case 'codex':
-      return 'gpt-5.2-codex';
+      return 'gpt-5.4-mini';
     case 'google-legacy':
       return 'gemini-2.5-flash';
     case 'google-gemini-cli':
@@ -832,70 +833,11 @@ export class PlaygroundCaseBuilder {
   }
 
   private async listTrafficSamples(search?: string): Promise<PlaygroundLibraryTrafficRow[]> {
-    const normalizedSearch = search?.trim().toLowerCase() || null;
-    const rows: PlaygroundLibraryTrafficRow[] = [];
-    let cursorTimestamp: string | null = null;
-    let cursorId: number | null = null;
-
-    while (rows.length < PlaygroundCaseBuilder.LIBRARY_TRAFFIC_LIMIT) {
-      const params: Array<string | number> = [];
-      let cursorClause = '';
-
-      if (cursorTimestamp !== null && cursorId !== null) {
-        cursorClause = `
-          AND (
-            request_timestamp < ?
-            OR (request_timestamp = ? AND id < ?)
-          )
-        `;
-        params.push(cursorTimestamp, cursorTimestamp, cursorId);
-      }
-
-      const batch = await this.db.executeQuery<PlaygroundLibraryTrafficRow>(
-        `
-          SELECT id, trace_id, conversation_id, method, host, path, url, api_type, service_name,
-                 response_status, duration_ms, request_timestamp
-          FROM http_traffic_logs
-          FORCE INDEX (idx_ai_request_time_id)
-          WHERE is_ai_request = 1
-            ${cursorClause}
-          ORDER BY request_timestamp DESC, id DESC
-          LIMIT ${PlaygroundCaseBuilder.TRAFFIC_SEARCH_BATCH_SIZE}
-        `,
-        params
-      );
-
-      if (batch.length === 0) {
-        break;
-      }
-
-      for (const item of batch) {
-        if (!normalizedSearch || this.matchesTrafficSearch(item, normalizedSearch)) {
-          rows.push(item);
-          if (rows.length >= PlaygroundCaseBuilder.LIBRARY_TRAFFIC_LIMIT) {
-            break;
-          }
-        }
-      }
-
-      const lastItem = batch[batch.length - 1];
-      cursorTimestamp = lastItem.request_timestamp || null;
-      cursorId = typeof lastItem.id === 'number' ? lastItem.id : Number(lastItem.id);
-
-      if (batch.length < PlaygroundCaseBuilder.TRAFFIC_SEARCH_BATCH_SIZE || !cursorTimestamp || !Number.isFinite(cursorId)) {
-        break;
-      }
-    }
-
-    return rows;
-  }
-
-  private matchesTrafficSearch(item: PlaygroundLibraryTrafficRow, normalizedSearch: string): boolean {
-    const haystacks = [item.url, item.host, item.path]
-      .filter((value): value is string => typeof value === 'string' && value.length > 0)
-      .map((value) => value.toLowerCase());
-
-    return haystacks.some((value) => value.includes(normalizedSearch));
+    const rows = await listAiTrafficSamples({
+      search,
+      limit: PlaygroundCaseBuilder.LIBRARY_TRAFFIC_LIMIT
+    });
+    return rows as PlaygroundLibraryTrafficRow[];
   }
 
   async getCaseById(caseId: string): Promise<PlaygroundCase | null> {
@@ -974,18 +916,7 @@ export class PlaygroundCaseBuilder {
   }
 
   async createCaseFromTraffic(trafficId: number, promptId?: string | null): Promise<PlaygroundCase> {
-    const trafficRows = await this.db.executeQuery<TrafficLogRow>(
-      `
-        SELECT id, trace_id, conversation_id, llm_call_id, tool_call_id, agent_turn,
-               method, url, host, path, request_headers, request_body, response_body,
-               response_status, request_timestamp, duration_ms, api_type, service_name
-        FROM http_traffic_logs
-        WHERE id = ?
-      `,
-      [trafficId]
-    );
-
-    const traffic = trafficRows[0];
+    const traffic = await getTrafficLogById(trafficId) as TrafficLogRow | null;
     if (!traffic) {
       throw new Error(`Traffic sample not found: ${trafficId}`);
     }
@@ -1188,7 +1119,6 @@ export class PlaygroundCaseBuilder {
       `
         SELECT id
         FROM playground_cases
-        FORCE INDEX (idx_source_ref_updated_at_id)
         WHERE source = 'span'
           AND source_ref = ?
         ORDER BY updated_at DESC, id DESC

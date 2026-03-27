@@ -108,6 +108,38 @@ services:
     networks:
       - qq_bot_network
 
+  # Agent Service
+  agent-service:
+    image: qqbot-agent-service
+    build:
+      context: .
+      dockerfile: modules/agent-service/Dockerfile
+      args: *build_no_proxy
+    container_name: qqbot-agent-service
+    ports:
+      - "127.0.0.1:8092:8092"
+    environment:
+      - HTTP_PORT=8092
+      - LOG_LEVEL=info
+      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public
+      - DB_HOST=qqbot-postgres
+      - DB_PORT=5432
+      - DB_USER=qqbot_user
+      - DB_PASSWORD=qqbot_password
+      - DB_NAME=qqbot_db
+      - PROVIDER_SERVICE_URL=http://qqbot-provider-service:8090
+      - AI_MODEL_NAME=gpt-5.4-mini
+      - BOT_QQ_NUMBER=1129974489
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+    depends_on:
+      - postgres
+      - provider-service
+    restart: unless-stopped
+    networks:
+      - qq_bot_network
+    volumes:
+      - ./logs/agent-service:/app/logs
+
   # Admin Panel Backend
   admin-backend:
     image: qqbot-admin-backend
@@ -138,6 +170,7 @@ services:
     depends_on:
       - postgres
       - provider-service
+      - agent-service
     restart: unless-stopped
     networks:
       - qq_bot_network

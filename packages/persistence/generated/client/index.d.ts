@@ -28,6 +28,16 @@ export type PrivateChatSetting = $Result.DefaultSelection<Prisma.$PrivateChatSet
  * 
  */
 export type AgentInboundMessage = $Result.DefaultSelection<Prisma.$AgentInboundMessagePayload>
+/**
+ * Model HttpTrafficLog
+ * 
+ */
+export type HttpTrafficLog = $Result.DefaultSelection<Prisma.$HttpTrafficLogPayload>
+/**
+ * Model TrafficReplayHistory
+ * 
+ */
+export type TrafficReplayHistory = $Result.DefaultSelection<Prisma.$TrafficReplayHistoryPayload>
 
 /**
  * ##  Prisma Client ʲˢ
@@ -176,6 +186,26 @@ export class PrismaClient<
     * ```
     */
   get agentInboundMessage(): Prisma.AgentInboundMessageDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.httpTrafficLog`: Exposes CRUD operations for the **HttpTrafficLog** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more HttpTrafficLogs
+    * const httpTrafficLogs = await prisma.httpTrafficLog.findMany()
+    * ```
+    */
+  get httpTrafficLog(): Prisma.HttpTrafficLogDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.trafficReplayHistory`: Exposes CRUD operations for the **TrafficReplayHistory** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more TrafficReplayHistories
+    * const trafficReplayHistories = await prisma.trafficReplayHistory.findMany()
+    * ```
+    */
+  get trafficReplayHistory(): Prisma.TrafficReplayHistoryDelegate<ExtArgs, ClientOptions>;
 }
 
 export namespace Prisma {
@@ -619,7 +649,9 @@ export namespace Prisma {
   export const ModelName: {
     GroupChatSetting: 'GroupChatSetting',
     PrivateChatSetting: 'PrivateChatSetting',
-    AgentInboundMessage: 'AgentInboundMessage'
+    AgentInboundMessage: 'AgentInboundMessage',
+    HttpTrafficLog: 'HttpTrafficLog',
+    TrafficReplayHistory: 'TrafficReplayHistory'
   };
 
   export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -638,7 +670,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage"
+      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "trafficReplayHistory"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -864,6 +896,154 @@ export namespace Prisma {
           }
         }
       }
+      HttpTrafficLog: {
+        payload: Prisma.$HttpTrafficLogPayload<ExtArgs>
+        fields: Prisma.HttpTrafficLogFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.HttpTrafficLogFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$HttpTrafficLogPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.HttpTrafficLogFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$HttpTrafficLogPayload>
+          }
+          findFirst: {
+            args: Prisma.HttpTrafficLogFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$HttpTrafficLogPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.HttpTrafficLogFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$HttpTrafficLogPayload>
+          }
+          findMany: {
+            args: Prisma.HttpTrafficLogFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$HttpTrafficLogPayload>[]
+          }
+          create: {
+            args: Prisma.HttpTrafficLogCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$HttpTrafficLogPayload>
+          }
+          createMany: {
+            args: Prisma.HttpTrafficLogCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.HttpTrafficLogCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$HttpTrafficLogPayload>[]
+          }
+          delete: {
+            args: Prisma.HttpTrafficLogDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$HttpTrafficLogPayload>
+          }
+          update: {
+            args: Prisma.HttpTrafficLogUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$HttpTrafficLogPayload>
+          }
+          deleteMany: {
+            args: Prisma.HttpTrafficLogDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.HttpTrafficLogUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.HttpTrafficLogUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$HttpTrafficLogPayload>[]
+          }
+          upsert: {
+            args: Prisma.HttpTrafficLogUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$HttpTrafficLogPayload>
+          }
+          aggregate: {
+            args: Prisma.HttpTrafficLogAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateHttpTrafficLog>
+          }
+          groupBy: {
+            args: Prisma.HttpTrafficLogGroupByArgs<ExtArgs>
+            result: $Utils.Optional<HttpTrafficLogGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.HttpTrafficLogCountArgs<ExtArgs>
+            result: $Utils.Optional<HttpTrafficLogCountAggregateOutputType> | number
+          }
+        }
+      }
+      TrafficReplayHistory: {
+        payload: Prisma.$TrafficReplayHistoryPayload<ExtArgs>
+        fields: Prisma.TrafficReplayHistoryFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.TrafficReplayHistoryFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TrafficReplayHistoryPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.TrafficReplayHistoryFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TrafficReplayHistoryPayload>
+          }
+          findFirst: {
+            args: Prisma.TrafficReplayHistoryFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TrafficReplayHistoryPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.TrafficReplayHistoryFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TrafficReplayHistoryPayload>
+          }
+          findMany: {
+            args: Prisma.TrafficReplayHistoryFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TrafficReplayHistoryPayload>[]
+          }
+          create: {
+            args: Prisma.TrafficReplayHistoryCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TrafficReplayHistoryPayload>
+          }
+          createMany: {
+            args: Prisma.TrafficReplayHistoryCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.TrafficReplayHistoryCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TrafficReplayHistoryPayload>[]
+          }
+          delete: {
+            args: Prisma.TrafficReplayHistoryDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TrafficReplayHistoryPayload>
+          }
+          update: {
+            args: Prisma.TrafficReplayHistoryUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TrafficReplayHistoryPayload>
+          }
+          deleteMany: {
+            args: Prisma.TrafficReplayHistoryDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.TrafficReplayHistoryUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.TrafficReplayHistoryUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TrafficReplayHistoryPayload>[]
+          }
+          upsert: {
+            args: Prisma.TrafficReplayHistoryUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TrafficReplayHistoryPayload>
+          }
+          aggregate: {
+            args: Prisma.TrafficReplayHistoryAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateTrafficReplayHistory>
+          }
+          groupBy: {
+            args: Prisma.TrafficReplayHistoryGroupByArgs<ExtArgs>
+            result: $Utils.Optional<TrafficReplayHistoryGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.TrafficReplayHistoryCountArgs<ExtArgs>
+            result: $Utils.Optional<TrafficReplayHistoryCountAggregateOutputType> | number
+          }
+        }
+      }
     }
   } & {
     other: {
@@ -963,6 +1143,8 @@ export namespace Prisma {
     groupChatSetting?: GroupChatSettingOmit
     privateChatSetting?: PrivateChatSettingOmit
     agentInboundMessage?: AgentInboundMessageOmit
+    httpTrafficLog?: HttpTrafficLogOmit
+    trafficReplayHistory?: TrafficReplayHistoryOmit
   }
 
   /* Types for Logging */
@@ -4567,6 +4749,2851 @@ export namespace Prisma {
 
 
   /**
+   * Model HttpTrafficLog
+   */
+
+  export type AggregateHttpTrafficLog = {
+    _count: HttpTrafficLogCountAggregateOutputType | null
+    _avg: HttpTrafficLogAvgAggregateOutputType | null
+    _sum: HttpTrafficLogSumAggregateOutputType | null
+    _min: HttpTrafficLogMinAggregateOutputType | null
+    _max: HttpTrafficLogMaxAggregateOutputType | null
+  }
+
+  export type HttpTrafficLogAvgAggregateOutputType = {
+    id: number | null
+    conversation_id: number | null
+    agent_turn: number | null
+    request_size: number | null
+    response_status: number | null
+    response_size: number | null
+    duration_ms: number | null
+  }
+
+  export type HttpTrafficLogSumAggregateOutputType = {
+    id: bigint | null
+    conversation_id: bigint | null
+    agent_turn: number | null
+    request_size: number | null
+    response_status: number | null
+    response_size: number | null
+    duration_ms: bigint | null
+  }
+
+  export type HttpTrafficLogMinAggregateOutputType = {
+    id: bigint | null
+    request_id: string | null
+    trace_id: string | null
+    conversation_id: bigint | null
+    user_id: string | null
+    session_id: string | null
+    agent_turn: number | null
+    llm_call_id: string | null
+    tool_call_id: string | null
+    container_name: string | null
+    service_name: string | null
+    method: string | null
+    url: string | null
+    host: string | null
+    path: string | null
+    request_body: string | null
+    request_content_type: string | null
+    request_size: number | null
+    response_status: number | null
+    response_body: string | null
+    response_content_type: string | null
+    response_size: number | null
+    duration_ms: bigint | null
+    request_timestamp: Date | null
+    response_timestamp: Date | null
+    is_ai_request: boolean | null
+    api_type: string | null
+    api_version: string | null
+    client_ip: string | null
+    user_agent: string | null
+    error_message: string | null
+    created_at: Date | null
+  }
+
+  export type HttpTrafficLogMaxAggregateOutputType = {
+    id: bigint | null
+    request_id: string | null
+    trace_id: string | null
+    conversation_id: bigint | null
+    user_id: string | null
+    session_id: string | null
+    agent_turn: number | null
+    llm_call_id: string | null
+    tool_call_id: string | null
+    container_name: string | null
+    service_name: string | null
+    method: string | null
+    url: string | null
+    host: string | null
+    path: string | null
+    request_body: string | null
+    request_content_type: string | null
+    request_size: number | null
+    response_status: number | null
+    response_body: string | null
+    response_content_type: string | null
+    response_size: number | null
+    duration_ms: bigint | null
+    request_timestamp: Date | null
+    response_timestamp: Date | null
+    is_ai_request: boolean | null
+    api_type: string | null
+    api_version: string | null
+    client_ip: string | null
+    user_agent: string | null
+    error_message: string | null
+    created_at: Date | null
+  }
+
+  export type HttpTrafficLogCountAggregateOutputType = {
+    id: number
+    request_id: number
+    trace_id: number
+    conversation_id: number
+    user_id: number
+    session_id: number
+    agent_turn: number
+    llm_call_id: number
+    tool_call_id: number
+    container_name: number
+    service_name: number
+    method: number
+    url: number
+    host: number
+    path: number
+    query_params: number
+    request_headers: number
+    request_body: number
+    request_content_type: number
+    request_size: number
+    response_status: number
+    response_headers: number
+    response_body: number
+    response_content_type: number
+    response_size: number
+    duration_ms: number
+    request_timestamp: number
+    response_timestamp: number
+    is_ai_request: number
+    api_type: number
+    api_version: number
+    client_ip: number
+    user_agent: number
+    error_message: number
+    created_at: number
+    _all: number
+  }
+
+
+  export type HttpTrafficLogAvgAggregateInputType = {
+    id?: true
+    conversation_id?: true
+    agent_turn?: true
+    request_size?: true
+    response_status?: true
+    response_size?: true
+    duration_ms?: true
+  }
+
+  export type HttpTrafficLogSumAggregateInputType = {
+    id?: true
+    conversation_id?: true
+    agent_turn?: true
+    request_size?: true
+    response_status?: true
+    response_size?: true
+    duration_ms?: true
+  }
+
+  export type HttpTrafficLogMinAggregateInputType = {
+    id?: true
+    request_id?: true
+    trace_id?: true
+    conversation_id?: true
+    user_id?: true
+    session_id?: true
+    agent_turn?: true
+    llm_call_id?: true
+    tool_call_id?: true
+    container_name?: true
+    service_name?: true
+    method?: true
+    url?: true
+    host?: true
+    path?: true
+    request_body?: true
+    request_content_type?: true
+    request_size?: true
+    response_status?: true
+    response_body?: true
+    response_content_type?: true
+    response_size?: true
+    duration_ms?: true
+    request_timestamp?: true
+    response_timestamp?: true
+    is_ai_request?: true
+    api_type?: true
+    api_version?: true
+    client_ip?: true
+    user_agent?: true
+    error_message?: true
+    created_at?: true
+  }
+
+  export type HttpTrafficLogMaxAggregateInputType = {
+    id?: true
+    request_id?: true
+    trace_id?: true
+    conversation_id?: true
+    user_id?: true
+    session_id?: true
+    agent_turn?: true
+    llm_call_id?: true
+    tool_call_id?: true
+    container_name?: true
+    service_name?: true
+    method?: true
+    url?: true
+    host?: true
+    path?: true
+    request_body?: true
+    request_content_type?: true
+    request_size?: true
+    response_status?: true
+    response_body?: true
+    response_content_type?: true
+    response_size?: true
+    duration_ms?: true
+    request_timestamp?: true
+    response_timestamp?: true
+    is_ai_request?: true
+    api_type?: true
+    api_version?: true
+    client_ip?: true
+    user_agent?: true
+    error_message?: true
+    created_at?: true
+  }
+
+  export type HttpTrafficLogCountAggregateInputType = {
+    id?: true
+    request_id?: true
+    trace_id?: true
+    conversation_id?: true
+    user_id?: true
+    session_id?: true
+    agent_turn?: true
+    llm_call_id?: true
+    tool_call_id?: true
+    container_name?: true
+    service_name?: true
+    method?: true
+    url?: true
+    host?: true
+    path?: true
+    query_params?: true
+    request_headers?: true
+    request_body?: true
+    request_content_type?: true
+    request_size?: true
+    response_status?: true
+    response_headers?: true
+    response_body?: true
+    response_content_type?: true
+    response_size?: true
+    duration_ms?: true
+    request_timestamp?: true
+    response_timestamp?: true
+    is_ai_request?: true
+    api_type?: true
+    api_version?: true
+    client_ip?: true
+    user_agent?: true
+    error_message?: true
+    created_at?: true
+    _all?: true
+  }
+
+  export type HttpTrafficLogAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which HttpTrafficLog to aggregate.
+     */
+    where?: HttpTrafficLogWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of HttpTrafficLogs to fetch.
+     */
+    orderBy?: HttpTrafficLogOrderByWithRelationInput | HttpTrafficLogOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: HttpTrafficLogWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` HttpTrafficLogs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` HttpTrafficLogs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned HttpTrafficLogs
+    **/
+    _count?: true | HttpTrafficLogCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: HttpTrafficLogAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: HttpTrafficLogSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: HttpTrafficLogMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: HttpTrafficLogMaxAggregateInputType
+  }
+
+  export type GetHttpTrafficLogAggregateType<T extends HttpTrafficLogAggregateArgs> = {
+        [P in keyof T & keyof AggregateHttpTrafficLog]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateHttpTrafficLog[P]>
+      : GetScalarType<T[P], AggregateHttpTrafficLog[P]>
+  }
+
+
+
+
+  export type HttpTrafficLogGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: HttpTrafficLogWhereInput
+    orderBy?: HttpTrafficLogOrderByWithAggregationInput | HttpTrafficLogOrderByWithAggregationInput[]
+    by: HttpTrafficLogScalarFieldEnum[] | HttpTrafficLogScalarFieldEnum
+    having?: HttpTrafficLogScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: HttpTrafficLogCountAggregateInputType | true
+    _avg?: HttpTrafficLogAvgAggregateInputType
+    _sum?: HttpTrafficLogSumAggregateInputType
+    _min?: HttpTrafficLogMinAggregateInputType
+    _max?: HttpTrafficLogMaxAggregateInputType
+  }
+
+  export type HttpTrafficLogGroupByOutputType = {
+    id: bigint
+    request_id: string | null
+    trace_id: string | null
+    conversation_id: bigint | null
+    user_id: string | null
+    session_id: string | null
+    agent_turn: number | null
+    llm_call_id: string | null
+    tool_call_id: string | null
+    container_name: string | null
+    service_name: string | null
+    method: string
+    url: string
+    host: string
+    path: string
+    query_params: JsonValue | null
+    request_headers: JsonValue
+    request_body: string | null
+    request_content_type: string | null
+    request_size: number | null
+    response_status: number | null
+    response_headers: JsonValue | null
+    response_body: string | null
+    response_content_type: string | null
+    response_size: number | null
+    duration_ms: bigint | null
+    request_timestamp: Date
+    response_timestamp: Date | null
+    is_ai_request: boolean
+    api_type: string | null
+    api_version: string | null
+    client_ip: string | null
+    user_agent: string | null
+    error_message: string | null
+    created_at: Date
+    _count: HttpTrafficLogCountAggregateOutputType | null
+    _avg: HttpTrafficLogAvgAggregateOutputType | null
+    _sum: HttpTrafficLogSumAggregateOutputType | null
+    _min: HttpTrafficLogMinAggregateOutputType | null
+    _max: HttpTrafficLogMaxAggregateOutputType | null
+  }
+
+  type GetHttpTrafficLogGroupByPayload<T extends HttpTrafficLogGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<HttpTrafficLogGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof HttpTrafficLogGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], HttpTrafficLogGroupByOutputType[P]>
+            : GetScalarType<T[P], HttpTrafficLogGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type HttpTrafficLogSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    request_id?: boolean
+    trace_id?: boolean
+    conversation_id?: boolean
+    user_id?: boolean
+    session_id?: boolean
+    agent_turn?: boolean
+    llm_call_id?: boolean
+    tool_call_id?: boolean
+    container_name?: boolean
+    service_name?: boolean
+    method?: boolean
+    url?: boolean
+    host?: boolean
+    path?: boolean
+    query_params?: boolean
+    request_headers?: boolean
+    request_body?: boolean
+    request_content_type?: boolean
+    request_size?: boolean
+    response_status?: boolean
+    response_headers?: boolean
+    response_body?: boolean
+    response_content_type?: boolean
+    response_size?: boolean
+    duration_ms?: boolean
+    request_timestamp?: boolean
+    response_timestamp?: boolean
+    is_ai_request?: boolean
+    api_type?: boolean
+    api_version?: boolean
+    client_ip?: boolean
+    user_agent?: boolean
+    error_message?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["httpTrafficLog"]>
+
+  export type HttpTrafficLogSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    request_id?: boolean
+    trace_id?: boolean
+    conversation_id?: boolean
+    user_id?: boolean
+    session_id?: boolean
+    agent_turn?: boolean
+    llm_call_id?: boolean
+    tool_call_id?: boolean
+    container_name?: boolean
+    service_name?: boolean
+    method?: boolean
+    url?: boolean
+    host?: boolean
+    path?: boolean
+    query_params?: boolean
+    request_headers?: boolean
+    request_body?: boolean
+    request_content_type?: boolean
+    request_size?: boolean
+    response_status?: boolean
+    response_headers?: boolean
+    response_body?: boolean
+    response_content_type?: boolean
+    response_size?: boolean
+    duration_ms?: boolean
+    request_timestamp?: boolean
+    response_timestamp?: boolean
+    is_ai_request?: boolean
+    api_type?: boolean
+    api_version?: boolean
+    client_ip?: boolean
+    user_agent?: boolean
+    error_message?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["httpTrafficLog"]>
+
+  export type HttpTrafficLogSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    request_id?: boolean
+    trace_id?: boolean
+    conversation_id?: boolean
+    user_id?: boolean
+    session_id?: boolean
+    agent_turn?: boolean
+    llm_call_id?: boolean
+    tool_call_id?: boolean
+    container_name?: boolean
+    service_name?: boolean
+    method?: boolean
+    url?: boolean
+    host?: boolean
+    path?: boolean
+    query_params?: boolean
+    request_headers?: boolean
+    request_body?: boolean
+    request_content_type?: boolean
+    request_size?: boolean
+    response_status?: boolean
+    response_headers?: boolean
+    response_body?: boolean
+    response_content_type?: boolean
+    response_size?: boolean
+    duration_ms?: boolean
+    request_timestamp?: boolean
+    response_timestamp?: boolean
+    is_ai_request?: boolean
+    api_type?: boolean
+    api_version?: boolean
+    client_ip?: boolean
+    user_agent?: boolean
+    error_message?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["httpTrafficLog"]>
+
+  export type HttpTrafficLogSelectScalar = {
+    id?: boolean
+    request_id?: boolean
+    trace_id?: boolean
+    conversation_id?: boolean
+    user_id?: boolean
+    session_id?: boolean
+    agent_turn?: boolean
+    llm_call_id?: boolean
+    tool_call_id?: boolean
+    container_name?: boolean
+    service_name?: boolean
+    method?: boolean
+    url?: boolean
+    host?: boolean
+    path?: boolean
+    query_params?: boolean
+    request_headers?: boolean
+    request_body?: boolean
+    request_content_type?: boolean
+    request_size?: boolean
+    response_status?: boolean
+    response_headers?: boolean
+    response_body?: boolean
+    response_content_type?: boolean
+    response_size?: boolean
+    duration_ms?: boolean
+    request_timestamp?: boolean
+    response_timestamp?: boolean
+    is_ai_request?: boolean
+    api_type?: boolean
+    api_version?: boolean
+    client_ip?: boolean
+    user_agent?: boolean
+    error_message?: boolean
+    created_at?: boolean
+  }
+
+  export type HttpTrafficLogOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "request_id" | "trace_id" | "conversation_id" | "user_id" | "session_id" | "agent_turn" | "llm_call_id" | "tool_call_id" | "container_name" | "service_name" | "method" | "url" | "host" | "path" | "query_params" | "request_headers" | "request_body" | "request_content_type" | "request_size" | "response_status" | "response_headers" | "response_body" | "response_content_type" | "response_size" | "duration_ms" | "request_timestamp" | "response_timestamp" | "is_ai_request" | "api_type" | "api_version" | "client_ip" | "user_agent" | "error_message" | "created_at", ExtArgs["result"]["httpTrafficLog"]>
+
+  export type $HttpTrafficLogPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "HttpTrafficLog"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      request_id: string | null
+      trace_id: string | null
+      conversation_id: bigint | null
+      user_id: string | null
+      session_id: string | null
+      agent_turn: number | null
+      llm_call_id: string | null
+      tool_call_id: string | null
+      container_name: string | null
+      service_name: string | null
+      method: string
+      url: string
+      host: string
+      path: string
+      query_params: Prisma.JsonValue | null
+      request_headers: Prisma.JsonValue
+      request_body: string | null
+      request_content_type: string | null
+      request_size: number | null
+      response_status: number | null
+      response_headers: Prisma.JsonValue | null
+      response_body: string | null
+      response_content_type: string | null
+      response_size: number | null
+      duration_ms: bigint | null
+      request_timestamp: Date
+      response_timestamp: Date | null
+      is_ai_request: boolean
+      api_type: string | null
+      api_version: string | null
+      client_ip: string | null
+      user_agent: string | null
+      error_message: string | null
+      created_at: Date
+    }, ExtArgs["result"]["httpTrafficLog"]>
+    composites: {}
+  }
+
+  type HttpTrafficLogGetPayload<S extends boolean | null | undefined | HttpTrafficLogDefaultArgs> = $Result.GetResult<Prisma.$HttpTrafficLogPayload, S>
+
+  type HttpTrafficLogCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<HttpTrafficLogFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: HttpTrafficLogCountAggregateInputType | true
+    }
+
+  export interface HttpTrafficLogDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['HttpTrafficLog'], meta: { name: 'HttpTrafficLog' } }
+    /**
+     * Find zero or one HttpTrafficLog that matches the filter.
+     * @param {HttpTrafficLogFindUniqueArgs} args - Arguments to find a HttpTrafficLog
+     * @example
+     * // Get one HttpTrafficLog
+     * const httpTrafficLog = await prisma.httpTrafficLog.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends HttpTrafficLogFindUniqueArgs>(args: SelectSubset<T, HttpTrafficLogFindUniqueArgs<ExtArgs>>): Prisma__HttpTrafficLogClient<$Result.GetResult<Prisma.$HttpTrafficLogPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one HttpTrafficLog that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {HttpTrafficLogFindUniqueOrThrowArgs} args - Arguments to find a HttpTrafficLog
+     * @example
+     * // Get one HttpTrafficLog
+     * const httpTrafficLog = await prisma.httpTrafficLog.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends HttpTrafficLogFindUniqueOrThrowArgs>(args: SelectSubset<T, HttpTrafficLogFindUniqueOrThrowArgs<ExtArgs>>): Prisma__HttpTrafficLogClient<$Result.GetResult<Prisma.$HttpTrafficLogPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first HttpTrafficLog that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {HttpTrafficLogFindFirstArgs} args - Arguments to find a HttpTrafficLog
+     * @example
+     * // Get one HttpTrafficLog
+     * const httpTrafficLog = await prisma.httpTrafficLog.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends HttpTrafficLogFindFirstArgs>(args?: SelectSubset<T, HttpTrafficLogFindFirstArgs<ExtArgs>>): Prisma__HttpTrafficLogClient<$Result.GetResult<Prisma.$HttpTrafficLogPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first HttpTrafficLog that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {HttpTrafficLogFindFirstOrThrowArgs} args - Arguments to find a HttpTrafficLog
+     * @example
+     * // Get one HttpTrafficLog
+     * const httpTrafficLog = await prisma.httpTrafficLog.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends HttpTrafficLogFindFirstOrThrowArgs>(args?: SelectSubset<T, HttpTrafficLogFindFirstOrThrowArgs<ExtArgs>>): Prisma__HttpTrafficLogClient<$Result.GetResult<Prisma.$HttpTrafficLogPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more HttpTrafficLogs that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {HttpTrafficLogFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all HttpTrafficLogs
+     * const httpTrafficLogs = await prisma.httpTrafficLog.findMany()
+     * 
+     * // Get first 10 HttpTrafficLogs
+     * const httpTrafficLogs = await prisma.httpTrafficLog.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const httpTrafficLogWithIdOnly = await prisma.httpTrafficLog.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends HttpTrafficLogFindManyArgs>(args?: SelectSubset<T, HttpTrafficLogFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$HttpTrafficLogPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a HttpTrafficLog.
+     * @param {HttpTrafficLogCreateArgs} args - Arguments to create a HttpTrafficLog.
+     * @example
+     * // Create one HttpTrafficLog
+     * const HttpTrafficLog = await prisma.httpTrafficLog.create({
+     *   data: {
+     *     // ... data to create a HttpTrafficLog
+     *   }
+     * })
+     * 
+     */
+    create<T extends HttpTrafficLogCreateArgs>(args: SelectSubset<T, HttpTrafficLogCreateArgs<ExtArgs>>): Prisma__HttpTrafficLogClient<$Result.GetResult<Prisma.$HttpTrafficLogPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many HttpTrafficLogs.
+     * @param {HttpTrafficLogCreateManyArgs} args - Arguments to create many HttpTrafficLogs.
+     * @example
+     * // Create many HttpTrafficLogs
+     * const httpTrafficLog = await prisma.httpTrafficLog.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends HttpTrafficLogCreateManyArgs>(args?: SelectSubset<T, HttpTrafficLogCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many HttpTrafficLogs and returns the data saved in the database.
+     * @param {HttpTrafficLogCreateManyAndReturnArgs} args - Arguments to create many HttpTrafficLogs.
+     * @example
+     * // Create many HttpTrafficLogs
+     * const httpTrafficLog = await prisma.httpTrafficLog.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many HttpTrafficLogs and only return the `id`
+     * const httpTrafficLogWithIdOnly = await prisma.httpTrafficLog.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends HttpTrafficLogCreateManyAndReturnArgs>(args?: SelectSubset<T, HttpTrafficLogCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$HttpTrafficLogPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a HttpTrafficLog.
+     * @param {HttpTrafficLogDeleteArgs} args - Arguments to delete one HttpTrafficLog.
+     * @example
+     * // Delete one HttpTrafficLog
+     * const HttpTrafficLog = await prisma.httpTrafficLog.delete({
+     *   where: {
+     *     // ... filter to delete one HttpTrafficLog
+     *   }
+     * })
+     * 
+     */
+    delete<T extends HttpTrafficLogDeleteArgs>(args: SelectSubset<T, HttpTrafficLogDeleteArgs<ExtArgs>>): Prisma__HttpTrafficLogClient<$Result.GetResult<Prisma.$HttpTrafficLogPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one HttpTrafficLog.
+     * @param {HttpTrafficLogUpdateArgs} args - Arguments to update one HttpTrafficLog.
+     * @example
+     * // Update one HttpTrafficLog
+     * const httpTrafficLog = await prisma.httpTrafficLog.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends HttpTrafficLogUpdateArgs>(args: SelectSubset<T, HttpTrafficLogUpdateArgs<ExtArgs>>): Prisma__HttpTrafficLogClient<$Result.GetResult<Prisma.$HttpTrafficLogPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more HttpTrafficLogs.
+     * @param {HttpTrafficLogDeleteManyArgs} args - Arguments to filter HttpTrafficLogs to delete.
+     * @example
+     * // Delete a few HttpTrafficLogs
+     * const { count } = await prisma.httpTrafficLog.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends HttpTrafficLogDeleteManyArgs>(args?: SelectSubset<T, HttpTrafficLogDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more HttpTrafficLogs.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {HttpTrafficLogUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many HttpTrafficLogs
+     * const httpTrafficLog = await prisma.httpTrafficLog.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends HttpTrafficLogUpdateManyArgs>(args: SelectSubset<T, HttpTrafficLogUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more HttpTrafficLogs and returns the data updated in the database.
+     * @param {HttpTrafficLogUpdateManyAndReturnArgs} args - Arguments to update many HttpTrafficLogs.
+     * @example
+     * // Update many HttpTrafficLogs
+     * const httpTrafficLog = await prisma.httpTrafficLog.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more HttpTrafficLogs and only return the `id`
+     * const httpTrafficLogWithIdOnly = await prisma.httpTrafficLog.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends HttpTrafficLogUpdateManyAndReturnArgs>(args: SelectSubset<T, HttpTrafficLogUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$HttpTrafficLogPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one HttpTrafficLog.
+     * @param {HttpTrafficLogUpsertArgs} args - Arguments to update or create a HttpTrafficLog.
+     * @example
+     * // Update or create a HttpTrafficLog
+     * const httpTrafficLog = await prisma.httpTrafficLog.upsert({
+     *   create: {
+     *     // ... data to create a HttpTrafficLog
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the HttpTrafficLog we want to update
+     *   }
+     * })
+     */
+    upsert<T extends HttpTrafficLogUpsertArgs>(args: SelectSubset<T, HttpTrafficLogUpsertArgs<ExtArgs>>): Prisma__HttpTrafficLogClient<$Result.GetResult<Prisma.$HttpTrafficLogPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of HttpTrafficLogs.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {HttpTrafficLogCountArgs} args - Arguments to filter HttpTrafficLogs to count.
+     * @example
+     * // Count the number of HttpTrafficLogs
+     * const count = await prisma.httpTrafficLog.count({
+     *   where: {
+     *     // ... the filter for the HttpTrafficLogs we want to count
+     *   }
+     * })
+    **/
+    count<T extends HttpTrafficLogCountArgs>(
+      args?: Subset<T, HttpTrafficLogCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], HttpTrafficLogCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a HttpTrafficLog.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {HttpTrafficLogAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends HttpTrafficLogAggregateArgs>(args: Subset<T, HttpTrafficLogAggregateArgs>): Prisma.PrismaPromise<GetHttpTrafficLogAggregateType<T>>
+
+    /**
+     * Group by HttpTrafficLog.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {HttpTrafficLogGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends HttpTrafficLogGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: HttpTrafficLogGroupByArgs['orderBy'] }
+        : { orderBy?: HttpTrafficLogGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, HttpTrafficLogGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetHttpTrafficLogGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the HttpTrafficLog model
+   */
+  readonly fields: HttpTrafficLogFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for HttpTrafficLog.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__HttpTrafficLogClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the HttpTrafficLog model
+   */
+  interface HttpTrafficLogFieldRefs {
+    readonly id: FieldRef<"HttpTrafficLog", 'BigInt'>
+    readonly request_id: FieldRef<"HttpTrafficLog", 'String'>
+    readonly trace_id: FieldRef<"HttpTrafficLog", 'String'>
+    readonly conversation_id: FieldRef<"HttpTrafficLog", 'BigInt'>
+    readonly user_id: FieldRef<"HttpTrafficLog", 'String'>
+    readonly session_id: FieldRef<"HttpTrafficLog", 'String'>
+    readonly agent_turn: FieldRef<"HttpTrafficLog", 'Int'>
+    readonly llm_call_id: FieldRef<"HttpTrafficLog", 'String'>
+    readonly tool_call_id: FieldRef<"HttpTrafficLog", 'String'>
+    readonly container_name: FieldRef<"HttpTrafficLog", 'String'>
+    readonly service_name: FieldRef<"HttpTrafficLog", 'String'>
+    readonly method: FieldRef<"HttpTrafficLog", 'String'>
+    readonly url: FieldRef<"HttpTrafficLog", 'String'>
+    readonly host: FieldRef<"HttpTrafficLog", 'String'>
+    readonly path: FieldRef<"HttpTrafficLog", 'String'>
+    readonly query_params: FieldRef<"HttpTrafficLog", 'Json'>
+    readonly request_headers: FieldRef<"HttpTrafficLog", 'Json'>
+    readonly request_body: FieldRef<"HttpTrafficLog", 'String'>
+    readonly request_content_type: FieldRef<"HttpTrafficLog", 'String'>
+    readonly request_size: FieldRef<"HttpTrafficLog", 'Int'>
+    readonly response_status: FieldRef<"HttpTrafficLog", 'Int'>
+    readonly response_headers: FieldRef<"HttpTrafficLog", 'Json'>
+    readonly response_body: FieldRef<"HttpTrafficLog", 'String'>
+    readonly response_content_type: FieldRef<"HttpTrafficLog", 'String'>
+    readonly response_size: FieldRef<"HttpTrafficLog", 'Int'>
+    readonly duration_ms: FieldRef<"HttpTrafficLog", 'BigInt'>
+    readonly request_timestamp: FieldRef<"HttpTrafficLog", 'DateTime'>
+    readonly response_timestamp: FieldRef<"HttpTrafficLog", 'DateTime'>
+    readonly is_ai_request: FieldRef<"HttpTrafficLog", 'Boolean'>
+    readonly api_type: FieldRef<"HttpTrafficLog", 'String'>
+    readonly api_version: FieldRef<"HttpTrafficLog", 'String'>
+    readonly client_ip: FieldRef<"HttpTrafficLog", 'String'>
+    readonly user_agent: FieldRef<"HttpTrafficLog", 'String'>
+    readonly error_message: FieldRef<"HttpTrafficLog", 'String'>
+    readonly created_at: FieldRef<"HttpTrafficLog", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * HttpTrafficLog findUnique
+   */
+  export type HttpTrafficLogFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the HttpTrafficLog
+     */
+    select?: HttpTrafficLogSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the HttpTrafficLog
+     */
+    omit?: HttpTrafficLogOmit<ExtArgs> | null
+    /**
+     * Filter, which HttpTrafficLog to fetch.
+     */
+    where: HttpTrafficLogWhereUniqueInput
+  }
+
+  /**
+   * HttpTrafficLog findUniqueOrThrow
+   */
+  export type HttpTrafficLogFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the HttpTrafficLog
+     */
+    select?: HttpTrafficLogSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the HttpTrafficLog
+     */
+    omit?: HttpTrafficLogOmit<ExtArgs> | null
+    /**
+     * Filter, which HttpTrafficLog to fetch.
+     */
+    where: HttpTrafficLogWhereUniqueInput
+  }
+
+  /**
+   * HttpTrafficLog findFirst
+   */
+  export type HttpTrafficLogFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the HttpTrafficLog
+     */
+    select?: HttpTrafficLogSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the HttpTrafficLog
+     */
+    omit?: HttpTrafficLogOmit<ExtArgs> | null
+    /**
+     * Filter, which HttpTrafficLog to fetch.
+     */
+    where?: HttpTrafficLogWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of HttpTrafficLogs to fetch.
+     */
+    orderBy?: HttpTrafficLogOrderByWithRelationInput | HttpTrafficLogOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for HttpTrafficLogs.
+     */
+    cursor?: HttpTrafficLogWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` HttpTrafficLogs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` HttpTrafficLogs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of HttpTrafficLogs.
+     */
+    distinct?: HttpTrafficLogScalarFieldEnum | HttpTrafficLogScalarFieldEnum[]
+  }
+
+  /**
+   * HttpTrafficLog findFirstOrThrow
+   */
+  export type HttpTrafficLogFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the HttpTrafficLog
+     */
+    select?: HttpTrafficLogSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the HttpTrafficLog
+     */
+    omit?: HttpTrafficLogOmit<ExtArgs> | null
+    /**
+     * Filter, which HttpTrafficLog to fetch.
+     */
+    where?: HttpTrafficLogWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of HttpTrafficLogs to fetch.
+     */
+    orderBy?: HttpTrafficLogOrderByWithRelationInput | HttpTrafficLogOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for HttpTrafficLogs.
+     */
+    cursor?: HttpTrafficLogWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` HttpTrafficLogs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` HttpTrafficLogs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of HttpTrafficLogs.
+     */
+    distinct?: HttpTrafficLogScalarFieldEnum | HttpTrafficLogScalarFieldEnum[]
+  }
+
+  /**
+   * HttpTrafficLog findMany
+   */
+  export type HttpTrafficLogFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the HttpTrafficLog
+     */
+    select?: HttpTrafficLogSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the HttpTrafficLog
+     */
+    omit?: HttpTrafficLogOmit<ExtArgs> | null
+    /**
+     * Filter, which HttpTrafficLogs to fetch.
+     */
+    where?: HttpTrafficLogWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of HttpTrafficLogs to fetch.
+     */
+    orderBy?: HttpTrafficLogOrderByWithRelationInput | HttpTrafficLogOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing HttpTrafficLogs.
+     */
+    cursor?: HttpTrafficLogWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` HttpTrafficLogs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` HttpTrafficLogs.
+     */
+    skip?: number
+    distinct?: HttpTrafficLogScalarFieldEnum | HttpTrafficLogScalarFieldEnum[]
+  }
+
+  /**
+   * HttpTrafficLog create
+   */
+  export type HttpTrafficLogCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the HttpTrafficLog
+     */
+    select?: HttpTrafficLogSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the HttpTrafficLog
+     */
+    omit?: HttpTrafficLogOmit<ExtArgs> | null
+    /**
+     * The data needed to create a HttpTrafficLog.
+     */
+    data: XOR<HttpTrafficLogCreateInput, HttpTrafficLogUncheckedCreateInput>
+  }
+
+  /**
+   * HttpTrafficLog createMany
+   */
+  export type HttpTrafficLogCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many HttpTrafficLogs.
+     */
+    data: HttpTrafficLogCreateManyInput | HttpTrafficLogCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * HttpTrafficLog createManyAndReturn
+   */
+  export type HttpTrafficLogCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the HttpTrafficLog
+     */
+    select?: HttpTrafficLogSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the HttpTrafficLog
+     */
+    omit?: HttpTrafficLogOmit<ExtArgs> | null
+    /**
+     * The data used to create many HttpTrafficLogs.
+     */
+    data: HttpTrafficLogCreateManyInput | HttpTrafficLogCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * HttpTrafficLog update
+   */
+  export type HttpTrafficLogUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the HttpTrafficLog
+     */
+    select?: HttpTrafficLogSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the HttpTrafficLog
+     */
+    omit?: HttpTrafficLogOmit<ExtArgs> | null
+    /**
+     * The data needed to update a HttpTrafficLog.
+     */
+    data: XOR<HttpTrafficLogUpdateInput, HttpTrafficLogUncheckedUpdateInput>
+    /**
+     * Choose, which HttpTrafficLog to update.
+     */
+    where: HttpTrafficLogWhereUniqueInput
+  }
+
+  /**
+   * HttpTrafficLog updateMany
+   */
+  export type HttpTrafficLogUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update HttpTrafficLogs.
+     */
+    data: XOR<HttpTrafficLogUpdateManyMutationInput, HttpTrafficLogUncheckedUpdateManyInput>
+    /**
+     * Filter which HttpTrafficLogs to update
+     */
+    where?: HttpTrafficLogWhereInput
+    /**
+     * Limit how many HttpTrafficLogs to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * HttpTrafficLog updateManyAndReturn
+   */
+  export type HttpTrafficLogUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the HttpTrafficLog
+     */
+    select?: HttpTrafficLogSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the HttpTrafficLog
+     */
+    omit?: HttpTrafficLogOmit<ExtArgs> | null
+    /**
+     * The data used to update HttpTrafficLogs.
+     */
+    data: XOR<HttpTrafficLogUpdateManyMutationInput, HttpTrafficLogUncheckedUpdateManyInput>
+    /**
+     * Filter which HttpTrafficLogs to update
+     */
+    where?: HttpTrafficLogWhereInput
+    /**
+     * Limit how many HttpTrafficLogs to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * HttpTrafficLog upsert
+   */
+  export type HttpTrafficLogUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the HttpTrafficLog
+     */
+    select?: HttpTrafficLogSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the HttpTrafficLog
+     */
+    omit?: HttpTrafficLogOmit<ExtArgs> | null
+    /**
+     * The filter to search for the HttpTrafficLog to update in case it exists.
+     */
+    where: HttpTrafficLogWhereUniqueInput
+    /**
+     * In case the HttpTrafficLog found by the `where` argument doesn't exist, create a new HttpTrafficLog with this data.
+     */
+    create: XOR<HttpTrafficLogCreateInput, HttpTrafficLogUncheckedCreateInput>
+    /**
+     * In case the HttpTrafficLog was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<HttpTrafficLogUpdateInput, HttpTrafficLogUncheckedUpdateInput>
+  }
+
+  /**
+   * HttpTrafficLog delete
+   */
+  export type HttpTrafficLogDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the HttpTrafficLog
+     */
+    select?: HttpTrafficLogSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the HttpTrafficLog
+     */
+    omit?: HttpTrafficLogOmit<ExtArgs> | null
+    /**
+     * Filter which HttpTrafficLog to delete.
+     */
+    where: HttpTrafficLogWhereUniqueInput
+  }
+
+  /**
+   * HttpTrafficLog deleteMany
+   */
+  export type HttpTrafficLogDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which HttpTrafficLogs to delete
+     */
+    where?: HttpTrafficLogWhereInput
+    /**
+     * Limit how many HttpTrafficLogs to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * HttpTrafficLog without action
+   */
+  export type HttpTrafficLogDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the HttpTrafficLog
+     */
+    select?: HttpTrafficLogSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the HttpTrafficLog
+     */
+    omit?: HttpTrafficLogOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model TrafficReplayHistory
+   */
+
+  export type AggregateTrafficReplayHistory = {
+    _count: TrafficReplayHistoryCountAggregateOutputType | null
+    _avg: TrafficReplayHistoryAvgAggregateOutputType | null
+    _sum: TrafficReplayHistorySumAggregateOutputType | null
+    _min: TrafficReplayHistoryMinAggregateOutputType | null
+    _max: TrafficReplayHistoryMaxAggregateOutputType | null
+  }
+
+  export type TrafficReplayHistoryAvgAggregateOutputType = {
+    id: number | null
+    original_log_id: number | null
+    response_status: number | null
+    duration_ms: number | null
+    replay_response_status: number | null
+    replay_duration_ms: number | null
+    replay_response_size: number | null
+    duration_diff_ms: number | null
+    body_size_diff: number | null
+    template_id: number | null
+  }
+
+  export type TrafficReplayHistorySumAggregateOutputType = {
+    id: bigint | null
+    original_log_id: bigint | null
+    response_status: number | null
+    duration_ms: number | null
+    replay_response_status: number | null
+    replay_duration_ms: number | null
+    replay_response_size: number | null
+    duration_diff_ms: number | null
+    body_size_diff: number | null
+    template_id: number | null
+  }
+
+  export type TrafficReplayHistoryMinAggregateOutputType = {
+    id: bigint | null
+    original_log_id: bigint | null
+    replay_name: string | null
+    target_url: string | null
+    request_method: string | null
+    request_body: string | null
+    response_status: number | null
+    response_body: string | null
+    duration_ms: number | null
+    status: string | null
+    error_message: string | null
+    replayed_at: Date | null
+    replayed_by: string | null
+    modified_method: string | null
+    modified_url: string | null
+    modified_body: string | null
+    replay_request_body: string | null
+    replay_response_status: number | null
+    replay_duration_ms: number | null
+    replay_response_body: string | null
+    replay_response_size: number | null
+    status_code_match: boolean | null
+    response_body_match: boolean | null
+    duration_diff_ms: number | null
+    body_size_diff: number | null
+    success: boolean | null
+    template_id: number | null
+  }
+
+  export type TrafficReplayHistoryMaxAggregateOutputType = {
+    id: bigint | null
+    original_log_id: bigint | null
+    replay_name: string | null
+    target_url: string | null
+    request_method: string | null
+    request_body: string | null
+    response_status: number | null
+    response_body: string | null
+    duration_ms: number | null
+    status: string | null
+    error_message: string | null
+    replayed_at: Date | null
+    replayed_by: string | null
+    modified_method: string | null
+    modified_url: string | null
+    modified_body: string | null
+    replay_request_body: string | null
+    replay_response_status: number | null
+    replay_duration_ms: number | null
+    replay_response_body: string | null
+    replay_response_size: number | null
+    status_code_match: boolean | null
+    response_body_match: boolean | null
+    duration_diff_ms: number | null
+    body_size_diff: number | null
+    success: boolean | null
+    template_id: number | null
+  }
+
+  export type TrafficReplayHistoryCountAggregateOutputType = {
+    id: number
+    original_log_id: number
+    replay_name: number
+    target_url: number
+    request_method: number
+    request_headers: number
+    request_body: number
+    response_status: number
+    response_headers: number
+    response_body: number
+    duration_ms: number
+    status: number
+    error_message: number
+    replayed_at: number
+    replayed_by: number
+    modified_method: number
+    modified_url: number
+    modified_headers: number
+    modified_body: number
+    modification_summary: number
+    replay_request_headers: number
+    replay_request_body: number
+    replay_response_status: number
+    replay_duration_ms: number
+    replay_response_headers: number
+    replay_response_body: number
+    replay_response_size: number
+    diff_summary: number
+    status_code_match: number
+    response_body_match: number
+    duration_diff_ms: number
+    body_size_diff: number
+    success: number
+    template_id: number
+    _all: number
+  }
+
+
+  export type TrafficReplayHistoryAvgAggregateInputType = {
+    id?: true
+    original_log_id?: true
+    response_status?: true
+    duration_ms?: true
+    replay_response_status?: true
+    replay_duration_ms?: true
+    replay_response_size?: true
+    duration_diff_ms?: true
+    body_size_diff?: true
+    template_id?: true
+  }
+
+  export type TrafficReplayHistorySumAggregateInputType = {
+    id?: true
+    original_log_id?: true
+    response_status?: true
+    duration_ms?: true
+    replay_response_status?: true
+    replay_duration_ms?: true
+    replay_response_size?: true
+    duration_diff_ms?: true
+    body_size_diff?: true
+    template_id?: true
+  }
+
+  export type TrafficReplayHistoryMinAggregateInputType = {
+    id?: true
+    original_log_id?: true
+    replay_name?: true
+    target_url?: true
+    request_method?: true
+    request_body?: true
+    response_status?: true
+    response_body?: true
+    duration_ms?: true
+    status?: true
+    error_message?: true
+    replayed_at?: true
+    replayed_by?: true
+    modified_method?: true
+    modified_url?: true
+    modified_body?: true
+    replay_request_body?: true
+    replay_response_status?: true
+    replay_duration_ms?: true
+    replay_response_body?: true
+    replay_response_size?: true
+    status_code_match?: true
+    response_body_match?: true
+    duration_diff_ms?: true
+    body_size_diff?: true
+    success?: true
+    template_id?: true
+  }
+
+  export type TrafficReplayHistoryMaxAggregateInputType = {
+    id?: true
+    original_log_id?: true
+    replay_name?: true
+    target_url?: true
+    request_method?: true
+    request_body?: true
+    response_status?: true
+    response_body?: true
+    duration_ms?: true
+    status?: true
+    error_message?: true
+    replayed_at?: true
+    replayed_by?: true
+    modified_method?: true
+    modified_url?: true
+    modified_body?: true
+    replay_request_body?: true
+    replay_response_status?: true
+    replay_duration_ms?: true
+    replay_response_body?: true
+    replay_response_size?: true
+    status_code_match?: true
+    response_body_match?: true
+    duration_diff_ms?: true
+    body_size_diff?: true
+    success?: true
+    template_id?: true
+  }
+
+  export type TrafficReplayHistoryCountAggregateInputType = {
+    id?: true
+    original_log_id?: true
+    replay_name?: true
+    target_url?: true
+    request_method?: true
+    request_headers?: true
+    request_body?: true
+    response_status?: true
+    response_headers?: true
+    response_body?: true
+    duration_ms?: true
+    status?: true
+    error_message?: true
+    replayed_at?: true
+    replayed_by?: true
+    modified_method?: true
+    modified_url?: true
+    modified_headers?: true
+    modified_body?: true
+    modification_summary?: true
+    replay_request_headers?: true
+    replay_request_body?: true
+    replay_response_status?: true
+    replay_duration_ms?: true
+    replay_response_headers?: true
+    replay_response_body?: true
+    replay_response_size?: true
+    diff_summary?: true
+    status_code_match?: true
+    response_body_match?: true
+    duration_diff_ms?: true
+    body_size_diff?: true
+    success?: true
+    template_id?: true
+    _all?: true
+  }
+
+  export type TrafficReplayHistoryAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TrafficReplayHistory to aggregate.
+     */
+    where?: TrafficReplayHistoryWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TrafficReplayHistories to fetch.
+     */
+    orderBy?: TrafficReplayHistoryOrderByWithRelationInput | TrafficReplayHistoryOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: TrafficReplayHistoryWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TrafficReplayHistories from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TrafficReplayHistories.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned TrafficReplayHistories
+    **/
+    _count?: true | TrafficReplayHistoryCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: TrafficReplayHistoryAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: TrafficReplayHistorySumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: TrafficReplayHistoryMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: TrafficReplayHistoryMaxAggregateInputType
+  }
+
+  export type GetTrafficReplayHistoryAggregateType<T extends TrafficReplayHistoryAggregateArgs> = {
+        [P in keyof T & keyof AggregateTrafficReplayHistory]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateTrafficReplayHistory[P]>
+      : GetScalarType<T[P], AggregateTrafficReplayHistory[P]>
+  }
+
+
+
+
+  export type TrafficReplayHistoryGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: TrafficReplayHistoryWhereInput
+    orderBy?: TrafficReplayHistoryOrderByWithAggregationInput | TrafficReplayHistoryOrderByWithAggregationInput[]
+    by: TrafficReplayHistoryScalarFieldEnum[] | TrafficReplayHistoryScalarFieldEnum
+    having?: TrafficReplayHistoryScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: TrafficReplayHistoryCountAggregateInputType | true
+    _avg?: TrafficReplayHistoryAvgAggregateInputType
+    _sum?: TrafficReplayHistorySumAggregateInputType
+    _min?: TrafficReplayHistoryMinAggregateInputType
+    _max?: TrafficReplayHistoryMaxAggregateInputType
+  }
+
+  export type TrafficReplayHistoryGroupByOutputType = {
+    id: bigint
+    original_log_id: bigint
+    replay_name: string | null
+    target_url: string | null
+    request_method: string | null
+    request_headers: JsonValue | null
+    request_body: string | null
+    response_status: number | null
+    response_headers: JsonValue | null
+    response_body: string | null
+    duration_ms: number | null
+    status: string
+    error_message: string | null
+    replayed_at: Date
+    replayed_by: string | null
+    modified_method: string | null
+    modified_url: string | null
+    modified_headers: JsonValue | null
+    modified_body: string | null
+    modification_summary: JsonValue | null
+    replay_request_headers: JsonValue | null
+    replay_request_body: string | null
+    replay_response_status: number | null
+    replay_duration_ms: number | null
+    replay_response_headers: JsonValue | null
+    replay_response_body: string | null
+    replay_response_size: number | null
+    diff_summary: JsonValue | null
+    status_code_match: boolean
+    response_body_match: boolean
+    duration_diff_ms: number | null
+    body_size_diff: number | null
+    success: boolean
+    template_id: number | null
+    _count: TrafficReplayHistoryCountAggregateOutputType | null
+    _avg: TrafficReplayHistoryAvgAggregateOutputType | null
+    _sum: TrafficReplayHistorySumAggregateOutputType | null
+    _min: TrafficReplayHistoryMinAggregateOutputType | null
+    _max: TrafficReplayHistoryMaxAggregateOutputType | null
+  }
+
+  type GetTrafficReplayHistoryGroupByPayload<T extends TrafficReplayHistoryGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<TrafficReplayHistoryGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof TrafficReplayHistoryGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], TrafficReplayHistoryGroupByOutputType[P]>
+            : GetScalarType<T[P], TrafficReplayHistoryGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type TrafficReplayHistorySelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    original_log_id?: boolean
+    replay_name?: boolean
+    target_url?: boolean
+    request_method?: boolean
+    request_headers?: boolean
+    request_body?: boolean
+    response_status?: boolean
+    response_headers?: boolean
+    response_body?: boolean
+    duration_ms?: boolean
+    status?: boolean
+    error_message?: boolean
+    replayed_at?: boolean
+    replayed_by?: boolean
+    modified_method?: boolean
+    modified_url?: boolean
+    modified_headers?: boolean
+    modified_body?: boolean
+    modification_summary?: boolean
+    replay_request_headers?: boolean
+    replay_request_body?: boolean
+    replay_response_status?: boolean
+    replay_duration_ms?: boolean
+    replay_response_headers?: boolean
+    replay_response_body?: boolean
+    replay_response_size?: boolean
+    diff_summary?: boolean
+    status_code_match?: boolean
+    response_body_match?: boolean
+    duration_diff_ms?: boolean
+    body_size_diff?: boolean
+    success?: boolean
+    template_id?: boolean
+  }, ExtArgs["result"]["trafficReplayHistory"]>
+
+  export type TrafficReplayHistorySelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    original_log_id?: boolean
+    replay_name?: boolean
+    target_url?: boolean
+    request_method?: boolean
+    request_headers?: boolean
+    request_body?: boolean
+    response_status?: boolean
+    response_headers?: boolean
+    response_body?: boolean
+    duration_ms?: boolean
+    status?: boolean
+    error_message?: boolean
+    replayed_at?: boolean
+    replayed_by?: boolean
+    modified_method?: boolean
+    modified_url?: boolean
+    modified_headers?: boolean
+    modified_body?: boolean
+    modification_summary?: boolean
+    replay_request_headers?: boolean
+    replay_request_body?: boolean
+    replay_response_status?: boolean
+    replay_duration_ms?: boolean
+    replay_response_headers?: boolean
+    replay_response_body?: boolean
+    replay_response_size?: boolean
+    diff_summary?: boolean
+    status_code_match?: boolean
+    response_body_match?: boolean
+    duration_diff_ms?: boolean
+    body_size_diff?: boolean
+    success?: boolean
+    template_id?: boolean
+  }, ExtArgs["result"]["trafficReplayHistory"]>
+
+  export type TrafficReplayHistorySelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    original_log_id?: boolean
+    replay_name?: boolean
+    target_url?: boolean
+    request_method?: boolean
+    request_headers?: boolean
+    request_body?: boolean
+    response_status?: boolean
+    response_headers?: boolean
+    response_body?: boolean
+    duration_ms?: boolean
+    status?: boolean
+    error_message?: boolean
+    replayed_at?: boolean
+    replayed_by?: boolean
+    modified_method?: boolean
+    modified_url?: boolean
+    modified_headers?: boolean
+    modified_body?: boolean
+    modification_summary?: boolean
+    replay_request_headers?: boolean
+    replay_request_body?: boolean
+    replay_response_status?: boolean
+    replay_duration_ms?: boolean
+    replay_response_headers?: boolean
+    replay_response_body?: boolean
+    replay_response_size?: boolean
+    diff_summary?: boolean
+    status_code_match?: boolean
+    response_body_match?: boolean
+    duration_diff_ms?: boolean
+    body_size_diff?: boolean
+    success?: boolean
+    template_id?: boolean
+  }, ExtArgs["result"]["trafficReplayHistory"]>
+
+  export type TrafficReplayHistorySelectScalar = {
+    id?: boolean
+    original_log_id?: boolean
+    replay_name?: boolean
+    target_url?: boolean
+    request_method?: boolean
+    request_headers?: boolean
+    request_body?: boolean
+    response_status?: boolean
+    response_headers?: boolean
+    response_body?: boolean
+    duration_ms?: boolean
+    status?: boolean
+    error_message?: boolean
+    replayed_at?: boolean
+    replayed_by?: boolean
+    modified_method?: boolean
+    modified_url?: boolean
+    modified_headers?: boolean
+    modified_body?: boolean
+    modification_summary?: boolean
+    replay_request_headers?: boolean
+    replay_request_body?: boolean
+    replay_response_status?: boolean
+    replay_duration_ms?: boolean
+    replay_response_headers?: boolean
+    replay_response_body?: boolean
+    replay_response_size?: boolean
+    diff_summary?: boolean
+    status_code_match?: boolean
+    response_body_match?: boolean
+    duration_diff_ms?: boolean
+    body_size_diff?: boolean
+    success?: boolean
+    template_id?: boolean
+  }
+
+  export type TrafficReplayHistoryOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "original_log_id" | "replay_name" | "target_url" | "request_method" | "request_headers" | "request_body" | "response_status" | "response_headers" | "response_body" | "duration_ms" | "status" | "error_message" | "replayed_at" | "replayed_by" | "modified_method" | "modified_url" | "modified_headers" | "modified_body" | "modification_summary" | "replay_request_headers" | "replay_request_body" | "replay_response_status" | "replay_duration_ms" | "replay_response_headers" | "replay_response_body" | "replay_response_size" | "diff_summary" | "status_code_match" | "response_body_match" | "duration_diff_ms" | "body_size_diff" | "success" | "template_id", ExtArgs["result"]["trafficReplayHistory"]>
+
+  export type $TrafficReplayHistoryPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "TrafficReplayHistory"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      original_log_id: bigint
+      replay_name: string | null
+      target_url: string | null
+      request_method: string | null
+      request_headers: Prisma.JsonValue | null
+      request_body: string | null
+      response_status: number | null
+      response_headers: Prisma.JsonValue | null
+      response_body: string | null
+      duration_ms: number | null
+      status: string
+      error_message: string | null
+      replayed_at: Date
+      replayed_by: string | null
+      modified_method: string | null
+      modified_url: string | null
+      modified_headers: Prisma.JsonValue | null
+      modified_body: string | null
+      modification_summary: Prisma.JsonValue | null
+      replay_request_headers: Prisma.JsonValue | null
+      replay_request_body: string | null
+      replay_response_status: number | null
+      replay_duration_ms: number | null
+      replay_response_headers: Prisma.JsonValue | null
+      replay_response_body: string | null
+      replay_response_size: number | null
+      diff_summary: Prisma.JsonValue | null
+      status_code_match: boolean
+      response_body_match: boolean
+      duration_diff_ms: number | null
+      body_size_diff: number | null
+      success: boolean
+      template_id: number | null
+    }, ExtArgs["result"]["trafficReplayHistory"]>
+    composites: {}
+  }
+
+  type TrafficReplayHistoryGetPayload<S extends boolean | null | undefined | TrafficReplayHistoryDefaultArgs> = $Result.GetResult<Prisma.$TrafficReplayHistoryPayload, S>
+
+  type TrafficReplayHistoryCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<TrafficReplayHistoryFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: TrafficReplayHistoryCountAggregateInputType | true
+    }
+
+  export interface TrafficReplayHistoryDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['TrafficReplayHistory'], meta: { name: 'TrafficReplayHistory' } }
+    /**
+     * Find zero or one TrafficReplayHistory that matches the filter.
+     * @param {TrafficReplayHistoryFindUniqueArgs} args - Arguments to find a TrafficReplayHistory
+     * @example
+     * // Get one TrafficReplayHistory
+     * const trafficReplayHistory = await prisma.trafficReplayHistory.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends TrafficReplayHistoryFindUniqueArgs>(args: SelectSubset<T, TrafficReplayHistoryFindUniqueArgs<ExtArgs>>): Prisma__TrafficReplayHistoryClient<$Result.GetResult<Prisma.$TrafficReplayHistoryPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one TrafficReplayHistory that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {TrafficReplayHistoryFindUniqueOrThrowArgs} args - Arguments to find a TrafficReplayHistory
+     * @example
+     * // Get one TrafficReplayHistory
+     * const trafficReplayHistory = await prisma.trafficReplayHistory.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends TrafficReplayHistoryFindUniqueOrThrowArgs>(args: SelectSubset<T, TrafficReplayHistoryFindUniqueOrThrowArgs<ExtArgs>>): Prisma__TrafficReplayHistoryClient<$Result.GetResult<Prisma.$TrafficReplayHistoryPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first TrafficReplayHistory that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TrafficReplayHistoryFindFirstArgs} args - Arguments to find a TrafficReplayHistory
+     * @example
+     * // Get one TrafficReplayHistory
+     * const trafficReplayHistory = await prisma.trafficReplayHistory.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends TrafficReplayHistoryFindFirstArgs>(args?: SelectSubset<T, TrafficReplayHistoryFindFirstArgs<ExtArgs>>): Prisma__TrafficReplayHistoryClient<$Result.GetResult<Prisma.$TrafficReplayHistoryPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first TrafficReplayHistory that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TrafficReplayHistoryFindFirstOrThrowArgs} args - Arguments to find a TrafficReplayHistory
+     * @example
+     * // Get one TrafficReplayHistory
+     * const trafficReplayHistory = await prisma.trafficReplayHistory.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends TrafficReplayHistoryFindFirstOrThrowArgs>(args?: SelectSubset<T, TrafficReplayHistoryFindFirstOrThrowArgs<ExtArgs>>): Prisma__TrafficReplayHistoryClient<$Result.GetResult<Prisma.$TrafficReplayHistoryPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more TrafficReplayHistories that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TrafficReplayHistoryFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all TrafficReplayHistories
+     * const trafficReplayHistories = await prisma.trafficReplayHistory.findMany()
+     * 
+     * // Get first 10 TrafficReplayHistories
+     * const trafficReplayHistories = await prisma.trafficReplayHistory.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const trafficReplayHistoryWithIdOnly = await prisma.trafficReplayHistory.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends TrafficReplayHistoryFindManyArgs>(args?: SelectSubset<T, TrafficReplayHistoryFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TrafficReplayHistoryPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a TrafficReplayHistory.
+     * @param {TrafficReplayHistoryCreateArgs} args - Arguments to create a TrafficReplayHistory.
+     * @example
+     * // Create one TrafficReplayHistory
+     * const TrafficReplayHistory = await prisma.trafficReplayHistory.create({
+     *   data: {
+     *     // ... data to create a TrafficReplayHistory
+     *   }
+     * })
+     * 
+     */
+    create<T extends TrafficReplayHistoryCreateArgs>(args: SelectSubset<T, TrafficReplayHistoryCreateArgs<ExtArgs>>): Prisma__TrafficReplayHistoryClient<$Result.GetResult<Prisma.$TrafficReplayHistoryPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many TrafficReplayHistories.
+     * @param {TrafficReplayHistoryCreateManyArgs} args - Arguments to create many TrafficReplayHistories.
+     * @example
+     * // Create many TrafficReplayHistories
+     * const trafficReplayHistory = await prisma.trafficReplayHistory.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends TrafficReplayHistoryCreateManyArgs>(args?: SelectSubset<T, TrafficReplayHistoryCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many TrafficReplayHistories and returns the data saved in the database.
+     * @param {TrafficReplayHistoryCreateManyAndReturnArgs} args - Arguments to create many TrafficReplayHistories.
+     * @example
+     * // Create many TrafficReplayHistories
+     * const trafficReplayHistory = await prisma.trafficReplayHistory.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many TrafficReplayHistories and only return the `id`
+     * const trafficReplayHistoryWithIdOnly = await prisma.trafficReplayHistory.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends TrafficReplayHistoryCreateManyAndReturnArgs>(args?: SelectSubset<T, TrafficReplayHistoryCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TrafficReplayHistoryPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a TrafficReplayHistory.
+     * @param {TrafficReplayHistoryDeleteArgs} args - Arguments to delete one TrafficReplayHistory.
+     * @example
+     * // Delete one TrafficReplayHistory
+     * const TrafficReplayHistory = await prisma.trafficReplayHistory.delete({
+     *   where: {
+     *     // ... filter to delete one TrafficReplayHistory
+     *   }
+     * })
+     * 
+     */
+    delete<T extends TrafficReplayHistoryDeleteArgs>(args: SelectSubset<T, TrafficReplayHistoryDeleteArgs<ExtArgs>>): Prisma__TrafficReplayHistoryClient<$Result.GetResult<Prisma.$TrafficReplayHistoryPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one TrafficReplayHistory.
+     * @param {TrafficReplayHistoryUpdateArgs} args - Arguments to update one TrafficReplayHistory.
+     * @example
+     * // Update one TrafficReplayHistory
+     * const trafficReplayHistory = await prisma.trafficReplayHistory.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends TrafficReplayHistoryUpdateArgs>(args: SelectSubset<T, TrafficReplayHistoryUpdateArgs<ExtArgs>>): Prisma__TrafficReplayHistoryClient<$Result.GetResult<Prisma.$TrafficReplayHistoryPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more TrafficReplayHistories.
+     * @param {TrafficReplayHistoryDeleteManyArgs} args - Arguments to filter TrafficReplayHistories to delete.
+     * @example
+     * // Delete a few TrafficReplayHistories
+     * const { count } = await prisma.trafficReplayHistory.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends TrafficReplayHistoryDeleteManyArgs>(args?: SelectSubset<T, TrafficReplayHistoryDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TrafficReplayHistories.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TrafficReplayHistoryUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many TrafficReplayHistories
+     * const trafficReplayHistory = await prisma.trafficReplayHistory.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends TrafficReplayHistoryUpdateManyArgs>(args: SelectSubset<T, TrafficReplayHistoryUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TrafficReplayHistories and returns the data updated in the database.
+     * @param {TrafficReplayHistoryUpdateManyAndReturnArgs} args - Arguments to update many TrafficReplayHistories.
+     * @example
+     * // Update many TrafficReplayHistories
+     * const trafficReplayHistory = await prisma.trafficReplayHistory.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more TrafficReplayHistories and only return the `id`
+     * const trafficReplayHistoryWithIdOnly = await prisma.trafficReplayHistory.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends TrafficReplayHistoryUpdateManyAndReturnArgs>(args: SelectSubset<T, TrafficReplayHistoryUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TrafficReplayHistoryPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one TrafficReplayHistory.
+     * @param {TrafficReplayHistoryUpsertArgs} args - Arguments to update or create a TrafficReplayHistory.
+     * @example
+     * // Update or create a TrafficReplayHistory
+     * const trafficReplayHistory = await prisma.trafficReplayHistory.upsert({
+     *   create: {
+     *     // ... data to create a TrafficReplayHistory
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the TrafficReplayHistory we want to update
+     *   }
+     * })
+     */
+    upsert<T extends TrafficReplayHistoryUpsertArgs>(args: SelectSubset<T, TrafficReplayHistoryUpsertArgs<ExtArgs>>): Prisma__TrafficReplayHistoryClient<$Result.GetResult<Prisma.$TrafficReplayHistoryPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of TrafficReplayHistories.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TrafficReplayHistoryCountArgs} args - Arguments to filter TrafficReplayHistories to count.
+     * @example
+     * // Count the number of TrafficReplayHistories
+     * const count = await prisma.trafficReplayHistory.count({
+     *   where: {
+     *     // ... the filter for the TrafficReplayHistories we want to count
+     *   }
+     * })
+    **/
+    count<T extends TrafficReplayHistoryCountArgs>(
+      args?: Subset<T, TrafficReplayHistoryCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], TrafficReplayHistoryCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a TrafficReplayHistory.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TrafficReplayHistoryAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends TrafficReplayHistoryAggregateArgs>(args: Subset<T, TrafficReplayHistoryAggregateArgs>): Prisma.PrismaPromise<GetTrafficReplayHistoryAggregateType<T>>
+
+    /**
+     * Group by TrafficReplayHistory.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TrafficReplayHistoryGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends TrafficReplayHistoryGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: TrafficReplayHistoryGroupByArgs['orderBy'] }
+        : { orderBy?: TrafficReplayHistoryGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, TrafficReplayHistoryGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetTrafficReplayHistoryGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the TrafficReplayHistory model
+   */
+  readonly fields: TrafficReplayHistoryFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for TrafficReplayHistory.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__TrafficReplayHistoryClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the TrafficReplayHistory model
+   */
+  interface TrafficReplayHistoryFieldRefs {
+    readonly id: FieldRef<"TrafficReplayHistory", 'BigInt'>
+    readonly original_log_id: FieldRef<"TrafficReplayHistory", 'BigInt'>
+    readonly replay_name: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly target_url: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly request_method: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly request_headers: FieldRef<"TrafficReplayHistory", 'Json'>
+    readonly request_body: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly response_status: FieldRef<"TrafficReplayHistory", 'Int'>
+    readonly response_headers: FieldRef<"TrafficReplayHistory", 'Json'>
+    readonly response_body: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly duration_ms: FieldRef<"TrafficReplayHistory", 'Int'>
+    readonly status: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly error_message: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly replayed_at: FieldRef<"TrafficReplayHistory", 'DateTime'>
+    readonly replayed_by: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly modified_method: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly modified_url: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly modified_headers: FieldRef<"TrafficReplayHistory", 'Json'>
+    readonly modified_body: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly modification_summary: FieldRef<"TrafficReplayHistory", 'Json'>
+    readonly replay_request_headers: FieldRef<"TrafficReplayHistory", 'Json'>
+    readonly replay_request_body: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly replay_response_status: FieldRef<"TrafficReplayHistory", 'Int'>
+    readonly replay_duration_ms: FieldRef<"TrafficReplayHistory", 'Int'>
+    readonly replay_response_headers: FieldRef<"TrafficReplayHistory", 'Json'>
+    readonly replay_response_body: FieldRef<"TrafficReplayHistory", 'String'>
+    readonly replay_response_size: FieldRef<"TrafficReplayHistory", 'Int'>
+    readonly diff_summary: FieldRef<"TrafficReplayHistory", 'Json'>
+    readonly status_code_match: FieldRef<"TrafficReplayHistory", 'Boolean'>
+    readonly response_body_match: FieldRef<"TrafficReplayHistory", 'Boolean'>
+    readonly duration_diff_ms: FieldRef<"TrafficReplayHistory", 'Int'>
+    readonly body_size_diff: FieldRef<"TrafficReplayHistory", 'Int'>
+    readonly success: FieldRef<"TrafficReplayHistory", 'Boolean'>
+    readonly template_id: FieldRef<"TrafficReplayHistory", 'Int'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * TrafficReplayHistory findUnique
+   */
+  export type TrafficReplayHistoryFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TrafficReplayHistory
+     */
+    select?: TrafficReplayHistorySelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TrafficReplayHistory
+     */
+    omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+    /**
+     * Filter, which TrafficReplayHistory to fetch.
+     */
+    where: TrafficReplayHistoryWhereUniqueInput
+  }
+
+  /**
+   * TrafficReplayHistory findUniqueOrThrow
+   */
+  export type TrafficReplayHistoryFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TrafficReplayHistory
+     */
+    select?: TrafficReplayHistorySelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TrafficReplayHistory
+     */
+    omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+    /**
+     * Filter, which TrafficReplayHistory to fetch.
+     */
+    where: TrafficReplayHistoryWhereUniqueInput
+  }
+
+  /**
+   * TrafficReplayHistory findFirst
+   */
+  export type TrafficReplayHistoryFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TrafficReplayHistory
+     */
+    select?: TrafficReplayHistorySelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TrafficReplayHistory
+     */
+    omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+    /**
+     * Filter, which TrafficReplayHistory to fetch.
+     */
+    where?: TrafficReplayHistoryWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TrafficReplayHistories to fetch.
+     */
+    orderBy?: TrafficReplayHistoryOrderByWithRelationInput | TrafficReplayHistoryOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TrafficReplayHistories.
+     */
+    cursor?: TrafficReplayHistoryWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TrafficReplayHistories from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TrafficReplayHistories.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TrafficReplayHistories.
+     */
+    distinct?: TrafficReplayHistoryScalarFieldEnum | TrafficReplayHistoryScalarFieldEnum[]
+  }
+
+  /**
+   * TrafficReplayHistory findFirstOrThrow
+   */
+  export type TrafficReplayHistoryFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TrafficReplayHistory
+     */
+    select?: TrafficReplayHistorySelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TrafficReplayHistory
+     */
+    omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+    /**
+     * Filter, which TrafficReplayHistory to fetch.
+     */
+    where?: TrafficReplayHistoryWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TrafficReplayHistories to fetch.
+     */
+    orderBy?: TrafficReplayHistoryOrderByWithRelationInput | TrafficReplayHistoryOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TrafficReplayHistories.
+     */
+    cursor?: TrafficReplayHistoryWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TrafficReplayHistories from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TrafficReplayHistories.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TrafficReplayHistories.
+     */
+    distinct?: TrafficReplayHistoryScalarFieldEnum | TrafficReplayHistoryScalarFieldEnum[]
+  }
+
+  /**
+   * TrafficReplayHistory findMany
+   */
+  export type TrafficReplayHistoryFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TrafficReplayHistory
+     */
+    select?: TrafficReplayHistorySelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TrafficReplayHistory
+     */
+    omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+    /**
+     * Filter, which TrafficReplayHistories to fetch.
+     */
+    where?: TrafficReplayHistoryWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TrafficReplayHistories to fetch.
+     */
+    orderBy?: TrafficReplayHistoryOrderByWithRelationInput | TrafficReplayHistoryOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing TrafficReplayHistories.
+     */
+    cursor?: TrafficReplayHistoryWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TrafficReplayHistories from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TrafficReplayHistories.
+     */
+    skip?: number
+    distinct?: TrafficReplayHistoryScalarFieldEnum | TrafficReplayHistoryScalarFieldEnum[]
+  }
+
+  /**
+   * TrafficReplayHistory create
+   */
+  export type TrafficReplayHistoryCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TrafficReplayHistory
+     */
+    select?: TrafficReplayHistorySelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TrafficReplayHistory
+     */
+    omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+    /**
+     * The data needed to create a TrafficReplayHistory.
+     */
+    data: XOR<TrafficReplayHistoryCreateInput, TrafficReplayHistoryUncheckedCreateInput>
+  }
+
+  /**
+   * TrafficReplayHistory createMany
+   */
+  export type TrafficReplayHistoryCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many TrafficReplayHistories.
+     */
+    data: TrafficReplayHistoryCreateManyInput | TrafficReplayHistoryCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TrafficReplayHistory createManyAndReturn
+   */
+  export type TrafficReplayHistoryCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TrafficReplayHistory
+     */
+    select?: TrafficReplayHistorySelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the TrafficReplayHistory
+     */
+    omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+    /**
+     * The data used to create many TrafficReplayHistories.
+     */
+    data: TrafficReplayHistoryCreateManyInput | TrafficReplayHistoryCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TrafficReplayHistory update
+   */
+  export type TrafficReplayHistoryUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TrafficReplayHistory
+     */
+    select?: TrafficReplayHistorySelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TrafficReplayHistory
+     */
+    omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+    /**
+     * The data needed to update a TrafficReplayHistory.
+     */
+    data: XOR<TrafficReplayHistoryUpdateInput, TrafficReplayHistoryUncheckedUpdateInput>
+    /**
+     * Choose, which TrafficReplayHistory to update.
+     */
+    where: TrafficReplayHistoryWhereUniqueInput
+  }
+
+  /**
+   * TrafficReplayHistory updateMany
+   */
+  export type TrafficReplayHistoryUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update TrafficReplayHistories.
+     */
+    data: XOR<TrafficReplayHistoryUpdateManyMutationInput, TrafficReplayHistoryUncheckedUpdateManyInput>
+    /**
+     * Filter which TrafficReplayHistories to update
+     */
+    where?: TrafficReplayHistoryWhereInput
+    /**
+     * Limit how many TrafficReplayHistories to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * TrafficReplayHistory updateManyAndReturn
+   */
+  export type TrafficReplayHistoryUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TrafficReplayHistory
+     */
+    select?: TrafficReplayHistorySelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the TrafficReplayHistory
+     */
+    omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+    /**
+     * The data used to update TrafficReplayHistories.
+     */
+    data: XOR<TrafficReplayHistoryUpdateManyMutationInput, TrafficReplayHistoryUncheckedUpdateManyInput>
+    /**
+     * Filter which TrafficReplayHistories to update
+     */
+    where?: TrafficReplayHistoryWhereInput
+    /**
+     * Limit how many TrafficReplayHistories to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * TrafficReplayHistory upsert
+   */
+  export type TrafficReplayHistoryUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TrafficReplayHistory
+     */
+    select?: TrafficReplayHistorySelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TrafficReplayHistory
+     */
+    omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+    /**
+     * The filter to search for the TrafficReplayHistory to update in case it exists.
+     */
+    where: TrafficReplayHistoryWhereUniqueInput
+    /**
+     * In case the TrafficReplayHistory found by the `where` argument doesn't exist, create a new TrafficReplayHistory with this data.
+     */
+    create: XOR<TrafficReplayHistoryCreateInput, TrafficReplayHistoryUncheckedCreateInput>
+    /**
+     * In case the TrafficReplayHistory was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<TrafficReplayHistoryUpdateInput, TrafficReplayHistoryUncheckedUpdateInput>
+  }
+
+  /**
+   * TrafficReplayHistory delete
+   */
+  export type TrafficReplayHistoryDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TrafficReplayHistory
+     */
+    select?: TrafficReplayHistorySelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TrafficReplayHistory
+     */
+    omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+    /**
+     * Filter which TrafficReplayHistory to delete.
+     */
+    where: TrafficReplayHistoryWhereUniqueInput
+  }
+
+  /**
+   * TrafficReplayHistory deleteMany
+   */
+  export type TrafficReplayHistoryDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TrafficReplayHistories to delete
+     */
+    where?: TrafficReplayHistoryWhereInput
+    /**
+     * Limit how many TrafficReplayHistories to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * TrafficReplayHistory without action
+   */
+  export type TrafficReplayHistoryDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TrafficReplayHistory
+     */
+    select?: TrafficReplayHistorySelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TrafficReplayHistory
+     */
+    omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+  }
+
+
+  /**
    * Enums
    */
 
@@ -4645,6 +7672,87 @@ export namespace Prisma {
   export type AgentInboundMessageScalarFieldEnum = (typeof AgentInboundMessageScalarFieldEnum)[keyof typeof AgentInboundMessageScalarFieldEnum]
 
 
+  export const HttpTrafficLogScalarFieldEnum: {
+    id: 'id',
+    request_id: 'request_id',
+    trace_id: 'trace_id',
+    conversation_id: 'conversation_id',
+    user_id: 'user_id',
+    session_id: 'session_id',
+    agent_turn: 'agent_turn',
+    llm_call_id: 'llm_call_id',
+    tool_call_id: 'tool_call_id',
+    container_name: 'container_name',
+    service_name: 'service_name',
+    method: 'method',
+    url: 'url',
+    host: 'host',
+    path: 'path',
+    query_params: 'query_params',
+    request_headers: 'request_headers',
+    request_body: 'request_body',
+    request_content_type: 'request_content_type',
+    request_size: 'request_size',
+    response_status: 'response_status',
+    response_headers: 'response_headers',
+    response_body: 'response_body',
+    response_content_type: 'response_content_type',
+    response_size: 'response_size',
+    duration_ms: 'duration_ms',
+    request_timestamp: 'request_timestamp',
+    response_timestamp: 'response_timestamp',
+    is_ai_request: 'is_ai_request',
+    api_type: 'api_type',
+    api_version: 'api_version',
+    client_ip: 'client_ip',
+    user_agent: 'user_agent',
+    error_message: 'error_message',
+    created_at: 'created_at'
+  };
+
+  export type HttpTrafficLogScalarFieldEnum = (typeof HttpTrafficLogScalarFieldEnum)[keyof typeof HttpTrafficLogScalarFieldEnum]
+
+
+  export const TrafficReplayHistoryScalarFieldEnum: {
+    id: 'id',
+    original_log_id: 'original_log_id',
+    replay_name: 'replay_name',
+    target_url: 'target_url',
+    request_method: 'request_method',
+    request_headers: 'request_headers',
+    request_body: 'request_body',
+    response_status: 'response_status',
+    response_headers: 'response_headers',
+    response_body: 'response_body',
+    duration_ms: 'duration_ms',
+    status: 'status',
+    error_message: 'error_message',
+    replayed_at: 'replayed_at',
+    replayed_by: 'replayed_by',
+    modified_method: 'modified_method',
+    modified_url: 'modified_url',
+    modified_headers: 'modified_headers',
+    modified_body: 'modified_body',
+    modification_summary: 'modification_summary',
+    replay_request_headers: 'replay_request_headers',
+    replay_request_body: 'replay_request_body',
+    replay_response_status: 'replay_response_status',
+    replay_duration_ms: 'replay_duration_ms',
+    replay_response_headers: 'replay_response_headers',
+    replay_response_body: 'replay_response_body',
+    replay_response_size: 'replay_response_size',
+    diff_summary: 'diff_summary',
+    status_code_match: 'status_code_match',
+    response_body_match: 'response_body_match',
+    duration_diff_ms: 'duration_diff_ms',
+    body_size_diff: 'body_size_diff',
+    success: 'success',
+    template_id: 'template_id'
+  };
+
+  export type TrafficReplayHistoryScalarFieldEnum = (typeof TrafficReplayHistoryScalarFieldEnum)[keyof typeof TrafficReplayHistoryScalarFieldEnum]
+
+
   export const SortOrder: {
     asc: 'asc',
     desc: 'desc'
@@ -4658,6 +7766,14 @@ export namespace Prisma {
   };
 
   export type JsonNullValueInput = (typeof JsonNullValueInput)[keyof typeof JsonNullValueInput]
+
+
+  export const NullableJsonNullValueInput: {
+    DbNull: typeof DbNull,
+    JsonNull: typeof JsonNull
+  };
+
+  export type NullableJsonNullValueInput = (typeof NullableJsonNullValueInput)[keyof typeof NullableJsonNullValueInput]
 
 
   export const QueryMode: {
@@ -4757,6 +7873,13 @@ export namespace Prisma {
    * Reference to a field of type 'QueryMode'
    */
   export type EnumQueryModeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'QueryMode'>
+    
+
+
+  /**
+   * Reference to a field of type 'Boolean'
+   */
+  export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
     
 
 
@@ -5097,6 +8220,409 @@ export namespace Prisma {
     inbound_context?: JsonWithAggregatesFilter<"AgentInboundMessage">
     created_at?: DateTimeWithAggregatesFilter<"AgentInboundMessage"> | Date | string
     updated_at?: DateTimeWithAggregatesFilter<"AgentInboundMessage"> | Date | string
+  }
+
+  export type HttpTrafficLogWhereInput = {
+    AND?: HttpTrafficLogWhereInput | HttpTrafficLogWhereInput[]
+    OR?: HttpTrafficLogWhereInput[]
+    NOT?: HttpTrafficLogWhereInput | HttpTrafficLogWhereInput[]
+    id?: BigIntFilter<"HttpTrafficLog"> | bigint | number
+    request_id?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    trace_id?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    conversation_id?: BigIntNullableFilter<"HttpTrafficLog"> | bigint | number | null
+    user_id?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    session_id?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    agent_turn?: IntNullableFilter<"HttpTrafficLog"> | number | null
+    llm_call_id?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    tool_call_id?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    container_name?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    service_name?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    method?: StringFilter<"HttpTrafficLog"> | string
+    url?: StringFilter<"HttpTrafficLog"> | string
+    host?: StringFilter<"HttpTrafficLog"> | string
+    path?: StringFilter<"HttpTrafficLog"> | string
+    query_params?: JsonNullableFilter<"HttpTrafficLog">
+    request_headers?: JsonFilter<"HttpTrafficLog">
+    request_body?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    request_content_type?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    request_size?: IntNullableFilter<"HttpTrafficLog"> | number | null
+    response_status?: IntNullableFilter<"HttpTrafficLog"> | number | null
+    response_headers?: JsonNullableFilter<"HttpTrafficLog">
+    response_body?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    response_content_type?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    response_size?: IntNullableFilter<"HttpTrafficLog"> | number | null
+    duration_ms?: BigIntNullableFilter<"HttpTrafficLog"> | bigint | number | null
+    request_timestamp?: DateTimeFilter<"HttpTrafficLog"> | Date | string
+    response_timestamp?: DateTimeNullableFilter<"HttpTrafficLog"> | Date | string | null
+    is_ai_request?: BoolFilter<"HttpTrafficLog"> | boolean
+    api_type?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    api_version?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    client_ip?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    user_agent?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    error_message?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    created_at?: DateTimeFilter<"HttpTrafficLog"> | Date | string
+  }
+
+  export type HttpTrafficLogOrderByWithRelationInput = {
+    id?: SortOrder
+    request_id?: SortOrderInput | SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    conversation_id?: SortOrderInput | SortOrder
+    user_id?: SortOrderInput | SortOrder
+    session_id?: SortOrderInput | SortOrder
+    agent_turn?: SortOrderInput | SortOrder
+    llm_call_id?: SortOrderInput | SortOrder
+    tool_call_id?: SortOrderInput | SortOrder
+    container_name?: SortOrderInput | SortOrder
+    service_name?: SortOrderInput | SortOrder
+    method?: SortOrder
+    url?: SortOrder
+    host?: SortOrder
+    path?: SortOrder
+    query_params?: SortOrderInput | SortOrder
+    request_headers?: SortOrder
+    request_body?: SortOrderInput | SortOrder
+    request_content_type?: SortOrderInput | SortOrder
+    request_size?: SortOrderInput | SortOrder
+    response_status?: SortOrderInput | SortOrder
+    response_headers?: SortOrderInput | SortOrder
+    response_body?: SortOrderInput | SortOrder
+    response_content_type?: SortOrderInput | SortOrder
+    response_size?: SortOrderInput | SortOrder
+    duration_ms?: SortOrderInput | SortOrder
+    request_timestamp?: SortOrder
+    response_timestamp?: SortOrderInput | SortOrder
+    is_ai_request?: SortOrder
+    api_type?: SortOrderInput | SortOrder
+    api_version?: SortOrderInput | SortOrder
+    client_ip?: SortOrderInput | SortOrder
+    user_agent?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+  }
+
+  export type HttpTrafficLogWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: HttpTrafficLogWhereInput | HttpTrafficLogWhereInput[]
+    OR?: HttpTrafficLogWhereInput[]
+    NOT?: HttpTrafficLogWhereInput | HttpTrafficLogWhereInput[]
+    request_id?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    trace_id?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    conversation_id?: BigIntNullableFilter<"HttpTrafficLog"> | bigint | number | null
+    user_id?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    session_id?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    agent_turn?: IntNullableFilter<"HttpTrafficLog"> | number | null
+    llm_call_id?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    tool_call_id?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    container_name?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    service_name?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    method?: StringFilter<"HttpTrafficLog"> | string
+    url?: StringFilter<"HttpTrafficLog"> | string
+    host?: StringFilter<"HttpTrafficLog"> | string
+    path?: StringFilter<"HttpTrafficLog"> | string
+    query_params?: JsonNullableFilter<"HttpTrafficLog">
+    request_headers?: JsonFilter<"HttpTrafficLog">
+    request_body?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    request_content_type?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    request_size?: IntNullableFilter<"HttpTrafficLog"> | number | null
+    response_status?: IntNullableFilter<"HttpTrafficLog"> | number | null
+    response_headers?: JsonNullableFilter<"HttpTrafficLog">
+    response_body?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    response_content_type?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    response_size?: IntNullableFilter<"HttpTrafficLog"> | number | null
+    duration_ms?: BigIntNullableFilter<"HttpTrafficLog"> | bigint | number | null
+    request_timestamp?: DateTimeFilter<"HttpTrafficLog"> | Date | string
+    response_timestamp?: DateTimeNullableFilter<"HttpTrafficLog"> | Date | string | null
+    is_ai_request?: BoolFilter<"HttpTrafficLog"> | boolean
+    api_type?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    api_version?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    client_ip?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    user_agent?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    error_message?: StringNullableFilter<"HttpTrafficLog"> | string | null
+    created_at?: DateTimeFilter<"HttpTrafficLog"> | Date | string
+  }, "id">
+
+  export type HttpTrafficLogOrderByWithAggregationInput = {
+    id?: SortOrder
+    request_id?: SortOrderInput | SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    conversation_id?: SortOrderInput | SortOrder
+    user_id?: SortOrderInput | SortOrder
+    session_id?: SortOrderInput | SortOrder
+    agent_turn?: SortOrderInput | SortOrder
+    llm_call_id?: SortOrderInput | SortOrder
+    tool_call_id?: SortOrderInput | SortOrder
+    container_name?: SortOrderInput | SortOrder
+    service_name?: SortOrderInput | SortOrder
+    method?: SortOrder
+    url?: SortOrder
+    host?: SortOrder
+    path?: SortOrder
+    query_params?: SortOrderInput | SortOrder
+    request_headers?: SortOrder
+    request_body?: SortOrderInput | SortOrder
+    request_content_type?: SortOrderInput | SortOrder
+    request_size?: SortOrderInput | SortOrder
+    response_status?: SortOrderInput | SortOrder
+    response_headers?: SortOrderInput | SortOrder
+    response_body?: SortOrderInput | SortOrder
+    response_content_type?: SortOrderInput | SortOrder
+    response_size?: SortOrderInput | SortOrder
+    duration_ms?: SortOrderInput | SortOrder
+    request_timestamp?: SortOrder
+    response_timestamp?: SortOrderInput | SortOrder
+    is_ai_request?: SortOrder
+    api_type?: SortOrderInput | SortOrder
+    api_version?: SortOrderInput | SortOrder
+    client_ip?: SortOrderInput | SortOrder
+    user_agent?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    _count?: HttpTrafficLogCountOrderByAggregateInput
+    _avg?: HttpTrafficLogAvgOrderByAggregateInput
+    _max?: HttpTrafficLogMaxOrderByAggregateInput
+    _min?: HttpTrafficLogMinOrderByAggregateInput
+    _sum?: HttpTrafficLogSumOrderByAggregateInput
+  }
+
+  export type HttpTrafficLogScalarWhereWithAggregatesInput = {
+    AND?: HttpTrafficLogScalarWhereWithAggregatesInput | HttpTrafficLogScalarWhereWithAggregatesInput[]
+    OR?: HttpTrafficLogScalarWhereWithAggregatesInput[]
+    NOT?: HttpTrafficLogScalarWhereWithAggregatesInput | HttpTrafficLogScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"HttpTrafficLog"> | bigint | number
+    request_id?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    trace_id?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    conversation_id?: BigIntNullableWithAggregatesFilter<"HttpTrafficLog"> | bigint | number | null
+    user_id?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    session_id?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    agent_turn?: IntNullableWithAggregatesFilter<"HttpTrafficLog"> | number | null
+    llm_call_id?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    tool_call_id?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    container_name?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    service_name?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    method?: StringWithAggregatesFilter<"HttpTrafficLog"> | string
+    url?: StringWithAggregatesFilter<"HttpTrafficLog"> | string
+    host?: StringWithAggregatesFilter<"HttpTrafficLog"> | string
+    path?: StringWithAggregatesFilter<"HttpTrafficLog"> | string
+    query_params?: JsonNullableWithAggregatesFilter<"HttpTrafficLog">
+    request_headers?: JsonWithAggregatesFilter<"HttpTrafficLog">
+    request_body?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    request_content_type?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    request_size?: IntNullableWithAggregatesFilter<"HttpTrafficLog"> | number | null
+    response_status?: IntNullableWithAggregatesFilter<"HttpTrafficLog"> | number | null
+    response_headers?: JsonNullableWithAggregatesFilter<"HttpTrafficLog">
+    response_body?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    response_content_type?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    response_size?: IntNullableWithAggregatesFilter<"HttpTrafficLog"> | number | null
+    duration_ms?: BigIntNullableWithAggregatesFilter<"HttpTrafficLog"> | bigint | number | null
+    request_timestamp?: DateTimeWithAggregatesFilter<"HttpTrafficLog"> | Date | string
+    response_timestamp?: DateTimeNullableWithAggregatesFilter<"HttpTrafficLog"> | Date | string | null
+    is_ai_request?: BoolWithAggregatesFilter<"HttpTrafficLog"> | boolean
+    api_type?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    api_version?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    client_ip?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    user_agent?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    error_message?: StringNullableWithAggregatesFilter<"HttpTrafficLog"> | string | null
+    created_at?: DateTimeWithAggregatesFilter<"HttpTrafficLog"> | Date | string
+  }
+
+  export type TrafficReplayHistoryWhereInput = {
+    AND?: TrafficReplayHistoryWhereInput | TrafficReplayHistoryWhereInput[]
+    OR?: TrafficReplayHistoryWhereInput[]
+    NOT?: TrafficReplayHistoryWhereInput | TrafficReplayHistoryWhereInput[]
+    id?: BigIntFilter<"TrafficReplayHistory"> | bigint | number
+    original_log_id?: BigIntFilter<"TrafficReplayHistory"> | bigint | number
+    replay_name?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    target_url?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    request_method?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    request_headers?: JsonNullableFilter<"TrafficReplayHistory">
+    request_body?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    response_status?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    response_headers?: JsonNullableFilter<"TrafficReplayHistory">
+    response_body?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    duration_ms?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    status?: StringFilter<"TrafficReplayHistory"> | string
+    error_message?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    replayed_at?: DateTimeFilter<"TrafficReplayHistory"> | Date | string
+    replayed_by?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    modified_method?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    modified_url?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    modified_headers?: JsonNullableFilter<"TrafficReplayHistory">
+    modified_body?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    modification_summary?: JsonNullableFilter<"TrafficReplayHistory">
+    replay_request_headers?: JsonNullableFilter<"TrafficReplayHistory">
+    replay_request_body?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    replay_response_status?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    replay_duration_ms?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    replay_response_headers?: JsonNullableFilter<"TrafficReplayHistory">
+    replay_response_body?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    replay_response_size?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    diff_summary?: JsonNullableFilter<"TrafficReplayHistory">
+    status_code_match?: BoolFilter<"TrafficReplayHistory"> | boolean
+    response_body_match?: BoolFilter<"TrafficReplayHistory"> | boolean
+    duration_diff_ms?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    body_size_diff?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    success?: BoolFilter<"TrafficReplayHistory"> | boolean
+    template_id?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+  }
+
+  export type TrafficReplayHistoryOrderByWithRelationInput = {
+    id?: SortOrder
+    original_log_id?: SortOrder
+    replay_name?: SortOrderInput | SortOrder
+    target_url?: SortOrderInput | SortOrder
+    request_method?: SortOrderInput | SortOrder
+    request_headers?: SortOrderInput | SortOrder
+    request_body?: SortOrderInput | SortOrder
+    response_status?: SortOrderInput | SortOrder
+    response_headers?: SortOrderInput | SortOrder
+    response_body?: SortOrderInput | SortOrder
+    duration_ms?: SortOrderInput | SortOrder
+    status?: SortOrder
+    error_message?: SortOrderInput | SortOrder
+    replayed_at?: SortOrder
+    replayed_by?: SortOrderInput | SortOrder
+    modified_method?: SortOrderInput | SortOrder
+    modified_url?: SortOrderInput | SortOrder
+    modified_headers?: SortOrderInput | SortOrder
+    modified_body?: SortOrderInput | SortOrder
+    modification_summary?: SortOrderInput | SortOrder
+    replay_request_headers?: SortOrderInput | SortOrder
+    replay_request_body?: SortOrderInput | SortOrder
+    replay_response_status?: SortOrderInput | SortOrder
+    replay_duration_ms?: SortOrderInput | SortOrder
+    replay_response_headers?: SortOrderInput | SortOrder
+    replay_response_body?: SortOrderInput | SortOrder
+    replay_response_size?: SortOrderInput | SortOrder
+    diff_summary?: SortOrderInput | SortOrder
+    status_code_match?: SortOrder
+    response_body_match?: SortOrder
+    duration_diff_ms?: SortOrderInput | SortOrder
+    body_size_diff?: SortOrderInput | SortOrder
+    success?: SortOrder
+    template_id?: SortOrderInput | SortOrder
+  }
+
+  export type TrafficReplayHistoryWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: TrafficReplayHistoryWhereInput | TrafficReplayHistoryWhereInput[]
+    OR?: TrafficReplayHistoryWhereInput[]
+    NOT?: TrafficReplayHistoryWhereInput | TrafficReplayHistoryWhereInput[]
+    original_log_id?: BigIntFilter<"TrafficReplayHistory"> | bigint | number
+    replay_name?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    target_url?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    request_method?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    request_headers?: JsonNullableFilter<"TrafficReplayHistory">
+    request_body?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    response_status?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    response_headers?: JsonNullableFilter<"TrafficReplayHistory">
+    response_body?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    duration_ms?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    status?: StringFilter<"TrafficReplayHistory"> | string
+    error_message?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    replayed_at?: DateTimeFilter<"TrafficReplayHistory"> | Date | string
+    replayed_by?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    modified_method?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    modified_url?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    modified_headers?: JsonNullableFilter<"TrafficReplayHistory">
+    modified_body?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    modification_summary?: JsonNullableFilter<"TrafficReplayHistory">
+    replay_request_headers?: JsonNullableFilter<"TrafficReplayHistory">
+    replay_request_body?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    replay_response_status?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    replay_duration_ms?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    replay_response_headers?: JsonNullableFilter<"TrafficReplayHistory">
+    replay_response_body?: StringNullableFilter<"TrafficReplayHistory"> | string | null
+    replay_response_size?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    diff_summary?: JsonNullableFilter<"TrafficReplayHistory">
+    status_code_match?: BoolFilter<"TrafficReplayHistory"> | boolean
+    response_body_match?: BoolFilter<"TrafficReplayHistory"> | boolean
+    duration_diff_ms?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    body_size_diff?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+    success?: BoolFilter<"TrafficReplayHistory"> | boolean
+    template_id?: IntNullableFilter<"TrafficReplayHistory"> | number | null
+  }, "id">
+
+  export type TrafficReplayHistoryOrderByWithAggregationInput = {
+    id?: SortOrder
+    original_log_id?: SortOrder
+    replay_name?: SortOrderInput | SortOrder
+    target_url?: SortOrderInput | SortOrder
+    request_method?: SortOrderInput | SortOrder
+    request_headers?: SortOrderInput | SortOrder
+    request_body?: SortOrderInput | SortOrder
+    response_status?: SortOrderInput | SortOrder
+    response_headers?: SortOrderInput | SortOrder
+    response_body?: SortOrderInput | SortOrder
+    duration_ms?: SortOrderInput | SortOrder
+    status?: SortOrder
+    error_message?: SortOrderInput | SortOrder
+    replayed_at?: SortOrder
+    replayed_by?: SortOrderInput | SortOrder
+    modified_method?: SortOrderInput | SortOrder
+    modified_url?: SortOrderInput | SortOrder
+    modified_headers?: SortOrderInput | SortOrder
+    modified_body?: SortOrderInput | SortOrder
+    modification_summary?: SortOrderInput | SortOrder
+    replay_request_headers?: SortOrderInput | SortOrder
+    replay_request_body?: SortOrderInput | SortOrder
+    replay_response_status?: SortOrderInput | SortOrder
+    replay_duration_ms?: SortOrderInput | SortOrder
+    replay_response_headers?: SortOrderInput | SortOrder
+    replay_response_body?: SortOrderInput | SortOrder
+    replay_response_size?: SortOrderInput | SortOrder
+    diff_summary?: SortOrderInput | SortOrder
+    status_code_match?: SortOrder
+    response_body_match?: SortOrder
+    duration_diff_ms?: SortOrderInput | SortOrder
+    body_size_diff?: SortOrderInput | SortOrder
+    success?: SortOrder
+    template_id?: SortOrderInput | SortOrder
+    _count?: TrafficReplayHistoryCountOrderByAggregateInput
+    _avg?: TrafficReplayHistoryAvgOrderByAggregateInput
+    _max?: TrafficReplayHistoryMaxOrderByAggregateInput
+    _min?: TrafficReplayHistoryMinOrderByAggregateInput
+    _sum?: TrafficReplayHistorySumOrderByAggregateInput
+  }
+
+  export type TrafficReplayHistoryScalarWhereWithAggregatesInput = {
+    AND?: TrafficReplayHistoryScalarWhereWithAggregatesInput | TrafficReplayHistoryScalarWhereWithAggregatesInput[]
+    OR?: TrafficReplayHistoryScalarWhereWithAggregatesInput[]
+    NOT?: TrafficReplayHistoryScalarWhereWithAggregatesInput | TrafficReplayHistoryScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"TrafficReplayHistory"> | bigint | number
+    original_log_id?: BigIntWithAggregatesFilter<"TrafficReplayHistory"> | bigint | number
+    replay_name?: StringNullableWithAggregatesFilter<"TrafficReplayHistory"> | string | null
+    target_url?: StringNullableWithAggregatesFilter<"TrafficReplayHistory"> | string | null
+    request_method?: StringNullableWithAggregatesFilter<"TrafficReplayHistory"> | string | null
+    request_headers?: JsonNullableWithAggregatesFilter<"TrafficReplayHistory">
+    request_body?: StringNullableWithAggregatesFilter<"TrafficReplayHistory"> | string | null
+    response_status?: IntNullableWithAggregatesFilter<"TrafficReplayHistory"> | number | null
+    response_headers?: JsonNullableWithAggregatesFilter<"TrafficReplayHistory">
+    response_body?: StringNullableWithAggregatesFilter<"TrafficReplayHistory"> | string | null
+    duration_ms?: IntNullableWithAggregatesFilter<"TrafficReplayHistory"> | number | null
+    status?: StringWithAggregatesFilter<"TrafficReplayHistory"> | string
+    error_message?: StringNullableWithAggregatesFilter<"TrafficReplayHistory"> | string | null
+    replayed_at?: DateTimeWithAggregatesFilter<"TrafficReplayHistory"> | Date | string
+    replayed_by?: StringNullableWithAggregatesFilter<"TrafficReplayHistory"> | string | null
+    modified_method?: StringNullableWithAggregatesFilter<"TrafficReplayHistory"> | string | null
+    modified_url?: StringNullableWithAggregatesFilter<"TrafficReplayHistory"> | string | null
+    modified_headers?: JsonNullableWithAggregatesFilter<"TrafficReplayHistory">
+    modified_body?: StringNullableWithAggregatesFilter<"TrafficReplayHistory"> | string | null
+    modification_summary?: JsonNullableWithAggregatesFilter<"TrafficReplayHistory">
+    replay_request_headers?: JsonNullableWithAggregatesFilter<"TrafficReplayHistory">
+    replay_request_body?: StringNullableWithAggregatesFilter<"TrafficReplayHistory"> | string | null
+    replay_response_status?: IntNullableWithAggregatesFilter<"TrafficReplayHistory"> | number | null
+    replay_duration_ms?: IntNullableWithAggregatesFilter<"TrafficReplayHistory"> | number | null
+    replay_response_headers?: JsonNullableWithAggregatesFilter<"TrafficReplayHistory">
+    replay_response_body?: StringNullableWithAggregatesFilter<"TrafficReplayHistory"> | string | null
+    replay_response_size?: IntNullableWithAggregatesFilter<"TrafficReplayHistory"> | number | null
+    diff_summary?: JsonNullableWithAggregatesFilter<"TrafficReplayHistory">
+    status_code_match?: BoolWithAggregatesFilter<"TrafficReplayHistory"> | boolean
+    response_body_match?: BoolWithAggregatesFilter<"TrafficReplayHistory"> | boolean
+    duration_diff_ms?: IntNullableWithAggregatesFilter<"TrafficReplayHistory"> | number | null
+    body_size_diff?: IntNullableWithAggregatesFilter<"TrafficReplayHistory"> | number | null
+    success?: BoolWithAggregatesFilter<"TrafficReplayHistory"> | boolean
+    template_id?: IntNullableWithAggregatesFilter<"TrafficReplayHistory"> | number | null
   }
 
   export type GroupChatSettingCreateInput = {
@@ -5489,6 +9015,531 @@ export namespace Prisma {
     inbound_context?: JsonNullValueInput | InputJsonValue
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type HttpTrafficLogCreateInput = {
+    id?: bigint | number
+    request_id?: string | null
+    trace_id?: string | null
+    conversation_id?: bigint | number | null
+    user_id?: string | null
+    session_id?: string | null
+    agent_turn?: number | null
+    llm_call_id?: string | null
+    tool_call_id?: string | null
+    container_name?: string | null
+    service_name?: string | null
+    method: string
+    url: string
+    host: string
+    path: string
+    query_params?: NullableJsonNullValueInput | InputJsonValue
+    request_headers: JsonNullValueInput | InputJsonValue
+    request_body?: string | null
+    request_content_type?: string | null
+    request_size?: number | null
+    response_status?: number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: string | null
+    response_content_type?: string | null
+    response_size?: number | null
+    duration_ms?: bigint | number | null
+    request_timestamp: Date | string
+    response_timestamp?: Date | string | null
+    is_ai_request?: boolean
+    api_type?: string | null
+    api_version?: string | null
+    client_ip?: string | null
+    user_agent?: string | null
+    error_message?: string | null
+    created_at?: Date | string
+  }
+
+  export type HttpTrafficLogUncheckedCreateInput = {
+    id?: bigint | number
+    request_id?: string | null
+    trace_id?: string | null
+    conversation_id?: bigint | number | null
+    user_id?: string | null
+    session_id?: string | null
+    agent_turn?: number | null
+    llm_call_id?: string | null
+    tool_call_id?: string | null
+    container_name?: string | null
+    service_name?: string | null
+    method: string
+    url: string
+    host: string
+    path: string
+    query_params?: NullableJsonNullValueInput | InputJsonValue
+    request_headers: JsonNullValueInput | InputJsonValue
+    request_body?: string | null
+    request_content_type?: string | null
+    request_size?: number | null
+    response_status?: number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: string | null
+    response_content_type?: string | null
+    response_size?: number | null
+    duration_ms?: bigint | number | null
+    request_timestamp: Date | string
+    response_timestamp?: Date | string | null
+    is_ai_request?: boolean
+    api_type?: string | null
+    api_version?: string | null
+    client_ip?: string | null
+    user_agent?: string | null
+    error_message?: string | null
+    created_at?: Date | string
+  }
+
+  export type HttpTrafficLogUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    request_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    user_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_id?: NullableStringFieldUpdateOperationsInput | string | null
+    agent_turn?: NullableIntFieldUpdateOperationsInput | number | null
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    tool_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    container_name?: NullableStringFieldUpdateOperationsInput | string | null
+    service_name?: NullableStringFieldUpdateOperationsInput | string | null
+    method?: StringFieldUpdateOperationsInput | string
+    url?: StringFieldUpdateOperationsInput | string
+    host?: StringFieldUpdateOperationsInput | string
+    path?: StringFieldUpdateOperationsInput | string
+    query_params?: NullableJsonNullValueInput | InputJsonValue
+    request_headers?: JsonNullValueInput | InputJsonValue
+    request_body?: NullableStringFieldUpdateOperationsInput | string | null
+    request_content_type?: NullableStringFieldUpdateOperationsInput | string | null
+    request_size?: NullableIntFieldUpdateOperationsInput | number | null
+    response_status?: NullableIntFieldUpdateOperationsInput | number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: NullableStringFieldUpdateOperationsInput | string | null
+    response_content_type?: NullableStringFieldUpdateOperationsInput | string | null
+    response_size?: NullableIntFieldUpdateOperationsInput | number | null
+    duration_ms?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    request_timestamp?: DateTimeFieldUpdateOperationsInput | Date | string
+    response_timestamp?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    is_ai_request?: BoolFieldUpdateOperationsInput | boolean
+    api_type?: NullableStringFieldUpdateOperationsInput | string | null
+    api_version?: NullableStringFieldUpdateOperationsInput | string | null
+    client_ip?: NullableStringFieldUpdateOperationsInput | string | null
+    user_agent?: NullableStringFieldUpdateOperationsInput | string | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type HttpTrafficLogUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    request_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    user_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_id?: NullableStringFieldUpdateOperationsInput | string | null
+    agent_turn?: NullableIntFieldUpdateOperationsInput | number | null
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    tool_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    container_name?: NullableStringFieldUpdateOperationsInput | string | null
+    service_name?: NullableStringFieldUpdateOperationsInput | string | null
+    method?: StringFieldUpdateOperationsInput | string
+    url?: StringFieldUpdateOperationsInput | string
+    host?: StringFieldUpdateOperationsInput | string
+    path?: StringFieldUpdateOperationsInput | string
+    query_params?: NullableJsonNullValueInput | InputJsonValue
+    request_headers?: JsonNullValueInput | InputJsonValue
+    request_body?: NullableStringFieldUpdateOperationsInput | string | null
+    request_content_type?: NullableStringFieldUpdateOperationsInput | string | null
+    request_size?: NullableIntFieldUpdateOperationsInput | number | null
+    response_status?: NullableIntFieldUpdateOperationsInput | number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: NullableStringFieldUpdateOperationsInput | string | null
+    response_content_type?: NullableStringFieldUpdateOperationsInput | string | null
+    response_size?: NullableIntFieldUpdateOperationsInput | number | null
+    duration_ms?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    request_timestamp?: DateTimeFieldUpdateOperationsInput | Date | string
+    response_timestamp?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    is_ai_request?: BoolFieldUpdateOperationsInput | boolean
+    api_type?: NullableStringFieldUpdateOperationsInput | string | null
+    api_version?: NullableStringFieldUpdateOperationsInput | string | null
+    client_ip?: NullableStringFieldUpdateOperationsInput | string | null
+    user_agent?: NullableStringFieldUpdateOperationsInput | string | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type HttpTrafficLogCreateManyInput = {
+    id?: bigint | number
+    request_id?: string | null
+    trace_id?: string | null
+    conversation_id?: bigint | number | null
+    user_id?: string | null
+    session_id?: string | null
+    agent_turn?: number | null
+    llm_call_id?: string | null
+    tool_call_id?: string | null
+    container_name?: string | null
+    service_name?: string | null
+    method: string
+    url: string
+    host: string
+    path: string
+    query_params?: NullableJsonNullValueInput | InputJsonValue
+    request_headers: JsonNullValueInput | InputJsonValue
+    request_body?: string | null
+    request_content_type?: string | null
+    request_size?: number | null
+    response_status?: number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: string | null
+    response_content_type?: string | null
+    response_size?: number | null
+    duration_ms?: bigint | number | null
+    request_timestamp: Date | string
+    response_timestamp?: Date | string | null
+    is_ai_request?: boolean
+    api_type?: string | null
+    api_version?: string | null
+    client_ip?: string | null
+    user_agent?: string | null
+    error_message?: string | null
+    created_at?: Date | string
+  }
+
+  export type HttpTrafficLogUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    request_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    user_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_id?: NullableStringFieldUpdateOperationsInput | string | null
+    agent_turn?: NullableIntFieldUpdateOperationsInput | number | null
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    tool_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    container_name?: NullableStringFieldUpdateOperationsInput | string | null
+    service_name?: NullableStringFieldUpdateOperationsInput | string | null
+    method?: StringFieldUpdateOperationsInput | string
+    url?: StringFieldUpdateOperationsInput | string
+    host?: StringFieldUpdateOperationsInput | string
+    path?: StringFieldUpdateOperationsInput | string
+    query_params?: NullableJsonNullValueInput | InputJsonValue
+    request_headers?: JsonNullValueInput | InputJsonValue
+    request_body?: NullableStringFieldUpdateOperationsInput | string | null
+    request_content_type?: NullableStringFieldUpdateOperationsInput | string | null
+    request_size?: NullableIntFieldUpdateOperationsInput | number | null
+    response_status?: NullableIntFieldUpdateOperationsInput | number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: NullableStringFieldUpdateOperationsInput | string | null
+    response_content_type?: NullableStringFieldUpdateOperationsInput | string | null
+    response_size?: NullableIntFieldUpdateOperationsInput | number | null
+    duration_ms?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    request_timestamp?: DateTimeFieldUpdateOperationsInput | Date | string
+    response_timestamp?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    is_ai_request?: BoolFieldUpdateOperationsInput | boolean
+    api_type?: NullableStringFieldUpdateOperationsInput | string | null
+    api_version?: NullableStringFieldUpdateOperationsInput | string | null
+    client_ip?: NullableStringFieldUpdateOperationsInput | string | null
+    user_agent?: NullableStringFieldUpdateOperationsInput | string | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type HttpTrafficLogUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    request_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    user_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_id?: NullableStringFieldUpdateOperationsInput | string | null
+    agent_turn?: NullableIntFieldUpdateOperationsInput | number | null
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    tool_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    container_name?: NullableStringFieldUpdateOperationsInput | string | null
+    service_name?: NullableStringFieldUpdateOperationsInput | string | null
+    method?: StringFieldUpdateOperationsInput | string
+    url?: StringFieldUpdateOperationsInput | string
+    host?: StringFieldUpdateOperationsInput | string
+    path?: StringFieldUpdateOperationsInput | string
+    query_params?: NullableJsonNullValueInput | InputJsonValue
+    request_headers?: JsonNullValueInput | InputJsonValue
+    request_body?: NullableStringFieldUpdateOperationsInput | string | null
+    request_content_type?: NullableStringFieldUpdateOperationsInput | string | null
+    request_size?: NullableIntFieldUpdateOperationsInput | number | null
+    response_status?: NullableIntFieldUpdateOperationsInput | number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: NullableStringFieldUpdateOperationsInput | string | null
+    response_content_type?: NullableStringFieldUpdateOperationsInput | string | null
+    response_size?: NullableIntFieldUpdateOperationsInput | number | null
+    duration_ms?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    request_timestamp?: DateTimeFieldUpdateOperationsInput | Date | string
+    response_timestamp?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    is_ai_request?: BoolFieldUpdateOperationsInput | boolean
+    api_type?: NullableStringFieldUpdateOperationsInput | string | null
+    api_version?: NullableStringFieldUpdateOperationsInput | string | null
+    client_ip?: NullableStringFieldUpdateOperationsInput | string | null
+    user_agent?: NullableStringFieldUpdateOperationsInput | string | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TrafficReplayHistoryCreateInput = {
+    id?: bigint | number
+    original_log_id: bigint | number
+    replay_name?: string | null
+    target_url?: string | null
+    request_method?: string | null
+    request_headers?: NullableJsonNullValueInput | InputJsonValue
+    request_body?: string | null
+    response_status?: number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: string | null
+    duration_ms?: number | null
+    status?: string
+    error_message?: string | null
+    replayed_at?: Date | string
+    replayed_by?: string | null
+    modified_method?: string | null
+    modified_url?: string | null
+    modified_headers?: NullableJsonNullValueInput | InputJsonValue
+    modified_body?: string | null
+    modification_summary?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_body?: string | null
+    replay_response_status?: number | null
+    replay_duration_ms?: number | null
+    replay_response_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_response_body?: string | null
+    replay_response_size?: number | null
+    diff_summary?: NullableJsonNullValueInput | InputJsonValue
+    status_code_match?: boolean
+    response_body_match?: boolean
+    duration_diff_ms?: number | null
+    body_size_diff?: number | null
+    success?: boolean
+    template_id?: number | null
+  }
+
+  export type TrafficReplayHistoryUncheckedCreateInput = {
+    id?: bigint | number
+    original_log_id: bigint | number
+    replay_name?: string | null
+    target_url?: string | null
+    request_method?: string | null
+    request_headers?: NullableJsonNullValueInput | InputJsonValue
+    request_body?: string | null
+    response_status?: number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: string | null
+    duration_ms?: number | null
+    status?: string
+    error_message?: string | null
+    replayed_at?: Date | string
+    replayed_by?: string | null
+    modified_method?: string | null
+    modified_url?: string | null
+    modified_headers?: NullableJsonNullValueInput | InputJsonValue
+    modified_body?: string | null
+    modification_summary?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_body?: string | null
+    replay_response_status?: number | null
+    replay_duration_ms?: number | null
+    replay_response_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_response_body?: string | null
+    replay_response_size?: number | null
+    diff_summary?: NullableJsonNullValueInput | InputJsonValue
+    status_code_match?: boolean
+    response_body_match?: boolean
+    duration_diff_ms?: number | null
+    body_size_diff?: number | null
+    success?: boolean
+    template_id?: number | null
+  }
+
+  export type TrafficReplayHistoryUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    original_log_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    replay_name?: NullableStringFieldUpdateOperationsInput | string | null
+    target_url?: NullableStringFieldUpdateOperationsInput | string | null
+    request_method?: NullableStringFieldUpdateOperationsInput | string | null
+    request_headers?: NullableJsonNullValueInput | InputJsonValue
+    request_body?: NullableStringFieldUpdateOperationsInput | string | null
+    response_status?: NullableIntFieldUpdateOperationsInput | number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: NullableStringFieldUpdateOperationsInput | string | null
+    duration_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    status?: StringFieldUpdateOperationsInput | string
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    replayed_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    replayed_by?: NullableStringFieldUpdateOperationsInput | string | null
+    modified_method?: NullableStringFieldUpdateOperationsInput | string | null
+    modified_url?: NullableStringFieldUpdateOperationsInput | string | null
+    modified_headers?: NullableJsonNullValueInput | InputJsonValue
+    modified_body?: NullableStringFieldUpdateOperationsInput | string | null
+    modification_summary?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_body?: NullableStringFieldUpdateOperationsInput | string | null
+    replay_response_status?: NullableIntFieldUpdateOperationsInput | number | null
+    replay_duration_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    replay_response_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_response_body?: NullableStringFieldUpdateOperationsInput | string | null
+    replay_response_size?: NullableIntFieldUpdateOperationsInput | number | null
+    diff_summary?: NullableJsonNullValueInput | InputJsonValue
+    status_code_match?: BoolFieldUpdateOperationsInput | boolean
+    response_body_match?: BoolFieldUpdateOperationsInput | boolean
+    duration_diff_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    body_size_diff?: NullableIntFieldUpdateOperationsInput | number | null
+    success?: BoolFieldUpdateOperationsInput | boolean
+    template_id?: NullableIntFieldUpdateOperationsInput | number | null
+  }
+
+  export type TrafficReplayHistoryUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    original_log_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    replay_name?: NullableStringFieldUpdateOperationsInput | string | null
+    target_url?: NullableStringFieldUpdateOperationsInput | string | null
+    request_method?: NullableStringFieldUpdateOperationsInput | string | null
+    request_headers?: NullableJsonNullValueInput | InputJsonValue
+    request_body?: NullableStringFieldUpdateOperationsInput | string | null
+    response_status?: NullableIntFieldUpdateOperationsInput | number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: NullableStringFieldUpdateOperationsInput | string | null
+    duration_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    status?: StringFieldUpdateOperationsInput | string
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    replayed_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    replayed_by?: NullableStringFieldUpdateOperationsInput | string | null
+    modified_method?: NullableStringFieldUpdateOperationsInput | string | null
+    modified_url?: NullableStringFieldUpdateOperationsInput | string | null
+    modified_headers?: NullableJsonNullValueInput | InputJsonValue
+    modified_body?: NullableStringFieldUpdateOperationsInput | string | null
+    modification_summary?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_body?: NullableStringFieldUpdateOperationsInput | string | null
+    replay_response_status?: NullableIntFieldUpdateOperationsInput | number | null
+    replay_duration_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    replay_response_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_response_body?: NullableStringFieldUpdateOperationsInput | string | null
+    replay_response_size?: NullableIntFieldUpdateOperationsInput | number | null
+    diff_summary?: NullableJsonNullValueInput | InputJsonValue
+    status_code_match?: BoolFieldUpdateOperationsInput | boolean
+    response_body_match?: BoolFieldUpdateOperationsInput | boolean
+    duration_diff_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    body_size_diff?: NullableIntFieldUpdateOperationsInput | number | null
+    success?: BoolFieldUpdateOperationsInput | boolean
+    template_id?: NullableIntFieldUpdateOperationsInput | number | null
+  }
+
+  export type TrafficReplayHistoryCreateManyInput = {
+    id?: bigint | number
+    original_log_id: bigint | number
+    replay_name?: string | null
+    target_url?: string | null
+    request_method?: string | null
+    request_headers?: NullableJsonNullValueInput | InputJsonValue
+    request_body?: string | null
+    response_status?: number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: string | null
+    duration_ms?: number | null
+    status?: string
+    error_message?: string | null
+    replayed_at?: Date | string
+    replayed_by?: string | null
+    modified_method?: string | null
+    modified_url?: string | null
+    modified_headers?: NullableJsonNullValueInput | InputJsonValue
+    modified_body?: string | null
+    modification_summary?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_body?: string | null
+    replay_response_status?: number | null
+    replay_duration_ms?: number | null
+    replay_response_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_response_body?: string | null
+    replay_response_size?: number | null
+    diff_summary?: NullableJsonNullValueInput | InputJsonValue
+    status_code_match?: boolean
+    response_body_match?: boolean
+    duration_diff_ms?: number | null
+    body_size_diff?: number | null
+    success?: boolean
+    template_id?: number | null
+  }
+
+  export type TrafficReplayHistoryUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    original_log_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    replay_name?: NullableStringFieldUpdateOperationsInput | string | null
+    target_url?: NullableStringFieldUpdateOperationsInput | string | null
+    request_method?: NullableStringFieldUpdateOperationsInput | string | null
+    request_headers?: NullableJsonNullValueInput | InputJsonValue
+    request_body?: NullableStringFieldUpdateOperationsInput | string | null
+    response_status?: NullableIntFieldUpdateOperationsInput | number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: NullableStringFieldUpdateOperationsInput | string | null
+    duration_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    status?: StringFieldUpdateOperationsInput | string
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    replayed_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    replayed_by?: NullableStringFieldUpdateOperationsInput | string | null
+    modified_method?: NullableStringFieldUpdateOperationsInput | string | null
+    modified_url?: NullableStringFieldUpdateOperationsInput | string | null
+    modified_headers?: NullableJsonNullValueInput | InputJsonValue
+    modified_body?: NullableStringFieldUpdateOperationsInput | string | null
+    modification_summary?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_body?: NullableStringFieldUpdateOperationsInput | string | null
+    replay_response_status?: NullableIntFieldUpdateOperationsInput | number | null
+    replay_duration_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    replay_response_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_response_body?: NullableStringFieldUpdateOperationsInput | string | null
+    replay_response_size?: NullableIntFieldUpdateOperationsInput | number | null
+    diff_summary?: NullableJsonNullValueInput | InputJsonValue
+    status_code_match?: BoolFieldUpdateOperationsInput | boolean
+    response_body_match?: BoolFieldUpdateOperationsInput | boolean
+    duration_diff_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    body_size_diff?: NullableIntFieldUpdateOperationsInput | number | null
+    success?: BoolFieldUpdateOperationsInput | boolean
+    template_id?: NullableIntFieldUpdateOperationsInput | number | null
+  }
+
+  export type TrafficReplayHistoryUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    original_log_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    replay_name?: NullableStringFieldUpdateOperationsInput | string | null
+    target_url?: NullableStringFieldUpdateOperationsInput | string | null
+    request_method?: NullableStringFieldUpdateOperationsInput | string | null
+    request_headers?: NullableJsonNullValueInput | InputJsonValue
+    request_body?: NullableStringFieldUpdateOperationsInput | string | null
+    response_status?: NullableIntFieldUpdateOperationsInput | number | null
+    response_headers?: NullableJsonNullValueInput | InputJsonValue
+    response_body?: NullableStringFieldUpdateOperationsInput | string | null
+    duration_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    status?: StringFieldUpdateOperationsInput | string
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    replayed_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    replayed_by?: NullableStringFieldUpdateOperationsInput | string | null
+    modified_method?: NullableStringFieldUpdateOperationsInput | string | null
+    modified_url?: NullableStringFieldUpdateOperationsInput | string | null
+    modified_headers?: NullableJsonNullValueInput | InputJsonValue
+    modified_body?: NullableStringFieldUpdateOperationsInput | string | null
+    modification_summary?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_request_body?: NullableStringFieldUpdateOperationsInput | string | null
+    replay_response_status?: NullableIntFieldUpdateOperationsInput | number | null
+    replay_duration_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    replay_response_headers?: NullableJsonNullValueInput | InputJsonValue
+    replay_response_body?: NullableStringFieldUpdateOperationsInput | string | null
+    replay_response_size?: NullableIntFieldUpdateOperationsInput | number | null
+    diff_summary?: NullableJsonNullValueInput | InputJsonValue
+    status_code_match?: BoolFieldUpdateOperationsInput | boolean
+    response_body_match?: BoolFieldUpdateOperationsInput | boolean
+    duration_diff_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    body_size_diff?: NullableIntFieldUpdateOperationsInput | number | null
+    success?: BoolFieldUpdateOperationsInput | boolean
+    template_id?: NullableIntFieldUpdateOperationsInput | number | null
   }
 
   export type BigIntFilter<$PrismaModel = never> = {
@@ -5944,6 +9995,346 @@ export namespace Prisma {
     _max?: NestedJsonFilter<$PrismaModel>
   }
 
+  export type IntNullableFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntNullableFilter<$PrismaModel> | number | null
+  }
+  export type JsonNullableFilter<$PrismaModel = never> =
+    | PatchUndefined<
+        Either<Required<JsonNullableFilterBase<$PrismaModel>>, Exclude<keyof Required<JsonNullableFilterBase<$PrismaModel>>, 'path'>>,
+        Required<JsonNullableFilterBase<$PrismaModel>>
+      >
+    | OptionalFlat<Omit<Required<JsonNullableFilterBase<$PrismaModel>>, 'path'>>
+
+  export type JsonNullableFilterBase<$PrismaModel = never> = {
+    equals?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+    path?: string[]
+    mode?: QueryMode | EnumQueryModeFieldRefInput<$PrismaModel>
+    string_contains?: string | StringFieldRefInput<$PrismaModel>
+    string_starts_with?: string | StringFieldRefInput<$PrismaModel>
+    string_ends_with?: string | StringFieldRefInput<$PrismaModel>
+    array_starts_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_ends_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_contains?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    lt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    lte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+  }
+
+  export type BoolFilter<$PrismaModel = never> = {
+    equals?: boolean | BooleanFieldRefInput<$PrismaModel>
+    not?: NestedBoolFilter<$PrismaModel> | boolean
+  }
+
+  export type HttpTrafficLogCountOrderByAggregateInput = {
+    id?: SortOrder
+    request_id?: SortOrder
+    trace_id?: SortOrder
+    conversation_id?: SortOrder
+    user_id?: SortOrder
+    session_id?: SortOrder
+    agent_turn?: SortOrder
+    llm_call_id?: SortOrder
+    tool_call_id?: SortOrder
+    container_name?: SortOrder
+    service_name?: SortOrder
+    method?: SortOrder
+    url?: SortOrder
+    host?: SortOrder
+    path?: SortOrder
+    query_params?: SortOrder
+    request_headers?: SortOrder
+    request_body?: SortOrder
+    request_content_type?: SortOrder
+    request_size?: SortOrder
+    response_status?: SortOrder
+    response_headers?: SortOrder
+    response_body?: SortOrder
+    response_content_type?: SortOrder
+    response_size?: SortOrder
+    duration_ms?: SortOrder
+    request_timestamp?: SortOrder
+    response_timestamp?: SortOrder
+    is_ai_request?: SortOrder
+    api_type?: SortOrder
+    api_version?: SortOrder
+    client_ip?: SortOrder
+    user_agent?: SortOrder
+    error_message?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type HttpTrafficLogAvgOrderByAggregateInput = {
+    id?: SortOrder
+    conversation_id?: SortOrder
+    agent_turn?: SortOrder
+    request_size?: SortOrder
+    response_status?: SortOrder
+    response_size?: SortOrder
+    duration_ms?: SortOrder
+  }
+
+  export type HttpTrafficLogMaxOrderByAggregateInput = {
+    id?: SortOrder
+    request_id?: SortOrder
+    trace_id?: SortOrder
+    conversation_id?: SortOrder
+    user_id?: SortOrder
+    session_id?: SortOrder
+    agent_turn?: SortOrder
+    llm_call_id?: SortOrder
+    tool_call_id?: SortOrder
+    container_name?: SortOrder
+    service_name?: SortOrder
+    method?: SortOrder
+    url?: SortOrder
+    host?: SortOrder
+    path?: SortOrder
+    request_body?: SortOrder
+    request_content_type?: SortOrder
+    request_size?: SortOrder
+    response_status?: SortOrder
+    response_body?: SortOrder
+    response_content_type?: SortOrder
+    response_size?: SortOrder
+    duration_ms?: SortOrder
+    request_timestamp?: SortOrder
+    response_timestamp?: SortOrder
+    is_ai_request?: SortOrder
+    api_type?: SortOrder
+    api_version?: SortOrder
+    client_ip?: SortOrder
+    user_agent?: SortOrder
+    error_message?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type HttpTrafficLogMinOrderByAggregateInput = {
+    id?: SortOrder
+    request_id?: SortOrder
+    trace_id?: SortOrder
+    conversation_id?: SortOrder
+    user_id?: SortOrder
+    session_id?: SortOrder
+    agent_turn?: SortOrder
+    llm_call_id?: SortOrder
+    tool_call_id?: SortOrder
+    container_name?: SortOrder
+    service_name?: SortOrder
+    method?: SortOrder
+    url?: SortOrder
+    host?: SortOrder
+    path?: SortOrder
+    request_body?: SortOrder
+    request_content_type?: SortOrder
+    request_size?: SortOrder
+    response_status?: SortOrder
+    response_body?: SortOrder
+    response_content_type?: SortOrder
+    response_size?: SortOrder
+    duration_ms?: SortOrder
+    request_timestamp?: SortOrder
+    response_timestamp?: SortOrder
+    is_ai_request?: SortOrder
+    api_type?: SortOrder
+    api_version?: SortOrder
+    client_ip?: SortOrder
+    user_agent?: SortOrder
+    error_message?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type HttpTrafficLogSumOrderByAggregateInput = {
+    id?: SortOrder
+    conversation_id?: SortOrder
+    agent_turn?: SortOrder
+    request_size?: SortOrder
+    response_status?: SortOrder
+    response_size?: SortOrder
+    duration_ms?: SortOrder
+  }
+
+  export type IntNullableWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntNullableWithAggregatesFilter<$PrismaModel> | number | null
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _avg?: NestedFloatNullableFilter<$PrismaModel>
+    _sum?: NestedIntNullableFilter<$PrismaModel>
+    _min?: NestedIntNullableFilter<$PrismaModel>
+    _max?: NestedIntNullableFilter<$PrismaModel>
+  }
+  export type JsonNullableWithAggregatesFilter<$PrismaModel = never> =
+    | PatchUndefined<
+        Either<Required<JsonNullableWithAggregatesFilterBase<$PrismaModel>>, Exclude<keyof Required<JsonNullableWithAggregatesFilterBase<$PrismaModel>>, 'path'>>,
+        Required<JsonNullableWithAggregatesFilterBase<$PrismaModel>>
+      >
+    | OptionalFlat<Omit<Required<JsonNullableWithAggregatesFilterBase<$PrismaModel>>, 'path'>>
+
+  export type JsonNullableWithAggregatesFilterBase<$PrismaModel = never> = {
+    equals?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+    path?: string[]
+    mode?: QueryMode | EnumQueryModeFieldRefInput<$PrismaModel>
+    string_contains?: string | StringFieldRefInput<$PrismaModel>
+    string_starts_with?: string | StringFieldRefInput<$PrismaModel>
+    string_ends_with?: string | StringFieldRefInput<$PrismaModel>
+    array_starts_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_ends_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_contains?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    lt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    lte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _min?: NestedJsonNullableFilter<$PrismaModel>
+    _max?: NestedJsonNullableFilter<$PrismaModel>
+  }
+
+  export type BoolWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: boolean | BooleanFieldRefInput<$PrismaModel>
+    not?: NestedBoolWithAggregatesFilter<$PrismaModel> | boolean
+    _count?: NestedIntFilter<$PrismaModel>
+    _min?: NestedBoolFilter<$PrismaModel>
+    _max?: NestedBoolFilter<$PrismaModel>
+  }
+
+  export type TrafficReplayHistoryCountOrderByAggregateInput = {
+    id?: SortOrder
+    original_log_id?: SortOrder
+    replay_name?: SortOrder
+    target_url?: SortOrder
+    request_method?: SortOrder
+    request_headers?: SortOrder
+    request_body?: SortOrder
+    response_status?: SortOrder
+    response_headers?: SortOrder
+    response_body?: SortOrder
+    duration_ms?: SortOrder
+    status?: SortOrder
+    error_message?: SortOrder
+    replayed_at?: SortOrder
+    replayed_by?: SortOrder
+    modified_method?: SortOrder
+    modified_url?: SortOrder
+    modified_headers?: SortOrder
+    modified_body?: SortOrder
+    modification_summary?: SortOrder
+    replay_request_headers?: SortOrder
+    replay_request_body?: SortOrder
+    replay_response_status?: SortOrder
+    replay_duration_ms?: SortOrder
+    replay_response_headers?: SortOrder
+    replay_response_body?: SortOrder
+    replay_response_size?: SortOrder
+    diff_summary?: SortOrder
+    status_code_match?: SortOrder
+    response_body_match?: SortOrder
+    duration_diff_ms?: SortOrder
+    body_size_diff?: SortOrder
+    success?: SortOrder
+    template_id?: SortOrder
+  }
+
+  export type TrafficReplayHistoryAvgOrderByAggregateInput = {
+    id?: SortOrder
+    original_log_id?: SortOrder
+    response_status?: SortOrder
+    duration_ms?: SortOrder
+    replay_response_status?: SortOrder
+    replay_duration_ms?: SortOrder
+    replay_response_size?: SortOrder
+    duration_diff_ms?: SortOrder
+    body_size_diff?: SortOrder
+    template_id?: SortOrder
+  }
+
+  export type TrafficReplayHistoryMaxOrderByAggregateInput = {
+    id?: SortOrder
+    original_log_id?: SortOrder
+    replay_name?: SortOrder
+    target_url?: SortOrder
+    request_method?: SortOrder
+    request_body?: SortOrder
+    response_status?: SortOrder
+    response_body?: SortOrder
+    duration_ms?: SortOrder
+    status?: SortOrder
+    error_message?: SortOrder
+    replayed_at?: SortOrder
+    replayed_by?: SortOrder
+    modified_method?: SortOrder
+    modified_url?: SortOrder
+    modified_body?: SortOrder
+    replay_request_body?: SortOrder
+    replay_response_status?: SortOrder
+    replay_duration_ms?: SortOrder
+    replay_response_body?: SortOrder
+    replay_response_size?: SortOrder
+    status_code_match?: SortOrder
+    response_body_match?: SortOrder
+    duration_diff_ms?: SortOrder
+    body_size_diff?: SortOrder
+    success?: SortOrder
+    template_id?: SortOrder
+  }
+
+  export type TrafficReplayHistoryMinOrderByAggregateInput = {
+    id?: SortOrder
+    original_log_id?: SortOrder
+    replay_name?: SortOrder
+    target_url?: SortOrder
+    request_method?: SortOrder
+    request_body?: SortOrder
+    response_status?: SortOrder
+    response_body?: SortOrder
+    duration_ms?: SortOrder
+    status?: SortOrder
+    error_message?: SortOrder
+    replayed_at?: SortOrder
+    replayed_by?: SortOrder
+    modified_method?: SortOrder
+    modified_url?: SortOrder
+    modified_body?: SortOrder
+    replay_request_body?: SortOrder
+    replay_response_status?: SortOrder
+    replay_duration_ms?: SortOrder
+    replay_response_body?: SortOrder
+    replay_response_size?: SortOrder
+    status_code_match?: SortOrder
+    response_body_match?: SortOrder
+    duration_diff_ms?: SortOrder
+    body_size_diff?: SortOrder
+    success?: SortOrder
+    template_id?: SortOrder
+  }
+
+  export type TrafficReplayHistorySumOrderByAggregateInput = {
+    id?: SortOrder
+    original_log_id?: SortOrder
+    response_status?: SortOrder
+    duration_ms?: SortOrder
+    replay_response_status?: SortOrder
+    replay_duration_ms?: SortOrder
+    replay_response_size?: SortOrder
+    duration_diff_ms?: SortOrder
+    body_size_diff?: SortOrder
+    template_id?: SortOrder
+  }
+
   export type BigIntFieldUpdateOperationsInput = {
     set?: bigint | number
     increment?: bigint | number
@@ -5982,6 +10373,18 @@ export namespace Prisma {
 
   export type StringFieldUpdateOperationsInput = {
     set?: string
+  }
+
+  export type NullableIntFieldUpdateOperationsInput = {
+    set?: number | null
+    increment?: number
+    decrement?: number
+    multiply?: number
+    divide?: number
+  }
+
+  export type BoolFieldUpdateOperationsInput = {
+    set?: boolean
   }
 
   export type NestedBigIntFilter<$PrismaModel = never> = {
@@ -6231,6 +10634,58 @@ export namespace Prisma {
     gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
     gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
     not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+  }
+
+  export type NestedBoolFilter<$PrismaModel = never> = {
+    equals?: boolean | BooleanFieldRefInput<$PrismaModel>
+    not?: NestedBoolFilter<$PrismaModel> | boolean
+  }
+
+  export type NestedIntNullableWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntNullableWithAggregatesFilter<$PrismaModel> | number | null
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _avg?: NestedFloatNullableFilter<$PrismaModel>
+    _sum?: NestedIntNullableFilter<$PrismaModel>
+    _min?: NestedIntNullableFilter<$PrismaModel>
+    _max?: NestedIntNullableFilter<$PrismaModel>
+  }
+  export type NestedJsonNullableFilter<$PrismaModel = never> =
+    | PatchUndefined<
+        Either<Required<NestedJsonNullableFilterBase<$PrismaModel>>, Exclude<keyof Required<NestedJsonNullableFilterBase<$PrismaModel>>, 'path'>>,
+        Required<NestedJsonNullableFilterBase<$PrismaModel>>
+      >
+    | OptionalFlat<Omit<Required<NestedJsonNullableFilterBase<$PrismaModel>>, 'path'>>
+
+  export type NestedJsonNullableFilterBase<$PrismaModel = never> = {
+    equals?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+    path?: string[]
+    mode?: QueryMode | EnumQueryModeFieldRefInput<$PrismaModel>
+    string_contains?: string | StringFieldRefInput<$PrismaModel>
+    string_starts_with?: string | StringFieldRefInput<$PrismaModel>
+    string_ends_with?: string | StringFieldRefInput<$PrismaModel>
+    array_starts_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_ends_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_contains?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    lt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    lte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+  }
+
+  export type NestedBoolWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: boolean | BooleanFieldRefInput<$PrismaModel>
+    not?: NestedBoolWithAggregatesFilter<$PrismaModel> | boolean
+    _count?: NestedIntFilter<$PrismaModel>
+    _min?: NestedBoolFilter<$PrismaModel>
+    _max?: NestedBoolFilter<$PrismaModel>
   }
 
 

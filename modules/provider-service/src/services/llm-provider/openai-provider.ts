@@ -5,6 +5,7 @@ import {
   cloneValue,
   extractTextFromOpenAIResponse,
   geminiRequestToOpenResponseRequest,
+  normalizeUsageDetails,
   openResponseInputToOpenAIInput,
   toOpenResponseUsage
 } from './helpers';
@@ -93,9 +94,9 @@ export class OpenAIProvider implements LLMProvider {
 
     const text = extractTextFromOpenAIResponse(response);
     const processingTimeMs = Date.now() - callStartTime;
-    const usage = response?.usage || {};
-    const inputTokens = usage.input_tokens ?? 0;
-    const outputTokens = usage.output_tokens ?? Math.ceil(text.length / 4);
+    const normalizedUsage = normalizeUsageDetails(response?.usage, Math.ceil(text.length / 4));
+    const inputTokens = normalizedUsage.inputTokens;
+    const outputTokens = normalizedUsage.outputTokens;
 
     const canonicalResponse = {
       ...cloneValue(response),
@@ -106,7 +107,10 @@ export class OpenAIProvider implements LLMProvider {
       usage: toOpenResponseUsage({
         inputTokens,
         outputTokens,
-        totalTokens: usage.total_tokens
+        totalTokens: normalizedUsage.totalTokens,
+        cachedInputTokens: normalizedUsage.cachedInputTokens,
+        reasoningTokens: normalizedUsage.reasoningTokens,
+        rawUsage: normalizedUsage.rawUsage
       })
     };
 
@@ -125,7 +129,11 @@ export class OpenAIProvider implements LLMProvider {
       usage: {
         inputTokens,
         outputTokens,
-        processingTimeMs
+        totalTokens: normalizedUsage.totalTokens,
+        processingTimeMs,
+        cachedInputTokens: normalizedUsage.cachedInputTokens,
+        reasoningTokens: normalizedUsage.reasoningTokens,
+        rawUsage: normalizedUsage.rawUsage
       }
     };
   }
@@ -190,6 +198,13 @@ export class OpenAIProvider implements LLMProvider {
 
     if (request.metadata) {
       payload.metadata = request.metadata;
+    }
+
+    if (typeof request.prompt_cache_key === 'string' && request.prompt_cache_key.trim()) {
+      payload.prompt_cache_key = request.prompt_cache_key.trim();
+    }
+    if (typeof request.prompt_cache_retention === 'string' && request.prompt_cache_retention.trim()) {
+      payload.prompt_cache_retention = request.prompt_cache_retention.trim();
     }
 
     return payload;

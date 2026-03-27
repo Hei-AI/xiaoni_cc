@@ -32,6 +32,7 @@ import { SelectionBar } from '@/components/console/SelectionBar';
 import { ErrorState } from '@/components/console/ErrorState';
 import { EmptyState } from '@/components/console/EmptyState';
 import { StatusPill } from '@/components/console/StatusPill';
+import { getProviderLabel, resolvePromptProviderConfig } from '@/lib/provider-config';
 
 interface AgentPrompt {
   id: string;
@@ -41,6 +42,7 @@ interface AgentPrompt {
   user_prompt_template?: string | null;
   context_variables?: unknown;
   model_config?: unknown;
+  advanced_config?: unknown;
   model_name?: string;
   is_active: number;
   version: number;
@@ -377,11 +379,12 @@ export const PromptManagementPage: React.FC = () => {
                     </>
                   }
                   action={<Checkbox checked={selectedPrompts.includes(prompt.id)} onCheckedChange={() => handleSelectPrompt(prompt.id)} />}
-                  meta={
-                    <>
-                      <span>{prompt.model_name || '未指定模型'}</span>
-                      <span>{formatDate(prompt.created_at)}</span>
-                    </>
+                      meta={
+                        <>
+                          <span>{getProviderLabel(resolvePromptProviderConfig(prompt).provider)}</span>
+                          <span>{prompt.model_name || '未指定模型'}</span>
+                          <span>{formatDate(prompt.created_at)}</span>
+                        </>
                   }
                 >
                   <div className="rounded-lg border border-border bg-muted/45 p-3 text-sm text-muted-foreground">
@@ -436,59 +439,84 @@ export const PromptManagementPage: React.FC = () => {
                     <TableHead className="w-12">
                       <Checkbox checked={selectedPrompts.length > 0 && selectedPrompts.length === rows.length} onCheckedChange={handleSelectAll} />
                     </TableHead>
-                    <TableHead>类型</TableHead>
-                    <TableHead>名称</TableHead>
-                    <TableHead>描述</TableHead>
-                    <TableHead>系统指令预览</TableHead>
-                    <TableHead>模型</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>版本</TableHead>
-                    <TableHead>创建时间</TableHead>
-                    <TableHead>操作</TableHead>
+                    <TableHead>Prompt</TableHead>
+                    <TableHead>类型与状态</TableHead>
+                    <TableHead>版本与更新</TableHead>
+                    <TableHead className="w-[320px]">下一步操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rows.map((prompt) => (
-                    <TableRow key={prompt.id}>
+                    <TableRow
+                      key={prompt.id}
+                      className="cursor-pointer"
+                      onClick={() => navigate(`/prompts/${prompt.id}/edit`)}
+                    >
                       <TableCell>
-                        <Checkbox checked={selectedPrompts.includes(prompt.id)} onCheckedChange={() => handleSelectPrompt(prompt.id)} />
+                        <Checkbox
+                          checked={selectedPrompts.includes(prompt.id)}
+                          onCheckedChange={() => handleSelectPrompt(prompt.id)}
+                          onClick={(event) => event.stopPropagation()}
+                        />
                       </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {getAgentTypeIcon(prompt.agent_type)}
-                          <span className="text-sm">{getAgentTypeLabel(prompt.agent_type)}</span>
+                      <TableCell className="max-w-0">
+                        <div className="space-y-2">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-foreground">{prompt.prompt_name}</div>
+                            <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                              {prompt.description || '暂无描述，建议补充使用场景和维护说明。'}
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-border bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
+                            <div className="mb-1 font-medium text-foreground">系统指令预览</div>
+                            <div className="line-clamp-2 leading-5">
+                              {(() => {
+                                const preview = parseSystemInstructions(prompt.system_instructions);
+                                return preview.length > 120 ? `${preview.substring(0, 120)}...` : preview;
+                              })()}
+                            </div>
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium">{prompt.prompt_name}</div>
-                        {prompt.model_name && <div className="text-xs text-muted-foreground">{prompt.model_name}</div>}
-                      </TableCell>
-                      <TableCell className="max-w-xs">
-                        <div className="truncate" title={prompt.description || ''}>
-                          {prompt.description || '无描述'}
+                        <div className="space-y-2 text-sm">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="gap-2">
+                              {getAgentTypeIcon(prompt.agent_type)}
+                              {getAgentTypeLabel(prompt.agent_type)}
+                            </Badge>
+                            <Badge variant="outline">
+                              {getProviderLabel(resolvePromptProviderConfig(prompt).provider)}
+                            </Badge>
+                            <StatusPill tone={prompt.is_active ? 'success' : 'neutral'}>
+                              {prompt.is_active ? '激活' : '禁用'}
+                            </StatusPill>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {prompt.model_name || '未指定模型'}
+                          </div>
                         </div>
                       </TableCell>
-                      <TableCell className="max-w-xs text-sm text-muted-foreground">
-                        {(() => {
-                          const preview = parseSystemInstructions(prompt.system_instructions);
-                          return preview.length > 64 ? `${preview.substring(0, 64)}...` : preview;
-                        })()}
-                      </TableCell>
-                      <TableCell>{prompt.model_name ? <Badge variant="outline">{prompt.model_name}</Badge> : <span className="text-muted-foreground text-sm">未指定</span>}</TableCell>
                       <TableCell>
-                        <StatusPill tone={prompt.is_active ? 'success' : 'neutral'}>{prompt.is_active ? '激活' : '禁用'}</StatusPill>
+                        <div className="space-y-2 text-sm">
+                          <Badge variant="outline">v{prompt.version}</Badge>
+                          <div className="text-xs text-muted-foreground">
+                            更新于 {formatDate(prompt.updated_at)}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            创建于 {formatDate(prompt.created_at)}
+                          </div>
+                        </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">v{prompt.version}</Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{formatDate(prompt.created_at)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2" onClick={(event) => event.stopPropagation()}>
                           <Button size="sm" variant="outline" onClick={() => navigate(`/prompts/${prompt.id}/edit`)}>
-                            <Edit className="h-3 w-3" />
+                            <Edit className="mr-2 h-3.5 w-3.5" />
+                            编辑
                           </Button>
                           <Button size="sm" variant="outline" onClick={() => navigate(`/playground?promptId=${prompt.id}`)}>
-                            <Bug className="h-3 w-3" />
+                            <Bug className="mr-2 h-3.5 w-3.5" />
+                            去 Playground
                           </Button>
                           <Button
                             size="sm"
@@ -514,7 +542,8 @@ export const PromptManagementPage: React.FC = () => {
                             }}
                             disabled={deletePromptMutation.isPending}
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="mr-2 h-3.5 w-3.5" />
+                            删除
                           </Button>
                         </div>
                       </TableCell>

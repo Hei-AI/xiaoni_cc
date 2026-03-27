@@ -2,6 +2,14 @@ import express from 'express';
 import { DatabaseManager } from '../services/database';
 import { TrafficReplayService } from '../services/traffic-replay-service';
 import winston from 'winston';
+import {
+  exportTrafficLogs,
+  getTrafficEndpoints,
+  getTrafficLogById,
+  getTrafficStats,
+  listTrafficLogs,
+  searchTrafficLogs
+} from '@qq-bot/persistence';
 
 /**
  * HTTP流量监控相关路由
@@ -14,35 +22,26 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
   const replayService = new TrafficReplayService(database);
 
   const buildTimeCondition = (range: unknown, startTime: unknown, endTime: unknown) => {
-    const params: any[] = [];
     const normalizedRange = typeof range === 'string' ? range : '24h';
+    const now = Date.now();
 
     if (normalizedRange === 'custom') {
-      const conditions: string[] = [];
-      if (typeof startTime === 'string' && startTime.trim()) {
-        conditions.push('request_timestamp >= ?');
-        params.push(startTime);
-      }
-      if (typeof endTime === 'string' && endTime.trim()) {
-        conditions.push('request_timestamp <= ?');
-        params.push(endTime);
-      }
       return {
-        clause: conditions.length > 0 ? conditions.join(' AND ') : '1=1',
-        params
+        startTime: typeof startTime === 'string' && startTime.trim() ? startTime : undefined,
+        endTime: typeof endTime === 'string' && endTime.trim() ? endTime : undefined
       };
     }
 
     switch (normalizedRange) {
       case '1h':
-        return { clause: 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 1 HOUR)', params };
+        return { startTime: new Date(now - 60 * 60 * 1000).toISOString(), endTime: undefined };
       case '7d':
-        return { clause: 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)', params };
+        return { startTime: new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString(), endTime: undefined };
       case '30d':
-        return { clause: 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)', params };
+        return { startTime: new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString(), endTime: undefined };
       case '24h':
       default:
-        return { clause: 'request_timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)', params };
+        return { startTime: new Date(now - 24 * 60 * 60 * 1000).toISOString(), endTime: undefined };
     }
   };
 
@@ -51,90 +50,38 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
-      const offset = (page - 1) * limit;
       const timeFilter = buildTimeCondition(req.query.range, req.query.start_time, req.query.end_time);
+      const isAiRequest = req.query.is_ai_request === 'true'
+        ? true
+        : req.query.is_ai_request === 'false'
+          ? false
+          : undefined;
 
-      // 构建查询条件
-      const filters = [timeFilter.clause];
-      const params = [...timeFilter.params];
-
-      if (req.query.method) {
-        filters.push('method = ?');
-        params.push(req.query.method);
-      }
-
-      if (req.query.host) {
-        filters.push('host LIKE ?');
-        params.push(`%${req.query.host}%`);
-      }
-
-      if (req.query.status) {
-        filters.push('response_status = ?');
-        params.push(req.query.status);
-      }
-
-      if (req.query.is_ai_request) {
-        filters.push('is_ai_request = ?');
-        params.push(req.query.is_ai_request === 'true' ? 1 : 0);
-      }
-
-      if (req.query.api_type) {
-        filters.push('api_type = ?');
-        params.push(req.query.api_type);
-      }
-
-      if (req.query.container_name) {
-        filters.push('container_name = ?');
-        params.push(req.query.container_name);
-      }
-
-      if (req.query.trace_id) {
-        filters.push('trace_id = ?');
-        params.push(req.query.trace_id);
-      }
-
-      if (req.query.search) {
-        filters.push('(url LIKE ? OR request_body LIKE ? OR response_body LIKE ?)');
-        const searchPattern = `%${req.query.search}%`;
-        params.push(searchPattern, searchPattern, searchPattern);
-      }
-
-      const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
-
-      // 查询流量记录 (不包含大字段内容，提高性能)
-      const logs = await database.executeQuery<any>(
-        `SELECT
-          id, request_id, trace_id, container_name, service_name,
-          method, url, host, path,
-          response_status, duration_ms,
-          request_timestamp as timestamp,
-          is_ai_request, api_type, api_version,
-          client_ip, user_agent,
-          request_size, response_size,
-          error_message, retry_count, is_cached_response,
-          conversation_id, user_id, session_id
-         FROM http_traffic_logs
-         ${whereClause}
-         ORDER BY request_timestamp DESC
-         LIMIT ${offset}, ${limit}`,
-        params
-      );
-
-      // 获取总数
-      const totalResult = await database.executeQuery<{ total: number }>(
-        `SELECT COUNT(*) as total FROM http_traffic_logs ${whereClause}`,
-        params
-      );
-      const total = totalResult[0]?.total || 0;
+      const result = await listTrafficLogs({
+        page,
+        limit,
+        filters: {
+          startTime: timeFilter.startTime,
+          endTime: timeFilter.endTime,
+          method: typeof req.query.method === 'string' ? req.query.method : undefined,
+          host: typeof req.query.host === 'string' ? req.query.host : undefined,
+          status: typeof req.query.status === 'string' ? req.query.status : undefined,
+          isAiRequest,
+          apiType: typeof req.query.api_type === 'string' ? req.query.api_type : undefined,
+          containerName: typeof req.query.container_name === 'string' ? req.query.container_name : undefined,
+          traceId: typeof req.query.trace_id === 'string' ? req.query.trace_id : undefined,
+          search: typeof req.query.search === 'string' ? req.query.search : undefined
+        }
+      });
 
       res.json({
         success: true,
-        data: logs,
+        data: result.data,
         pagination: {
-          page,
-          limit,
-          total,
-          pages: Math.ceil(total / limit)
+          page: result.page,
+          limit: result.limit,
+          total: result.total,
+          pages: Math.ceil(result.total / result.limit)
         },
         timestamp: new Date().toISOString()
       });
@@ -154,13 +101,9 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
   router.get('/traffic/logs/:id', async (req, res) => {
     try {
       const { id } = req.params;
+      const log = await getTrafficLogById(id);
 
-      const logs = await database.executeQuery<any>(
-        `SELECT * FROM http_traffic_logs WHERE id = ?`,
-        [id]
-      );
-
-      if (logs.length === 0) {
+      if (!log) {
         return res.status(404).json({
           success: false,
           error: 'Traffic log not found',
@@ -168,26 +111,9 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
         });
       }
 
-      const log = logs[0];
-
       // 添加timestamp字段以保持前端兼容性
-      if (log.request_timestamp && !log.timestamp) {
-        log.timestamp = log.request_timestamp;
-      }
-
-      // 解析JSON字段
-      try {
-        if (log.request_headers) {
-          log.request_headers = JSON.parse(log.request_headers);
-        }
-        if (log.response_headers) {
-          log.response_headers = JSON.parse(log.response_headers);
-        }
-        if (log.query_params) {
-          log.query_params = JSON.parse(log.query_params);
-        }
-      } catch (parseError) {
-        logger.warn('Failed to parse JSON fields', { parseError, logId: id });
+      if ((log as any).request_timestamp && !(log as any).timestamp) {
+        (log as any).timestamp = (log as any).request_timestamp;
       }
 
       res.json({
@@ -212,93 +138,15 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
     try {
       const timeRange = req.query.range || '24h'; // 24h, 7d, 30d
       const timeFilter = buildTimeCondition(timeRange, req.query.start_time, req.query.end_time);
-
-      // 基础统计
-      const overviewStats = await database.executeQuery<any>(
-        `SELECT
-          COUNT(*) as total_requests,
-          COUNT(CASE WHEN is_ai_request = 1 THEN 1 END) as ai_requests,
-          COUNT(CASE WHEN response_status >= 200 AND response_status < 300 THEN 1 END) as successful_requests,
-          COUNT(CASE WHEN response_status >= 400 THEN 1 END) as failed_requests,
-          AVG(duration_ms) as avg_response_time,
-          MIN(duration_ms) as min_response_time,
-          MAX(duration_ms) as max_response_time,
-          SUM(request_size) as total_request_bytes,
-          SUM(response_size) as total_response_bytes
-         FROM http_traffic_logs
-         WHERE ${timeFilter.clause}`,
-        timeFilter.params
-      );
-
-      // 按API类型统计
-      const apiTypeStats = await database.executeQuery<any>(
-        `SELECT
-          api_type,
-          COUNT(*) as request_count,
-          AVG(duration_ms) as avg_duration,
-          COUNT(CASE WHEN response_status >= 400 THEN 1 END) as error_count
-         FROM http_traffic_logs
-         WHERE ${timeFilter.clause} AND is_ai_request = 1 AND api_type IS NOT NULL
-         GROUP BY api_type
-         ORDER BY request_count DESC`,
-        timeFilter.params
-      );
-
-      // 按Host统计
-      const hostStats = await database.executeQuery<any>(
-        `SELECT
-          host,
-          COUNT(*) as request_count,
-          AVG(duration_ms) as avg_duration,
-          COUNT(CASE WHEN response_status >= 400 THEN 1 END) as error_count
-         FROM http_traffic_logs
-         WHERE ${timeFilter.clause}
-         GROUP BY host
-         ORDER BY request_count DESC
-         LIMIT 10`,
-        timeFilter.params
-      );
-
-      // 按小时统计 (用于图表)
-      const hourlyStats = await database.executeQuery<any>(
-        `SELECT
-          DATE_FORMAT(request_timestamp, '%Y-%m-%d %H:00:00') as hour,
-          COUNT(*) as request_count,
-          COUNT(CASE WHEN is_ai_request = 1 THEN 1 END) as ai_request_count,
-          AVG(duration_ms) as avg_duration
-         FROM http_traffic_logs
-         WHERE ${timeFilter.clause}
-         GROUP BY DATE_FORMAT(request_timestamp, '%Y-%m-%d %H:00:00')
-         ORDER BY hour ASC`,
-        timeFilter.params
-      );
-
-      // 状态码分布
-      const statusCodeStats = await database.executeQuery<any>(
-        `SELECT
-          CASE
-            WHEN response_status BETWEEN 200 AND 299 THEN '2xx'
-            WHEN response_status BETWEEN 300 AND 399 THEN '3xx'
-            WHEN response_status BETWEEN 400 AND 499 THEN '4xx'
-            WHEN response_status BETWEEN 500 AND 599 THEN '5xx'
-            ELSE 'Other'
-          END as status_group,
-          COUNT(*) as count
-         FROM http_traffic_logs
-         WHERE ${timeFilter.clause} AND response_status IS NOT NULL
-         GROUP BY status_group
-         ORDER BY count DESC`,
-        timeFilter.params
-      );
+      const stats = await getTrafficStats({
+        startTime: timeFilter.startTime,
+        endTime: timeFilter.endTime
+      });
 
       res.json({
         success: true,
         data: {
-          overview: overviewStats[0] || {},
-          api_types: apiTypeStats,
-          hosts: hostStats,
-          hourly_distribution: hourlyStats,
-          status_codes: statusCodeStats,
+          ...stats,
           time_range: timeRange
         },
         timestamp: new Date().toISOString()
@@ -321,39 +169,10 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
       const sortBy = req.query.sort || 'request_count'; // request_count, avg_duration, error_rate
 
-      let orderClause = '';
-      switch (sortBy) {
-        case 'avg_duration':
-          orderClause = 'ORDER BY avg_duration DESC';
-          break;
-        case 'error_rate':
-          orderClause = 'ORDER BY error_rate DESC';
-          break;
-        default:
-          orderClause = 'ORDER BY request_count DESC';
-      }
-
-      const endpointStats = await database.executeQuery<any>(
-        `SELECT
-          host,
-          SUBSTRING_INDEX(SUBSTRING_INDEX(path, '/', 3), '/', -1) as endpoint,
-          method,
-          COUNT(*) as request_count,
-          AVG(duration_ms) as avg_duration,
-          MIN(duration_ms) as min_duration,
-          MAX(duration_ms) as max_duration,
-          COUNT(CASE WHEN response_status >= 400 THEN 1 END) as error_count,
-          COUNT(CASE WHEN response_status >= 400 THEN 1 END) * 100.0 / COUNT(*) as error_rate,
-          MIN(request_timestamp) as first_seen,
-          MAX(request_timestamp) as last_seen
-         FROM http_traffic_logs
-         WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-         GROUP BY host, endpoint, method
-         HAVING request_count >= 2
-         ${orderClause}
-         LIMIT ${limit}`,
-        []
-      );
+      const endpointStats = await getTrafficEndpoints({
+        limit,
+        sortBy: sortBy as 'request_count' | 'avg_duration' | 'error_rate'
+      });
 
       res.json({
         success: true,
@@ -386,23 +205,7 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
         });
       }
 
-      // 全文搜索
-      const searchResults = await database.executeQuery<any>(
-        `SELECT
-          id, request_id, trace_id, method, url, host,
-          response_status, duration_ms, request_timestamp,
-          is_ai_request, api_type,
-          MATCH(url) AGAINST(? IN NATURAL LANGUAGE MODE) as url_relevance,
-          MATCH(request_body, response_body) AGAINST(? IN NATURAL LANGUAGE MODE) as body_relevance
-         FROM http_traffic_logs
-         WHERE MATCH(url) AGAINST(? IN NATURAL LANGUAGE MODE)
-            OR MATCH(request_body, response_body) AGAINST(? IN NATURAL LANGUAGE MODE)
-            OR url LIKE ?
-            OR host LIKE ?
-         ORDER BY (url_relevance + body_relevance) DESC, request_timestamp DESC
-         LIMIT ?`,
-        [query, query, query, query, `%${query}%`, `%${query}%`, limit]
-      );
+      const searchResults = await searchTrafficLogs({ query, limit });
 
       res.json({
         success: true,
@@ -430,15 +233,12 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
       const timeRange = req.query.range || '24h';
       const includeBody = req.query.include_body === 'true';
       const timeFilter = buildTimeCondition(timeRange, req.query.start_time, req.query.end_time);
-
-      const fields = includeBody
-        ? 'id, trace_id, method, url, response_status, duration_ms, request_timestamp, is_ai_request, api_type, request_body, response_body'
-        : 'id, trace_id, method, url, response_status, duration_ms, request_timestamp, is_ai_request, api_type';
-
-      const exportData = await database.executeQuery<any>(
-        `SELECT ${fields} FROM http_traffic_logs WHERE ${timeFilter.clause} ORDER BY request_timestamp DESC LIMIT 1000`,
-        timeFilter.params
-      );
+      const exportData = await exportTrafficLogs({
+        startTime: timeFilter.startTime,
+        endTime: timeFilter.endTime,
+        includeBody,
+        limit: 1000
+      });
 
       if (format === 'csv') {
         // 生成CSV格式

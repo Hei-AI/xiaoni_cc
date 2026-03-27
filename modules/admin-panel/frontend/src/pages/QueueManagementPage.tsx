@@ -1,19 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, Inbox, MailOpen, MessageSquare, RefreshCw, Users } from 'lucide-react';
-import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
+import { Inbox, MailOpen, RefreshCw, Send, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import QueueSimulationPanel from '@/components/QueueSimulationPanel';
+import { Input } from '@/components/ui/input';
 import { StructuredDataViewer } from '@/components/StructuredDataViewer';
+import InboxMessageComposerSheet, { type InboxConversationContext } from '@/components/InboxMessageComposerSheet';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
 import { MetricCard } from '@/components/console/MetricCard';
 import { SectionPanel } from '@/components/console/SectionPanel';
 import { EntityCard } from '@/components/console/EntityCard';
 import { EmptyState } from '@/components/console/EmptyState';
+import { ErrorState } from '@/components/console/ErrorState';
 import { StatusPill } from '@/components/console/StatusPill';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
 import { formatTimestamp } from '@/lib/utils';
 
 interface InboxStats {
@@ -67,6 +68,8 @@ interface InboxMessageRecord {
   inboundContext: Record<string, unknown>;
 }
 
+type ConversationFilter = 'all' | 'group' | 'direct';
+
 const QueueManagementPage: React.FC = () => {
   const [stats, setStats] = useState<InboxStats | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -76,9 +79,25 @@ const QueueManagementPage: React.FC = () => {
   const [includeRead, setIncludeRead] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [conversationFilter, setConversationFilter] = useState<ConversationFilter>('all');
+  const [search, setSearch] = useState('');
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerConversation, setComposerConversation] = useState<InboxConversationContext | null>(null);
+
+  const toComposerConversation = (conversation: ConversationSummary): InboxConversationContext => ({
+    sessionKey: conversation.sessionKey,
+    chatType: conversation.chatType,
+    peerId: conversation.peerId,
+    peerName: conversation.peerName,
+    accountId: conversation.accountId,
+    latestSenderId: conversation.latestSenderId,
+    latestSenderName: conversation.latestSenderName,
+  });
 
   const fetchDashboard = async () => {
     try {
+      setLoadError(null);
       const [statsResponse, conversationsResponse] = await Promise.all([
         fetch('/api/inbox/stats'),
         fetch('/api/inbox/conversations?limit=100'),
@@ -89,13 +108,18 @@ const QueueManagementPage: React.FC = () => {
         conversationsResponse.json(),
       ]);
 
-      if (statsResult.success) {
-        setStats(statsResult.data);
+      if (!statsResponse.ok || !statsResult.success) {
+        throw new Error(statsResult.error || 'Failed to load inbox stats');
       }
 
-      if (conversationsResult.success) {
-        setConversations(conversationsResult.data);
+      if (!conversationsResponse.ok || !conversationsResult.success) {
+        throw new Error(conversationsResult.error || 'Failed to load inbox conversations');
       }
+
+      setStats(statsResult.data as InboxStats);
+      setConversations(conversationsResult.data as ConversationSummary[]);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Failed to load queue management data');
     } finally {
       setLoading(false);
     }
@@ -107,19 +131,21 @@ const QueueManagementPage: React.FC = () => {
     );
     const result = await response.json();
 
-    if (result.success) {
-      const nextMessages = result.data as InboxMessageRecord[];
-      setMessages(nextMessages);
-      setSelectedMessageId((current) => {
-        if (nextMessages.length === 0) {
-          return null;
-        }
-        if (current && nextMessages.some((message) => message.id === current)) {
-          return current;
-        }
-        return nextMessages[0].id;
-      });
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Failed to load conversation messages');
     }
+
+    const nextMessages = result.data as InboxMessageRecord[];
+    setMessages(nextMessages);
+    setSelectedMessageId((current) => {
+      if (nextMessages.length === 0) {
+        return null;
+      }
+      if (current && nextMessages.some((message) => message.id === current)) {
+        return current;
+      }
+      return nextMessages[0].id;
+    });
   };
 
   const handleClaimUnread = async () => {
@@ -154,7 +180,9 @@ const QueueManagementPage: React.FC = () => {
     const intervalId = window.setInterval(() => {
       void fetchDashboard();
       if (selectedSessionKey) {
-        void fetchMessages(selectedSessionKey, includeRead);
+        void fetchMessages(selectedSessionKey, includeRead).catch((error) => {
+          setLoadError(error instanceof Error ? error.message : 'Failed to refresh messages');
+        });
       }
     }, 10000);
 
@@ -163,15 +191,54 @@ const QueueManagementPage: React.FC = () => {
 
   useEffect(() => {
     if (selectedSessionKey) {
-      void fetchMessages(selectedSessionKey, includeRead);
+      void fetchMessages(selectedSessionKey, includeRead).catch((error) => {
+        setLoadError(error instanceof Error ? error.message : 'Failed to load messages');
+      });
     }
   }, [includeRead, selectedSessionKey]);
 
+  const filteredConversations = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    return conversations.filter((conversation) => {
+      if (conversationFilter !== 'all' && conversation.chatType !== conversationFilter) {
+        return false;
+      }
+
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      const haystack = [
+        conversation.peerId,
+        conversation.peerName,
+        conversation.sessionKey,
+        conversation.latestBodyForAgent,
+        conversation.latestSenderId,
+        conversation.latestSenderName,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(normalizedSearch);
+    });
+  }, [conversationFilter, conversations, search]);
+
   useEffect(() => {
-    if (!selectedSessionKey && conversations.length > 0) {
-      setSelectedSessionKey(conversations[0].sessionKey);
+    if (!filteredConversations.length) {
+      setSelectedSessionKey(null);
+      setMessages([]);
+      setSelectedMessageId(null);
+      setComposerOpen(false);
+      setComposerConversation(null);
+      return;
     }
-  }, [conversations, selectedSessionKey]);
+
+    if (!selectedSessionKey || !filteredConversations.some((conversation) => conversation.sessionKey === selectedSessionKey)) {
+      setSelectedSessionKey(filteredConversations[0].sessionKey);
+    }
+  }, [filteredConversations, selectedSessionKey]);
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.sessionKey === selectedSessionKey) || null,
@@ -183,27 +250,43 @@ const QueueManagementPage: React.FC = () => {
     [messages, selectedMessageId]
   );
 
-  const chartData = conversations.slice(0, 8).map((conversation) => ({
-    name: conversation.chatType === 'group' ? `G${conversation.peerId}` : `U${conversation.peerId}`,
-    unread: conversation.unreadCount,
-    total: conversation.totalMessages,
-  }));
+  useEffect(() => {
+    if (!composerConversation) {
+      return;
+    }
+
+    const conversationStillExists = conversations.some((conversation) => conversation.sessionKey === composerConversation.sessionKey);
+    if (!conversationStillExists) {
+      setComposerOpen(false);
+      setComposerConversation(null);
+    }
+  }, [composerConversation, conversations]);
+
+  const openComposer = (conversation: ConversationSummary) => {
+    setSelectedSessionKey(conversation.sessionKey);
+    setComposerConversation(toComposerConversation(conversation));
+    setComposerOpen(true);
+  };
 
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center gap-3">
         <RefreshCw className="h-8 w-8 animate-spin" />
-        <span>加载 Inbox 中...</span>
+        <span>加载队列对象中...</span>
       </div>
     );
+  }
+
+  if (loadError && !stats && conversations.length === 0) {
+    return <ErrorState description={loadError} onRetry={() => void fetchDashboard()} />;
   }
 
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Inbox"
-        title="消息收件箱"
-        description="NapCat 入站消息会先落到统一 inbox，再按 unread/read 管理。这里看会话、看消息、领取未读和提交内部消息体。"
+        eyebrow="Ops Queue"
+        title="队列管理"
+        description="从运维角度查看当前有哪些群聊和私聊对象，点击对象查看详情，点 POST 用结构化编辑器投递模拟消息。"
         icon={<Inbox className="h-5 w-5" />}
         actions={
           <>
@@ -213,107 +296,103 @@ const QueueManagementPage: React.FC = () => {
             </div>
             <Button variant="outline" size="sm" onClick={() => void fetchDashboard()}>
               <RefreshCw className="mr-2 h-4 w-4" />
-              手动刷新
+              刷新列表
             </Button>
           </>
         }
       />
 
       {stats ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <MetricCard label="会话数" value={stats.totalConversations} icon={<Users className="h-5 w-5" />} />
-          <MetricCard label="总消息数" value={stats.totalMessages} icon={<MessageSquare className="h-5 w-5" />} />
-          <MetricCard label="未读会话" value={stats.unreadConversations} icon={<MailOpen className="h-5 w-5" />} tone="warning" />
-          <MetricCard label="未读消息" value={stats.unreadMessages} icon={<Inbox className="h-5 w-5" />} tone="warning" />
-          <MetricCard
-            label="最后入站"
-            value={formatTimestamp(stats.lastReceivedAt || undefined)}
-            icon={<Activity className="h-5 w-5" />}
-          />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="对象总数" value={stats.totalConversations} icon={<Users className="h-5 w-5" />} />
+          <MetricCard label="消息总数" value={stats.totalMessages} icon={<Inbox className="h-5 w-5" />} />
+          <MetricCard label="未读对象" value={stats.unreadConversations} icon={<MailOpen className="h-5 w-5" />} tone="warning" />
+          <MetricCard label="最后入站" value={formatTimestamp(stats.lastReceivedAt || undefined)} icon={<RefreshCw className="h-5 w-5" />} />
         </div>
       ) : null}
 
+      {loadError ? <ErrorState description={loadError} onRetry={() => void fetchDashboard()} /> : null}
+
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
         <SectionPanel
-          className="xl:col-span-4"
-          title="会话列表"
-          description="按 SessionKey 汇总，区分私聊和群聊，并展示 unread 负载。"
+          className="xl:col-span-5"
+          title="对象列表"
+          description="这里不是热度图，也不是 PPT。直接点对象查看详情，点 POST 打开右侧结构化消息编辑器。"
           icon={<Users className="h-4 w-4 text-primary" />}
         >
-          {conversations.length === 0 ? (
-            <EmptyState icon={<Inbox className="h-10 w-10" />} title="Inbox 还没有消息" description="NapCat 或模拟器写入后，这里会按会话聚合展示。" />
-          ) : (
-            <div className="space-y-3">
-              {conversations.map((conversation) => (
-                <EntityCard
-                  key={conversation.sessionKey}
-                  className={selectedSessionKey === conversation.sessionKey ? 'border-primary/30 bg-primary/5' : undefined}
-                  title={conversation.peerName || (conversation.chatType === 'group' ? `群 ${conversation.peerId}` : `QQ ${conversation.peerId}`)}
-                  subtitle={conversation.sessionKey}
-                  badges={
-                    <>
-                      <StatusPill tone={conversation.chatType === 'group' ? 'warning' : 'info'}>
-                        {conversation.chatType === 'group' ? '群聊' : '私聊'}
-                      </StatusPill>
-                      <Badge variant="outline">未读 {conversation.unreadCount}</Badge>
-                      <Badge variant="outline">累计 {conversation.totalMessages}</Badge>
-                    </>
-                  }
-                  action={
-                    <Button variant="outline" size="sm" onClick={() => setSelectedSessionKey(conversation.sessionKey)}>
-                      选中
-                    </Button>
-                  }
-                  meta={
-                    <>
-                      <span>最近发送者 {conversation.latestSenderName || conversation.latestSenderId || '-'}</span>
-                      <span>最近入站 {formatTimestamp(conversation.lastReceivedAt || undefined)}</span>
-                    </>
-                  }
-                >
-                  <div className="line-clamp-3 text-sm leading-6 text-muted-foreground">
-                    {conversation.latestBodyForAgent || '最近消息为空'}
-                  </div>
-                </EntityCard>
-              ))}
+          <div className="mb-4 flex flex-col gap-3">
+            <div className="flex flex-wrap gap-2">
+              <Button variant={conversationFilter === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setConversationFilter('all')}>
+                全部
+              </Button>
+              <Button variant={conversationFilter === 'group' ? 'default' : 'outline'} size="sm" onClick={() => setConversationFilter('group')}>
+                群聊
+              </Button>
+              <Button variant={conversationFilter === 'direct' ? 'default' : 'outline'} size="sm" onClick={() => setConversationFilter('direct')}>
+                私聊
+              </Button>
             </div>
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="搜索群号、QQ、名称或最新消息"
+            />
+          </div>
+
+          {filteredConversations.length === 0 ? (
+            <EmptyState icon={<Inbox className="h-10 w-10" />} title="没有匹配对象" description="缩短关键词，或者先往 provider inbox 打一些模拟消息。" />
+          ) : (
+            <ScrollArea className="h-[44rem] pr-2">
+              <div className="space-y-3">
+                {filteredConversations.map((conversation) => {
+                  const isSelected = selectedSessionKey === conversation.sessionKey;
+                  const title = conversation.peerName
+                    || (conversation.chatType === 'group' ? `群 ${conversation.peerId}` : `QQ ${conversation.peerId}`);
+
+                  return (
+                    <EntityCard
+                      key={conversation.sessionKey}
+                      className={isSelected ? 'border-primary/30 bg-primary/5' : undefined}
+                      onClick={() => setSelectedSessionKey(conversation.sessionKey)}
+                      title={title}
+                      subtitle={conversation.sessionKey}
+                      badges={
+                        <>
+                          <StatusPill tone={conversation.chatType === 'group' ? 'warning' : 'info'}>
+                            {conversation.chatType === 'group' ? '群聊' : '私聊'}
+                          </StatusPill>
+                          <Badge variant="outline">未读 {conversation.unreadCount}</Badge>
+                          <Badge variant="outline">累计 {conversation.totalMessages}</Badge>
+                        </>
+                      }
+                      action={
+                        <Button size="sm" onClick={() => openComposer(conversation)}>
+                          POST
+                        </Button>
+                      }
+                      meta={
+                        <>
+                          <span>最近发送者 {conversation.latestSenderName || conversation.latestSenderId || '-'}</span>
+                          <span>最近入站 {formatTimestamp(conversation.lastReceivedAt || undefined)}</span>
+                        </>
+                      }
+                    >
+                      <div className="line-clamp-3 text-sm leading-6 text-muted-foreground">
+                        {conversation.latestBodyForAgent || '最近消息为空'}
+                      </div>
+                    </EntityCard>
+                  );
+                })}
+              </div>
+            </ScrollArea>
           )}
         </SectionPanel>
 
         <SectionPanel
-          className="xl:col-span-8"
-          title="收件箱热度"
-          description="查看前几个会话的 unread 与累计消息分布。"
-          icon={<Activity className="h-4 w-4 text-primary" />}
-        >
-          <div className="h-[280px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
-                <CartesianGrid stroke="rgba(148,163,184,0.10)" vertical={false} />
-                <XAxis dataKey="name" stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
-                <YAxis stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    background: 'rgba(255,255,255,0.98)',
-                    border: '1px solid rgba(203,213,225,0.9)',
-                    borderRadius: '12px',
-                    boxShadow: '0 10px 30px -18px rgba(15,23,42,0.28)',
-                  }}
-                />
-                <Bar dataKey="unread" fill="hsl(var(--chart-4))" radius={[8, 8, 0, 0]} />
-                <Bar dataKey="total" fill="hsl(var(--chart-1))" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </SectionPanel>
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
-        <SectionPanel
           className="xl:col-span-7"
-          title={selectedConversation ? `会话详情 · ${selectedConversation.sessionKey}` : '会话详情'}
-          description="查看该会话的 unread 或完整消息列表，并检查单条消息的内部消息体。"
-          icon={<MessageSquare className="h-4 w-4 text-primary" />}
+          title={selectedConversation ? `对象详情 · ${selectedConversation.sessionKey}` : '对象详情'}
+          description="查看最近入站消息，并从右侧结构化编辑器对当前对象 POST 一条模拟消息。"
+          icon={<Send className="h-4 w-4 text-primary" />}
           action={
             selectedConversation ? (
               <div className="flex items-center gap-2">
@@ -330,17 +409,46 @@ const QueueManagementPage: React.FC = () => {
           }
         >
           {!selectedConversation ? (
-            <EmptyState icon={<Users className="h-10 w-10" />} title="选择一个会话查看详情" description="左侧选中后，这里会显示消息列表和内部消息体。" />
+            <EmptyState icon={<Users className="h-10 w-10" />} title="先选一个对象" description="左侧选中一个群聊或私聊对象，这里就会出现最近消息和 POST 入口。" />
           ) : (
             <div className="space-y-4">
+              <div className="rounded-2xl border border-border bg-muted/30 p-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusPill tone={selectedConversation.chatType === 'group' ? 'warning' : 'info'}>
+                        {selectedConversation.chatType === 'group' ? '群聊' : '私聊'}
+                      </StatusPill>
+                      <Badge variant="outline">Peer {selectedConversation.peerId}</Badge>
+                      <Badge variant="outline">Account {selectedConversation.accountId}</Badge>
+                    </div>
+                    <div className="grid gap-2 text-sm text-muted-foreground">
+                      <div>对象名称 {selectedConversation.peerName || '-'}</div>
+                      <div>最近发送者 {selectedConversation.latestSenderName || selectedConversation.latestSenderId || '-'}</div>
+                      <div>最近入站 {formatTimestamp(selectedConversation.lastReceivedAt || undefined)}</div>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-background p-4 text-sm">
+                    <div className="font-medium text-foreground">POST 入口</div>
+                    <div className="mt-2 max-w-sm leading-6 text-muted-foreground">
+                      打开右侧抽屉，用结构化表单编辑常用消息字段。页面会自动生成内部通用消息体，不需要手写 JSON。
+                    </div>
+                    <Button className="mt-4 w-full sm:w-auto" onClick={() => openComposer(selectedConversation)}>
+                      <Send className="mr-2 h-4 w-4" />
+                      POST 当前对象
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
               {messages.length === 0 ? (
                 <EmptyState
                   icon={<MailOpen className="h-10 w-10" />}
                   title="当前筛选下没有消息"
-                  description={includeRead ? '该会话暂时没有任何入站消息。' : '该会话当前没有 unread 消息。'}
+                  description={includeRead ? '该对象暂时没有任何入站消息。' : '该对象当前没有 unread 消息。'}
                 />
               ) : (
-                <ScrollArea className="h-[26rem] rounded-2xl border border-border p-4">
+                <ScrollArea className="h-[22rem] rounded-2xl border border-border p-4">
                   <div className="space-y-3">
                     {messages.map((message) => (
                       <EntityCard
@@ -385,41 +493,24 @@ const QueueManagementPage: React.FC = () => {
                 title="选中消息"
                 value={selectedMessage}
                 emptyLabel="选择上方消息后，这里会展示完整 inbox 记录与 inboundContext。"
-                heightClassName="h-[24rem]"
+                heightClassName="h-[20rem]"
               />
             </div>
           )}
         </SectionPanel>
-
-        <SectionPanel
-          className="xl:col-span-5"
-          title="模拟写入"
-          description="使用内部消息体 JSON 直接写入 provider inbox。"
-          icon={<Inbox className="h-4 w-4 text-primary" />}
-        >
-          <QueueSimulationPanel
-            selectedConversation={
-              selectedConversation
-                ? {
-                    sessionKey: selectedConversation.sessionKey,
-                    chatType: selectedConversation.chatType,
-                    peerId: selectedConversation.peerId,
-                    peerName: selectedConversation.peerName,
-                    accountId: selectedConversation.accountId,
-                    latestSenderId: selectedConversation.latestSenderId,
-                    latestSenderName: selectedConversation.latestSenderName,
-                  }
-                : null
-            }
-            onMessageSent={async () => {
-              await fetchDashboard();
-              if (selectedSessionKey) {
-                await fetchMessages(selectedSessionKey, includeRead);
-              }
-            }}
-          />
-        </SectionPanel>
       </div>
+
+      <InboxMessageComposerSheet
+        open={composerOpen}
+        onOpenChange={setComposerOpen}
+        selectedConversation={composerConversation}
+        onMessageSent={async (conversation) => {
+          await fetchDashboard();
+          if (selectedSessionKey === conversation.sessionKey) {
+            await fetchMessages(conversation.sessionKey, includeRead);
+          }
+        }}
+      />
     </PageShell>
   );
 };

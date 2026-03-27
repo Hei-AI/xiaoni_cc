@@ -5,6 +5,8 @@ export type ResolvedProviderConfig = {
   providerSpecific?: Record<string, any>;
 };
 
+const MODEL_PROVIDER_OVERRIDES_ENV = 'MODEL_PROVIDER_OVERRIDES_JSON';
+
 function normalizeProvider(value: unknown): ResolvedProviderConfig['provider'] | undefined {
   if (typeof value !== 'string') {
     return undefined;
@@ -37,6 +39,11 @@ function normalizeProvider(value: unknown): ResolvedProviderConfig['provider'] |
 
 export function inferProviderFromModelName(modelName?: string): ResolvedProviderConfig['provider'] {
   const normalized = (modelName || '').trim().toLowerCase();
+  const override = resolveProviderOverride(normalized);
+
+  if (override) {
+    return override;
+  }
 
   if (
     normalized.includes('codex') ||
@@ -60,6 +67,34 @@ export function inferProviderFromModelName(modelName?: string): ResolvedProvider
   }
 
   return 'google-gemini-cli';
+}
+
+function resolveProviderOverride(normalizedModelName: string): ResolvedProviderConfig['provider'] | undefined {
+  if (!normalizedModelName) {
+    return undefined;
+  }
+
+  const raw = process.env[MODEL_PROVIDER_OVERRIDES_ENV];
+  if (!raw || !raw.trim()) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return undefined;
+    }
+
+    const direct = normalizeProvider((parsed as Record<string, unknown>)[normalizedModelName]);
+    if (direct) {
+      return direct;
+    }
+
+    const shortName = normalizedModelName.includes('/') ? normalizedModelName.split('/').pop() || normalizedModelName : normalizedModelName;
+    return normalizeProvider((parsed as Record<string, unknown>)[shortName]);
+  } catch {
+    return undefined;
+  }
 }
 
 export function resolveProviderConfigFromPrompt(agentPrompt: any): ResolvedProviderConfig {

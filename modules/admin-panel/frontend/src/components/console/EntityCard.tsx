@@ -10,6 +10,7 @@ interface EntityCardProps {
   action?: React.ReactNode;
   children?: React.ReactNode;
   className?: string;
+  onClick?: () => void;
 }
 
 export function EntityCard({
@@ -20,9 +21,31 @@ export function EntityCard({
   action,
   children,
   className,
+  onClick,
 }: EntityCardProps) {
+  const interactiveProps = onClick
+    ? {
+        onClick,
+        onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onClick();
+          }
+        },
+        role: 'button' as const,
+        tabIndex: 0,
+      }
+    : {};
+
   return (
-    <Card className={cn('overflow-hidden', className)}>
+    <Card
+      className={cn(
+        'overflow-hidden',
+        onClick ? 'cursor-pointer transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25' : undefined,
+        className
+      )}
+      {...interactiveProps}
+    >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">

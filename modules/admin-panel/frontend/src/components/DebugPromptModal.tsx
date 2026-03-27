@@ -38,12 +38,30 @@ interface DebugResponse {
   model?: string;
   error?: string;
   execution_time?: number;
+  usage?: {
+    total_tokens?: number;
+  } | null;
+  usage_details?: {
+    cached_input_tokens?: number;
+    reasoning_tokens?: number;
+  } | null;
+  context_policy?: {
+    source?: string;
+    context_window_tokens?: number;
+    soft_trigger_tokens?: number;
+    hard_ceiling_tokens?: number;
+    reply_budget_tokens?: number;
+  } | null;
 }
 
 const AVAILABLE_MODELS = [
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
 ];
+
+const toNumber = (value: unknown): number | undefined => {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+};
 
 export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
   isOpen,
@@ -114,7 +132,10 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
           response: data.response,
           tokenUsed: data.token_used,
           model: data.model,
-          execution_time: executionTime
+          execution_time: executionTime,
+          usage: data.usage || null,
+          usage_details: data.usage_details || null,
+          context_policy: data.context_policy || null
         });
       } else {
         setResponse({
@@ -292,6 +313,35 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
                   <div className="text-xs text-muted-foreground">
                     使用Token: {response.tokenUsed.project_name} (ID: {response.tokenUsed.id})
                     {response.model && ` | 模型: ${response.model}`}
+                  </div>
+                )}
+
+                {response.success && (
+                  <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                    {typeof toNumber(response.usage?.total_tokens) !== 'undefined' && (
+                      <div className="rounded border bg-white p-2">Total Tokens: {response.usage?.total_tokens}</div>
+                    )}
+                    {typeof toNumber(response.usage_details?.cached_input_tokens) !== 'undefined' && (
+                      <div className="rounded border bg-white p-2">Cached Input: {response.usage_details?.cached_input_tokens}</div>
+                    )}
+                    {typeof toNumber(response.usage_details?.reasoning_tokens) !== 'undefined' && (
+                      <div className="rounded border bg-white p-2">Reasoning: {response.usage_details?.reasoning_tokens}</div>
+                    )}
+                    {typeof toNumber(response.context_policy?.context_window_tokens) !== 'undefined' && (
+                      <div className="rounded border bg-white p-2">Context Window: {response.context_policy?.context_window_tokens}</div>
+                    )}
+                    {typeof toNumber(response.context_policy?.soft_trigger_tokens) !== 'undefined' && (
+                      <div className="rounded border bg-white p-2">Soft Trigger: {response.context_policy?.soft_trigger_tokens}</div>
+                    )}
+                    {typeof toNumber(response.context_policy?.hard_ceiling_tokens) !== 'undefined' && (
+                      <div className="rounded border bg-white p-2">Hard Ceiling: {response.context_policy?.hard_ceiling_tokens}</div>
+                    )}
+                    {typeof toNumber(response.context_policy?.reply_budget_tokens) !== 'undefined' && (
+                      <div className="rounded border bg-white p-2">Reply Budget: {response.context_policy?.reply_budget_tokens}</div>
+                    )}
+                    {response.context_policy?.source && (
+                      <div className="rounded border bg-white p-2">Policy Source: {response.context_policy.source}</div>
+                    )}
                   </div>
                 )}
                 

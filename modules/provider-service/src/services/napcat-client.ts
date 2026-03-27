@@ -10,6 +10,35 @@ type NapcatActionResponse<T> = {
   wording?: string;
 };
 
+function normalizeMentionUserId(value: string | number) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    throw new Error(`Invalid mention user id: ${value}`);
+  }
+  return String(Math.trunc(numeric));
+}
+
+export function buildGroupMessageText(message: string, mentionUserIds: Array<string | number> = []) {
+  const trimmedMessage = message.trim();
+  if (!trimmedMessage) {
+    throw new Error('Group message text cannot be empty');
+  }
+
+  const normalizedMentionIds = Array.from(new Set(
+    mentionUserIds.map((value) => normalizeMentionUserId(value))
+  ));
+
+  if (normalizedMentionIds.length === 0) {
+    return trimmedMessage;
+  }
+
+  const mentionPrefix = normalizedMentionIds
+    .map((userId) => `[CQ:at,qq=${userId}]`)
+    .join(' ');
+
+  return `${mentionPrefix} ${trimmedMessage}`;
+}
+
 export class NapcatClient {
   private readonly moduleLogger = logger.createModuleLogger('napcat-client');
   private readonly httpClient: AxiosInstance;
@@ -53,10 +82,10 @@ export class NapcatClient {
     });
   }
 
-  async sendGroupMessage(groupId: number, message: string): Promise<any> {
+  async sendGroupMessage(groupId: number, message: string, mentionUserIds: Array<string | number> = []): Promise<any> {
     return this.callAction('send_group_msg', {
       group_id: groupId,
-      message
+      message: buildGroupMessageText(message, mentionUserIds)
     });
   }
 

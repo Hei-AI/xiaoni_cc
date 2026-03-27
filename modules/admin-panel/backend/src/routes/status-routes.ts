@@ -149,7 +149,7 @@ export function createStatusRoutes(database: DatabaseManager, logger: winston.Lo
         llmCallsResult
       ] = await Promise.all([
         database.executeQuery<{ count: number }>('SELECT COUNT(*) as count FROM conversations'),
-        database.executeQuery<{ count: number }>('SELECT COUNT(*) as count FROM conversation_sessions WHERE status = "active"'),
+        database.executeQuery<{ count: number }>("SELECT COUNT(*) as count FROM conversation_sessions WHERE status = 'active'"),
         database.executeQuery<{ count: number }>(
           `SELECT COUNT(*) as count
            FROM llm_call_logs

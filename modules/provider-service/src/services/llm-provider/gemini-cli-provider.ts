@@ -139,7 +139,9 @@ export class GeminiCliProvider implements LLMProvider {
       usage: {
         inputTokens,
         outputTokens,
-        processingTimeMs
+        totalTokens: usageMetadata.totalTokenCount ?? (inputTokens + outputTokens),
+        processingTimeMs,
+        rawUsage: cloneValue(assembled.usageMetadata || {})
       }
     };
   }

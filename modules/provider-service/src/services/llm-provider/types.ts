@@ -90,6 +90,15 @@ export interface OpenResponseUsage {
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
+  input_tokens_details?: {
+    cached_tokens?: number;
+    [key: string]: any;
+  };
+  output_tokens_details?: {
+    reasoning_tokens?: number;
+    [key: string]: any;
+  };
+  [key: string]: any;
 }
 
 export interface OpenResponseResource {
@@ -140,7 +149,11 @@ export interface OpenResponseCreateRequest {
 export interface LLMProviderUsage {
   inputTokens: number;
   outputTokens: number;
+  totalTokens: number;
   processingTimeMs: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  rawUsage?: Record<string, any>;
 }
 
 export interface LLMProviderContext {

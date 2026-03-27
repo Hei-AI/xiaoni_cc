@@ -12,13 +12,13 @@ export default defineConfig({
   },
   server: {
     host: process.env.VITE_DEV_HOST || '127.0.0.1',
-    port: 3003,
+    port: Number.parseInt(process.env.VITE_DEV_PORT || '3003', 10),
     strictPort: true,
     cors: true,
     proxy: {
-      // 全局API代理到Admin Panel Backend (port 9080)
+      // 本地前端继续代理到容器内 admin-backend
       '/api': {
-        target: 'http://localhost:9080',
+        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:9080',
         changeOrigin: true,
         secure: false,
         timeout: 600000,

@@ -2,6 +2,7 @@
 
 const { PrismaClient, Prisma } = require('./generated/client');
 const { Pool } = require('pg');
+const { createTrafficPersistence } = require('./traffic');
 
 let prismaClient = null;
 
@@ -164,11 +165,17 @@ async function closePrismaClient() {
   }
 }
 
+const trafficPersistence = createTrafficPersistence({
+  getPrismaClient,
+  Prisma
+});
+
 module.exports = {
   Prisma,
   buildDatabaseUrl,
   resolveDatabaseUrl,
   createSqlAdapter,
   getPrismaClient,
-  closePrismaClient
+  closePrismaClient,
+  ...trafficPersistence
 };

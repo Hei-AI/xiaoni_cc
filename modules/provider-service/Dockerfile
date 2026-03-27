@@ -8,7 +8,7 @@ WORKDIR /app/modules/provider-service
 FROM base AS deps
 WORKDIR /app
 COPY packages/persistence/package.json packages/persistence/package-lock.json ./packages/persistence/
-COPY packages/persistence/index.js packages/persistence/index.d.ts ./packages/persistence/
+COPY packages/persistence/index.js packages/persistence/index.d.ts packages/persistence/traffic.js ./packages/persistence/
 COPY packages/persistence/prisma ./packages/persistence/prisma
 RUN --mount=type=cache,target=/root/.npm \
   npm --prefix ./packages/persistence ci --no-audit --no-fund \
@@ -33,7 +33,7 @@ RUN npm run build
 FROM base AS prod-deps
 WORKDIR /app
 COPY packages/persistence/package.json packages/persistence/package-lock.json ./packages/persistence/
-COPY packages/persistence/index.js packages/persistence/index.d.ts ./packages/persistence/
+COPY packages/persistence/index.js packages/persistence/index.d.ts packages/persistence/traffic.js ./packages/persistence/
 COPY packages/persistence/prisma ./packages/persistence/prisma
 RUN --mount=type=cache,target=/root/.npm \
   npm --prefix ./packages/persistence ci --omit=dev --no-audit --no-fund \

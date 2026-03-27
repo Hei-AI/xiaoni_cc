@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { 
+import {
   ArrowLeft,
   Edit,
   RefreshCw,
@@ -19,6 +19,7 @@ import {
   Brain,
   Cog
 } from 'lucide-react';
+import { asRecord, getProviderLabel, parseMaybeJson, resolvePromptProviderConfig } from '@/lib/provider-config';
 
 interface AgentPrompt {
   id: string;
@@ -28,6 +29,7 @@ interface AgentPrompt {
   user_prompt_template?: string | null;
   context_variables?: any;
   model_config?: any;
+  advanced_config?: any;
   model_name?: string;
   is_active: number;
   version: number;
@@ -143,6 +145,11 @@ export const PromptDetailPage: React.FC = () => {
   const prompt = promptData.data;
   const agentTypeInfo = getAgentTypeInfo(prompt.agent_type);
   const systemInstructions = parseSystemInstructions(prompt.system_instructions);
+  const providerConfig = resolvePromptProviderConfig(prompt);
+  const parsedModelConfig = parseMaybeJson(prompt.model_config);
+  const parsedAdvancedConfig = parseMaybeJson(prompt.advanced_config);
+  const modelConfigObject = asRecord(parsedModelConfig);
+  const advancedConfigObject = asRecord(parsedAdvancedConfig);
 
   return (
     <div className="space-y-6">
@@ -293,22 +300,36 @@ export const PromptDetailPage: React.FC = () => {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
+              <h4 className="font-medium text-muted-foreground mb-2">Provider</h4>
+              <Badge variant="outline">{getProviderLabel(providerConfig.provider)}</Badge>
+            </div>
+
+            <div>
               <h4 className="font-medium text-muted-foreground mb-2">模型名称</h4>
               <Badge variant="outline">{prompt.model_name || '未指定'}</Badge>
             </div>
           </div>
 
-          {prompt.model_config && (
+          {modelConfigObject && (
             <div className="mt-6">
-              <h4 className="font-medium text-muted-foreground mb-3">生成参数</h4>
+              <h4 className="font-medium text-muted-foreground mb-3">模型配置</h4>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {Object.entries(prompt.model_config).map(([key, value]) => (
+                {Object.entries(modelConfigObject).map(([key, value]) => (
                   <div key={key} className="bg-muted/50 p-3 rounded-md">
                     <div className="text-xs text-muted-foreground uppercase tracking-wider">{key}</div>
                     <div className="text-lg font-mono">{String(value)}</div>
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {advancedConfigObject && (
+            <div className="mt-6">
+              <h4 className="font-medium text-muted-foreground mb-3">高级配置</h4>
+              <pre className="whitespace-pre-wrap text-sm font-mono text-foreground bg-muted p-4 rounded-md border">
+{JSON.stringify(advancedConfigObject, null, 2)}
+              </pre>
             </div>
           )}
         </CardContent>

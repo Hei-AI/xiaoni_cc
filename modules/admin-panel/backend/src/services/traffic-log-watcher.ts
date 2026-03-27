@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
 import * as chokidar from 'chokidar';
+import { createTrafficLogBatch } from '@qq-bot/persistence';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
 
@@ -391,64 +392,7 @@ export class TrafficLogWatcher {
     }
 
     try {
-      // 生成占位符：(?,?,?,...), (?,?,?,...), ...
-      const placeholders = acceptedRecords.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
-
-      const sql = `
-        INSERT INTO http_traffic_logs (
-          trace_id, conversation_id, user_id, session_id, agent_turn, llm_call_id, tool_call_id,
-          container_name, service_name, request_id,
-          method, url, host, path, query_params,
-          request_headers, request_body, request_content_type, request_size,
-          response_status, response_headers, response_body, response_content_type, response_size,
-          duration_ms, request_timestamp, response_timestamp,
-          is_ai_request, api_type, api_version,
-          client_ip, user_agent, error_message
-        ) VALUES ${placeholders}
-      `;
-
-      // 扁平化参数数组
-      const params: any[] = [];
-      for (const record of acceptedRecords) {
-        params.push(
-          record.trace_id || null,
-          record.conversation_id || null,
-          record.user_id || null,
-          record.session_id || null,
-          record.agent_turn ?? null,
-          record.llm_call_id || null,
-          record.tool_call_id || null,
-          record.container_name || 'provider-service',
-          record.service_name || null,
-          record.request_id,
-          record.method,
-          record.url,
-          record.host,
-          record.path,
-          record.query_params ? JSON.stringify(record.query_params) : null,
-          JSON.stringify(record.request_headers),
-          record.request_body || null,
-          record.request_content_type || null,
-          record.request_size || 0,
-          record.response_status || null,
-          record.response_headers ? JSON.stringify(record.response_headers) : null,
-          record.response_body || null,
-          record.response_content_type || null,
-          record.response_size || 0,
-          record.duration_ms ?? null,
-          this.convertToDatabaseTimestamp(record.request_timestamp),
-          record.response_timestamp ? this.convertToDatabaseTimestamp(record.response_timestamp) : null,
-          record.is_ai_request || false,
-          record.api_type || null,
-          record.api_version || null,
-          record.client_ip || null,
-          record.user_agent || null,
-          record.error_message || null
-        );
-      }
-
-      await this.db.executeUpdate(sql, params);
-
+      await createTrafficLogBatch(acceptedRecords);
     } catch (error) {
       this.logger.error('[TrafficLogWatcher] Batch insert failed:', error);
       if (acceptedRecords.length === 1) {
@@ -627,23 +571,6 @@ export class TrafficLogWatcher {
    */
   private generateRequestId(): string {
     return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  /**
-   * 转换ISO 8601时间戳为数据库兼容的时间字符串
-   */
-  private convertToDatabaseTimestamp(isoTimestamp: string): string {
-    try {
-      const date = new Date(isoTimestamp);
-      if (isNaN(date.getTime())) {
-        // 无效时间戳，使用当前时间
-        return new Date().toISOString().slice(0, 19).replace('T', ' ');
-      }
-      // 转换为 'YYYY-MM-DD HH:MM:SS' 格式
-      return date.toISOString().slice(0, 19).replace('T', ' ');
-    } catch {
-      return new Date().toISOString().slice(0, 19).replace('T', ' ');
-    }
   }
 
   /**

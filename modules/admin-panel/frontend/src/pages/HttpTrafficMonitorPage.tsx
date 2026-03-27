@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -15,15 +15,6 @@ import {
   Search,
   Zap,
 } from 'lucide-react';
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -83,12 +74,6 @@ interface TrafficStats {
     total_request_bytes: number;
     total_response_bytes: number;
   };
-  api_types: Array<{
-    api_type: string;
-    request_count: number;
-    avg_duration: number;
-    error_count: number;
-  }>;
   hosts: Array<{
     host: string;
     request_count: number;
@@ -119,7 +104,13 @@ export function HttpTrafficMonitorPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showBatchReplayDialog, setShowBatchReplayDialog] = useState(false);
 
-  const { data: trafficData, isLoading: trafficLoading, refetch: refetchTraffic } = useQuery({
+  const {
+    data: trafficData,
+    error: trafficError,
+    isError: isTrafficError,
+    isLoading: trafficLoading,
+    refetch: refetchTraffic,
+  } = useQuery({
     queryKey: ['traffic-logs', page, filters, timeRange],
     queryFn: async () => {
       const normalizedFilters = Object.fromEntries(
@@ -133,7 +124,20 @@ export function HttpTrafficMonitorPage() {
       });
 
       const response = await fetch(`/api/traffic/logs?${params}`);
-      if (!response.ok) throw new Error('Failed to fetch traffic logs');
+      if (!response.ok) {
+        let message = 'Failed to fetch traffic logs';
+        try {
+          const payload = await response.json();
+          if (typeof payload?.message === 'string' && payload.message.trim()) {
+            message = payload.message;
+          } else if (typeof payload?.error === 'string' && payload.error.trim()) {
+            message = payload.error;
+          }
+        } catch {
+          // Keep the fallback message when the response body is not JSON.
+        }
+        throw new Error(message);
+      }
       return response.json();
     },
     refetchInterval: 30000,
@@ -240,6 +244,7 @@ export function HttpTrafficMonitorPage() {
   const stats: TrafficStats | undefined = statsData?.data;
   const logs: TrafficLog[] = trafficData?.data || [];
   const pagination = trafficData?.pagination;
+  const trafficErrorMessage = trafficError instanceof Error ? trafficError.message : '流量记录加载失败，请稍后重试。';
 
   const handleSelectAll = () => {
     if (selectedIds.size === logs.length) {
@@ -278,14 +283,13 @@ export function HttpTrafficMonitorPage() {
   };
 
   const selectedLogs = logs.filter((log) => selectedIds.has(log.id));
-  const chartData = useMemo(() => (stats?.api_types || []).slice(0, 6).map((item) => ({ name: item.api_type || 'unknown', value: item.request_count })), [stats?.api_types]);
 
   return (
     <PageShell>
       <PageHeader
         eyebrow="Traffic Mirror"
         title="HTTP 流量监控"
-        description="实时观察容器出站请求、AI API 分布和重放链路。视觉上采用交易终端的监控视图，移动端切为请求卡片流。"
+        description="实时观察容器出站请求和重放链路。视觉上采用交易终端的监控视图，移动端切为请求卡片流。"
         icon={<Activity className="h-5 w-5" />}
         actions={
           <>
@@ -314,45 +318,6 @@ export function HttpTrafficMonitorPage() {
           />
         </div>
       )}
-
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
-        <SectionPanel className="xl:col-span-7" title="API 分布" description="按 API 类型聚合当前时间窗的请求量。" icon={<Zap className="h-4 w-4 text-primary" />}>
-          <div className="h-[280px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
-                <CartesianGrid stroke="rgba(148,163,184,0.10)" vertical={false} />
-                <XAxis dataKey="name" stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
-                <YAxis stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    background: 'rgba(255,255,255,0.98)',
-                    border: '1px solid rgba(203,213,225,0.9)',
-                    borderRadius: '12px',
-                    boxShadow: '0 10px 30px -18px rgba(15,23,42,0.28)',
-                  }}
-                />
-                <Bar dataKey="value" fill="hsl(var(--chart-2))" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </SectionPanel>
-
-        <SectionPanel className="xl:col-span-5" title="AI API 类型分布" description="快速查看当前窗口里最主要的 AI 请求类型。" icon={<Globe className="h-4 w-4 text-primary" />}>
-          <div className="space-y-3">
-            {(stats?.api_types || []).slice(0, 6).map((api) => (
-              <div key={api.api_type} className="flex items-center justify-between rounded-lg border border-border bg-muted/45 px-4 py-3">
-                <div>
-                  <div className="text-sm font-medium text-foreground">{api.api_type}</div>
-                  <div className="text-xs text-muted-foreground">
-                    平均 {formatDuration(api.avg_duration)} · 错误 {api.error_count}
-                  </div>
-                </div>
-                <Badge variant="outline">{api.request_count} 次</Badge>
-              </div>
-            ))}
-          </div>
-        </SectionPanel>
-      </div>
 
       <FilterBar>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
@@ -524,6 +489,11 @@ export function HttpTrafficMonitorPage() {
             <RefreshCw className="mr-2 h-6 w-6 animate-spin" />
             <span>加载中...</span>
           </div>
+        ) : isTrafficError ? (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{trafficErrorMessage}</AlertDescription>
+          </Alert>
         ) : logs.length === 0 ? (
           <Alert>
             <AlertTriangle className="h-4 w-4" />

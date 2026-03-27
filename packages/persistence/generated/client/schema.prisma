@@ -73,3 +73,83 @@ model AgentInboundMessage {
   @@index([chat_type, peer_id, received_at, id], map: "idx_agent_inbound_messages_peer")
   @@map("agent_inbound_messages")
 }
+
+model HttpTrafficLog {
+  id                    BigInt    @id @default(autoincrement()) @db.BigInt
+  request_id            String?   @db.VarChar(100)
+  trace_id              String?   @db.VarChar(100)
+  conversation_id       BigInt?   @db.BigInt
+  user_id               String?   @db.VarChar(100)
+  session_id            String?   @db.VarChar(100)
+  agent_turn            Int?
+  llm_call_id           String?   @db.VarChar(100)
+  tool_call_id          String?   @db.VarChar(100)
+  container_name        String?   @db.VarChar(100)
+  service_name          String?   @db.VarChar(100)
+  method                String    @db.VarChar(16)
+  url                   String    @db.Text
+  host                  String    @db.VarChar(255)
+  path                  String    @db.Text
+  query_params          Json?
+  request_headers       Json
+  request_body          String?   @db.Text
+  request_content_type  String?   @db.VarChar(255)
+  request_size          Int?
+  response_status       Int?
+  response_headers      Json?
+  response_body         String?   @db.Text
+  response_content_type String?   @db.VarChar(255)
+  response_size         Int?
+  duration_ms           BigInt?   @db.BigInt
+  request_timestamp     DateTime  @db.Timestamp(3)
+  response_timestamp    DateTime? @db.Timestamp(3)
+  is_ai_request         Boolean   @default(false)
+  api_type              String?   @db.VarChar(64)
+  api_version           String?   @db.VarChar(32)
+  client_ip             String?   @db.VarChar(128)
+  user_agent            String?   @db.Text
+  error_message         String?   @db.Text
+  created_at            DateTime  @default(now()) @db.Timestamp(3)
+
+  @@map("http_traffic_logs")
+}
+
+model TrafficReplayHistory {
+  id                      BigInt   @id @default(autoincrement()) @db.BigInt
+  original_log_id         BigInt   @db.BigInt
+  replay_name             String?  @db.VarChar(255)
+  target_url              String?  @db.Text
+  request_method          String?  @db.VarChar(16)
+  request_headers         Json?
+  request_body            String?  @db.Text
+  response_status         Int?
+  response_headers        Json?
+  response_body           String?  @db.Text
+  duration_ms             Int?
+  status                  String   @default("completed") @db.VarChar(32)
+  error_message           String?  @db.Text
+  replayed_at             DateTime @default(now()) @db.Timestamp(3)
+  replayed_by             String?  @db.VarChar(50)
+  modified_method         String?  @db.VarChar(16)
+  modified_url            String?  @db.Text
+  modified_headers        Json?
+  modified_body           String?  @db.Text
+  modification_summary    Json?
+  replay_request_headers  Json?
+  replay_request_body     String?  @db.Text
+  replay_response_status  Int?
+  replay_duration_ms      Int?
+  replay_response_headers Json?
+  replay_response_body    String?  @db.Text
+  replay_response_size    Int?
+  diff_summary            Json?
+  status_code_match       Boolean  @default(false)
+  response_body_match     Boolean  @default(false)
+  duration_diff_ms        Int?
+  body_size_diff          Int?
+  success                 Boolean  @default(true)
+  template_id             Int?
+
+  @@index([original_log_id, replayed_at, id], map: "idx_original_log_replayed_at_id")
+  @@map("traffic_replay_history")
+}

@@ -154,9 +154,9 @@ function normalizeProvider(provider: PlaygroundProviderConfig['provider']): Play
 function defaultModelForProvider(provider: PlaygroundProviderConfig['provider']): string {
   switch (provider) {
     case 'openai':
-      return 'gpt-5-mini';
+      return 'gpt-5.4-mini';
     case 'codex':
-      return 'gpt-5.2-codex';
+      return 'gpt-5.4-mini';
     case 'google-legacy':
       return 'gemini-2.5-flash';
     case 'google-gemini-cli':
