@@ -125,7 +125,7 @@ sudo iptables -t nat -L PREROUTING -n -v --line-numbers | grep 15001
 docker exec qqbot-mysql curl http://www.google.com
 
 # HTTPS测试（需要CA证书）
-docker exec qqbot-qqbot-core curl https://www.google.com
+docker exec qqbot-provider-service curl https://www.google.com
 
 # 查看日志
 tail -f logs/qqbot-traffic/mitmproxy-*.log
@@ -307,8 +307,8 @@ python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py ipta
 ### HTTPS证书错误
 
 ```bash
-# 检查CA证书是否安装到容器
-docker exec qqbot-qqbot-core ls /usr/local/share/ca-certificates/
+# 检查 CA 证书是否安装到容器
+docker exec qqbot-provider-service ls /usr/local/share/ca-certificates/
 
 # 需要在Dockerfile中添加证书安装步骤
 ```
@@ -318,7 +318,6 @@ docker exec qqbot-qqbot-core ls /usr/local/share/ca-certificates/
 - [TRANSPARENT_PROXY_FINAL_STATUS.md](../../docs/TRANSPARENT_PROXY_FINAL_STATUS.md) - 实现状态报告
 - [MITMPROXY_STARTUP_GUIDE.md](../../docs/MITMPROXY_STARTUP_GUIDE.md) - 手动启动指南
 - [transparent-proxy/README.md](transparent-proxy/README.md) - 透明代理工具说明
-- [CLAUDE.md](CLAUDE.md) - Claude Code开发指南
 
 ## 📝 注意事项
 
@@ -330,7 +329,7 @@ docker exec qqbot-qqbot-core ls /usr/local/share/ca-certificates/
 
 ## 🔮 未来计划
 
-- [ ] MySQL数据库集成（替代JSONL日志）
+- [ ] 增加结构化日志聚合与更稳定的查询入口（在不替换当前 JSONL + admin-backend 导入链路的前提下）
 - [ ] Admin Panel Web界面展示
 - [ ] 实时流量统计和告警
 - [ ] CA证书自动安装到容器镜像

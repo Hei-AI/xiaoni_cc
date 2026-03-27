@@ -5,7 +5,7 @@
 ## 主要入口
 
 - `start_modules.py`
-  - 本地同时启动 `provider-service`、`admin-backend`、`admin-frontend`
+  - 本地启动前端 Vite 联调页，并写出宿主机访问地址
 - `process-manager.js`
   - `start_modules.py` 的备用实现
 - `self-verification.sh`
@@ -31,8 +31,8 @@
 以下内容已经从当前主仓脚本面移除，不再作为维护对象：
 
 - MySQL 直连检查、修复、备份、建表脚本
-- 旧 cognition / virtual-walk demo 数据脚本
+- 旧 demo 数据脚本
 - 依赖 `qqbot-mysql`、`mysql2`、`3306` 的历史测试与诊断脚本
-- `http-api`、独立函数注册中心、旧 `queue-monitor` 相关脚本
+- 已移除的旧服务与独立注册中心相关脚本
 
 当前仓库不再维护 PostgreSQL 直连脚本。数据库侧排障优先走现有 HTTP 健康检查、管理端接口和 smoke 脚本。

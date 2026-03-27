@@ -73,7 +73,12 @@ echo "步骤4: 从容器发起测试请求..."
 
 # 测试容器列表
 TEST_CONTAINERS=(
-    "qqbot-qqbot-core"
+    "qqbot-provider-service"
+    "qqbot-admin-backend"
+)
+
+EXPECTED_CONTAINERS=(
+    "qqbot-provider-service"
     "qqbot-admin-backend"
 )
 
@@ -123,24 +128,24 @@ fi
 if command -v jq &> /dev/null; then
     echo "$RECENT_LOGS" | jq -r 'select(.container_name != null) | "\(.container_name) | \(.method) \(.host)\(.path)"' | while read line; do
         CONTAINER=$(echo "$line" | cut -d'|' -f1 | xargs)
-        if [ "$CONTAINER" = "qqbot-core" ]; then
-            echo -e "  ${RED}✗${NC} $line  ${RED}(仍然是硬编码的 qqbot-core)${NC}"
-        elif [ "$CONTAINER" = "unknown" ]; then
+        if [ "$CONTAINER" = "unknown" ]; then
             echo -e "  ${YELLOW}⚠${NC} $line  ${YELLOW}(未识别的容器)${NC}"
-        else
+        elif printf '%s\n' "${EXPECTED_CONTAINERS[@]}" | grep -qx "$CONTAINER"; then
             echo -e "  ${GREEN}✓${NC} $line"
+        else
+            echo -e "  ${RED}✗${NC} $line  ${RED}(不在当前主栈容器集合内)${NC}"
         fi
     done
 else
     # 如果没有 jq，使用简单的 grep
     echo "$RECENT_LOGS" | grep -o '"container_name":"[^"]*"' | while read line; do
         CONTAINER=$(echo "$line" | cut -d':' -f2 | tr -d '"')
-        if [ "$CONTAINER" = "qqbot-core" ]; then
-            echo -e "  ${RED}✗${NC} container_name: $CONTAINER  ${RED}(仍然是硬编码的 qqbot-core)${NC}"
-        elif [ "$CONTAINER" = "unknown" ]; then
+        if [ "$CONTAINER" = "unknown" ]; then
             echo -e "  ${YELLOW}⚠${NC} container_name: $CONTAINER  ${YELLOW}(未识别的容器)${NC}"
-        else
+        elif printf '%s\n' "${EXPECTED_CONTAINERS[@]}" | grep -qx "$CONTAINER"; then
             echo -e "  ${GREEN}✓${NC} container_name: $CONTAINER"
+        else
+            echo -e "  ${RED}✗${NC} container_name: $CONTAINER  ${RED}(不在当前主栈容器集合内)${NC}"
         fi
     done
 fi
@@ -157,17 +162,17 @@ if command -v jq &> /dev/null; then
         jq -r '.container_name' 2>/dev/null | sort | uniq -c | \
         awk '{printf "  %-30s %d 次\n", $2, $1}'
 
-    # 检查是否还有硬编码的 qqbot-core
+    # 检查是否还有不属于当前主栈的容器名
     HARDCODED_COUNT=$(tail -100 "$TRAFFIC_LOG" | grep -v '"type":"log_file_header"' | \
-        jq -r '.container_name' 2>/dev/null | grep -c "^qqbot-core$" || echo "0")
+        jq -r '.container_name' 2>/dev/null | grep -Ev '^(qqbot-provider-service|qqbot-admin-backend|unknown|null)?$' | wc -l | tr -d ' ' || echo "0")
 
     if [ "$HARDCODED_COUNT" -gt 0 ]; then
         echo ""
-        echo -e "${RED}警告: 发现 ${HARDCODED_COUNT} 条硬编码的 'qqbot-core' 记录${NC}"
-        echo -e "${RED}容器识别功能可能未生效${NC}"
+        echo -e "${RED}警告: 发现 ${HARDCODED_COUNT} 条不属于当前主栈的容器记录${NC}"
+        echo -e "${RED}容器识别功能可能未生效，或仍残留历史命名${NC}"
     else
         echo ""
-        echo -e "${GREEN}✓ 未发现硬编码的 'qqbot-core'，容器识别功能正常${NC}"
+        echo -e "${GREEN}✓ 未发现历史容器命名残留，容器识别功能正常${NC}"
     fi
 else
     echo "(需要 jq 工具才能进行详细统计)"

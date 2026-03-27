@@ -319,7 +319,7 @@ async function generateTestReport() {
           break;
         case '服务健康状态':
           console.log('- 检查Docker容器状态: docker ps | grep qqbot');
-          console.log('- 重启服务: docker restart qqbot-qqbot-core');
+          console.log('- 重启相关服务: docker compose restart provider-service admin-backend');
           break;
         case '人类化处理配置':
           console.log('- 检查环境变量: ENABLE_HUMAN_LIKE_PROCESSING=true');

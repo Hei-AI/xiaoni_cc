@@ -97,17 +97,12 @@ python3 scripts/start_modules.py status
 这里有两条不同链路，必须区分：
 
 - 本地开发链路：`npm run deploy:local`
-  - 使用 `scripts/start_modules.py`
-  - 前端会以 `0.0.0.0:3003` 启动，便于宿主机 Chrome / Playwright MCP 访问
-  - 宿主机访问地址会写入 `/home/liahua/.qqbot-local/playwright/local-frontend-access.json`
-  - 适合本地联调，不会更新公网管理端
+  - 只用于本地前端联调，不会更新或中断公网管理端
+  - 具体端口、访问地址和本机规则以 `docs/AGENTS_FRONTEND.md`、`docs/AGENTS_SECRETS_LOCAL_STATE.md` 为准
 
 - 公网管理端链路：`npm run deploy`
-  - 等价于 `npm run deploy:admin-public`
-  - 会重建 Docker 的 `admin-frontend`，并重启 `admin-expose-proxy`
-  - 这是 `qqbot-admin.liahuas.top` 实际使用的链路
-  - 部署时会自动生成生产调试 token，明文保存在 `/home/liahua/.qqbot-local/admin-debug-auth/qqbot-admin-debug.token`
-  - 脚本会自动校验 `admin-backend` 健康接口和本机 `3903` 网关状态
+  - 用于公网管理端 `qqbot-admin.liahuas.top`
+  - 具体部署、认证和 debug token 规则以 `docs/AGENTS_SECRETS_LOCAL_STATE.md` 为准
 
 ## 本地文件约定
 
@@ -116,10 +111,4 @@ python3 scripts/start_modules.py status
 
 ## 文档
 
-- [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)
 - [docs/ROADMAP.md](docs/ROADMAP.md)
-- [docs/PLAYGROUND_IMPLEMENTATION_PROGRESS.md](docs/PLAYGROUND_IMPLEMENTATION_PROGRESS.md)
-- [docs/TRACE_CANVAS_IMPLEMENTATION_PROGRESS.md](docs/TRACE_CANVAS_IMPLEMENTATION_PROGRESS.md)
-- [docs/span-trace-rebuild-plan.md](docs/span-trace-rebuild-plan.md)
-- [docs/FRONTEND_DEBUG_ACCESS.md](docs/FRONTEND_DEBUG_ACCESS.md)
-- [DOCKER.md](DOCKER.md)

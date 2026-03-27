@@ -34,9 +34,6 @@ const PromptDetailPage = lazy(async () => ({
 const PromptEditPage = lazy(async () => ({
   default: (await import('./pages/PromptEditPage')).PromptEditPage,
 }));
-const PromptDebugPage = lazy(async () => ({
-  default: (await import('./pages/PromptDebugPage')).PromptDebugPage,
-}));
 const QueueManagementPage = lazy(() => import('./pages/QueueManagementPage'));
 const HttpTrafficMonitorPage = lazy(async () => ({
   default: (await import('./pages/HttpTrafficMonitorPage')).HttpTrafficMonitorPage,
@@ -59,6 +56,11 @@ const queryClient = new QueryClient({
 const PromptRedirect: React.FC = () => {
   const { promptId } = useParams<{ promptId: string }>();
   return <Navigate to={`/prompts/${promptId}/detail`} replace />;
+};
+
+const PromptDebugRedirect: React.FC = () => {
+  const { promptId } = useParams<{ promptId: string }>();
+  return <Navigate to={`/playground?promptId=${promptId}`} replace />;
 };
 
 function RouteFallback() {
@@ -91,8 +93,7 @@ function App() {
               <Route path="/prompts/:promptId" element={<PromptRedirect />} />
               <Route path="/prompts/:promptId/detail" element={<PromptDetailPage />} />
               <Route path="/prompts/:promptId/edit" element={<PromptEditPage />} />
-              <Route path="/prompts/:promptId/debug" element={<PromptDebugPage />} />
-              <Route path="/queue-monitor" element={<Navigate to="/queue-management" replace />} />
+              <Route path="/prompts/:promptId/debug" element={<PromptDebugRedirect />} />
               <Route path="/queue-management" element={<QueueManagementPage />} />
               <Route path="/traffic" element={<HttpTrafficMonitorPage />} />
               <Route path="/traffic/:id" element={<HttpTrafficDetailPage />} />

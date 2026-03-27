@@ -3,14 +3,14 @@
 ## 当前目标
 
 - 稳定当前主仓最小运行栈：`postgres + provider-service + admin-panel`
-- 继续清理旧 `qqbot-core` 业务编排痕迹、陈旧脚本和误导性文档
+- 继续清理历史兼容代码、陈旧脚本和误导性文档
 - 把管理端保留能力收口到当前真实后端能力，避免再出现无效入口
 - 让 provider-service 成为唯一外部能力接入层，统一承接调试、模拟、NapCat 发送和 embeddings
 
 ## 近期计划
 
 - 继续把仓库脚本、部署说明、环境变量命名统一到 `provider-service`
-- 继续清理残留的 `qqbot-core` 文案和旧脚本假设，避免误导运行与排障
+- 继续清理残留的旧文案和脚本假设，避免误导运行与排障
 - 稳定 admin playground、queue management、traffic replay、conversation trace 等保留调试面
 - 为新的业务流程重建预留清晰边界：业务编排在新服务中实现，外部能力接入继续放在 `provider-service`
 
