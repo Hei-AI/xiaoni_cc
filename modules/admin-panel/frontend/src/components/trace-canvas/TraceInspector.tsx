@@ -58,7 +58,7 @@ interface TraceInspectorSurfaceProps {
   detached: boolean;
   onImportToPlayground?: () => void;
   isImportingToPlayground?: boolean;
-  onFocusProviderExchange?: (spanId: string) => void;
+  onFocusProviderRequest?: (spanId: string) => void;
   onOpenTrafficDetail?: (trafficLogId: string | number) => void;
   onOpenTrafficList?: (llmCallId: string) => void;
   onToggleDetached?: () => void;
@@ -75,7 +75,7 @@ function TraceInspectorSurface({
   detached,
   onImportToPlayground,
   isImportingToPlayground,
-  onFocusProviderExchange,
+  onFocusProviderRequest,
   onOpenTrafficDetail,
   onOpenTrafficList,
   onToggleDetached,
@@ -102,8 +102,8 @@ function TraceInspectorSurface({
             {detached ? 'Detached Inspector' : 'Selected Span'}
           </div>
           <div className="flex items-center gap-2">
-            {node.providerExchangeSpanId && onFocusProviderExchange ? (
-              <Button type="button" variant="outline" size="sm" onClick={() => onFocusProviderExchange(node.providerExchangeSpanId!)}>
+            {node.providerRequestSpanId && onFocusProviderRequest ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => onFocusProviderRequest(node.providerRequestSpanId!)}>
                 定位真实请求
               </Button>
             ) : null}
@@ -219,7 +219,7 @@ interface TraceInspectorPanelProps {
   allowFloating?: boolean;
   onImportToPlayground?: () => void;
   isImportingToPlayground?: boolean;
-  onFocusProviderExchange?: (spanId: string) => void;
+  onFocusProviderRequest?: (spanId: string) => void;
   onOpenTrafficDetail?: (trafficLogId: string | number) => void;
   onOpenTrafficList?: (llmCallId: string) => void;
 }
@@ -231,7 +231,7 @@ export function TraceInspectorPanel({
   allowFloating = true,
   onImportToPlayground,
   isImportingToPlayground = false,
-  onFocusProviderExchange,
+  onFocusProviderRequest,
   onOpenTrafficDetail,
   onOpenTrafficList,
 }: TraceInspectorPanelProps) {
@@ -336,7 +336,7 @@ export function TraceInspectorPanel({
           detached={false}
           onImportToPlayground={onImportToPlayground}
           isImportingToPlayground={isImportingToPlayground}
-          onFocusProviderExchange={onFocusProviderExchange}
+          onFocusProviderRequest={onFocusProviderRequest}
           onOpenTrafficDetail={onOpenTrafficDetail}
           onOpenTrafficList={onOpenTrafficList}
           onToggleDetached={allowFloating ? () => setDetached(true) : undefined}
@@ -356,7 +356,7 @@ export function TraceInspectorPanel({
                 detached
                 onImportToPlayground={onImportToPlayground}
                 isImportingToPlayground={isImportingToPlayground}
-                onFocusProviderExchange={onFocusProviderExchange}
+                onFocusProviderRequest={onFocusProviderRequest}
                 onOpenTrafficDetail={onOpenTrafficDetail}
                 onOpenTrafficList={onOpenTrafficList}
                 onToggleDetached={() => setDetached(false)}
@@ -378,7 +378,7 @@ interface TraceInspectorSheetProps {
   metadataBadges: string[];
   onImportToPlayground?: () => void;
   isImportingToPlayground?: boolean;
-  onFocusProviderExchange?: (spanId: string) => void;
+  onFocusProviderRequest?: (spanId: string) => void;
   onOpenTrafficDetail?: (trafficLogId: string | number) => void;
   onOpenTrafficList?: (llmCallId: string) => void;
 }
@@ -390,7 +390,7 @@ export function TraceInspectorSheet({
   metadataBadges,
   onImportToPlayground,
   isImportingToPlayground = false,
-  onFocusProviderExchange,
+  onFocusProviderRequest,
   onOpenTrafficDetail,
   onOpenTrafficList,
 }: TraceInspectorSheetProps) {
@@ -408,7 +408,7 @@ export function TraceInspectorSheet({
             allowFloating={false}
             onImportToPlayground={onImportToPlayground}
             isImportingToPlayground={isImportingToPlayground}
-            onFocusProviderExchange={onFocusProviderExchange}
+            onFocusProviderRequest={onFocusProviderRequest}
             onOpenTrafficDetail={onOpenTrafficDetail}
             onOpenTrafficList={onOpenTrafficList}
             className="h-full min-h-0 border-none shadow-none"

@@ -118,7 +118,7 @@ export const RunTracePage: React.FC = () => {
     await handleImportSpan(selectedSpan.spanId);
   }, [handleImportSpan, selectedSpan]);
 
-  const handleFocusProviderExchange = React.useCallback((spanId: string) => {
+  const handleFocusProviderRequest = React.useCallback((spanId: string) => {
     handleSelectSpan(spanId);
   }, [handleSelectSpan]);
 
@@ -255,7 +255,7 @@ export const RunTracePage: React.FC = () => {
                     metadataBadges={viewModel.metadataBadges}
                     onImportToPlayground={canImportSelectedSpan ? handleImportSelectedSpan : undefined}
                     isImportingToPlayground={Boolean(importingSpanId)}
-                    onFocusProviderExchange={handleFocusProviderExchange}
+                    onFocusProviderRequest={handleFocusProviderRequest}
                     onOpenTrafficDetail={handleOpenTrafficDetail}
                     onOpenTrafficList={handleOpenTrafficList}
                     className="h-full min-h-0"
@@ -283,7 +283,7 @@ export const RunTracePage: React.FC = () => {
               metadataBadges={viewModel.metadataBadges}
               onImportToPlayground={canImportSelectedSpan ? handleImportSelectedSpan : undefined}
               isImportingToPlayground={Boolean(importingSpanId)}
-              onFocusProviderExchange={handleFocusProviderExchange}
+              onFocusProviderRequest={handleFocusProviderRequest}
               onOpenTrafficDetail={handleOpenTrafficDetail}
               onOpenTrafficList={handleOpenTrafficList}
             />

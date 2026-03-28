@@ -491,7 +491,7 @@ export interface TraceWaterfallRow {
   meta: TraceWaterfallMeta[];
   sourceRef?: string | number | null;
   playgroundCapability?: 'exact' | 'partial' | 'unsupported';
-  providerExchangeSpanId?: string | null;
+  providerRequestSpanId?: string | null;
   trafficLogId?: string | number | null;
   llmCallId?: string | null;
   inspector: {

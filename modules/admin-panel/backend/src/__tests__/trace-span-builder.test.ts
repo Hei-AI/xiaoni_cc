@@ -4,6 +4,20 @@ import { buildConversationTracePayload } from '../services/trace-span-builder';
 
 jest.mock('@qq-bot/persistence', () => ({
   listTraceTrafficLogs: jest.fn(),
+  parseInstantValue: jest.fn((value: unknown) => {
+    if (!value) {
+      return null;
+    }
+    const parsed = value instanceof Date ? value : new Date(value as string | number);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }),
+  serializeTimestampForApi: jest.fn((value: unknown) => {
+    if (!value) {
+      return null;
+    }
+    const parsed = value instanceof Date ? value : new Date(value as string | number);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }),
 }));
 
 function createLogger(): winston.Logger {
@@ -74,7 +88,7 @@ describe('buildConversationTracePayload', () => {
     jest.resetAllMocks();
   });
 
-  it('creates provider.exchange and provider.request spans for exact AI traffic matches', async () => {
+  it('attaches provider.request spans directly under generation for exact AI traffic matches', async () => {
     const db = createDatabase({
       llmCallRows: [
         {
@@ -138,20 +152,11 @@ describe('buildConversationTracePayload', () => {
 
     const spans = payload!.spans;
     const generationSpan = spans.find((span) => span.name === 'llm.generation');
-    const providerExchangeSpan = spans.find((span) => span.name === 'provider.exchange');
     const providerRequestSpan = spans.find((span) => span.name === 'provider.request');
 
     expect(generationSpan?.attributes['provider.request_count']).toBe(1);
-    expect(providerExchangeSpan).toMatchObject({
-      parent_span_id: 'llm-call:llm-call-1',
-      attributes: expect.objectContaining({
-        'semantic.role': 'provider_exchange',
-        'trace.llm_call_id': 'llm-call-1',
-        'provider.request_count': 1,
-      }),
-    });
     expect(providerRequestSpan).toMatchObject({
-      parent_span_id: 'provider-exchange:llm-call-1',
+      parent_span_id: 'llm-call:llm-call-1',
       attributes: expect.objectContaining({
         'semantic.role': 'provider_request',
         'provider.traffic_log_id': 101,
@@ -163,10 +168,11 @@ describe('buildConversationTracePayload', () => {
         api_type: 'openai',
       }),
     });
+    expect(spans.some((span) => span.name === 'provider.exchange')).toBe(false);
     expect(spans.some((span) => span.span_id === 'http:101')).toBe(false);
   });
 
-  it('keeps AI traffic without llm_call_id out of provider.exchange', async () => {
+  it('keeps AI traffic without llm_call_id out of provider spans', async () => {
     const db = createDatabase({
       llmCallRows: [
         {
