@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { agentConfig } from '../config';
 import { logger } from '../utils/logger';
 import { AgentToolCall, ConversationTurn, QueueMessageRecord } from '../types';
+import { AgentPromptResolver, AgentPromptService, ResolvedAgentRuntimePrompt, applyPromptTemplate } from './agent-prompt-service';
 import { RuntimeStore } from './runtime-store';
 
 type OpenResponseInputItem =
@@ -21,6 +22,28 @@ type OpenResponseInputItem =
       call_id: string;
       output: string;
     };
+
+type OpenResponseToolDefinition = {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: 'object';
+      properties: Record<string, unknown>;
+      additionalProperties: false;
+    };
+  };
+};
+
+type CanonicalAgentTurnRequest = {
+  model: string;
+  input: OpenResponseInputItem[];
+  instructions?: string;
+  tools: OpenResponseToolDefinition[];
+  tool_choice: 'required';
+  parallel_tool_calls: false;
+};
 
 type ProviderAgentResponse = {
   success: boolean;
@@ -109,9 +132,29 @@ const TOOL_DEFINITIONS = [
   }
 ] as const;
 
+export function buildCanonicalAgentTurnRequest(
+  modelName: string,
+  loopInput: OpenResponseInputItem[]
+): CanonicalAgentTurnRequest {
+  const [firstItem, ...remainingItems] = loopInput;
+  const instructions = firstItem?.type === 'message' && firstItem.role === 'system'
+    ? firstItem.content
+    : undefined;
+
+  return {
+    model: modelName,
+    input: instructions ? remainingItems : loopInput,
+    ...(instructions ? { instructions } : {}),
+    tools: [...TOOL_DEFINITIONS],
+    tool_choice: 'required',
+    parallel_tool_calls: false
+  };
+}
+
 export class AgentLoopService {
   constructor(
-    private readonly store: RuntimeStore
+    private readonly store: RuntimeStore,
+    private readonly promptResolver: AgentPromptResolver = new AgentPromptService()
   ) {}
 
   async processQueueMessage(queueMessage: QueueMessageRecord) {
@@ -134,6 +177,18 @@ export class AgentLoopService {
     let conversationId: number | null = null;
     let turnsExecuted = 0;
     let sentMessages: string[] = [];
+    let historyCount = 0;
+    let runtimePrompt: ResolvedAgentRuntimePrompt = {
+      source: 'default',
+      promptId: null,
+      promptName: 'agent_loop_v1',
+      systemPrompt: agentConfig.systemPrompt,
+      userPromptTemplate: null,
+      contextVariables: {},
+      runtimeVariables: {},
+      modelName: agentConfig.modelName,
+      parameters: {}
+    };
 
     await this.store.logTimelineEvent({
       traceId: payload.traceId,
@@ -162,13 +217,15 @@ export class AgentLoopService {
         userId: sessionIds.userId,
         groupId: sessionIds.groupId
       });
+      historyCount = history.length;
 
-      const loopInput = buildInitialInput(history, payload);
+      runtimePrompt = await this.promptResolver.resolveForQueueMessage(payload);
+      const loopInput = buildInitialInput(history, payload, runtimePrompt);
       let finishResult: Record<string, unknown> | null = null;
 
       for (let turn = 1; turn <= agentConfig.maxTurns; turn += 1) {
         turnsExecuted = turn;
-        const modelResult = await this.executeAgentTurn(loopInput, payload.traceId, turn);
+        const modelResult = await this.executeAgentTurn(loopInput, payload.traceId, turn, runtimePrompt);
         const toolCalls = extractToolCalls(modelResult.canonical_response);
 
         if (toolCalls.length === 0) {
@@ -261,14 +318,20 @@ export class AgentLoopService {
         aiResponse: finalResponse,
         responseTimeMs: Date.now() - startedAt,
         status: 'completed',
-        modelName: agentConfig.modelName,
+        modelName: runtimePrompt.modelName,
         traceId: payload.traceId,
         rawRequest: {
           run_id: queueMessage.id,
           batch_id: queueMessage.batchId,
           queue_message_ids: queueMessage.queueMessageIds,
           batch_messages: payload.messages,
-          history_count: history.length
+          history_count: historyCount,
+          prompt: {
+            source: runtimePrompt.source,
+            prompt_id: runtimePrompt.promptId,
+            prompt_name: runtimePrompt.promptName,
+            model_name: runtimePrompt.modelName
+          }
         },
         rawResponse: {
           sent_messages: sentMessages,
@@ -344,13 +407,20 @@ export class AgentLoopService {
         responseTimeMs: Date.now() - startedAt,
         status: 'failed',
         errorReason: message,
-        modelName: agentConfig.modelName,
+        modelName: runtimePrompt.modelName,
         traceId: payload.traceId,
         rawRequest: {
           run_id: queueMessage.id,
           batch_id: queueMessage.batchId,
           queue_message_ids: queueMessage.queueMessageIds,
-          batch_messages: payload.messages
+          batch_messages: payload.messages,
+          history_count: historyCount,
+          prompt: {
+            source: runtimePrompt.source,
+            prompt_id: runtimePrompt.promptId,
+            prompt_name: runtimePrompt.promptName,
+            model_name: runtimePrompt.modelName
+          }
         },
         rawResponse: {
           sent_messages: sentMessages,
@@ -397,7 +467,13 @@ export class AgentLoopService {
     }
   }
 
-  private async executeAgentTurn(loopInput: OpenResponseInputItem[], traceId: string, turn: number) {
+  private async executeAgentTurn(
+    loopInput: OpenResponseInputItem[],
+    traceId: string,
+    turn: number,
+    runtimePrompt: ResolvedAgentRuntimePrompt
+  ) {
+    const canonicalRequest = buildCanonicalAgentTurnRequest(runtimePrompt.modelName, loopInput);
     const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
       method: 'POST',
       headers: {
@@ -407,15 +483,10 @@ export class AgentLoopService {
         trace_id: traceId,
         agent_turn: turn,
         agent_type: 'chat_bot',
-        prompt_name: 'agent_loop_v1',
-        model: agentConfig.modelName,
-        canonicalRequest: {
-          model: agentConfig.modelName,
-          input: loopInput,
-          tools: TOOL_DEFINITIONS,
-          tool_choice: 'required',
-          parallel_tool_calls: false
-        }
+        prompt_name: runtimePrompt.promptName,
+        model: runtimePrompt.modelName,
+        parameters: runtimePrompt.parameters,
+        canonicalRequest
       })
     });
 
@@ -512,12 +583,21 @@ export class AgentLoopService {
   }
 }
 
-function buildInitialInput(history: ConversationTurn[], queueMessage: QueueMessageRecord['payload']): OpenResponseInputItem[] {
+export function buildInitialInput(
+  history: ConversationTurn[],
+  queueMessage: QueueMessageRecord['payload'],
+  runtimePrompt: Pick<ResolvedAgentRuntimePrompt, 'systemPrompt' | 'userPromptTemplate' | 'contextVariables' | 'runtimeVariables'> = {
+    systemPrompt: agentConfig.systemPrompt,
+    userPromptTemplate: null,
+    contextVariables: {},
+    runtimeVariables: {}
+  }
+): OpenResponseInputItem[] {
   const items: OpenResponseInputItem[] = [
     {
       type: 'message',
       role: 'system',
-      content: agentConfig.systemPrompt
+      content: runtimePrompt.systemPrompt
     }
   ];
 
@@ -566,11 +646,17 @@ function buildInitialInput(history: ConversationTurn[], queueMessage: QueueMessa
     'BatchMessages:',
     batchMessages
   ].join('\n');
+  const renderedCurrentMessage = runtimePrompt.userPromptTemplate
+    ? applyPromptTemplate(runtimePrompt.userPromptTemplate, runtimePrompt.contextVariables, {
+        ...runtimePrompt.runtimeVariables,
+        user_input: currentMessage
+      })
+    : currentMessage;
 
   items.push({
     type: 'message',
     role: 'user',
-    content: currentMessage
+    content: renderedCurrentMessage
   });
 
   return items;
