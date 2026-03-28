@@ -33,6 +33,7 @@ import {
   deleteDebugSession
 } from '../lib/promptDebugApi';
 import { formatConfiguredValue } from '@/lib/contract-display';
+import { formatDateOnly, formatTimeOnly } from '@/lib/utils';
 
 interface DebugMessage {
   id: string;
@@ -480,7 +481,7 @@ export const PromptDebugPage: React.FC = () => {
       const content = firstUserMessage.content.trim();
       return content.length > 20 ? content.substring(0, 20) + '...' : content;
     }
-    return `调试会话 ${new Date().toLocaleDateString()}`;
+    return `调试会话 ${formatDateOnly(new Date())}`;
   };
 
   if (isLoadingPrompt) {
@@ -709,7 +710,7 @@ export const PromptDebugPage: React.FC = () => {
                             </div>
 
                             <div className="mt-1 text-xs text-muted-foreground">
-                              {message.timestamp.toLocaleTimeString()}
+                              {formatTimeOnly(message.timestamp)}
                             </div>
                           </div>
 
@@ -854,7 +855,7 @@ export const PromptDebugPage: React.FC = () => {
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Clock className="h-3 w-3" />
-                        <span>{new Date(session.created_at).toLocaleDateString()}</span>
+                        <span>{formatDateOnly(session.created_at)}</span>
                         <span>•</span>
                         <span>{session.message_count || 0} 条消息</span>
                       </div>
@@ -912,7 +913,7 @@ export const PromptDebugPage: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Clock className="h-3 w-3" />
-                          <span>{new Date(session.created_at).toLocaleDateString()}</span>
+                          <span>{formatDateOnly(session.created_at)}</span>
                           <span>•</span>
                           <span>{session.message_count || 0} 条消息</span>
                         </div>
@@ -989,7 +990,7 @@ export const PromptDebugPage: React.FC = () => {
                             <div className="whitespace-pre-wrap">{message.content}</div>
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
-                            {message.timestamp.toLocaleTimeString()}
+                            {formatTimeOnly(message.timestamp)}
                           </div>
                         </div>
                         <div className={`flex-shrink-0 ${message.role === 'user' ? 'order-1' : 'order-2'}`}>

@@ -14,6 +14,7 @@ import {
   Clock,
   CheckCircle
 } from 'lucide-react';
+import { formatDateOnly, formatTimeOnly } from '@/lib/utils';
 
 // 时间线事件类型定义
 interface TimelineEvent {
@@ -121,13 +122,8 @@ export const ProcessingTimeline: React.FC<ProcessingTimelineProps> = ({
     return {
       ...event,
       timestamp: eventTime.getTime(),
-      displayTime: eventTime.toLocaleTimeString('zh-CN', {
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      }) + '.' + eventTime.getMilliseconds().toString().padStart(3, '0'),
-      displayDate: eventTime.toLocaleDateString('zh-CN'),
+      displayTime: formatTimeOnly(eventTime, { withMilliseconds: true }),
+      displayDate: formatDateOnly(eventTime),
       icon: config.icon,
       color: config.color,
       bgColor: config.bgColor,

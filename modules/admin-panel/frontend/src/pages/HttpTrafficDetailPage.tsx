@@ -27,7 +27,7 @@ import { ReplayResultComparison } from '../components/ReplayResultComparison';
 import { ReplayHistoryList } from '../components/ReplayHistoryList';
 import type { ReplayModifications, ReplayResult, ReplayHistory } from '../types/traffic-replay';
 import { formatReturnedValue } from '@/lib/contract-display';
-import { formatTimestamp } from '../lib/utils';
+import { formatDateOnly, formatTimestamp } from '../lib/utils';
 
 interface TrafficLogDetail {
   id: number;
@@ -188,7 +188,7 @@ export function HttpTrafficDetailPage() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `traffic_log_${log.id}_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `traffic_log_${log.id}_${formatDateOnly(new Date(), { fallback: 'export' })}.json`;
     document.body.appendChild(a);
     a.click();
     window.URL.revokeObjectURL(url);

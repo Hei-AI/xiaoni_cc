@@ -71,6 +71,7 @@ import {
   resolvePromptProviderConfig
 } from '@/lib/provider-config';
 import { formatConfiguredValue } from '@/lib/contract-display';
+import { formatDateOnly, formatIsoOffset, formatTimeOnly, formatTimestamp } from '@/lib/utils';
 
 interface AgentPrompt {
   id: string;
@@ -673,15 +674,15 @@ const applyContextVariables = (
     const now = new Date();
     switch (format) {
       case 'iso':
-        return now.toISOString();
+        return formatIsoOffset(now, { fallback: now.toISOString() });
       case 'date':
-        return now.toDateString();
+        return formatDateOnly(now, { fallback: now.toDateString() });
       case 'time':
-        return now.toTimeString();
+        return formatTimeOnly(now, { fallback: now.toTimeString() });
       case 'locale':
-        return now.toLocaleString('zh-CN');
+        return formatTimestamp(now, { fallback: now.toISOString() });
       default:
-        return now.toISOString();
+        return formatIsoOffset(now, { fallback: now.toISOString() });
     }
   });
 
@@ -813,7 +814,7 @@ const serializeMessagesForSave = (messages: DebugMessage[]): any[] =>
     return {
       ...rest,
       timestamp:
-        msg.timestamp instanceof Date ? msg.timestamp.toISOString() : msg.timestamp,
+        msg.timestamp instanceof Date ? formatIsoOffset(msg.timestamp, { fallback: msg.timestamp.toISOString() }) : msg.timestamp,
     };
   });
 
@@ -1488,7 +1489,7 @@ export const PromptEditPage: React.FC = () => {
     } else {
       const runtimeVariables = {
         conversation_id: conversationId,
-        timestamp: new Date().toISOString(),
+        timestamp: formatIsoOffset(new Date(), { fallback: new Date().toISOString() }),
         model: formData.model_name.trim()
       };
 
@@ -1704,7 +1705,7 @@ export const PromptEditPage: React.FC = () => {
         return content;
       }
     }
-    return `调试会话 ${new Date().toLocaleDateString()}`;
+    return `调试会话 ${formatDateOnly(new Date(), { fallback: '今天' })}`;
   };
 
   const openHistoryPanel = () => {
@@ -2246,15 +2247,13 @@ export const PromptEditPage: React.FC = () => {
     if (!promptData?.data?.updated_at) {
       return '未更新';
     }
-    const parsed = new Date(promptData.data.updated_at);
-    return Number.isNaN(parsed.getTime()) ? '未更新' : parsed.toLocaleString();
+    return formatTimestamp(promptData.data.updated_at, { fallback: '未更新' });
   }, [promptData?.data?.updated_at]);
   const createdAtLabel = useMemo(() => {
     if (!promptData?.data?.created_at) {
       return '未记录';
     }
-    const parsed = new Date(promptData.data.created_at);
-    return Number.isNaN(parsed.getTime()) ? '未记录' : parsed.toLocaleString();
+    return formatTimestamp(promptData.data.created_at, { fallback: '未记录' });
   }, [promptData?.data?.created_at]);
   const versionLabel = promptData?.data?.version ?? formData.version ?? 1;
   const viewModeLabel = isEditing ? '编辑中' : isNew ? '草稿模式' : '查看模式';
@@ -3840,7 +3839,7 @@ export const PromptEditPage: React.FC = () => {
                                   >
                                     <div className="mb-2 flex items-center justify-between text-xs opacity-70">
                                       <span>{isUser ? '用户' : '模型'}</span>
-                                      <span>{timestamp.toLocaleTimeString()}</span>
+                                      <span>{formatTimeOnly(timestamp)}</span>
                                     </div>
                                     <div className="whitespace-pre-wrap text-sm leading-relaxed">
                                       {message.content || '（空响应）'}
@@ -4142,7 +4141,7 @@ export const PromptEditPage: React.FC = () => {
                                     <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                                       <Clock className="h-3.5 w-3.5" />
                                       <span>
-                                        {new Date(session.updated_at ?? session.created_at).toLocaleString()}
+                                        {formatTimestamp(session.updated_at ?? session.created_at)}
                                       </span>
                                     </div>
                                   </div>
@@ -4232,7 +4231,7 @@ export const PromptEditPage: React.FC = () => {
                       <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                         <Clock className="h-3.5 w-3.5" />
                         <span>
-                          {new Date(session.updated_at ?? session.created_at).toLocaleString()}
+                          {formatTimestamp(session.updated_at ?? session.created_at)}
                         </span>
                       </div>
                     </div>

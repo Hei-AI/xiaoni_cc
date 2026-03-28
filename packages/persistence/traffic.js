@@ -1,8 +1,15 @@
 'use strict';
 
-function normalizeValue(value) {
+const {
+  parseInstantValue,
+  serializeTimestampForApi,
+  serializeTimestampForStorage,
+  normalizeTimestampField,
+} = require('./time');
+
+function normalizeValue(key, value) {
   if (value instanceof Date) {
-    return value.toISOString();
+    return serializeTimestampForApi(value);
   }
   if (typeof value === 'bigint') {
     return Number(value);
@@ -11,16 +18,16 @@ function normalizeValue(value) {
     return value.toNumber();
   }
   if (Array.isArray(value)) {
-    return value.map(normalizeValue);
+    return value.map((item) => normalizeValue(key, item));
   }
   if (value && typeof value === 'object') {
     const normalized = {};
     for (const [key, nestedValue] of Object.entries(value)) {
-      normalized[key] = normalizeValue(nestedValue);
+      normalized[key] = normalizeValue(key, nestedValue);
     }
     return normalized;
   }
-  return value;
+  return normalizeTimestampField(key, value);
 }
 
 function normalizeRecord(record) {
@@ -29,7 +36,7 @@ function normalizeRecord(record) {
   }
   const normalized = {};
   for (const [key, value] of Object.entries(record)) {
-    normalized[key] = normalizeValue(value);
+    normalized[key] = normalizeValue(key, value);
   }
   return normalized;
 }
@@ -45,14 +52,7 @@ function toBigIntId(value) {
 }
 
 function toDateValue(value) {
-  if (!value) {
-    return null;
-  }
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
-  }
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  return parseInstantValue(value);
 }
 
 function toOptionalBigIntId(value) {
@@ -129,10 +129,10 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
     const endTime = toDateValue(filters.endTime);
 
     if (startTime) {
-      conditions.push(Prisma.sql`request_timestamp >= ${startTime}`);
+      conditions.push(Prisma.sql`request_timestamp >= ${serializeTimestampForStorage(startTime)}`);
     }
     if (endTime) {
-      conditions.push(Prisma.sql`request_timestamp <= ${endTime}`);
+      conditions.push(Prisma.sql`request_timestamp <= ${serializeTimestampForStorage(endTime)}`);
     }
     if (filters.method) {
       conditions.push(Prisma.sql`method = ${filters.method}`);
@@ -225,7 +225,7 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
           id, request_id, trace_id, container_name, service_name,
           method, url, host, path,
           response_status, duration_ms,
-          request_timestamp as timestamp,
+          request_timestamp::text as timestamp,
           llm_call_id, agent_turn,
           is_ai_request, api_type, api_version,
           client_ip, user_agent,
@@ -249,7 +249,7 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
 
     return {
       data: rows.map(normalizeRecord),
-      total: Number(countRows[0] ? normalizeValue(countRows[0].total) : 0),
+      total: Number(countRows[0] ? normalizeValue('total', countRows[0].total) : 0),
       page,
       limit
     };
@@ -257,36 +257,50 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
 
   async function getTrafficLogById(id) {
     const prisma = getPrismaClient();
-    const row = await prisma.httpTrafficLog.findUnique({
-      where: { id: toBigIntId(id) }
-    });
-    return row ? normalizeRecord(row) : null;
+    const rows = await prisma.$queryRaw(
+      Prisma.sql`
+        SELECT
+          id, request_id, trace_id, conversation_id, user_id, session_id, agent_turn, llm_call_id, tool_call_id,
+          container_name, service_name, method, url, host, path, query_params, request_headers, request_body,
+          request_content_type, request_size, response_status, response_headers, response_body, response_content_type,
+          response_size, duration_ms, request_timestamp::text as request_timestamp, response_timestamp::text as response_timestamp,
+          is_ai_request, api_type, api_version, client_ip, user_agent, error_message, created_at::text as created_at
+        FROM http_traffic_logs
+        WHERE id = ${toBigIntId(id)}
+        LIMIT 1
+      `
+    );
+    return rows[0] ? normalizeRecord(rows[0]) : null;
   }
 
   async function listTraceTrafficLogs(params = {}) {
     const prisma = getPrismaClient();
-    const conditions = [];
-
-    if (params.traceId) {
-      conditions.push({ trace_id: params.traceId });
-    }
-
     const conversationId = toOptionalBigIntId(params.conversationId);
-    if (conversationId !== null) {
-      conditions.push({ conversation_id: conversationId });
-    }
-
-    if (conditions.length === 0) {
+    if (!params.traceId && conversationId === null) {
       return [];
     }
 
-    const rows = await prisma.httpTrafficLog.findMany({
-      where: { OR: conditions },
-      orderBy: [
-        { request_timestamp: 'asc' },
-        { id: 'asc' }
-      ]
-    });
+    const where = [];
+    if (params.traceId) {
+      where.push(Prisma.sql`trace_id = ${params.traceId}`);
+    }
+    if (conversationId !== null) {
+      where.push(Prisma.sql`conversation_id = ${conversationId}`);
+    }
+
+    const rows = await prisma.$queryRaw(
+      Prisma.sql`
+        SELECT
+          id, request_id, trace_id, conversation_id, user_id, session_id, agent_turn, llm_call_id, tool_call_id,
+          container_name, service_name, method, url, host, path, query_params, request_headers, request_body,
+          request_content_type, request_size, response_status, response_headers, response_body, response_content_type,
+          response_size, duration_ms, request_timestamp::text as request_timestamp, response_timestamp::text as response_timestamp,
+          is_ai_request, api_type, api_version, client_ip, user_agent, error_message, created_at::text as created_at
+        FROM http_traffic_logs
+        WHERE ${Prisma.join(where, ' OR ')}
+        ORDER BY request_timestamp ASC, id ASC
+      `
+    );
 
     return rows.map(normalizeRecord);
   }
@@ -417,8 +431,8 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
           MAX(duration_ms) as max_duration,
           COUNT(*) FILTER (WHERE response_status >= 400)::bigint as error_count,
           COUNT(*) FILTER (WHERE response_status >= 400) * 100.0 / COUNT(*) as error_rate,
-          MIN(request_timestamp) as first_seen,
-          MAX(request_timestamp) as last_seen
+          MIN(request_timestamp)::text as first_seen,
+          MAX(request_timestamp)::text as last_seen
         FROM http_traffic_logs
         WHERE request_timestamp >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
         GROUP BY host, ${endpointExpr}, method
@@ -441,7 +455,7 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
       Prisma.sql`
         SELECT
           id, request_id, trace_id, method, url, host,
-          response_status, duration_ms, request_timestamp,
+          response_status, duration_ms, request_timestamp::text as request_timestamp,
           is_ai_request, api_type,
           (
             CASE WHEN url ILIKE ${searchPattern} THEN 3 ELSE 0 END +
@@ -472,8 +486,8 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
     const limit = Math.min(Math.max(Number(params.limit) || 1000, 1), 5000);
 
     const fields = params.includeBody
-      ? Prisma.sql`id, trace_id, method, url, response_status, duration_ms, request_timestamp, is_ai_request, api_type, request_body, response_body`
-      : Prisma.sql`id, trace_id, method, url, response_status, duration_ms, request_timestamp, is_ai_request, api_type`;
+      ? Prisma.sql`id, trace_id, method, url, response_status, duration_ms, request_timestamp::text as request_timestamp, is_ai_request, api_type, request_body, response_body`
+      : Prisma.sql`id, trace_id, method, url, response_status, duration_ms, request_timestamp::text as request_timestamp, is_ai_request, api_type`;
 
     const rows = await prisma.$queryRaw(
       Prisma.sql`
@@ -549,7 +563,7 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
       ? await prisma.$queryRaw(
           Prisma.sql`
             SELECT id, trace_id, conversation_id, method, host, path, url, api_type, service_name,
-                   response_status, duration_ms, request_timestamp
+                   response_status, duration_ms, request_timestamp::text as request_timestamp
             FROM http_traffic_logs
             WHERE is_ai_request = TRUE
               AND (
@@ -564,7 +578,7 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
       : await prisma.$queryRaw(
           Prisma.sql`
             SELECT id, trace_id, conversation_id, method, host, path, url, api_type, service_name,
-                   response_status, duration_ms, request_timestamp
+                   response_status, duration_ms, request_timestamp::text as request_timestamp
             FROM http_traffic_logs
             WHERE is_ai_request = TRUE
             ORDER BY request_timestamp DESC, id DESC
@@ -607,8 +621,8 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
       response_content_type: record.response_content_type || null,
       response_size: toIntegerValue(record.response_size),
       duration_ms: toBigIntValue(record.duration_ms),
-      request_timestamp: toDateValue(record.request_timestamp) || new Date(),
-      response_timestamp: toDateValue(record.response_timestamp),
+      request_timestamp: serializeTimestampForStorage(record.request_timestamp) || serializeTimestampForStorage(new Date()),
+      response_timestamp: record.response_timestamp ? serializeTimestampForStorage(record.response_timestamp) : null,
       is_ai_request: Boolean(record.is_ai_request),
       api_type: record.api_type || null,
       api_version: record.api_version || null,

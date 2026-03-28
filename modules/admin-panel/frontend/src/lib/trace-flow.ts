@@ -7,6 +7,7 @@ import {
   TraceWaterfallRow,
   TraceWaterfallViewModel,
 } from '@/types';
+import { formatTimestamp } from '@/lib/utils';
 
 function toMillis(value?: string | null): number {
   if (!value) {
@@ -212,8 +213,14 @@ function buildRows(trace: ConversationTraceData): TraceWaterfallRow[] {
     const timelineWidthRatio = Math.max((record.duration_ms || 0) / totalDuration, 0.015);
     const children = byParent.get(record.span_id) || [];
     const role = semanticRole(record);
+    const providerRequestChild = role === 'generation'
+      ? children.find((child) => semanticRole(child) === 'provider_request')
+      : null;
     const providerExchangeChild = role === 'generation'
       ? children.find((child) => semanticRole(child) === 'provider_exchange')
+      : null;
+    const legacyProviderRequestChild = providerExchangeChild
+      ? (byParent.get(providerExchangeChild.span_id) || []).find((child) => semanticRole(child) === 'provider_request')
       : null;
     const llmCallId = String(
       record.attributes['trace.llm_call_id']
@@ -244,13 +251,14 @@ function buildRows(trace: ConversationTraceData): TraceWaterfallRow[] {
         || record.status_code === 'error'
         || role === 'turn'
         || role === 'provider_exchange'
+        || Boolean(providerRequestChild)
         || Boolean(providerExchangeChild),
       errorCountInSubtree: subtreeErrorCount(record.span_id, byParent),
       badges: buildBadges(record),
       meta: buildMeta(record),
       sourceRef: record.source_ref,
       playgroundCapability: playgroundCapability(record),
-      providerExchangeSpanId: providerExchangeChild?.span_id || null,
+      providerRequestSpanId: providerRequestChild?.span_id || legacyProviderRequestChild?.span_id || null,
       trafficLogId,
       llmCallId,
       inspector: {
@@ -273,7 +281,7 @@ function buildMetrics(trace: ConversationTraceData): TraceMetric[] {
     {
       label: '总耗时',
       value: formatDuration(trace.trace.duration_ms),
-      detail: `${trace.trace.started_at || 'n/a'} -> ${trace.trace.ended_at || 'n/a'}`,
+      detail: `${formatTimestamp(trace.trace.started_at, { fallback: 'n/a' })} -> ${formatTimestamp(trace.trace.ended_at, { fallback: 'n/a' })}`,
     },
     {
       label: '状态',

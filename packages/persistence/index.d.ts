@@ -136,12 +136,46 @@ export type TrafficReplayHistoryInput = {
   template_id?: number | null;
 };
 
+export type ChatPromptBindingSource = 'group' | 'private';
+
+export type ResolvedChatAgentPrompt = {
+  bindingSource: ChatPromptBindingSource;
+  bindingPromptId: string;
+  prompt: {
+    id: string;
+    promptName: string;
+    agentType: string;
+    systemInstruction: string;
+    userPromptTemplate: string | null;
+    contextVariables: Record<string, unknown>;
+    modelName: string | null;
+    modelConfig: Record<string, unknown>;
+    advancedConfig: Record<string, unknown>;
+  } | null;
+};
+
 export const Prisma: unknown;
+export const STORAGE_TIMEZONE: string;
+export const STORAGE_OFFSET: string;
 export function buildDatabaseUrl(config?: DatabaseUrlConfig): string;
 export function resolveDatabaseUrl(config?: DatabaseUrlConfig): string;
 export function createSqlAdapter(config?: DatabaseUrlConfig): SqlAdapter;
 export function getPrismaClient(config?: DatabaseUrlConfig): PrismaClient;
 export function closePrismaClient(): Promise<void>;
+export function resolveChatAgentPrompt(
+  params: { chatType: 'direct' | 'group'; userId?: number | string | null; groupId?: number | string | null },
+  config?: DatabaseUrlConfig
+): Promise<ResolvedChatAgentPrompt | null>;
+export function parseInstantValue(value: string | Date | null | undefined): Date | null;
+export function parseStoredTimestamp(value: string | Date | null | undefined): Date | null;
+export function serializeTimestampForStorage(value: string | Date | null | undefined): string | null;
+export function serializeTimestampForApi(value: string | Date | null | undefined): string | null;
+export function normalizeTimestampField(fieldName: string, value: unknown): unknown;
+export function normalizeRowTimestampFields<T>(record: T): T;
+export function prepareSqlParameter(value: unknown): unknown;
+export function getEast8StartOfDay(value?: string | Date): Date;
+export function formatEast8IsoOffset(value: string | Date): string;
+export function formatEast8WallClock(value: string | Date): string;
 export function listTrafficLogs(params?: TrafficLogListParams): Promise<{ data: any[]; total: number; page: number; limit: number }>;
 export function getTrafficLogById(id: number | bigint | string): Promise<any | null>;
 export function listTraceTrafficLogs(params?: TrafficTraceParams): Promise<any[]>;

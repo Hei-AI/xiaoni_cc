@@ -21,10 +21,13 @@ services:
   postgres:
     image: postgres:16
     container_name: qqbot-postgres
+    command: ["postgres", "-c", "timezone=Asia/Shanghai"]
     environment:
       POSTGRES_DB: qqbot_db
       POSTGRES_USER: qqbot_user
       POSTGRES_PASSWORD: qqbot_password
+      TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
     ports:
       - "5432:5432"
     volumes:
@@ -75,7 +78,9 @@ services:
     environment:
       - HTTP_PORT=8090
       - LOG_LEVEL=info
-      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public
+      - TZ=Asia/Shanghai
+      - DB_TIMEZONE=Asia/Shanghai
+      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public&options=-c%20timezone%3DAsia%2FShanghai
       - DB_HOST=qqbot-postgres
       - DB_PORT=5432
       - DB_USER=qqbot_user
@@ -121,7 +126,9 @@ services:
     environment:
       - HTTP_PORT=8092
       - LOG_LEVEL=info
-      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public
+      - TZ=Asia/Shanghai
+      - DB_TIMEZONE=Asia/Shanghai
+      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public&options=-c%20timezone%3DAsia%2FShanghai
       - DB_HOST=qqbot-postgres
       - DB_PORT=5432
       - DB_USER=qqbot_user
@@ -151,7 +158,9 @@ services:
     ports:
       - "127.0.0.1:9080:9080"
     environment:
-      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public
+      - TZ=Asia/Shanghai
+      - DB_TIMEZONE=Asia/Shanghai
+      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public&options=-c%20timezone%3DAsia%2FShanghai
       - DB_HOST=qqbot-postgres
       - DB_PORT=5432
       - DB_USER=qqbot_user
@@ -186,6 +195,7 @@ services:
       - "127.0.0.1:3003:80"
     environment:
       - VITE_API_BASE_URL=http://qqbot-admin-backend:9080
+      - TZ=Asia/Shanghai
     depends_on:
       - admin-backend
     restart: unless-stopped

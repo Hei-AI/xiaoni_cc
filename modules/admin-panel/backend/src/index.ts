@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { config } from 'dotenv';
-import { buildDatabaseUrl } from '@qq-bot/persistence';
+import { buildDatabaseUrl, STORAGE_TIMEZONE } from '@qq-bot/persistence';
 import winston from 'winston';
 import { DatabaseManager } from './services/database';
 import inboxRoutes from './routes/inbox';
@@ -59,7 +59,7 @@ async function initializeDatabase() {
       user: process.env.DB_USER || 'qqbot_user',
       password: process.env.DB_PASSWORD || 'qqbot_password',
       database: process.env.DB_NAME || 'qqbot_db',
-      timezone: process.env.DB_TIMEZONE || 'Z'
+      timezone: process.env.DB_TIMEZONE || STORAGE_TIMEZONE
     }, logger);
 
     // Test connection instead of calling initialize()

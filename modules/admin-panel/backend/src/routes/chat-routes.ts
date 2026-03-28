@@ -1,4 +1,5 @@
 import express from 'express';
+import { getEast8StartOfDay, serializeTimestampForStorage } from '@qq-bot/persistence';
 import { DatabaseManager } from '../services/database';
 import winston from 'winston';
 
@@ -338,12 +339,12 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
 
       if (startTime) {
         whereConditions.push('c.timestamp >= ?');
-        queryParams.push(startTime);
+        queryParams.push(serializeTimestampForStorage(startTime) || startTime);
       }
 
       if (endTime) {
         whereConditions.push('c.timestamp <= ?');
-        queryParams.push(endTime);
+        queryParams.push(serializeTimestampForStorage(endTime) || endTime);
       }
 
       const whereClause = whereConditions.join(' AND ');
@@ -369,8 +370,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       };
 
       // 获取今日统计
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      const todayStart = serializeTimestampForStorage(getEast8StartOfDay()) || '1970-01-01 00:00:00.000';
       const todayStats = await database.executeQuery(`
         SELECT
           COUNT(*) as today_conversations,
@@ -378,7 +378,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           COUNT(CASE WHEN status = 'failed' THEN 1 END) as today_failed
         FROM conversations
         WHERE user_id = ? AND timestamp >= ?
-      `, [userId, todayStart.toISOString()]);
+      `, [userId, todayStart]);
 
       // 获取对话列表
       const conversations = await database.executeQuery(`
@@ -783,12 +783,12 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
 
       if (startTime) {
         whereConditions.push('c.timestamp >= ?');
-        queryParams.push(startTime);
+        queryParams.push(serializeTimestampForStorage(startTime) || startTime);
       }
 
       if (endTime) {
         whereConditions.push('c.timestamp <= ?');
-        queryParams.push(endTime);
+        queryParams.push(serializeTimestampForStorage(endTime) || endTime);
       }
 
       const whereClause = whereConditions.join(' AND ');
@@ -814,8 +814,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       };
 
       // 获取今日统计
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      const todayStart = serializeTimestampForStorage(getEast8StartOfDay()) || '1970-01-01 00:00:00.000';
       const todayStats = await database.executeQuery(`
         SELECT
           COUNT(*) as today_conversations,
@@ -823,7 +822,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           COUNT(CASE WHEN status = 'failed' THEN 1 END) as today_failed
         FROM conversations
         WHERE group_id = ? AND timestamp >= ?
-      `, [groupId, todayStart.toISOString()]);
+      `, [groupId, todayStart]);
 
       // 获取对话列表
       const conversations = await database.executeQuery(`

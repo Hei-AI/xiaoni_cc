@@ -1,4 +1,4 @@
-import { createSqlAdapter, type SqlAdapter } from '@qq-bot/persistence';
+import { createSqlAdapter, serializeTimestampForApi, type SqlAdapter } from '@qq-bot/persistence';
 import { v4 as uuidv4 } from 'uuid';
 import { databaseConfig } from '../config';
 import {
@@ -83,16 +83,7 @@ const DEFAULT_CLAIM_LIMIT = 20;
 const DEFAULT_MESSAGE_LIMIT = 100;
 
 function normalizeIso(value: Date | string | null | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value.toISOString();
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  return serializeTimestampForApi(value) as string | null;
 }
 
 function parseJsonRecord(value: string | Record<string, unknown>): Record<string, unknown> {

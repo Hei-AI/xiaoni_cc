@@ -35,6 +35,7 @@ import { EntityCard } from '@/components/console/EntityCard';
 import { ErrorState } from '@/components/console/ErrorState';
 import { EmptyState } from '@/components/console/EmptyState';
 import { StatusPill } from '@/components/console/StatusPill';
+import { formatTimestamp } from '@/lib/utils';
 
 interface GroupChat {
   group_id: number;
@@ -218,7 +219,7 @@ export const GroupManagementPage: React.FC = () => {
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return '无';
-    return new Date(dateString).toLocaleString('zh-CN');
+    return formatTimestamp(dateString);
   };
 
   const rows = data?.data ?? [];

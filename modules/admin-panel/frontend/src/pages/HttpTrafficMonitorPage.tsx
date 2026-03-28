@@ -25,7 +25,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { BatchReplayDialog } from '@/components/BatchReplayDialog';
 import type { BatchReplayResult } from '@/types/traffic-replay';
 import { formatReturnedValue } from '@/lib/contract-display';
-import { formatTimestamp } from '@/lib/utils';
+import { formatDateOnly, formatIsoOffset, formatTimestamp } from '@/lib/utils';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
 import { FilterBar } from '@/components/console/FilterBar';
@@ -165,10 +165,10 @@ export function HttpTrafficMonitorPage() {
       const params = new URLSearchParams({ range: timeRange });
       if (timeRange === 'custom') {
         if (filters.start_time) {
-          params.set('start_time', new Date(filters.start_time).toISOString());
+          params.set('start_time', formatIsoOffset(filters.start_time, { fallback: filters.start_time }));
         }
         if (filters.end_time) {
-          params.set('end_time', new Date(filters.end_time).toISOString());
+          params.set('end_time', formatIsoOffset(filters.end_time, { fallback: filters.end_time }));
         }
       }
       const response = await fetch(`/api/traffic/stats?${params}`);
@@ -214,10 +214,10 @@ export function HttpTrafficMonitorPage() {
     });
     if (timeRange === 'custom') {
       if (filters.start_time) {
-        params.set('start_time', new Date(filters.start_time).toISOString());
+        params.set('start_time', formatIsoOffset(filters.start_time, { fallback: filters.start_time }));
       }
       if (filters.end_time) {
-        params.set('end_time', new Date(filters.end_time).toISOString());
+        params.set('end_time', formatIsoOffset(filters.end_time, { fallback: filters.end_time }));
       }
     }
 
@@ -228,7 +228,7 @@ export function HttpTrafficMonitorPage() {
     const url = window.URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `http_traffic_${timeRange}_${new Date().toISOString().split('T')[0]}.${format}`;
+    anchor.download = `http_traffic_${timeRange}_${formatDateOnly(new Date(), { fallback: 'export' })}.${format}`;
     document.body.appendChild(anchor);
     anchor.click();
     window.URL.revokeObjectURL(url);

@@ -27,7 +27,7 @@ import {
   User,
   Users,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatTimestamp } from '../lib/utils';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -128,22 +128,9 @@ function formatRuntimeSummary(runtimeStatus?: RuntimeStatusPayload): string {
 }
 
 function formatHeartbeat(lastHeartbeat: string | null | undefined): string | null {
-  if (!lastHeartbeat) {
-    return null;
-  }
-
-  const date = new Date(lastHeartbeat);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(date);
+  return lastHeartbeat
+    ? formatTimestamp(lastHeartbeat, { fallback: '' }) || null
+    : null;
 }
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {

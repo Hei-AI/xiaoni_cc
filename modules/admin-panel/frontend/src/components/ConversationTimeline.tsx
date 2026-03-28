@@ -22,7 +22,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { TimelineNode, ConversationTimelineData, STATUS_COLORS } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatTimeOnly } from '../lib/utils';
 
 // 格式化JSON显示，处理换行符
 const formatJSONForDisplay = (data: any): string => {
@@ -217,9 +217,7 @@ const TimelineNodeComponent: React.FC<{
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-sm font-medium">
-                      {node.timestamp.toLocaleTimeString('zh-CN', { 
-                        hour12: false 
-                      })} {node.title}
+                      {formatTimeOnly(node.timestamp)} {node.title}
                     </CardTitle>
                     {node.duration_ms !== undefined && node.duration_ms > 0 && (
                       <Badge variant="outline" className="text-xs">

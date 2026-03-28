@@ -3,12 +3,15 @@
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 
 FROM node:18-alpine AS base
+RUN apk add --no-cache tzdata
+ENV TZ=Asia/Shanghai
+RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 WORKDIR /app/modules/provider-service
 
 FROM base AS deps
 WORKDIR /app
 COPY packages/persistence/package.json packages/persistence/package-lock.json ./packages/persistence/
-COPY packages/persistence/index.js packages/persistence/index.d.ts packages/persistence/traffic.js ./packages/persistence/
+COPY packages/persistence/index.js packages/persistence/index.d.ts packages/persistence/time.js packages/persistence/traffic.js ./packages/persistence/
 COPY packages/persistence/prisma ./packages/persistence/prisma
 RUN --mount=type=cache,target=/root/.npm \
   npm --prefix ./packages/persistence ci --no-audit --no-fund \
@@ -33,7 +36,7 @@ RUN npm run build
 FROM base AS prod-deps
 WORKDIR /app
 COPY packages/persistence/package.json packages/persistence/package-lock.json ./packages/persistence/
-COPY packages/persistence/index.js packages/persistence/index.d.ts packages/persistence/traffic.js ./packages/persistence/
+COPY packages/persistence/index.js packages/persistence/index.d.ts packages/persistence/time.js packages/persistence/traffic.js ./packages/persistence/
 COPY packages/persistence/prisma ./packages/persistence/prisma
 RUN --mount=type=cache,target=/root/.npm \
   npm --prefix ./packages/persistence ci --omit=dev --no-audit --no-fund \
@@ -46,7 +49,10 @@ RUN --mount=type=cache,target=/root/.npm \
   && npm config delete registry
 
 FROM node:18-alpine AS runtime
+RUN apk add --no-cache tzdata
 WORKDIR /app/modules/provider-service
+ENV TZ=Asia/Shanghai
+RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 RUN mkdir -p /app/logs
 COPY modules/provider-service/package.json modules/provider-service/package-lock.json ./
 COPY --from=prod-deps /app/packages/persistence /app/packages/persistence

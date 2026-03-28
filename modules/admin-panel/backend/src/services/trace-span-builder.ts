@@ -1,5 +1,5 @@
 import winston from 'winston';
-import { listTraceTrafficLogs } from '@qq-bot/persistence';
+import { listTraceTrafficLogs, parseInstantValue, serializeTimestampForApi } from '@qq-bot/persistence';
 import { DatabaseManager } from './database';
 
 type TraceConfidence = 'observed' | 'derived' | 'missing';
@@ -66,17 +66,12 @@ function toNumber(value: any): number | null {
 }
 
 function toIsoString(value: any): string | null {
-  if (!value) {
-    return null;
-  }
-
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  return serializeTimestampForApi(value) as string | null;
 }
 
 function toMillis(value: any): number | null {
-  const iso = toIsoString(value);
-  return iso ? new Date(iso).getTime() : null;
+  const parsed = parseInstantValue(value);
+  return parsed ? parsed.getTime() : null;
 }
 
 function getDurationMs(startAt?: any, endAt?: any, fallback?: any): number | null {
@@ -961,70 +956,10 @@ export async function buildConversationTracePayload(
       return;
     }
 
-    const providerExchangeSpanId = call.llm_call_id
-      ? `provider-exchange:${call.llm_call_id}`
-      : `provider-exchange:llm-${call.id}`;
-    const providerStartedAt = call.provider_requests
-      .map((log: any) => log.request_timestamp)
-      .filter(Boolean)
-      .sort()[0] || call.started_at;
-    const providerEndedAt = call.provider_requests
-      .map((log: any) => log.response_timestamp || log.request_timestamp)
-      .filter(Boolean)
-      .sort()
-      .slice(-1)[0] || providerStartedAt;
-    const providerExchangeStatus = call.provider_requests.some((log: any) => log.status === 'error')
-      ? 'error'
-      : call.provider_requests.every((log: any) => log.status === 'unset')
-        ? 'unset'
-        : 'ok';
-
-    spanRecords.push(createSpan({
-      span_id: providerExchangeSpanId,
-      parent_span_id: spanId,
-      trace_id: traceId,
-      conversation_id: call.conversation_id || conversationId,
-      name: 'provider.exchange',
-      kind: 'client',
-      status_code: providerExchangeStatus,
-      status_message: null,
-      started_at: providerStartedAt,
-      ended_at: providerEndedAt,
-      duration_ms: getDurationMs(providerStartedAt, providerEndedAt),
-      summary: safePreview(
-        `Provider ${call.provider_requests.length} request(s) / ${providerHosts.join(', ') || 'unknown host'} / ${providerStatuses.join(', ') || 'pending'}`
-      ),
-      attributes: {
-        'semantic.role': 'provider_exchange',
-        'semantic.display_name': 'Provider Exchange',
-        'trace.llm_call_id': call.llm_call_id,
-        'trace.agent_turn': call.agent_turn,
-        'provider.request_count': call.provider_requests.length,
-        'provider.hosts': providerHosts,
-        'provider.statuses': providerStatuses
-      },
-      input: null,
-      output: {
-        request_count: call.provider_requests.length,
-        hosts: providerHosts,
-        statuses: providerStatuses
-      },
-      evidence: {
-        llm_call_id: call.llm_call_id,
-        agent_turn: call.agent_turn,
-        request_ids: call.provider_requests.map((log: any) => log.request_id).filter(Boolean),
-        traffic_log_ids: call.provider_requests.map((log: any) => log.id)
-      },
-      events: [],
-      links: [],
-      confidence: 'observed',
-      source_ref: call.llm_call_id || call.id
-    }));
-
     call.provider_requests.forEach((log: any) => {
       spanRecords.push(createSpan({
         span_id: `provider-request:${log.id}`,
-        parent_span_id: providerExchangeSpanId,
+        parent_span_id: spanId,
         trace_id: traceId,
         conversation_id: log.conversation_id || conversationId,
         name: 'provider.request',

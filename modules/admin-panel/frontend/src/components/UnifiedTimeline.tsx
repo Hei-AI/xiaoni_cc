@@ -22,6 +22,7 @@ import { TimelineEvent, ConversationTimelineData, ENGINE_NAMES } from '../types'
 import { DebugPromptModal } from './DebugPromptModal';
 import { usePromptTemplates, separatePromptContent } from '../hooks/usePromptTemplates';
 import { formatConfiguredValue, formatReturnedValue, readOptionalText } from '@/lib/contract-display';
+import { formatDateOnly, formatTimeOnly } from '@/lib/utils';
 
 // 统一事件接口
 interface UnifiedEvent {
@@ -380,15 +381,9 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
 
     // 工具函数：格式化时间显示
     const formatTimeDisplay = (timestamp: number) => {
-      const date = new Date(timestamp);
       return {
-        displayTime: date.toLocaleTimeString('zh-CN', {
-          hour12: false,
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        }) + '.' + date.getMilliseconds().toString().padStart(3, '0'),
-        displayDate: date.toLocaleDateString('zh-CN')
+        displayTime: formatTimeOnly(timestamp, { withMilliseconds: true }),
+        displayDate: formatDateOnly(timestamp)
       };
     };
 

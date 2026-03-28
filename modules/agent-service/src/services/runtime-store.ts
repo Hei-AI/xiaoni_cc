@@ -1,4 +1,4 @@
-import { createSqlAdapter, type SqlAdapter } from '@qq-bot/persistence';
+import { createSqlAdapter, serializeTimestampForApi, type SqlAdapter } from '@qq-bot/persistence';
 import { v4 as uuidv4 } from 'uuid';
 import { databaseConfig } from '../config';
 import { ConversationTurn, QueueBatchMessage, QueueMessagePayload, QueueMessageRecord } from '../types';
@@ -31,11 +31,7 @@ type QueueRow = {
 };
 
 function toIso(value: string | Date | null | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  return serializeTimestampForApi(value) as string | null;
 }
 
 function parseJson<T>(value: unknown, fallback: T): T {

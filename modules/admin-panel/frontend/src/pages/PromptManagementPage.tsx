@@ -34,6 +34,7 @@ import { EmptyState } from '@/components/console/EmptyState';
 import { StatusPill } from '@/components/console/StatusPill';
 import { formatConfiguredValue } from '@/lib/contract-display';
 import { getPlaygroundProviderId, getProviderLabel, resolvePromptProviderConfig } from '@/lib/provider-config';
+import { formatTimestamp } from '@/lib/utils';
 
 interface AgentPrompt {
   id: string;
@@ -199,7 +200,7 @@ export const PromptManagementPage: React.FC = () => {
     return agentType?.label || type;
   };
 
-  const formatDate = (dateString: string) => new Date(dateString).toLocaleString('zh-CN');
+  const formatDate = (dateString: string) => formatTimestamp(dateString);
 
   const parseSystemInstructions = (instructions: string | string[]) => {
     let parsed: string[] | string;

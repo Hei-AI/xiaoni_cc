@@ -11,6 +11,7 @@ import {
 } from './ui/table';
 import { CheckCircle2, XCircle, Clock, User, FileText } from 'lucide-react';
 import type { ReplayHistory } from '../types/traffic-replay';
+import { formatTimestamp } from '@/lib/utils';
 
 interface ReplayHistoryListProps {
   history: ReplayHistory[];
@@ -22,15 +23,7 @@ export function ReplayHistoryList({
   onViewDetails
 }: ReplayHistoryListProps) {
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
+    return formatTimestamp(dateString);
   };
 
   const formatDuration = (ms: number) => {

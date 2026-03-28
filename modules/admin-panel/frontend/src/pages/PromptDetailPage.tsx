@@ -27,6 +27,7 @@ import {
   resolvePromptProviderConfig,
 } from '@/lib/provider-config';
 import { formatConfiguredValue } from '@/lib/contract-display';
+import { formatTimestamp } from '@/lib/utils';
 
 interface AgentPrompt {
   id: string;
@@ -129,7 +130,7 @@ export const PromptDetailPage: React.FC = () => {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('zh-CN');
+    return formatTimestamp(dateString);
   };
 
   if (isLoading) {

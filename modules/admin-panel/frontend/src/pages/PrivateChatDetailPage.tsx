@@ -16,6 +16,7 @@ import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { usePromptTemplates } from '../hooks/usePromptTemplates';
 import { formatPromptBindingLabel } from '@/lib/contract-display';
+import { formatIsoOffset, formatTimestamp, getEast8StartOfDay } from '@/lib/utils';
 import { 
   ArrowLeft, 
   RefreshCw, 
@@ -164,12 +165,13 @@ export const PrivateChatDetailPage: React.FC = () => {
       let endTime: string | undefined;
 
       if (timeRange === 'today') {
-        startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-        endTime = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+        const dayStart = getEast8StartOfDay(now);
+        startTime = formatIsoOffset(dayStart);
+        endTime = formatIsoOffset(new Date(dayStart.getTime() + 24 * 60 * 60 * 1000));
       } else if (timeRange === 'week') {
-        startTime = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        startTime = formatIsoOffset(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
       } else if (timeRange === 'month') {
-        startTime = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        startTime = formatIsoOffset(new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
       }
 
       return fetchUserConversations(userId, { 
@@ -219,7 +221,7 @@ export const PrivateChatDetailPage: React.FC = () => {
   }, [conversationData?.data.user_settings.agent_prompt_id, currentPrompt?.prompt_name]);
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('zh-CN');
+    return formatTimestamp(dateString);
   };
 
   const formatDuration = (ms: string | number) => {

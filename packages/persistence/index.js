@@ -1,10 +1,20 @@
 'use strict';
 
 const { PrismaClient, Prisma } = require('./generated/client');
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
 const { createTrafficPersistence } = require('./traffic');
+const {
+  STORAGE_TIMEZONE,
+  TIMESTAMP_WITHOUT_TZ_OID,
+  TIMESTAMPTZ_OID,
+  normalizeTimestampField,
+  prepareSqlParameter,
+} = require('./time');
 
 let prismaClient = null;
+
+types.setTypeParser(TIMESTAMP_WITHOUT_TZ_OID, (value) => value);
+types.setTypeParser(TIMESTAMPTZ_OID, (value) => value);
 
 function buildDatabaseUrl(config = {}) {
   const host = config.host || process.env.DB_HOST || 'localhost';
@@ -12,7 +22,8 @@ function buildDatabaseUrl(config = {}) {
   const user = encodeURIComponent(config.user || process.env.DB_USER || 'qqbot_user');
   const password = encodeURIComponent(config.password || process.env.DB_PASSWORD || 'qqbot_password');
   const database = encodeURIComponent(config.database || process.env.DB_NAME || 'qqbot_db');
-  return `postgresql://${user}:${password}@${host}:${port}/${database}?schema=public`;
+  const timezoneOption = encodeURIComponent(`-c timezone=${STORAGE_TIMEZONE}`);
+  return `postgresql://${user}:${password}@${host}:${port}/${database}?schema=public&options=${timezoneOption}`;
 }
 
 function resolveDatabaseUrl(config = {}) {
@@ -35,15 +46,11 @@ function normalizeRow(row) {
 
   const normalized = Array.isArray(row) ? [] : {};
   for (const [key, value] of Object.entries(row)) {
-    if (value instanceof Date) {
-      normalized[key] = value.toISOString();
-      continue;
-    }
     if (typeof value === 'bigint') {
       normalized[key] = Number(value);
       continue;
     }
-    normalized[key] = value;
+    normalized[key] = normalizeTimestampField(key, value);
   }
   return normalized;
 }
@@ -85,17 +92,17 @@ async function withClient(pool, fn) {
 function createSqlExecutor(pool) {
   return {
     async query(query, params = []) {
-      const result = await pool.query(prepareSql(query), params);
+      const result = await pool.query(prepareSql(query), params.map(prepareSqlParameter));
       return result.rows.map(normalizeRow);
     },
     async execute(query, params = []) {
-      const result = await pool.query(prepareSql(query), params);
+      const result = await pool.query(prepareSql(query), params.map(prepareSqlParameter));
       return result.rowCount || 0;
     },
     async insert(query, params = []) {
       const sql = prepareSql(query);
       const finalSql = /\breturning\b/i.test(sql) ? sql : `${sql} RETURNING id`;
-      const result = await pool.query(finalSql, params);
+      const result = await pool.query(finalSql, params.map(prepareSqlParameter));
       const insertId = result.rows[0] && typeof result.rows[0].id !== 'undefined'
         ? Number(result.rows[0].id) || 0
         : 0;
@@ -109,6 +116,9 @@ function createSqlExecutor(pool) {
 
 function createSqlAdapter(config = {}) {
   const pool = new Pool(createPoolConfig(config));
+  pool.on('connect', (client) => {
+    void client.query(`SET TIME ZONE '${STORAGE_TIMEZONE}'`);
+  });
   const executor = createSqlExecutor(pool);
 
   return {
@@ -165,6 +175,121 @@ async function closePrismaClient() {
   }
 }
 
+function parseJsonValue(value, fallback) {
+  if (value === null || typeof value === 'undefined') {
+    return fallback;
+  }
+
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }
+
+  if (typeof value === 'object') {
+    return value;
+  }
+
+  return fallback;
+}
+
+function parsePromptText(value) {
+  const parsed = parseJsonValue(value, value);
+  if (Array.isArray(parsed)) {
+    return parsed
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  return typeof parsed === 'string' ? parsed : '';
+}
+
+async function resolveChatAgentPrompt(params = {}, config = {}) {
+  const prisma = getPrismaClient(config);
+  const chatType = params.chatType === 'group' ? 'group' : 'direct';
+  const groupId = Number(params.groupId);
+  const userId = Number(params.userId);
+
+  let bindingSource = null;
+  let bindingPromptId = null;
+
+  if (chatType === 'group' && Number.isFinite(groupId) && groupId > 0) {
+    const groupRows = await prisma.$queryRaw(
+      Prisma.sql`SELECT agent_prompt_id
+                 FROM group_chat_settings
+                 WHERE group_id = ${BigInt(groupId)}
+                 LIMIT 1`
+    );
+    const groupSetting = Array.isArray(groupRows) ? groupRows[0] : null;
+
+    if (groupSetting && typeof groupSetting.agent_prompt_id === 'string' && groupSetting.agent_prompt_id.trim().length > 0) {
+      bindingSource = 'group';
+      bindingPromptId = groupSetting.agent_prompt_id.trim();
+    }
+  } else if (chatType !== 'group' && Number.isFinite(userId) && userId > 0) {
+    const privateRows = await prisma.$queryRaw(
+      Prisma.sql`SELECT agent_prompt_id
+                 FROM private_chat_settings
+                 WHERE user_id = ${BigInt(userId)}
+                 LIMIT 1`
+    );
+    const privateSetting = Array.isArray(privateRows) ? privateRows[0] : null;
+
+    if (privateSetting && typeof privateSetting.agent_prompt_id === 'string' && privateSetting.agent_prompt_id.trim().length > 0) {
+      bindingSource = 'private';
+      bindingPromptId = privateSetting.agent_prompt_id.trim();
+    }
+  }
+
+  if (!bindingSource || !bindingPromptId) {
+    return null;
+  }
+
+  const promptRows = await prisma.$queryRaw(
+    Prisma.sql`SELECT id,
+                      prompt_name,
+                      agent_type,
+                      system_instructions,
+                      user_prompt_template,
+                      context_variables,
+                      model_name,
+                      model_config,
+                      advanced_config
+               FROM agent_prompts
+               WHERE id = ${bindingPromptId}
+                 AND is_active = 1
+               LIMIT 1`
+  );
+  const prompt = Array.isArray(promptRows) ? promptRows[0] : null;
+
+  if (!prompt) {
+    return {
+      bindingSource,
+      bindingPromptId,
+      prompt: null
+    };
+  }
+
+  return {
+    bindingSource,
+    bindingPromptId,
+    prompt: {
+      id: prompt.id,
+      promptName: prompt.prompt_name,
+      agentType: prompt.agent_type,
+      systemInstruction: parsePromptText(prompt.system_instructions),
+      userPromptTemplate: typeof prompt.user_prompt_template === 'string' ? prompt.user_prompt_template : null,
+      contextVariables: parseJsonValue(prompt.context_variables, {}),
+      modelName: typeof prompt.model_name === 'string' && prompt.model_name.trim().length > 0 ? prompt.model_name.trim() : null,
+      modelConfig: parseJsonValue(prompt.model_config, {}),
+      advancedConfig: parseJsonValue(prompt.advanced_config, {})
+    }
+  };
+}
+
 const trafficPersistence = createTrafficPersistence({
   getPrismaClient,
   Prisma
@@ -177,5 +302,7 @@ module.exports = {
   createSqlAdapter,
   getPrismaClient,
   closePrismaClient,
+  resolveChatAgentPrompt,
+  ...require('./time'),
   ...trafficPersistence
 };

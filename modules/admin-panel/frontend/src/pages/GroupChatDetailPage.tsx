@@ -19,6 +19,7 @@ import { Switch } from '../components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { usePromptTemplates } from '../hooks/usePromptTemplates';
 import { formatPromptBindingLabel } from '@/lib/contract-display';
+import { formatTimestamp } from '@/lib/utils';
 import { 
   ArrowLeft,
   RefreshCw, 
@@ -239,7 +240,7 @@ export const GroupChatDetailPage: React.FC = () => {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('zh-CN');
+    return formatTimestamp(dateString);
   };
 
   const formatDuration = (ms: number) => {

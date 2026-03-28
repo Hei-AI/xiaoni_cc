@@ -38,6 +38,7 @@ import { SelectionBar } from '@/components/console/SelectionBar';
 import { ErrorState } from '@/components/console/ErrorState';
 import { EmptyState } from '@/components/console/EmptyState';
 import { StatusPill } from '@/components/console/StatusPill';
+import { formatTimestamp } from '@/lib/utils';
 
 interface PrivateChatUser {
   user_id: number;
@@ -302,7 +303,7 @@ export const PrivateChatManagementPage: React.FC = () => {
     });
   };
 
-  const formatDate = (dateString: string) => new Date(dateString).toLocaleString('zh-CN');
+  const formatDate = (dateString: string) => formatTimestamp(dateString);
 
   const rows = data?.data || [];
   const metrics = useMemo(() => {

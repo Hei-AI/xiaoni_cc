@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { buildDatabaseUrl } from '@qq-bot/persistence';
+import { buildDatabaseUrl, STORAGE_TIMEZONE } from '@qq-bot/persistence';
 import { AIConfig } from './types';
 
 dotenv.config();
@@ -57,7 +57,7 @@ export const databaseConfig = {
   user: process.env.DB_USER || 'qqbot_user',
   password: process.env.DB_PASSWORD || 'qqbot_password',
   database: process.env.DB_NAME || 'qqbot_db',
-  timezone: process.env.DB_TIMEZONE || 'Z'
+  timezone: process.env.DB_TIMEZONE || STORAGE_TIMEZONE
 };
 
 export const agentRunConfig = {
