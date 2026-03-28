@@ -4,6 +4,7 @@ import {
   defaultModelForPlaygroundProvider,
   derivePlaygroundModelOverride,
   getPromptDefaultModelName,
+  normalizePlaygroundTools,
 } from '@/lib/playground-models';
 
 function makeProviderConfig(overrides: Partial<PlaygroundProviderConfig> = {}): PlaygroundProviderConfig {
@@ -62,5 +63,16 @@ describe('playground-models', () => {
 
     const withoutOverride = applyPlaygroundModelOverride(withOverride, '');
     expect(withoutOverride.context?.modelName).toBeUndefined();
+  });
+
+  it('normalizes tools to definitions and toolChoice only', () => {
+    expect(normalizePlaygroundTools({
+      definitions: [{ type: 'function', function: { name: 'lookup' } }],
+      toolChoice: 'required',
+      customToolConfig: { enabled: true },
+    })).toEqual({
+      definitions: [{ type: 'function', function: { name: 'lookup' } }],
+      toolChoice: 'required',
+    });
   });
 });

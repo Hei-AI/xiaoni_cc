@@ -161,6 +161,11 @@ export class PlaygroundCompatibilityError extends Error {
   }
 }
 
+type NormalizedToolCallSummary = {
+  name: string;
+  arguments: string;
+};
+
 function parseJsonField<T>(value: unknown, fallback: T): T {
   if (value === null || value === undefined) {
     return fallback;
@@ -510,6 +515,175 @@ function extractTextResponse(value: unknown): string {
   return text;
 }
 
+function normalizeToolCallArguments(argumentsValue: unknown): string {
+  if (typeof argumentsValue === 'string') {
+    const trimmed = argumentsValue.trim();
+    if (!trimmed) {
+      return '{}';
+    }
+
+    try {
+      return JSON.stringify(JSON.parse(trimmed));
+    } catch {
+      return trimmed;
+    }
+  }
+
+  if (argumentsValue === null || argumentsValue === undefined) {
+    return '{}';
+  }
+
+  try {
+    return JSON.stringify(argumentsValue);
+  } catch {
+    return String(argumentsValue);
+  }
+}
+
+function extractToolCallSummaries(value: unknown): NormalizedToolCallSummary[] {
+  if (!value) {
+    return [];
+  }
+
+  if (typeof value === 'string') {
+    try {
+      return extractToolCallSummaries(JSON.parse(value));
+    } catch {
+      return [];
+    }
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => extractToolCallSummaries(item));
+  }
+
+  if (typeof value !== 'object') {
+    return [];
+  }
+
+  const record = value as Record<string, unknown>;
+  const directName = typeof record.name === 'string' ? record.name.trim() : '';
+  const directType = typeof record.type === 'string' ? record.type : '';
+  if (directType === 'function_call' && directName) {
+    return [{
+      name: directName,
+      arguments: normalizeToolCallArguments(record.arguments)
+    }];
+  }
+
+  const outputItems = Array.isArray(record.output) ? record.output : [];
+  if (outputItems.length > 0) {
+    return outputItems.flatMap((item) => extractToolCallSummaries(item));
+  }
+
+  return [];
+}
+
+export function summarizeToolCallsFromResponse(value: unknown): string {
+  const summaries = extractToolCallSummaries(value);
+  if (summaries.length === 0) {
+    return '';
+  }
+
+  return summaries
+    .map((summary) => `${summary.name}(${summary.arguments})`)
+    .join('\n');
+}
+
+export function buildPlaygroundResponseTextFallback(
+  params: {
+    processedResponse?: unknown;
+    canonicalResponse?: unknown;
+    wireResponse?: unknown;
+  }
+): string {
+  const processedText = typeof params.processedResponse === 'string' ? params.processedResponse.trim() : '';
+  if (processedText) {
+    return processedText;
+  }
+
+  const canonicalText = extractTextResponse(params.canonicalResponse).trim();
+  if (canonicalText) {
+    return canonicalText;
+  }
+
+  const wireText = extractTextResponse(params.wireResponse).trim();
+  if (wireText) {
+    return wireText;
+  }
+
+  return summarizeToolCallsFromResponse(params.canonicalResponse)
+    || summarizeToolCallsFromResponse(params.wireResponse);
+}
+
+function hasSystemPromptMessage(messages: PlaygroundPromptInput['messages']): boolean {
+  return messages.some((message) => message.role === 'system');
+}
+
+function normalizePlaygroundToolsForValidation(value: unknown): {
+  definitions: unknown[];
+  toolChoice: unknown | null;
+  extras: string[];
+} {
+  const record = asRecord(value) || {};
+  const definitions = Array.isArray(record.definitions) ? record.definitions : [];
+  const toolChoice = Object.prototype.hasOwnProperty.call(record, 'toolChoice') ? record.toolChoice ?? null : null;
+  const extras = Object.keys(record).filter((key) => key !== 'definitions' && key !== 'toolChoice');
+
+  return {
+    definitions,
+    toolChoice,
+    extras
+  };
+}
+
+function normalizePlaygroundToolsForPatch(value: unknown): {
+  definitions: unknown[];
+  toolChoice: unknown | null;
+} {
+  const normalized = normalizePlaygroundToolsForValidation(value);
+  return {
+    definitions: normalized.definitions,
+    toolChoice: normalized.toolChoice
+  };
+}
+
+function normalizeSupportedPlaygroundTools(value: unknown): Record<string, unknown> {
+  const record = asRecord(value) || {};
+  const definitions = Array.isArray(record.definitions) ? record.definitions : [];
+  const toolChoice = Object.prototype.hasOwnProperty.call(record, 'toolChoice')
+    ? record.toolChoice ?? null
+    : null;
+
+  const next: Record<string, unknown> = {};
+  if (definitions.length > 0) {
+    next.definitions = definitions;
+  }
+  if (toolChoice !== null) {
+    next.toolChoice = toolChoice;
+  }
+  return next;
+}
+
+export function validatePlaygroundPromptInput(promptInput: PlaygroundPromptInput): void {
+  if (hasSystemPromptMessage(promptInput.messages)) {
+    throw new PlaygroundCompatibilityError(
+      'Prompt input messages must not contain system role entries. Use systemInstruction instead.',
+      400
+    );
+  }
+}
+
+export function validatePlaygroundProviderConfig(providerConfig: PlaygroundProviderConfig): void {
+  const normalizedTools = normalizePlaygroundToolsForValidation(providerConfig.tools);
+  if (normalizedTools.extras.length > 0) {
+    throw new PlaygroundCompatibilityError(
+      `Playground tools only support definitions and toolChoice. Unsupported keys: ${normalizedTools.extras.join(', ')}`,
+      400
+    );
+  }
+}
+
 function providerFromApiType(apiType?: string | null): PlaygroundProviderConfig['model']['provider'] {
   const normalized = (apiType || '').trim().toLowerCase();
   if (normalized === 'openai') return 'openai';
@@ -553,7 +727,7 @@ function buildProviderConfigFromPrompt(prompt?: PromptRecord | null): Playground
     }),
     thinking: parseJsonField<Record<string, unknown>>(advancedConfig.thinkingConfig, {}),
     safety: parseJsonField<Array<Record<string, unknown>>>(advancedConfig.safetySettings, []),
-    tools: parseJsonField<Record<string, unknown>>(advancedConfig.toolsConfig, {}),
+    tools: normalizeSupportedPlaygroundTools(parseJsonField<Record<string, unknown>>(advancedConfig.toolsConfig, {})),
     context: {
       promptId: prompt?.id || null,
       promptName: prompt?.prompt_name || null
@@ -593,10 +767,10 @@ function buildProviderConfigFromTraffic(log: TrafficLogRow, llmCall?: LLMCallRow
       requestBody.safetySettings || canonicalRequest.safetySettings,
       []
     ),
-    tools: parseJsonField<Record<string, unknown>>(
+    tools: normalizeSupportedPlaygroundTools(parseJsonField<Record<string, unknown>>(
       requestBody.toolConfig || canonicalRequest.toolConfig || {},
       {}
-    ),
+    )),
     context: {
       promptTemplate: llmCall?.prompt_template || null
     }
@@ -755,14 +929,14 @@ function buildRequestPatch(
     patch.input = buildOpenResponseInput(promptInput.messages);
   }
 
-  const nextTools = providerConfig.tools || {};
+  const nextTools = normalizePlaygroundToolsForPatch(providerConfig.tools);
   const baselineTools = {
     definitions: Array.isArray(baselineRequest.tools) ? baselineRequest.tools : [],
     toolChoice: baselineRequest.tool_choice ?? null
   };
   if (!deepEqual(nextTools, baselineTools)) {
-    patch.tools = (nextTools as any).definitions ?? nextTools;
-    patch.tool_choice = (nextTools as any).toolChoice ?? null;
+    patch.tools = nextTools.definitions;
+    patch.tool_choice = nextTools.toolChoice;
   }
 
   const numericFields: Array<[keyof PlaygroundRequestPatch, unknown, unknown]> = [
@@ -1022,6 +1196,9 @@ export class PlaygroundCaseBuilder {
       tags: payload.tags || existing.tags,
       updatedAt: new Date().toISOString()
     };
+
+    validatePlaygroundPromptInput(next.promptInput);
+    validatePlaygroundProviderConfig(next.providerConfig);
 
     await this.db.executeUpdate(
       `
@@ -1575,7 +1752,11 @@ export class PlaygroundCaseBuilder {
     if (llmCall) {
       return {
         sourceKind: 'llm_call',
-        responseText: llmCall.processed_response || extractTextResponse(llmCall.canonical_response),
+        responseText: buildPlaygroundResponseTextFallback({
+          processedResponse: llmCall.processed_response,
+          canonicalResponse: llmCall.canonical_response,
+          wireResponse: llmCall.wire_response
+        }),
         provider: llmCall.model_provider || undefined,
         modelName: llmCall.model_name || undefined,
         usage: {

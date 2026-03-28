@@ -94,7 +94,6 @@ type ToolCallPreview = {
 };
 
 type ToolEditorEntry = {
-  kind: 'definition' | 'extra';
   key: string;
   label: string;
   value: unknown;
@@ -145,7 +144,6 @@ function getToolEditorKeys(tools: Record<string, unknown> | undefined): string[]
   return [
     ...normalized.definitions.map((_, index) => `definitions:${index}`),
     'toolChoice',
-    ...Object.keys(normalized.extras),
   ];
 }
 
@@ -360,7 +358,6 @@ export function PlaygroundPage() {
   const [providerSpecificText, setProviderSpecificText] = useState(stringifyJson({}));
   const [safetyText, setSafetyText] = useState(stringifyJson([]));
   const [toolEditorTexts, setToolEditorTexts] = useState<Record<string, string>>({});
-  const [newExtraToolKey, setNewExtraToolKey] = useState('');
   const [outputView, setOutputView] = useState<OutputView>('text');
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryActionError, setLibraryActionError] = useState<string | null>(null);
@@ -553,7 +550,6 @@ export function PlaygroundPage() {
     setProviderSpecificText(stringifyJson(getPlaygroundProviderSpecific(normalizedProviderConfig)));
     setSafetyText(stringifyJson(currentCase.providerConfig.safety || []));
     setToolEditorTexts({});
-    setNewExtraToolKey('');
     const toolKeys = getToolEditorKeys(currentCase.providerConfig.tools);
     setExpandedToolKey(toolKeys[0] || null);
     setActiveRunId(null);
@@ -737,40 +733,6 @@ export function PlaygroundPage() {
     }));
   };
 
-  const addExtraToolConfig = () => {
-    const trimmedKey = newExtraToolKey.trim();
-    if (!trimmedKey || Object.prototype.hasOwnProperty.call(normalizedTools.extras, trimmedKey)) {
-      return;
-    }
-
-    applyToolMutation((tools) => ({
-      ...tools,
-      [trimmedKey]: {},
-    }), trimmedKey);
-    setToolEditorTexts((prev) => ({
-      ...prev,
-      [trimmedKey]: stringifyJson({}),
-    }));
-    setNewExtraToolKey('');
-  };
-
-  const removeExtraToolConfig = (toolKey: string) => {
-    applyToolMutation((tools) => {
-      const nextTools = { ...tools };
-      delete nextTools[toolKey];
-      return nextTools;
-    });
-  };
-
-  const updateExtraToolConfig = (toolKey: string, nextText: string) => {
-    updateToolEditorText(toolKey, nextText, (parsed) => {
-      applyToolMutation((tools) => ({
-        ...tools,
-        [toolKey]: parsed,
-      }), toolKey);
-    });
-  };
-
   const applyPromptSelectionToWorkspace = (nextPromptId: string | null) => {
     if (!nextPromptId) {
       return;
@@ -855,7 +817,6 @@ export function PlaygroundPage() {
     setProviderSpecificText(stringifyJson(getPlaygroundProviderSpecific(normalizedNext)));
     setSafetyText(stringifyJson(normalizedNext.safety || []));
     setToolEditorTexts({});
-    setNewExtraToolKey('');
     const keys = getToolEditorKeys(normalizedNext.tools);
     setExpandedToolKey((prev) => (prev && keys.includes(prev) ? prev : keys[0] || null));
   };
@@ -921,27 +882,16 @@ export function PlaygroundPage() {
   const promptPreview = buildPromptPreview(promptMode, draftSystemInstruction, draftUserPromptTemplate, promptInput);
   const toolEditorSources = useMemo(() => ([
     ...normalizedTools.definitions.map((definition, index) => ({
-      kind: 'definition' as const,
       key: `definitions:${index}`,
       label: `tool / definitions / ${getPlaygroundToolDefinitionName(definition, index)}`,
       value: definition,
-    })),
-    ...Object.entries(normalizedTools.extras).map(([toolKey, toolValue]) => ({
-      kind: 'extra' as const,
-      key: toolKey,
-      label: `tool / ${toolKey}`,
-      value: toolValue,
     })),
   ]), [normalizedTools]);
 
   const toolEditorEntries = useMemo<ToolEditorEntry[]>(() => toolEditorSources.map((entry) => ({
     ...entry,
-    onChange: (nextText: string) => (
-      entry.kind === 'definition'
-        ? updateToolDefinition(Number(entry.key.split(':')[1]), nextText)
-        : updateExtraToolConfig(entry.key, nextText)
-    ),
-  })), [toolEditorSources, updateExtraToolConfig, updateToolDefinition]);
+    onChange: (nextText: string) => updateToolDefinition(Number(entry.key.split(':')[1]), nextText),
+  })), [toolEditorSources, updateToolDefinition]);
 
   useEffect(() => {
     const sourceEntries = [
@@ -968,8 +918,6 @@ export function PlaygroundPage() {
   const renderToolsSection = (className: string) => {
     const toolChoiceText = toolEditorTexts.toolChoice ?? stringifyJson(normalizedTools.toolChoice);
     const toolChoiceExpanded = expandedToolKey === 'toolChoice';
-    const canAddExtraToolConfig =
-      newExtraToolKey.trim().length > 0 && !Object.prototype.hasOwnProperty.call(normalizedTools.extras, newExtraToolKey.trim());
 
     return (
       <div className={className}>
@@ -1022,35 +970,13 @@ export function PlaygroundPage() {
             ) : null}
           </div>
 
-          <div className="rounded-2xl border border-dashed border-border/70 bg-background p-3">
-            <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Add Extra Tool Config</Label>
-            <div className="mt-2 flex items-center gap-2">
-              <Input
-                value={newExtraToolKey}
-                onChange={(event) => setNewExtraToolKey(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    addExtraToolConfig();
-                  }
-                }}
-                placeholder="customToolConfig"
-              />
-              <Button type="button" variant="outline" size="sm" onClick={addExtraToolConfig} disabled={!canAddExtraToolConfig}>
-                Add Key
-              </Button>
-            </div>
-          </div>
-
           {toolEditorEntries.length > 0 ? (
             <div className="space-y-2">
               {toolEditorEntries.map((entry) => {
                 const isExpanded = expandedToolKey === entry.key;
                 const editorText = toolEditorTexts[entry.key] ?? stringifyJson(entry.value);
                 const invalidJson = !isJsonTextValid(editorText);
-                const definitionIndex = entry.kind === 'definition'
-                  ? Number(entry.key.split(':')[1])
-                  : null;
+                const definitionIndex = Number(entry.key.split(':')[1]);
 
                 return (
                   <div key={entry.key} className="overflow-hidden rounded-2xl border border-border/70 bg-background">
@@ -1067,27 +993,19 @@ export function PlaygroundPage() {
                         <span className="text-xs text-muted-foreground">{isExpanded ? '收起编辑' : '点击展开'}</span>
                       </button>
                       <div className="mr-2 flex items-center gap-1">
-                        {entry.kind === 'definition' && definitionIndex !== null ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => duplicateToolDefinitionAt(definitionIndex)}
-                          >
-                            <Copy className="h-4 w-4" />
-                          </Button>
-                        ) : null}
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          onClick={() => {
-                            if (entry.kind === 'definition' && definitionIndex !== null) {
-                              removeToolDefinitionAt(definitionIndex);
-                              return;
-                            }
-                            removeExtraToolConfig(entry.key);
-                          }}
+                          onClick={() => duplicateToolDefinitionAt(definitionIndex)}
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeToolDefinitionAt(definitionIndex)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -1110,7 +1028,7 @@ export function PlaygroundPage() {
               })}
             </div>
           ) : (
-            <EmptyState title="No tool definitions yet" description="现在可以直接新增 definition 或 extra config，不必先回到 Prompt 配置页。" />
+            <EmptyState title="No tool definitions yet" description="现在可以直接新增 definition，不必先回到 Prompt 配置页。" />
           )}
         </div>
       </div>
@@ -2053,29 +1971,34 @@ export function PlaygroundPage() {
                   <div key={`${message.role}-${index}`} className="rounded-2xl border border-border/70 bg-muted/15 p-3">
                     <div className="mb-2 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Badge variant={message.role === 'assistant' ? 'secondary' : message.role === 'system' ? 'default' : 'outline'}>
+                        <Badge variant={message.role === 'assistant' ? 'secondary' : message.role === 'system' ? 'destructive' : 'outline'}>
                           {message.role}
                         </Badge>
-                        <Select
-                          value={message.role}
-                          onValueChange={(value) =>
-                            setPromptInput((prev) => ({
-                              ...prev,
-                              messages: prev.messages.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, role: value as typeof item.role } : item
-                              ),
-                            }))
-                          }
-                        >
-                          <SelectTrigger className="h-8 w-[120px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="system">system</SelectItem>
-                            <SelectItem value="user">user</SelectItem>
-                            <SelectItem value="assistant">assistant</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        {message.role === 'system' ? (
+                          <div className="text-xs text-destructive">Unsupported here. Move this content to systemInstruction.</div>
+                        ) : (
+                          <Select
+                            value={message.role}
+                            onValueChange={(value) =>
+                              setPromptInput((prev) => ({
+                                ...prev,
+                                messages: prev.messages.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, role: value as 'user' | 'assistant' }
+                                    : item
+                                ),
+                              }))
+                            }
+                          >
+                            <SelectTrigger className="h-8 w-[120px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="user">user</SelectItem>
+                              <SelectItem value="assistant">assistant</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
                       </div>
                       <Button
                         variant="ghost"

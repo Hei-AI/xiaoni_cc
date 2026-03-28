@@ -15,7 +15,6 @@ type PromptModelLike = {
 export type PlaygroundNormalizedTools = {
   definitions: unknown[];
   toolChoice: unknown | null;
-  extras: Record<string, unknown>;
 };
 
 function normalizeModelName(value: unknown): string | null {
@@ -81,14 +80,10 @@ export function normalizePlaygroundTools(
 ): PlaygroundNormalizedTools {
   const source = tools || {};
   const definitions = Array.isArray(source.definitions) ? source.definitions : [];
-  const extras = Object.fromEntries(
-    Object.entries(source).filter(([key]) => key !== 'definitions' && key !== 'toolChoice')
-  );
 
   return {
     definitions,
     toolChoice: Object.prototype.hasOwnProperty.call(source, 'toolChoice') ? source.toolChoice ?? null : null,
-    extras,
   };
 }
 
@@ -158,6 +153,9 @@ export function derivePlaygroundModelOverride(
   const normalizedConfig = providerConfig ? normalizePlaygroundProviderConfig(providerConfig) : null;
   const storedModel = normalizeModelName(normalizedConfig?.model?.name);
   const promptModel = getPromptDefaultModelName(prompt);
+  const providerDefaultModel = normalizedConfig
+    ? defaultModelForPlaygroundProvider(normalizedConfig.model.provider)
+    : null;
 
   if (!storedModel) {
     return '';
@@ -165,6 +163,10 @@ export function derivePlaygroundModelOverride(
 
   // Older cases persisted the prompt/provider default directly into context.modelName.
   if (promptModel && storedModel === promptModel) {
+    return '';
+  }
+
+  if (!promptModel && providerDefaultModel && storedModel === providerDefaultModel) {
     return '';
   }
 

@@ -207,7 +207,7 @@ export function createPlaygroundRoutes(database: DatabaseManager, logger: winsto
       });
     } catch (error) {
       logger.error('Failed to update playground case', { error, caseId: req.params.caseId });
-      res.status(500).json({
+      res.status(errorStatusCode(error)).json({
         success: false,
         error: 'Failed to update playground case',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -257,7 +257,7 @@ export function createPlaygroundRoutes(database: DatabaseManager, logger: winsto
       });
     } catch (error) {
       logger.error('Failed to execute playground run', { error, body: req.body });
-      res.status(500).json({
+      res.status(errorStatusCode(error)).json({
         success: false,
         error: 'Failed to execute playground run',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -305,7 +305,7 @@ export function createPlaygroundRoutes(database: DatabaseManager, logger: winsto
       });
     } catch (error) {
       logger.error('Failed to clone playground run', { error, runId: req.params.runId });
-      res.status(500).json({
+      res.status(errorStatusCode(error)).json({
         success: false,
         error: 'Failed to clone playground run',
         message: error instanceof Error ? error.message : 'Unknown error',

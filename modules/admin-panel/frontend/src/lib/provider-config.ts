@@ -85,6 +85,23 @@ function normalizeModelName(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+function normalizeSupportedPlaygroundTools(value: unknown): Record<string, unknown> {
+  const record = asRecord(parseMaybeJson(value)) || {};
+  const definitions = Array.isArray(record.definitions) ? record.definitions : [];
+  const toolChoice = Object.prototype.hasOwnProperty.call(record, 'toolChoice')
+    ? record.toolChoice ?? null
+    : null;
+
+  const next: Record<string, unknown> = {};
+  if (definitions.length > 0) {
+    next.definitions = definitions;
+  }
+  if (toolChoice !== null) {
+    next.toolChoice = toolChoice;
+  }
+  return next;
+}
+
 export function normalizePromptProvider(value: unknown): PlaygroundProviderId {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (normalized === 'openai') return 'openai';
@@ -331,7 +348,7 @@ export function resolvePromptProviderConfig(prompt?: PromptConfigLike): Playgrou
     safety: Array.isArray(parseMaybeJson(advancedConfig.safetySettings))
       ? (parseMaybeJson(advancedConfig.safetySettings) as Array<Record<string, unknown>>)
       : [],
-    tools: asRecord(parseMaybeJson(advancedConfig.toolsConfig)) || {},
+    tools: normalizeSupportedPlaygroundTools(advancedConfig.toolsConfig),
     context: {
       promptId: prompt?.id || null,
       promptName: prompt?.prompt_name || null,

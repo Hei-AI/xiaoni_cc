@@ -1,7 +1,12 @@
 import crypto from 'crypto';
 import winston from 'winston';
 import { DatabaseManager } from './database';
-import { PlaygroundCaseBuilder } from './playground-case-builder';
+import {
+  buildPlaygroundResponseTextFallback,
+  PlaygroundCaseBuilder,
+  validatePlaygroundPromptInput,
+  validatePlaygroundProviderConfig
+} from './playground-case-builder';
 import {
   PlaygroundBaselineSnapshot,
   PlaygroundCase,
@@ -166,6 +171,20 @@ function getProviderSpecificFromConfig(providerConfig: PlaygroundProviderConfig)
   return providerSpecific && typeof providerSpecific === 'object' && !Array.isArray(providerSpecific)
     ? providerSpecific
     : {};
+}
+
+function normalizePlaygroundTools(value: unknown): {
+  definitions: unknown[];
+  toolChoice: unknown | null;
+} {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+
+  return {
+    definitions: Array.isArray(record.definitions) ? record.definitions : [],
+    toolChoice: Object.prototype.hasOwnProperty.call(record, 'toolChoice') ? record.toolChoice ?? null : null
+  };
 }
 
 function normalizePromptMessages(messages: PlaygroundPromptInput['messages']): PlaygroundPromptInput['messages'] {
@@ -339,6 +358,9 @@ export class PlaygroundRunService {
       throw new Error(`Playground case not found: ${input.caseId}`);
     }
 
+    validatePlaygroundPromptInput(input.promptInput);
+    validatePlaygroundProviderConfig(input.providerConfig);
+
     if (caseRecord.source === 'span' && caseRecord.baselineSnapshot?.canonicalRequest) {
       return this.createSpanReplayRun(caseRecord, input);
     }
@@ -390,7 +412,11 @@ export class PlaygroundRunService {
       return failureRun;
     }
 
-    const outputText = typeof payload.response === 'string' ? payload.response : '';
+    const outputText = buildPlaygroundResponseTextFallback({
+      processedResponse: payload.response,
+      canonicalResponse: payload.canonical_response,
+      wireResponse: payload.wire_response
+    });
     const previousRun = (await this.caseBuilder.listRunsByCase(caseRecord.id))[0];
     const comparison = buildComparison(
       caseRecord.baselineOutput?.responseText,
@@ -609,7 +635,11 @@ export class PlaygroundRunService {
       });
     }
 
-    const outputText = typeof payload.response === 'string' ? payload.response : '';
+    const outputText = buildPlaygroundResponseTextFallback({
+      processedResponse: payload.response,
+      canonicalResponse: payload.canonical_response,
+      wireResponse: payload.wire_response
+    });
     const previousRun = (await this.caseBuilder.listRunsByCase(caseRecord.id))[0];
     const comparison = buildComparison(
       caseRecord.baselineOutput?.responseText,
@@ -775,14 +805,14 @@ export class PlaygroundRunService {
       );
     }
 
-    const currentTools = providerConfig.tools || {};
+    const currentTools = normalizePlaygroundTools(providerConfig.tools);
     const baselineTools = {
       definitions: Array.isArray(baselineRequest.tools) ? baselineRequest.tools : [],
       toolChoice: baselineRequest.tool_choice ?? null
     };
     if (!deepEqual(currentTools, baselineTools)) {
-      patch.tools = (currentTools as any).definitions ?? currentTools;
-      patch.tool_choice = (currentTools as any).toolChoice ?? null;
+      patch.tools = currentTools.definitions;
+      patch.tool_choice = currentTools.toolChoice;
     }
 
     const fieldMappings: Array<[keyof PlaygroundRequestPatch, unknown, unknown]> = [

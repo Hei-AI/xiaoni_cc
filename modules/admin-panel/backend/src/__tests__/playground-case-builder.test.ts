@@ -1,8 +1,13 @@
 import winston from 'winston';
 import {
   PlaygroundCaseBuilder,
+  PlaygroundCompatibilityError,
+  buildPlaygroundResponseTextFallback,
   buildPromptInputFromCanonicalRequest,
   buildProviderConfigFromBaselineSnapshot,
+  summarizeToolCallsFromResponse,
+  validatePlaygroundPromptInput,
+  validatePlaygroundProviderConfig,
 } from '../services/playground-case-builder';
 import type {
   PlaygroundBaselineOutput,
@@ -126,6 +131,95 @@ describe('buildProviderConfigFromBaselineSnapshot', () => {
     expect(providerConfig.tools).toEqual({
       definitions: [{ type: 'function', name: 'lookup' }],
       toolChoice: 'required',
+    });
+  });
+});
+
+describe('playground contract guards', () => {
+  it('rejects system messages in prompt input', () => {
+    expect(() => validatePlaygroundPromptInput({
+      systemInstruction: 'system prompt',
+      messages: [{ role: 'system', content: 'shadow prompt' }],
+      contextVariables: {},
+    })).toThrow(PlaygroundCompatibilityError);
+
+    expect(() => validatePlaygroundPromptInput({
+      systemInstruction: 'system prompt',
+      messages: [{ role: 'user', content: 'hello' }],
+      contextVariables: {},
+    })).not.toThrow();
+  });
+
+  it('rejects unsupported tool config extras', () => {
+    expect(() => validatePlaygroundProviderConfig({
+      model: { provider: 'openai', name: 'gpt-5.4-mini', providerSpecific: {} },
+      generation: {},
+      thinking: {},
+      safety: [],
+      tools: {
+        definitions: [{ type: 'function', function: { name: 'lookup' } }],
+        toolChoice: 'required',
+        customToolConfig: { enabled: true },
+      },
+      context: {},
+    })).toThrow('Playground tools only support definitions and toolChoice');
+  });
+});
+
+describe('tool-only fallback output', () => {
+  it('summarizes tool calls from canonical response output', () => {
+    const canonicalResponse = {
+      output: [
+        {
+          type: 'function_call',
+          name: 'lookup_weather',
+          arguments: '{\n  \"city\": \"Shanghai\"\n}',
+          call_id: 'call_123',
+          status: 'completed',
+        },
+      ],
+    };
+
+    expect(summarizeToolCallsFromResponse(canonicalResponse)).toBe('lookup_weather({"city":"Shanghai"})');
+    expect(buildPlaygroundResponseTextFallback({
+      processedResponse: '',
+      canonicalResponse,
+      wireResponse: null,
+    })).toBe('lookup_weather({"city":"Shanghai"})');
+  });
+
+  it('uses tool summary in baseline output when no assistant text exists', () => {
+    const db = createFakeDb();
+    const builder = new PlaygroundCaseBuilder(db as never, createLogger());
+    const baselineOutput = (builder as any).buildBaselineOutput(
+      null,
+      {
+        model_provider: 'openai',
+        model_name: 'gpt-5.4',
+        processed_response: '',
+        canonical_response: JSON.stringify({
+          output: [
+            {
+              type: 'function_call',
+              name: 'finish',
+              arguments: { reason: 'done' },
+              call_id: 'call_456',
+              status: 'completed',
+            },
+          ],
+        }),
+        wire_response: null,
+        canonical_request: null,
+        wire_request: null,
+        input_tokens: 10,
+        output_tokens: 1,
+      },
+      null
+    );
+
+    expect(baselineOutput).toMatchObject({
+      sourceKind: 'llm_call',
+      responseText: 'finish({"reason":"done"})',
     });
   });
 });
