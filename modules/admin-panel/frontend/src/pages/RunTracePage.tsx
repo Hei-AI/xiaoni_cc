@@ -1,5 +1,6 @@
 import React from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useMutation } from '@tanstack/react-query';
 import { ArrowLeft, Loader2, Pause, Play, RefreshCw, Waypoints } from 'lucide-react';
 import { TraceWaterfall } from '@/components/trace-canvas/TraceWaterfall';
 import { TraceInspectorPanel, TraceInspectorSheet } from '@/components/trace-canvas/TraceInspector';
@@ -9,32 +10,9 @@ import { MetricCard } from '@/components/console/MetricCard';
 import { SectionPanel } from '@/components/console/SectionPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { FloatingWorkspacePanel, type FloatingWorkspacePanelState, type FloatingWorkspaceResizeMode } from '@/components/ui/floating-workspace-panel';
-import { createCaseFromSpan } from '@/lib/playgroundApi';
+import { createCaseFromSpan, buildPlaygroundRecoveryUrl, openBestPlaygroundCase } from '@/lib/playgroundApi';
 import { buildTraceFlowViewModel } from '@/lib/trace-flow';
 import { useRunTrace } from '@/hooks/useAgentRuns';
-
-function useDesktopInspector() {
-  const [isDesktop, setIsDesktop] = React.useState<boolean>(() => {
-    if (typeof window === 'undefined') {
-      return true;
-    }
-    return window.matchMedia('(min-width: 1280px)').matches;
-  });
-
-  React.useEffect(() => {
-    if (typeof window === 'undefined') {
-      return undefined;
-    }
-    const mediaQuery = window.matchMedia('(min-width: 1280px)');
-    const listener = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
-    setIsDesktop(mediaQuery.matches);
-    mediaQuery.addEventListener('change', listener);
-    return () => mediaQuery.removeEventListener('change', listener);
-  }, []);
-
-  return isDesktop;
-}
 
 export const RunTracePage: React.FC = () => {
   const { runId } = useParams<{ runId: string }>();
@@ -44,24 +22,7 @@ export const RunTracePage: React.FC = () => {
   const [isMobileInspectorOpen, setIsMobileInspectorOpen] = React.useState(false);
   const [spanImportError, setSpanImportError] = React.useState<string | null>(null);
   const [importingSpanId, setImportingSpanId] = React.useState<string | null>(null);
-  const [inspectorPanel, setInspectorPanel] = React.useState<FloatingWorkspacePanelState>({
-    collapsed: false,
-    x: 980,
-    y: 24,
-    width: 420,
-    height: 720,
-  });
-  const workspaceRef = React.useRef<HTMLDivElement | null>(null);
-  const dragRef = React.useRef<{
-    mode: FloatingWorkspaceResizeMode;
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-    originWidth: number;
-    originHeight: number;
-  } | null>(null);
-  const isDesktop = useDesktopInspector();
+  const [isDesktop, setIsDesktop] = React.useState<boolean>(() => (typeof window === 'undefined' ? true : window.innerWidth >= 1280));
 
   if (!runId) {
     return <Navigate to="/conversations" replace />;
@@ -89,6 +50,24 @@ export const RunTracePage: React.FC = () => {
     () => viewModel?.rows.find((row) => row.spanId === selectedSpanId) || null,
     [selectedSpanId, viewModel]
   );
+  const openConversationPlaygroundMutation = useMutation({
+    mutationFn: async (payload: { conversationId: string; traceId?: string | null }) => openBestPlaygroundCase(payload),
+    onSuccess: (record) => {
+      navigate(`/playground?caseId=${record.id}`);
+    },
+    onError: (error, payload) => {
+      const message = error instanceof Error
+        ? error.message
+        : `无法为会话 ${payload.conversationId} 打开 Playground`;
+      navigate(buildPlaygroundRecoveryUrl(message));
+    },
+  });
+
+  React.useEffect(() => {
+    const handleResize = () => setIsDesktop(window.innerWidth >= 1280);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const handleSelectSpan = React.useCallback((spanId: string) => {
     setSelectedSpanId(spanId);
@@ -110,6 +89,21 @@ export const RunTracePage: React.FC = () => {
       const record = await createCaseFromSpan({ traceId: trace.trace.trace_id, spanId });
       navigate(`/playground?caseId=${record.id}`);
     } catch (fetchError) {
+      if (trace.conversation_id) {
+        try {
+          const record = await openBestPlaygroundCase({
+            conversationId: String(trace.conversation_id),
+            traceId: trace.trace.trace_id,
+          });
+          navigate(`/playground?caseId=${record.id}`);
+          return;
+        } catch (fallbackError) {
+          const primaryMessage = fetchError instanceof Error ? fetchError.message : '无法从当前 span 创建 Playground Case';
+          const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : '会话级导入也失败了';
+          setSpanImportError(`${primaryMessage}；已回退到会话级导入，但仍失败：${fallbackMessage}`);
+          return;
+        }
+      }
       setSpanImportError(fetchError instanceof Error ? fetchError.message : '无法从当前 span 创建 Playground Case');
     } finally {
       setImportingSpanId(null);
@@ -123,85 +117,19 @@ export const RunTracePage: React.FC = () => {
     await handleImportSpan(selectedSpan.spanId);
   }, [handleImportSpan, selectedSpan]);
 
-  const clampPanel = React.useCallback((panel: FloatingWorkspacePanelState) => {
-    const rect = workspaceRef.current?.getBoundingClientRect();
-    const boundsWidth = rect?.width ?? (typeof window === 'undefined' ? 1600 : window.innerWidth);
-    const boundsHeight = rect?.height ?? (typeof window === 'undefined' ? 900 : window.innerHeight);
-    const width = Math.min(Math.max(panel.width, 320), Math.max(320, boundsWidth - 32));
-    const height = Math.min(Math.max(panel.height, 320), Math.max(320, boundsHeight - 32));
-    const x = Math.min(Math.max(panel.x, 16), Math.max(16, boundsWidth - width - 16));
-    const y = Math.min(Math.max(panel.y, 16), Math.max(16, boundsHeight - height - 16));
-    return { ...panel, width, height, x, y };
-  }, []);
-
-  React.useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      const dragState = dragRef.current;
-      if (!dragState) {
-        return;
-      }
-      const deltaX = event.clientX - dragState.startX;
-      const deltaY = event.clientY - dragState.startY;
-      setInspectorPanel((current) => {
-        let next = current;
-        if (dragState.mode === 'move') {
-          next = { ...current, x: dragState.originX + deltaX, y: dragState.originY + deltaY };
-        } else if (dragState.mode === 'right') {
-          next = { ...current, width: dragState.originWidth + deltaX };
-        } else if (dragState.mode === 'bottom') {
-          next = { ...current, height: dragState.originHeight + deltaY };
-        } else {
-          next = { ...current, width: dragState.originWidth + deltaX, height: dragState.originHeight + deltaY };
-        }
-        return clampPanel(next);
-      });
-    };
-
-    const handlePointerUp = () => {
-      dragRef.current = null;
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-  }, [clampPanel]);
-
-  React.useEffect(() => {
-    if (!isDesktop) {
-      return;
-    }
-    setInspectorPanel((current) => clampPanel(current));
-  }, [clampPanel, isDesktop]);
-
-  const handlePanelPointerDown = (mode: FloatingWorkspaceResizeMode) => (event: React.PointerEvent<HTMLElement>) => {
-    event.preventDefault();
-    dragRef.current = {
-      mode,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: inspectorPanel.x,
-      originY: inspectorPanel.y,
-      originWidth: inspectorPanel.width,
-      originHeight: inspectorPanel.height,
-    };
-  };
-
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Run Trace"
-        title="Run Trace 详情"
-        description="span tree 和共享时间轴只作为深度证据层，不再承担主页面职责。"
+        eyebrow="Trace Detail"
+        title="Trace 详情"
+        description="span tree 和共享时间轴在这里展开，作为 run 的真实执行证据。"
         icon={<Waypoints className="h-5 w-5" />}
         badge={trace ? <PageHeaderBadge>{trace.trace.status}</PageHeaderBadge> : null}
         actions={(
           <>
             <Button variant="outline" size="sm" onClick={() => navigate('/conversations')}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              返回工作台
+              返回对话流
             </Button>
             <Button variant={autoRefreshEnabled ? 'default' : 'outline'} size="sm" onClick={() => setAutoRefreshEnabled((value) => !value)}>
               {autoRefreshEnabled ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
@@ -212,9 +140,17 @@ export const RunTracePage: React.FC = () => {
               刷新
             </Button>
             {trace?.conversation_id ? (
-              <Button variant="outline" size="sm" onClick={() => navigate(`/playground?conversationId=${trace.conversation_id}`)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openConversationPlaygroundMutation.mutate({
+                  conversationId: String(trace.conversation_id),
+                  traceId: trace.trace.trace_id
+                })}
+                disabled={openConversationPlaygroundMutation.isPending}
+              >
                 <Waypoints className="mr-2 h-4 w-4" />
-                Run 到 Playground
+                {openConversationPlaygroundMutation.isPending ? '导入会话中...' : '打开可用 Playground 样本'}
               </Button>
             ) : null}
             <Button
@@ -270,7 +206,7 @@ export const RunTracePage: React.FC = () => {
           </div>
 
           {isDesktop ? (
-            <div ref={workspaceRef} className="relative min-h-[calc(100vh-19rem)]">
+            <div className="grid min-h-[calc(100vh-19rem)] gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
               <SectionPanel
                 title="Span Waterfall"
                 description="按 span 树、共享时间轴和路径层级阅读真实执行。"
@@ -286,34 +222,20 @@ export const RunTracePage: React.FC = () => {
                 />
               </SectionPanel>
 
-              {!inspectorPanel.collapsed ? (
-                <FloatingWorkspacePanel
-                  title="Inspector"
-                  x={inspectorPanel.x}
-                  y={inspectorPanel.y}
-                  width={inspectorPanel.width}
-                  height={inspectorPanel.height}
-                  onClose={() => setInspectorPanel((current) => ({ ...current, collapsed: true }))}
-                  onDragPointerDown={handlePanelPointerDown('move')}
-                  onResizePointerDown={(mode) => handlePanelPointerDown(mode)}
-                  bodyClassName="p-0"
-                >
-                  <SectionPanel
-                    title="Inspector"
-                    description="点击任意 span 后，查看该步骤的输入、输出和证据。"
-                    className="flex h-full min-h-0 flex-col border-0 shadow-none"
-                    contentClassName="flex min-h-0 flex-1 flex-col pt-3"
-                  >
-                    <TraceInspectorPanel
-                      node={selectedSpan}
-                      metadataBadges={viewModel.metadataBadges}
-                      onImportToPlayground={canImportSelectedSpan ? handleImportSelectedSpan : undefined}
-                      isImportingToPlayground={Boolean(importingSpanId)}
-                      className="h-full min-h-0"
-                    />
-                  </SectionPanel>
-                </FloatingWorkspacePanel>
-              ) : null}
+              <SectionPanel
+                title="Inspector"
+                description="固定右侧详情区，不再漂浮遮挡主瀑布图。"
+                className="flex min-h-[calc(100vh-19rem)] flex-col"
+                contentClassName="flex min-h-0 flex-1 flex-col pt-3"
+              >
+                <TraceInspectorPanel
+                  node={selectedSpan}
+                  metadataBadges={viewModel.metadataBadges}
+                  onImportToPlayground={canImportSelectedSpan ? handleImportSelectedSpan : undefined}
+                  isImportingToPlayground={Boolean(importingSpanId)}
+                  className="h-full min-h-0"
+                />
+              </SectionPanel>
             </div>
           ) : (
             <SectionPanel title="Span Waterfall" description="按 span 树、共享时间轴和路径层级阅读真实执行。" contentClassName="pt-3">

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { AgentRunDetail, AgentRunListItem, AgentRunSessionSummary, ConversationTraceData } from '@/types';
+import { AgentRunListItem, AgentRunSessionSummary, ConversationTraceData } from '@/types';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -42,15 +42,6 @@ export function useSessionRuns(sessionKey: string | null) {
     queryKey: ['session-runs', sessionKey],
     queryFn: () => fetchJson<AgentRunListItem[]>(`/api/runs/sessions/${encodeURIComponent(sessionKey || '')}`),
     enabled: Boolean(sessionKey),
-    staleTime: 10000,
-  });
-}
-
-export function useAgentRunDetail(runId: string | null) {
-  return useQuery<AgentRunDetail>({
-    queryKey: ['run-detail', runId],
-    queryFn: () => fetchJson<AgentRunDetail>(`/api/runs/${runId}`),
-    enabled: Boolean(runId),
     staleTime: 10000,
   });
 }
