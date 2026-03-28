@@ -41,6 +41,9 @@ const HttpTrafficMonitorPage = lazy(async () => ({
 const HttpTrafficDetailPage = lazy(async () => ({
   default: (await import('./pages/HttpTrafficDetailPage')).HttpTrafficDetailPage,
 }));
+const ProviderRequestDesignPreviewPage = lazy(async () => ({
+  default: (await import('./pages/ProviderRequestDesignPreviewPage')).ProviderRequestDesignPreviewPage,
+}));
 const PlaygroundPage = lazy(async () => ({
   default: (await import('./pages/PlaygroundPage')).PlaygroundPage,
 }));
@@ -97,6 +100,7 @@ function App() {
               <Route path="/queue-management" element={<QueueManagementPage />} />
               <Route path="/traffic" element={<HttpTrafficMonitorPage />} />
               <Route path="/traffic/:id" element={<HttpTrafficDetailPage />} />
+              <Route path="/design/provider-request-preview" element={<ProviderRequestDesignPreviewPage />} />
               <Route path="/playground" element={<PlaygroundPage />} />
             </Routes>
           </Suspense>

@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Alert, AlertDescription } from '../components/ui/alert';
+import { HttpPayloadAccordion } from '../components/HttpPayloadAccordion';
 import { StructuredDataViewer } from '../components/StructuredDataViewer';
 import {
   ArrowLeft,
@@ -425,12 +426,10 @@ export function HttpTrafficDetailPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <CardHeader>
             <div className="overflow-x-auto">
-              <TabsList className="grid w-full min-w-[760px] grid-cols-7">
+              <TabsList className="grid w-full min-w-[640px] grid-cols-5">
                 <TabsTrigger value="overview">概览</TabsTrigger>
                 <TabsTrigger value="request">请求</TabsTrigger>
                 <TabsTrigger value="response">响应</TabsTrigger>
-                <TabsTrigger value="headers">请求头</TabsTrigger>
-                <TabsTrigger value="response-headers">响应头</TabsTrigger>
                 <TabsTrigger value="metadata">元数据</TabsTrigger>
                 <TabsTrigger value="replay">
                   重放 {replayHistory.length > 0 && `(${replayHistory.length})`}
@@ -589,14 +588,14 @@ export function HttpTrafficDetailPage() {
                 />
               )}
 
-              {log.request_body && (
-                <StructuredDataViewer
-                  title="Request Body"
-                  value={log.request_body}
-                  emptyLabel="无请求体"
-                  heightClassName="h-[26rem]"
-                />
-              )}
+              <HttpPayloadAccordion
+                headers={log.request_headers}
+                body={log.request_body}
+                headersEmptyLabel="无请求头信息"
+                bodyEmptyLabel="无请求体"
+                bodyHeightClassName="h-[24rem]"
+                headersHeightClassName="h-[18rem]"
+              />
             </TabsContent>
 
             <TabsContent value="response" className="space-y-4">
@@ -626,41 +625,15 @@ export function HttpTrafficDetailPage() {
                 </Alert>
               )}
 
-              {log.response_body && (
-                <StructuredDataViewer
-                  title="Response Body"
-                  value={log.response_body}
-                  emptyLabel="无响应体"
-                  heightClassName="h-[26rem]"
-                  notice={Boolean(log.is_truncated) ? '响应体过大，当前内容为截断后的展示结果。' : undefined}
-                />
-              )}
-            </TabsContent>
-
-            <TabsContent value="headers" className="space-y-4">
-              <h3 className="font-semibold">请求头</h3>
-              {log.request_headers && Object.keys(log.request_headers).length > 0 ? (
-                <StructuredDataViewer
-                  title="Request Headers"
-                  value={log.request_headers}
-                  heightClassName="h-[28rem]"
-                />
-              ) : (
-                <p className="text-muted-foreground">无请求头信息</p>
-              )}
-            </TabsContent>
-
-            <TabsContent value="response-headers" className="space-y-4">
-              <h3 className="font-semibold">响应头</h3>
-              {log.response_headers && Object.keys(log.response_headers).length > 0 ? (
-                <StructuredDataViewer
-                  title="Response Headers"
-                  value={log.response_headers}
-                  heightClassName="h-[28rem]"
-                />
-              ) : (
-                <p className="text-muted-foreground">无响应头信息</p>
-              )}
+              <HttpPayloadAccordion
+                headers={log.response_headers}
+                body={log.response_body}
+                headersEmptyLabel="无响应头信息"
+                bodyEmptyLabel="无响应体"
+                bodyHeightClassName="h-[24rem]"
+                headersHeightClassName="h-[18rem]"
+                bodyNotice={Boolean(log.is_truncated) ? '响应体过大，当前内容为截断后的展示结果。' : undefined}
+              />
             </TabsContent>
 
             <TabsContent value="metadata" className="space-y-4">

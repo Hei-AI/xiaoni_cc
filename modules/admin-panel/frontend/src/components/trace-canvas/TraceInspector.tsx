@@ -1,5 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { HttpPayloadAccordion } from '@/components/HttpPayloadAccordion';
 import { StructuredDataViewer } from '@/components/StructuredDataViewer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -49,6 +50,25 @@ function getSection(node: TraceWaterfallRow, sectionId: InspectorTab) {
   return node.inspector.sections.find((section) => section.id === sectionId) || null;
 }
 
+function readHttpPayload(value: unknown): { headers: unknown; body: unknown } {
+  if (!value || typeof value !== 'object') {
+    return {
+      headers: null,
+      body: null,
+    };
+  }
+
+  const payload = value as Record<string, unknown>;
+  return {
+    headers: payload.headers ?? null,
+    body: payload.body ?? null,
+  };
+}
+
+function isProviderRequestNode(node: TraceWaterfallRow | null): node is TraceWaterfallRow {
+  return Boolean(node && node.semanticRole === 'provider_request');
+}
+
 interface TraceInspectorSurfaceProps {
   node: TraceWaterfallRow | null;
   metadataBadges: string[];
@@ -93,6 +113,10 @@ function TraceInspectorSurface({
   }
 
   const activeSection = getSection(node, activeTab);
+  const inputSection = getSection(node, 'input');
+  const outputSection = getSection(node, 'output');
+  const inputPayload = readHttpPayload(inputSection?.value);
+  const outputPayload = readHttpPayload(outputSection?.value);
 
   return (
     <Card className={cn('h-full min-h-[420px] rounded-[22px] bg-[linear-gradient(180deg,#fff,#faf8f5)]', className)}>
@@ -183,20 +207,44 @@ function TraceInspectorSurface({
             <TabsTrigger value="evidence">Evidence</TabsTrigger>
           </TabsList>
           <TabsContent value="input" className="mt-3 flex-1">
-            <StructuredDataViewer
-              title="Input"
-              value={getSection(node, 'input')?.value}
-              emptyLabel={getSection(node, 'input')?.emptyLabel}
-              heightClassName="h-[28rem] xl:h-[min(60vh,36rem)]"
-            />
+            {isProviderRequestNode(node) ? (
+              <HttpPayloadAccordion
+                key={`${node.id}-input`}
+                headers={inputPayload.headers}
+                body={inputPayload.body}
+                headersEmptyLabel="无请求头"
+                bodyEmptyLabel="无请求体"
+                bodyHeightClassName="h-[24rem] xl:h-[min(54vh,30rem)]"
+                headersHeightClassName="h-[18rem] xl:h-[min(38vh,22rem)]"
+              />
+            ) : (
+              <StructuredDataViewer
+                title="Input"
+                value={inputSection?.value}
+                emptyLabel={inputSection?.emptyLabel}
+                heightClassName="h-[28rem] xl:h-[min(60vh,36rem)]"
+              />
+            )}
           </TabsContent>
           <TabsContent value="output" className="mt-3 flex-1">
-            <StructuredDataViewer
-              title="Output"
-              value={getSection(node, 'output')?.value}
-              emptyLabel={getSection(node, 'output')?.emptyLabel}
-              heightClassName="h-[28rem] xl:h-[min(60vh,36rem)]"
-            />
+            {isProviderRequestNode(node) ? (
+              <HttpPayloadAccordion
+                key={`${node.id}-output`}
+                headers={outputPayload.headers}
+                body={outputPayload.body}
+                headersEmptyLabel="无响应头"
+                bodyEmptyLabel="无响应体"
+                bodyHeightClassName="h-[24rem] xl:h-[min(54vh,30rem)]"
+                headersHeightClassName="h-[18rem] xl:h-[min(38vh,22rem)]"
+              />
+            ) : (
+              <StructuredDataViewer
+                title="Output"
+                value={outputSection?.value}
+                emptyLabel={outputSection?.emptyLabel}
+                heightClassName="h-[28rem] xl:h-[min(60vh,36rem)]"
+              />
+            )}
           </TabsContent>
           <TabsContent value="evidence" className="mt-3 flex-1">
             <StructuredDataViewer
