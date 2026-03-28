@@ -26,3 +26,4 @@
 - JSON、headers、payload、diff、log 属于高熵数据，必须放在固定高度且可独立滚动的容器里。
 - 同一份证据只保留一个主要查看位置，不要重复堆 `overview/raw/inspector`。
 - 桌面端优先稳定的 docked/sticky detail panel；浮动 inspector 只能是增强模式。
+- 管理端中的 Playground UI，以及对话流里的 Playground 导入能力，参数项、字段名、默认语义和可提交 payload 都必须严格对齐通用 Provider 参数契约；这里不允许前端为了“易用性”另造一层参数翻译。

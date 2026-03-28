@@ -40,6 +40,7 @@
 - 所有 PostgreSQL 持久化读写必须统一收口到 `packages/persistence`；禁止把查询、写入、事务逻辑散落在模块内路由、页面服务或临时脚本里
 - 持久层默认且必须使用 ORM；当前仓库以 `packages/persistence` 中的 Prisma schema 和 Prisma Client 作为唯一标准入口
 - 未经明确评审确认 ORM 无法合理表达前，禁止新增原生 SQL；即使必须使用原生 SQL，也只能封装在 `packages/persistence` 内，不能绕过持久层下沉到业务模块
+- 管理端页面中的 Playground，以及对话流中的 Playground 导入，必须严格与我们提供的通用 Provider 参数契约保持一致；禁止自行扩展、重命名、省略或映射出另一套参数语义。这是管理面这两块业务的红线
 - 仓库文档是可追溯真相源；聊天、口头说明、临时记录都不算交付
 - 复杂任务不要只靠聊天上下文推进；参考 OpenAI《Harness engineering: leveraging Codex in an agent-first world》的做法，长任务需要显式 planning artifact，而不是只靠会话记忆
 - 跨模块、多阶段、持续数天、需要交接、需要记录决策/验证/回滚点的工作，必须在 `docs/exec-plans/active/` 新建 execution plan
