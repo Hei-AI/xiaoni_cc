@@ -162,8 +162,12 @@ export class OpenAIProvider implements LLMProvider {
   protected buildResponsesPayload(request: OpenResponseCreateRequest, providerConfig?: UnifiedLLMConfig): Record<string, any> {
     const payload: Record<string, any> = {
       model: request.model,
-      input: openResponseInputToOpenAIInput(request.input, request.instructions)
+      input: openResponseInputToOpenAIInput(request.input, undefined)
     };
+
+    if (typeof request.instructions === 'string' && request.instructions.trim().length > 0) {
+      payload.instructions = request.instructions;
+    }
 
     if (request.temperature !== undefined) {
       payload.temperature = request.temperature;
@@ -186,6 +190,10 @@ export class OpenAIProvider implements LLMProvider {
         parameters: tool.function.parameters || { type: 'object', properties: {} }
       }));
       payload.tool_choice = request.tool_choice;
+    }
+
+    if (typeof request.parallel_tool_calls === 'boolean') {
+      payload.parallel_tool_calls = request.parallel_tool_calls;
     }
 
     const providerSpecific = providerConfig?.model?.providerSpecific || {};

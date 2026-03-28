@@ -7,7 +7,7 @@
     "dev": "ts-node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "npm run build",
+    "test": "npm run build && node --test dist/__tests__/*.test.js",
     "lint": "echo 'No agent-service lint step configured'",
     "clean": "rm -rf dist"
   },

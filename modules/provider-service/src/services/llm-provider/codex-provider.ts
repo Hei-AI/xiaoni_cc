@@ -66,7 +66,9 @@ export class CodexProvider extends OpenAIProvider {
         verbosity: this.resolveTextVerbosity(providerConfig)
       },
       include: ['reasoning.encrypted_content'],
-      parallel_tool_calls: true
+      parallel_tool_calls: typeof request.parallel_tool_calls === 'boolean'
+        ? request.parallel_tool_calls
+        : true
     };
     if (Array.isArray(request.stop) && request.stop.length > 0) {
       payload.stop = request.stop;

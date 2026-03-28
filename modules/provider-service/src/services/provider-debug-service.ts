@@ -37,15 +37,8 @@ function normalizeStringArray(value: unknown): string[] | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function buildMessagesInput(systemPrompt: string | undefined, messages: Array<{ role: string; content: string }>): OpenResponseInputItem[] {
+function buildMessagesInput(messages: Array<{ role: string; content: string }>): OpenResponseInputItem[] {
   const input: OpenResponseInputItem[] = [];
-  if (systemPrompt && systemPrompt.trim()) {
-    input.push({
-      type: 'message',
-      role: 'system',
-      content: systemPrompt
-    });
-  }
 
   for (const message of messages) {
     const role = message.role === 'assistant'
@@ -61,6 +54,15 @@ function buildMessagesInput(systemPrompt: string | undefined, messages: Array<{ 
   }
 
   return input;
+}
+
+function normalizeInstructions(systemPrompt: string | undefined): string | undefined {
+  if (typeof systemPrompt !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = systemPrompt.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 export function buildUnifiedConfig(
@@ -150,7 +152,7 @@ export function buildUnifiedConfig(
   };
 }
 
-function buildRequestFromMessages(
+export function buildRequestFromMessages(
   modelName: string,
   systemPrompt: string | undefined,
   messages: Array<{ role: string; content: string }>,
@@ -158,8 +160,8 @@ function buildRequestFromMessages(
 ): OpenResponseCreateRequest {
   return {
     model: modelName,
-    input: buildMessagesInput(systemPrompt, messages),
-    instructions: undefined,
+    input: buildMessagesInput(messages),
+    instructions: normalizeInstructions(systemPrompt),
     temperature: config.generation.temperature,
     top_p: config.generation.topP,
     max_output_tokens: config.generation.maxOutputTokens,
