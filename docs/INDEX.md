@@ -29,6 +29,8 @@
   - `docs/exec-plans/completed/`
 - 计划书写规范：
   - `docs/exec-plans/README.md`
+- 计划生命周期、完成判定、归档规则：
+  - `docs/exec-plans/README.md`
 
 ## Maintenance Rules
 - 修改代码时，如果对应文档已不再真实，顺手修正文档。

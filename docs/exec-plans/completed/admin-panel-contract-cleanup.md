@@ -47,6 +47,7 @@
 - 2026-03-28: 建立计划并完成首批“伪默认/伪推导”清扫，覆盖群聊/私聊 Prompt 绑定、UnifiedTimeline、PromptDebug、Dashboard、Traffic、debug trace backend。
 - 2026-03-28: 完成第二批契约清扫，覆盖 Prompt 编辑/调试、Prompt 管理/详情、Playground 共享 provider config/执行链、Queue、Traffic Detail；去除 `Prompt.model_name` 与 Playground 执行的默认模型补值。
 - 2026-03-28: 对 Conversations、Run Trace、GroupManagement、PrivateChatManagement 做剩余审计；当前未发现新的“前端伪默认 / 后端伪返回”断点。
+- 2026-03-28: 复跑 `modules/admin-panel/frontend` 与 `modules/admin-panel/backend` 的 `npm run build`，通过；计划范围内未再发现待处理断点，转入 `completed/` 归档。
 
 ## Decision Log
 - 2026-03-28: 前端缺失字段展示统一采用“未绑定 / 未配置 / 后端未返回”，不再把缺值映射成具体 Prompt、模型或容器名。

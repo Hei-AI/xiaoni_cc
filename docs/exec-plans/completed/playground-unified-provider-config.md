@@ -15,10 +15,10 @@
 - 现有 Playground 页面功能不能因参数结构切换而失效。
 
 ## Steps
-- [ ] 梳理 Playground 当前参数模型与 provider-service 通用参数模型差异
-- [ ] 后端切换到统一 Provider 参数结构
-- [ ] 前端 Playground 状态与编辑器切换到统一 Provider 参数结构
-- [ ] 验证 Trace 导入、Playground 运行、构建与关键路径
+- [x] 梳理 Playground 当前参数模型与 provider-service 通用参数模型差异
+- [x] 后端切换到统一 Provider 参数结构
+- [x] 前端 Playground 状态与编辑器切换到统一 Provider 参数结构
+- [x] 验证 Trace 导入、Playground 运行、构建与关键路径
 
 ## Progress Log
 - 2026-03-28: 创建 execution plan，开始统一 Playground 与 Trace 的 Provider 参数契约。
@@ -31,6 +31,7 @@
 - 2026-03-28: 修复 `resolveLlmCallTableName` 在 PostgreSQL 驱动下读取 `information_schema.tables` 结果的列名兼容问题，恢复 `llm_call_logs` 自动发现。
 - 2026-03-28: 清理历史 `playground_cases` / `playground_runs` 以及旧联调样本数据，重新生成新的 run trace `runtrace_1774659921910_5d863c96`，验证 Conversations -> Playground 导入成功并能创建 Playground run。
 - 2026-03-28: 对话流页面取消内嵌 `Run Workspace`，改成 `/runs/:runId` 独立二级页；`RunTracePage` 的 span 导入增加会话级 fallback，避免 `from-span` 失败时直接把用户留在错误态。
+- 2026-03-28: 复跑 `modules/admin-panel/frontend` 与 `modules/admin-panel/backend` 的 `npm run build`，通过；计划范围内的统一参数契约切换已完成，转入 `completed/` 归档。
 
 ## Decision Log
 - 2026-03-28: 本任务以服务端内部通用 Provider 参数契约为标准，不再让 Playground 保持独立参数形状。

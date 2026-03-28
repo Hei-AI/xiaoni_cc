@@ -19,12 +19,12 @@
 - Shared PostgreSQL writes must stay inside persistence-backed service layers.
 
 ## Steps
-- [ ] Add batch/run persistence and queue aggregation semantics.
-- [ ] Update agent execution to consume batched run payloads and persist run outcomes.
-- [ ] Add run-centric admin APIs and remove old conversation timeline page contracts.
-- [ ] Replace frontend conversation pages/routes/navigation with run-centric workspace.
-- [ ] Unify Trace import and Playground debug to use the backend's internal common provider parameter contract instead of a Playground-only provider config shape.
-- [ ] Build/test touched modules and document final verification.
+- [x] Add batch/run persistence and queue aggregation semantics.
+- [x] Update agent execution to consume batched run payloads and persist run outcomes.
+- [x] Add run-centric admin APIs and remove old conversation timeline page contracts.
+- [x] Replace frontend conversation pages/routes/navigation with run-centric workspace.
+- [x] Unify Trace import and Playground debug to use the backend's internal common provider parameter contract instead of a Playground-only provider config shape.
+- [x] Build/test touched modules and document final verification.
 
 ## Progress Log
 - 2026-03-27: Created execution plan and confirmed the current implementation still executes one queue message at a time, while the admin page is centered on trace/span inspection instead of agent-run reasoning.
@@ -33,6 +33,8 @@
 - 2026-03-27: Added admin backend `/api/runs/*` routes and replaced the frontend `/conversations` page with a run workspace. Removed the old frontend conversation timeline route and hooks.
 - 2026-03-27: Verified builds for `modules/agent-service`, `modules/provider-service`, `modules/admin-panel/backend`, and `modules/admin-panel/frontend`.
 - 2026-03-28: Confirmed the current Trace -> Playground import and Playground debug flow still use a Playground-specific provider config shape, while provider-service debug uses the internal common provider parameter contract (`model_config` + `advanced_config` / unified config override). Added a follow-up work item to remove this split.
+- 2026-03-28: 完成 Trace 导入与 Playground debug 的统一 Provider 参数契约收口，相关实现与验证记录拆到 `playground-unified-provider-config` 计划维护。
+- 2026-03-28: 复跑 `modules/agent-service`、`modules/provider-service`、`modules/admin-panel/backend`、`modules/admin-panel/frontend` 的 `npm run build`，通过；本计划转入 `completed/` 归档。
 
 ## Decision Log
 - 2026-03-27: Treat the redesign as a breaking change. Delete the old conversation timeline UX and API shape instead of preserving migration compatibility.

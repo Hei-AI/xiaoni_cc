@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 本文件是仓库入口，不是百科全书。
-参考 OpenAI 的 Harness Engineering 思路：`AGENTS.md` 只保留高信号地图，细节沉到 `docs/`，仓库内文档是 system of record。
+参考 OpenAI Codex best practices 与 Harness Engineering 思路：`AGENTS.md` 保持短、准、可执行，只保留高信号地图和仓库级约束；细节沉到 `docs/` 中的专项文档，仓库内文档是 system of record。
 
 ## Start Here
 - 第一次接触仓库，先读：`docs/START_HERE.md` -> `README.md` -> `docs/INDEX.md`
@@ -46,6 +46,7 @@
 - 跨模块、多阶段、持续数天、需要交接、需要记录决策/验证/回滚点的工作，必须在 `docs/exec-plans/active/` 新建 execution plan
 - 执行计划格式、目录约定和维护规则以 `docs/exec-plans/README.md` 为准
 - 复杂 execution plan 需要持续维护 `Progress Log` 和 `Decision Log`，不能只写初稿不更新
+- execution plan 的状态维护属于 done 的一部分；具体生命周期与归档规则统一以 `docs/exec-plans/README.md` 为准
 - 计划完成后移到 `docs/exec-plans/completed/`；不要把失效或已完成计划继续留在 `active/`
 - 当任务涉及 `AGENTS.md`、`docs/` 知识库结构、execution plans、文档去重/裁剪、system-of-record、渐进披露、长任务协作规则时，优先使用 `$harness-engineering`
 
