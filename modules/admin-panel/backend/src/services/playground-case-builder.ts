@@ -9,6 +9,7 @@ import {
   PlaygroundCaseMode,
   PlaygroundExecutionMode,
   PlaygroundImportFidelity,
+  PlaygroundImportResolution,
   PlaygroundLibraryPayload,
   PlaygroundMessage,
   PlaygroundPromptInput,
@@ -184,15 +185,15 @@ function stringify(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
 
-function normalizeProvider(value?: string | null): PlaygroundProviderConfig['provider'] {
+function normalizeProvider(value?: string | null): PlaygroundProviderConfig['model']['provider'] {
   const normalized = (value || '').trim().toLowerCase();
   if (normalized === 'openai') return 'openai';
   if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
-  if (normalized === 'google-legacy' || normalized === 'gemini-api') return 'google-legacy';
+  if (normalized === 'google' || normalized === 'google-legacy' || normalized === 'gemini-api') return 'google-legacy';
   return 'google-gemini-cli';
 }
 
-function defaultModelForProvider(provider: PlaygroundProviderConfig['provider']): string {
+function defaultModelForProvider(provider: PlaygroundProviderConfig['model']['provider']): string {
   switch (provider) {
     case 'openai':
       return 'gpt-5.4-mini';
@@ -204,6 +205,136 @@ function defaultModelForProvider(provider: PlaygroundProviderConfig['provider'])
     default:
       return 'gemini-2.5-flash';
   }
+}
+
+function createDefaultProviderConfig(
+  provider: PlaygroundProviderConfig['model']['provider'] = 'google-gemini-cli'
+): PlaygroundProviderConfig {
+  return {
+    id: 'playground-provider',
+    name: 'Playground Provider Config',
+    category: 'playground',
+    model: {
+      name: defaultModelForProvider(provider),
+      provider,
+      providerSpecific: {}
+    },
+    generation: {
+      temperature: 0.7,
+      topP: 0.95,
+      topK: 40,
+      maxOutputTokens: 2048
+    },
+    thinking: {},
+    safety: [],
+    tools: {},
+    context: {},
+    performance: {},
+    version: {}
+  };
+}
+
+function normalizeStopSequences(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) {
+    const normalized = value
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean);
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return [value.trim()];
+  }
+
+  return undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function normalizePlaygroundProviderConfig(
+  value: unknown,
+  fallbackProvider?: string | null
+): PlaygroundProviderConfig {
+  const record = parseJsonField<Record<string, unknown> | null>(value, null);
+  if (!record) {
+    return createDefaultProviderConfig(normalizeProvider(fallbackProvider));
+  }
+
+  const model = asRecord(record.model);
+  if (model && typeof model.name === 'string' && typeof model.provider === 'string') {
+    const provider = normalizeProvider(model.provider);
+    const next = createDefaultProviderConfig(provider);
+    return {
+      ...next,
+      ...record,
+      model: {
+        ...next.model,
+        ...model,
+        name: model.name.trim() || defaultModelForProvider(provider),
+        provider,
+        providerSpecific: parseJsonField<Record<string, unknown>>(model.providerSpecific, {})
+      },
+      generation: parseJsonField<Record<string, unknown>>(record.generation, next.generation),
+      thinking: parseJsonField<Record<string, unknown>>(record.thinking, {}),
+      safety: parseJsonField<Array<Record<string, unknown>>>(record.safety, []),
+      tools: parseJsonField<Record<string, unknown>>(record.tools, {}),
+      context: parseJsonField<Record<string, unknown>>(record.context, {}),
+      performance: parseJsonField<Record<string, unknown>>(record.performance, {}),
+      version: parseJsonField<Record<string, unknown>>(record.version, {})
+    };
+  }
+
+  const provider = normalizeProvider(
+    typeof record.provider === 'string' ? record.provider : fallbackProvider || null
+  );
+  const next = createDefaultProviderConfig(provider);
+  const generation = parseJsonField<Record<string, unknown>>(record.generation, {});
+  const context = parseJsonField<Record<string, unknown>>(record.context, {});
+
+  return {
+    ...next,
+    model: {
+      ...next.model,
+      name: typeof context.modelName === 'string' && context.modelName.trim().length > 0
+        ? context.modelName
+        : next.model.name,
+      provider,
+      providerSpecific: parseJsonField<Record<string, unknown>>(record.providerSpecific, {})
+    },
+    generation: {
+      ...next.generation,
+      ...generation,
+      ...(normalizeStopSequences(generation.stopSequences ?? generation.stop)
+        ? { stopSequences: normalizeStopSequences(generation.stopSequences ?? generation.stop) }
+        : {})
+    },
+    thinking: parseJsonField<Record<string, unknown>>(record.thinking, {}),
+    safety: parseJsonField<Array<Record<string, unknown>>>(record.safety, []),
+    tools: parseJsonField<Record<string, unknown>>(record.tools, {}),
+    context,
+    performance: parseJsonField<Record<string, unknown>>(record.performance, {})
+  };
+}
+
+function getProviderFromConfig(providerConfig: PlaygroundProviderConfig): PlaygroundProviderConfig['model']['provider'] {
+  return normalizeProvider(providerConfig.model?.provider);
+}
+
+function getModelNameFromConfig(providerConfig: PlaygroundProviderConfig): string {
+  return typeof providerConfig.model?.name === 'string' && providerConfig.model.name.trim().length > 0
+    ? providerConfig.model.name.trim()
+    : defaultModelForProvider(getProviderFromConfig(providerConfig));
+}
+
+function getProviderSpecificFromConfig(providerConfig: PlaygroundProviderConfig): Record<string, unknown> {
+  const providerSpecific = providerConfig.model?.providerSpecific;
+  return providerSpecific && typeof providerSpecific === 'object' && !Array.isArray(providerSpecific)
+    ? providerSpecific
+    : {};
 }
 
 function normalizePromptMessages(messages: PlaygroundMessage[]): PlaygroundMessage[] {
@@ -219,7 +350,7 @@ function normalizePromptMessages(messages: PlaygroundMessage[]): PlaygroundMessa
     .filter((message) => message.content.trim().length > 0);
 }
 
-function parseSystemInstructions(value: unknown): string {
+export function parseSystemInstructions(value: unknown): string {
   const parsed = parseJsonField<unknown>(value, value);
   if (Array.isArray(parsed)) {
     return parsed
@@ -379,7 +510,7 @@ function extractTextResponse(value: unknown): string {
   return text;
 }
 
-function providerFromApiType(apiType?: string | null): PlaygroundProviderConfig['provider'] {
+function providerFromApiType(apiType?: string | null): PlaygroundProviderConfig['model']['provider'] {
   const normalized = (apiType || '').trim().toLowerCase();
   if (normalized === 'openai') return 'openai';
   if (normalized === 'codex') return 'codex';
@@ -405,9 +536,16 @@ function buildProviderConfigFromPrompt(prompt?: PromptRecord | null): Playground
     ...(parseJsonField<Record<string, unknown>>((advancedConfig.model as Record<string, unknown> | undefined)?.providerSpecific, {}))
   };
 
+  const next = createDefaultProviderConfig(provider);
   return {
-    provider,
-    generation: parseJsonField<Record<string, unknown>>((advancedConfig.generationConfig), {
+    ...next,
+    model: {
+      ...next.model,
+      name: prompt?.model_name || defaultModelForProvider(provider),
+      provider,
+      providerSpecific: Object.keys(providerSpecific).length > 0 ? providerSpecific : {}
+    },
+    generation: parseJsonField<Record<string, unknown>>(advancedConfig.generationConfig, {
       temperature: modelConfig.temperature ?? 0.7,
       topP: modelConfig.topP ?? 0.95,
       topK: modelConfig.topK ?? 40,
@@ -418,10 +556,9 @@ function buildProviderConfigFromPrompt(prompt?: PromptRecord | null): Playground
     tools: parseJsonField<Record<string, unknown>>(advancedConfig.toolsConfig, {}),
     context: {
       promptId: prompt?.id || null,
-      promptName: prompt?.prompt_name || null,
-      modelName: prompt?.model_name || defaultModelForProvider(provider)
+      promptName: prompt?.prompt_name || null
     },
-    providerSpecific: Object.keys(providerSpecific).length > 0 ? providerSpecific : {}
+    performance: {}
   };
 }
 
@@ -441,8 +578,15 @@ function buildProviderConfigFromTraffic(log: TrafficLogRow, llmCall?: LLMCallRow
     ? normalizeProvider(llmCall.model_provider)
     : providerFromApiType(log.api_type);
 
+  const next = createDefaultProviderConfig(provider);
   return {
-    provider,
+    ...next,
+    model: {
+      ...next.model,
+      name: llmCall?.model_name || defaultModelForProvider(provider),
+      provider,
+      providerSpecific: {}
+    },
     generation,
     thinking,
     safety: parseJsonField<Array<Record<string, unknown>>>(
@@ -454,15 +598,13 @@ function buildProviderConfigFromTraffic(log: TrafficLogRow, llmCall?: LLMCallRow
       {}
     ),
     context: {
-      modelName: llmCall?.model_name || defaultModelForProvider(provider),
       promptTemplate: llmCall?.prompt_template || null
-    },
-    providerSpecific: {}
+    }
   };
 }
 
-function buildPromptInputFromCanonicalRequest(canonicalRequest: Record<string, unknown>): PlaygroundPromptInput {
-  const systemInstruction = typeof canonicalRequest.instructions === 'string' ? canonicalRequest.instructions : '';
+export function buildPromptInputFromCanonicalRequest(canonicalRequest: Record<string, unknown>): PlaygroundPromptInput {
+  const systemInstruction = parseSystemInstructions(canonicalRequest.instructions);
   const normalizedSystemInstruction = systemInstruction.trim();
   const messages = extractMessagesFromOpenResponseInput(canonicalRequest.input).filter((message) => {
     if (message.role !== 'system' || !normalizedSystemInstruction) {
@@ -512,7 +654,7 @@ function deepEqual(left: unknown, right: unknown): boolean {
   return false;
 }
 
-function mapUnifiedProvider(value?: string | null): PlaygroundProviderConfig['provider'] {
+function mapUnifiedProvider(value?: string | null): PlaygroundProviderConfig['model']['provider'] {
   const normalized = (value || '').trim().toLowerCase();
   if (normalized === 'openai') return 'openai';
   if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
@@ -556,43 +698,39 @@ function buildBaselineSnapshot(
   };
 }
 
-function buildProviderConfigFromBaselineSnapshot(
+export function buildProviderConfigFromBaselineSnapshot(
   snapshot: PlaygroundBaselineSnapshot,
   fallbackProvider?: string | null
 ): PlaygroundProviderConfig {
   const canonicalRequest = snapshot.canonicalRequest || {};
-  const unifiedConfig = parseJsonField<Record<string, unknown> | null>(snapshot.effectiveUnifiedConfig, null) || {};
-  const modelConfig = parseJsonField<Record<string, unknown>>((unifiedConfig as any).model, {});
-  const generationConfig = parseJsonField<Record<string, unknown>>((unifiedConfig as any).generation, {});
-  const thinkingConfig = parseJsonField<Record<string, unknown>>((unifiedConfig as any).thinking, {});
-  const safetyConfig = parseJsonField<Array<Record<string, unknown>>>((unifiedConfig as any).safety, []);
-  const providerSpecific = parseJsonField<Record<string, unknown>>(modelConfig.providerSpecific, {});
+  const unifiedConfig = normalizePlaygroundProviderConfig(snapshot.effectiveUnifiedConfig, fallbackProvider);
+  const provider = mapUnifiedProvider(unifiedConfig.model.provider || snapshot.provider || fallbackProvider || null);
   const canonicalGeneration = {
     temperature: canonicalRequest.temperature,
     topP: canonicalRequest.top_p,
     maxOutputTokens: canonicalRequest.max_output_tokens,
-    stop: canonicalRequest.stop
+    ...(canonicalRequest.stop !== undefined ? { stopSequences: normalizeStopSequences(canonicalRequest.stop) } : {})
   };
 
   return {
-    provider: mapUnifiedProvider(
-      typeof modelConfig.provider === 'string' ? modelConfig.provider : (snapshot.provider || fallbackProvider || null)
-    ),
+    ...unifiedConfig,
+    model: {
+      ...unifiedConfig.model,
+      name: snapshot.modelName || unifiedConfig.model.name || defaultModelForProvider(provider),
+      provider,
+    },
     generation: {
-      ...generationConfig,
+      ...unifiedConfig.generation,
       ...Object.fromEntries(Object.entries(canonicalGeneration).filter(([, value]) => value !== undefined))
     },
-    thinking: thinkingConfig,
-    safety: safetyConfig,
     tools: {
       definitions: Array.isArray(canonicalRequest.tools) ? canonicalRequest.tools : [],
       toolChoice: canonicalRequest.tool_choice ?? null
     },
     context: {
-      modelName: snapshot.modelName || (typeof modelConfig.name === 'string' ? modelConfig.name : null),
+      ...unifiedConfig.context,
       promptTemplate: null
     },
-    providerSpecific
   };
 }
 
@@ -631,7 +769,7 @@ function buildRequestPatch(
     ['temperature', providerConfig.generation.temperature, baselineRequest.temperature],
     ['top_p', providerConfig.generation.topP, baselineRequest.top_p],
     ['max_output_tokens', providerConfig.generation.maxOutputTokens, baselineRequest.max_output_tokens],
-    ['stop', providerConfig.generation.stop, baselineRequest.stop]
+    ['stop', providerConfig.generation.stopSequences, baselineRequest.stop]
   ];
 
   numericFields.forEach(([key, nextValue, baselineValue]) => {
@@ -640,7 +778,7 @@ function buildRequestPatch(
     }
   });
 
-  const nextProvider = providerConfig.provider || undefined;
+  const nextProvider = getProviderFromConfig(providerConfig);
   const baselineProvider = mapUnifiedProvider(
     typeof (baselineSnapshot.effectiveUnifiedConfig as any)?.model?.provider === 'string'
       ? (baselineSnapshot.effectiveUnifiedConfig as any).model.provider
@@ -650,14 +788,14 @@ function buildRequestPatch(
     patch.provider = nextProvider;
   }
 
-  const nextModelName = typeof providerConfig.context?.modelName === 'string' ? providerConfig.context.modelName : null;
+  const nextModelName = getModelNameFromConfig(providerConfig);
   const baselineModelName = baselineSnapshot.modelName || (typeof baselineRequest.model === 'string' ? baselineRequest.model : null);
   if (nextModelName && nextModelName !== baselineModelName) {
     patch.modelName = nextModelName;
   }
 
-  if (!deepEqual(providerConfig.providerSpecific || {}, (baselineSnapshot.effectiveUnifiedConfig as any)?.model?.providerSpecific || {})) {
-    patch.providerSpecific = providerConfig.providerSpecific || {};
+  if (!deepEqual(getProviderSpecificFromConfig(providerConfig), (baselineSnapshot.effectiveUnifiedConfig as any)?.model?.providerSpecific || {})) {
+    patch.providerSpecific = getProviderSpecificFromConfig(providerConfig);
   }
 
   return patch;
@@ -881,7 +1019,8 @@ export class PlaygroundCaseBuilder {
       importFidelity: payload.importFidelity || existing.importFidelity || 'exact',
       baselineOutput: payload.baselineOutput ?? existing.baselineOutput,
       rawEvidence: payload.rawEvidence || existing.rawEvidence,
-      tags: payload.tags || existing.tags
+      tags: payload.tags || existing.tags,
+      updatedAt: new Date().toISOString()
     };
 
     await this.db.executeUpdate(
@@ -890,7 +1029,7 @@ export class PlaygroundCaseBuilder {
         SET name = ?, prompt_id = ?, prompt_mode_default = ?, trace_context = ?,
             prompt_input = ?, provider_config = ?, baseline_snapshot = ?, current_patch = ?, import_fidelity = ?,
             baseline_output = ?, raw_evidence = ?,
-            tags = ?, notes = ?, is_favorite = ?
+            tags = ?, notes = ?, is_favorite = ?, updated_at = ?
         WHERE id = ?
       `,
       [
@@ -908,6 +1047,7 @@ export class PlaygroundCaseBuilder {
         stringify(next.tags),
         next.notes || null,
         next.isFavorite ? 1 : 0,
+        next.updatedAt,
         caseId
       ]
     );
@@ -1050,10 +1190,6 @@ export class PlaygroundCaseBuilder {
 
   async createCaseFromSpan(traceId: string, spanId: string, promptId?: string | null): Promise<PlaygroundCase> {
     const existing = await this.findExistingSpanCase(traceId, spanId);
-    if (existing) {
-      return existing;
-    }
-
     const llmCall = await this.loadLLMCallForSpan(traceId, spanId);
     if (!llmCall) {
       throw new PlaygroundCompatibilityError(`Span ${spanId} is not a compatible LLM span`);
@@ -1071,7 +1207,7 @@ export class PlaygroundCaseBuilder {
     const promptInput = buildPromptInputFromCanonicalRequest(baselineSnapshot.canonicalRequest || {});
 
     const caseRecord: PlaygroundCase = {
-      id: crypto.randomUUID(),
+      id: existing?.id || crypto.randomUUID(),
       name: `Span · ${spanId}`.slice(0, 255),
       source: 'span',
       sourceRef: `${traceId}:${spanId}`,
@@ -1102,16 +1238,96 @@ export class PlaygroundCaseBuilder {
       notes: null,
       isFavorite: false,
       createdBy: 'admin',
-      createdAt: new Date().toISOString(),
+      createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
-    await this.persistCase(caseRecord);
+    if (existing) {
+      await this.refreshSpanCase(existing.id, caseRecord);
+    } else {
+      await this.persistCase(caseRecord);
+    }
     const saved = await this.getCaseById(caseRecord.id);
     if (!saved) {
       throw new Error('Failed to persist playground case');
     }
     return saved;
+  }
+
+  async resolveImportTarget(params: {
+    conversationId?: string | null;
+    traceId?: string | null;
+  }): Promise<PlaygroundImportResolution> {
+    const conversationId = params.conversationId || null;
+    const traceId = params.traceId || null;
+    const exactSpan = await this.findExactImportableSpan(traceId, conversationId);
+    if (exactSpan) {
+      return {
+        importable: true,
+        sourceType: 'span',
+        reasonCode: 'exact_span_available',
+        reasonMessage: 'Found exact replay span for Playground import',
+        traceId: exactSpan.trace_id || traceId,
+        conversationId: exactSpan.conversation_id || conversationId,
+        spanId: this.buildSpanIdForLlmCall(exactSpan),
+        trafficId: null
+      };
+    }
+
+    const traffic = await this.findTrafficFallback(traceId, conversationId);
+    if (traffic) {
+      return {
+        importable: true,
+        sourceType: 'traffic',
+        reasonCode: 'traffic_fallback_available',
+        reasonMessage: 'Falling back to AI traffic sample for Playground import',
+        traceId: traffic.trace_id || traceId,
+        conversationId: traffic.conversation_id || conversationId,
+        spanId: null,
+        trafficId: traffic.id
+      };
+    }
+
+    if (conversationId) {
+      const conversation = await this.loadConversation(conversationId);
+      const llmCall = conversation ? await this.loadLLMCallForConversation(conversation) : null;
+      if (conversation && llmCall?.canonical_request) {
+        return {
+          importable: true,
+          sourceType: 'conversation',
+          reasonCode: 'conversation_fallback_available',
+          reasonMessage: 'Falling back to conversation import for Playground',
+          traceId: conversation.trace_id || traceId,
+          conversationId,
+          spanId: null,
+          trafficId: null
+        };
+      }
+
+      return {
+        importable: false,
+        sourceType: 'none',
+        reasonCode: llmCall && !llmCall.canonical_request ? 'missing_canonical_request' : 'no_viable_source',
+        reasonMessage: llmCall && !llmCall.canonical_request
+          ? `Conversation ${conversationId} has no canonical LLM request to import into Playground`
+          : `No viable Playground import source found for conversation ${conversationId}`,
+        traceId: conversation?.trace_id || traceId,
+        conversationId,
+        spanId: null,
+        trafficId: null
+      };
+    }
+
+    return {
+      importable: false,
+      sourceType: 'none',
+      reasonCode: 'no_viable_source',
+      reasonMessage: 'No viable Playground import source found',
+      traceId,
+      conversationId,
+      spanId: null,
+      trafficId: null
+    };
   }
 
   private async findExistingSpanCase(traceId: string, spanId: string): Promise<PlaygroundCase | null> {
@@ -1128,6 +1344,96 @@ export class PlaygroundCaseBuilder {
     );
 
     return caseIds[0] ? this.getCaseById(caseIds[0].id) : null;
+  }
+
+  private buildSpanIdForLlmCall(call: LLMCallRow): string | null {
+    if (call.llm_call_id) {
+      return `llm-call:${call.llm_call_id}`;
+    }
+    if (call.id != null) {
+      return `llm:${call.id}`;
+    }
+    return null;
+  }
+
+  private async findExactImportableSpan(
+    traceId?: string | null,
+    conversationId?: string | null
+  ): Promise<LLMCallRow | null> {
+    const tableName = await this.resolveLlmCallTableName();
+    if (!tableName) {
+      return null;
+    }
+
+    const clauses: string[] = [];
+    const params: Array<string> = [];
+
+    if (traceId) {
+      clauses.push('trace_id = ?');
+      params.push(traceId);
+    }
+
+    if (conversationId) {
+      clauses.push('conversation_id = ?');
+      params.push(conversationId);
+    }
+
+    if (clauses.length === 0) {
+      return null;
+    }
+
+    const rows = await this.db.executeQuery<LLMCallRow>(
+      `
+        SELECT *
+        FROM ${tableName}
+        WHERE canonical_request IS NOT NULL
+          AND effective_unified_config IS NOT NULL
+          AND (${clauses.join(' OR ')})
+        ORDER BY started_at ASC, id ASC
+        LIMIT 1
+      `,
+      params
+    );
+
+    return rows[0] || null;
+  }
+
+  private async findTrafficFallback(
+    traceId?: string | null,
+    conversationId?: string | null
+  ): Promise<TrafficLogRow | null> {
+    const clauses: string[] = [];
+    const params: Array<string> = [];
+
+    if (traceId) {
+      clauses.push('trace_id = ?');
+      params.push(traceId);
+    }
+
+    if (conversationId) {
+      clauses.push('conversation_id = ?');
+      params.push(conversationId);
+    }
+
+    if (clauses.length === 0) {
+      return null;
+    }
+
+    const rows = await this.db.executeQuery<TrafficLogRow>(
+      `
+        SELECT id, trace_id, conversation_id, llm_call_id, tool_call_id, agent_turn, method, url, host, path,
+               request_headers, request_body, response_body, response_status, request_timestamp, duration_ms,
+               api_type, service_name
+        FROM http_traffic_logs
+        WHERE is_ai_request = TRUE
+          AND (${clauses.join(' OR ')})
+        ORDER BY request_timestamp ASC, id ASC
+        LIMIT 1
+      `,
+      params
+    );
+
+    return rows[0] || null;
   }
 
   private async persistCase(caseRecord: PlaygroundCase): Promise<void> {
@@ -1160,6 +1466,40 @@ export class PlaygroundCaseBuilder {
         caseRecord.notes || null,
         caseRecord.isFavorite ? 1 : 0,
         caseRecord.createdBy
+      ]
+    );
+  }
+
+  private async refreshSpanCase(caseId: string, caseRecord: PlaygroundCase): Promise<void> {
+    await this.db.executeUpdate(
+      `
+        UPDATE playground_cases
+        SET name = ?, source = ?, source_ref = ?, case_mode = ?, trace_context = ?, prompt_id = ?, prompt_mode_default = ?,
+            prompt_input = ?, provider_config = ?, baseline_snapshot = ?, current_patch = ?, import_fidelity = ?,
+            baseline_output = ?, raw_evidence = ?, tags = ?, notes = ?, is_favorite = ?, created_by = ?, updated_at = ?
+        WHERE id = ?
+      `,
+      [
+        caseRecord.name,
+        caseRecord.source,
+        caseRecord.sourceRef,
+        caseRecord.caseMode,
+        stringify(caseRecord.traceContext),
+        caseRecord.promptId || null,
+        caseRecord.promptModeDefault,
+        stringify(caseRecord.promptInput),
+        stringify(caseRecord.providerConfig),
+        stringify(caseRecord.baselineSnapshot || null),
+        stringify(caseRecord.currentPatch || null),
+        caseRecord.importFidelity || 'exact',
+        stringify(caseRecord.baselineOutput || null),
+        stringify(caseRecord.rawEvidence),
+        stringify(caseRecord.tags),
+        caseRecord.notes || null,
+        caseRecord.isFavorite ? 1 : 0,
+        caseRecord.createdBy,
+        caseRecord.updatedAt,
+        caseId
       ]
     );
   }
@@ -1481,7 +1821,7 @@ export class PlaygroundCaseBuilder {
       return this.llmCallTableName;
     }
 
-    const rows = await this.db.executeQuery<{ TABLE_NAME: 'llm_call_logs' | 'llm_calls' }>(
+    const rows = await this.db.executeQuery<{ table_name: 'llm_call_logs' | 'llm_calls' }>(
       `
         SELECT TABLE_NAME
         FROM information_schema.TABLES
@@ -1492,7 +1832,7 @@ export class PlaygroundCaseBuilder {
       `
     );
 
-    this.llmCallTableName = rows[0]?.TABLE_NAME || null;
+    this.llmCallTableName = rows[0]?.table_name || null;
     if (!this.llmCallTableName) {
       this.logger.warn('No LLM call table found for playground case builder', {
         checkedTables: ['llm_call_logs', 'llm_calls']
@@ -1517,12 +1857,7 @@ export class PlaygroundCaseBuilder {
         messages: [],
         contextVariables: {}
       }),
-      providerConfig: parseJsonField<PlaygroundProviderConfig>(row.provider_config, {
-        provider: 'google-gemini-cli',
-        generation: {},
-        context: {},
-        providerSpecific: {}
-      }),
+      providerConfig: normalizePlaygroundProviderConfig(row.provider_config),
       baselineSnapshot: parseJsonField<PlaygroundBaselineSnapshot | null>(row.baseline_snapshot, null),
       currentPatch: parseJsonField<PlaygroundRequestPatch | null>(row.current_patch, null),
       importFidelity: row.import_fidelity || 'exact',
@@ -1545,12 +1880,7 @@ export class PlaygroundCaseBuilder {
       promptMode: row.prompt_mode,
       promptId: row.prompt_id || null,
       promptSnapshot: parseJsonField<Record<string, unknown> | null>(row.prompt_snapshot, null),
-      providerConfigSnapshot: parseJsonField<PlaygroundProviderConfig>(row.provider_config_snapshot, {
-        provider: 'google-gemini-cli',
-        generation: {},
-        context: {},
-        providerSpecific: {}
-      }),
+      providerConfigSnapshot: normalizePlaygroundProviderConfig(row.provider_config_snapshot),
       inputSnapshot: parseJsonField<PlaygroundPromptInput>(row.input_snapshot, {
         systemInstruction: '',
         messages: [],
