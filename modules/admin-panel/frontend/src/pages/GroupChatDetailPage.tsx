@@ -18,6 +18,7 @@ import { Textarea } from '../components/ui/textarea';
 import { Switch } from '../components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { usePromptTemplates } from '../hooks/usePromptTemplates';
+import { formatPromptBindingLabel } from '@/lib/contract-display';
 import { 
   ArrowLeft,
   RefreshCw, 
@@ -189,21 +190,6 @@ export const GroupChatDetailPage: React.FC = () => {
     [promptTemplates]
   );
 
-  const defaultPromptName = React.useMemo(() => {
-    const candidates = ['echance_chat', 'enhanced_chat', 'default_chat'];
-    for (const candidate of candidates) {
-      const match = chatPrompts.find(prompt => prompt.prompt_name === candidate);
-      if (match) {
-        return match.prompt_name;
-      }
-    }
-    return chatPrompts[0]?.prompt_name || 'enhanced_chat';
-  }, [chatPrompts]);
-
-  const defaultPromptLabel = React.useMemo(() => {
-    return defaultPromptName ? `默认（${defaultPromptName}）` : '默认配置';
-  }, [defaultPromptName]);
-
   const updatePromptMutation = useMutation({
     mutationFn: (promptId: string | null) => updateGroupPrompt(groupId!, promptId),
     onSuccess: () => {
@@ -218,6 +204,13 @@ export const GroupChatDetailPage: React.FC = () => {
     }
     return chatPrompts.find(prompt => prompt.id === groupData.data.group_settings.agent_prompt_id) || null;
   }, [groupData, chatPrompts]);
+
+  const currentPromptLabel = React.useMemo(() => {
+    return formatPromptBindingLabel({
+      promptId: groupData?.data.group_settings.agent_prompt_id,
+      promptName: currentPrompt?.prompt_name ?? null
+    });
+  }, [currentPrompt?.prompt_name, groupData?.data.group_settings.agent_prompt_id]);
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -443,14 +436,14 @@ export const GroupChatDetailPage: React.FC = () => {
               <div>
                 <p className="text-sm text-muted-foreground">当前使用</p>
                 <Badge variant="outline">
-                  {currentPrompt ? currentPrompt.prompt_name : defaultPromptLabel}
+                  {currentPromptLabel}
                 </Badge>
               </div>
 
               <Select
-                value={groupData.data.group_settings.agent_prompt_id ?? 'default'}
+                value={groupData.data.group_settings.agent_prompt_id ?? 'unbound'}
                 onValueChange={(value) => {
-                  const promptValue = value === 'default' ? null : value;
+                  const promptValue = value === 'unbound' ? null : value;
                   updatePromptMutation.mutate(promptValue);
                 }}
                 disabled={promptLoading || updatePromptMutation.isPending}
@@ -459,7 +452,7 @@ export const GroupChatDetailPage: React.FC = () => {
                   <SelectValue placeholder={promptLoading ? '加载中...' : '选择 Prompt'} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="default">{defaultPromptLabel}</SelectItem>
+                  <SelectItem value="unbound">未绑定</SelectItem>
                   {chatPrompts.map(prompt => (
                     <SelectItem key={prompt.id} value={prompt.id}>
                       {prompt.prompt_name}
@@ -469,7 +462,7 @@ export const GroupChatDetailPage: React.FC = () => {
               </Select>
 
               <p className="text-xs text-muted-foreground">
-                选择特定 Prompt 将覆盖默认配置；选择“默认”会恢复到 {defaultPromptLabel}。
+                这里只展示群级显式绑定。未绑定表示后端当前没有群级 Prompt 契约。
               </p>
             </CardContent>
           </Card>

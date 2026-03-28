@@ -24,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BatchReplayDialog } from '@/components/BatchReplayDialog';
 import type { BatchReplayResult } from '@/types/traffic-replay';
+import { formatReturnedValue } from '@/lib/contract-display';
 import { formatTimestamp } from '@/lib/utils';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
@@ -516,7 +517,7 @@ export function HttpTrafficMonitorPage() {
                   }
                   meta={
                     <>
-                      <span>{log.container_name || 'provider-service'}</span>
+                      <span>{formatReturnedValue(log.container_name)}</span>
                       <span>{formatDuration(log.duration_ms)}</span>
                       <span>↑ {formatBytes(log.request_size)} / ↓ {formatBytes(log.response_size)}</span>
                     </>
@@ -524,7 +525,7 @@ export function HttpTrafficMonitorPage() {
                 >
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     {Boolean(log.is_ai_request) && <Zap className="h-3 w-3 text-primary" />}
-                    <span>{log.api_type || '普通请求'}</span>
+                    <span>{log.is_ai_request ? formatReturnedValue(log.api_type) : '非 AI 请求'}</span>
                   </div>
                   <div className={`grid gap-2 ${log.is_ai_request ? 'grid-cols-3' : 'grid-cols-2'}`}>
                     <Button variant="outline" size="sm" onClick={() => handleQuickReplay(log.id)}>
@@ -576,7 +577,7 @@ export function HttpTrafficMonitorPage() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">{formatTimestamp(log.timestamp)}</TableCell>
                       <TableCell className="text-xs">
-                        <Badge variant="outline">{log.container_name || 'provider-service'}</Badge>
+                        <Badge variant="outline">{formatReturnedValue(log.container_name)}</Badge>
                       </TableCell>
                       <TableCell>
                         <Badge className={`border ${getMethodColor(log.method)}`}>{log.method}</Badge>

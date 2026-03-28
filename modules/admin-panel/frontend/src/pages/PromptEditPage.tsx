@@ -62,13 +62,15 @@ import {
   deleteDebugSession
 } from '../lib/promptDebugApi';
 import {
+  getPlaygroundProviderId,
+  getPlaygroundProviderSpecific,
   PLAYGROUND_PROVIDER_MODEL_OPTIONS,
   PROVIDER_OPTIONS,
-  defaultModelForProvider,
   inferProviderFromModelName,
   normalizePromptProvider,
   resolvePromptProviderConfig
 } from '@/lib/provider-config';
+import { formatConfiguredValue } from '@/lib/contract-display';
 
 interface AgentPrompt {
   id: string;
@@ -245,9 +247,9 @@ const MEDIA_RESOLUTION_OPTIONS = [
 ] as const;
 
 const PROVIDER_MODEL_DESCRIPTIONS: Record<string, string> = {
-  'gemini-2.5-flash': '平衡质量与延迟，生产默认',
+  'gemini-2.5-flash': '平衡质量与延迟的常用模型',
   'gemini-2.5-pro': '复杂推理与持久对话首选',
-  'gpt-5.4-mini': '轻量通用默认值，适合快速迭代',
+  'gpt-5.4-mini': '轻量通用模型，适合快速迭代',
   'gpt-5.4': '高质量输出与复杂任务',
   'gpt-5.3-codex': '偏工具与代码执行场景'
 };
@@ -526,7 +528,7 @@ const deepCleanValue = (value: any): any => {
 };
 
 interface GetConfigJsonParams {
-  modelName: string;
+  modelName?: string | null;
   systemInstruction: string;
   modelConfig: Record<string, any>;
   generationConfig?: Record<string, any>;
@@ -546,8 +548,8 @@ const generateGetConfigJson = ({
   advancedConfig,
   stopSequences
 }: GetConfigJsonParams): string => {
-  const safeModelName =
-    typeof modelName === 'string' && modelName.trim().length > 0 ? modelName.trim() : 'gemini-2.5-flash';
+  const normalizedModelName =
+    typeof modelName === 'string' && modelName.trim().length > 0 ? modelName.trim() : null;
   const trimmedInstruction =
     typeof systemInstruction === 'string' ? systemInstruction.trim() : '';
 
@@ -563,7 +565,7 @@ const generateGetConfigJson = ({
     : [];
 
   const provider = normalizePromptProvider(
-    modelConfig?.provider || advancedConfig?.provider || inferProviderFromModelName(safeModelName)
+    modelConfig?.provider || advancedConfig?.provider || inferProviderFromModelName(normalizedModelName)
   );
   const providerSpecific =
     modelConfig?.providerSpecific && typeof modelConfig.providerSpecific === 'object'
@@ -600,7 +602,7 @@ const generateGetConfigJson = ({
   const payload = {
     model: {
       provider,
-      name: safeModelName,
+      name: normalizedModelName,
       providerSpecific
     },
     generation,
@@ -947,7 +949,7 @@ export const PromptEditPage: React.FC = () => {
       },
       toolsConfig: createDefaultToolsConfig()
     }),
-    model_name: 'gemini-2.5-flash',
+    model_name: '',
     description: '',
     is_active: true,
     created_by: 'admin',
@@ -1114,8 +1116,8 @@ export const PromptEditPage: React.FC = () => {
       const resolvedProviderConfig = resolvePromptProviderConfig(prompt);
       const normalizedModelConfig = {
         ...parsedModelConfig,
-        provider: resolvedProviderConfig.provider,
-        providerSpecific: resolvedProviderConfig.providerSpecific || {},
+        provider: getPlaygroundProviderId(resolvedProviderConfig),
+        providerSpecific: getPlaygroundProviderSpecific(resolvedProviderConfig),
         topK: resolvedProviderConfig.generation?.topK ?? (parsedModelConfig as any).topK ?? 40,
         topP: resolvedProviderConfig.generation?.topP ?? (parsedModelConfig as any).topP ?? 0.95,
         temperature: resolvedProviderConfig.generation?.temperature ?? (parsedModelConfig as any).temperature ?? 1.0,
@@ -1184,7 +1186,7 @@ export const PromptEditPage: React.FC = () => {
         context_variables: parsedContext,
         model_config: normalizedModelConfig,
         advanced_config: normalizedAdvancedConfig,
-        model_name: prompt.model_name || defaultModelForProvider(resolvedProviderConfig.provider),
+        model_name: prompt.model_name || '',
         description: prompt.description || '',
         is_active: Boolean(prompt.is_active),
         created_by: prompt.created_by || 'admin',
@@ -1250,13 +1252,18 @@ export const PromptEditPage: React.FC = () => {
       return;
     }
 
+    if (!formData.model_name.trim()) {
+      alert('模型 ID 为必填项，不能使用默认值');
+      return;
+    }
+
     const contextVariablesObject = rowsToContextObject(contextVariableRows);
 
     const submitAdvancedConfig = advancedConfigSnapshot;
     const effectiveProvider = normalizePromptProvider(
       formData.model_config?.provider || inferProviderFromModelName(formData.model_name)
     );
-    const effectiveModelName = formData.model_name?.trim() || defaultModelForProvider(effectiveProvider);
+    const effectiveModelName = formData.model_name.trim();
 
     const submitData = {
       ...formData,
@@ -1482,7 +1489,7 @@ export const PromptEditPage: React.FC = () => {
       const runtimeVariables = {
         conversation_id: conversationId,
         timestamp: new Date().toISOString(),
-        model: formData.model_name || defaultModelForProvider(selectedProvider)
+        model: formData.model_name.trim()
       };
 
       payload.systemPrompt = applyContextVariables(
@@ -1490,7 +1497,7 @@ export const PromptEditPage: React.FC = () => {
         formData.context_variables,
         runtimeVariables
       );
-      payload.model = formData.model_name || defaultModelForProvider(selectedProvider);
+      payload.model = formData.model_name.trim();
 
       payload.messages = baseMessages.map((message, index) => {
         if (message.role !== 'user' || !formData.user_prompt_template) {
@@ -1552,6 +1559,11 @@ export const PromptEditPage: React.FC = () => {
 
     if (contextVariablesError) {
       alert('上下文变量配置存在问题，请修正后重试');
+      return;
+    }
+
+    if (!formData.model_name.trim()) {
+      alert('请先显式填写模型 ID，再进行调试');
       return;
     }
 
@@ -2089,7 +2101,7 @@ export const PromptEditPage: React.FC = () => {
   );
   const providerModelOptions = PLAYGROUND_PROVIDER_MODEL_OPTIONS[selectedProvider] || [];
   const selectedModelOption = providerModelOptions.find((option) => option === formData.model_name);
-  const modelBadgeLabel = selectedModelOption || formData.model_name || defaultModelForProvider(selectedProvider);
+  const modelBadgeLabel = selectedModelOption || formatConfiguredValue(formData.model_name);
   const providerBadgeLabel = PROVIDER_OPTIONS.find((option) => option.value === selectedProvider)?.label || selectedProvider;
   const isGoogleProvider = selectedProvider === 'google-gemini-cli' || selectedProvider === 'google-legacy';
   const canSendMessage =
@@ -2097,6 +2109,7 @@ export const PromptEditPage: React.FC = () => {
     !isDebugging &&
     !contextVariablesError &&
     !providerSpecificError &&
+    Boolean(formData.model_name.trim()) &&
     Boolean(formData.system_instructions.trim());
   const historyButtonLoading =
     loadSessionMutation.isPending ||
@@ -2210,7 +2223,7 @@ export const PromptEditPage: React.FC = () => {
   const configJsonPreview = useMemo(
     () =>
       generateGetConfigJson({
-        modelName: formData.model_name || defaultModelForProvider(selectedProvider),
+        modelName: formData.model_name,
         systemInstruction: formData.system_instructions || '',
         modelConfig: modelConfigSnapshot,
         generationConfig: advancedConfigSnapshot?.generationConfig,
@@ -2967,15 +2980,8 @@ export const PromptEditPage: React.FC = () => {
                 onChange={(e) => {
                   if (!isEditing) return;
                   const nextProvider = normalizePromptProvider(e.target.value);
-                  const previousProvider = selectedProvider;
-                  const previousDefault = defaultModelForProvider(previousProvider);
-                  const nextDefault = defaultModelForProvider(nextProvider);
                   setFormData((prev) => ({
                     ...prev,
-                    model_name:
-                      !prev.model_name?.trim() || prev.model_name === previousDefault
-                        ? nextDefault
-                        : prev.model_name,
                     model_config: {
                       ...prev.model_config,
                       provider: nextProvider
@@ -3032,10 +3038,10 @@ export const PromptEditPage: React.FC = () => {
                     id="model_name"
                     value={formData.model_name}
                     onChange={(e) => setFormData((prev) => ({ ...prev, model_name: e.target.value }))}
-                    placeholder={`例如：${defaultModelForProvider(selectedProvider)}`}
+                    placeholder="例如：gpt-5.4-mini"
                     disabled={!isEditing}
                   />
-                  <p className="mt-1 text-xs text-muted-foreground">预设仅帮助选型，最终仍以这里的完整模型 ID 为准。</p>
+                  <p className="mt-1 text-xs text-muted-foreground">模型 ID 必须显式填写。预设按钮只帮助选型，不会自动补默认值。</p>
                 </div>
                 <div>
                   <Label className="mb-2 block">providerSpecific JSON</Label>
@@ -3133,7 +3139,7 @@ export const PromptEditPage: React.FC = () => {
               <div className="rounded-xl border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground">
                 <p className="font-medium text-foreground">当前 Provider / 模型</p>
                 <p className="mt-1 break-all">{providerBadgeLabel}</p>
-                <p className="mt-1 break-all">{formData.model_name || '未设置'}</p>
+                <p className="mt-1 break-all">{formatConfiguredValue(formData.model_name)}</p>
               </div>
             </div>
             <div>
@@ -3361,7 +3367,7 @@ export const PromptEditPage: React.FC = () => {
                       );
                     })
                   : (
-                    <p className="text-xs text-muted-foreground">暂未配置内容安全规则，默认使用最低限制。</p>
+                    <p className="text-xs text-muted-foreground">暂未显式配置内容安全规则。</p>
                   )}
               </div>
             </div>

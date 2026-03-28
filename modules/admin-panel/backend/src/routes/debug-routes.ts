@@ -59,7 +59,9 @@ function buildMessageOutput(conversation: any) {
   return {
     content: responseText,
     response_time_ms: responseTime,
-    model_used: conversation.model_name || 'unknown',
+    model_used: typeof conversation.model_name === 'string' && conversation.model_name.trim().length > 0
+      ? conversation.model_name.trim()
+      : null,
     delivery_method: 'http_api' as const,
     delivery_status: deliveryStatus as 'sent' | 'failed' | 'pending',
     timestamp: timestampIso,
@@ -641,12 +643,12 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
         return {
           sequence: toNumber(call.call_sequence) ?? index + 1,
           stage: 'llm_pipeline',
-          agent_type: call.agent_type || 'unknown',
-          purpose: call.prompt_template || 'llm_call',
+          agent_type: call.agent_type || null,
+          purpose: call.prompt_template || null,
           input: {
-            model_name: call.model_name || 'unknown',
-            model_provider: call.model_provider || 'unknown',
-            prompt_template: call.prompt_template || 'default',
+            model_name: call.model_name || null,
+            model_provider: call.model_provider || null,
+            prompt_template: call.prompt_template || null,
             canonical_request: parseJsonField<any>(call.canonical_request, null),
             wire_request: parseJsonField<any>(call.wire_request, null),
             request_format_version: call.request_format_version || undefined,
@@ -760,7 +762,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
       let promptConfig: any = null;
       let finalSystemPrompt = systemPrompt || '';
       let finalMessages = messages;
-      let finalModel = model || 'gemini-2.5-flash';
+      let finalModel = typeof model === 'string' && model.trim().length > 0 ? model.trim() : null;
       let finalParameters = parameters;
 
       // 🔥 如果提供了prompt_id，从数据库加载完整配置
@@ -805,11 +807,13 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
           finalSystemPrompt = renderPromptTemplate(rawSystemPrompt, promptConfig.context_variables, {
             conversation_id: conversation_id || prompt_id,
             timestamp: new Date().toISOString(),
-            model: promptConfig.model_name || model || 'gemini-2.5-flash'
+            ...(promptConfig.model_name ? { model: promptConfig.model_name } : finalModel ? { model: finalModel } : {})
           });
 
           // 🔥 使用prompt配置的模型
-          finalModel = promptConfig.model_name || model || 'gemini-2.5-flash';
+          finalModel = typeof promptConfig.model_name === 'string' && promptConfig.model_name.trim().length > 0
+            ? promptConfig.model_name.trim()
+            : finalModel;
 
           // 🔥 合并配置参数
           finalParameters = {
@@ -840,6 +844,14 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
       // 🔥 向后兼容：如果没有messages但有userInput，构造简单消息
       if (!messages.length && userInput) {
         finalMessages = [{ role: 'user', content: userInput }];
+      }
+
+      if (!finalModel) {
+        return res.status(400).json({
+          success: false,
+          error: 'Model is required for prompt debugging',
+          timestamp: new Date().toISOString()
+        });
       }
 
       // 🔥 处理用户消息模板替换（如果配置了user_prompt_template）

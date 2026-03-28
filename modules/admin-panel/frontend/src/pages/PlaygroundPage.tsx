@@ -15,7 +15,6 @@ import { PageShell } from '@/components/console/PageShell';
 import {
   applyPlaygroundModelOverride,
   createPlaygroundToolDefinition,
-  defaultModelForPlaygroundProvider,
   derivePlaygroundModelOverride,
   duplicatePlaygroundToolDefinition,
   getPromptDefaultModelName,
@@ -25,9 +24,16 @@ import {
 } from '@/lib/playground-models';
 import {
   asRecord,
+  createDefaultPlaygroundProviderConfig,
+  getPlaygroundProviderId,
+  getPlaygroundProviderSpecific,
+  normalizePlaygroundProviderConfig,
   parseMaybeJson,
   resolvePromptProviderConfig,
+  withPlaygroundProviderId,
+  withPlaygroundProviderSpecific,
 } from '@/lib/provider-config';
+import { formatConfiguredValue, formatReturnedValue } from '@/lib/contract-display';
 import { cn, formatTimestamp } from '@/lib/utils';
 import {
   clonePlaygroundRun,
@@ -324,23 +330,7 @@ function EmptyState({
   );
 }
 
-const DEFAULT_PROVIDER_CONFIG: PlaygroundProviderConfig = {
-  provider: 'google-gemini-cli',
-  generation: {
-    temperature: 0.7,
-    topP: 0.95,
-    topK: 40,
-    maxOutputTokens: 2048,
-  },
-  thinking: {
-    includeThoughts: true,
-    thinkingBudget: -1,
-  },
-  safety: [],
-  tools: {},
-  context: {},
-  providerSpecific: {},
-};
+const DEFAULT_PROVIDER_CONFIG: PlaygroundProviderConfig = createDefaultPlaygroundProviderConfig('google-gemini-cli');
 
 const DEFAULT_PROMPT_INPUT: PlaygroundPromptInput = {
   systemInstruction: '',
@@ -456,6 +446,9 @@ export function PlaygroundPage() {
   });
 
   const runMutation = useMutation({
+    onMutate: () => {
+      setLibraryActionError(null);
+    },
     mutationFn: () =>
       createPlaygroundRun({
         caseId: selectedCaseId!,
@@ -473,6 +466,9 @@ export function PlaygroundPage() {
       setActiveRunId(run.id);
       queryClient.invalidateQueries({ queryKey: ['playground-runs', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['playground-library'] });
+    },
+    onError: (error) => {
+      setLibraryActionError(error instanceof Error ? error.message : 'Playground 运行失败');
     },
   });
 
@@ -503,6 +499,13 @@ export function PlaygroundPage() {
   }, []);
 
   useEffect(() => {
+    const importError = searchParams.get('importError');
+    if (importError) {
+      setLibraryActionError(importError);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (bootstrappedRef.current) {
       return;
     }
@@ -510,6 +513,7 @@ export function PlaygroundPage() {
     const caseId = searchParams.get('caseId');
     const trafficId = searchParams.get('trafficId');
     const conversationId = searchParams.get('conversationId');
+    const importError = searchParams.get('importError');
     if (caseId) {
       bootstrappedRef.current = true;
       setSelectedCaseId(caseId);
@@ -522,7 +526,7 @@ export function PlaygroundPage() {
       return;
     }
 
-    if (conversationId) {
+    if (conversationId && !importError) {
       bootstrappedRef.current = true;
       createFromConversationMutation.mutate(conversationId);
     }
@@ -540,12 +544,13 @@ export function PlaygroundPage() {
     setPromptMode(currentCase.promptModeDefault);
     setPromptId(currentPromptId);
     setPromptInput(currentCase.promptInput);
-    setProviderConfig(applyPlaygroundModelOverride(currentCase.providerConfig || DEFAULT_PROVIDER_CONFIG, ''));
-    setModelOverrideText(derivePlaygroundModelOverride(currentCase.providerConfig || DEFAULT_PROVIDER_CONFIG, currentPrompt));
+    const normalizedProviderConfig = normalizePlaygroundProviderConfig(currentCase.providerConfig || DEFAULT_PROVIDER_CONFIG);
+    setProviderConfig(normalizedProviderConfig);
+    setModelOverrideText(derivePlaygroundModelOverride(normalizedProviderConfig, currentPrompt));
     setDraftSystemInstruction(currentCase.promptInput.systemInstruction || '');
     setDraftUserPromptTemplate('');
     setContextVariablesText(stringifyJson(currentCase.promptInput.contextVariables || {}));
-    setProviderSpecificText(stringifyJson(currentCase.providerConfig.providerSpecific || {}));
+    setProviderSpecificText(stringifyJson(getPlaygroundProviderSpecific(normalizedProviderConfig)));
     setSafetyText(stringifyJson(currentCase.providerConfig.safety || []));
     setToolEditorTexts({});
     setNewExtraToolKey('');
@@ -592,21 +597,21 @@ export function PlaygroundPage() {
   );
   const modelOverride = modelOverrideText.trim();
   const hasModelOverride = modelOverride.length > 0;
-  const providerDefaultModel = defaultModelForPlaygroundProvider(providerConfig.provider);
+  const providerId = getPlaygroundProviderId(providerConfig);
   const effectiveModelName = hasModelOverride
     ? modelOverride
-    : promptDefaultModel || providerDefaultModel;
+    : promptDefaultModel || null;
   const effectiveModelSource = hasModelOverride
     ? 'override'
     : promptDefaultModel
       ? 'prompt-default'
-      : 'provider-default';
+      : 'unconfigured';
   const effectiveModelSourceLabel = effectiveModelSource === 'override'
     ? 'Playground override'
     : effectiveModelSource === 'prompt-default'
       ? 'Prompt default'
-      : 'Provider default';
-  const presetModelOptions = PLAYGROUND_PROVIDER_MODEL_OPTIONS[providerConfig.provider] || [];
+      : '未配置';
+  const presetModelOptions = PLAYGROUND_PROVIDER_MODEL_OPTIONS[providerId] || [];
   const modelPresetValue = hasModelOverride
     ? (presetModelOptions.includes(modelOverride) ? modelOverride : '__custom__')
     : '__inherit__';
@@ -614,6 +619,10 @@ export function PlaygroundPage() {
 
   const currentPromptText =
     promptMode === 'draft' ? draftSystemInstruction : promptInput.systemInstruction;
+  const isImportingCase = createFromTrafficMutation.isPending || createFromConversationMutation.isPending;
+  const isCaseReady = Boolean(selectedCaseId);
+  const isDraftOnly = !isCaseReady && (editorEmptyStateDismissed || currentPromptText.trim().length > 0);
+  const showStartupState = !isCaseReady && !isDraftOnly;
   const showEditorEmptyState = editorView === 'prompt' && !selectedCaseId && !currentPromptText.trim() && !editorEmptyStateDismissed;
   const libraryErrorMessage =
     libraryActionError || (libraryQuery.error instanceof Error ? libraryQuery.error.message : null);
@@ -625,8 +634,10 @@ export function PlaygroundPage() {
   });
 
   const buildCurrentProviderConfig = (): PlaygroundProviderConfig => ({
-    ...applyPlaygroundModelOverride(providerConfig, modelOverrideText),
-    providerSpecific: parseJsonText<Record<string, unknown>>(providerSpecificText, {}),
+    ...withPlaygroundProviderSpecific(
+      applyPlaygroundModelOverride(normalizePlaygroundProviderConfig(providerConfig), modelOverrideText),
+      parseJsonText<Record<string, unknown>>(providerSpecificText, {})
+    ),
     safety: parseJsonText<Array<Record<string, unknown>>>(safetyText, []),
   });
 
@@ -839,20 +850,18 @@ export function PlaygroundPage() {
   };
 
   const syncProviderTextFields = (next: PlaygroundProviderConfig) => {
-    setProviderConfig(next);
-    setProviderSpecificText(stringifyJson(next.providerSpecific || {}));
-    setSafetyText(stringifyJson(next.safety || []));
+    const normalizedNext = normalizePlaygroundProviderConfig(next);
+    setProviderConfig(normalizedNext);
+    setProviderSpecificText(stringifyJson(getPlaygroundProviderSpecific(normalizedNext)));
+    setSafetyText(stringifyJson(normalizedNext.safety || []));
     setToolEditorTexts({});
     setNewExtraToolKey('');
-    const keys = getToolEditorKeys(next.tools);
+    const keys = getToolEditorKeys(normalizedNext.tools);
     setExpandedToolKey((prev) => (prev && keys.includes(prev) ? prev : keys[0] || null));
   };
 
-  const updateProviderSelection = (nextProvider: PlaygroundProviderConfig['provider']) => {
-    syncProviderTextFields({
-      ...providerConfig,
-      provider: nextProvider,
-    });
+  const updateProviderSelection = (nextProvider: PlaygroundProviderConfig['model']['provider']) => {
+    syncProviderTextFields(withPlaygroundProviderId(providerConfig, nextProvider));
   };
 
   const setModelOverride = (nextValue: string) => {
@@ -953,7 +962,8 @@ export function PlaygroundPage() {
     ? `Current override: ${effectiveModelName}`
     : promptDefaultModel
       ? `Using prompt default: ${promptDefaultModel}`
-      : `Using provider default: ${providerDefaultModel}`;
+      : 'No model configured yet';
+  const canRunCurrentConfig = Boolean(selectedCaseId && effectiveModelName);
 
   const renderToolsSection = (className: string) => {
     const toolChoiceText = toolEditorTexts.toolChoice ?? stringifyJson(normalizedTools.toolChoice);
@@ -1112,7 +1122,7 @@ export function PlaygroundPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Model</div>
-          <div className="mt-1 text-sm font-medium text-foreground">{effectiveModelName}</div>
+          <div className="mt-1 text-sm font-medium text-foreground">{formatConfiguredValue(effectiveModelName)}</div>
         </div>
         <Badge variant={hasModelOverride ? 'default' : 'outline'}>{effectiveModelSourceLabel}</Badge>
       </div>
@@ -1139,7 +1149,7 @@ export function PlaygroundPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__inherit__">
-              {promptDefaultModel ? `Use prompt default (${promptDefaultModel})` : `Use provider default (${providerDefaultModel})`}
+              {promptDefaultModel ? `Use prompt model (${promptDefaultModel})` : '不覆盖，保持未配置'}
             </SelectItem>
             {presetModelOptions.map((modelName: string) => (
               <SelectItem key={modelName} value={modelName}>
@@ -1157,7 +1167,7 @@ export function PlaygroundPage() {
         <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Custom Model Override</Label>
         <Input
           value={modelOverrideText}
-          placeholder={effectiveModelName}
+          placeholder="显式填写模型 ID"
           onChange={(event) => setModelOverride(event.target.value)}
         />
       </div>
@@ -1171,7 +1181,7 @@ export function PlaygroundPage() {
           disabled={!hasModelOverride}
           onClick={() => setModelOverride('')}
         >
-          {promptDefaultModel ? 'Reset to Prompt Default' : 'Clear Override'}
+          清空覆盖
         </Button>
       </div>
     </div>
@@ -1246,8 +1256,8 @@ export function PlaygroundPage() {
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Model Provider</Label>
                 <Select
-                  value={providerConfig.provider}
-                  onValueChange={(value) => updateProviderSelection(value as PlaygroundProviderConfig['provider'])}
+                  value={providerId}
+                  onValueChange={(value) => updateProviderSelection(value as PlaygroundProviderConfig['model']['provider'])}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1270,10 +1280,10 @@ export function PlaygroundPage() {
                 value={providerSpecificText}
                 onChange={(event) => {
                   setProviderSpecificText(event.target.value);
-                  setProviderConfig((prev) => ({
-                    ...prev,
-                    providerSpecific: parseJsonText<Record<string, unknown>>(event.target.value, {}),
-                  }));
+                  setProviderConfig((prev) => withPlaygroundProviderSpecific(
+                    prev,
+                    parseJsonText<Record<string, unknown>>(event.target.value, {})
+                  ));
                 }}
                 className="min-h-[96px] bg-background font-mono text-xs"
               />
@@ -1354,7 +1364,7 @@ export function PlaygroundPage() {
                 />
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium text-foreground">{prompt.prompt_name}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">{prompt.model_name || 'model auto'}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{formatConfiguredValue(prompt.model_name)}</div>
                 </div>
               </label>
             );
@@ -1569,12 +1579,12 @@ export function PlaygroundPage() {
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2">
               <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Status</div>
-              <div className="font-medium text-foreground">{toolCall.status || currentRun?.status || '-'}</div>
+              <div className="font-medium text-foreground">{formatReturnedValue(toolCall.status || currentRun?.status)}</div>
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2">
               <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Provider</div>
               <div className="font-medium text-foreground">
-                {toolCall.provider || currentRun?.provider || '-'}
+                {formatReturnedValue(toolCall.provider || currentRun?.provider)}
                 {toolCall.modelName ? ` / ${toolCall.modelName}` : ''}
               </div>
             </div>
@@ -1672,6 +1682,77 @@ export function PlaygroundPage() {
     </section>
   );
 
+  const startupPanel = (
+    <section className="rounded-[24px] border border-border/70 bg-white/85 p-6 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-lg font-semibold text-foreground">
+            {isImportingCase ? '正在准备 Playground Case' : libraryErrorMessage ? '导入失败，需要恢复路径' : '先拿到可用 Case'}
+          </div>
+          <div className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+            {isImportingCase
+              ? '正在从当前 trace / conversation / traffic 样本构建 Playground case，准备完成后再进入参数、输出和对比工作台。'
+              : libraryErrorMessage
+                ? '当前入口无法直接把你带进一个可运行的 Playground case。先回到样本库选一个可用样本，或者直接起草 Draft Prompt。'
+                : 'Playground 的主路径应该是先选样本，再调 Prompt 和参数。没有 case 时，不再先展示一整套空白参数区和输出区。'}
+          </div>
+        </div>
+        <Badge variant={isImportingCase ? 'default' : libraryErrorMessage ? 'destructive' : 'outline'}>
+          {isImportingCase ? 'importing' : libraryErrorMessage ? 'import_failed' : 'need_case'}
+        </Badge>
+      </div>
+
+      {libraryErrorMessage ? (
+        <Alert variant="destructive" className="mt-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{libraryErrorMessage}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="mt-6 grid gap-4 xl:grid-cols-2">
+        <div className="rounded-[28px] border border-border/80 bg-white/90 p-6 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.28)]">
+          <div className="text-sm font-semibold text-foreground">从真实样本开始</div>
+          <div className="mt-2 text-sm leading-6 text-muted-foreground">
+            优先从 Trace / Traffic / 已保存 Case 进入。这样参数、基线输出和对比节点都会立即有上下文。
+          </div>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button onClick={() => setLibraryOpen(true)} disabled={isImportingCase}>
+              <Database className="mr-2 h-4 w-4" />
+              打开样本库
+            </Button>
+            <Button variant="outline" onClick={() => libraryQuery.refetch()} disabled={isImportingCase}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              刷新样本
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-[28px] border border-dashed border-border/80 bg-white/75 p-6">
+          <div className="text-sm font-semibold text-foreground">直接起草 Draft</div>
+          <div className="mt-2 text-sm leading-6 text-muted-foreground">
+            如果你现在只是想写 Prompt，可以先进入草稿编辑态。草稿态不展示对比、运行结果和参数侧栏，避免空壳工作台干扰。
+          </div>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPromptMode('draft');
+                setEditorEmptyStateDismissed(true);
+              }}
+              disabled={isImportingCase}
+            >
+              Start Writing
+            </Button>
+            <Button variant="ghost" onClick={() => setInputOpen(true)} disabled={isImportingCase}>
+              <Wand2 className="mr-2 h-4 w-4" />
+              User Input
+            </Button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+
   return (
     <PageShell>
       <div className="relative overflow-visible rounded-[28px] border border-border/70 bg-[linear-gradient(180deg,#fffdf8_0%,#f7f2ea_100%)] shadow-[0_24px_80px_-45px_rgba(15,23,42,0.4)]">
@@ -1692,10 +1773,6 @@ export function PlaygroundPage() {
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Refresh
               </Button>
-              <Button variant="outline" size="sm" onClick={handleSaveCase} disabled={!selectedCaseId || updateCaseMutation.isPending}>
-                <Save className="mr-2 h-4 w-4" />
-                Save Case
-              </Button>
               <Button variant="outline" size="sm" onClick={() => setLibraryOpen(true)}>
                 <Database className="mr-2 h-4 w-4" />
                 Library
@@ -1704,26 +1781,34 @@ export function PlaygroundPage() {
                 <Wand2 className="mr-2 h-4 w-4" />
                 User Input
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => (isDesktopLayout ? toggleDesktopWindow('params') : setMobileParamsOpen(true))}
-              >
-                <Settings2 className="mr-2 h-4 w-4" />
-                {isDesktopLayout && !desktopWindows.params.collapsed ? '隐藏参数' : '参数'}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => (isDesktopLayout ? toggleDesktopWindow('compare') : setMobileCompareOpen(true))}
-              >
-                <Sparkles className="mr-2 h-4 w-4" />
-                {isDesktopLayout && !desktopWindows.compare.collapsed ? '隐藏对比' : '对比'}
-              </Button>
-              <Button onClick={() => runMutation.mutate()} disabled={!selectedCaseId || runMutation.isPending}>
-                <Play className="mr-2 h-4 w-4" />
-                {runMutation.isPending ? 'Running...' : 'Run'}
-              </Button>
+              {isCaseReady ? (
+                <>
+                  <Button variant="outline" size="sm" onClick={handleSaveCase} disabled={updateCaseMutation.isPending}>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save Case
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => (isDesktopLayout ? toggleDesktopWindow('params') : setMobileParamsOpen(true))}
+                  >
+                    <Settings2 className="mr-2 h-4 w-4" />
+                    {isDesktopLayout && !desktopWindows.params.collapsed ? '隐藏参数' : '参数'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => (isDesktopLayout ? toggleDesktopWindow('compare') : setMobileCompareOpen(true))}
+                  >
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    {isDesktopLayout && !desktopWindows.compare.collapsed ? '隐藏对比' : '对比'}
+                  </Button>
+                  <Button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+                    <Play className="mr-2 h-4 w-4" />
+                    {runMutation.isPending ? 'Running...' : 'Run'}
+                  </Button>
+                </>
+              ) : null}
             </div>
           </div>
 
@@ -1756,10 +1841,10 @@ export function PlaygroundPage() {
               Current Prompt: {promptId || 'draft only'}
             </div>
             <div className="rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs text-muted-foreground">
-              Source: {selectedCaseQuery.data?.source || 'manual'}
+              Source: {selectedCaseQuery.data?.source || (isDraftOnly ? 'draft only' : 'need case')}
             </div>
             <div className="rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs text-muted-foreground">
-              Model: {effectiveModelName}
+              Model: {formatConfiguredValue(effectiveModelName)}
             </div>
             <div className="rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs text-muted-foreground">
               Model Source: {effectiveModelSourceLabel}
@@ -1798,7 +1883,9 @@ export function PlaygroundPage() {
         </div>
 
         <div className="px-3 py-3 sm:px-4 sm:py-4 lg:px-5">
-          {isDesktopLayout ? (
+          {showStartupState || isImportingCase ? (
+            startupPanel
+          ) : isDesktopLayout && isCaseReady ? (
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_380px]">
               <ResizableSplit
                 direction="vertical"
@@ -1835,7 +1922,7 @@ export function PlaygroundPage() {
                         <Wand2 className="mr-2 h-4 w-4" />
                         2. 编辑输入
                       </Button>
-                      <Button size="sm" onClick={() => runMutation.mutate()} disabled={!selectedCaseId || runMutation.isPending}>
+                      <Button size="sm" onClick={() => runMutation.mutate()} disabled={!canRunCurrentConfig || runMutation.isPending}>
                         <Play className="mr-2 h-4 w-4" />
                         3. 运行当前配置
                       </Button>
@@ -1888,20 +1975,32 @@ export function PlaygroundPage() {
                 </div>
               </aside>
             </div>
+          ) : isDesktopLayout ? (
+            <div className="grid gap-4">
+              <div className="h-[clamp(560px,68vh,920px)]">
+                {editorPanel}
+              </div>
+            </div>
           ) : (
-            <ResizableSplit
-              direction="vertical"
-              disabled={!isDesktopLayout}
-              defaultSize={58}
-              minFirstSize={320}
-              minSecondSize={260}
-              className="h-[clamp(760px,78vh,1100px)]"
-              firstClassName="h-full"
-              secondClassName="h-full"
-              handleLabel="调整编辑区与输出区高度"
-              first={editorPanel}
-              second={outputPanel}
-            />
+            isCaseReady ? (
+              <ResizableSplit
+                direction="vertical"
+                disabled={!isDesktopLayout}
+                defaultSize={58}
+                minFirstSize={320}
+                minSecondSize={260}
+                className="h-[clamp(760px,78vh,1100px)]"
+                firstClassName="h-full"
+                secondClassName="h-full"
+                handleLabel="调整编辑区与输出区高度"
+                first={editorPanel}
+                second={outputPanel}
+              />
+            ) : (
+              <div className="h-[clamp(560px,68vh,920px)]">
+                {editorPanel}
+              </div>
+            )
           )}
         </div>
       </div>
@@ -2065,8 +2164,8 @@ export function PlaygroundPage() {
                   <div className="space-y-2">
                     <Label>Model Provider</Label>
                     <Select
-                      value={providerConfig.provider}
-                      onValueChange={(value) => updateProviderSelection(value as PlaygroundProviderConfig['provider'])}
+                      value={providerId}
+                      onValueChange={(value) => updateProviderSelection(value as PlaygroundProviderConfig['model']['provider'])}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -2143,7 +2242,7 @@ export function PlaygroundPage() {
                     />
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-foreground">{prompt.prompt_name}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{prompt.model_name || 'model auto'}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">{formatConfiguredValue(prompt.model_name)}</div>
                     </div>
                   </label>
                 );

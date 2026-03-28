@@ -14,7 +14,6 @@ import {
   Filter,
   Plus,
   MessageCircle,
-  PauseCircle,
   PlayCircle,
   RefreshCw,
   Search,
@@ -25,6 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
@@ -65,6 +65,8 @@ interface GroupResponse {
     totalPages: number;
   };
 }
+
+type GroupToggleField = 'is_enabled' | 'auto_reply_enabled';
 
 const fetchGroups = async (params: {
   page: number;
@@ -144,6 +146,7 @@ export const GroupManagementPage: React.FC = () => {
     queryKey: ['groups', page, search, filters],
     queryFn: () => fetchGroups({ page, limit, search, ...filters }),
   });
+  const groupsQueryKey = ['groups', page, search, filters] as const;
 
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({});
   const createGroupMutation = useMutation({
@@ -169,13 +172,32 @@ export const GroupManagementPage: React.FC = () => {
     setPage(1);
   };
 
-  const handleGroupUpdate = async (groupId: number, field: string, value: boolean) => {
+  const handleGroupUpdate = async (groupId: number, field: GroupToggleField, value: boolean) => {
     const loadingKey = `${groupId}_${field}`;
     setLoadingStates((prev) => ({ ...prev, [loadingKey]: true }));
+    const previous = queryClient.getQueryData<GroupResponse>(groupsQueryKey);
+
+    queryClient.setQueryData<GroupResponse>(groupsQueryKey, (current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        data: current.data.map((group) => (
+          group.group_id === groupId
+            ? { ...group, [field]: value ? 1 : 0 }
+            : group
+        )),
+      };
+    });
 
     try {
       await updateGroup(groupId, { [field]: value });
-      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      await queryClient.invalidateQueries({ queryKey: ['groups'] });
+    } catch (updateError) {
+      queryClient.setQueryData(groupsQueryKey, previous);
+      window.alert(updateError instanceof Error ? updateError.message : '群聊设置更新失败');
     } finally {
       setLoadingStates((prev) => ({ ...prev, [loadingKey]: false }));
     }
@@ -209,6 +231,27 @@ export const GroupManagementPage: React.FC = () => {
         : 0;
     return { enabled, autoReply, avgActivity };
   }, [rows]);
+
+  const renderToggleControl = (group: GroupChat, field: GroupToggleField, label: string) => {
+    const checked = Boolean(group[field]);
+    const loadingKey = `${group.group_id}_${field}`;
+
+    return (
+      <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background/70 px-3 py-2">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-foreground">{label}</div>
+          <div className="text-xs text-muted-foreground">{checked ? '已开启' : '已关闭'}</div>
+        </div>
+        <Switch
+          checked={checked}
+          onCheckedChange={(nextChecked) => void handleGroupUpdate(group.group_id, field, nextChecked)}
+          disabled={loadingStates[loadingKey] || false}
+          aria-label={`group-${group.group_id}-${field}`}
+        />
+      </label>
+    );
+  };
+
   const paginationControls = (
     <div className="flex items-center gap-2">
       <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page === 1}>
@@ -390,25 +433,9 @@ export const GroupManagementPage: React.FC = () => {
                     </>
                   }
                 >
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleGroupUpdate(group.group_id, 'is_enabled', !group.is_enabled)}
-                      disabled={loadingStates[`${group.group_id}_is_enabled`] || false}
-                    >
-                      {group.is_enabled ? <PauseCircle className="mr-2 h-4 w-4" /> : <PlayCircle className="mr-2 h-4 w-4" />}
-                      {group.is_enabled ? '停止接收' : '开始接收'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleGroupUpdate(group.group_id, 'auto_reply_enabled', !group.auto_reply_enabled)}
-                      disabled={loadingStates[`${group.group_id}_auto_reply_enabled`] || false}
-                    >
-                      <MessageCircle className="mr-2 h-4 w-4" />
-                      自动回复
-                    </Button>
+                  <div className="space-y-2">
+                    {renderToggleControl(group, 'is_enabled', '接收开关')}
+                    {renderToggleControl(group, 'auto_reply_enabled', '自动回复')}
                   </div>
                 </EntityCard>
               ))}
@@ -448,23 +475,25 @@ export const GroupManagementPage: React.FC = () => {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{formatDate(group.last_conversation_time)}</TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleGroupUpdate(group.group_id, 'is_enabled', !group.is_enabled)}
-                            disabled={loadingStates[`${group.group_id}_is_enabled`] || false}
-                          >
-                            {group.is_enabled ? <PauseCircle className="h-3 w-3" /> : <PlayCircle className="h-3 w-3" />}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleGroupUpdate(group.group_id, 'auto_reply_enabled', !group.auto_reply_enabled)}
-                            disabled={loadingStates[`${group.group_id}_auto_reply_enabled`] || false}
-                          >
-                            <MessageCircle className="h-3 w-3" />
-                          </Button>
+                        <div className="flex min-w-[240px] items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-muted-foreground">接收</span>
+                            <Switch
+                              checked={Boolean(group.is_enabled)}
+                              onCheckedChange={(nextChecked) => void handleGroupUpdate(group.group_id, 'is_enabled', nextChecked)}
+                              disabled={loadingStates[`${group.group_id}_is_enabled`] || false}
+                              aria-label={`group-${group.group_id}-receive`}
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-muted-foreground">自动回复</span>
+                            <Switch
+                              checked={Boolean(group.auto_reply_enabled)}
+                              onCheckedChange={(nextChecked) => void handleGroupUpdate(group.group_id, 'auto_reply_enabled', nextChecked)}
+                              disabled={loadingStates[`${group.group_id}_auto_reply_enabled`] || false}
+                              aria-label={`group-${group.group_id}-auto-reply`}
+                            />
+                          </div>
                           <Button size="sm" variant="outline" onClick={() => navigate(`/groups/${group.group_id}`)}>
                             <Eye className="h-3 w-3" />
                           </Button>

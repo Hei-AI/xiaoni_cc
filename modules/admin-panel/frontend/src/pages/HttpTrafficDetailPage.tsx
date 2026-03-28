@@ -26,6 +26,7 @@ import { TrafficReplayEditor } from '../components/TrafficReplayEditor';
 import { ReplayResultComparison } from '../components/ReplayResultComparison';
 import { ReplayHistoryList } from '../components/ReplayHistoryList';
 import type { ReplayModifications, ReplayResult, ReplayHistory } from '../types/traffic-replay';
+import { formatReturnedValue } from '@/lib/contract-display';
 import { formatTimestamp } from '../lib/utils';
 
 interface TrafficLogDetail {
@@ -405,11 +406,11 @@ export function HttpTrafficDetailPage() {
                     <div className="flex items-center gap-1">
                       <Zap className="h-4 w-4 text-purple-500" />
                       <Badge variant="secondary" className="capitalize">
-                        {log.api_type || 'AI API'}
+                        {formatReturnedValue(log.api_type)}
                       </Badge>
                     </div>
                   ) : (
-                    <span className="text-muted-foreground">普通请求</span>
+                    <span className="text-muted-foreground">非 AI 请求</span>
                   )}
                 </div>
               </div>
@@ -458,11 +459,11 @@ export function HttpTrafficDetailPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">容器名称:</span>
-                      <span>{log.container_name || '-'}</span>
+                      <span>{formatReturnedValue(log.container_name)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">服务名称:</span>
-                      <span>{log.service_name || '-'}</span>
+                      <span>{formatReturnedValue(log.service_name)}</span>
                     </div>
                   </div>
                 </div>
@@ -561,7 +562,7 @@ export function HttpTrafficDetailPage() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold">请求详情</h3>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span>Content-Type: {log.request_content_type || '-'}</span>
+                  <span>Content-Type: {formatReturnedValue(log.request_content_type)}</span>
                   <span>|</span>
                   <span>大小: {formatBytes(log.request_size)}</span>
                 </div>
@@ -602,7 +603,7 @@ export function HttpTrafficDetailPage() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold">响应详情</h3>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span>Content-Type: {log.response_content_type || '-'}</span>
+                  <span>Content-Type: {formatReturnedValue(log.response_content_type)}</span>
                   <span>|</span>
                   <span>大小: {formatBytes(log.response_size)}</span>
                 </div>
@@ -670,18 +671,18 @@ export function HttpTrafficDetailPage() {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">客户端IP:</span>
-                      <span className="font-mono">{log.client_ip || '-'}</span>
+                      <span className="font-mono">{formatReturnedValue(log.client_ip)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">User-Agent:</span>
                       <span className="max-w-48 truncate" title={log.user_agent}>
-                        {log.user_agent || '-'}
+                        {formatReturnedValue(log.user_agent)}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Referer:</span>
                       <span className="max-w-48 truncate" title={log.referer}>
-                        {log.referer || '-'}
+                        {formatReturnedValue(log.referer)}
                       </span>
                     </div>
                   </div>
@@ -696,11 +697,11 @@ export function HttpTrafficDetailPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">原始编码:</span>
-                      <span>{log.original_encoding || '-'}</span>
+                      <span>{formatReturnedValue(log.original_encoding)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">API版本:</span>
-                      <span>{log.api_version || '-'}</span>
+                      <span>{formatReturnedValue(log.api_version)}</span>
                     </div>
                   </div>
                 </div>

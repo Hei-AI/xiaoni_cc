@@ -8,7 +8,7 @@ interface PromptTemplate {
   user_prompt_template: string | null;
   context_variables: any;
   model_config: any;
-  model_name: string;
+  model_name: string | null;
   is_active: number;
   version: number;
   description: string | null;
@@ -44,8 +44,12 @@ export const usePromptTemplates = () => {
 // Helper function to get system prompt by template name
 export const getSystemPromptByTemplateName = (
   templates: PromptTemplate[],
-  templateName: string
+  templateName?: string | null
 ): string => {
+  if (!templateName || !templateName.trim()) {
+    return '';
+  }
+
   const template = templates.find(t => t.prompt_name === templateName);
   if (!template) return '';
 
@@ -165,7 +169,7 @@ const parseStructuredPrompt = (
 // Helper function to separate system prompt from mixed prompt content
 export const separatePromptContent = (
   templates: PromptTemplate[],
-  templateName: string,
+  templateName: string | null | undefined,
   mixedPrompt: unknown
 ): { systemPrompt: string; userInput: string } => {
   const templateSystemPrompt = getSystemPromptByTemplateName(templates, templateName);

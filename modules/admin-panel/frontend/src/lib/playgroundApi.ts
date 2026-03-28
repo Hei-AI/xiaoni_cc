@@ -2,6 +2,7 @@ import type {
   PlaygroundCase,
   PlaygroundExecutionMode,
   PlaygroundLibraryPayload,
+  PlaygroundImportResolution,
   PlaygroundPromptInput,
   PlaygroundPromptMode,
   PlaygroundProviderConfig,
@@ -42,6 +43,12 @@ export async function createCaseFromConversation(conversationId: string, promptI
   return parseResponse<PlaygroundCase>(response);
 }
 
+export function buildPlaygroundRecoveryUrl(message: string): string {
+  const params = new URLSearchParams();
+  params.set('importError', message);
+  return `/playground?${params.toString()}`;
+}
+
 export async function createCaseFromSpan(payload: {
   traceId: string;
   spanId: string;
@@ -53,6 +60,46 @@ export async function createCaseFromSpan(payload: {
     body: JSON.stringify(payload),
   });
   return parseResponse<PlaygroundCase>(response);
+}
+
+export async function resolvePlaygroundImportTarget(params: {
+  conversationId?: string | null;
+  traceId?: string | null;
+}): Promise<PlaygroundImportResolution> {
+  const searchParams = new URLSearchParams();
+  if (params.conversationId) searchParams.set('conversationId', params.conversationId);
+  if (params.traceId) searchParams.set('traceId', params.traceId);
+  const response = await fetch(`/api/playground/import-target?${searchParams.toString()}`);
+  return parseResponse<PlaygroundImportResolution>(response);
+}
+
+export async function openBestPlaygroundCase(params: {
+  conversationId?: string | null;
+  traceId?: string | null;
+  promptId?: string | null;
+}): Promise<PlaygroundCase> {
+  const resolution = await resolvePlaygroundImportTarget(params);
+  if (!resolution.importable) {
+    throw new Error(resolution.reasonMessage || 'No viable Playground import source found');
+  }
+
+  if (resolution.sourceType === 'span' && resolution.traceId && resolution.spanId) {
+    return createCaseFromSpan({
+      traceId: resolution.traceId,
+      spanId: resolution.spanId,
+      promptId: params.promptId
+    });
+  }
+
+  if (resolution.sourceType === 'traffic' && typeof resolution.trafficId === 'number') {
+    return createCaseFromTraffic(resolution.trafficId, params.promptId);
+  }
+
+  if (resolution.sourceType === 'conversation' && resolution.conversationId) {
+    return createCaseFromConversation(resolution.conversationId, params.promptId);
+  }
+
+  throw new Error(resolution.reasonMessage || 'No viable Playground import source found');
 }
 
 export async function fetchPlaygroundCase(caseId: string): Promise<PlaygroundCase> {

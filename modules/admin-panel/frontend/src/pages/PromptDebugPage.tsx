@@ -32,6 +32,7 @@ import {
   saveDebugSession,
   deleteDebugSession
 } from '../lib/promptDebugApi';
+import { formatConfiguredValue } from '@/lib/contract-display';
 
 interface DebugMessage {
   id: string;
@@ -399,7 +400,7 @@ export const PromptDebugPage: React.FC = () => {
         thought: thought.trim() || undefined,
         timestamp: new Date(),
         metadata: {
-          model: response.model || 'unknown',
+          model: formatConfiguredValue(response.model),
           ...normalizeDebugMetadata(response)
         }
       };
@@ -784,7 +785,7 @@ export const PromptDebugPage: React.FC = () => {
                 </div>
                 <div>
                   <Label className="text-sm font-medium">模型</Label>
-                  <p className="text-sm text-muted-foreground">{prompt.model_name || 'gemini-2.5-flash'}</p>
+                  <p className="text-sm text-muted-foreground">{formatConfiguredValue(prompt.model_name)}</p>
                 </div>
                 <div>
                   <Label className="text-sm font-medium">状态</Label>
@@ -942,7 +943,7 @@ export const PromptDebugPage: React.FC = () => {
                 </div>
                 <div>
                   <Label className="text-sm font-medium">模型</Label>
-                  <p className="text-sm text-muted-foreground">{prompt.model_name || 'gemini-2.5-flash'}</p>
+                  <p className="text-sm text-muted-foreground">{formatConfiguredValue(prompt.model_name)}</p>
                 </div>
                 <div>
                   <Label className="text-sm font-medium">状态</Label>

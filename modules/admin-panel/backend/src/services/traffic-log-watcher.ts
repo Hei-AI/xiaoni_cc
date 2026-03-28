@@ -464,7 +464,7 @@ export class TrafficLogWatcher {
       agent_turn: this.normalizeInteger(record.agent_turn ?? record.agentTurn),
       llm_call_id: record.llm_call_id || record.llmCallId || null,
       tool_call_id: record.tool_call_id || record.toolCallId || null,
-      container_name: record.container_name || record.containerName || 'provider-service',
+      container_name: record.container_name || record.containerName || null,
       service_name: record.service_name || record.serviceName,
       request_id: record.request_id || record.requestId || record.id || this.generateRequestId(),
       method: record.method || 'GET',

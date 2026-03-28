@@ -89,9 +89,11 @@ export function StructuredDataViewer({
 
       {hasContent ? (
         <ScrollArea className={cn('w-full', heightClassName)}>
-          <pre className="min-h-full px-4 py-4 font-mono text-xs leading-6 text-slate-100 whitespace-pre-wrap break-words">
-            {formattedValue}
-          </pre>
+          <div className="min-w-full w-fit">
+            <pre className="min-h-full min-w-max px-4 py-4 font-mono text-xs leading-6 text-slate-100 whitespace-pre">
+              {formattedValue}
+            </pre>
+          </div>
         </ScrollArea>
       ) : (
         <div className={cn('flex items-center justify-center px-4 py-6 text-sm text-slate-400', heightClassName)}>{emptyLabel}</div>

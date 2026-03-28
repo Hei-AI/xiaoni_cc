@@ -143,7 +143,7 @@ function applyContextVariables(
     });
 }
 
-function normalizeProvider(provider: PlaygroundProviderConfig['provider']): PlaygroundProviderConfig['provider'] {
+function normalizeProvider(provider?: string | null): PlaygroundProviderConfig['model']['provider'] {
   const normalized = (provider || '').trim().toLowerCase();
   if (normalized === 'openai') return 'openai';
   if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
@@ -151,18 +151,21 @@ function normalizeProvider(provider: PlaygroundProviderConfig['provider']): Play
   return 'google-gemini-cli';
 }
 
-function defaultModelForProvider(provider: PlaygroundProviderConfig['provider']): string {
-  switch (provider) {
-    case 'openai':
-      return 'gpt-5.4-mini';
-    case 'codex':
-      return 'gpt-5.4-mini';
-    case 'google-legacy':
-      return 'gemini-2.5-flash';
-    case 'google-gemini-cli':
-    default:
-      return 'gemini-2.5-flash';
-  }
+function getProviderFromConfig(providerConfig: PlaygroundProviderConfig): PlaygroundProviderConfig['model']['provider'] {
+  return normalizeProvider(providerConfig.model?.provider);
+}
+
+function getModelNameFromConfig(providerConfig: PlaygroundProviderConfig): string | null {
+  return typeof providerConfig.model?.name === 'string' && providerConfig.model.name.trim().length > 0
+    ? providerConfig.model.name.trim()
+    : null;
+}
+
+function getProviderSpecificFromConfig(providerConfig: PlaygroundProviderConfig): Record<string, unknown> {
+  const providerSpecific = providerConfig.model?.providerSpecific;
+  return providerSpecific && typeof providerSpecific === 'object' && !Array.isArray(providerSpecific)
+    ? providerSpecific
+    : {};
 }
 
 function normalizePromptMessages(messages: PlaygroundPromptInput['messages']): PlaygroundPromptInput['messages'] {
@@ -340,10 +343,9 @@ export class PlaygroundRunService {
       return this.createSpanReplayRun(caseRecord, input);
     }
 
-    const provider = normalizeProvider(input.providerConfig.provider);
+    const provider = getProviderFromConfig(input.providerConfig);
     const promptExecution = await this.resolvePromptExecutionState(caseRecord, input);
     const modelName = this.resolveModelName(provider, input.providerConfig, promptExecution.resolvedPrompt);
-    const parameters = this.buildParameters(input.providerConfig);
 
     const response = await fetch(`${this.providerServiceUrl}/api/internal/llm/debug`, {
       method: 'POST',
@@ -353,7 +355,7 @@ export class PlaygroundRunService {
       body: JSON.stringify({
         systemPrompt: promptExecution.renderedPromptInput.systemInstruction,
         messages: promptExecution.renderedPromptInput.messages,
-        parameters,
+        configOverride: input.providerConfig,
         model: modelName,
         conversation_id: caseRecord.traceContext.conversationId || caseRecord.sourceRef
       })
@@ -555,7 +557,7 @@ export class PlaygroundRunService {
       : this.applyPatchToCanonicalRequest(baselineSnapshot.canonicalRequest, requestPatch);
     const effectiveConfig = this.buildEffectiveConfigOverride(baselineSnapshot, input.providerConfig, requestPatch);
     const modelName = this.resolveReplayModelName(baselineSnapshot, input.providerConfig);
-    const provider = normalizeProvider(input.providerConfig.provider);
+    const provider = getProviderFromConfig(input.providerConfig);
 
     const response = await fetch(`${this.providerServiceUrl}/api/internal/llm/debug`, {
       method: 'POST',
@@ -671,7 +673,7 @@ export class PlaygroundRunService {
     outputSnapshot: Record<string, unknown>;
     comparisonSnapshot: Record<string, unknown> | PlaygroundComparison;
     diffSnapshot?: Record<string, unknown> | null;
-    modelName: string;
+    modelName: string | null;
     provider: string;
     status: 'completed' | 'failed';
     executedBy: string;
@@ -718,29 +720,12 @@ export class PlaygroundRunService {
     return saved;
   }
 
-  private buildParameters(providerConfig: PlaygroundProviderConfig): Record<string, unknown> {
-    return {
-      model_config: {
-        provider: providerConfig.provider,
-        providerSpecific: providerConfig.providerSpecific || {}
-      },
-      advanced_config: {
-        generationConfig: providerConfig.generation || {},
-        thinkingConfig: providerConfig.thinking || {},
-        safetySettings: providerConfig.safety || [],
-        toolsConfig: providerConfig.tools || {}
-      }
-    };
-  }
-
   private resolveModelName(
-    provider: PlaygroundProviderConfig['provider'],
+    provider: PlaygroundProviderConfig['model']['provider'],
     providerConfig: PlaygroundProviderConfig,
     prompt: PromptRecord | null
   ): string {
-    const contextModel = typeof providerConfig.context?.modelName === 'string'
-      ? providerConfig.context.modelName
-      : null;
+    const contextModel = getModelNameFromConfig(providerConfig);
     if (prompt?.model_name && contextModel && prompt.model_name === contextModel) {
       return prompt.model_name;
     }
@@ -750,7 +735,7 @@ export class PlaygroundRunService {
     if (prompt?.model_name && prompt.model_name.trim()) {
       return prompt.model_name;
     }
-    return defaultModelForProvider(provider);
+    throw new Error(`Playground execution requires an explicit model name for provider ${provider}`);
   }
 
   private async loadPrompt(promptId: string | null): Promise<PromptRecord | null> {
@@ -804,7 +789,7 @@ export class PlaygroundRunService {
       ['temperature', providerConfig.generation.temperature, baselineRequest.temperature],
       ['top_p', providerConfig.generation.topP, baselineRequest.top_p],
       ['max_output_tokens', providerConfig.generation.maxOutputTokens, baselineRequest.max_output_tokens],
-      ['stop', providerConfig.generation.stop, baselineRequest.stop]
+      ['stop', providerConfig.generation.stopSequences, baselineRequest.stop]
     ];
     fieldMappings.forEach(([field, nextValue, baselineValue]) => {
       if (!deepEqual(nextValue, baselineValue) && nextValue !== undefined) {
@@ -812,17 +797,17 @@ export class PlaygroundRunService {
       }
     });
 
-    const nextProvider = providerConfig.provider || undefined;
+    const nextProvider = getProviderFromConfig(providerConfig);
     const baselineProvider = normalizeProvider(
       typeof (baselineSnapshot.effectiveUnifiedConfig as any)?.model?.provider === 'string'
         ? (baselineSnapshot.effectiveUnifiedConfig as any).model.provider
-        : ((baselineSnapshot.provider as PlaygroundProviderConfig['provider']) || 'google-gemini-cli')
+        : ((baselineSnapshot.provider as PlaygroundProviderConfig['model']['provider']) || 'google-gemini-cli')
     );
     if (nextProvider && nextProvider !== baselineProvider) {
       patch.provider = nextProvider;
     }
 
-    const nextModelName = typeof providerConfig.context?.modelName === 'string' ? providerConfig.context.modelName : null;
+    const nextModelName = getModelNameFromConfig(providerConfig);
     if (nextModelName && nextModelName !== baselineSnapshot.modelName) {
       patch.modelName = nextModelName;
     }
@@ -831,8 +816,8 @@ export class PlaygroundRunService {
       (baselineSnapshot.effectiveUnifiedConfig as any)?.model?.providerSpecific,
       {}
     );
-    if (!deepEqual(providerConfig.providerSpecific || {}, baselineProviderSpecific)) {
-      patch.providerSpecific = providerConfig.providerSpecific || {};
+    if (!deepEqual(getProviderSpecificFromConfig(providerConfig), baselineProviderSpecific)) {
+      patch.providerSpecific = getProviderSpecificFromConfig(providerConfig);
     }
 
     return patch;
@@ -922,18 +907,14 @@ export class PlaygroundRunService {
     const nextModel = parseJsonField<Record<string, unknown>>(nextConfig.model, {});
     const nextGeneration = parseJsonField<Record<string, unknown>>(nextConfig.generation, {});
     const nextThinking = parseJsonField<Record<string, unknown>>(nextConfig.thinking, {});
-    nextModel.name = patch.modelName || providerConfig.context?.modelName || baselineSnapshot.modelName || nextModel.name;
-    nextModel.provider = patch.provider || providerConfig.provider || nextModel.provider;
-    nextModel.providerSpecific = providerConfig.providerSpecific || nextModel.providerSpecific || {};
+    nextModel.name = patch.modelName || getModelNameFromConfig(providerConfig) || baselineSnapshot.modelName || nextModel.name;
+    nextModel.provider = patch.provider || getProviderFromConfig(providerConfig) || nextModel.provider;
+    nextModel.providerSpecific = getProviderSpecificFromConfig(providerConfig) || nextModel.providerSpecific || {};
     nextConfig.model = nextModel;
     nextConfig.generation = {
       ...nextGeneration,
       ...(providerConfig.generation || {})
     };
-    if ((nextConfig.generation as Record<string, unknown>).stop !== undefined) {
-      (nextConfig.generation as Record<string, unknown>).stopSequences = (nextConfig.generation as Record<string, unknown>).stop;
-      delete (nextConfig.generation as Record<string, unknown>).stop;
-    }
     nextConfig.thinking = {
       ...nextThinking,
       ...(providerConfig.thinking || {})
@@ -946,9 +927,9 @@ export class PlaygroundRunService {
   private resolveReplayModelName(
     baselineSnapshot: PlaygroundBaselineSnapshot,
     providerConfig: PlaygroundProviderConfig
-  ): string {
-    return typeof providerConfig.context?.modelName === 'string' && providerConfig.context.modelName.trim().length > 0
-      ? providerConfig.context.modelName
-      : baselineSnapshot.modelName || defaultModelForProvider(providerConfig.provider);
+  ): string | null {
+    return getModelNameFromConfig(providerConfig)
+      || baselineSnapshot.modelName
+      || null;
   }
 }

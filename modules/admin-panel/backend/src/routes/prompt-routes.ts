@@ -268,7 +268,7 @@ export function createPromptRoutes(
           context_variables ? JSON.stringify(context_variables) : null,
           model_config ? JSON.stringify(model_config) : null,
           advanced_config ? JSON.stringify(advanced_config) : null,
-          model_name || 'gemini-2.5-flash',
+          typeof model_name === 'string' && model_name.trim().length > 0 ? model_name.trim() : null,
           description || null,
           is_active ? 1 : 0,
           created_by || 'admin',
@@ -282,7 +282,7 @@ export function createPromptRoutes(
           id: promptId,
           prompt_name,
           agent_type: agent_type || 'chat_bot',
-          model_name: model_name || 'gemini-2.5-flash'
+          model_name: typeof model_name === 'string' && model_name.trim().length > 0 ? model_name.trim() : null
         },
         message: 'Prompt created successfully',
         timestamp: new Date().toISOString()
@@ -360,7 +360,7 @@ export function createPromptRoutes(
           context_variables ? JSON.stringify(context_variables) : null,
           model_config ? JSON.stringify(model_config) : null,
           advanced_config ? JSON.stringify(advanced_config) : null,
-          model_name || 'gemini-2.5-flash',
+          typeof model_name === 'string' && model_name.trim().length > 0 ? model_name.trim() : null,
           description || null,
           is_active ? 1 : 0,
           promptId
@@ -373,7 +373,7 @@ export function createPromptRoutes(
           id: promptId,
           prompt_name,
           agent_type: agent_type || 'chat_bot',
-          model_name: model_name || 'gemini-2.5-flash'
+          model_name: typeof model_name === 'string' && model_name.trim().length > 0 ? model_name.trim() : null
         },
         message: 'Prompt updated successfully',
         timestamp: new Date().toISOString()

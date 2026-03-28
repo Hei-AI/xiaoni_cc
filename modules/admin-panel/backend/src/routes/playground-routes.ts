@@ -132,6 +132,34 @@ export function createPlaygroundRoutes(database: DatabaseManager, logger: winsto
     }
   });
 
+  router.get('/playground/import-target', async (req, res) => {
+    try {
+      await ready;
+      const resolution = await caseBuilder.resolveImportTarget({
+        conversationId: typeof req.query.conversationId === 'string' ? req.query.conversationId : null,
+        traceId: typeof req.query.traceId === 'string' ? req.query.traceId : null
+      });
+
+      res.json({
+        success: true,
+        data: resolution,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to resolve playground import target', {
+        error,
+        conversationId: req.query.conversationId,
+        traceId: req.query.traceId
+      });
+      res.status(errorStatusCode(error)).json({
+        success: false,
+        error: 'Failed to resolve playground import target',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   router.get('/playground/cases/:caseId', async (req, res) => {
     try {
       await ready;

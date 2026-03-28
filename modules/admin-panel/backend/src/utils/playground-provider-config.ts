@@ -1,15 +1,7 @@
 import type {
   PlaygroundProviderConfig,
   PlaygroundProviderId,
-} from '@/types/playground';
-
-type PromptConfigLike = {
-  id?: string | null;
-  prompt_name?: string | null;
-  model_name?: string | null;
-  model_config?: unknown;
-  advanced_config?: unknown;
-} | null | undefined;
+} from '../types/playground';
 
 const DEFAULT_VERSION = {
   version: '1.0.0',
@@ -20,47 +12,13 @@ const DEFAULT_VERSION = {
   isActive: true,
 };
 
-export const PROVIDER_OPTIONS: Array<{
-  value: PlaygroundProviderId;
-  label: string;
-}> = [
-  { value: 'google-gemini-cli', label: 'Google Gemini CLI' },
-  { value: 'google-legacy', label: 'Google Legacy API' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'codex', label: 'Codex' },
-];
-
-export const PLAYGROUND_PROVIDER_MODEL_OPTIONS: Record<PlaygroundProviderId, string[]> = {
-  google: [
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-  ],
-  'google-gemini-cli': [
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-  ],
-  'google-legacy': [
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-  ],
-  openai: [
-    'gpt-5.4-mini',
-    'gpt-5.4',
-  ],
-  codex: [
-    'gpt-5.4-mini',
-    'gpt-5.3-codex',
-  ],
-  custom: [],
-};
-
-export function asRecord(value: unknown): Record<string, unknown> | null {
+function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
 
-export function parseMaybeJson(value: unknown): unknown {
+function parseMaybeJson(value: unknown): unknown {
   if (typeof value !== 'string') {
     return value;
   }
@@ -85,7 +43,7 @@ function normalizeModelName(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
-export function normalizePromptProvider(value: unknown): PlaygroundProviderId {
+export function normalizePlaygroundProvider(value: unknown): PlaygroundProviderId {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (normalized === 'openai') return 'openai';
   if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
@@ -101,32 +59,7 @@ export function normalizePromptProvider(value: unknown): PlaygroundProviderId {
   return 'google-gemini-cli';
 }
 
-export function inferProviderFromModelName(modelName?: string | null): PlaygroundProviderId {
-  const normalized = (modelName || '').trim().toLowerCase();
-  if (
-    normalized.includes('codex') ||
-    normalized === 'gpt-5-mini' ||
-    normalized === 'gpt-5.4-mini' ||
-    normalized === 'gpt-5.3-codex' ||
-    normalized === 'gpt-5.3-codex-spark' ||
-    normalized === 'gpt-5.2-codex'
-  ) {
-    return 'codex';
-  }
-
-  if (
-    normalized.startsWith('gpt-') ||
-    normalized.startsWith('o1') ||
-    normalized.startsWith('o3') ||
-    normalized.startsWith('o4')
-  ) {
-    return 'openai';
-  }
-
-  return 'google-gemini-cli';
-}
-
-export function defaultModelForProvider(provider: PlaygroundProviderId): string {
+export function defaultModelForPlaygroundProvider(provider: PlaygroundProviderId): string {
   switch (provider) {
     case 'openai':
       return 'gpt-5.4-mini';
@@ -181,7 +114,7 @@ export function normalizePlaygroundProviderConfig(
 
   const model = asRecord(record.model);
   if (model && typeof model.name === 'string' && typeof model.provider === 'string') {
-    const provider = normalizePromptProvider(model.provider);
+    const provider = normalizePlaygroundProvider(model.provider);
     return {
       id: typeof record.id === 'string' ? record.id : 'playground-provider',
       name: typeof record.name === 'string' ? record.name : 'Playground Provider Config',
@@ -207,7 +140,7 @@ export function normalizePlaygroundProviderConfig(
     };
   }
 
-  const provider = normalizePromptProvider(record.provider ?? fallbackProvider);
+  const provider = normalizePlaygroundProvider(record.provider ?? fallbackProvider);
   const context = asRecord(parseMaybeJson(record.context)) || {};
   const generation = asRecord(parseMaybeJson(record.generation)) || {};
   const stopSequences = Array.isArray(generation.stopSequences)
@@ -242,12 +175,8 @@ export function normalizePlaygroundProviderConfig(
   };
 }
 
-export function getProviderLabel(provider: PlaygroundProviderId): string {
-  return PROVIDER_OPTIONS.find((option) => option.value === provider)?.label || provider;
-}
-
 export function getPlaygroundProviderId(providerConfig: PlaygroundProviderConfig): PlaygroundProviderId {
-  return normalizePromptProvider(providerConfig.model?.provider);
+  return normalizePlaygroundProvider(providerConfig.model?.provider);
 }
 
 export function getPlaygroundModelName(providerConfig: PlaygroundProviderConfig): string | null {
@@ -256,88 +185,4 @@ export function getPlaygroundModelName(providerConfig: PlaygroundProviderConfig)
 
 export function getPlaygroundProviderSpecific(providerConfig: PlaygroundProviderConfig): Record<string, unknown> {
   return asRecord(parseMaybeJson(providerConfig.model?.providerSpecific)) || {};
-}
-
-export function withPlaygroundProviderId(
-  providerConfig: PlaygroundProviderConfig,
-  provider: PlaygroundProviderId
-): PlaygroundProviderConfig {
-  const normalized = normalizePlaygroundProviderConfig(providerConfig, provider);
-
-  return {
-    ...normalized,
-    model: {
-      ...normalized.model,
-      provider,
-    },
-  };
-}
-
-export function withPlaygroundModelName(
-  providerConfig: PlaygroundProviderConfig,
-  modelName: string
-): PlaygroundProviderConfig {
-  const normalized = normalizePlaygroundProviderConfig(providerConfig);
-  return {
-    ...normalized,
-    model: {
-      ...normalized.model,
-      name: modelName,
-    },
-  };
-}
-
-export function withPlaygroundProviderSpecific(
-  providerConfig: PlaygroundProviderConfig,
-  providerSpecific: Record<string, unknown>
-): PlaygroundProviderConfig {
-  const normalized = normalizePlaygroundProviderConfig(providerConfig);
-  return {
-    ...normalized,
-    model: {
-      ...normalized.model,
-      providerSpecific,
-    },
-  };
-}
-
-export function resolvePromptProviderConfig(prompt?: PromptConfigLike): PlaygroundProviderConfig {
-  const modelConfig = asRecord(parseMaybeJson(prompt?.model_config)) || {};
-  const advancedConfig = asRecord(parseMaybeJson(prompt?.advanced_config)) || {};
-  const advancedModel = asRecord(advancedConfig.model);
-  const provider = normalizePromptProvider(
-    modelConfig.provider
-      ?? advancedConfig.provider
-      ?? advancedModel?.provider
-      ?? inferProviderFromModelName(prompt?.model_name)
-  );
-  const generationConfig = asRecord(parseMaybeJson(advancedConfig.generationConfig));
-  const providerSpecific = {
-    ...(asRecord(parseMaybeJson(modelConfig.providerSpecific)) || {}),
-    ...(asRecord(parseMaybeJson(advancedModel?.providerSpecific)) || {}),
-  };
-  const next = createDefaultPlaygroundProviderConfig(provider);
-
-  return {
-    ...next,
-    model: {
-      ...next.model,
-      name: normalizeModelName(prompt?.model_name),
-      provider,
-      providerSpecific,
-    },
-    generation: generationConfig || next.generation,
-    thinking: asRecord(parseMaybeJson(advancedConfig.thinkingConfig)) || {},
-    safety: Array.isArray(parseMaybeJson(advancedConfig.safetySettings))
-      ? (parseMaybeJson(advancedConfig.safetySettings) as Array<Record<string, unknown>>)
-      : [],
-    tools: asRecord(parseMaybeJson(advancedConfig.toolsConfig)) || {},
-    context: {
-      promptId: prompt?.id || null,
-      promptName: prompt?.prompt_name || null,
-    },
-    performance: typeof generationConfig?.timeout === 'number'
-      ? { timeout: generationConfig.timeout }
-      : {},
-  };
 }

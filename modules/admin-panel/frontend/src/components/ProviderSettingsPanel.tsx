@@ -8,6 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import type { PlaygroundPromptMode, PlaygroundProviderConfig } from '@/types/playground';
+import {
+  getPlaygroundProviderId,
+  getPlaygroundProviderSpecific,
+  withPlaygroundProviderId,
+} from '@/lib/provider-config';
 import { ChevronDown, Gauge, Settings2, SlidersHorizontal, WandSparkles } from 'lucide-react';
 
 interface PromptSummary {
@@ -57,6 +62,8 @@ export function ProviderSettingsPanel({
   const generation = providerConfig.generation || {};
   const thinking = providerConfig.thinking || {};
   const context = providerConfig.context || {};
+  const providerId = getPlaygroundProviderId(providerConfig);
+  const providerSpecific = getPlaygroundProviderSpecific(providerConfig);
 
   return (
     <Card className="border-border/70 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] shadow-[0_20px_45px_-36px_rgba(15,23,42,0.35)]">
@@ -66,7 +73,7 @@ export function ProviderSettingsPanel({
             <Settings2 className="h-4 w-4 text-primary" />
             Run Settings
           </CardTitle>
-          <Badge variant="outline">{providerConfig.provider}</Badge>
+          <Badge variant="outline">{providerId}</Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -117,12 +124,9 @@ export function ProviderSettingsPanel({
             <div className="space-y-2">
               <Label>Provider</Label>
               <Select
-                value={providerConfig.provider}
+                value={providerId}
                 onValueChange={(value) =>
-                  onProviderConfigChange({
-                    ...providerConfig,
-                    provider: value as PlaygroundProviderConfig['provider'],
-                  })
+                  onProviderConfigChange(withPlaygroundProviderId(providerConfig, value as PlaygroundProviderConfig['model']['provider']))
                 }
               >
                 <SelectTrigger>
@@ -227,7 +231,7 @@ export function ProviderSettingsPanel({
         <div className="rounded-2xl border border-border/70 bg-white p-4">
           <div className="text-sm font-semibold">Execution Context</div>
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-            <div className="rounded-xl border border-border/70 px-3 py-2">Model {String(context.modelName || 'auto')}</div>
+            <div className="rounded-xl border border-border/70 px-3 py-2">Model {String(providerConfig.model?.name || 'auto')}</div>
             <div className="rounded-xl border border-border/70 px-3 py-2">Prompt {String(context.promptName || 'draft')}</div>
           </div>
         </div>
@@ -240,7 +244,7 @@ export function ProviderSettingsPanel({
           <CollapsibleContent className="mt-4 space-y-4">
             <div className="space-y-2">
               <Label>providerSpecific</Label>
-              <Textarea value={providerSpecificText} onChange={(event) => onProviderSpecificTextChange(event.target.value)} className="min-h-[120px] font-mono text-xs" />
+              <Textarea value={providerSpecificText || JSON.stringify(providerSpecific, null, 2)} onChange={(event) => onProviderSpecificTextChange(event.target.value)} className="min-h-[120px] font-mono text-xs" />
             </div>
             <div className="space-y-2">
               <Label>safety</Label>

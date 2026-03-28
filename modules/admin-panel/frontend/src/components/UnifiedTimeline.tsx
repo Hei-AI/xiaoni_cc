@@ -21,6 +21,7 @@ import {
 import { TimelineEvent, ConversationTimelineData, ENGINE_NAMES } from '../types';
 import { DebugPromptModal } from './DebugPromptModal';
 import { usePromptTemplates, separatePromptContent } from '../hooks/usePromptTemplates';
+import { formatConfiguredValue, formatReturnedValue, readOptionalText } from '@/lib/contract-display';
 
 // 统一事件接口
 interface UnifiedEvent {
@@ -288,7 +289,7 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
   const handleLLMReplay = (event: UnifiedEvent) => {
     if (event.type !== 'llm' || !event.metadata) return;
 
-    const promptTemplate = event.metadata.input?.prompt_template || 'enhanced_chat';
+    const promptTemplate = readOptionalText(event.metadata.input?.prompt_template);
 
     // 🔥 分离System Prompt和User Input
     const mixedPrompt = event.metadata.input?.canonical_request
@@ -300,12 +301,12 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
       mixedPrompt
     );
 
-    const model = event.model_name || 'gemini-2.5-flash';
+    const model = readOptionalText(event.model_name) || '';
     const parameters = stringifyPayload(event.metadata.input?.canonical_request || event.metadata.input?.wire_request || {});
     const conversationId = data.conversation_id || '';
 
     console.log('🔥 LLM Replay Debug Data (Separated):', {
-      promptTemplate,
+      promptTemplate: promptTemplate || '后端未返回',
       systemPrompt: systemPrompt.substring(0, 100) + '...',
       userInput: userInput.substring(0, 100) + '...',
       model,
@@ -442,8 +443,8 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
     // 3. 基于LLM调用链补充业务事件（按逻辑顺序重新生成时间戳）
     if (data.llm_call_chain && data.llm_call_chain.length > 0) {
       data.llm_call_chain.forEach((call, callIndex) => {
-        const agentType = call.agent_type;
-        const agentName = ENGINE_NAMES[agentType] || agentType;
+        const agentType = readOptionalText(call.agent_type) || undefined;
+        const agentName = (agentType ? ENGINE_NAMES[agentType] : null) || agentType || '未命名 Agent';
 
         // 🔥 使用逻辑时间顺序，而不是原始时间戳
         const llmStartTime = currentTime;
@@ -505,7 +506,7 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
             input: call.input || {},
             output: call.output || {}
           },
-          model_name: call.input.model_name,
+          model_name: readOptionalText(call.input.model_name) || undefined,
           agent_type: agentType
         });
 
@@ -534,7 +535,7 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
             input: call.input || {},
             output: call.output || {}
           },
-          model_name: call.input.model_name,
+          model_name: readOptionalText(call.input.model_name) || undefined,
           agent_type: agentType,
           tokens: call.output.token_usage?.total_tokens,
           cost: call.output.cost_estimate
@@ -953,7 +954,7 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
                                   {event.model_name && (
                                     <div>
                                       <label className="text-sm font-medium">模型</label>
-                                      <div className="text-sm text-muted-foreground">{event.model_name}</div>
+                                      <div className="text-sm text-muted-foreground">{formatConfiguredValue(event.model_name)}</div>
                                     </div>
                                   )}
                                   {event.agent_type && (
@@ -979,7 +980,7 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
 
                                 {/* Canonical 视图 */}
                                 {event.metadata.input?.canonical_request && (() => {
-                                  const promptTemplate = event.metadata.input?.prompt_template || 'enhanced_chat';
+                                  const promptTemplate = readOptionalText(event.metadata.input?.prompt_template);
                                   const requestPayload = event.metadata.input.canonical_request;
                                   const { systemPrompt, userInput } = separatePromptContent(
                                     promptTemplates,
@@ -996,11 +997,11 @@ export const UnifiedTimeline: React.FC<UnifiedTimelineProps> = ({
                                         <label className="text-sm font-medium mb-2 block flex items-center gap-2">
                                           <Brain className="h-4 w-4 text-purple-600" />
                                           System Prompt
-                                          <Badge variant="outline" className="text-xs">{promptTemplate}</Badge>
+                                          <Badge variant="outline" className="text-xs">{formatReturnedValue(promptTemplate)}</Badge>
                                         </label>
                                         <div className="bg-purple-50 dark:bg-purple-950/50 p-4 rounded-lg border border-purple-200 dark:border-purple-800">
                                           <div className="text-xs max-h-40 overflow-y-auto whitespace-pre-line break-words text-purple-900 dark:text-purple-100">
-                                            {systemPrompt || '未找到系统提示词模板'}
+                                            {systemPrompt || '请求里未携带可解析的系统提示词'}
                                           </div>
                                         </div>
                                       </div>

@@ -32,7 +32,8 @@ import { SelectionBar } from '@/components/console/SelectionBar';
 import { ErrorState } from '@/components/console/ErrorState';
 import { EmptyState } from '@/components/console/EmptyState';
 import { StatusPill } from '@/components/console/StatusPill';
-import { getProviderLabel, resolvePromptProviderConfig } from '@/lib/provider-config';
+import { formatConfiguredValue } from '@/lib/contract-display';
+import { getPlaygroundProviderId, getProviderLabel, resolvePromptProviderConfig } from '@/lib/provider-config';
 
 interface AgentPrompt {
   id: string;
@@ -381,8 +382,8 @@ export const PromptManagementPage: React.FC = () => {
                   action={<Checkbox checked={selectedPrompts.includes(prompt.id)} onCheckedChange={() => handleSelectPrompt(prompt.id)} />}
                       meta={
                         <>
-                          <span>{getProviderLabel(resolvePromptProviderConfig(prompt).provider)}</span>
-                          <span>{prompt.model_name || '未指定模型'}</span>
+                          <span>{getProviderLabel(getPlaygroundProviderId(resolvePromptProviderConfig(prompt)))}</span>
+                          <span>{formatConfiguredValue(prompt.model_name)}</span>
                           <span>{formatDate(prompt.created_at)}</span>
                         </>
                   }
@@ -486,14 +487,14 @@ export const PromptManagementPage: React.FC = () => {
                               {getAgentTypeLabel(prompt.agent_type)}
                             </Badge>
                             <Badge variant="outline">
-                              {getProviderLabel(resolvePromptProviderConfig(prompt).provider)}
+                              {getProviderLabel(getPlaygroundProviderId(resolvePromptProviderConfig(prompt)))}
                             </Badge>
                             <StatusPill tone={prompt.is_active ? 'success' : 'neutral'}>
                               {prompt.is_active ? '激活' : '禁用'}
                             </StatusPill>
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            {prompt.model_name || '未指定模型'}
+                            {formatConfiguredValue(prompt.model_name)}
                           </div>
                         </div>
                       </TableCell>

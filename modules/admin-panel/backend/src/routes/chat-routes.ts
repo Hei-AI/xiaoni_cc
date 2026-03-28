@@ -903,9 +903,16 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       let validationError: string | null = null;
 
       Object.entries(updates || {}).forEach(([key, value]) => {
-        if (allowedFields.has(key) && value !== undefined) {
-          sanitizedUpdates[key] = value;
+        if (!allowedFields.has(key) || value === undefined) {
+          return;
         }
+
+        if (key === 'is_enabled' || key === 'auto_reply_enabled') {
+          sanitizedUpdates[key] = value ? 1 : 0;
+          return;
+        }
+
+        sanitizedUpdates[key] = value;
       });
 
       if (validationError) {

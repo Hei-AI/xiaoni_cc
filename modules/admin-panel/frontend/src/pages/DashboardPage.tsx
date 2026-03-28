@@ -28,6 +28,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader, PageHeaderBadge } from '@/components/console/PageHeader';
+import { formatReturnedValue } from '@/lib/contract-display';
 import { MetricCard } from '@/components/console/MetricCard';
 import { FilterBar } from '@/components/console/FilterBar';
 import { SectionPanel } from '@/components/console/SectionPanel';
@@ -35,6 +36,7 @@ import { EntityCard } from '@/components/console/EntityCard';
 import { StatusPill } from '@/components/console/StatusPill';
 import { EmptyState } from '@/components/console/EmptyState';
 import { ErrorState } from '@/components/console/ErrorState';
+import { formatConfiguredValue } from '@/lib/contract-display';
 import { formatTimestamp } from '@/lib/utils';
 import { useConversations, useDashboardStats } from '../hooks/useDashboardData';
 
@@ -140,7 +142,7 @@ export const DashboardPage: React.FC = () => {
         <MetricCard
           label="活跃群组"
           value={statsLoading ? <Loader2 className="h-7 w-7 animate-spin" /> : dashboardStats?.activeGroups || 0}
-          detail={`运行时长 ${dashboardStats?.uptime || 'N/A'}`}
+          detail={`运行时长 ${formatReturnedValue(dashboardStats?.uptime)}`}
           icon={<Bot className="h-5 w-5" />}
           tone="success"
         />
@@ -150,7 +152,7 @@ export const DashboardPage: React.FC = () => {
             statsLoading ? (
               <Loader2 className="h-7 w-7 animate-spin" />
             ) : (
-              <StatusPill tone={healthTone}>{dashboardStats?.systemHealth || 'unknown'}</StatusPill>
+              <StatusPill tone={healthTone}>{formatReturnedValue(dashboardStats?.systemHealth)}</StatusPill>
             )
           }
           detail="实时状态和波动压缩显示"
@@ -283,10 +285,10 @@ export const DashboardPage: React.FC = () => {
                 <EntityCard
                   key={conversation.id}
                   title={`用户 ${conversation.user_id}`}
-                  subtitle={conversation.model_name || 'Unknown model'}
+                  subtitle={formatConfiguredValue(conversation.model_name)}
                   badges={
                     <>
-                      <Badge variant="outline">{conversation.model_name || 'Model N/A'}</Badge>
+                      <Badge variant="outline">{formatConfiguredValue(conversation.model_name)}</Badge>
                       <StatusPill tone={conversation.ai_response ? 'success' : 'warning'}>
                         {conversation.ai_response ? '响应完成' : '等待回复'}
                       </StatusPill>

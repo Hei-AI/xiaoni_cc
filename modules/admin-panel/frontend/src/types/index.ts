@@ -124,12 +124,12 @@ export interface AgentRunDetail {
 export interface LLMCallRecord {
   sequence: number;
   stage: string;
-  agent_type: string;
-  purpose: string;
+  agent_type?: string | null;
+  purpose?: string | null;
   input: {
-    model_name: string;
-    model_provider: string;
-    prompt_template: string;
+    model_name?: string | null;
+    model_provider?: string | null;
+    prompt_template?: string | null;
     canonical_request?: any;
     wire_request?: any;
     request_format_version?: string;
@@ -217,7 +217,7 @@ export interface LLMFlowResponse {
   message_output: {
     content: string;
     response_time_ms: number;
-    model_used: string;
+    model_used: string | null;
     delivery_method: 'http_api';
     delivery_status: 'sent' | 'failed' | 'pending';
     timestamp: string;

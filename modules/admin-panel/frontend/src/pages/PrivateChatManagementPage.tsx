@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   Dialog,
@@ -63,6 +64,8 @@ interface PrivateChatResponse {
     totalPages: number;
   };
 }
+
+type PrivateChatToggleField = 'is_enabled' | 'auto_reply_enabled';
 
 const fetchPrivateChats = async (params: {
   page: number;
@@ -187,6 +190,7 @@ export const PrivateChatManagementPage: React.FC = () => {
     queryKey: ['private-chats', page, search, filters],
     queryFn: () => fetchPrivateChats({ page, limit, search, ...filters }),
   });
+  const privateChatsQueryKey = ['private-chats', page, search, filters] as const;
 
   const batchUpdateMutation = useMutation({
     mutationFn: batchUpdatePrivateChats,
@@ -246,7 +250,7 @@ export const PrivateChatManagementPage: React.FC = () => {
     setSelectedUsers((prev) => (prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]));
   };
 
-  const handleBatchUpdate = (field: string, value: boolean) => {
+  const handleBatchUpdate = (field: PrivateChatToggleField, value: boolean) => {
     if (selectedUsers.length === 0) return;
     batchUpdateMutation.mutate({
       user_ids: selectedUsers,
@@ -254,13 +258,32 @@ export const PrivateChatManagementPage: React.FC = () => {
     });
   };
 
-  const handleUserUpdate = async (userId: number, field: string, value: boolean) => {
+  const handleUserUpdate = async (userId: number, field: PrivateChatToggleField, value: boolean) => {
     const loadingKey = `${userId}_${field}`;
     setLoadingStates((prev) => ({ ...prev, [loadingKey]: true }));
+    const previous = queryClient.getQueryData<PrivateChatResponse>(privateChatsQueryKey);
+
+    queryClient.setQueryData<PrivateChatResponse>(privateChatsQueryKey, (current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        data: current.data.map((user) => (
+          user.user_id === userId
+            ? { ...user, [field]: value ? 1 : 0 }
+            : user
+        )),
+      };
+    });
 
     try {
       await updatePrivateChat(userId, { [field]: value });
-      queryClient.invalidateQueries({ queryKey: ['private-chats'] });
+      await queryClient.invalidateQueries({ queryKey: ['private-chats'] });
+    } catch (updateError) {
+      queryClient.setQueryData(privateChatsQueryKey, previous);
+      window.alert(updateError instanceof Error ? updateError.message : '私聊设置更新失败');
     } finally {
       setLoadingStates((prev) => ({ ...prev, [loadingKey]: false }));
     }
@@ -288,6 +311,27 @@ export const PrivateChatManagementPage: React.FC = () => {
     const avgSuccess = rows.length > 0 ? Math.round(rows.reduce((sum, user) => sum + user.success_rate, 0) / rows.length) : 0;
     return { enabled, autoReply, avgSuccess };
   }, [rows]);
+
+  const renderToggleControl = (user: PrivateChatUser, field: PrivateChatToggleField, label: string) => {
+    const checked = Boolean(user[field]);
+    const loadingKey = `${user.user_id}_${field}`;
+
+    return (
+      <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background/70 px-3 py-2">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-foreground">{label}</div>
+          <div className="text-xs text-muted-foreground">{checked ? '已开启' : '已关闭'}</div>
+        </div>
+        <Switch
+          checked={checked}
+          onCheckedChange={(nextChecked) => void handleUserUpdate(user.user_id, field, nextChecked)}
+          disabled={loadingStates[loadingKey] || false}
+          aria-label={`private-${user.user_id}-${field}`}
+        />
+      </label>
+    );
+  };
+
   const paginationControls = (
     <div className="flex items-center gap-2">
       <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page === 1}>
@@ -495,29 +539,13 @@ export const PrivateChatManagementPage: React.FC = () => {
                     </>
                   }
                 >
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2">
                     <Button variant="outline" size="sm" onClick={() => navigate(`/private-chats/${user.user_id}`)}>
                       <Eye className="mr-2 h-4 w-4" />
                       详情
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleUserUpdate(user.user_id, 'is_enabled', !user.is_enabled)}
-                      disabled={loadingStates[`${user.user_id}_is_enabled`] || false}
-                    >
-                      {user.is_enabled ? <PauseCircle className="mr-2 h-4 w-4" /> : <PlayCircle className="mr-2 h-4 w-4" />}
-                      接收开关
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleUserUpdate(user.user_id, 'auto_reply_enabled', !user.auto_reply_enabled)}
-                      disabled={loadingStates[`${user.user_id}_auto_reply_enabled`] || false}
-                    >
-                      <MessageCircle className="mr-2 h-4 w-4" />
-                      自动回复
-                    </Button>
+                    {renderToggleControl(user, 'is_enabled', '接收开关')}
+                    {renderToggleControl(user, 'auto_reply_enabled', '自动回复')}
                     <Button
                       variant="outline"
                       size="sm"
@@ -585,26 +613,28 @@ export const PrivateChatManagementPage: React.FC = () => {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{user.last_conversation_time ? formatDate(user.last_conversation_time) : '无'}</TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
+                        <div className="flex min-w-[240px] items-center gap-4">
                           <Button size="sm" variant="outline" onClick={() => navigate(`/private-chats/${user.user_id}`)}>
                             <Eye className="h-3 w-3" />
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleUserUpdate(user.user_id, 'is_enabled', !user.is_enabled)}
-                            disabled={loadingStates[`${user.user_id}_is_enabled`] || false}
-                          >
-                            {user.is_enabled ? <PauseCircle className="h-3 w-3" /> : <PlayCircle className="h-3 w-3" />}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleUserUpdate(user.user_id, 'auto_reply_enabled', !user.auto_reply_enabled)}
-                            disabled={loadingStates[`${user.user_id}_auto_reply_enabled`] || false}
-                          >
-                            <MessageCircle className="h-3 w-3" />
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-muted-foreground">接收</span>
+                            <Switch
+                              checked={Boolean(user.is_enabled)}
+                              onCheckedChange={(nextChecked) => void handleUserUpdate(user.user_id, 'is_enabled', nextChecked)}
+                              disabled={loadingStates[`${user.user_id}_is_enabled`] || false}
+                              aria-label={`private-${user.user_id}-receive`}
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-muted-foreground">自动回复</span>
+                            <Switch
+                              checked={Boolean(user.auto_reply_enabled)}
+                              onCheckedChange={(nextChecked) => void handleUserUpdate(user.user_id, 'auto_reply_enabled', nextChecked)}
+                              disabled={loadingStates[`${user.user_id}_auto_reply_enabled`] || false}
+                              aria-label={`private-${user.user_id}-auto-reply`}
+                            />
+                          </div>
                           <Button
                             size="sm"
                             variant="outline"

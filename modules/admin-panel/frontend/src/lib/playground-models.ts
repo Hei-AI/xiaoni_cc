@@ -2,8 +2,8 @@ import type { PlaygroundProviderConfig } from '@/types/playground';
 import {
   PLAYGROUND_PROVIDER_MODEL_OPTIONS,
   asRecord,
-  defaultModelForProvider,
   normalizePromptProvider,
+  normalizePlaygroundProviderConfig,
   parseMaybeJson,
   resolvePromptProviderConfig,
 } from '@/lib/provider-config';
@@ -141,9 +141,10 @@ export function duplicatePlaygroundToolDefinition(
 }
 
 export function defaultModelForPlaygroundProvider(
-  provider: PlaygroundProviderConfig['provider']
-): string {
-  return defaultModelForProvider(provider);
+  provider: PlaygroundProviderConfig['model']['provider']
+): string | null {
+  const options = PLAYGROUND_PROVIDER_MODEL_OPTIONS[normalizePromptProvider(provider)] || [];
+  return options[0] || null;
 }
 
 export function getPromptDefaultModelName(prompt: PromptModelLike): string | null {
@@ -154,10 +155,9 @@ export function derivePlaygroundModelOverride(
   providerConfig: PlaygroundProviderConfig | null | undefined,
   prompt: PromptModelLike
 ): string {
-  const provider = providerConfig?.provider || 'google-gemini-cli';
-  const storedModel = normalizeModelName(providerConfig?.context?.modelName);
+  const normalizedConfig = providerConfig ? normalizePlaygroundProviderConfig(providerConfig) : null;
+  const storedModel = normalizeModelName(normalizedConfig?.model?.name);
   const promptModel = getPromptDefaultModelName(prompt);
-  const providerDefaultModel = defaultModelForPlaygroundProvider(provider);
 
   if (!storedModel) {
     return '';
@@ -165,10 +165,6 @@ export function derivePlaygroundModelOverride(
 
   // Older cases persisted the prompt/provider default directly into context.modelName.
   if (promptModel && storedModel === promptModel) {
-    return '';
-  }
-
-  if (!promptModel && storedModel === providerDefaultModel) {
     return '';
   }
 
@@ -180,18 +176,22 @@ export function applyPlaygroundModelOverride(
   modelOverride: string
 ): PlaygroundProviderConfig {
   const normalizedOverride = normalizeModelName(modelOverride);
-  const nextContext = {
-    ...(providerConfig.context || {}),
-  };
+  const normalizedConfig = normalizePlaygroundProviderConfig(providerConfig);
+  const nextModelName = normalizedOverride;
+  const nextContext = { ...(normalizedConfig.context || {}) };
 
-  if (normalizedOverride) {
-    nextContext.modelName = normalizedOverride;
+  if (nextModelName) {
+    nextContext.modelName = nextModelName;
   } else {
     delete nextContext.modelName;
   }
 
   return {
-    ...providerConfig,
+    ...normalizedConfig,
+    model: {
+      ...normalizedConfig.model,
+      name: nextModelName,
+    },
     context: nextContext,
   };
 }

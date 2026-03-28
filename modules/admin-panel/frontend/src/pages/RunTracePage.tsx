@@ -10,6 +10,7 @@ import { MetricCard } from '@/components/console/MetricCard';
 import { SectionPanel } from '@/components/console/SectionPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ResizableSplit } from '@/components/ui/resizable-split';
 import { createCaseFromSpan, buildPlaygroundRecoveryUrl, openBestPlaygroundCase } from '@/lib/playgroundApi';
 import { buildTraceFlowViewModel } from '@/lib/trace-flow';
 import { useRunTrace } from '@/hooks/useAgentRuns';
@@ -206,37 +207,47 @@ export const RunTracePage: React.FC = () => {
           </div>
 
           {isDesktop ? (
-            <div className="grid min-h-[calc(100vh-19rem)] gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-              <SectionPanel
-                title="Span Waterfall"
-                description="按 span 树、共享时间轴和路径层级阅读真实执行。"
-                className="flex min-h-[calc(100vh-19rem)] flex-col"
-                contentClassName="flex min-h-0 flex-1 flex-col pt-3"
-              >
-                <TraceWaterfall
-                  viewModel={viewModel}
-                  selectedSpanId={selectedSpanId}
-                  onSelectSpan={handleSelectSpan}
-                  onImportSpan={handleImportSpan}
-                  importingSpanId={importingSpanId}
-                />
-              </SectionPanel>
-
-              <SectionPanel
-                title="Inspector"
-                description="固定右侧详情区，不再漂浮遮挡主瀑布图。"
-                className="flex min-h-[calc(100vh-19rem)] flex-col"
-                contentClassName="flex min-h-0 flex-1 flex-col pt-3"
-              >
-                <TraceInspectorPanel
-                  node={selectedSpan}
-                  metadataBadges={viewModel.metadataBadges}
-                  onImportToPlayground={canImportSelectedSpan ? handleImportSelectedSpan : undefined}
-                  isImportingToPlayground={Boolean(importingSpanId)}
-                  className="h-full min-h-0"
-                />
-              </SectionPanel>
-            </div>
+            <ResizableSplit
+              direction="horizontal"
+              defaultSize={70}
+              minFirstSize={640}
+              minSecondSize={340}
+              className="min-h-[calc(100vh-19rem)] gap-2"
+              firstClassName="min-w-0"
+              secondClassName="min-w-0"
+              first={(
+                <SectionPanel
+                  title="Span Waterfall"
+                  description="按 span 树、共享时间轴和路径层级阅读真实执行。"
+                  className="flex h-full min-h-[calc(100vh-19rem)] flex-col"
+                  contentClassName="flex min-h-0 flex-1 flex-col pt-3"
+                >
+                  <TraceWaterfall
+                    viewModel={viewModel}
+                    selectedSpanId={selectedSpanId}
+                    onSelectSpan={handleSelectSpan}
+                    onImportSpan={handleImportSpan}
+                    importingSpanId={importingSpanId}
+                  />
+                </SectionPanel>
+              )}
+              second={(
+                <SectionPanel
+                  title="Inspector"
+                  description="固定右侧详情区，不再漂浮遮挡主瀑布图。"
+                  className="flex h-full min-h-[calc(100vh-19rem)] flex-col"
+                  contentClassName="flex min-h-0 flex-1 flex-col pt-3"
+                >
+                  <TraceInspectorPanel
+                    node={selectedSpan}
+                    metadataBadges={viewModel.metadataBadges}
+                    onImportToPlayground={canImportSelectedSpan ? handleImportSelectedSpan : undefined}
+                    isImportingToPlayground={Boolean(importingSpanId)}
+                    className="h-full min-h-0"
+                  />
+                </SectionPanel>
+              )}
+            />
           ) : (
             <SectionPanel title="Span Waterfall" description="按 span 树、共享时间轴和路径层级阅读真实执行。" contentClassName="pt-3">
               <TraceWaterfall

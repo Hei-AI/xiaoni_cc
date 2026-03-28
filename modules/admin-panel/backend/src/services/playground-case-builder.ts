@@ -215,7 +215,7 @@ function createDefaultProviderConfig(
     name: 'Playground Provider Config',
     category: 'playground',
     model: {
-      name: defaultModelForProvider(provider),
+      name: null,
       provider,
       providerSpecific: {}
     },
@@ -274,7 +274,7 @@ function normalizePlaygroundProviderConfig(
       model: {
         ...next.model,
         ...model,
-        name: model.name.trim() || defaultModelForProvider(provider),
+        name: model.name.trim() || null,
         provider,
         providerSpecific: parseJsonField<Record<string, unknown>>(model.providerSpecific, {})
       },
@@ -301,7 +301,7 @@ function normalizePlaygroundProviderConfig(
       ...next.model,
       name: typeof context.modelName === 'string' && context.modelName.trim().length > 0
         ? context.modelName
-        : next.model.name,
+        : null,
       provider,
       providerSpecific: parseJsonField<Record<string, unknown>>(record.providerSpecific, {})
     },
@@ -324,10 +324,10 @@ function getProviderFromConfig(providerConfig: PlaygroundProviderConfig): Playgr
   return normalizeProvider(providerConfig.model?.provider);
 }
 
-function getModelNameFromConfig(providerConfig: PlaygroundProviderConfig): string {
+function getModelNameFromConfig(providerConfig: PlaygroundProviderConfig): string | null {
   return typeof providerConfig.model?.name === 'string' && providerConfig.model.name.trim().length > 0
     ? providerConfig.model.name.trim()
-    : defaultModelForProvider(getProviderFromConfig(providerConfig));
+    : null;
 }
 
 function getProviderSpecificFromConfig(providerConfig: PlaygroundProviderConfig): Record<string, unknown> {
@@ -541,7 +541,7 @@ function buildProviderConfigFromPrompt(prompt?: PromptRecord | null): Playground
     ...next,
     model: {
       ...next.model,
-      name: prompt?.model_name || defaultModelForProvider(provider),
+      name: prompt?.model_name || null,
       provider,
       providerSpecific: Object.keys(providerSpecific).length > 0 ? providerSpecific : {}
     },
@@ -583,7 +583,7 @@ function buildProviderConfigFromTraffic(log: TrafficLogRow, llmCall?: LLMCallRow
     ...next,
     model: {
       ...next.model,
-      name: llmCall?.model_name || defaultModelForProvider(provider),
+      name: llmCall?.model_name || null,
       provider,
       providerSpecific: {}
     },
@@ -716,7 +716,7 @@ export function buildProviderConfigFromBaselineSnapshot(
     ...unifiedConfig,
     model: {
       ...unifiedConfig.model,
-      name: snapshot.modelName || unifiedConfig.model.name || defaultModelForProvider(provider),
+      name: snapshot.modelName || unifiedConfig.model.name || null,
       provider,
     },
     generation: {

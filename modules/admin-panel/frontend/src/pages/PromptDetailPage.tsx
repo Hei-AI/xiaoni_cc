@@ -19,7 +19,14 @@ import {
   Brain,
   Cog
 } from 'lucide-react';
-import { asRecord, getProviderLabel, parseMaybeJson, resolvePromptProviderConfig } from '@/lib/provider-config';
+import {
+  asRecord,
+  getPlaygroundProviderId,
+  getProviderLabel,
+  parseMaybeJson,
+  resolvePromptProviderConfig,
+} from '@/lib/provider-config';
+import { formatConfiguredValue } from '@/lib/contract-display';
 
 interface AgentPrompt {
   id: string;
@@ -301,12 +308,12 @@ export const PromptDetailPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <h4 className="font-medium text-muted-foreground mb-2">Provider</h4>
-              <Badge variant="outline">{getProviderLabel(providerConfig.provider)}</Badge>
+              <Badge variant="outline">{getProviderLabel(getPlaygroundProviderId(providerConfig))}</Badge>
             </div>
 
             <div>
               <h4 className="font-medium text-muted-foreground mb-2">模型名称</h4>
-              <Badge variant="outline">{prompt.model_name || '未指定'}</Badge>
+              <Badge variant="outline">{formatConfiguredValue(prompt.model_name)}</Badge>
             </div>
           </div>
 

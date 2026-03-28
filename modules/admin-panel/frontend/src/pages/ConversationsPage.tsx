@@ -57,6 +57,9 @@ export const ConversationsPage: React.FC = () => {
     }
   }, [runs, selectedRunId]);
 
+  const sessionsLoading = sessionsQuery.isLoading || sessionsQuery.isFetching;
+  const runsLoading = sessionsLoading || sessionRunsQuery.isLoading || (Boolean(selectedSessionKey) && sessionRunsQuery.isFetching);
+
   return (
     <PageShell>
       <PageHeader
@@ -94,6 +97,10 @@ export const ConversationsPage: React.FC = () => {
             <div className="space-y-3">
               {sessionsQuery.error ? (
                 <ErrorState description={sessionsQuery.error.message} onRetry={() => sessionsQuery.refetch()} />
+              ) : sessionsLoading ? (
+                Array.from({ length: 3 }).map((_, index) => (
+                  <div key={index} className="h-32 animate-pulse rounded-2xl border border-border bg-muted/40" />
+                ))
               ) : sessions.length === 0 ? (
                 <EmptyState icon={<MessageCircleMore className="h-10 w-10" />} title="暂无会话" description="还没有 agent run 数据。" />
               ) : (
@@ -132,6 +139,12 @@ export const ConversationsPage: React.FC = () => {
           <div className="space-y-3">
             {sessionRunsQuery.error ? (
               <ErrorState description={sessionRunsQuery.error.message} onRetry={() => sessionRunsQuery.refetch()} />
+            ) : runsLoading ? (
+              Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="h-40 animate-pulse rounded-2xl border border-border bg-muted/40" />
+              ))
+            ) : !selectedSessionKey ? (
+              <EmptyState icon={<Bot className="h-10 w-10" />} title="选择会话" description="先在左侧选择一个会话，再查看对应 runs。" />
             ) : runs.length === 0 ? (
               <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无 runs" description="选择一个有数据的会话。" />
             ) : (

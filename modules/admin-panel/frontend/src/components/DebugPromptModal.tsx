@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
+import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -17,7 +17,7 @@ interface DebugPromptModalProps {
     userInput?: string;
     prompt?: string; // 向后兼容
     parameters: string;
-    model: string;
+    model?: string | null;
   };
 }
 
@@ -54,11 +54,6 @@ interface DebugResponse {
   } | null;
 }
 
-const AVAILABLE_MODELS = [
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-];
-
 const toNumber = (value: unknown): number | undefined => {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 };
@@ -73,7 +68,7 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
     systemPrompt: '',
     userInput: '',
     parameters: '{}',
-    model: 'gemini-2.5-flash'
+    model: ''
   });
   const [response, setResponse] = useState<DebugResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -85,7 +80,7 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
         systemPrompt: initialData.systemPrompt || '',
         userInput: initialData.userInput || initialData.prompt || '', // 兼容旧版本
         parameters: initialData.parameters,
-        model: initialData.model
+        model: initialData.model || ''
       });
       setResponse(null); // 清除之前的响应
     }
@@ -93,6 +88,10 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
 
   const handleSubmit = async () => {
     if (!request.systemPrompt.trim() && !request.userInput.trim()) {
+      return;
+    }
+
+    if (!request.model.trim()) {
       return;
     }
 
@@ -118,7 +117,7 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
           systemPrompt: request.systemPrompt,
           userInput: request.userInput,
           parameters: parsedParams,
-          model: request.model,
+          model: request.model.trim(),
           conversation_id: conversationId
         }),
       });
@@ -160,7 +159,7 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
       systemPrompt: '',
       userInput: '',
       parameters: '{}',
-      model: 'gemini-2.5-flash'
+      model: ''
     });
     setResponse(null);
   };
@@ -205,22 +204,16 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
           {/* Input Section */}
           <div className="grid grid-cols-1 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="model">选择模型</Label>
-              <Select
+              <Label htmlFor="model">模型 ID</Label>
+              <Input
+                id="model"
                 value={request.model}
-                onValueChange={(value) => setRequest(prev => ({ ...prev, model: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="选择LLM模型" />
-                </SelectTrigger>
-                <SelectContent>
-                  {AVAILABLE_MODELS.map((model) => (
-                    <SelectItem key={model.value} value={model.value}>
-                      {model.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={(e) => setRequest(prev => ({ ...prev, model: e.target.value }))}
+                placeholder="必须显式填写，例如 gpt-5.4-mini"
+              />
+              <p className="text-xs text-muted-foreground">
+                调试不会再自动补默认模型。
+              </p>
             </div>
 
             {/* 🔥 System Prompt 输入区域 */}
@@ -392,7 +385,7 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
             <Button
               type="button"
               onClick={handleSubmit}
-              disabled={isLoading || (!request.systemPrompt.trim() && !request.userInput.trim())}
+              disabled={isLoading || (!request.systemPrompt.trim() && !request.userInput.trim()) || !request.model.trim()}
             >
               {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               发送调试

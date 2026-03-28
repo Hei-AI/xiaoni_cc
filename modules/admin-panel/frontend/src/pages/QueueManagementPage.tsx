@@ -15,6 +15,7 @@ import { ErrorState } from '@/components/console/ErrorState';
 import { StatusPill } from '@/components/console/StatusPill';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
+import { formatReturnedValue } from '@/lib/contract-display';
 import { formatTimestamp } from '@/lib/utils';
 
 interface InboxStats {
@@ -372,7 +373,7 @@ const QueueManagementPage: React.FC = () => {
                       }
                       meta={
                         <>
-                          <span>最近发送者 {conversation.latestSenderName || conversation.latestSenderId || '-'}</span>
+                          <span>最近发送者 {formatReturnedValue(conversation.latestSenderName || conversation.latestSenderId)}</span>
                           <span>最近入站 {formatTimestamp(conversation.lastReceivedAt || undefined)}</span>
                         </>
                       }
@@ -423,8 +424,8 @@ const QueueManagementPage: React.FC = () => {
                       <Badge variant="outline">Account {selectedConversation.accountId}</Badge>
                     </div>
                     <div className="grid gap-2 text-sm text-muted-foreground">
-                      <div>对象名称 {selectedConversation.peerName || '-'}</div>
-                      <div>最近发送者 {selectedConversation.latestSenderName || selectedConversation.latestSenderId || '-'}</div>
+                      <div>对象名称 {formatReturnedValue(selectedConversation.peerName)}</div>
+                      <div>最近发送者 {formatReturnedValue(selectedConversation.latestSenderName || selectedConversation.latestSenderId)}</div>
                       <div>最近入站 {formatTimestamp(selectedConversation.lastReceivedAt || undefined)}</div>
                     </div>
                   </div>
@@ -480,7 +481,7 @@ const QueueManagementPage: React.FC = () => {
                       >
                         {message.replyToId ? (
                           <div className="rounded-xl border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-                            引用 {message.replyToSender || '-'} · {message.replyToBody || message.replyToId}
+                            引用 {formatReturnedValue(message.replyToSender)} · {formatReturnedValue(message.replyToBody || message.replyToId)}
                           </div>
                         ) : null}
                       </EntityCard>

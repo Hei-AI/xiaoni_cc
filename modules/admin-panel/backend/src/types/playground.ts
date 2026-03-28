@@ -9,6 +9,14 @@ export type PlaygroundRunStatus = 'completed' | 'failed';
 export type PlaygroundExecutionMode = 'exact_replay' | 'patched_replay';
 
 export type PlaygroundImportFidelity = 'exact' | 'partial' | 'unsupported';
+export type PlaygroundImportSourceType = 'span' | 'traffic' | 'conversation' | 'none';
+export type PlaygroundImportReasonCode =
+  | 'exact_span_available'
+  | 'traffic_fallback_available'
+  | 'conversation_fallback_available'
+  | 'missing_canonical_request'
+  | 'missing_effective_config'
+  | 'no_viable_source';
 
 export interface PlaygroundMessage {
   role: 'system' | 'user' | 'assistant';
@@ -21,14 +29,33 @@ export interface PlaygroundPromptInput {
   contextVariables: Record<string, unknown>;
 }
 
+export type PlaygroundProviderId =
+  | 'google'
+  | 'google-gemini-cli'
+  | 'google-legacy'
+  | 'openai'
+  | 'codex'
+  | 'custom';
+
 export interface PlaygroundProviderConfig {
-  provider: 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex';
+  id?: string;
+  name?: string;
+  description?: string;
+  category?: string;
+  model: {
+    name?: string | null;
+    provider: PlaygroundProviderId;
+    allowedTokenIds?: number[];
+    providerSpecific?: Record<string, unknown>;
+    fallbackModels?: string[];
+  };
   generation: Record<string, unknown>;
   thinking?: Record<string, unknown>;
-  safety?: Array<Record<string, unknown>>;
-  tools?: Record<string, unknown>;
-  context?: Record<string, unknown>;
-  providerSpecific?: Record<string, unknown>;
+  safety: Array<Record<string, unknown>>;
+  tools: Record<string, unknown>;
+  context: Record<string, unknown>;
+  performance?: Record<string, unknown>;
+  version?: Record<string, unknown>;
 }
 
 export interface PlaygroundBaselineSnapshot {
@@ -57,7 +84,7 @@ export interface PlaygroundRequestPatch {
   temperature?: number | null;
   top_p?: number | null;
   stop?: unknown;
-  provider?: PlaygroundProviderConfig['provider'];
+  provider?: PlaygroundProviderId;
   modelName?: string | null;
   providerSpecific?: Record<string, unknown>;
 }
@@ -148,4 +175,15 @@ export interface PlaygroundLibraryPayload {
   trafficSamples: Array<Record<string, unknown>>;
   savedCases: PlaygroundCase[];
   recentRuns: PlaygroundRun[];
+}
+
+export interface PlaygroundImportResolution {
+  importable: boolean;
+  sourceType: PlaygroundImportSourceType;
+  reasonCode: PlaygroundImportReasonCode;
+  reasonMessage: string;
+  traceId?: string | null;
+  conversationId?: string | null;
+  spanId?: string | null;
+  trafficId?: number | null;
 }
