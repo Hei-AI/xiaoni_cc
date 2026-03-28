@@ -33,6 +33,7 @@ export type TrafficLogFilters = {
   apiType?: string;
   containerName?: string;
   traceId?: string;
+  llmCallId?: string;
   search?: string;
 };
 

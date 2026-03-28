@@ -177,6 +177,7 @@ async function executeProviderRequest(
   executionMode: string,
   persistLlmCall: boolean
 ) {
+  const llmCallId = payload.llm_call_id || `llm_${Date.now()}_${uuidv4().slice(0, 8)}`;
   const canonicalRequest = payload.canonicalRequest && typeof payload.canonicalRequest === 'object'
     ? payload.canonicalRequest as OpenResponseCreateRequest
     : null;
@@ -214,7 +215,7 @@ async function executeProviderRequest(
       conversationId: payload.conversation_id,
       agentTurn: payload.agent_turn,
       agentType: payload.agent_type,
-      llmCallId: payload.llm_call_id
+      llmCallId
     }
   });
   const finishedAt = Date.now();
@@ -222,10 +223,6 @@ async function executeProviderRequest(
   const contextThresholds = contextPolicy
     ? computeContextThresholds(contextPolicy, request.max_output_tokens)
     : null;
-
-  const llmCallId = payload.llm_call_id
-    || result.canonicalResponse?.id
-    || `llm_${Date.now()}_${uuidv4().slice(0, 8)}`;
 
   if (persistLlmCall) {
     await runtimeStoreService.recordLlmCall({

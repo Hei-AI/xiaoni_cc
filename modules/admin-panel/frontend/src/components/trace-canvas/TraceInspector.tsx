@@ -58,6 +58,9 @@ interface TraceInspectorSurfaceProps {
   detached: boolean;
   onImportToPlayground?: () => void;
   isImportingToPlayground?: boolean;
+  onFocusProviderExchange?: (spanId: string) => void;
+  onOpenTrafficDetail?: (trafficLogId: string | number) => void;
+  onOpenTrafficList?: (llmCallId: string) => void;
   onToggleDetached?: () => void;
   onDragStart?: (event: React.MouseEvent<HTMLDivElement>) => void;
   className?: string;
@@ -72,6 +75,9 @@ function TraceInspectorSurface({
   detached,
   onImportToPlayground,
   isImportingToPlayground,
+  onFocusProviderExchange,
+  onOpenTrafficDetail,
+  onOpenTrafficList,
   onToggleDetached,
   onDragStart,
   className,
@@ -96,6 +102,21 @@ function TraceInspectorSurface({
             {detached ? 'Detached Inspector' : 'Selected Span'}
           </div>
           <div className="flex items-center gap-2">
+            {node.providerExchangeSpanId && onFocusProviderExchange ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => onFocusProviderExchange(node.providerExchangeSpanId!)}>
+                定位真实请求
+              </Button>
+            ) : null}
+            {node.trafficLogId !== null && node.trafficLogId !== undefined && onOpenTrafficDetail ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => onOpenTrafficDetail(node.trafficLogId!)}>
+                流量详情
+              </Button>
+            ) : null}
+            {node.llmCallId && onOpenTrafficList ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => onOpenTrafficList(node.llmCallId!)}>
+                同 llm_call_id 流量
+              </Button>
+            ) : null}
             {node.playgroundCapability === 'exact' && onImportToPlayground ? (
               <Button type="button" variant="outline" size="sm" onClick={onImportToPlayground} disabled={isImportingToPlayground}>
                 {isImportingToPlayground ? '导入中...' : '在 Playground 复测'}
@@ -198,6 +219,9 @@ interface TraceInspectorPanelProps {
   allowFloating?: boolean;
   onImportToPlayground?: () => void;
   isImportingToPlayground?: boolean;
+  onFocusProviderExchange?: (spanId: string) => void;
+  onOpenTrafficDetail?: (trafficLogId: string | number) => void;
+  onOpenTrafficList?: (llmCallId: string) => void;
 }
 
 export function TraceInspectorPanel({
@@ -207,6 +231,9 @@ export function TraceInspectorPanel({
   allowFloating = true,
   onImportToPlayground,
   isImportingToPlayground = false,
+  onFocusProviderExchange,
+  onOpenTrafficDetail,
+  onOpenTrafficList,
 }: TraceInspectorPanelProps) {
   const [activeTab, setActiveTab] = React.useState<InspectorTab>('input');
   const [detached, setDetached] = React.useState(false);
@@ -309,6 +336,9 @@ export function TraceInspectorPanel({
           detached={false}
           onImportToPlayground={onImportToPlayground}
           isImportingToPlayground={isImportingToPlayground}
+          onFocusProviderExchange={onFocusProviderExchange}
+          onOpenTrafficDetail={onOpenTrafficDetail}
+          onOpenTrafficList={onOpenTrafficList}
           onToggleDetached={allowFloating ? () => setDetached(true) : undefined}
           className={className}
         />
@@ -326,6 +356,9 @@ export function TraceInspectorPanel({
                 detached
                 onImportToPlayground={onImportToPlayground}
                 isImportingToPlayground={isImportingToPlayground}
+                onFocusProviderExchange={onFocusProviderExchange}
+                onOpenTrafficDetail={onOpenTrafficDetail}
+                onOpenTrafficList={onOpenTrafficList}
                 onToggleDetached={() => setDetached(false)}
                 onDragStart={handleDragStart}
                 className="h-full shadow-2xl ring-1 ring-border/70"
@@ -345,6 +378,9 @@ interface TraceInspectorSheetProps {
   metadataBadges: string[];
   onImportToPlayground?: () => void;
   isImportingToPlayground?: boolean;
+  onFocusProviderExchange?: (spanId: string) => void;
+  onOpenTrafficDetail?: (trafficLogId: string | number) => void;
+  onOpenTrafficList?: (llmCallId: string) => void;
 }
 
 export function TraceInspectorSheet({
@@ -354,6 +390,9 @@ export function TraceInspectorSheet({
   metadataBadges,
   onImportToPlayground,
   isImportingToPlayground = false,
+  onFocusProviderExchange,
+  onOpenTrafficDetail,
+  onOpenTrafficList,
 }: TraceInspectorSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -369,6 +408,9 @@ export function TraceInspectorSheet({
             allowFloating={false}
             onImportToPlayground={onImportToPlayground}
             isImportingToPlayground={isImportingToPlayground}
+            onFocusProviderExchange={onFocusProviderExchange}
+            onOpenTrafficDetail={onOpenTrafficDetail}
+            onOpenTrafficList={onOpenTrafficList}
             className="h-full min-h-0 border-none shadow-none"
           />
         </div>

@@ -155,6 +155,9 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
     if (filters.traceId) {
       conditions.push(Prisma.sql`trace_id = ${filters.traceId}`);
     }
+    if (filters.llmCallId) {
+      conditions.push(Prisma.sql`llm_call_id = ${filters.llmCallId}`);
+    }
     if (filters.search) {
       const searchPattern = `%${filters.search}%`;
       conditions.push(
@@ -223,6 +226,7 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
           method, url, host, path,
           response_status, duration_ms,
           request_timestamp as timestamp,
+          llm_call_id, agent_turn,
           is_ai_request, api_type, api_version,
           client_ip, user_agent,
           request_size, response_size,

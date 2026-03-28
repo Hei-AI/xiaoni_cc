@@ -165,7 +165,9 @@ function normalizeLlmCall(call: any) {
     error_message: call.error_message || null,
     error_code: call.error_code || null,
     request_format_version: call.request_format_version || null,
-    wire_provider_format: call.wire_provider_format || null
+    wire_provider_format: call.wire_provider_format || null,
+    http_requests: [] as any[],
+    provider_requests: [] as any[]
   };
 }
 
@@ -242,9 +244,32 @@ function normalizeHttpLog(log: any) {
     response_headers: parseJsonField<any>(log.response_headers, {}),
     request_body: log.request_body || null,
     response_body: log.response_body || null,
+    is_ai_request: Boolean(log.is_ai_request),
+    api_type: log.api_type || null,
+    api_version: log.api_version || null,
     error_message: log.error_message || null,
     attribution: 'unattributed' as 'tool_call_id' | 'llm_call_id' | 'time_window' | 'unattributed'
   };
+}
+
+function summarizeProviderStatuses(logs: any[]): number[] {
+  return Array.from(
+    new Set(
+      logs
+        .map((log) => toNumber(log.response_status))
+        .filter((value): value is number => value !== null)
+    )
+  ).sort((left, right) => left - right);
+}
+
+function summarizeProviderHosts(logs: any[]): string[] {
+  return Array.from(
+    new Set(
+      logs
+        .map((log) => (typeof log.host === 'string' ? log.host.trim() : ''))
+        .filter(Boolean)
+    )
+  ).sort((left, right) => left.localeCompare(right));
 }
 
 function normalizeQueueMessage(row: any) {
@@ -288,8 +313,11 @@ function attachHttpLogs(toolCalls: any[], llmCalls: any[], httpLogs: any[]) {
     if (httpLog.llm_call_id && llmById.has(httpLog.llm_call_id)) {
       httpLog.attribution = 'llm_call_id';
       const llmCall = llmById.get(httpLog.llm_call_id)!;
-      llmCall.http_requests = llmCall.http_requests || [];
-      llmCall.http_requests.push(httpLog);
+      if (httpLog.is_ai_request) {
+        llmCall.provider_requests.push(httpLog);
+      } else {
+        llmCall.http_requests.push(httpLog);
+      }
       continue;
     }
 
@@ -861,6 +889,8 @@ export async function buildConversationTracePayload(
     const spanId = call.llm_call_id ? `llm-call:${call.llm_call_id}` : `llm:${call.id}`;
     const playgroundCapability = buildPlaygroundCapability(call);
     const playgroundSnapshot = buildPlaygroundSnapshot(call, spanId);
+    const providerStatuses = summarizeProviderStatuses(call.provider_requests);
+    const providerHosts = summarizeProviderHosts(call.provider_requests);
     if (call.llm_call_id) {
       llmSpanIdByCallId.set(call.llm_call_id, spanId);
     }
@@ -887,6 +917,9 @@ export async function buildConversationTracePayload(
         'usage.input_tokens': call.input_tokens,
         'usage.output_tokens': call.output_tokens,
         'trace.agent_turn': call.agent_turn,
+        'provider.request_count': call.provider_requests.length,
+        'provider.hosts': providerHosts,
+        'provider.statuses': providerStatuses,
         'playground.capability': playgroundCapability
       },
       input: {
@@ -905,6 +938,16 @@ export async function buildConversationTracePayload(
       },
       evidence: {
         ...call,
+        provider_requests: call.provider_requests.map((log: any) => ({
+          traffic_log_id: log.id,
+          request_id: log.request_id,
+          method: log.method,
+          host: log.host,
+          path: log.path,
+          response_status: log.response_status,
+          duration_ms: log.duration_ms,
+          api_type: log.api_type
+        })),
         playground_capability: playgroundCapability,
         playground_source_snapshot: playgroundSnapshot
       },
@@ -913,6 +956,132 @@ export async function buildConversationTracePayload(
       confidence: call.started_at && call.completed_at ? 'observed' : 'derived',
       source_ref: call.id
     }));
+
+    if (call.provider_requests.length === 0) {
+      return;
+    }
+
+    const providerExchangeSpanId = call.llm_call_id
+      ? `provider-exchange:${call.llm_call_id}`
+      : `provider-exchange:llm-${call.id}`;
+    const providerStartedAt = call.provider_requests
+      .map((log: any) => log.request_timestamp)
+      .filter(Boolean)
+      .sort()[0] || call.started_at;
+    const providerEndedAt = call.provider_requests
+      .map((log: any) => log.response_timestamp || log.request_timestamp)
+      .filter(Boolean)
+      .sort()
+      .slice(-1)[0] || providerStartedAt;
+    const providerExchangeStatus = call.provider_requests.some((log: any) => log.status === 'error')
+      ? 'error'
+      : call.provider_requests.every((log: any) => log.status === 'unset')
+        ? 'unset'
+        : 'ok';
+
+    spanRecords.push(createSpan({
+      span_id: providerExchangeSpanId,
+      parent_span_id: spanId,
+      trace_id: traceId,
+      conversation_id: call.conversation_id || conversationId,
+      name: 'provider.exchange',
+      kind: 'client',
+      status_code: providerExchangeStatus,
+      status_message: null,
+      started_at: providerStartedAt,
+      ended_at: providerEndedAt,
+      duration_ms: getDurationMs(providerStartedAt, providerEndedAt),
+      summary: safePreview(
+        `Provider ${call.provider_requests.length} request(s) / ${providerHosts.join(', ') || 'unknown host'} / ${providerStatuses.join(', ') || 'pending'}`
+      ),
+      attributes: {
+        'semantic.role': 'provider_exchange',
+        'semantic.display_name': 'Provider Exchange',
+        'trace.llm_call_id': call.llm_call_id,
+        'trace.agent_turn': call.agent_turn,
+        'provider.request_count': call.provider_requests.length,
+        'provider.hosts': providerHosts,
+        'provider.statuses': providerStatuses
+      },
+      input: null,
+      output: {
+        request_count: call.provider_requests.length,
+        hosts: providerHosts,
+        statuses: providerStatuses
+      },
+      evidence: {
+        llm_call_id: call.llm_call_id,
+        agent_turn: call.agent_turn,
+        request_ids: call.provider_requests.map((log: any) => log.request_id).filter(Boolean),
+        traffic_log_ids: call.provider_requests.map((log: any) => log.id)
+      },
+      events: [],
+      links: [],
+      confidence: 'observed',
+      source_ref: call.llm_call_id || call.id
+    }));
+
+    call.provider_requests.forEach((log: any) => {
+      spanRecords.push(createSpan({
+        span_id: `provider-request:${log.id}`,
+        parent_span_id: providerExchangeSpanId,
+        trace_id: traceId,
+        conversation_id: log.conversation_id || conversationId,
+        name: 'provider.request',
+        kind: 'client',
+        status_code: log.status as 'unset' | 'ok' | 'error',
+        status_message: log.error_message || null,
+        started_at: log.request_timestamp,
+        ended_at: log.response_timestamp,
+        duration_ms: log.duration_ms,
+        summary: `${log.method} ${log.host}${log.path || ''} -> ${log.response_status || 'pending'}`,
+        attributes: {
+          'semantic.role': 'provider_request',
+          'semantic.display_name': `${log.method} ${log.host}`,
+          'http.method': log.method,
+          'http.url': log.url,
+          'http.host': log.host,
+          'http.path': log.path,
+          'http.status_code': log.response_status,
+          'trace.llm_call_id': log.llm_call_id,
+          'trace.agent_turn': log.agent_turn,
+          'provider.api_type': log.api_type,
+          'provider.traffic_log_id': log.id
+        },
+        input: {
+          headers: log.request_headers,
+          body: log.request_body
+        },
+        output: {
+          status_code: log.response_status,
+          headers: log.response_headers,
+          body: log.response_body,
+          error_message: log.error_message
+        },
+        evidence: {
+          traffic_log_id: log.id,
+          request_id: log.request_id,
+          llm_call_id: log.llm_call_id,
+          method: log.method,
+          host: log.host,
+          path: log.path,
+          url: log.url,
+          request_headers: log.request_headers,
+          request_body: log.request_body,
+          response_status: log.response_status,
+          response_headers: log.response_headers,
+          response_body: log.response_body,
+          duration_ms: log.duration_ms,
+          request_timestamp: log.request_timestamp,
+          response_timestamp: log.response_timestamp,
+          api_type: log.api_type
+        },
+        events: [],
+        links: [],
+        confidence: 'observed',
+        source_ref: log.id
+      }));
+    });
   });
 
   const toolSpanIdByCallId = new Map<string, string>();
@@ -959,7 +1128,14 @@ export async function buildConversationTracePayload(
     }));
   });
 
+  const providerTrafficLogIds = new Set(
+    llmCalls.flatMap((call) => call.provider_requests.map((log: any) => String(log.id)))
+  );
+
   httpLogs.forEach((log) => {
+    if (providerTrafficLogIds.has(String(log.id))) {
+      return;
+    }
     spanRecords.push(createSpan({
       span_id: `http:${log.id}`,
       parent_span_id: (log.tool_call_id && toolSpanIdByCallId.get(log.tool_call_id))

@@ -590,6 +590,11 @@ export class DatabaseManager {
         ddl: 'CREATE INDEX IF NOT EXISTS idx_conversation_request_time_id ON http_traffic_logs (conversation_id, request_timestamp, id)'
       },
       {
+        tableName: 'http_traffic_logs',
+        indexName: 'idx_llm_call_request_time_id',
+        ddl: 'CREATE INDEX IF NOT EXISTS idx_llm_call_request_time_id ON http_traffic_logs (llm_call_id, request_timestamp, id)'
+      },
+      {
         tableName: 'websocket_logs',
         indexName: 'idx_trace_timestamp_id',
         ddl: 'CREATE INDEX IF NOT EXISTS idx_trace_timestamp_id ON websocket_logs (trace_id, timestamp, id)'

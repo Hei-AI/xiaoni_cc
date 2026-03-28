@@ -118,6 +118,18 @@ export const RunTracePage: React.FC = () => {
     await handleImportSpan(selectedSpan.spanId);
   }, [handleImportSpan, selectedSpan]);
 
+  const handleFocusProviderExchange = React.useCallback((spanId: string) => {
+    handleSelectSpan(spanId);
+  }, [handleSelectSpan]);
+
+  const handleOpenTrafficDetail = React.useCallback((trafficLogId: string | number) => {
+    navigate(`/traffic/${trafficLogId}`);
+  }, [navigate]);
+
+  const handleOpenTrafficList = React.useCallback((llmCallId: string) => {
+    navigate(`/traffic?llm_call_id=${encodeURIComponent(llmCallId)}`);
+  }, [navigate]);
+
   return (
     <PageShell>
       <PageHeader
@@ -243,6 +255,9 @@ export const RunTracePage: React.FC = () => {
                     metadataBadges={viewModel.metadataBadges}
                     onImportToPlayground={canImportSelectedSpan ? handleImportSelectedSpan : undefined}
                     isImportingToPlayground={Boolean(importingSpanId)}
+                    onFocusProviderExchange={handleFocusProviderExchange}
+                    onOpenTrafficDetail={handleOpenTrafficDetail}
+                    onOpenTrafficList={handleOpenTrafficList}
                     className="h-full min-h-0"
                   />
                 </SectionPanel>
@@ -268,6 +283,9 @@ export const RunTracePage: React.FC = () => {
               metadataBadges={viewModel.metadataBadges}
               onImportToPlayground={canImportSelectedSpan ? handleImportSelectedSpan : undefined}
               isImportingToPlayground={Boolean(importingSpanId)}
+              onFocusProviderExchange={handleFocusProviderExchange}
+              onOpenTrafficDetail={handleOpenTrafficDetail}
+              onOpenTrafficList={handleOpenTrafficList}
             />
           ) : null}
         </>

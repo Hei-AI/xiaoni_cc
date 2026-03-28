@@ -60,6 +60,14 @@ function semanticRole(record: TraceSpanRecord): string {
   return String(record.attributes['semantic.role'] || record.kind);
 }
 
+function evidenceValue(record: TraceSpanRecord, key: string): string | null {
+  const value = record.evidence?.[key];
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  return String(value);
+}
+
 function playgroundCapability(record: TraceSpanRecord): 'exact' | 'partial' | 'unsupported' {
   const explicit = record.playground_capability
     || record.evidence?.playground_capability
@@ -78,6 +86,18 @@ function buildSubtitle(record: TraceSpanRecord): string | null {
   const semantic = semanticRole(record);
   if (semantic === 'generation') {
     return [record.attributes['llm.model_provider'], record.attributes['llm.model_name']].filter(Boolean).join(' / ') || null;
+  }
+  if (semantic === 'provider_exchange') {
+    const count = record.attributes['provider.request_count'];
+    const hosts = Array.isArray(record.attributes['provider.hosts'])
+      ? (record.attributes['provider.hosts'] as unknown[]).join(', ')
+      : String(record.attributes['provider.hosts'] || '');
+    return [count ? `${count} request(s)` : null, hosts || null].filter(Boolean).join(' / ') || null;
+  }
+  if (semantic === 'provider_request') {
+    return [record.attributes['provider.api_type'], record.attributes['http.host'], record.attributes['http.path']]
+      .filter(Boolean)
+      .join(' / ') || null;
   }
   if (semantic === 'external_http') {
     return String(record.attributes['http.path'] || record.attributes['http.url'] || '') || null;
@@ -127,6 +147,23 @@ function buildMeta(record: TraceSpanRecord): TraceWaterfallMeta[] {
     });
   }
 
+  if (record.attributes['provider.request_count']) {
+    items.push({
+      label: 'Provider',
+      value: `${record.attributes['provider.request_count']} request(s)`,
+    });
+  }
+
+  const providerStatuses = Array.isArray(record.attributes['provider.statuses'])
+    ? (record.attributes['provider.statuses'] as unknown[]).join(', ')
+    : null;
+  if (providerStatuses) {
+    items.push({
+      label: 'Provider Status',
+      value: providerStatuses,
+    });
+  }
+
   return items.slice(0, 4);
 }
 
@@ -149,6 +186,7 @@ function subtreeErrorCount(rowId: string, byParent: Map<string, TraceSpanRecord[
 function buildRows(trace: ConversationTraceData): TraceWaterfallRow[] {
   const rows = [...trace.spans].sort((left, right) => left.sort_key.localeCompare(right.sort_key));
   const byParent = new Map<string, TraceSpanRecord[]>();
+  const byId = new Map(rows.map((row) => [row.span_id, row]));
   rows.forEach((row) => {
     const key = row.parent_span_id || '__root__';
     const bucket = byParent.get(key) || [];
@@ -164,7 +202,6 @@ function buildRows(trace: ConversationTraceData): TraceWaterfallRow[] {
     const subtitle = buildSubtitle(record);
     const pathTokens: string[] = [];
     let cursor: TraceSpanRecord | undefined = record;
-    const byId = new Map(rows.map((row) => [row.span_id, row]));
 
     while (cursor) {
       pathTokens.unshift(displayName(cursor));
@@ -175,6 +212,15 @@ function buildRows(trace: ConversationTraceData): TraceWaterfallRow[] {
     const timelineWidthRatio = Math.max((record.duration_ms || 0) / totalDuration, 0.015);
     const children = byParent.get(record.span_id) || [];
     const role = semanticRole(record);
+    const providerExchangeChild = role === 'generation'
+      ? children.find((child) => semanticRole(child) === 'provider_exchange')
+      : null;
+    const llmCallId = String(
+      record.attributes['trace.llm_call_id']
+      || evidenceValue(record, 'llm_call_id')
+      || ''
+    ) || null;
+    const trafficLogId = record.evidence?.traffic_log_id ?? null;
 
     return {
       id: record.span_id,
@@ -194,12 +240,19 @@ function buildRows(trace: ConversationTraceData): TraceWaterfallRow[] {
       timelineOffsetMs,
       timelineWidthRatio,
       hasChildren: children.length > 0,
-      defaultExpanded: record.depth < 2 || record.status_code === 'error' || role === 'turn',
+      defaultExpanded: record.depth < 2
+        || record.status_code === 'error'
+        || role === 'turn'
+        || role === 'provider_exchange'
+        || Boolean(providerExchangeChild),
       errorCountInSubtree: subtreeErrorCount(record.span_id, byParent),
       badges: buildBadges(record),
       meta: buildMeta(record),
       sourceRef: record.source_ref,
       playgroundCapability: playgroundCapability(record),
+      providerExchangeSpanId: providerExchangeChild?.span_id || null,
+      trafficLogId,
+      llmCallId,
       inspector: {
         title,
         subtitle,
@@ -241,8 +294,8 @@ function buildMetrics(trace: ConversationTraceData): TraceMetric[] {
     },
     {
       label: 'HTTP',
-      value: String(roleCounts.external_http || 0),
-      detail: `Delivery ${roleCounts.delivery || 0}`,
+      value: String((roleCounts.external_http || 0) + (roleCounts.provider_request || 0)),
+      detail: `Provider ${roleCounts.provider_request || 0} / Delivery ${roleCounts.delivery || 0}`,
     },
     {
       label: '瓶颈',

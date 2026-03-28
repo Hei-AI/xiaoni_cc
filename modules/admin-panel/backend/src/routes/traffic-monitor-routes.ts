@@ -70,6 +70,7 @@ export function createTrafficMonitorRoutes(database: DatabaseManager, logger: wi
           apiType: typeof req.query.api_type === 'string' ? req.query.api_type : undefined,
           containerName: typeof req.query.container_name === 'string' ? req.query.container_name : undefined,
           traceId: typeof req.query.trace_id === 'string' ? req.query.trace_id : undefined,
+          llmCallId: typeof req.query.llm_call_id === 'string' ? req.query.llm_call_id : undefined,
           search: typeof req.query.search === 'string' ? req.query.search : undefined
         }
       });

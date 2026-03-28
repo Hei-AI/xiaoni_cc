@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
@@ -61,6 +61,7 @@ interface TrafficLog {
   conversation_id?: string;
   user_id?: string;
   session_id?: string;
+  llm_call_id?: string;
 }
 
 interface TrafficStats {
@@ -89,6 +90,8 @@ interface TrafficStats {
 }
 
 export function HttpTrafficMonitorPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const llmCallIdParam = searchParams.get('llm_call_id') || '';
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({
     method: 'all',
@@ -100,10 +103,22 @@ export function HttpTrafficMonitorPage() {
     search: '',
     start_time: '',
     end_time: '',
+    llm_call_id: llmCallIdParam,
   });
   const [timeRange, setTimeRange] = useState('24h');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showBatchReplayDialog, setShowBatchReplayDialog] = useState(false);
+
+  useEffect(() => {
+    const nextLlmCallId = searchParams.get('llm_call_id') || '';
+    setFilters((prev) => {
+      if (prev.llm_call_id === nextLlmCallId) {
+        return prev;
+      }
+      return { ...prev, llm_call_id: nextLlmCallId };
+    });
+    setPage(1);
+  }, [searchParams]);
 
   const {
     data: trafficData,
@@ -166,6 +181,16 @@ export function HttpTrafficMonitorPage() {
   const handleFilterChange = (key: string, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
     setPage(1);
+
+    if (key === 'llm_call_id') {
+      const nextParams = new URLSearchParams(searchParams);
+      if (value.trim()) {
+        nextParams.set('llm_call_id', value.trim());
+      } else {
+        nextParams.delete('llm_call_id');
+      }
+      setSearchParams(nextParams, { replace: true });
+    }
   };
 
   const handleTimeRangeChange = (value: string) => {
@@ -321,7 +346,7 @@ export function HttpTrafficMonitorPage() {
       )}
 
       <FilterBar>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-7">
           <div>
             <label className="mb-2 block text-sm font-medium">时间范围</label>
             <Select value={timeRange} onValueChange={handleTimeRangeChange}>
@@ -398,6 +423,15 @@ export function HttpTrafficMonitorPage() {
               <Input placeholder="搜索 URL 或内容..." value={filters.search} onChange={(e) => handleFilterChange('search', e.target.value)} className="pl-9" />
             </div>
           </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium">llm_call_id</label>
+            <Input
+              placeholder="精确筛选 llm_call_id..."
+              value={filters.llm_call_id}
+              onChange={(e) => handleFilterChange('llm_call_id', e.target.value)}
+            />
+          </div>
         </div>
 
         {timeRange === 'custom' && (
@@ -437,7 +471,9 @@ export function HttpTrafficMonitorPage() {
                   search: '',
                   start_time: '',
                   end_time: '',
+                  llm_call_id: '',
                 });
+                setSearchParams(new URLSearchParams(), { replace: true });
                 setPage(1);
               }}
             >
@@ -445,6 +481,33 @@ export function HttpTrafficMonitorPage() {
             </Button>
           </div>
         )}
+
+        {timeRange !== 'custom' ? (
+          <div className="mt-4 flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setFilters({
+                  method: 'all',
+                  host: '',
+                  status: 'all',
+                  is_ai_request: 'true',
+                  api_type: '',
+                  container_name: '',
+                  search: '',
+                  start_time: '',
+                  end_time: '',
+                  llm_call_id: '',
+                });
+                setSearchParams(new URLSearchParams(), { replace: true });
+                setPage(1);
+              }}
+            >
+              清除筛选
+            </Button>
+          </div>
+        ) : null}
       </FilterBar>
 
       {selectedIds.size > 0 && (

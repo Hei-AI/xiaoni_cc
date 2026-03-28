@@ -225,4 +225,96 @@ describe('buildTraceFlowViewModel', () => {
     ]);
     expect(viewModel.rows.find((row) => row.id === 'invoke-search')?.errorCountInSubtree).toBe(1);
   });
+
+  it('exposes provider spans and traffic linkage metadata without duplicating generic http semantics', () => {
+    const trace = makeTrace([
+      makeSpan({
+        span_id: 'trace-root',
+        sort_key: '000',
+        summary: 'root',
+        attributes: {
+          'semantic.role': 'trace_root',
+          'semantic.display_name': 'Conversation Trace',
+        },
+      }),
+      makeSpan({
+        span_id: 'turn-1',
+        parent_span_id: 'trace-root',
+        sort_key: '000.001',
+        depth: 1,
+        name: 'turn.1',
+        attributes: {
+          'semantic.role': 'turn',
+          'semantic.display_name': 'Turn 1',
+        },
+      }),
+      makeSpan({
+        span_id: 'llm-1',
+        parent_span_id: 'turn-1',
+        sort_key: '000.001.001',
+        depth: 2,
+        name: 'llm.generation',
+        kind: 'client',
+        attributes: {
+          'semantic.role': 'generation',
+          'semantic.display_name': 'planner',
+          'llm.model_name': 'gpt-5.4-mini',
+          'llm.model_provider': 'openai',
+          'provider.request_count': 1,
+          'provider.statuses': ['200'],
+        },
+        evidence: {
+          llm_call_id: 'llm-call-1',
+        },
+      }),
+      makeSpan({
+        span_id: 'provider-exchange:llm-call-1',
+        parent_span_id: 'llm-1',
+        sort_key: '000.001.001.001',
+        depth: 3,
+        name: 'provider.exchange',
+        kind: 'internal',
+        attributes: {
+          'semantic.role': 'provider_exchange',
+          'semantic.display_name': 'Provider Exchange',
+          'trace.llm_call_id': 'llm-call-1',
+          'provider.request_count': 1,
+          'provider.hosts': ['api.openai.com'],
+          'provider.statuses': ['200'],
+        },
+      }),
+      makeSpan({
+        span_id: 'provider-request:101',
+        parent_span_id: 'provider-exchange:llm-call-1',
+        sort_key: '000.001.001.001.001',
+        depth: 4,
+        name: 'provider.request',
+        kind: 'client',
+        attributes: {
+          'semantic.role': 'provider_request',
+          'semantic.display_name': 'POST api.openai.com',
+          'provider.api_type': 'responses',
+          'trace.llm_call_id': 'llm-call-1',
+          'http.host': 'api.openai.com',
+          'http.path': '/v1/responses',
+          'http.status_code': 200,
+        },
+        evidence: {
+          traffic_log_id: 101,
+          llm_call_id: 'llm-call-1',
+        },
+      }),
+    ]);
+
+    const viewModel = buildTraceFlowViewModel(trace);
+    const generationRow = viewModel.rows.find((row) => row.id === 'llm-1');
+    const providerRequestRow = viewModel.rows.find((row) => row.id === 'provider-request:101');
+
+    expect(generationRow?.providerExchangeSpanId).toBe('provider-exchange:llm-call-1');
+    expect(generationRow?.llmCallId).toBe('llm-call-1');
+    expect(providerRequestRow?.trafficLogId).toBe(101);
+    expect(providerRequestRow?.llmCallId).toBe('llm-call-1');
+    expect(providerRequestRow?.subtitle).toBe('responses / api.openai.com / /v1/responses');
+    expect(viewModel.metrics.find((metric) => metric.label === 'HTTP')?.detail).toContain('Provider 1');
+  });
 });
