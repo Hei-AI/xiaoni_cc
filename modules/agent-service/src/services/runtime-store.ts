@@ -1,7 +1,16 @@
 import { createSqlAdapter, serializeTimestampForApi, type SqlAdapter } from '@qq-bot/persistence';
 import { v4 as uuidv4 } from 'uuid';
 import { databaseConfig } from '../config';
-import { ConversationTurn, QueueBatchMessage, QueueMessagePayload, QueueMessageRecord } from '../types';
+import {
+  ConversationTranscriptItem,
+  ConversationTranscriptPhase,
+  ConversationTranscriptRole,
+  ConversationTranscriptSource,
+  ConversationTurn,
+  QueueBatchMessage,
+  QueueMessagePayload,
+  QueueMessageRecord
+} from '../types';
 
 type QueueRow = {
   id: number;
@@ -53,6 +62,68 @@ function parseJson<T>(value: unknown, fallback: T): T {
 
 function buildBatchSummary(rows: QueueRow[]) {
   return rows.map((row, index) => `#${index + 1} ${row.sender_name || row.sender_id}: ${row.body_for_agent}`).join('\n');
+}
+
+function buildTranscriptSessionId(userId: number, groupId?: number | null) {
+  if (groupId && Number.isFinite(groupId)) {
+    return `group:${groupId}`;
+  }
+  return `private:${userId}`;
+}
+
+type ConversationTranscriptItemInput = {
+  sessionKey: string | null;
+  role: ConversationTranscriptRole;
+  phase?: ConversationTranscriptPhase | null;
+  content: string;
+  groupIndex: number;
+  itemIndex: number;
+  source: ConversationTranscriptSource;
+  deliveryMessageId?: number | null;
+  runId?: string | null;
+  traceId?: string | null;
+};
+
+function buildLegacyConversationItems(params: {
+  conversationId: number;
+  sessionKey: string;
+  userMessage: string;
+  aiResponse: string | null;
+  traceId?: string | null;
+}): ConversationTranscriptItem[] {
+  const items: ConversationTranscriptItem[] = [{
+    id: null,
+    conversationId: params.conversationId,
+    sessionKey: params.sessionKey,
+    role: 'user',
+    phase: null,
+    content: params.userMessage,
+    groupIndex: 0,
+    itemIndex: 0,
+    source: 'legacy_user_message',
+    deliveryMessageId: null,
+    runId: null,
+    traceId: params.traceId ?? null
+  }];
+
+  if (typeof params.aiResponse === 'string' && params.aiResponse.trim().length > 0) {
+    items.push({
+      id: null,
+      conversationId: params.conversationId,
+      sessionKey: params.sessionKey,
+      role: 'assistant',
+      phase: null,
+      content: params.aiResponse,
+      groupIndex: 1,
+      itemIndex: 0,
+      source: 'legacy_ai_response',
+      deliveryMessageId: null,
+      runId: null,
+      traceId: params.traceId ?? null
+    });
+  }
+
+  return items;
 }
 
 export class RuntimeStore {
@@ -495,9 +566,12 @@ export class RuntimeStore {
   async listRecentTurns(params: {
     userId: number;
     groupId?: number | null;
+    afterConversationId?: number | null;
     limit?: number;
   }): Promise<ConversationTurn[]> {
-    const limit = Math.max(1, Math.min(params.limit || 20, 100));
+    const limit = typeof params.limit === 'number'
+      ? Math.max(1, Math.min(params.limit, 1000))
+      : null;
     const conditions: string[] = [];
     const values: Array<number | null> = [];
 
@@ -510,37 +584,162 @@ export class RuntimeStore {
       values.push(params.userId);
     }
 
+    if (params.afterConversationId && Number.isFinite(params.afterConversationId)) {
+      conditions.push('id > ?');
+      values.push(params.afterConversationId);
+    }
+
     const rows = await this.sql.query<{
       id: number;
+      batch_id: number | null;
+      trace_id: string | null;
       user_id: number;
       group_id: number | null;
       user_message: string;
       ai_response: string | null;
     }>(
       `
-        SELECT id, user_id, group_id, user_message, ai_response
+        SELECT id, batch_id, trace_id, user_id, group_id, user_message, ai_response
         FROM conversations
         WHERE ${conditions.join(' AND ')}
         ORDER BY id DESC
-        LIMIT ${limit}
+        ${limit ? `LIMIT ${limit}` : ''}
       `,
       values
     );
 
-    return rows.reverse().map((row) => ({
-      id: Number(row.id),
-      userId: Number(row.user_id),
-      groupId: row.group_id === null ? null : Number(row.group_id),
-      userMessage: row.user_message,
-      aiResponse: row.ai_response
-    }));
+    const orderedRows = rows.reverse();
+    const conversationIds = orderedRows.map((row) => Number(row.id));
+    const itemRows = conversationIds.length > 0
+      ? await this.sql.query<{
+          id: number;
+          conversation_id: number;
+          session_key: string | null;
+          role: string;
+          phase: string | null;
+          content: string;
+          group_index: number;
+          item_index: number;
+          source: string;
+          delivery_message_id: number | null;
+          run_id: string | null;
+          trace_id: string | null;
+        }>(
+          `
+            SELECT
+              id,
+              conversation_id,
+              session_key,
+              role,
+              phase,
+              content,
+              group_index,
+              item_index,
+              source,
+              delivery_message_id,
+              run_id,
+              trace_id
+            FROM conversation_items
+            WHERE conversation_id IN (${conversationIds.map(() => '?').join(', ')})
+            ORDER BY conversation_id ASC, group_index ASC, item_index ASC, id ASC
+          `,
+          conversationIds
+        )
+      : [];
+
+    const itemsByConversationId = new Map<number, ConversationTranscriptItem[]>();
+    for (const row of itemRows) {
+      const conversationId = Number(row.conversation_id);
+      const items = itemsByConversationId.get(conversationId) || [];
+      items.push({
+        id: Number(row.id),
+        conversationId,
+        sessionKey: row.session_key,
+        role: row.role === 'assistant' ? 'assistant' : 'user',
+        phase: row.phase === 'commentary' || row.phase === 'final_answer' ? row.phase : null,
+        content: row.content,
+        groupIndex: Number(row.group_index),
+        itemIndex: Number(row.item_index),
+        source: row.source === 'delivery'
+          || row.source === 'legacy_user_message'
+          || row.source === 'legacy_ai_response'
+          ? row.source
+          : 'inbound_batch',
+        deliveryMessageId: row.delivery_message_id === null ? null : Number(row.delivery_message_id),
+        runId: row.run_id,
+        traceId: row.trace_id
+      });
+      itemsByConversationId.set(conversationId, items);
+    }
+
+    return orderedRows.map((row) => {
+      const conversationId = Number(row.id);
+      const sessionKey = buildTranscriptSessionId(
+        Number(row.user_id),
+        row.group_id === null ? null : Number(row.group_id)
+      );
+      return {
+        id: conversationId,
+        userId: Number(row.user_id),
+        groupId: row.group_id === null ? null : Number(row.group_id),
+        batchId: row.batch_id === null ? null : Number(row.batch_id),
+        sessionKey,
+        userMessage: row.user_message,
+        aiResponse: row.ai_response,
+        items: itemsByConversationId.get(conversationId) || buildLegacyConversationItems({
+          conversationId,
+          sessionKey,
+          userMessage: row.user_message,
+          aiResponse: row.ai_response,
+          traceId: row.trace_id
+        })
+      };
+    });
+  }
+
+  async loadSessionReplayState(params: {
+    userId: number;
+    groupId?: number | null;
+  }): Promise<{
+    summaryText: string | null;
+    summarizedThroughConversationId: number | null;
+  }> {
+    const snapshotSessionId = buildTranscriptSessionId(params.userId, params.groupId);
+    const snapshotRows = await this.sql.query<{
+      summary_text: string;
+      summarized_through_conversation_id: number | string;
+      summary_status: string;
+    }>(
+      `
+        SELECT
+          summary_text,
+          summarized_through_conversation_id,
+          summary_status
+        FROM chat_transcript_snapshots
+        WHERE session_id = ?
+          AND summary_status = 'ready'
+        LIMIT 1
+      `,
+      [snapshotSessionId]
+    );
+
+    const snapshot = snapshotRows[0];
+    return {
+      summaryText: snapshot?.summary_text?.trim() || null,
+      summarizedThroughConversationId: snapshot
+        ? Number(snapshot.summarized_through_conversation_id)
+        : null
+    };
   }
 
   async createConversation(params: {
+    batchId?: number | null;
     userId: number;
     groupId?: number | null;
     userMessage: string;
     aiResponse?: string | null;
+    sessionKey?: string | null;
+    transcriptItems?: ConversationTranscriptItemInput[];
     responseTimeMs: number;
     status: string;
     errorReason?: string | null;
@@ -552,6 +751,7 @@ export class RuntimeStore {
     const result = await this.sql.insert(
       `
         INSERT INTO conversations (
+          batch_id,
           user_id,
           group_id,
           user_message,
@@ -564,9 +764,10 @@ export class RuntimeStore {
           raw_response,
           trace_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?)
       `,
       [
+        params.batchId ?? null,
         params.userId,
         params.groupId ?? null,
         params.userMessage,
@@ -581,7 +782,45 @@ export class RuntimeStore {
       ]
     );
 
-    return result.insertId;
+    const conversationId = Number(result.insertId);
+    const transcriptItems = Array.isArray(params.transcriptItems) ? params.transcriptItems : [];
+    if (transcriptItems.length > 0) {
+      for (const item of transcriptItems) {
+        await this.sql.insert(
+          `
+            INSERT INTO conversation_items (
+              conversation_id,
+              session_key,
+              role,
+              phase,
+              content,
+              group_index,
+              item_index,
+              source,
+              delivery_message_id,
+              run_id,
+              trace_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            conversationId,
+            item.sessionKey ?? params.sessionKey ?? null,
+            item.role,
+            item.phase ?? null,
+            item.content,
+            item.groupIndex,
+            item.itemIndex,
+            item.source,
+            item.deliveryMessageId ?? null,
+            item.runId ?? null,
+            item.traceId ?? params.traceId
+          ]
+        );
+      }
+    }
+
+    return conversationId;
   }
 
   async attachConversationIdToTrace(traceId: string, conversationId: number) {
@@ -762,6 +1001,42 @@ export class RuntimeStore {
         )
       `,
       `
+        CREATE TABLE IF NOT EXISTS chat_transcript_snapshots (
+          session_id VARCHAR(191) PRIMARY KEY,
+          chat_type VARCHAR(16) NOT NULL,
+          private_user_id BIGINT NULL,
+          group_id BIGINT NULL,
+          summary_text TEXT NOT NULL,
+          summary_format_version VARCHAR(32) NOT NULL,
+          summarized_through_conversation_id BIGINT NOT NULL,
+          summary_status VARCHAR(16) NOT NULL DEFAULT 'ready',
+          summary_job_id VARCHAR(128) NULL,
+          last_compacted_at TIMESTAMP(3) NULL,
+          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `,
+      `
+        CREATE TABLE IF NOT EXISTS conversation_items (
+          id BIGSERIAL PRIMARY KEY,
+          conversation_id BIGINT NOT NULL,
+          session_key VARCHAR(191),
+          role VARCHAR(16) NOT NULL,
+          phase VARCHAR(32),
+          content TEXT NOT NULL,
+          group_index INTEGER NOT NULL DEFAULT 0,
+          item_index INTEGER NOT NULL DEFAULT 0,
+          source VARCHAR(32) NOT NULL,
+          delivery_message_id BIGINT,
+          run_id VARCHAR(128),
+          trace_id VARCHAR(128),
+          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `,
+      'CREATE INDEX IF NOT EXISTS idx_chat_transcript_snapshots_private_user ON chat_transcript_snapshots (private_user_id, updated_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_chat_transcript_snapshots_group ON chat_transcript_snapshots (group_id, updated_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_chat_transcript_snapshots_status ON chat_transcript_snapshots (summary_status, updated_at DESC)',
+      `
         CREATE TABLE IF NOT EXISTS agent_message_batch_items (
           id BIGSERIAL PRIMARY KEY,
           batch_id VARCHAR(128) NOT NULL,
@@ -847,6 +1122,8 @@ export class RuntimeStore {
       'CREATE INDEX IF NOT EXISTS idx_agent_runs_trace_id ON agent_runs (trace_id)',
       'CREATE INDEX IF NOT EXISTS idx_agent_batches_session_created ON agent_message_batches (session_key, created_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_agent_batch_items_batch_position ON agent_message_batch_items (batch_id, position)',
+      'CREATE INDEX IF NOT EXISTS idx_conversation_items_conversation_group_item ON conversation_items (conversation_id, group_index, item_index, id)',
+      'CREATE INDEX IF NOT EXISTS idx_conversation_items_session_created ON conversation_items (session_key, created_at, id)',
       'CREATE INDEX IF NOT EXISTS idx_llm_jobs_trace_created ON llm_jobs (trace_id, created_at, id)',
       'CREATE INDEX IF NOT EXISTS idx_tool_execution_logs_trace_started ON tool_execution_logs (trace_id, started_at, completed_at, id)',
       'CREATE INDEX IF NOT EXISTS idx_conversations_trace_id ON conversations (trace_id)'

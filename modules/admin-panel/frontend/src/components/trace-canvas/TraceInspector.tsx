@@ -65,6 +65,24 @@ function readHttpPayload(value: unknown): { headers: unknown; body: unknown } {
   };
 }
 
+function readHttpPayloadMeta(value: unknown): {
+  rawBody: unknown;
+  bodySource: string | null;
+} {
+  if (!value || typeof value !== 'object') {
+    return {
+      rawBody: null,
+      bodySource: null,
+    };
+  }
+
+  const payload = value as Record<string, unknown>;
+  return {
+    rawBody: payload.raw_body ?? null,
+    bodySource: typeof payload.body_source === 'string' ? payload.body_source : null,
+  };
+}
+
 function isProviderRequestNode(node: TraceWaterfallRow | null): node is TraceWaterfallRow {
   return Boolean(node && node.semanticRole === 'provider_request');
 }
@@ -117,6 +135,7 @@ function TraceInspectorSurface({
   const outputSection = getSection(node, 'output');
   const inputPayload = readHttpPayload(inputSection?.value);
   const outputPayload = readHttpPayload(outputSection?.value);
+  const outputPayloadMeta = readHttpPayloadMeta(outputSection?.value);
 
   return (
     <Card className={cn('h-full min-h-[420px] rounded-[22px] bg-[linear-gradient(180deg,#fff,#faf8f5)]', className)}>
@@ -228,15 +247,28 @@ function TraceInspectorSurface({
           </TabsContent>
           <TabsContent value="output" className="mt-3 flex-1">
             {isProviderRequestNode(node) ? (
-              <HttpPayloadAccordion
-                key={`${node.id}-output`}
-                headers={outputPayload.headers}
-                body={outputPayload.body}
-                headersEmptyLabel="无响应头"
-                bodyEmptyLabel="无响应体"
-                bodyHeightClassName="h-[24rem] xl:h-[min(54vh,30rem)]"
-                headersHeightClassName="h-[18rem] xl:h-[min(38vh,22rem)]"
-              />
+              <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+                <HttpPayloadAccordion
+                  key={`${node.id}-output`}
+                  headers={outputPayload.headers}
+                  body={outputPayload.body}
+                  headersEmptyLabel="无响应头"
+                  bodyEmptyLabel="无响应体"
+                  bodyHeightClassName="h-[24rem] xl:h-[min(54vh,30rem)]"
+                  headersHeightClassName="h-[18rem] xl:h-[min(38vh,22rem)]"
+                  bodyNotice={outputPayloadMeta.bodySource === 'sse_complete'
+                    ? '当前 Body 展示的是 SSE 最终完成态 JSON；增量事件与完整流见下方原始输出。'
+                    : undefined}
+                />
+                {outputPayloadMeta.rawBody ? (
+                  <StructuredDataViewer
+                    title="Raw Output"
+                    value={outputPayloadMeta.rawBody}
+                    emptyLabel="无原始响应体"
+                    heightClassName="h-[20rem] xl:h-[min(42vh,24rem)]"
+                  />
+                ) : null}
+              </div>
             ) : (
               <StructuredDataViewer
                 title="Output"

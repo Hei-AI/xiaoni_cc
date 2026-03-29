@@ -50,6 +50,10 @@ export interface AgentRunListItem {
   created_at: string;
   input_message_count: number;
   summary?: string | null;
+  llm_calls_count: number;
+  input_tokens_total: number;
+  output_tokens_total: number;
+  cached_input_tokens_total: number;
 }
 
 export interface AgentRunInputMessage {
@@ -101,6 +105,12 @@ export interface AgentRunDetail {
     llm_calls_count: number;
     tool_calls_count: number;
     sent_messages_count: number;
+    token_totals: {
+      input_tokens: number;
+      output_tokens: number;
+      total_tokens: number;
+      cached_input_tokens: number;
+    };
     llm_calls: any[];
     tool_calls: any[];
     timeline: any[];
@@ -396,6 +406,12 @@ export interface TraceSummary {
     title: string;
     duration_ms: number | null;
   } | null;
+  token_summary: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    cached_input_tokens: number;
+  };
 }
 
 export interface TraceSpanEvent {

@@ -20,6 +20,10 @@ function toneForRun(status: string, noReply?: boolean): 'danger' | 'warning' | '
   return 'info';
 }
 
+function formatTokenCount(value: number | null | undefined): string {
+  return new Intl.NumberFormat('zh-CN').format(Number(value || 0));
+}
+
 export const ConversationsPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = React.useState('');
@@ -167,6 +171,9 @@ export const ConversationsPage: React.FC = () => {
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Badge variant="outline">{run.input_message_count} 条输入</Badge>
                     <Badge variant="outline">{run.total_turns} turns</Badge>
+                    <Badge variant="outline">In {formatTokenCount(run.input_tokens_total)}</Badge>
+                    <Badge variant="outline">Out {formatTokenCount(run.output_tokens_total)}</Badge>
+                    <Badge variant="outline">Cache {formatTokenCount(run.cached_input_tokens_total)}</Badge>
                     {run.termination_reason ? <Badge variant="outline">{run.termination_reason}</Badge> : null}
                   </div>
                   <div className="mt-3 text-sm text-foreground/85 line-clamp-3">{run.final_response || run.finish_outcome || run.error_message || '未产生最终回复'}</div>

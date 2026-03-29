@@ -239,4 +239,100 @@ describe('buildConversationTracePayload', () => {
     expect(spans.some((span) => span.name === 'provider.request')).toBe(false);
     expect(spans.find((span) => span.span_id === 'http:202')?.name).toBe('http.request');
   });
+
+  it('uses the final completed response for SSE provider body while preserving raw SSE output', async () => {
+    const db = createDatabase({
+      llmCallRows: [
+        {
+          id: 13,
+          llm_call_id: 'llm-call-3',
+          trace_id: 'trace-1',
+          conversation_id: 'conversation-1',
+          agent_turn: 1,
+          call_sequence: 1,
+          started_at: '2026-03-28T10:00:01.000Z',
+          completed_at: '2026-03-28T10:00:03.000Z',
+          status: 'completed',
+          model_name: 'gpt-5.4-mini',
+          model_provider: 'codex',
+          agent_type: 'chat_bot',
+          prompt_template: 'agent_loop_v1',
+          canonical_request: JSON.stringify({ model: 'gpt-5.4-mini' }),
+          wire_request: JSON.stringify({ model: 'gpt-5.4-mini', stream: true }),
+          canonical_response: JSON.stringify({ id: 'resp_sse' }),
+          wire_response: JSON.stringify({ id: 'resp_sse' }),
+          effective_unified_config: JSON.stringify({ model: { provider: 'codex', name: 'gpt-5.4-mini' } }),
+          processed_response: null,
+          input_tokens: 10,
+          output_tokens: 20,
+          token_usage: JSON.stringify({ input_tokens: 10, output_tokens: 20 }),
+          processing_time_ms: 2000,
+          request_format_version: 'openresponse/v1',
+          wire_provider_format: 'codex/responses',
+        },
+      ],
+    });
+
+    const sseBody = [
+      'event: response.created',
+      'data: {"type":"response.created","response":{"id":"resp_sse","status":"in_progress"}}',
+      '',
+      'event: response.output_text.delta',
+      'data: {"type":"response.output_text.delta","delta":"hel"}',
+      '',
+      'event: response.completed',
+      'data: {"type":"response.completed","response":{"id":"resp_sse","status":"completed","output":[{"type":"message"}]}}',
+      '',
+    ].join('\n');
+
+    (listTraceTrafficLogs as jest.Mock).mockResolvedValue([
+      {
+        id: 303,
+        request_id: 'req-303',
+        trace_id: 'trace-1',
+        conversation_id: 'conversation-1',
+        agent_turn: 1,
+        llm_call_id: 'llm-call-3',
+        method: 'POST',
+        url: 'https://chatgpt.com/backend-api/codex/responses',
+        host: 'chatgpt.com',
+        path: '/backend-api/codex/responses',
+        request_headers: JSON.stringify({ accept: 'text/event-stream' }),
+        request_body: '{"model":"gpt-5.4-mini","stream":true}',
+        response_status: 200,
+        response_headers: JSON.stringify({ 'content-type': 'text/event-stream' }),
+        response_body: sseBody,
+        duration_ms: 400,
+        request_timestamp: '2026-03-28T10:00:01.400Z',
+        response_timestamp: '2026-03-28T10:00:01.800Z',
+        is_ai_request: true,
+        api_type: 'codex',
+        error_message: null,
+      },
+    ]);
+
+    const payload = await buildConversationTracePayload(db as never, createLogger(), 'conversation-1');
+    const providerRequestSpan = payload!.spans.find((span) => span.name === 'provider.request');
+
+    expect(providerRequestSpan?.output).toMatchObject({
+      status_code: 200,
+      body: {
+        id: 'resp_sse',
+        status: 'completed',
+        output: [{ type: 'message' }],
+      },
+      raw_body: sseBody,
+      body_format: 'json',
+      body_source: 'sse_complete',
+    });
+    expect(providerRequestSpan?.evidence).toMatchObject({
+      normalized_response_body: {
+        id: 'resp_sse',
+        status: 'completed',
+        output: [{ type: 'message' }],
+      },
+      normalized_response_body_source: 'sse_complete',
+      response_body: sseBody,
+    });
+  });
 });

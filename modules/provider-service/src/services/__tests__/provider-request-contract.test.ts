@@ -4,6 +4,7 @@ import { CodexProvider } from '../llm-provider/codex-provider';
 import { OpenAIProvider } from '../llm-provider/openai-provider';
 import type { OpenResponseCreateRequest, OpenResponseToolDefinition } from '../llm-provider/types';
 import { buildRequestFromMessages, buildUnifiedConfig } from '../provider-debug-service';
+import { buildTraceHeaders } from '../../utils/trace-headers';
 
 class TestOpenAIProvider extends OpenAIProvider {
   buildPayload(request: OpenResponseCreateRequest) {
@@ -37,6 +38,9 @@ function createCanonicalRequest(): OpenResponseCreateRequest {
   return {
     model: 'gpt-5.4-mini',
     instructions: 'System prompt from canonical request.',
+    previous_response_id: 'resp_prev_789',
+    prompt_cache_key: 'qq:group:101',
+    prompt_cache_retention: '24h',
     input: [
       {
         type: 'message',
@@ -60,6 +64,9 @@ test('OpenAI provider keeps canonical instructions top-level and preserves paral
   assert.equal(payload.input[0]?.role, 'user');
   assert.equal(payload.input.some((item: any) => item?.role === 'system'), false);
   assert.equal(payload.tool_choice, 'required');
+  assert.equal(payload.previous_response_id, 'resp_prev_789');
+  assert.equal(payload.prompt_cache_key, 'qq:group:101');
+  assert.equal(payload.prompt_cache_retention, '24h');
 });
 
 test('Codex provider keeps canonical instructions top-level and preserves parallel_tool_calls', () => {
@@ -72,6 +79,50 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.equal(payload.input[0]?.role, 'user');
   assert.equal(payload.input.some((item: any) => item?.role === 'system'), false);
   assert.equal(payload.tool_choice, 'required');
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'previous_response_id'), false);
+  assert.equal(payload.prompt_cache_key, 'qq:group:101');
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
+});
+
+test('Codex provider preserves reasoning items from SSE output', () => {
+  const provider = new TestCodexProvider({} as any);
+  const parsed = (provider as any).parseCodexSsePayload([
+    'event: response.output_item.done',
+    'data: {"type":"response.output_item.done","item":{"type":"reasoning","encrypted_content":"enc","summary":"done"}}',
+    '',
+    'event: response.output_item.done',
+    'data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}}',
+    '',
+    'event: response.completed',
+    'data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}'
+  ].join('\n'));
+
+  assert.deepEqual(parsed.output[0], {
+    type: 'reasoning',
+    encrypted_content: 'enc',
+    summary: 'done'
+  });
+  assert.equal(parsed.output[1]?.type, 'message');
+  assert.equal(parsed.output_text, 'hello');
+});
+
+test('buildTraceHeaders emits Codex-compatible session metadata headers', () => {
+  const headers = buildTraceHeaders({
+    traceId: 'trace-1',
+    agentTurn: 2,
+    llmCallId: 'llm-1',
+    sessionId: 'qq:group:101',
+    turnId: 'run-1',
+    sandbox: 'none'
+  });
+
+  assert.equal(headers['x-trace-id'], 'trace-1');
+  assert.equal(headers['x-agent-turn'], '2');
+  assert.equal(headers['x-llm-call-id'], 'llm-1');
+  assert.equal(headers.session_id, 'qq:group:101');
+  assert.match(headers['x-codex-turn-metadata'], /"session_id":"qq:group:101"/);
+  assert.match(headers['x-codex-turn-metadata'], /"turn_id":"run-1"/);
+  assert.match(headers['x-codex-turn-metadata'], /"sandbox":"none"/);
 });
 
 test('provider debug request builder maps systemPrompt into instructions instead of a synthetic system input message', () => {

@@ -1,4 +1,6 @@
+import { getPrismaClient } from '@qq-bot/persistence';
 import { FinalizedInboundContext } from '../types';
+import { databaseConfig } from '../config';
 import { estimateTokensFromText } from './llm-provider/helpers';
 import { computeContextThresholds, resolveModelContextPolicy } from './llm-provider/model-context-policy';
 import { ConversationStoreService, StoredConversationTurn } from './conversation-store-service';
@@ -16,6 +18,7 @@ export type SessionTranscriptState = {
   userId: number;
   groupId?: number | null;
   summaryText: string | null;
+  transcriptCompactOffset: number;
   snapshot: TranscriptSnapshotRecord | null;
   messages: SessionTranscriptMessage[];
   turns: StoredConversationTurn[];
@@ -38,6 +41,7 @@ export class SessionTranscriptService {
   private readonly snapshotService: TranscriptSnapshotService;
   private readonly systemPrompt: string;
   private readonly summaryWebhookUrl?: string;
+  private readonly prisma;
 
   constructor(params: {
     conversationStore: ConversationStoreService;
@@ -49,6 +53,14 @@ export class SessionTranscriptService {
     this.snapshotService = params.snapshotService;
     this.systemPrompt = params.systemPrompt;
     this.summaryWebhookUrl = params.summaryWebhookUrl;
+    this.prisma = getPrismaClient({
+      databaseUrl: databaseConfig.url,
+      host: databaseConfig.host,
+      port: databaseConfig.port,
+      user: databaseConfig.user,
+      password: databaseConfig.password,
+      database: databaseConfig.database
+    });
   }
 
   async loadSessionState(
@@ -61,10 +73,10 @@ export class SessionTranscriptService {
     }
 
     const snapshot = await this.snapshotService.getBySessionId(identity.sessionId);
+    const transcriptCompactOffset = await this.loadTranscriptCompactOffset(identity);
     const turns = await this.conversationStore.listRecentTurns({
       userId: identity.userId,
       groupId: identity.groupId,
-      limit: 20,
       afterConversationId:
         snapshot?.summary_status === 'ready'
           ? snapshot.summarized_through_conversation_id
@@ -89,6 +101,7 @@ export class SessionTranscriptService {
       userId: identity.userId,
       groupId: identity.groupId,
       summaryText,
+      transcriptCompactOffset,
       snapshot,
       messages,
       turns,
@@ -138,7 +151,7 @@ export class SessionTranscriptService {
       return;
     }
 
-    const turnsToSummarize = state.turns.slice(0, Math.max(0, state.turns.length - 6));
+    const turnsToSummarize = state.turns.slice(0, Math.max(0, state.turns.length - state.transcriptCompactOffset));
     if (turnsToSummarize.length === 0) {
       return;
     }
@@ -184,6 +197,40 @@ export class SessionTranscriptService {
       }).catch(() => undefined);
     });
   }
+
+  private async loadTranscriptCompactOffset(identity: {
+    chatType: 'direct' | 'group';
+    userId: number;
+    groupId?: number | null;
+  }) {
+    const defaultOffset = 6;
+
+    if (identity.chatType === 'group') {
+      if (!identity.groupId || !Number.isFinite(identity.groupId)) {
+        return defaultOffset;
+      }
+
+      const row = await this.prisma.groupChatSetting.findUnique({
+        where: { group_id: BigInt(identity.groupId) },
+        select: { transcript_compact_offset: true }
+      });
+      return normalizeCompactOffset(row?.transcript_compact_offset, defaultOffset);
+    }
+
+    const row = await this.prisma.privateChatSetting.findUnique({
+      where: { user_id: BigInt(identity.userId) },
+      select: { transcript_compact_offset: true }
+    });
+    return normalizeCompactOffset(row?.transcript_compact_offset, defaultOffset);
+  }
+}
+
+function normalizeCompactOffset(value: unknown, fallback: number) {
+  const numericValue = typeof value === 'bigint' ? Number(value) : Number(value);
+  if (!Number.isInteger(numericValue) || numericValue < 0) {
+    return fallback;
+  }
+  return numericValue;
 }
 
 function extractSessionIdentity(inboundContext: FinalizedInboundContext) {

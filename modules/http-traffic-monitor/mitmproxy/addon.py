@@ -281,29 +281,58 @@ class HTTPTrafficLogger:
             return
 
         try:
-            # 计算性能指标
-            end_time = datetime.now(timezone.utc)
-            start_time = flow.metadata.get('start_time', end_time)
-            duration_ms = int((end_time - start_time).total_seconds() * 1000)
-
-            # 分析请求特征
-            api_info = self._analyze_api_request(flow)
-
-            if not self._should_capture_flow(flow, api_info):
-                logger.debug(f"跳过非目标流量: {flow.request.method} {flow.request.pretty_url}")
-                return
-
-            # 构造日志记录
-            log_record = self._build_log_record(flow, duration_ms, api_info, start_time, end_time)
-
-            # 添加到批量处理队列
-            self._queue_log_record(log_record)
-
-            logger.debug(f"记录响应: {flow.request.method} {flow.request.pretty_url} -> {flow.response.status_code} ({duration_ms}ms)")
+            self._persist_flow_log(flow, reason='response')
 
         except Exception as e:
             logger.error(f"响应记录处理失败: {e}")
             logger.error(traceback.format_exc())
+
+    @concurrent
+    def error(self, flow: http.HTTPFlow) -> None:
+        """连接或协议错误拦截 - 记录未拿到响应的失败请求"""
+        if not self.config['enable_logging']:
+            return
+
+        try:
+            self._persist_flow_log(flow, reason='error')
+        except Exception as e:
+            logger.error(f"错误请求记录处理失败: {e}")
+            logger.error(traceback.format_exc())
+
+    def _persist_flow_log(self, flow: http.HTTPFlow, reason: str) -> None:
+        if flow.metadata.get('traffic_logged'):
+            return
+
+        end_time = self._resolve_flow_end_time(flow)
+        start_time = flow.metadata.get('start_time', end_time)
+        duration_ms = max(0, int((end_time - start_time).total_seconds() * 1000))
+        api_info = self._analyze_api_request(flow)
+
+        if not self._should_capture_flow(flow, api_info):
+            logger.debug(f"跳过非目标流量: {flow.request.method} {flow.request.pretty_url}")
+            return
+
+        log_record = self._build_log_record(flow, duration_ms, api_info, start_time, end_time)
+        self._queue_log_record(log_record)
+        flow.metadata['traffic_logged'] = True
+
+        if flow.response is not None:
+            logger.debug(
+                f"记录响应: {flow.request.method} {flow.request.pretty_url} -> "
+                f"{flow.response.status_code} ({duration_ms}ms)"
+            )
+        elif flow.error is not None:
+            logger.debug(
+                f"记录失败请求: {flow.request.method} {flow.request.pretty_url} -> "
+                f"{flow.error.msg} [{reason}] ({duration_ms}ms)"
+            )
+        else:
+            logger.debug(f"记录请求: {flow.request.method} {flow.request.pretty_url} [{reason}] ({duration_ms}ms)")
+
+    def _resolve_flow_end_time(self, flow: http.HTTPFlow) -> datetime:
+        if flow.error and getattr(flow.error, 'timestamp', None):
+            return datetime.fromtimestamp(flow.error.timestamp, timezone.utc)
+        return datetime.now(timezone.utc)
 
     def _should_capture_flow(self, flow: http.HTTPFlow, api_info: Dict[str, Any]) -> bool:
         if api_info.get('is_ai_request'):
@@ -514,6 +543,13 @@ class HTTPTrafficLogger:
         if flow.response and flow.response.status_code >= 400:
             record['error_code'] = str(flow.response.status_code)
             record['error_message'] = self._extract_error_message(response_body, flow.response.status_code)
+
+        if flow.error:
+            transport_error = str(flow.error)
+            if record['error_message']:
+                record['error_message'] = f"{record['error_message']} | transport_error: {transport_error}"
+            else:
+                record['error_message'] = transport_error
 
         return record
 

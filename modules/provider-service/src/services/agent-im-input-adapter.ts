@@ -1,6 +1,7 @@
 import {
   FinalizedInboundContext,
   InboundContext,
+  InboundMentionedUser,
 } from '../types';
 
 type OneBotMessageSegment = {
@@ -124,8 +125,21 @@ function normalizeWhitespace(value: string) {
 
 function normalizeMentionLabel(data: Record<string, unknown> | undefined) {
   return asNonEmptyString(data?.name)
-    || asNonEmptyString(data?.nickname)
-    || asNonEmptyString(data?.qq);
+    || asNonEmptyString(data?.nickname);
+}
+
+function resolveMentionLabel(
+  userId: string | undefined,
+  data: Record<string, unknown> | undefined,
+  rawMentionNicknames: Map<string, string>
+) {
+  if (!userId) {
+    return normalizeMentionLabel(data);
+  }
+
+  return normalizeMentionLabel(data)
+    || rawMentionNicknames.get(userId)
+    || userId;
 }
 
 function buildSessionKey(messageType: 'private' | 'group', botAccountId: string, userId: string, groupId?: string) {
@@ -245,7 +259,34 @@ function renderMediaFromSegment(segment: OneBotMessageSegment): RenderedMedia | 
   }
 }
 
-function renderFromSegments(segments: OneBotMessageSegment[], botAccountId: string): RenderedMessage {
+function buildMentionedUsers(mentionedUserIds: string[], mentionLabels: Map<string, string>): InboundMentionedUser[] | undefined {
+  if (mentionedUserIds.length === 0) {
+    return undefined;
+  }
+
+  const users: InboundMentionedUser[] = [];
+  const seen = new Set<string>();
+
+  for (const userId of mentionedUserIds) {
+    if (!userId || seen.has(userId)) {
+      continue;
+    }
+
+    seen.add(userId);
+    const label = mentionLabels.get(userId);
+    users.push(label && label !== userId
+      ? { userId, label }
+      : { userId });
+  }
+
+  return users.length > 0 ? users : undefined;
+}
+
+function renderFromSegments(
+  segments: OneBotMessageSegment[],
+  botAccountId: string,
+  rawMentionNicknames: Map<string, string>
+): RenderedMessage {
   const rawParts: string[] = [];
   const commandParts: string[] = [];
   const media: RenderedMedia[] = [];
@@ -264,7 +305,7 @@ function renderFromSegments(segments: OneBotMessageSegment[], botAccountId: stri
       }
       case 'at': {
         const userId = asNonEmptyString(data?.qq);
-        const label = normalizeMentionLabel(data) || userId || 'someone';
+        const label = resolveMentionLabel(userId, data, rawMentionNicknames) || 'someone';
         const mentionText = `@${label}`;
         pushText(rawParts, mentionText);
         if (userId) {
@@ -309,7 +350,11 @@ function renderFromSegments(segments: OneBotMessageSegment[], botAccountId: stri
   };
 }
 
-function renderFromRawMessage(rawMessage: string, botAccountId: string): RenderedMessage {
+function renderFromRawMessage(
+  rawMessage: string,
+  botAccountId: string,
+  rawMentionNicknames: Map<string, string>
+): RenderedMessage {
   const mentionLabels = new Map<string, string>();
   const mentionedUserIds: string[] = [];
   const replyMessageId = extractReplyMessageIdFromRaw(rawMessage);
@@ -319,9 +364,13 @@ function renderFromRawMessage(rawMessage: string, botAccountId: string): Rendere
       .replace(/\[CQ:reply,id=\d+\]/g, '')
       .replace(CQ_BOT_AT_REGEX, (_match, qq, name) => {
         const userId = String(qq);
+        const label = typeof name === 'string' && name.trim()
+          ? name.trim()
+          : rawMentionNicknames.get(userId)
+            || userId;
         mentionedUserIds.push(userId);
-        mentionLabels.set(userId, name || userId);
-        return `@${name || userId}`;
+        mentionLabels.set(userId, label);
+        return `@${label}`;
       })
       .replace(/\[CQ:image,[^\]]*\]/g, '[Image]')
       .replace(/\[CQ:(?:record|audio),[^\]]*\]/g, '<media:audio>')
@@ -365,12 +414,13 @@ function extractMentionNicknamesFromRawPayload(event: OneBotMessageEvent) {
 }
 
 function buildRenderedMessage(event: OneBotMessageEvent, botAccountId: string) {
+  const rawMentionNicknames = extractMentionNicknamesFromRawPayload(event);
   if (Array.isArray(event.message)) {
-    return renderFromSegments(event.message, botAccountId);
+    return renderFromSegments(event.message, botAccountId, rawMentionNicknames);
   }
 
   const rawCandidate = asString(event.raw_message) || asString(event.message) || '';
-  return renderFromRawMessage(rawCandidate, botAccountId);
+  return renderFromRawMessage(rawCandidate, botAccountId, rawMentionNicknames);
 }
 
 function buildMediaContext(media: RenderedMedia[]) {
@@ -503,6 +553,7 @@ export function buildNapcatInboundContext(params: BuildNapcatInboundContextParam
   const replyMessageId = rendered.replyMessageId || asNonEmptyString((event as Record<string, unknown>).reply_to_message_id);
   const cachedReply = replyMessageId ? params.replyCache?.get(replyMessageId) : undefined;
   const rawMentionNicknames = extractMentionNicknamesFromRawPayload(event);
+  const mentionedUsers = buildMentionedUsers(rendered.mentionedUserIds, rendered.mentionLabels);
   const botLabels = [
     rendered.mentionLabels.get(botAccountId),
     rawMentionNicknames.get(botAccountId),
@@ -550,9 +601,12 @@ export function buildNapcatInboundContext(params: BuildNapcatInboundContextParam
     ReplyToId: replyMessageId,
     ReplyToBody: cachedReply?.rawBody || rawReplyMetadata?.text,
     ReplyToSender: cachedReply?.senderName || rawReplyMetadata?.senderName || rawReplyMetadata?.senderId,
+    ReplyToSenderId: cachedReply?.senderId || rawReplyMetadata?.senderId,
+    ReplyToSenderName: cachedReply?.senderName || rawReplyMetadata?.senderName,
     ReplyToIsQuote: replyMessageId ? true : undefined,
     Timestamp: occurredAtMs,
     WasMentioned: messageType === 'group' ? wasMentioned : undefined,
+    MentionedUsers: mentionedUsers,
     CommandAuthorized: false,
     OriginatingChannel: 'qq',
     OriginatingTo: to,

@@ -1,8 +1,20 @@
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig } from '../config';
 import { logger } from '../utils/logger';
-import { AgentToolCall, ConversationTurn, QueueMessageRecord } from '../types';
-import { AgentPromptResolver, AgentPromptService, ResolvedAgentRuntimePrompt, applyPromptTemplate } from './agent-prompt-service';
+import {
+  AgentToolCall,
+  ConversationTranscriptItem,
+  ConversationTranscriptPhase,
+  ConversationTurn,
+  QueueMessageRecord
+} from '../types';
+import {
+  AgentPromptResolver,
+  AgentPromptService,
+  MissingAgentPromptBindingError,
+  ResolvedAgentRuntimePrompt,
+  applyPromptTemplate
+} from './agent-prompt-service';
 import { RuntimeStore } from './runtime-store';
 
 type OpenResponseInputItem =
@@ -10,6 +22,7 @@ type OpenResponseInputItem =
       type: 'message';
       role: 'system' | 'user' | 'assistant';
       content: string;
+      phase?: ConversationTranscriptPhase;
     }
   | {
       type: 'function_call';
@@ -21,6 +34,12 @@ type OpenResponseInputItem =
       type: 'function_call_output';
       call_id: string;
       output: string;
+    }
+  | {
+      type: 'reasoning';
+      content?: string;
+      encrypted_content?: string;
+      summary?: string;
     };
 
 type OpenResponseToolDefinition = {
@@ -36,13 +55,25 @@ type OpenResponseToolDefinition = {
   };
 };
 
+type ToolContinuationAction = {
+  inputItems: OpenResponseInputItem[];
+  finishResult: Record<string, unknown> | null;
+};
+
+type DeliveredAssistantMessage = {
+  content: string;
+  deliveryMessageId: number | null;
+};
+
 type CanonicalAgentTurnRequest = {
   model: string;
   input: OpenResponseInputItem[];
   instructions?: string;
+  metadata?: Record<string, string>;
   tools: OpenResponseToolDefinition[];
   tool_choice: 'required';
   parallel_tool_calls: false;
+  prompt_cache_key?: string;
 };
 
 type ProviderAgentResponse = {
@@ -55,8 +86,17 @@ type ProviderAgentResponse = {
     output?: Array<{
       type?: string;
       call_id?: string;
+      role?: 'assistant' | 'user' | 'system';
       name?: string;
       arguments?: string;
+      content?: Array<{
+        type?: string;
+        text?: string;
+      }>;
+      phase?: ConversationTranscriptPhase;
+      encrypted_content?: string;
+      summary?: string;
+      status?: string;
     }>;
   };
   canonical_request?: Record<string, unknown>;
@@ -72,69 +112,75 @@ type ProviderAgentResponse = {
 
 const moduleLogger = logger.createModuleLogger('agent-loop-service');
 
-const TOOL_DEFINITIONS = [
-  {
-    type: 'function',
-    function: {
-      name: 'send_private_message',
-      description: 'Send one or more QQ private messages. user_id is optional and defaults to the current conversation sender.',
-      parameters: {
-        type: 'object',
-        properties: {
-          user_id: { type: 'integer' },
-          message: { type: 'string' },
-          messages: {
-            type: 'array',
-            items: { type: 'string' }
-          }
-        },
-        additionalProperties: false
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'send_group_message',
-      description: 'Send one or more QQ group messages. group_id is optional and defaults to the current conversation group. mention_user_ids is optional.',
-      parameters: {
-        type: 'object',
-        properties: {
-          group_id: { type: 'integer' },
-          message: { type: 'string' },
-          messages: {
-            type: 'array',
-            items: { type: 'string' }
-          },
-          mention_user_ids: {
-            type: 'array',
-            items: { type: 'integer' }
-          }
-        },
-        additionalProperties: false
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'finish',
-      description: 'Finish the current agent run. Use this when no more messages should be sent.',
-      parameters: {
-        type: 'object',
-        properties: {
-          reason: { type: 'string' },
-          outcome: { type: 'string' }
-        },
-        additionalProperties: false
-      }
+const PRIVATE_MESSAGE_TOOL = {
+  type: 'function',
+  function: {
+    name: 'send_private_message',
+    description: 'Send one or more QQ private messages to the current conversation sender.',
+    parameters: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        messages: {
+          type: 'array',
+          items: { type: 'string' }
+        }
+      },
+      additionalProperties: false
     }
   }
-] as const;
+} as const;
+
+const GROUP_MESSAGE_TOOL = {
+  type: 'function',
+  function: {
+    name: 'send_group_message',
+    description: 'Send one or more QQ group messages to the current conversation group. mention_user_ids is optional.',
+    parameters: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        messages: {
+          type: 'array',
+          items: { type: 'string' }
+        },
+        mention_user_ids: {
+          type: 'array',
+          items: { type: 'integer' }
+        }
+      },
+      additionalProperties: false
+    }
+  }
+} as const;
+
+const FINISH_TOOL = {
+  type: 'function',
+  function: {
+    name: 'finish',
+    description: 'Finish the current agent run. Use this when no more messages should be sent.',
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string' },
+        outcome: { type: 'string' }
+      },
+      additionalProperties: false
+    }
+  }
+} as const;
+
+function selectToolDefinitions(chatType: 'group' | 'direct'): OpenResponseToolDefinition[] {
+  if (chatType === 'group') {
+    return [GROUP_MESSAGE_TOOL, FINISH_TOOL];
+  }
+  return [PRIVATE_MESSAGE_TOOL, FINISH_TOOL];
+}
 
 export function buildCanonicalAgentTurnRequest(
   modelName: string,
-  loopInput: OpenResponseInputItem[]
+  loopInput: OpenResponseInputItem[],
+  chatType: 'group' | 'direct'
 ): CanonicalAgentTurnRequest {
   const [firstItem, ...remainingItems] = loopInput;
   const instructions = firstItem?.type === 'message' && firstItem.role === 'system'
@@ -145,11 +191,280 @@ export function buildCanonicalAgentTurnRequest(
     model: modelName,
     input: instructions ? remainingItems : loopInput,
     ...(instructions ? { instructions } : {}),
-    tools: [...TOOL_DEFINITIONS],
+    tools: selectToolDefinitions(chatType),
     tool_choice: 'required',
     parallel_tool_calls: false
   };
 }
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function formatIdentity(label?: string, id?: string) {
+  const normalizedLabel = typeof label === 'string' ? label.trim() : '';
+  const normalizedId = typeof id === 'string' ? id.trim() : '';
+
+  if (normalizedLabel && normalizedId && normalizedLabel !== normalizedId) {
+    return `{${normalizedLabel}(@${normalizedId})}`;
+  }
+  if (normalizedId) {
+    return `{@${normalizedId}}`;
+  }
+  if (normalizedLabel) {
+    return `{${normalizedLabel}}`;
+  }
+  return '{unknown}';
+}
+
+function formatMessageSender(message: QueueMessageRecord['payload']['messages'][number]) {
+  return formatIdentity(message.senderName, message.senderId);
+}
+
+function formatReplyTarget(inboundContext: QueueMessageRecord['payload']['inboundContext']) {
+  return formatIdentity(
+    inboundContext.ReplyToSenderName || inboundContext.ReplyToSender,
+    inboundContext.ReplyToSenderId
+  );
+}
+
+function normalizePromptMessageText(
+  text: string,
+  mentionedUsers: QueueMessageRecord['payload']['inboundContext']['MentionedUsers']
+) {
+  let rendered = text;
+  const replacements = Array.isArray(mentionedUsers) ? mentionedUsers : [];
+  const placeholders: Array<{ token: string; value: string }> = [];
+  let placeholderIndex = 0;
+
+  for (const mentionedUser of replacements) {
+    const userId = typeof mentionedUser?.userId === 'string' ? mentionedUser.userId.trim() : '';
+    const label = typeof mentionedUser?.label === 'string' ? mentionedUser.label.trim() : '';
+    const canonical = formatIdentity(label || undefined, userId || undefined);
+    const patterns = [label ? `@${label}` : null, userId ? `@${userId}` : null]
+      .filter((pattern): pattern is string => Boolean(pattern));
+
+    for (const pattern of patterns) {
+      const token = `__MENTION_${placeholderIndex += 1}__`;
+      const nextRendered = rendered.replace(new RegExp(escapeRegExp(pattern), 'g'), token);
+      if (nextRendered !== rendered) {
+        rendered = nextRendered;
+        placeholders.push({ token, value: canonical });
+      }
+    }
+  }
+
+  for (const { token, value } of placeholders) {
+    rendered = rendered.replace(new RegExp(escapeRegExp(token), 'g'), value);
+  }
+
+  return rendered;
+}
+
+function renderPromptBatchMessage(
+  message: QueueMessageRecord['payload']['messages'][number],
+  index: number
+) {
+  const speaker = formatMessageSender(message);
+  const body = normalizePromptMessageText(message.bodyForAgent, message.inboundContext.MentionedUsers);
+  const firstLine = `#${index + 1} ${speaker}${message.wasMentioned ? ' [mentioned bot]' : ''}: ${body}`;
+  const lines = [firstLine];
+
+  if (message.inboundContext.ReplyToBody) {
+    lines.push(`ReplyTo=${formatReplyTarget(message.inboundContext)}: ${message.inboundContext.ReplyToBody}`);
+  }
+
+  return lines.join('\n');
+}
+
+function buildCurrentTurnMessage(queueMessage: QueueMessageRecord['payload']) {
+  return queueMessage.messages.map((message, index) => renderPromptBatchMessage(message, index)).join('\n');
+}
+
+function buildAgentTurnMetadata(
+  queueMessage: QueueMessageRecord['payload'],
+  runtimePrompt: ResolvedAgentRuntimePrompt
+) {
+  const metadata: Record<string, string> = {
+    trace_id: queueMessage.traceId,
+    run_id: queueMessage.runId,
+    batch_id: queueMessage.batchId,
+    session_key: queueMessage.sessionKey,
+    session_id: queueMessage.sessionKey,
+    turn_id: queueMessage.runId,
+    sandbox: 'none',
+    chat_type: queueMessage.chatType,
+    prompt_name: runtimePrompt.promptName,
+  };
+
+  if (runtimePrompt.promptId) {
+    metadata.prompt_id = runtimePrompt.promptId;
+  }
+
+  return metadata;
+}
+
+function buildPromptCacheKey(
+  queueMessage: QueueMessageRecord['payload'],
+  _runtimePrompt: ResolvedAgentRuntimePrompt
+) {
+  return queueMessage.sessionKey;
+}
+
+function buildMainAgentParameters(parameters: Record<string, unknown> | null | undefined) {
+  const base = parameters && typeof parameters === 'object' && !Array.isArray(parameters)
+    ? JSON.parse(JSON.stringify(parameters)) as Record<string, unknown>
+    : {};
+
+  const modelConfig = base.model_config && typeof base.model_config === 'object' && !Array.isArray(base.model_config)
+    ? base.model_config as Record<string, unknown>
+    : {};
+  const providerSpecific = modelConfig.providerSpecific && typeof modelConfig.providerSpecific === 'object' && !Array.isArray(modelConfig.providerSpecific)
+    ? modelConfig.providerSpecific as Record<string, unknown>
+    : {};
+
+  providerSpecific.reasoningEffort = 'none';
+  modelConfig.providerSpecific = providerSpecific;
+  base.model_config = modelConfig;
+
+  return base;
+}
+
+function buildInboundBatchTranscriptItems(
+  queueMessage: QueueMessageRecord['payload']
+): Array<{
+  sessionKey: string;
+  role: 'user';
+  content: string;
+  groupIndex: 0;
+  itemIndex: number;
+  source: 'inbound_batch';
+  runId: string;
+  traceId: string;
+}> {
+  return queueMessage.messages.map((message, index) => ({
+    sessionKey: queueMessage.sessionKey,
+    role: 'user' as const,
+    content: renderPromptBatchMessage(message, index),
+    groupIndex: 0 as const,
+    itemIndex: index,
+    source: 'inbound_batch' as const,
+    runId: queueMessage.runId,
+    traceId: queueMessage.traceId
+  }));
+}
+
+function extractDeliveryMessageIds(delivery: unknown): Array<number | null> {
+  if (Array.isArray(delivery)) {
+    return delivery.map((item) => {
+      const raw = item && typeof item === 'object' ? (item as { message_id?: unknown }).message_id : null;
+      const value = typeof raw === 'number' ? raw : Number(raw);
+      return Number.isFinite(value) ? value : null;
+    });
+  }
+
+  if (delivery && typeof delivery === 'object') {
+    const deliveryRecord = delivery as {
+      message_id?: unknown;
+      messageId?: unknown;
+      messages?: unknown;
+      deliveries?: unknown;
+    };
+    if (Array.isArray(deliveryRecord.messages)) {
+      return extractDeliveryMessageIds(deliveryRecord.messages);
+    }
+    if (Array.isArray(deliveryRecord.deliveries)) {
+      return extractDeliveryMessageIds(deliveryRecord.deliveries);
+    }
+
+    const raw = deliveryRecord.message_id ?? deliveryRecord.messageId;
+    const value = typeof raw === 'number' ? raw : Number(raw);
+    if (Number.isFinite(value)) {
+      return [value];
+    }
+  }
+
+  return [];
+}
+
+function extractDeliveredAssistantMessages(toolResult: Record<string, unknown>): DeliveredAssistantMessage[] {
+  const messages = extractSentMessages(toolResult);
+  const deliveryIds = extractDeliveryMessageIds(toolResult.delivery);
+
+  return messages.map((content, index) => ({
+    content,
+    deliveryMessageId: deliveryIds[index] ?? null
+  }));
+}
+
+function buildAssistantTranscriptItems(params: {
+  queueMessage: QueueMessageRecord['payload'];
+  deliveredMessages: DeliveredAssistantMessage[];
+  completed: boolean;
+}): ConversationTranscriptItem[] {
+  if (params.deliveredMessages.length === 0) {
+    return [];
+  }
+
+  return params.deliveredMessages.map((message, index) => {
+    const isFinalMessage = params.completed && index === params.deliveredMessages.length - 1;
+    return {
+      id: null,
+      conversationId: 0,
+      sessionKey: params.queueMessage.sessionKey,
+      role: 'assistant',
+      phase: isFinalMessage ? 'final_answer' : 'commentary',
+      content: message.content,
+      groupIndex: 1,
+      itemIndex: index,
+      source: 'delivery',
+      deliveryMessageId: message.deliveryMessageId,
+      runId: params.queueMessage.runId,
+      traceId: params.queueMessage.traceId
+    };
+  });
+}
+
+function composeSystemPrompt(systemPrompt: string, summaryText?: string | null) {
+  const normalizedSummary = typeof summaryText === 'string' ? summaryText.trim() : '';
+  if (!normalizedSummary) {
+    return systemPrompt;
+  }
+  return `${systemPrompt.trim()}\n\nConversation summary:\n${normalizedSummary}`;
+}
+
+export function applyToolResultToLoopInput(
+  toolCall: Pick<AgentToolCall, 'name' | 'callId' | 'rawArguments'>,
+  toolResult: Record<string, unknown>
+): ToolContinuationAction {
+  if (toolCall.name === 'finish') {
+    return {
+      inputItems: [],
+      finishResult: toolResult
+    };
+  }
+
+  const inputItems: OpenResponseInputItem[] = [{
+    type: 'function_call_output',
+    call_id: toolCall.callId,
+    output: JSON.stringify(toolResult)
+  }];
+  return {
+    inputItems,
+    finishResult: null
+  };
+}
+
+type ReplayableModelOutput = {
+  type: 'tool_call';
+  inputItem: OpenResponseInputItem & {
+    type: 'function_call';
+    call_id: string;
+    name: string;
+    arguments: string;
+  };
+  toolCall: AgentToolCall;
+};
 
 export class AgentLoopService {
   constructor(
@@ -176,19 +491,9 @@ export class AgentLoopService {
 
     let conversationId: number | null = null;
     let turnsExecuted = 0;
-    let sentMessages: string[] = [];
+    let deliveredMessages: DeliveredAssistantMessage[] = [];
     let historyCount = 0;
-    let runtimePrompt: ResolvedAgentRuntimePrompt = {
-      source: 'default',
-      promptId: null,
-      promptName: 'agent_loop_v1',
-      systemPrompt: agentConfig.systemPrompt,
-      userPromptTemplate: null,
-      contextVariables: {},
-      runtimeVariables: {},
-      modelName: agentConfig.modelName,
-      parameters: {}
-    };
+    let runtimePrompt: ResolvedAgentRuntimePrompt | null = null;
 
     await this.store.logTimelineEvent({
       traceId: payload.traceId,
@@ -213,26 +518,43 @@ export class AgentLoopService {
     });
 
     try {
-      const history = await this.store.listRecentTurns({
+      const replayState = await this.store.loadSessionReplayState({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId
+      });
+      const history = await this.store.listRecentTurns({
+        userId: sessionIds.userId,
+        groupId: sessionIds.groupId,
+        afterConversationId: replayState.summarizedThroughConversationId
       });
       historyCount = history.length;
 
       runtimePrompt = await this.promptResolver.resolveForQueueMessage(payload);
-      const loopInput = buildInitialInput(history, payload, runtimePrompt);
+      let cumulativeInput = buildInitialInput(history, payload, runtimePrompt, {
+        summaryText: replayState.summaryText
+      });
+      let requestInput = cumulativeInput;
       let finishResult: Record<string, unknown> | null = null;
 
       for (let turn = 1; turn <= agentConfig.maxTurns; turn += 1) {
         turnsExecuted = turn;
-        const modelResult = await this.executeAgentTurn(loopInput, payload.traceId, turn, runtimePrompt);
-        const toolCalls = extractToolCalls(modelResult.canonical_response);
+        const modelResult = await this.executeAgentTurn(
+          requestInput,
+          payload,
+          payload.traceId,
+          turn,
+          runtimePrompt
+        );
+        const replayableOutputs = extractReplayableModelOutputs(modelResult.canonical_response);
+        const hasToolCall = replayableOutputs.some((item) => item.type === 'tool_call');
 
-        if (toolCalls.length === 0) {
+        if (!hasToolCall) {
           throw new Error('Agent did not emit any tool call before finish');
         }
 
-        for (const toolCall of toolCalls) {
+        for (const replayItem of replayableOutputs) {
+          cumulativeInput.push(replayItem.inputItem);
+          const toolCall = replayItem.toolCall;
           const logId = await this.store.createToolExecutionLog({
             traceId: payload.traceId,
             jobId,
@@ -250,7 +572,7 @@ export class AgentLoopService {
             const toolResult = toolCall.name === 'finish'
               ? {
                   ...rawToolResult,
-                  no_reply: sentMessages.length === 0
+                  no_reply: deliveredMessages.length === 0
                 }
               : rawToolResult;
             await this.store.completeToolExecutionLog(logId, {
@@ -258,26 +580,19 @@ export class AgentLoopService {
               result: toolResult
             });
 
-            loopInput.push({
-              type: 'function_call',
-              call_id: toolCall.callId,
-              name: toolCall.name,
-              arguments: toolCall.rawArguments
-            });
-            loopInput.push({
-              type: 'function_call_output',
-              call_id: toolCall.callId,
-              output: JSON.stringify(toolResult)
-            });
-
             if (toolCall.name === 'send_private_message' || toolCall.name === 'send_group_message') {
-              sentMessages.push(...extractSentMessages(toolResult));
+              deliveredMessages.push(...extractDeliveredAssistantMessages(toolResult));
             }
 
-            if (toolCall.name === 'finish') {
-              finishResult = toolResult;
+            const continuation = applyToolResultToLoopInput(toolCall, toolResult);
+            if (continuation.finishResult) {
+              finishResult = continuation.finishResult;
               break;
             }
+            if (continuation.inputItems.length > 0) {
+              cumulativeInput.push(...continuation.inputItems);
+            }
+            requestInput = cumulativeInput;
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             await this.store.completeToolExecutionLog(logId, {
@@ -305,10 +620,11 @@ export class AgentLoopService {
         throw new Error(`Agent exited without finish after ${turnsExecuted} turns`);
       }
 
+      const sentMessages = deliveredMessages.map((message) => message.content);
       const finalResponse = sentMessages.length > 0 ? sentMessages.join('\n\n') : null;
       const termination = deriveTermination({
         finishResult,
-        sentMessages,
+        deliveredMessages,
         errorMessage: null
       });
       conversationId = await this.store.createConversation({
@@ -316,9 +632,29 @@ export class AgentLoopService {
         groupId: sessionIds.groupId,
         userMessage: renderConversationInput(payload),
         aiResponse: finalResponse,
+        sessionKey: payload.sessionKey,
+        transcriptItems: [
+          ...buildInboundBatchTranscriptItems(payload),
+          ...buildAssistantTranscriptItems({
+            queueMessage: payload,
+            deliveredMessages,
+            completed: true
+          }).map((item) => ({
+            sessionKey: item.sessionKey,
+            role: item.role,
+            phase: item.phase,
+            content: item.content,
+            groupIndex: item.groupIndex,
+            itemIndex: item.itemIndex,
+            source: item.source,
+            deliveryMessageId: item.deliveryMessageId,
+            runId: item.runId,
+            traceId: item.traceId
+          }))
+        ],
         responseTimeMs: Date.now() - startedAt,
         status: 'completed',
-        modelName: runtimePrompt.modelName,
+        modelName: runtimePrompt?.modelName || null,
         traceId: payload.traceId,
         rawRequest: {
           run_id: queueMessage.id,
@@ -394,20 +730,42 @@ export class AgentLoopService {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const sentMessages = deliveredMessages.map((item) => item.content);
       const termination = deriveTermination({
         finishResult: null,
-        sentMessages,
-        errorMessage: message
+        deliveredMessages,
+        errorMessage: message,
+        error
       });
       conversationId = await this.store.createConversation({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
         userMessage: renderConversationInput(payload),
         aiResponse: null,
+        sessionKey: payload.sessionKey,
+        transcriptItems: [
+          ...buildInboundBatchTranscriptItems(payload),
+          ...buildAssistantTranscriptItems({
+            queueMessage: payload,
+            deliveredMessages,
+            completed: false
+          }).map((item) => ({
+            sessionKey: item.sessionKey,
+            role: item.role,
+            phase: item.phase,
+            content: item.content,
+            groupIndex: item.groupIndex,
+            itemIndex: item.itemIndex,
+            source: item.source,
+            deliveryMessageId: item.deliveryMessageId,
+            runId: item.runId,
+            traceId: item.traceId
+          }))
+        ],
         responseTimeMs: Date.now() - startedAt,
         status: 'failed',
         errorReason: message,
-        modelName: runtimePrompt.modelName,
+        modelName: runtimePrompt?.modelName || null,
         traceId: payload.traceId,
         rawRequest: {
           run_id: queueMessage.id,
@@ -416,10 +774,10 @@ export class AgentLoopService {
           batch_messages: payload.messages,
           history_count: historyCount,
           prompt: {
-            source: runtimePrompt.source,
-            prompt_id: runtimePrompt.promptId,
-            prompt_name: runtimePrompt.promptName,
-            model_name: runtimePrompt.modelName
+            source: runtimePrompt?.source || null,
+            prompt_id: runtimePrompt?.promptId || null,
+            prompt_name: runtimePrompt?.promptName || null,
+            model_name: runtimePrompt?.modelName || null
           }
         },
         rawResponse: {
@@ -454,7 +812,11 @@ export class AgentLoopService {
         eventName: 'agent_run',
         eventPhase: 'end',
         conversationId,
-        metadata: { error_message: message, total_turns: turnsExecuted },
+        metadata: {
+          error_message: message,
+          total_turns: turnsExecuted,
+          termination_reason: termination.terminationReason
+        },
         durationMs: Date.now() - startedAt
       });
       moduleLogger.error('Agent queue message failed', {
@@ -468,12 +830,17 @@ export class AgentLoopService {
   }
 
   private async executeAgentTurn(
-    loopInput: OpenResponseInputItem[],
+    turnInput: OpenResponseInputItem[],
+    queueMessage: QueueMessageRecord['payload'],
     traceId: string,
     turn: number,
     runtimePrompt: ResolvedAgentRuntimePrompt
   ) {
-    const canonicalRequest = buildCanonicalAgentTurnRequest(runtimePrompt.modelName, loopInput);
+    const canonicalRequest: CanonicalAgentTurnRequest = {
+      ...buildCanonicalAgentTurnRequest(runtimePrompt.modelName, turnInput, queueMessage.chatType),
+      metadata: buildAgentTurnMetadata(queueMessage, runtimePrompt),
+      prompt_cache_key: buildPromptCacheKey(queueMessage, runtimePrompt)
+    };
     const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
       method: 'POST',
       headers: {
@@ -485,7 +852,7 @@ export class AgentLoopService {
         agent_type: 'chat_bot',
         prompt_name: runtimePrompt.promptName,
         model: runtimePrompt.modelName,
-        parameters: runtimePrompt.parameters,
+        parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
         canonicalRequest
       })
     });
@@ -520,12 +887,13 @@ export class AgentLoopService {
     args: Record<string, unknown>,
     queueMessage: QueueMessageRecord['payload']
   ) {
+    const sanitizedArgs = omitTargetOverrideArgs(args, messageType, queueMessage.traceId);
+
     if (messageType === 'private') {
-      const defaultUserId = Number(queueMessage.senderId);
-      const userId = args.user_id === undefined ? defaultUserId : Number(args.user_id);
-      const messages = normalizeMessages(args);
+      const userId = resolvePrivateTargetUserId(queueMessage);
+      const messages = normalizeMessages(sanitizedArgs);
       if (!Number.isFinite(userId) || messages.length === 0) {
-        throw new Error('send_private_message requires a valid user_id or current private target, plus message or messages');
+        throw new Error('send_private_message requires a valid current private target plus message or messages');
       }
 
       const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/send_private`, {
@@ -544,18 +912,16 @@ export class AgentLoopService {
       }
       return {
         message_type: 'private',
-        user_id: userId,
         sent_messages: messages,
         delivery: payload.data || null
       };
     }
 
-    const defaultGroupId = Number(queueMessage.inboundContext.NativeChannelId || queueMessage.peerId);
-    const groupId = args.group_id === undefined ? defaultGroupId : Number(args.group_id);
-    const messages = normalizeMessages(args);
-    const mentionUserIds = normalizeOptionalIntegerList(args.mention_user_ids);
+    const groupId = resolveGroupTargetId(queueMessage);
+    const messages = normalizeMessages(sanitizedArgs);
+    const mentionUserIds = normalizeOptionalIntegerList(sanitizedArgs.mention_user_ids);
     if (!Number.isFinite(groupId) || messages.length === 0) {
-      throw new Error('send_group_message requires a valid group_id or current group target, plus message or messages');
+      throw new Error('send_group_message requires a valid current group target plus message or messages');
     }
 
     const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/send_group`, {
@@ -575,7 +941,6 @@ export class AgentLoopService {
     }
     return {
       message_type: 'group',
-      group_id: groupId,
       mention_user_ids: mentionUserIds,
       sent_messages: messages,
       delivery: payload.data || null
@@ -591,61 +956,69 @@ export function buildInitialInput(
     userPromptTemplate: null,
     contextVariables: {},
     runtimeVariables: {}
-  }
+  },
+  options: {
+    summaryText?: string | null;
+  } = {}
 ): OpenResponseInputItem[] {
   const items: OpenResponseInputItem[] = [
     {
       type: 'message',
       role: 'system',
-      content: runtimePrompt.systemPrompt
+      content: composeSystemPrompt(runtimePrompt.systemPrompt, options.summaryText)
     }
   ];
 
   for (const turn of history) {
-    items.push({
-      type: 'message',
-      role: 'user',
-      content: turn.userMessage
-    });
-    if (turn.aiResponse) {
+    const transcriptItems = Array.isArray(turn.items) && turn.items.length > 0
+      ? turn.items
+      : [];
+
+    if (transcriptItems.length === 0) {
       items.push({
         type: 'message',
-        role: 'assistant',
-        content: turn.aiResponse
+        role: 'user',
+        content: turn.userMessage
+      });
+      if (turn.aiResponse) {
+        items.push({
+          type: 'message',
+          role: 'assistant',
+          content: turn.aiResponse
+        });
+      }
+      continue;
+    }
+
+    for (const transcriptItem of transcriptItems) {
+      if (transcriptItem.role === 'assistant') {
+        items.push({
+          type: 'message',
+          role: 'assistant',
+          content: transcriptItem.content,
+          ...(transcriptItem.phase ? { phase: transcriptItem.phase } : {})
+        });
+        continue;
+      }
+
+      items.push({
+        type: 'message',
+        role: 'user',
+        content: transcriptItem.content
       });
     }
   }
 
-  const context = queueMessage.inboundContext;
-  const batchMessages = queueMessage.messages.map((message, index) => {
-    const parts = [
-      `#${index + 1}`,
-      `Sender=${message.senderName || message.senderId}`,
-      `ReceivedAt=${message.receivedAt}`,
-      `WasMentioned=${message.wasMentioned ? 'yes' : 'no'}`,
-      `Message=${message.bodyForAgent}`
-    ];
-    if (message.inboundContext.ReplyToBody) {
-      parts.push(`ReplyTo=${message.inboundContext.ReplyToBody}`);
-    }
-    return parts.join('\n');
-  }).join('\n\n');
-  const currentMessage = [
-    `Trace: ${queueMessage.traceId}`,
-    `RunId: ${queueMessage.runId}`,
-    `BatchId: ${queueMessage.batchId}`,
-    `ChatType: ${queueMessage.chatType}`,
-    `SessionKey: ${queueMessage.sessionKey}`,
-    `BatchMessageCount: ${queueMessage.messages.length}`,
-    `DefaultPrivateTarget: ${queueMessage.senderId}`,
-    `DefaultGroupTarget: ${context.NativeChannelId || 'none'}`,
-    'ToolUsage: send_private_message and send_group_message may omit target ids to use the defaults above.',
-    'ToolUsage: use messages when the reply should be split into multiple outbound messages.',
-    'ToolUsage: send_group_message may include mention_user_ids to @ specific people; if multiple messages are sent, mentions apply to the first outbound message only.',
-    `SenderName: ${queueMessage.senderName || 'unknown'}`,
-    'BatchMessages:',
-    batchMessages
-  ].join('\n');
+  items.push(buildCurrentTurnInputItem(queueMessage, runtimePrompt));
+
+  return items;
+}
+
+function buildCurrentTurnInputItem(
+  queueMessage: QueueMessageRecord['payload'],
+  runtimePrompt: Pick<ResolvedAgentRuntimePrompt, 'userPromptTemplate' | 'contextVariables' | 'runtimeVariables'>
+): OpenResponseInputItem {
+  const currentMessage = buildCurrentTurnMessage(queueMessage);
   const renderedCurrentMessage = runtimePrompt.userPromptTemplate
     ? applyPromptTemplate(runtimePrompt.userPromptTemplate, runtimePrompt.contextVariables, {
         ...runtimePrompt.runtimeVariables,
@@ -653,33 +1026,41 @@ export function buildInitialInput(
       })
     : currentMessage;
 
-  items.push({
+  return {
     type: 'message',
     role: 'user',
     content: renderedCurrentMessage
-  });
-
-  return items;
+  };
 }
 
 function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
   return queueMessage.messages
-    .map((message, index) => `#${index + 1} ${message.senderName || message.senderId}: ${message.bodyForAgent}`)
+    .map((message, index) => renderPromptBatchMessage(message, index))
     .join('\n');
 }
 
 function deriveTermination(params: {
   finishResult: Record<string, unknown> | null;
-  sentMessages: string[];
+  deliveredMessages: DeliveredAssistantMessage[];
   errorMessage: string | null;
+  error?: unknown;
 }) {
   const finishReason = typeof params.finishResult?.reason === 'string' ? params.finishResult.reason : null;
   const finishOutcome = typeof params.finishResult?.outcome === 'string' ? params.finishResult.outcome : null;
-  const noReply = params.sentMessages.length === 0;
+  const noReply = params.deliveredMessages.length === 0;
 
   if (params.errorMessage) {
+    if (params.error instanceof MissingAgentPromptBindingError) {
+      return {
+        terminationReason: 'prompt_binding_error',
+        finishReason,
+        finishOutcome,
+        noReply: true
+      };
+    }
+
     return {
-      terminationReason: params.sentMessages.length > 0 ? 'delivery_error' : 'agent_runtime_error',
+      terminationReason: params.deliveredMessages.length > 0 ? 'delivery_error' : 'agent_runtime_error',
       finishReason,
       finishOutcome,
       noReply
@@ -703,15 +1084,48 @@ function deriveTermination(params: {
   };
 }
 
-function resolveSessionTargets(queueMessage: QueueMessageRecord['payload']) {
-  const userId = Number(queueMessage.senderId);
-  const groupId = queueMessage.chatType === 'group'
-    ? Number(queueMessage.inboundContext.NativeChannelId || queueMessage.peerId)
-    : null;
+function omitTargetOverrideArgs(
+  args: Record<string, unknown>,
+  messageType: 'private' | 'group',
+  traceId: string
+) {
+  const overrideKey = messageType === 'private' ? 'user_id' : 'group_id';
+  if (!(overrideKey in args)) {
+    return args;
+  }
 
+  const { [overrideKey]: _ignored, ...rest } = args;
+  moduleLogger.warn('Ignoring LLM-supplied message target override', {
+    trace_id: traceId,
+    message_type: messageType,
+    ignored_argument: overrideKey
+  });
+  return rest;
+}
+
+function resolvePrivateTargetUserId(queueMessage: QueueMessageRecord['payload']) {
+  const userId = Number(queueMessage.senderId);
   if (!Number.isFinite(userId)) {
     throw new Error(`Invalid sender id in queue payload: ${queueMessage.senderId}`);
   }
+  return userId;
+}
+
+function resolveGroupTargetId(queueMessage: QueueMessageRecord['payload']) {
+  const groupId = Number(queueMessage.inboundContext.NativeChannelId || queueMessage.peerId);
+  if (!Number.isFinite(groupId)) {
+    throw new Error(
+      `Invalid group target in queue payload: ${queueMessage.inboundContext.NativeChannelId || queueMessage.peerId || 'unknown'}`
+    );
+  }
+  return groupId;
+}
+
+function resolveSessionTargets(queueMessage: QueueMessageRecord['payload']) {
+  const userId = resolvePrivateTargetUserId(queueMessage);
+  const groupId = queueMessage.chatType === 'group'
+    ? resolveGroupTargetId(queueMessage)
+    : null;
 
   return {
     userId,
@@ -719,9 +1133,9 @@ function resolveSessionTargets(queueMessage: QueueMessageRecord['payload']) {
   };
 }
 
-function extractToolCalls(response: ProviderAgentResponse['canonical_response']): AgentToolCall[] {
+function extractReplayableModelOutputs(response: ProviderAgentResponse['canonical_response']): ReplayableModelOutput[] {
   const output = Array.isArray(response?.output) ? response.output : [];
-  const toolCalls: AgentToolCall[] = [];
+  const replayItems: ReplayableModelOutput[] = [];
 
   for (const item of output) {
     if (item?.type !== 'function_call' || typeof item.name !== 'string') {
@@ -736,15 +1150,25 @@ function extractToolCalls(response: ProviderAgentResponse['canonical_response'])
       args = {};
     }
 
-    toolCalls.push({
-      callId: item.call_id || `tool_${uuidv4().slice(0, 8)}`,
-      name: item.name,
-      args,
-      rawArguments
+    const callId = item.call_id || `tool_${uuidv4().slice(0, 8)}`;
+    replayItems.push({
+      type: 'tool_call',
+      inputItem: {
+        type: 'function_call',
+        call_id: callId,
+        name: item.name,
+        arguments: rawArguments
+      },
+      toolCall: {
+        callId,
+        name: item.name,
+        args,
+        rawArguments
+      }
     });
   }
 
-  return toolCalls;
+  return replayItems;
 }
 
 function normalizeMessages(args: Record<string, unknown>) {

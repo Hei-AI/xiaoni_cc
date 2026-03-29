@@ -13,6 +13,7 @@ model GroupChatSetting {
   group_name         String?
   is_enabled         Int       @default(1)
   auto_reply_enabled Int       @default(0)
+  transcript_compact_offset Int @default(6)
   welcome_message    String?
   admin_user_id      BigInt?   @db.BigInt
   agent_prompt_id    String?
@@ -28,6 +29,7 @@ model PrivateChatSetting {
   username           String?
   is_enabled         Int       @default(1)
   auto_reply_enabled Int       @default(0)
+  transcript_compact_offset Int @default(6)
   welcome_message    String?
   user_notes         String?
   agent_prompt_id    String?
@@ -112,6 +114,26 @@ model HttpTrafficLog {
   created_at            DateTime  @default(now()) @db.Timestamp(3)
 
   @@map("http_traffic_logs")
+}
+
+model ConversationItem {
+  id                 BigInt   @id @default(autoincrement()) @db.BigInt
+  conversation_id    BigInt   @db.BigInt
+  session_key        String?  @db.VarChar(191)
+  role               String   @db.VarChar(16)
+  phase              String?  @db.VarChar(32)
+  content            String
+  group_index        Int      @default(0)
+  item_index         Int      @default(0)
+  source             String   @db.VarChar(32)
+  delivery_message_id BigInt? @db.BigInt
+  run_id             String?  @db.VarChar(128)
+  trace_id           String?  @db.VarChar(128)
+  created_at         DateTime @default(now()) @db.Timestamp(3)
+
+  @@index([conversation_id, group_index, item_index, id], map: "idx_conversation_items_conversation_group_item")
+  @@index([session_key, created_at, id], map: "idx_conversation_items_session_created")
+  @@map("conversation_items")
 }
 
 model TrafficReplayHistory {

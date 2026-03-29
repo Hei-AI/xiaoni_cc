@@ -9,6 +9,7 @@ interface PrivateChatSettingRow {
   username: string | null;
   is_enabled: number;
   auto_reply_enabled: number;
+  transcript_compact_offset: number | null;
   welcome_message: string | null;
   user_notes: string | null;
   agent_prompt_id: string | null;
@@ -20,6 +21,7 @@ interface GroupChatSettingRow {
   group_name: string | null;
   is_enabled: number;
   auto_reply_enabled: number;
+  transcript_compact_offset: number | null;
   welcome_message: string | null;
   admin_user_id: number | null;
   agent_prompt_id: string | null;
@@ -110,6 +112,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           g.group_name,
           g.is_enabled,
           g.auto_reply_enabled,
+          g.transcript_compact_offset,
           g.welcome_message,
           g.admin_user_id,
           g.agent_prompt_id,
@@ -248,6 +251,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           END as avg_response_time,
           COALESCE(pcs.is_enabled, 1) as is_enabled,
           COALESCE(pcs.auto_reply_enabled, 0) as auto_reply_enabled,
+          COALESCE(pcs.transcript_compact_offset, 6) as transcript_compact_offset,
           pcs.user_notes,
           pcs.agent_prompt_id
         FROM (
@@ -352,7 +356,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       // 获取用户设置
       const userSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
         SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
-               agent_prompt_id, last_activity
+               transcript_compact_offset, agent_prompt_id, last_activity
         FROM private_chat_settings
         WHERE user_id = ?
       `, [userId]);
@@ -363,6 +367,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         nickname: userSettingRow?.username || `用户${userId}`,
         is_enabled: userSettingRow?.is_enabled ?? 1,
         auto_reply_enabled: userSettingRow?.auto_reply_enabled ?? 0,
+        transcript_compact_offset: userSettingRow?.transcript_compact_offset ?? 6,
         welcome_message: userSettingRow?.welcome_message || null,
         user_notes: userSettingRow?.user_notes || null,
         agent_prompt_id: userSettingRow?.agent_prompt_id || null,
@@ -648,6 +653,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         'username',
         'is_enabled',
         'auto_reply_enabled',
+        'transcript_compact_offset',
         'welcome_message',
         'user_notes',
         'agent_prompt_id'
@@ -662,6 +668,16 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
 
         if (key === 'is_enabled' || key === 'auto_reply_enabled') {
           sanitizedUpdates[key] = value ? 1 : 0;
+          return;
+        }
+
+        if (key === 'transcript_compact_offset') {
+          const numericValue = Number(value);
+          if (!Number.isInteger(numericValue) || numericValue < 0 || numericValue > 500) {
+            validationError = 'transcript_compact_offset must be an integer between 0 and 500';
+            return;
+          }
+          sanitizedUpdates[key] = numericValue;
           return;
         }
 
@@ -688,7 +704,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
 
       const updatedSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
         SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
-               agent_prompt_id, last_activity
+               transcript_compact_offset, agent_prompt_id, last_activity
         FROM private_chat_settings
         WHERE user_id = ?
       `, [userId]);
@@ -796,7 +812,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       // 获取群聊设置
       const groupSettingsRows = await database.executeQuery<GroupChatSettingRow>(`
         SELECT group_id, group_name, is_enabled, auto_reply_enabled, welcome_message,
-               admin_user_id, agent_prompt_id, last_activity
+               transcript_compact_offset, admin_user_id, agent_prompt_id, last_activity
         FROM group_chat_settings
         WHERE group_id = ?
       `, [groupId]);
@@ -807,6 +823,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         group_name: groupSettingsRow?.group_name || `群聊${groupId}`,
         is_enabled: groupSettingsRow?.is_enabled ?? 1,
         auto_reply_enabled: groupSettingsRow?.auto_reply_enabled ?? 0,
+        transcript_compact_offset: groupSettingsRow?.transcript_compact_offset ?? 6,
         welcome_message: groupSettingsRow?.welcome_message || null,
         admin_user_id: groupSettingsRow?.admin_user_id || null,
         agent_prompt_id: groupSettingsRow?.agent_prompt_id || null,
@@ -895,6 +912,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         'group_name',
         'is_enabled',
         'auto_reply_enabled',
+        'transcript_compact_offset',
         'welcome_message',
         'admin_user_id'
       ]);
@@ -908,6 +926,16 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
 
         if (key === 'is_enabled' || key === 'auto_reply_enabled') {
           sanitizedUpdates[key] = value ? 1 : 0;
+          return;
+        }
+
+        if (key === 'transcript_compact_offset') {
+          const numericValue = Number(value);
+          if (!Number.isInteger(numericValue) || numericValue < 0 || numericValue > 500) {
+            validationError = 'transcript_compact_offset must be an integer between 0 and 500';
+            return;
+          }
+          sanitizedUpdates[key] = numericValue;
           return;
         }
 

@@ -28,6 +28,10 @@ function formatDuration(value?: number | null): string {
   return `${(value / 1000).toFixed(1)}s`;
 }
 
+function formatTokenCount(value?: number | null): string {
+  return new Intl.NumberFormat('zh-CN').format(Number(value || 0));
+}
+
 function safePreview(value: any, maxLength = 120): string {
   if (value === null || value === undefined || value === '') {
     return 'No summary available';
@@ -59,6 +63,30 @@ function buildMetricTone(value: string): TraceMetric['tone'] {
 
 function semanticRole(record: TraceSpanRecord): string {
   return String(record.attributes['semantic.role'] || record.kind);
+}
+
+function normalizeRows(trace: ConversationTraceData): TraceSpanRecord[] {
+  const providerExchangeIds = new Set(
+    trace.spans
+      .filter((span) => semanticRole(span) === 'provider_exchange')
+      .map((span) => span.span_id)
+  );
+  const byId = new Map(trace.spans.map((span) => [span.span_id, span]));
+
+  return trace.spans
+    .filter((span) => !providerExchangeIds.has(span.span_id))
+    .map((span) => {
+      let parentId = span.parent_span_id;
+      while (parentId && providerExchangeIds.has(parentId)) {
+        parentId = byId.get(parentId)?.parent_span_id || null;
+      }
+
+      return {
+        ...span,
+        parent_span_id: parentId,
+      };
+    })
+    .sort((left, right) => left.sort_key.localeCompare(right.sort_key));
 }
 
 function evidenceValue(record: TraceSpanRecord, key: string): string | null {
@@ -185,7 +213,7 @@ function subtreeErrorCount(rowId: string, byParent: Map<string, TraceSpanRecord[
 }
 
 function buildRows(trace: ConversationTraceData): TraceWaterfallRow[] {
-  const rows = [...trace.spans].sort((left, right) => left.sort_key.localeCompare(right.sort_key));
+  const rows = normalizeRows(trace);
   const byParent = new Map<string, TraceSpanRecord[]>();
   const byId = new Map(rows.map((row) => [row.span_id, row]));
   rows.forEach((row) => {
@@ -203,9 +231,13 @@ function buildRows(trace: ConversationTraceData): TraceWaterfallRow[] {
     const subtitle = buildSubtitle(record);
     const pathTokens: string[] = [];
     let cursor: TraceSpanRecord | undefined = record;
+    let depth = 0;
 
     while (cursor) {
       pathTokens.unshift(displayName(cursor));
+      if (cursor.parent_span_id) {
+        depth += 1;
+      }
       cursor = cursor.parent_span_id ? byId.get(cursor.parent_span_id) : undefined;
     }
 
@@ -215,12 +247,6 @@ function buildRows(trace: ConversationTraceData): TraceWaterfallRow[] {
     const role = semanticRole(record);
     const providerRequestChild = role === 'generation'
       ? children.find((child) => semanticRole(child) === 'provider_request')
-      : null;
-    const providerExchangeChild = role === 'generation'
-      ? children.find((child) => semanticRole(child) === 'provider_exchange')
-      : null;
-    const legacyProviderRequestChild = providerExchangeChild
-      ? (byParent.get(providerExchangeChild.span_id) || []).find((child) => semanticRole(child) === 'provider_request')
       : null;
     const llmCallId = String(
       record.attributes['trace.llm_call_id']
@@ -233,7 +259,7 @@ function buildRows(trace: ConversationTraceData): TraceWaterfallRow[] {
       id: record.span_id,
       parentId: record.parent_span_id,
       spanId: record.span_id,
-      depth: record.depth,
+      depth,
       pathTokens,
       title,
       subtitle,
@@ -247,18 +273,16 @@ function buildRows(trace: ConversationTraceData): TraceWaterfallRow[] {
       timelineOffsetMs,
       timelineWidthRatio,
       hasChildren: children.length > 0,
-      defaultExpanded: record.depth < 2
+      defaultExpanded: depth < 2
         || record.status_code === 'error'
         || role === 'turn'
-        || role === 'provider_exchange'
-        || Boolean(providerRequestChild)
-        || Boolean(providerExchangeChild),
+        || Boolean(providerRequestChild),
       errorCountInSubtree: subtreeErrorCount(record.span_id, byParent),
       badges: buildBadges(record),
       meta: buildMeta(record),
       sourceRef: record.source_ref,
       playgroundCapability: playgroundCapability(record),
-      providerRequestSpanId: providerRequestChild?.span_id || legacyProviderRequestChild?.span_id || null,
+      providerRequestSpanId: providerRequestChild?.span_id || null,
       trafficLogId,
       llmCallId,
       inspector: {
@@ -276,6 +300,7 @@ function buildMetrics(trace: ConversationTraceData): TraceMetric[] {
     acc[role] = (acc[role] || 0) + 1;
     return acc;
   }, {});
+  const llmTokenTotals = trace.trace.token_summary;
 
   return [
     {
@@ -299,6 +324,22 @@ function buildMetrics(trace: ConversationTraceData): TraceMetric[] {
       label: 'Turns',
       value: String(roleCounts.turn || 0),
       detail: `LLM ${roleCounts.generation || 0} / Tool ${roleCounts.invocation || 0}`,
+    },
+    {
+      label: 'Input Tokens',
+      value: formatTokenCount(llmTokenTotals.input_tokens),
+      detail: `Total ${formatTokenCount(llmTokenTotals.total_tokens)}`,
+    },
+    {
+      label: 'Output Tokens',
+      value: formatTokenCount(llmTokenTotals.output_tokens),
+      detail: `LLM ${roleCounts.generation || 0} calls`,
+    },
+    {
+      label: 'Cached Tokens',
+      value: formatTokenCount(llmTokenTotals.cached_input_tokens),
+      detail: llmTokenTotals.cached_input_tokens > 0 ? 'Observed cache reuse' : 'No cache hit observed',
+      tone: llmTokenTotals.cached_input_tokens > 0 ? 'success' : 'warning',
     },
     {
       label: 'HTTP',

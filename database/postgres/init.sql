@@ -89,6 +89,22 @@ CREATE TABLE IF NOT EXISTS chat_transcript_snapshots (
   updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS conversation_items (
+  id BIGSERIAL PRIMARY KEY,
+  conversation_id BIGINT NOT NULL,
+  session_key VARCHAR(191),
+  role VARCHAR(16) NOT NULL,
+  phase VARCHAR(32),
+  content TEXT NOT NULL,
+  group_index INTEGER NOT NULL DEFAULT 0,
+  item_index INTEGER NOT NULL DEFAULT 0,
+  source VARCHAR(32) NOT NULL,
+  delivery_message_id BIGINT,
+  run_id VARCHAR(128),
+  trace_id VARCHAR(128),
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_chat_transcript_snapshots_private_user
   ON chat_transcript_snapshots (private_user_id, updated_at DESC);
 

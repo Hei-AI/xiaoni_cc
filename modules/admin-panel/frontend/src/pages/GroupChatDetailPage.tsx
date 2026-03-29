@@ -41,6 +41,7 @@ interface GroupSettings {
   group_name: string;
   is_enabled: number;
   auto_reply_enabled: number;
+  transcript_compact_offset: number;
   welcome_message: string | null;
   admin_user_id: number | null;
   agent_prompt_id: string | null;
@@ -359,6 +360,19 @@ export const GroupChatDetailPage: React.FC = () => {
                       rows={3}
                     />
                   </div>
+
+                  <div>
+                    <Label htmlFor="transcript_compact_offset">Compact Offset</Label>
+                    <Input
+                      id="transcript_compact_offset"
+                      type="number"
+                      min={0}
+                      max={500}
+                      value={settingsForm.transcript_compact_offset ?? 6}
+                      onChange={(e) => handleSettingsChange('transcript_compact_offset', Number(e.target.value) || 0)}
+                      placeholder="compact 时保留在摘要外的尾部对话数量"
+                    />
+                  </div>
                   
                   <div className="flex items-center space-x-6 flex-wrap gap-y-4">
                     <div className="flex items-center space-x-2">
@@ -420,6 +434,10 @@ export const GroupChatDetailPage: React.FC = () => {
                         ? formatDate(groupData.data.group_settings.last_activity) 
                         : '无'}
                     </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Compact Offset</p>
+                    <p className="font-medium">{groupData.data.group_settings.transcript_compact_offset}</p>
                   </div>
                 </div>
               )}

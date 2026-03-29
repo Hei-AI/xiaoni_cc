@@ -99,7 +99,47 @@ test('fills reply fields from recent message cache and treats replies to bot as 
   assert.equal(inboundContext.ReplyToId, '9001');
   assert.equal(inboundContext.ReplyToBody, '原消息内容');
   assert.equal(inboundContext.ReplyToSender, BOT_ID);
+  assert.equal(inboundContext.ReplyToSenderId, BOT_ID);
+  assert.equal(inboundContext.ReplyToSenderName, BOT_ID);
   assert.equal(inboundContext.ReplyToIsQuote, true);
+});
+
+test('uses raw payload mention nicknames when segment payload does not include a label', () => {
+  const inboundContext = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'group',
+      self_id: Number(BOT_ID),
+      user_id: 870853294,
+      group_id: 1019235326,
+      message_id: 1005,
+      raw_message: '[CQ:at,qq=714457117] 你喜欢玩魔兽3？',
+      raw: {
+        elements: [
+          {
+            textElement: {
+              atUid: '714457117',
+              content: '@小镜'
+            }
+          }
+        ]
+      },
+      message: [
+        { type: 'at', data: { qq: '714457117' } },
+        { type: 'text', data: { text: ' 你喜欢玩魔兽3？' } }
+      ]
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+
+  assert.ok(inboundContext);
+  assert.equal(inboundContext.BodyForAgent, '@小镜 你喜欢玩魔兽3？');
+  assert.deepEqual(inboundContext.MentionedUsers, [
+    {
+      userId: '714457117',
+      label: '小镜'
+    }
+  ]);
 });
 
 test('maps media-only messages to AI-readable placeholders and media fields', () => {

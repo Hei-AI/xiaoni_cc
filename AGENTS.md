@@ -12,6 +12,7 @@
 - 主运行栈以 `docker-compose.yml` 为准；`docker-compose.napcat.yml` 只负责 NapCat。
 - 新工作优先基于这些活跃模块：`modules/provider-service`、`modules/admin-panel/backend`、`modules/admin-panel/frontend`、`packages/persistence`
 - 这些会影响运行和排障，但不是新人理解系统的第一入口：`modules/agent-service`、`modules/embedding-server`、`modules/http-traffic-monitor`
+- “不是第一入口” 只是在说理解顺序，不是在说交付标准更低；只要服务由 `docker-compose.yml` 托管，改动后就必须按 `Done Means` 做 build / up / ps / 日志或健康检查验证
 - 已经移除的旧服务、旧接口和旧页面不要再作为当前契约参考；排障与开发都只围绕上面的活跃模块展开
 
 ## Project Map
@@ -59,6 +60,7 @@
 
 ## Done Means
 - 如果改了 `docker-compose.yml` 托管的服务，完成不止是改代码
+- 这条规则适用于所有 compose 托管服务，包括 `modules/agent-service`、`modules/provider-service`、`modules/admin-panel/backend`、`modules/admin-panel/frontend`、`modules/embedding-server`
 - 至少要做：对应模块构建或测试、`docker compose build <service>`、`docker compose up -d <service>`、`docker compose ps`、相关日志或健康检查确认正常
 - 不要对主栈执行 `docker compose up -d --remove-orphans`，除非明确要清理同项目下其他容器
 

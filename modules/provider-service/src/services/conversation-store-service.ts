@@ -48,6 +48,7 @@ export class ConversationStoreService {
   }
 
   async initialize() {
+    await this.ensureChatSettingsColumns();
     await this.ensureConversationIndexes();
   }
 
@@ -57,7 +58,9 @@ export class ConversationStoreService {
     limit?: number;
     afterConversationId?: number | null;
   }): Promise<StoredConversationTurn[]> {
-    const limit = Math.max(1, Math.min(params.limit || 20, 200));
+    const limit = typeof params.limit === 'number'
+      ? Math.max(1, Math.min(params.limit, 1000))
+      : null;
     const conditions = [];
     const values: any[] = [];
 
@@ -94,7 +97,7 @@ export class ConversationStoreService {
         FROM conversations
         WHERE ${conditions.join(' AND ')}
         ORDER BY id DESC
-        LIMIT ${limit}
+        ${limit ? `LIMIT ${limit}` : ''}
       `,
       values
     );
@@ -152,6 +155,17 @@ export class ConversationStoreService {
     );
     await this.sql.execute(
       'CREATE INDEX IF NOT EXISTS idx_conversations_group_time ON conversations (group_id, id DESC)'
+    );
+  }
+
+  private async ensureChatSettingsColumns() {
+    await this.sql.execute(
+      `ALTER TABLE private_chat_settings
+       ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`
+    );
+    await this.sql.execute(
+      `ALTER TABLE group_chat_settings
+       ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`
     );
   }
 }

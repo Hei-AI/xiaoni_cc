@@ -208,6 +208,10 @@ export class OpenAIProvider implements LLMProvider {
       payload.metadata = request.metadata;
     }
 
+    if (typeof request.previous_response_id === 'string' && request.previous_response_id.trim()) {
+      payload.previous_response_id = request.previous_response_id.trim();
+    }
+
     if (typeof request.prompt_cache_key === 'string' && request.prompt_cache_key.trim()) {
       payload.prompt_cache_key = request.prompt_cache_key.trim();
     }

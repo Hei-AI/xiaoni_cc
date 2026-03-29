@@ -54,6 +54,7 @@
 
 ## 新人最容易踩的坑
 - 不要因为 `agent-service` 在 compose 里，就误以为它是管理端主链路入口。
+- 完成判定统一回到 `AGENTS.md` 的 `Done Means`，不要在这里脑补另一套交付标准。
 - 不要把 `embedding-server` 当对外服务；对外是 `provider-service /v1/*`。
 - 不要默认前端直连 `provider-service`；默认是前端 -> admin backend。
 - 不要把“本地前端联调”和“公网 Docker 前端”当成同一条链路；本地页面调试只起本地 Vite 前端，后端仍走容器。

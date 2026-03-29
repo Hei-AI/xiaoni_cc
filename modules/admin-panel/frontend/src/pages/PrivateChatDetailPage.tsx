@@ -53,6 +53,7 @@ interface UserSettings {
   nickname: string;
   is_enabled: number;
   auto_reply_enabled: number;
+  transcript_compact_offset: number;
   welcome_message: string | null;
   user_notes: string | null;
   agent_prompt_id: string | null;
@@ -143,6 +144,7 @@ export const PrivateChatDetailPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [timeRange, setTimeRange] = useState('all');
+  const [offsetDraft, setOffsetDraft] = useState('6');
   const queryClient = useQueryClient();
   const limit = 20;
 
@@ -220,6 +222,13 @@ export const PrivateChatDetailPage: React.FC = () => {
     });
   }, [conversationData?.data.user_settings.agent_prompt_id, currentPrompt?.prompt_name]);
 
+  React.useEffect(() => {
+    if (!conversationData?.data.user_settings) {
+      return;
+    }
+    setOffsetDraft(String(conversationData.data.user_settings.transcript_compact_offset ?? 6));
+  }, [conversationData?.data.user_settings]);
+
   const formatDate = (dateString: string) => {
     return formatTimestamp(dateString);
   };
@@ -249,6 +258,17 @@ export const PrivateChatDetailPage: React.FC = () => {
     const currentValue = conversationData.data.user_settings[field];
     updateSettingsMutation.mutate({
       [field]: !currentValue
+    });
+  };
+
+  const handleOffsetSave = () => {
+    const numericValue = Number(offsetDraft);
+    if (!Number.isInteger(numericValue) || numericValue < 0 || numericValue > 500) {
+      window.alert('Compact offset 必须是 0 到 500 的整数');
+      return;
+    }
+    updateSettingsMutation.mutate({
+      transcript_compact_offset: numericValue
     });
   };
 
@@ -367,6 +387,30 @@ export const PrivateChatDetailPage: React.FC = () => {
                 </Select>
                 <p className="text-xs text-muted-foreground mt-2">
                   这里只展示私聊级显式绑定。未绑定表示后端当前没有私聊级 Prompt 契约。
+                </p>
+              </div>
+              <div className="space-y-2">
+                <span className="text-sm font-medium">Compact Offset:</span>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={500}
+                    value={offsetDraft}
+                    onChange={(e) => setOffsetDraft(e.target.value)}
+                    className="w-32"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleOffsetSave}
+                    disabled={updateSettingsMutation.isPending}
+                  >
+                    保存
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  compact 时保留在摘要外、继续原样重放的尾部对话数量。当前值 {conversationData.data.user_settings.transcript_compact_offset}。
                 </p>
               </div>
             </CardContent>

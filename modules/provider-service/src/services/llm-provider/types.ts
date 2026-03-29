@@ -18,6 +18,7 @@ export type OpenResponseInputItem =
       type: 'message';
       role: OpenResponseMessageRole;
       content: string | OpenResponseInputContentPart[];
+      phase?: 'commentary' | 'final_answer';
     }
   | {
       type: 'function_call';
@@ -68,6 +69,7 @@ export type OpenResponseOutputItem =
       id?: string;
       role: 'assistant';
       content: OpenResponseOutputContentPart[];
+      phase?: 'commentary' | 'final_answer';
       status?: 'in_progress' | 'completed';
     }
   | {
@@ -143,6 +145,7 @@ export interface OpenResponseCreateRequest {
   include?: string[];
   parallel_tool_calls?: boolean;
   prompt_cache_key?: string;
+  prompt_cache_retention?: string;
   [key: string]: any;
 }
 
@@ -165,6 +168,9 @@ export interface LLMProviderContext {
   agentTurn?: number;
   llmCallId?: string;
   toolCallId?: string;
+  sessionId?: string;
+  turnId?: string;
+  sandbox?: string;
 }
 
 export interface LLMProviderTextRequest {

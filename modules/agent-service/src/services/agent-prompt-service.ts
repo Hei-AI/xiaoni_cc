@@ -21,6 +21,23 @@ export interface AgentPromptResolver {
 
 const moduleLogger = logger.createModuleLogger('agent-prompt-service');
 
+export class MissingAgentPromptBindingError extends Error {
+  constructor(
+    message: string,
+    readonly details: {
+      reason: 'missing_binding' | 'missing_prompt';
+      bindingSource?: 'group' | 'private' | null;
+      bindingPromptId?: string | null;
+      chatType: QueueMessagePayload['chatType'];
+      groupId?: number;
+      userId: number;
+    }
+  ) {
+    super(message);
+    this.name = 'MissingAgentPromptBindingError';
+  }
+}
+
 function renderPromptTemplate(
   template: string,
   contextVariables: Record<string, unknown> = {},
@@ -108,21 +125,6 @@ function buildRuntimeVariables(queueMessage: QueueMessagePayload, modelName: str
   };
 }
 
-function buildDefaultPrompt(queueMessage: QueueMessagePayload): ResolvedAgentRuntimePrompt {
-  const runtimeVariables = buildRuntimeVariables(queueMessage, agentConfig.modelName);
-  return {
-    source: 'default',
-    promptId: null,
-    promptName: 'agent_loop_v1',
-    systemPrompt: agentConfig.systemPrompt,
-    userPromptTemplate: null,
-    contextVariables: {},
-    runtimeVariables,
-    modelName: agentConfig.modelName,
-    parameters: {}
-  };
-}
-
 export class AgentPromptService implements AgentPromptResolver {
   async resolveForQueueMessage(queueMessage: QueueMessagePayload): Promise<ResolvedAgentRuntimePrompt> {
     const groupId = queueMessage.chatType === 'group'
@@ -135,9 +137,20 @@ export class AgentPromptService implements AgentPromptResolver {
       userId
     }, databaseConfig);
 
-    if (!resolved || !resolved.prompt) {
-      if (resolved?.bindingPromptId) {
-        moduleLogger.warn('Chat prompt binding points to a missing or inactive prompt; falling back to default prompt', {
+    if (!resolved) {
+      throw new MissingAgentPromptBindingError('No active agent prompt binding found for current conversation', {
+        reason: 'missing_binding',
+        bindingSource: null,
+        bindingPromptId: null,
+        chatType: queueMessage.chatType,
+        ...(groupId !== undefined ? { groupId } : {}),
+        userId
+      });
+    }
+
+    if (!resolved.prompt) {
+      if (resolved.bindingPromptId) {
+        moduleLogger.warn('Chat prompt binding points to a missing or inactive prompt; refusing to run without prompt', {
           traceId: queueMessage.traceId,
           bindingSource: resolved.bindingSource,
           bindingPromptId: resolved.bindingPromptId,
@@ -146,7 +159,14 @@ export class AgentPromptService implements AgentPromptResolver {
           userId: Number.isFinite(userId) ? userId : null
         });
       }
-      return buildDefaultPrompt(queueMessage);
+      throw new MissingAgentPromptBindingError('Bound agent prompt is missing or inactive for current conversation', {
+        reason: 'missing_prompt',
+        bindingSource: resolved.bindingSource,
+        bindingPromptId: resolved.bindingPromptId,
+        chatType: queueMessage.chatType,
+        ...(groupId !== undefined ? { groupId } : {}),
+        userId
+      });
     }
 
     const contextVariables = normalizeObject(resolved.prompt.contextVariables);

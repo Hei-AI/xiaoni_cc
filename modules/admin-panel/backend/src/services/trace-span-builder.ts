@@ -69,6 +69,17 @@ function toIsoString(value: any): string | null {
   return serializeTimestampForApi(value) as string | null;
 }
 
+function extractCachedInputTokens(tokenUsage: any): number {
+  const usage = tokenUsage && typeof tokenUsage === 'object' ? tokenUsage : {};
+  return toNumber(
+    usage.cached_input_tokens
+    ?? usage.input_tokens_details?.cached_tokens
+    ?? usage.prompt_tokens_details?.cached_tokens
+    ?? usage.raw_usage?.input_tokens_details?.cached_tokens
+    ?? usage.raw_usage?.prompt_tokens_details?.cached_tokens
+  ) ?? 0;
+}
+
 function toMillis(value: any): number | null {
   const parsed = parseInstantValue(value);
   return parsed ? parsed.getTime() : null;
@@ -110,6 +121,91 @@ function safePreview(value: unknown, maxLength = 140): string {
     return 'No summary available';
   }
   return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
+}
+
+function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function extractSseFinalResponse(responseBody: string | null): {
+  body: unknown;
+  raw_body: string | null;
+  body_format: 'json' | 'text';
+  body_source: 'sse_complete' | 'raw';
+} {
+  if (!responseBody || typeof responseBody !== 'string') {
+    return {
+      body: responseBody,
+      raw_body: responseBody,
+      body_format: 'text',
+      body_source: 'raw',
+    };
+  }
+
+  const rawBody = responseBody;
+  const trimmedBody = responseBody.trim();
+  const parsedJsonBody = tryParseJson(trimmedBody);
+  if (parsedJsonBody !== null) {
+    return {
+      body: parsedJsonBody,
+      raw_body: rawBody,
+      body_format: 'json',
+      body_source: 'raw',
+    };
+  }
+
+  if (!/^event:\s/m.test(responseBody) && !/^data:\s/m.test(responseBody)) {
+    return {
+      body: responseBody,
+      raw_body: rawBody,
+      body_format: 'text',
+      body_source: 'raw',
+    };
+  }
+
+  let completedResponse: unknown = null;
+  const blocks = responseBody.split(/\r?\n\r?\n/);
+  for (const block of blocks) {
+    const dataLines = block
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trim())
+      .filter((line) => line.length > 0 && line !== '[DONE]');
+    for (const line of dataLines) {
+      const parsed = tryParseJson(line);
+      if (!parsed || typeof parsed !== 'object') {
+        continue;
+      }
+      const event = parsed as Record<string, unknown>;
+      const type = typeof event.type === 'string' ? event.type : '';
+      if (
+        (type === 'response.done' || type === 'response.completed' || type === 'response.incomplete')
+        && event.response
+      ) {
+        completedResponse = event.response;
+      }
+    }
+  }
+
+  if (completedResponse !== null) {
+    return {
+      body: completedResponse,
+      raw_body: rawBody,
+      body_format: 'json',
+      body_source: 'sse_complete',
+    };
+  }
+
+  return {
+    body: responseBody,
+    raw_body: rawBody,
+    body_format: 'text',
+    body_source: 'raw',
+  };
 }
 
 function normalizeStatusCode(value: any): 'unset' | 'ok' | 'error' {
@@ -216,6 +312,7 @@ function normalizeToolCall(call: any) {
 
 function normalizeHttpLog(log: any) {
   const statusCode = toNumber(log.response_status);
+  const normalizedResponse = extractSseFinalResponse(log.response_body || null);
   return {
     id: log.id,
     trace_id: log.trace_id || null,
@@ -239,6 +336,10 @@ function normalizeHttpLog(log: any) {
     response_headers: parseJsonField<any>(log.response_headers, {}),
     request_body: log.request_body || null,
     response_body: log.response_body || null,
+    normalized_response_body: normalizedResponse.body,
+    normalized_response_raw_body: normalizedResponse.raw_body,
+    normalized_response_body_format: normalizedResponse.body_format,
+    normalized_response_body_source: normalizedResponse.body_source,
     is_ai_request: Boolean(log.is_ai_request),
     api_type: log.api_type || null,
     api_version: log.api_version || null,
@@ -990,7 +1091,10 @@ export async function buildConversationTracePayload(
         output: {
           status_code: log.response_status,
           headers: log.response_headers,
-          body: log.response_body,
+          body: log.normalized_response_body,
+          raw_body: log.normalized_response_raw_body,
+          body_format: log.normalized_response_body_format,
+          body_source: log.normalized_response_body_source,
           error_message: log.error_message
         },
         evidence: {
@@ -1006,6 +1110,8 @@ export async function buildConversationTracePayload(
           response_status: log.response_status,
           response_headers: log.response_headers,
           response_body: log.response_body,
+          normalized_response_body: log.normalized_response_body,
+          normalized_response_body_source: log.normalized_response_body_source,
           duration_ms: log.duration_ms,
           request_timestamp: log.request_timestamp,
           response_timestamp: log.response_timestamp,
@@ -1198,6 +1304,23 @@ export async function buildConversationTracePayload(
     http_logs_complete: httpLogs.length === 0 ? 'missing' : (httpLogs.every((log) => log.request_timestamp && log.response_timestamp) ? 'complete' : 'partial'),
     timeline_complete: timelineRows.length > 0 ? 'complete' : 'partial'
   };
+  const tokenSummary = llmCalls.reduce((summary, call) => {
+    const inputTokens = toNumber(call.token_usage?.input_tokens ?? call.input_tokens) ?? 0;
+    const outputTokens = toNumber(call.token_usage?.output_tokens ?? call.output_tokens) ?? 0;
+    const cachedInputTokens = extractCachedInputTokens(call.token_usage);
+
+    return {
+      input_tokens: summary.input_tokens + inputTokens,
+      output_tokens: summary.output_tokens + outputTokens,
+      total_tokens: summary.total_tokens + inputTokens + outputTokens,
+      cached_input_tokens: summary.cached_input_tokens + cachedInputTokens
+    };
+  }, {
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    cached_input_tokens: 0
+  });
 
   return {
     conversation_id: conversationId,
@@ -1221,7 +1344,8 @@ export async function buildConversationTracePayload(
         span_id: bottleneckSpan.span_id,
         title: bottleneckSpan.name,
         duration_ms: bottleneckSpan.duration_ms
-      } : null
+      } : null,
+      token_summary: tokenSummary
     },
     spans: orderedSpans,
     raw_evidence: {

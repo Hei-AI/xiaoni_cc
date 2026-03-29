@@ -1,5 +1,10 @@
 export type ChatType = 'direct' | 'group';
 
+export type InboundMentionedUser = {
+  userId: string;
+  label?: string;
+};
+
 export type FinalizedInboundContext = {
   Body: string;
   BodyForAgent: string;
@@ -14,6 +19,8 @@ export type FinalizedInboundContext = {
   ReplyToId?: string;
   ReplyToBody?: string;
   ReplyToSender?: string;
+  ReplyToSenderId?: string;
+  ReplyToSenderName?: string;
   ChatType?: ChatType | string;
   ConversationLabel?: string;
   GroupSubject?: string;
@@ -23,6 +30,7 @@ export type FinalizedInboundContext = {
   Provider?: string;
   Surface?: string;
   WasMentioned?: boolean;
+  MentionedUsers?: InboundMentionedUser[];
   OriginatingChannel?: string;
   OriginatingTo?: string;
   NativeChannelId?: string;
@@ -90,12 +98,36 @@ export type QueueMessageRecord = {
   payload: QueueMessagePayload;
 };
 
+export type ConversationTranscriptRole = 'user' | 'assistant';
+
+export type ConversationTranscriptPhase = 'commentary' | 'final_answer';
+
+export type ConversationTranscriptSource = 'inbound_batch' | 'delivery' | 'legacy_user_message' | 'legacy_ai_response';
+
+export type ConversationTranscriptItem = {
+  id: number | null;
+  conversationId: number;
+  sessionKey: string | null;
+  role: ConversationTranscriptRole;
+  phase: ConversationTranscriptPhase | null;
+  content: string;
+  groupIndex: number;
+  itemIndex: number;
+  source: ConversationTranscriptSource;
+  deliveryMessageId: number | null;
+  runId: string | null;
+  traceId: string | null;
+};
+
 export type ConversationTurn = {
   id: number;
   userId: number;
   groupId: number | null;
+  batchId: number | null;
+  sessionKey: string | null;
   userMessage: string;
   aiResponse: string | null;
+  items: ConversationTranscriptItem[];
 };
 
 export type AgentToolCall = {

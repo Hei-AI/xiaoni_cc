@@ -100,6 +100,11 @@ export interface InboundHistoryEntry {
   timestamp?: number;
 }
 
+export interface InboundMentionedUser {
+  userId: string;
+  label?: string;
+}
+
 export interface InboundContext {
   Body?: string;
   BodyForAgent?: string;
@@ -116,6 +121,8 @@ export interface InboundContext {
   ReplyToId?: string;
   ReplyToBody?: string;
   ReplyToSender?: string;
+  ReplyToSenderId?: string;
+  ReplyToSenderName?: string;
   ReplyToIsQuote?: boolean;
   ThreadStarterBody?: string;
   GroupSystemPrompt?: string;
@@ -136,6 +143,7 @@ export interface InboundContext {
   Provider?: string;
   Surface?: string;
   WasMentioned?: boolean;
+  MentionedUsers?: InboundMentionedUser[];
   CommandAuthorized?: boolean;
   MessageThreadId?: string | number;
   OriginatingChannel?: string;

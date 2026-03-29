@@ -32,7 +32,7 @@ export class CodexProvider extends OpenAIProvider {
       defaultHeaders: {
         Origin: 'https://chatgpt.com',
         Referer: 'https://chatgpt.com/',
-        originator: 'pi',
+        originator: 'codex_cli_rs',
         'OpenAI-Beta': 'responses=experimental'
       }
     });
@@ -87,7 +87,7 @@ export class CodexProvider extends OpenAIProvider {
         parameters: tool.function.parameters || { type: 'object', properties: {} },
         strict: null
       }));
-      payload.tool_choice = request.tool_choice;
+      payload.tool_choice = request.tool_choice || 'auto';
     }
 
     const providerSpecific = providerConfig?.model?.providerSpecific || {};
@@ -305,7 +305,7 @@ export class CodexProvider extends OpenAIProvider {
   }
 
   private buildUserAgent(): string {
-    return `pi (${os.platform()} ${os.release()}; ${os.arch()})`;
+    return `codex_cli_rs/0.117.0 (${os.platform()} ${os.release()}; ${os.arch()}) xterm-256color (codex-tui; 0.117.0)`;
   }
 
   private resolveTextVerbosity(providerConfig?: UnifiedLLMConfig): 'low' | 'medium' | 'high' {
@@ -355,6 +355,21 @@ export class CodexProvider extends OpenAIProvider {
       return null;
     }
 
+    if (item.type === 'reasoning') {
+      return {
+        type: 'reasoning',
+        ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
+          ? { encrypted_content: item.encrypted_content }
+          : {}),
+        ...(typeof item.summary === 'string' && item.summary.length > 0
+          ? { summary: item.summary }
+          : {}),
+        ...(typeof item.content === 'string' && item.content.length > 0
+          ? { content: item.content }
+          : {})
+      };
+    }
+
     if (item.type === 'message') {
       const content = Array.isArray(item.content)
         ? item.content
@@ -365,6 +380,7 @@ export class CodexProvider extends OpenAIProvider {
         type: 'message',
         role: item.role || 'assistant',
         status: item.status || 'completed',
+        ...(typeof item.phase === 'string' ? { phase: item.phase } : {}),
         content
       };
     }

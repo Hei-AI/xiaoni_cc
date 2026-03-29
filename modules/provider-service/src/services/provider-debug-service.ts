@@ -65,6 +65,10 @@ function normalizeInstructions(systemPrompt: string | undefined): string | undef
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function normalizeString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
 export function buildUnifiedConfig(
   modelName: string,
   provider: ReturnType<typeof resolveProviderId>,
@@ -206,6 +210,9 @@ async function executeProviderRequest(
     configOverride
   );
   const request = canonicalRequest || buildRequestFromMessages(modelName, payload.systemPrompt, messages, config);
+  const requestMetadata = canonicalRequest?.metadata && typeof canonicalRequest.metadata === 'object'
+    ? canonicalRequest.metadata
+    : {};
   const client = createProviderClient(providerId);
   const startedAt = Date.now();
   const result = await client.generateContent({
@@ -217,7 +224,11 @@ async function executeProviderRequest(
       conversationId: payload.conversation_id,
       agentTurn: payload.agent_turn,
       agentType: payload.agent_type,
-      llmCallId
+      llmCallId,
+      promptName: payload.prompt_name,
+      sessionId: normalizeString(requestMetadata.session_id ?? requestMetadata.session_key),
+      turnId: normalizeString(requestMetadata.turn_id ?? requestMetadata.run_id),
+      sandbox: normalizeString(requestMetadata.sandbox) || 'none'
     }
   });
   const finishedAt = Date.now();

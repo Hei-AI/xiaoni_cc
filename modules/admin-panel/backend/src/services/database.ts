@@ -425,7 +425,8 @@ export class DatabaseManager {
           user_id: BigInt(userId),
           agent_prompt_id: promptId,
           is_enabled: 1,
-          auto_reply_enabled: 0
+          auto_reply_enabled: 0,
+          transcript_compact_offset: 6
         },
         update: {
           agent_prompt_id: promptId
@@ -448,7 +449,8 @@ export class DatabaseManager {
           group_id: BigInt(groupId),
           agent_prompt_id: promptId,
           is_enabled: 1,
-          auto_reply_enabled: 0
+          auto_reply_enabled: 0,
+          transcript_compact_offset: 6
         },
         update: {
           agent_prompt_id: promptId
@@ -492,7 +494,7 @@ export class DatabaseManager {
     try {
       const query = `
         SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
-               agent_prompt_id, last_activity, created_at, updated_at
+               transcript_compact_offset, agent_prompt_id, last_activity, created_at, updated_at
         FROM private_chat_settings
         WHERE user_id = ?
       `;
@@ -552,6 +554,8 @@ export class DatabaseManager {
     if (this.operationalIndexesEnsured) {
       return;
     }
+
+    await this.ensureChatSettingsColumns();
 
     const indexes = [
       {
@@ -670,6 +674,7 @@ export class DatabaseManager {
           user_id: BigInt(userId),
           is_enabled: 1,
           auto_reply_enabled: 0,
+          transcript_compact_offset: 6,
           ...updates
         },
         update: updates
@@ -687,7 +692,7 @@ export class DatabaseManager {
     try {
       const query = `
         SELECT group_id, group_name, is_enabled, auto_reply_enabled, welcome_message,
-               admin_user_id, agent_prompt_id, last_activity, created_at, updated_at
+               transcript_compact_offset, admin_user_id, agent_prompt_id, last_activity, created_at, updated_at
         FROM group_chat_settings
         WHERE group_id = ?
       `;
@@ -705,5 +710,16 @@ export class DatabaseManager {
       this.sql = null;
     }
     this.logger.info('Database connection pool closed');
+  }
+
+  private async ensureChatSettingsColumns(): Promise<void> {
+    await this.executeUpdate(
+      `ALTER TABLE private_chat_settings
+       ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`
+    );
+    await this.executeUpdate(
+      `ALTER TABLE group_chat_settings
+       ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`
+    );
   }
 }

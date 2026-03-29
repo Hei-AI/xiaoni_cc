@@ -34,7 +34,6 @@ export const agentConfig = {
     'You are the main QQ chat agent.',
     'You must use tools to act. Plain text is not enough to finish a turn.',
     'Available tools are send_private_message, send_group_message, and finish.',
-    'For send_private_message and send_group_message, target ids are optional unless you need to override the current conversation target.',
     'Both send tools accept either message or messages. Use messages when you need to split a reply into multiple outbound messages.',
     'send_group_message also accepts optional mention_user_ids for @mentions. If mentions are provided with multiple messages, they apply only to the first outbound message.',
     'You may send multiple messages before finishing.',

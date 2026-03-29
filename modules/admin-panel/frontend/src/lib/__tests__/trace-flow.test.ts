@@ -45,6 +45,12 @@ function makeTrace(spans: TraceSpanRecord[]): ConversationTraceData {
       summary: 'trace summary',
       first_error: null,
       bottleneck: null,
+      token_summary: {
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+      },
     },
     spans,
     raw_evidence: {
@@ -302,7 +308,7 @@ describe('buildTraceFlowViewModel', () => {
     expect(viewModel.metrics.find((metric) => metric.label === 'HTTP')?.detail).toContain('Provider 1');
   });
 
-  it('keeps generation linkage compatible with legacy provider.exchange traces', () => {
+  it('flattens legacy provider.exchange traces under generation', () => {
     const trace = makeTrace([
       makeSpan({
         span_id: 'trace-root',
@@ -364,6 +370,67 @@ describe('buildTraceFlowViewModel', () => {
     ]);
 
     const viewModel = buildTraceFlowViewModel(trace);
+    expect(viewModel.rows.find((row) => row.id === 'provider-exchange:llm-call-1')).toBeUndefined();
     expect(viewModel.rows.find((row) => row.id === 'llm-1')?.providerRequestSpanId).toBe('provider-request:101');
+    expect(viewModel.rows.find((row) => row.id === 'provider-request:101')).toMatchObject({
+      parentId: 'llm-1',
+      depth: 3,
+      pathTokens: ['Conversation Trace', 'Turn 1', 'planner', 'POST api.openai.com'],
+    });
+  });
+
+  it('surfaces aggregated input/output/cached token metrics from raw llm evidence', () => {
+    const trace = makeTrace([
+      makeSpan({
+        span_id: 'trace-root',
+        sort_key: '000',
+        attributes: {
+          'semantic.role': 'trace_root',
+          'semantic.display_name': 'Conversation Trace',
+        },
+      }),
+    ]);
+    trace.raw_evidence.llm_calls = [
+      {
+        input_tokens: 1200,
+        output_tokens: 80,
+        token_usage: {
+          input_tokens: 1200,
+          output_tokens: 80,
+          cached_input_tokens: 512,
+        },
+      },
+      {
+        input_tokens: 900,
+        output_tokens: 60,
+        token_usage: {
+          input_tokens: 900,
+          output_tokens: 60,
+          input_tokens_details: {
+            cached_tokens: 256,
+          },
+        },
+      },
+    ];
+    trace.trace.token_summary = {
+      input_tokens: 2100,
+      output_tokens: 140,
+      total_tokens: 2240,
+      cached_input_tokens: 768,
+    };
+
+    const viewModel = buildTraceFlowViewModel(trace);
+
+    expect(viewModel.metrics.find((metric) => metric.label === 'Input Tokens')).toMatchObject({
+      value: '2,100',
+      detail: 'Total 2,240',
+    });
+    expect(viewModel.metrics.find((metric) => metric.label === 'Output Tokens')).toMatchObject({
+      value: '140',
+    });
+    expect(viewModel.metrics.find((metric) => metric.label === 'Cached Tokens')).toMatchObject({
+      value: '768',
+      tone: 'success',
+    });
   });
 });

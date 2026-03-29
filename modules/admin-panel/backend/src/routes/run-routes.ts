@@ -26,6 +26,38 @@ function parseJsonArray(value: unknown): unknown[] {
   }
 }
 
+function toNumber(value: unknown): number {
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
+function parseJsonObject(value: unknown): Record<string, any> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, any>;
+  }
+  if (typeof value !== 'string') {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, any>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function extractCachedInputTokens(tokenUsage: Record<string, any>): number {
+  return toNumber(
+    tokenUsage.cached_input_tokens
+    ?? tokenUsage.input_tokens_details?.cached_tokens
+    ?? tokenUsage.prompt_tokens_details?.cached_tokens
+    ?? tokenUsage.raw_usage?.input_tokens_details?.cached_tokens
+    ?? tokenUsage.raw_usage?.prompt_tokens_details?.cached_tokens
+  );
+}
+
 export function createRunRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
 
@@ -153,6 +185,28 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
       const sessionKey = decodeSessionKey(req.params.sessionKey);
       const rows = await database.executeQuery(
         `
+          WITH llm_totals AS (
+            SELECT
+              trace_id,
+              COUNT(*) AS llm_calls_count,
+              COALESCE(SUM(COALESCE((token_usage->>'input_tokens')::INTEGER, input_tokens, 0)), 0) AS input_tokens_total,
+              COALESCE(SUM(COALESCE((token_usage->>'output_tokens')::INTEGER, output_tokens, 0)), 0) AS output_tokens_total,
+              COALESCE(
+                SUM(
+                  COALESCE(
+                    (token_usage->>'cached_input_tokens')::INTEGER,
+                    (token_usage->'input_tokens_details'->>'cached_tokens')::INTEGER,
+                    (token_usage->'prompt_tokens_details'->>'cached_tokens')::INTEGER,
+                    (token_usage->'raw_usage'->'input_tokens_details'->>'cached_tokens')::INTEGER,
+                    (token_usage->'raw_usage'->'prompt_tokens_details'->>'cached_tokens')::INTEGER,
+                    0
+                  )
+                ),
+                0
+              ) AS cached_input_tokens_total
+            FROM llm_call_logs
+            GROUP BY trace_id
+          )
           SELECT
             r.id,
             r.batch_id,
@@ -174,9 +228,14 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
             r.completed_at,
             r.created_at,
             b.input_message_count,
-            b.summary
+            b.summary,
+            COALESCE(t.llm_calls_count, 0) AS llm_calls_count,
+            COALESCE(t.input_tokens_total, 0) AS input_tokens_total,
+            COALESCE(t.output_tokens_total, 0) AS output_tokens_total,
+            COALESCE(t.cached_input_tokens_total, 0) AS cached_input_tokens_total
           FROM agent_runs r
           INNER JOIN agent_message_batches b ON b.id = r.batch_id
+          LEFT JOIN llm_totals t ON t.trace_id = r.trace_id
           WHERE r.session_key = ?
           ORDER BY r.created_at DESC, r.id DESC
         `,
@@ -254,7 +313,21 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
 
       const llmCalls = await database.executeQuery(
         `
-          SELECT id, agent_turn, model_name, model_provider, prompt_template, status, error_message, processing_time_ms, started_at, completed_at
+          SELECT
+            id,
+            agent_turn,
+            model_name,
+            model_provider,
+            prompt_template,
+            status,
+            error_message,
+            processing_time_ms,
+            started_at,
+            completed_at,
+            input_tokens,
+            output_tokens,
+            token_usage,
+            COALESCE((token_usage->>'cached_input_tokens')::INTEGER, 0) AS cached_input_tokens
           FROM llm_call_logs
           WHERE trace_id = ?
           ORDER BY COALESCE(started_at, completed_at, timestamp) ASC, id ASC
@@ -283,6 +356,24 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
       );
 
       const sentMessages = parseJsonArray(run.sent_messages) as string[];
+      const llmTokenTotals = llmCalls.reduce<{ input_tokens: number; output_tokens: number; total_tokens: number; cached_input_tokens: number }>((totals, call: any) => {
+        const tokenUsage = parseJsonObject(call.token_usage);
+        const inputTokens = toNumber(tokenUsage.input_tokens ?? call.input_tokens);
+        const outputTokens = toNumber(tokenUsage.output_tokens ?? call.output_tokens);
+        const cachedInputTokens = extractCachedInputTokens(tokenUsage);
+
+        return {
+          input_tokens: totals.input_tokens + inputTokens,
+          output_tokens: totals.output_tokens + outputTokens,
+          total_tokens: totals.total_tokens + inputTokens + outputTokens,
+          cached_input_tokens: totals.cached_input_tokens + cachedInputTokens,
+        };
+      }, {
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+      });
 
       res.json({
         success: true,
@@ -321,6 +412,7 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
             llm_calls_count: llmCalls.length,
             tool_calls_count: toolCalls.length,
             sent_messages_count: sentMessages.length,
+            token_totals: llmTokenTotals,
             llm_calls: llmCalls,
             tool_calls: toolCalls,
             timeline

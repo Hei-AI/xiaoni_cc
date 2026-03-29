@@ -182,6 +182,9 @@ export function openResponseInputToOpenAIInput(
       normalizedInput.push({
         type: 'message',
         role: item.role,
+        ...(typeof (item as { phase?: string }).phase === 'string'
+          ? { phase: (item as { phase?: string }).phase }
+          : {}),
         content: typeof item.content === 'string'
           ? item.content
           : item.content.map((part) => {

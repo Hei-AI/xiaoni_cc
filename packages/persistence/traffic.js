@@ -110,6 +110,14 @@ function parseJsonValue(value, fallback = null) {
   return fallback;
 }
 
+function toJsonStringValue(value, fallback = null) {
+  const parsed = parseJsonValue(value, fallback);
+  if (parsed === null || parsed === undefined) {
+    return null;
+  }
+  return JSON.stringify(parsed);
+}
+
 function createTrafficPersistence({ getPrismaClient, Prisma }) {
   let replaySchemaReady = null;
 
@@ -129,10 +137,10 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
     const endTime = toDateValue(filters.endTime);
 
     if (startTime) {
-      conditions.push(Prisma.sql`request_timestamp >= ${serializeTimestampForStorage(startTime)}`);
+      conditions.push(Prisma.sql`request_timestamp >= CAST(${serializeTimestampForStorage(startTime)} AS timestamp)`);
     }
     if (endTime) {
-      conditions.push(Prisma.sql`request_timestamp <= ${serializeTimestampForStorage(endTime)}`);
+      conditions.push(Prisma.sql`request_timestamp <= CAST(${serializeTimestampForStorage(endTime)} AS timestamp)`);
     }
     if (filters.method) {
       conditions.push(Prisma.sql`method = ${filters.method}`);
@@ -595,44 +603,60 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
       return { count: 0 };
     }
 
-    const data = records.map((record) => ({
-      request_id: record.request_id || null,
-      trace_id: record.trace_id || null,
-      conversation_id: toOptionalBigIntId(record.conversation_id),
-      user_id: record.user_id || null,
-      session_id: record.session_id || null,
-      agent_turn: toIntegerValue(record.agent_turn),
-      llm_call_id: record.llm_call_id || null,
-      tool_call_id: record.tool_call_id || null,
-      container_name: record.container_name || null,
-      service_name: record.service_name || null,
-      method: record.method,
-      url: record.url,
-      host: record.host,
-      path: record.path,
-      query_params: parseJsonValue(record.query_params, null),
-      request_headers: parseJsonValue(record.request_headers, {}),
-      request_body: record.request_body || null,
-      request_content_type: record.request_content_type || null,
-      request_size: toIntegerValue(record.request_size),
-      response_status: toIntegerValue(record.response_status),
-      response_headers: parseJsonValue(record.response_headers, null),
-      response_body: record.response_body || null,
-      response_content_type: record.response_content_type || null,
-      response_size: toIntegerValue(record.response_size),
-      duration_ms: toBigIntValue(record.duration_ms),
-      request_timestamp: serializeTimestampForStorage(record.request_timestamp) || serializeTimestampForStorage(new Date()),
-      response_timestamp: record.response_timestamp ? serializeTimestampForStorage(record.response_timestamp) : null,
-      is_ai_request: Boolean(record.is_ai_request),
-      api_type: record.api_type || null,
-      api_version: record.api_version || null,
-      client_ip: record.client_ip || null,
-      user_agent: record.user_agent || null,
-      error_message: record.error_message || null
-    }));
+    const rows = records.map((record) => {
+      const requestTimestamp = serializeTimestampForStorage(record.request_timestamp) || serializeTimestampForStorage(new Date());
+      const responseTimestamp = record.response_timestamp ? serializeTimestampForStorage(record.response_timestamp) : null;
+      return Prisma.sql`(
+        ${record.request_id || null},
+        ${record.trace_id || null},
+        ${toOptionalBigIntId(record.conversation_id)},
+        ${record.user_id || null},
+        ${record.session_id || null},
+        ${toIntegerValue(record.agent_turn)},
+        ${record.llm_call_id || null},
+        ${record.tool_call_id || null},
+        ${record.container_name || null},
+        ${record.service_name || null},
+        ${record.method},
+        ${record.url},
+        ${record.host},
+        ${record.path},
+        CAST(${toJsonStringValue(record.query_params, null)} AS jsonb),
+        CAST(${toJsonStringValue(record.request_headers, {})} AS jsonb),
+        ${record.request_body || null},
+        ${record.request_content_type || null},
+        ${toIntegerValue(record.request_size)},
+        ${toIntegerValue(record.response_status)},
+        CAST(${toJsonStringValue(record.response_headers, null)} AS jsonb),
+        ${record.response_body || null},
+        ${record.response_content_type || null},
+        ${toIntegerValue(record.response_size)},
+        ${toBigIntValue(record.duration_ms)},
+        CAST(${requestTimestamp} AS timestamp),
+        CAST(${responseTimestamp} AS timestamp),
+        ${Boolean(record.is_ai_request)},
+        ${record.api_type || null},
+        ${record.api_version || null},
+        ${record.client_ip || null},
+        ${record.user_agent || null},
+        ${record.error_message || null}
+      )`;
+    });
 
-    const result = await prisma.httpTrafficLog.createMany({ data });
-    return { count: result.count };
+    const insertedCount = await prisma.$executeRaw(
+      Prisma.sql`
+        INSERT INTO http_traffic_logs (
+          request_id, trace_id, conversation_id, user_id, session_id, agent_turn, llm_call_id, tool_call_id,
+          container_name, service_name, method, url, host, path, query_params, request_headers, request_body,
+          request_content_type, request_size, response_status, response_headers, response_body, response_content_type,
+          response_size, duration_ms, request_timestamp, response_timestamp, is_ai_request, api_type, api_version,
+          client_ip, user_agent, error_message
+        )
+        VALUES ${Prisma.join(rows)}
+      `
+    );
+
+    return { count: Number(insertedCount || records.length) };
   }
 
   return {
