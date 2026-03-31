@@ -4,6 +4,7 @@ import {
   PlaygroundCompatibilityError,
   buildPlaygroundResponseTextFallback,
   buildPromptInputFromCanonicalRequest,
+  buildProviderConfigFromPrompt,
   buildProviderConfigFromBaselineSnapshot,
   summarizeToolCallsFromResponse,
   validatePlaygroundPromptInput,
@@ -132,6 +133,22 @@ describe('buildProviderConfigFromBaselineSnapshot', () => {
       definitions: [{ type: 'function', name: 'lookup' }],
       toolChoice: 'required',
     });
+  });
+});
+
+describe('buildProviderConfigFromPrompt', () => {
+  it('infers codex provider from GPT model names when prompt config omits provider', () => {
+    const providerConfig = buildProviderConfigFromPrompt({
+      id: 'prompt-1',
+      prompt_name: '小腻主AGENT',
+      system_instructions: 'system',
+      model_name: 'gpt-5.4-mini',
+      model_config: {},
+      advanced_config: {},
+    });
+
+    expect(providerConfig.model.provider).toBe('codex');
+    expect(providerConfig.model.name).toBe('gpt-5.4-mini');
   });
 });
 

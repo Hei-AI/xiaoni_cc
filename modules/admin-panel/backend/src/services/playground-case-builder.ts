@@ -692,7 +692,32 @@ function providerFromApiType(apiType?: string | null): PlaygroundProviderConfig[
   return 'google-gemini-cli';
 }
 
-function buildProviderConfigFromPrompt(prompt?: PromptRecord | null): PlaygroundProviderConfig {
+function inferProviderFromModelName(modelName?: string | null): PlaygroundProviderConfig['model']['provider'] {
+  const normalized = (modelName || '').trim().toLowerCase();
+  if (
+    normalized.includes('codex') ||
+    normalized === 'gpt-5-mini' ||
+    normalized === 'gpt-5.4-mini' ||
+    normalized === 'gpt-5.3-codex' ||
+    normalized === 'gpt-5.3-codex-spark' ||
+    normalized === 'gpt-5.2-codex'
+  ) {
+    return 'codex';
+  }
+
+  if (
+    normalized.startsWith('gpt-') ||
+    normalized.startsWith('o1') ||
+    normalized.startsWith('o3') ||
+    normalized.startsWith('o4')
+  ) {
+    return 'openai';
+  }
+
+  return 'google-gemini-cli';
+}
+
+export function buildProviderConfigFromPrompt(prompt?: PromptRecord | null): PlaygroundProviderConfig {
   const modelConfig = parseJsonField<Record<string, unknown>>(prompt?.model_config, {});
   const advancedConfig = parseJsonField<Record<string, unknown>>(prompt?.advanced_config, {});
   const provider = normalizeProvider(
@@ -702,7 +727,7 @@ function buildProviderConfigFromPrompt(prompt?: PromptRecord | null): Playground
         ? (advancedConfig.provider as string)
         : typeof (advancedConfig.model as Record<string, unknown> | undefined)?.provider === 'string'
           ? ((advancedConfig.model as Record<string, unknown>).provider as string)
-          : null
+          : inferProviderFromModelName(prompt?.model_name)
   );
 
   const providerSpecific = {
