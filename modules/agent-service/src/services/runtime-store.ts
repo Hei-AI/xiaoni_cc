@@ -7,10 +7,12 @@ import {
   ConversationTranscriptRole,
   ConversationTranscriptSource,
   ConversationTurn,
+  FinalizedInboundContext,
   QueueBatchMessage,
   QueueMessagePayload,
   QueueMessageRecord
 } from '../types';
+import { renderRuntimeBatchMessage } from './runtime-input-renderer';
 
 type QueueRow = {
   id: number;
@@ -39,6 +41,43 @@ type QueueRow = {
   payload: string | Record<string, unknown>;
 };
 
+type StructuredReplayQueueRow = {
+  id: number;
+  trace_id: string;
+  run_id: string | null;
+  conversation_id: number | null;
+  source: string;
+  message_sid: string;
+  chat_type: string;
+  session_key: string;
+  peer_id: string;
+  peer_name: string | null;
+  sender_id: string;
+  sender_name: string | null;
+  account_id: string;
+  body_for_agent: string;
+  raw_payload: string | Record<string, unknown>;
+  inbound_context: string | Record<string, unknown>;
+  payload: string | Record<string, unknown>;
+  created_at: string | Date;
+};
+
+export type AgentRunDeliveryPhase = 'reasoning_open' | 'delivery_committed' | 'finished';
+
+type AgentRunDeliveryStateRow = {
+  delivery_phase: string | null;
+  delivery_commit_count: number | string | null;
+  blocked_delivery_attempt_count: number | string | null;
+  last_blocked_delivery_reason: string | null;
+};
+
+export type AgentRunDeliveryState = {
+  deliveryPhase: AgentRunDeliveryPhase;
+  deliveryCommitCount: number;
+  blockedDeliveryAttemptCount: number;
+  lastBlockedDeliveryReason: string | null;
+};
+
 function toIso(value: string | Date | null | undefined): string | null {
   return serializeTimestampForApi(value) as string | null;
 }
@@ -58,6 +97,24 @@ function parseJson<T>(value: unknown, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function normalizeDeliveryPhase(value: unknown): AgentRunDeliveryPhase {
+  if (value === 'delivery_committed' || value === 'finished') {
+    return value;
+  }
+  return 'reasoning_open';
+}
+
+function mapAgentRunDeliveryState(row?: Partial<AgentRunDeliveryStateRow> | null): AgentRunDeliveryState {
+  return {
+    deliveryPhase: normalizeDeliveryPhase(row?.delivery_phase),
+    deliveryCommitCount: Number(row?.delivery_commit_count || 0),
+    blockedDeliveryAttemptCount: Number(row?.blocked_delivery_attempt_count || 0),
+    lastBlockedDeliveryReason: typeof row?.last_blocked_delivery_reason === 'string' && row.last_blocked_delivery_reason.trim().length > 0
+      ? row.last_blocked_delivery_reason
+      : null
+  };
 }
 
 function buildBatchSummary(rows: QueueRow[]) {
@@ -124,6 +181,74 @@ function buildLegacyConversationItems(params: {
   }
 
   return items;
+}
+
+function buildQueueBatchMessageFromStructuredRow(row: StructuredReplayQueueRow): QueueBatchMessage {
+  const payload = parseJson<Partial<QueueBatchMessage>>(row.payload, {});
+  const defaultInboundContext: FinalizedInboundContext = {
+    Body: payload.bodyForAgent || row.body_for_agent,
+    BodyForAgent: payload.bodyForAgent || row.body_for_agent,
+    BodyForCommands: payload.commandBody || payload.bodyForAgent || row.body_for_agent,
+    CommandAuthorized: false
+  };
+
+  return {
+    queueMessageId: Number(row.id),
+    traceId: row.trace_id,
+    source: row.source,
+    messageId: payload.messageId ?? Number(row.id),
+    messageSid: row.message_sid,
+    chatType: row.chat_type === 'group' ? 'group' : 'direct',
+    sessionKey: row.session_key,
+    peerId: row.peer_id,
+    peerName: row.peer_name || undefined,
+    senderId: row.sender_id,
+    senderName: row.sender_name || undefined,
+    accountId: row.account_id,
+    bodyForAgent: payload.bodyForAgent || row.body_for_agent,
+    rawBody: payload.rawBody || payload.bodyForAgent || row.body_for_agent,
+    commandBody: payload.commandBody || payload.bodyForAgent || row.body_for_agent,
+    wasMentioned: Boolean(payload.wasMentioned),
+    receivedAt: payload.receivedAt || toIso(row.created_at) || new Date().toISOString(),
+    messageTimestamp: payload.messageTimestamp ?? null,
+    rawPayload: parseJson<Record<string, unknown>>(row.raw_payload, {}),
+    inboundContext: parseJson(row.inbound_context, defaultInboundContext)
+  };
+}
+
+function buildStructuredReplayConversationItems(params: {
+  rows: StructuredReplayQueueRow[];
+  traceToConversationId: Map<string, number>;
+}): Map<number, ConversationTranscriptItem[]> {
+  const itemsByConversationId = new Map<number, ConversationTranscriptItem[]>();
+
+  for (const row of params.rows) {
+    const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
+    const conversationId = Number(row.conversation_id) || params.traceToConversationId.get(traceId);
+    if (!conversationId) {
+      continue;
+    }
+
+    const items = itemsByConversationId.get(conversationId) || [];
+    const message = buildQueueBatchMessageFromStructuredRow(row);
+    items.push({
+      id: null,
+      conversationId,
+      sessionKey: row.session_key,
+      role: 'user',
+      phase: null,
+      content: renderRuntimeBatchMessage(message, items.length),
+      groupIndex: 0,
+      itemIndex: items.length,
+      source: 'inbound_batch',
+      deliveryMessageId: null,
+      runId: row.run_id,
+      traceId: traceId || null
+    });
+    itemsByConversationId.set(conversationId, items);
+  }
+
+  return itemsByConversationId;
 }
 
 export class RuntimeStore {
@@ -254,9 +379,10 @@ export class RuntimeStore {
             peer_name,
             account_id,
             status,
+            delivery_phase,
             started_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'processing', NOW())
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'processing', 'reasoning_open', NOW())
         `,
         [
           runId,
@@ -352,6 +478,7 @@ export class RuntimeStore {
       `
         UPDATE agent_runs
         SET status = ?,
+            delivery_phase = 'finished',
             termination_reason = ?,
             finish_reason = ?,
             finish_outcome = ?,
@@ -390,6 +517,53 @@ export class RuntimeStore {
         WHERE id = (SELECT batch_id FROM agent_runs WHERE id = ?)
       `,
       [updates.status, updates.conversationId ?? null, runId]
+    );
+  }
+
+  async getRunDeliveryState(runId: string): Promise<AgentRunDeliveryState> {
+    const rows = await this.sql.query<AgentRunDeliveryStateRow>(
+      `
+        SELECT
+          delivery_phase,
+          delivery_commit_count,
+          blocked_delivery_attempt_count,
+          last_blocked_delivery_reason
+        FROM agent_runs
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [runId]
+    );
+
+    return mapAgentRunDeliveryState(rows[0]);
+  }
+
+  async markRunDeliveryCommitted(runId: string) {
+    await this.sql.execute(
+      `
+        UPDATE agent_runs
+        SET delivery_phase = 'delivery_committed',
+            delivery_commit_count = CASE
+              WHEN delivery_commit_count >= 1 THEN delivery_commit_count
+              ELSE 1
+            END,
+            updated_at = NOW()
+        WHERE id = ?
+      `,
+      [runId]
+    );
+  }
+
+  async markRunDeliveryBlocked(runId: string, reason: string) {
+    await this.sql.execute(
+      `
+        UPDATE agent_runs
+        SET blocked_delivery_attempt_count = COALESCE(blocked_delivery_attempt_count, 0) + 1,
+            last_blocked_delivery_reason = ?,
+            updated_at = NOW()
+        WHERE id = ?
+      `,
+      [reason, runId]
     );
   }
 
@@ -610,6 +784,12 @@ export class RuntimeStore {
 
     const orderedRows = rows.reverse();
     const conversationIds = orderedRows.map((row) => Number(row.id));
+    const traceToConversationId = new Map<string, number>();
+    for (const row of orderedRows) {
+      if (typeof row.trace_id === 'string' && row.trace_id.trim()) {
+        traceToConversationId.set(row.trace_id.trim(), Number(row.id));
+      }
+    }
     const itemRows = conversationIds.length > 0
       ? await this.sql.query<{
           id: number;
@@ -646,6 +826,36 @@ export class RuntimeStore {
           conversationIds
         )
       : [];
+    const structuredReplayRows = traceToConversationId.size > 0
+      ? await this.sql.query<StructuredReplayQueueRow>(
+          `
+            SELECT
+              q.id,
+              q.trace_id,
+              q.run_id,
+              q.conversation_id,
+              q.source,
+              q.message_sid,
+              q.chat_type,
+              q.session_key,
+              q.peer_id,
+              q.peer_name,
+              q.sender_id,
+              q.sender_name,
+              q.account_id,
+              q.body_for_agent,
+              q.raw_payload,
+              q.inbound_context,
+              q.payload,
+              q.created_at
+            FROM agent_queue_messages q
+            LEFT JOIN agent_message_batch_items bi ON bi.queue_message_id = q.id
+            WHERE q.trace_id IN (${Array.from(traceToConversationId.keys()).map(() => '?').join(', ')})
+            ORDER BY q.trace_id ASC, COALESCE(bi.position, 2147483647) ASC, q.id ASC
+          `,
+          Array.from(traceToConversationId.keys())
+        )
+      : [];
 
     const itemsByConversationId = new Map<number, ConversationTranscriptItem[]>();
     for (const row of itemRows) {
@@ -671,6 +881,10 @@ export class RuntimeStore {
       });
       itemsByConversationId.set(conversationId, items);
     }
+    const reconstructedUserItemsByConversationId = buildStructuredReplayConversationItems({
+      rows: structuredReplayRows,
+      traceToConversationId
+    });
 
     return orderedRows.map((row) => {
       const conversationId = Number(row.id);
@@ -678,6 +892,21 @@ export class RuntimeStore {
         Number(row.user_id),
         row.group_id === null ? null : Number(row.group_id)
       );
+      const existingItems = itemsByConversationId.get(conversationId) || buildLegacyConversationItems({
+        conversationId,
+        sessionKey,
+        userMessage: row.user_message,
+        aiResponse: row.ai_response,
+        traceId: row.trace_id
+      });
+      const reconstructedUserItems = reconstructedUserItemsByConversationId.get(conversationId) || [];
+      const items = reconstructedUserItems.length > 0
+        ? [
+            ...reconstructedUserItems,
+            ...existingItems.filter((item) => item.role === 'assistant')
+          ]
+        : existingItems;
+
       return {
         id: conversationId,
         userId: Number(row.user_id),
@@ -686,13 +915,7 @@ export class RuntimeStore {
         sessionKey,
         userMessage: row.user_message,
         aiResponse: row.ai_response,
-        items: itemsByConversationId.get(conversationId) || buildLegacyConversationItems({
-          conversationId,
-          sessionKey,
-          userMessage: row.user_message,
-          aiResponse: row.ai_response,
-          traceId: row.trace_id
-        })
+        items
       };
     });
   }
@@ -1059,6 +1282,10 @@ export class RuntimeStore {
           peer_name VARCHAR(255),
           account_id VARCHAR(191) NOT NULL,
           status VARCHAR(32) NOT NULL DEFAULT 'pending',
+          delivery_phase TEXT NOT NULL DEFAULT 'reasoning_open',
+          delivery_commit_count INTEGER NOT NULL DEFAULT 0,
+          blocked_delivery_attempt_count INTEGER NOT NULL DEFAULT 0,
+          last_blocked_delivery_reason TEXT,
           termination_reason VARCHAR(64),
           finish_reason TEXT,
           finish_outcome TEXT,
@@ -1073,6 +1300,10 @@ export class RuntimeStore {
           updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `,
+      `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS delivery_phase TEXT NOT NULL DEFAULT 'reasoning_open'`,
+      `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS delivery_commit_count INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS blocked_delivery_attempt_count INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS last_blocked_delivery_reason TEXT`,
       `
         CREATE TABLE IF NOT EXISTS llm_jobs (
           id BIGSERIAL PRIMARY KEY,

@@ -15,6 +15,11 @@ import {
   ResolvedAgentRuntimePrompt,
   applyPromptTemplate
 } from './agent-prompt-service';
+import {
+  formatIdentity,
+  normalizeTranscriptMessageText,
+  renderRuntimeBatchInput
+} from './runtime-input-renderer';
 import { RuntimeStore } from './runtime-store';
 
 type OpenResponseInputItem =
@@ -65,6 +70,12 @@ type DeliveredAssistantMessage = {
   deliveryMessageId: number | null;
 };
 
+type OutboundDeliveryFingerprint = {
+  messageType: 'private' | 'group';
+  messages: string[];
+  mentionUserIds: number[];
+};
+
 type CanonicalAgentTurnRequest = {
   model: string;
   input: OpenResponseInputItem[];
@@ -112,11 +123,41 @@ type ProviderAgentResponse = {
 
 const moduleLogger = logger.createModuleLogger('agent-loop-service');
 
+const TOOL_NAMES = {
+  privateReply: 'reply_in_private',
+  groupReply: 'speak_in_group',
+  silentFinish: 'stay_silent'
+} as const;
+
+const LEGACY_TOOL_ALIASES = {
+  privateReply: ['send_private_message'],
+  groupReply: ['send_group_message'],
+  silentFinish: ['finish']
+} as const;
+
+const HUMAN_REPLY_RULES = [
+  '默认短句、自然口语、贴近当前群里的画风，不要写成长段解释、总结、分析、教程或客服答复。',
+  '不是每句话都值得你回复。没有明确 cue 到你、没有自然接话点、或者你的回复只会重复场上已有信息时，优先保持沉默。',
+  '就算被提到，也不要自动进入解答模式。先判断群里此刻更像是在闲聊、接梗、吐槽，还是认真问你。',
+  '能一句说完就不要说两句。允许不完整，允许有点情绪，允许像真人一样有留白。',
+  '你发言的目标不是“回答完整”，而是“像这个群里的人会顺手说出的话”。'
+] as const;
+
+const GROUP_MENTION_RULES = [
+  'mention_user_ids 只在你确实是在自然点名某个人、回应某个人、或者要把某个人拉进当前话题时使用。',
+  '不要为了强调语气、礼貌、格式整齐或装饰效果去 @ 人。',
+  '如果不 @ 也完全说得通，就不要使用 mention_user_ids。'
+] as const;
+
 const PRIVATE_MESSAGE_TOOL = {
   type: 'function',
   function: {
-    name: 'send_private_message',
-    description: 'Send one or more QQ private messages to the current conversation sender.',
+    name: TOOL_NAMES.privateReply,
+    description: [
+      'Reply naturally in the current private conversation.',
+      'Use this when you genuinely want to say something back to the current sender, not as a generic task completion step.',
+      'Keep the wording human and conversational.'
+    ].join(' '),
     parameters: {
       type: 'object',
       properties: {
@@ -134,8 +175,12 @@ const PRIVATE_MESSAGE_TOOL = {
 const GROUP_MESSAGE_TOOL = {
   type: 'function',
   function: {
-    name: 'send_group_message',
-    description: 'Send one or more QQ group messages to the current conversation group. mention_user_ids is optional.',
+    name: TOOL_NAMES.groupReply,
+    description: [
+      'Speak naturally in the current group conversation, like a real group member casually joining in.',
+      ...HUMAN_REPLY_RULES,
+      ...GROUP_MENTION_RULES
+    ].join(' '),
     parameters: {
       type: 'object',
       properties: {
@@ -157,8 +202,11 @@ const GROUP_MESSAGE_TOOL = {
 const FINISH_TOOL = {
   type: 'function',
   function: {
-    name: 'finish',
-    description: 'Finish the current agent run. Use this when no more messages should be sent.',
+    name: TOOL_NAMES.silentFinish,
+    description: [
+      'Stay silent and end the current turn.',
+      'Use this when silence is the most human choice, when the conversation is not really for you, or when replying would feel forced, repetitive, or too bot-like.'
+    ].join(' '),
     parameters: {
       type: 'object',
       properties: {
@@ -169,6 +217,29 @@ const FINISH_TOOL = {
     }
   }
 } as const;
+
+const GROUP_REPLY_BEHAVIOR_CONTRACT = [
+  'Group reply contract:',
+  '- 你在群里首先要像一个真实群友，其次才是一个会思考的 AI。',
+  ...HUMAN_REPLY_RULES.map((rule) => `- ${rule}`),
+  '- 如果你不确定这句话像不像真人群友，优先不要发，直接调用 stay_silent。'
+].join('\n');
+
+function isPrivateReplyToolName(name: string) {
+  return name === TOOL_NAMES.privateReply || LEGACY_TOOL_ALIASES.privateReply.includes(name as typeof LEGACY_TOOL_ALIASES.privateReply[number]);
+}
+
+function isGroupReplyToolName(name: string) {
+  return name === TOOL_NAMES.groupReply || LEGACY_TOOL_ALIASES.groupReply.includes(name as typeof LEGACY_TOOL_ALIASES.groupReply[number]);
+}
+
+function isSilentFinishToolName(name: string) {
+  return name === TOOL_NAMES.silentFinish || LEGACY_TOOL_ALIASES.silentFinish.includes(name as typeof LEGACY_TOOL_ALIASES.silentFinish[number]);
+}
+
+function isSpeakingToolName(name: string) {
+  return isPrivateReplyToolName(name) || isGroupReplyToolName(name);
+}
 
 function selectToolDefinitions(chatType: 'group' | 'direct'): OpenResponseToolDefinition[] {
   if (chatType === 'group') {
@@ -197,26 +268,6 @@ export function buildCanonicalAgentTurnRequest(
   };
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function formatIdentity(label?: string, id?: string) {
-  const normalizedLabel = typeof label === 'string' ? label.trim() : '';
-  const normalizedId = typeof id === 'string' ? id.trim() : '';
-
-  if (normalizedLabel && normalizedId && normalizedLabel !== normalizedId) {
-    return `{${normalizedLabel}(@${normalizedId})}`;
-  }
-  if (normalizedId) {
-    return `{@${normalizedId}}`;
-  }
-  if (normalizedLabel) {
-    return `{${normalizedLabel}}`;
-  }
-  return '{unknown}';
-}
-
 function formatMessageSender(message: QueueMessageRecord['payload']['messages'][number]) {
   return formatIdentity(message.senderName, message.senderId);
 }
@@ -228,45 +279,12 @@ function formatReplyTarget(inboundContext: QueueMessageRecord['payload']['inboun
   );
 }
 
-function normalizePromptMessageText(
-  text: string,
-  mentionedUsers: QueueMessageRecord['payload']['inboundContext']['MentionedUsers']
-) {
-  let rendered = text;
-  const replacements = Array.isArray(mentionedUsers) ? mentionedUsers : [];
-  const placeholders: Array<{ token: string; value: string }> = [];
-  let placeholderIndex = 0;
-
-  for (const mentionedUser of replacements) {
-    const userId = typeof mentionedUser?.userId === 'string' ? mentionedUser.userId.trim() : '';
-    const label = typeof mentionedUser?.label === 'string' ? mentionedUser.label.trim() : '';
-    const canonical = formatIdentity(label || undefined, userId || undefined);
-    const patterns = [label ? `@${label}` : null, userId ? `@${userId}` : null]
-      .filter((pattern): pattern is string => Boolean(pattern));
-
-    for (const pattern of patterns) {
-      const token = `__MENTION_${placeholderIndex += 1}__`;
-      const nextRendered = rendered.replace(new RegExp(escapeRegExp(pattern), 'g'), token);
-      if (nextRendered !== rendered) {
-        rendered = nextRendered;
-        placeholders.push({ token, value: canonical });
-      }
-    }
-  }
-
-  for (const { token, value } of placeholders) {
-    rendered = rendered.replace(new RegExp(escapeRegExp(token), 'g'), value);
-  }
-
-  return rendered;
-}
-
-function renderPromptBatchMessage(
+function renderTranscriptBatchMessage(
   message: QueueMessageRecord['payload']['messages'][number],
   index: number
 ) {
   const speaker = formatMessageSender(message);
-  const body = normalizePromptMessageText(message.bodyForAgent, message.inboundContext.MentionedUsers);
+  const body = normalizeTranscriptMessageText(message.bodyForAgent, message.inboundContext.MentionedUsers);
   const firstLine = `#${index + 1} ${speaker}${message.wasMentioned ? ' [mentioned bot]' : ''}: ${body}`;
   const lines = [firstLine];
 
@@ -278,7 +296,7 @@ function renderPromptBatchMessage(
 }
 
 function buildCurrentTurnMessage(queueMessage: QueueMessageRecord['payload']) {
-  return queueMessage.messages.map((message, index) => renderPromptBatchMessage(message, index)).join('\n');
+  return renderRuntimeBatchInput(queueMessage);
 }
 
 function buildAgentTurnMetadata(
@@ -345,7 +363,7 @@ function buildInboundBatchTranscriptItems(
   return queueMessage.messages.map((message, index) => ({
     sessionKey: queueMessage.sessionKey,
     role: 'user' as const,
-    content: renderPromptBatchMessage(message, index),
+    content: renderTranscriptBatchMessage(message, index),
     groupIndex: 0 as const,
     itemIndex: index,
     source: 'inbound_batch' as const,
@@ -397,6 +415,60 @@ function extractDeliveredAssistantMessages(toolResult: Record<string, unknown>):
   }));
 }
 
+function buildOutboundFingerprint(payload: OutboundDeliveryFingerprint) {
+  return JSON.stringify({
+    message_type: payload.messageType,
+    messages: payload.messages,
+    mention_user_ids: payload.mentionUserIds
+  });
+}
+
+function buildDuplicateOutboundSuppression(toolCall: Pick<AgentToolCall, 'name' | 'args'>) {
+  if (!isPrivateReplyToolName(toolCall.name) && !isGroupReplyToolName(toolCall.name)) {
+    return null;
+  }
+
+  const messages = normalizeMessages(toolCall.args);
+  if (messages.length === 0) {
+    return null;
+  }
+
+  const payload: OutboundDeliveryFingerprint = {
+    messageType: isPrivateReplyToolName(toolCall.name) ? 'private' : 'group',
+    messages,
+    mentionUserIds: isGroupReplyToolName(toolCall.name)
+      ? normalizeOptionalIntegerList(toolCall.args.mention_user_ids)
+      : []
+  };
+
+  return {
+    fingerprint: buildOutboundFingerprint(payload),
+    payload
+  };
+}
+
+function buildOutboundFingerprintFromToolResult(toolResult: Record<string, unknown>) {
+  const messageType = toolResult.message_type === 'private' || toolResult.message_type === 'group'
+    ? toolResult.message_type
+    : null;
+  if (!messageType) {
+    return null;
+  }
+
+  const messages = extractSentMessages(toolResult);
+  if (messages.length === 0) {
+    return null;
+  }
+
+  return buildOutboundFingerprint({
+    messageType,
+    messages,
+    mentionUserIds: messageType === 'group'
+      ? normalizeOptionalIntegerList(toolResult.mention_user_ids)
+      : []
+  });
+}
+
 function buildAssistantTranscriptItems(params: {
   queueMessage: QueueMessageRecord['payload'];
   deliveredMessages: DeliveredAssistantMessage[];
@@ -425,19 +497,49 @@ function buildAssistantTranscriptItems(params: {
   });
 }
 
-function composeSystemPrompt(systemPrompt: string, summaryText?: string | null) {
-  const normalizedSummary = typeof summaryText === 'string' ? summaryText.trim() : '';
-  if (!normalizedSummary) {
-    return systemPrompt;
+function appendRuntimePromptSection(basePrompt: string, sectionTitle: string, sectionBody: string) {
+  const normalizedBase = basePrompt.trim();
+  const normalizedBody = sectionBody.trim();
+
+  if (!normalizedBody) {
+    return normalizedBase;
   }
-  return `${systemPrompt.trim()}\n\nConversation summary:\n${normalizedSummary}`;
+
+  return `${normalizedBase}\n\n${sectionTitle}\n${normalizedBody}`;
+}
+
+function composeSystemPrompt(
+  systemPrompt: string,
+  chatType: 'group' | 'direct',
+  summaryText?: string | null
+) {
+  let composed = systemPrompt.trim();
+
+  if (chatType === 'group') {
+    composed = appendRuntimePromptSection(
+      composed,
+      'Runtime behavior contract:',
+      GROUP_REPLY_BEHAVIOR_CONTRACT
+    );
+  }
+
+  const normalizedSummary = typeof summaryText === 'string' ? summaryText.trim() : '';
+  if (normalizedSummary) {
+    composed = appendRuntimePromptSection(
+      composed,
+      'Conversation summary:',
+      normalizedSummary
+    );
+  }
+
+  return composed;
 }
 
 export function applyToolResultToLoopInput(
   toolCall: Pick<AgentToolCall, 'name' | 'callId' | 'rawArguments'>,
   toolResult: Record<string, unknown>
 ): ToolContinuationAction {
-  if (toolCall.name === 'finish') {
+    if (isSilentFinishToolName(toolCall.name)) {
     return {
       inputItems: [],
       finishResult: toolResult
@@ -492,6 +594,7 @@ export class AgentLoopService {
     let conversationId: number | null = null;
     let turnsExecuted = 0;
     let deliveredMessages: DeliveredAssistantMessage[] = [];
+    const deliveredFingerprints = new Set<string>();
     let historyCount = 0;
     let runtimePrompt: ResolvedAgentRuntimePrompt | null = null;
 
@@ -535,6 +638,7 @@ export class AgentLoopService {
       });
       let requestInput = cumulativeInput;
       let finishResult: Record<string, unknown> | null = null;
+      let deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
 
       for (let turn = 1; turn <= agentConfig.maxTurns; turn += 1) {
         turnsExecuted = turn;
@@ -564,12 +668,60 @@ export class AgentLoopService {
             toolName: toolCall.name,
             methodId: toolCall.name,
             arguments: toolCall.args,
-            sideEffect: toolCall.name !== 'finish'
+            sideEffect: !isSilentFinishToolName(toolCall.name)
           });
 
           try {
+            const duplicateOutbound = buildDuplicateOutboundSuppression(toolCall);
+            if (isSpeakingToolName(toolCall.name)) {
+              deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
+            }
+            if (isSpeakingToolName(toolCall.name) && deliveryState.deliveryPhase !== 'reasoning_open') {
+              const duplicateSuppressed = Boolean(duplicateOutbound && deliveredFingerprints.has(duplicateOutbound.fingerprint));
+              const blockReason = 'Outbound delivery already committed earlier in this run.';
+              const toolResult = {
+                finished: true,
+                blocked_transition: true,
+                duplicate_suppressed: duplicateSuppressed,
+                message_type: duplicateOutbound?.payload.messageType ?? null,
+                blocked_messages: duplicateOutbound?.payload.messages ?? [],
+                mention_user_ids: duplicateOutbound?.payload.mentionUserIds ?? [],
+                blocked_reason: 'already_delivery_committed',
+                reason: blockReason,
+                outcome: 'blocked_transition',
+                no_reply: false
+              };
+              await this.store.markRunDeliveryBlocked(queueMessage.id, blockReason);
+              moduleLogger.warn('Blocked outbound tool call after delivery commit in agent run', {
+                traceId: payload.traceId,
+                runId: queueMessage.id,
+                agentTurn: turn,
+                toolName: toolCall.name,
+                messages: duplicateOutbound?.payload.messages ?? [],
+                reason: blockReason
+              });
+              await this.store.completeToolExecutionLog(logId, {
+                status: 'completed',
+                result: toolResult
+              });
+              await this.store.logTimelineEvent({
+                traceId: payload.traceId,
+                eventType: 'decision',
+                eventName: 'blocked_transition',
+                eventPhase: null,
+                metadata: {
+                  tool_name: toolCall.name,
+                  blocked_reason: 'already_delivery_committed',
+                  duplicate_suppressed: duplicateSuppressed
+                }
+              });
+              deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
+              finishResult = toolResult;
+              break;
+            }
+
             const rawToolResult = await this.executeTool(toolCall, payload);
-            const toolResult = toolCall.name === 'finish'
+            const toolResult = isSilentFinishToolName(toolCall.name)
               ? {
                   ...rawToolResult,
                   no_reply: deliveredMessages.length === 0
@@ -580,7 +732,22 @@ export class AgentLoopService {
               result: toolResult
             });
 
-            if (toolCall.name === 'send_private_message' || toolCall.name === 'send_group_message') {
+            if (isSpeakingToolName(toolCall.name)) {
+              await this.store.markRunDeliveryCommitted(queueMessage.id);
+              await this.store.logTimelineEvent({
+                traceId: payload.traceId,
+                eventType: 'decision',
+                eventName: 'delivery_commit',
+                eventPhase: null,
+                metadata: {
+                  tool_name: toolCall.name
+                }
+              });
+              deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
+              const deliveredFingerprint = buildOutboundFingerprintFromToolResult(toolResult);
+              if (deliveredFingerprint) {
+                deliveredFingerprints.add(deliveredFingerprint);
+              }
               deliveredMessages.push(...extractDeliveredAssistantMessages(toolResult));
             }
 
@@ -867,10 +1034,13 @@ export class AgentLoopService {
 
   private async executeTool(toolCall: AgentToolCall, queueMessage: QueueMessageRecord['payload']): Promise<Record<string, unknown>> {
     switch (toolCall.name) {
+      case TOOL_NAMES.privateReply:
       case 'send_private_message':
         return this.sendMessage('private', toolCall.args, queueMessage);
+      case TOOL_NAMES.groupReply:
       case 'send_group_message':
         return this.sendMessage('group', toolCall.args, queueMessage);
+      case TOOL_NAMES.silentFinish:
       case 'finish':
         return {
           finished: true,
@@ -893,7 +1063,7 @@ export class AgentLoopService {
       const userId = resolvePrivateTargetUserId(queueMessage);
       const messages = normalizeMessages(sanitizedArgs);
       if (!Number.isFinite(userId) || messages.length === 0) {
-        throw new Error('send_private_message requires a valid current private target plus message or messages');
+        throw new Error(`${TOOL_NAMES.privateReply} requires a valid current private target plus message or messages`);
       }
 
       const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/send_private`, {
@@ -908,7 +1078,7 @@ export class AgentLoopService {
       });
       const payload = await response.json() as { success?: boolean; error?: string; data?: unknown };
       if (!response.ok || payload.success === false) {
-        throw new Error(payload.error || `send_private_message failed with ${response.status}`);
+        throw new Error(payload.error || `${TOOL_NAMES.privateReply} failed with ${response.status}`);
       }
       return {
         message_type: 'private',
@@ -921,7 +1091,7 @@ export class AgentLoopService {
     const messages = normalizeMessages(sanitizedArgs);
     const mentionUserIds = normalizeOptionalIntegerList(sanitizedArgs.mention_user_ids);
     if (!Number.isFinite(groupId) || messages.length === 0) {
-      throw new Error('send_group_message requires a valid current group target plus message or messages');
+      throw new Error(`${TOOL_NAMES.groupReply} requires a valid current group target plus message or messages`);
     }
 
     const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/send_group`, {
@@ -937,7 +1107,7 @@ export class AgentLoopService {
     });
     const payload = await response.json() as { success?: boolean; error?: string; data?: unknown };
     if (!response.ok || payload.success === false) {
-      throw new Error(payload.error || `send_group_message failed with ${response.status}`);
+      throw new Error(payload.error || `${TOOL_NAMES.groupReply} failed with ${response.status}`);
     }
     return {
       message_type: 'group',
@@ -965,7 +1135,7 @@ export function buildInitialInput(
     {
       type: 'message',
       role: 'system',
-      content: composeSystemPrompt(runtimePrompt.systemPrompt, options.summaryText)
+      content: composeSystemPrompt(runtimePrompt.systemPrompt, queueMessage.chatType, options.summaryText)
     }
   ];
 
@@ -1035,7 +1205,7 @@ function buildCurrentTurnInputItem(
 
 function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
   return queueMessage.messages
-    .map((message, index) => renderPromptBatchMessage(message, index))
+    .map((message, index) => renderTranscriptBatchMessage(message, index))
     .join('\n');
 }
 

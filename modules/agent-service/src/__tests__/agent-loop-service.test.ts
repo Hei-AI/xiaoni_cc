@@ -5,6 +5,10 @@ import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRe
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload } from '../types';
 
+const PRIVATE_REPLY_TOOL = 'reply_in_private';
+const GROUP_REPLY_TOOL = 'speak_in_group';
+const SILENT_FINISH_TOOL = 'stay_silent';
+
 function createQueuePayload(): QueueMessagePayload {
   return {
     traceId: 'trace-1',
@@ -77,6 +81,50 @@ function createQueuePayload(): QueueMessagePayload {
   };
 }
 
+function createDirectQueuePayload(): QueueMessagePayload {
+  const payload = createQueuePayload();
+  return {
+    ...payload,
+    chatType: 'direct',
+    sessionKey: 'qq:direct:303:202',
+    peerId: '202',
+    peerName: 'Alice',
+    bodyForAgent: '你在干嘛',
+    rawBody: '你在干嘛',
+    wasMentioned: false,
+    inboundContext: {
+      ...payload.inboundContext,
+      ChatType: 'direct',
+      NativeChannelId: '202',
+      MentionedUsers: [],
+      Body: '你在干嘛',
+      BodyForAgent: '你在干嘛',
+      BodyForCommands: '你在干嘛'
+    },
+    messages: [
+      {
+        ...payload.messages[0],
+        chatType: 'direct',
+        sessionKey: 'qq:direct:303:202',
+        peerId: '202',
+        peerName: 'Alice',
+        bodyForAgent: '你在干嘛',
+        rawBody: '你在干嘛',
+        wasMentioned: false,
+        inboundContext: {
+          ...payload.messages[0].inboundContext,
+          ChatType: 'direct',
+          NativeChannelId: '202',
+          MentionedUsers: [],
+          Body: '你在干嘛',
+          BodyForAgent: '你在干嘛',
+          BodyForCommands: '你在干嘛'
+        }
+      }
+    ]
+  };
+}
+
 function createRuntimePrompt(overrides: Partial<ResolvedAgentRuntimePrompt> = {}): ResolvedAgentRuntimePrompt {
   return {
     source: 'default',
@@ -108,7 +156,9 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assert.equal(request.instructions, agentConfig.systemPrompt);
+  assert.match(String(request.instructions), new RegExp(`^${agentConfig.systemPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(String(request.instructions), /Runtime behavior contract:/);
+  assert.match(String(request.instructions), /Group reply contract:/);
   assert.equal(request.input[0]?.type, 'message');
   assert.equal(request.input[0]?.role, 'user');
   assert.equal(request.input.some((item) => item.type === 'message' && item.role === 'system'), false);
@@ -116,8 +166,10 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.equal(request.parallel_tool_calls, false);
   assert.deepEqual(
     request.tools.map((tool) => tool.function.name),
-    ['send_group_message', 'finish']
+    [GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
   );
+  assert.match(String(request.tools[0]?.function.description), /mention_user_ids/);
+  assert.match(String(request.tools[0]?.function.description), /不要为了强调语气、礼貌、格式整齐或装饰效果去 @ 人/);
   assert.deepEqual(request.tools[0]?.function.parameters.properties, {
     message: { type: 'string' },
     messages: {
@@ -143,7 +195,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
   loopInput.push({
     type: 'function_call',
     call_id: 'call-1',
-    name: 'send_group_message',
+    name: GROUP_REPLY_TOOL,
     arguments: '{"message":"hi"}'
   });
   loopInput.push({
@@ -183,7 +235,8 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
   const requestBody = calls[0].body;
   assert.equal(requestBody.trace_id, 'trace-1');
   assert.equal(requestBody.agent_turn, 2);
-  assert.equal(requestBody.canonicalRequest.instructions, agentConfig.systemPrompt);
+  assert.match(String(requestBody.canonicalRequest.instructions), new RegExp(`^${agentConfig.systemPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(String(requestBody.canonicalRequest.instructions), /Runtime behavior contract:/);
   assert.equal(requestBody.canonicalRequest.input[0].role, 'user');
   assert.equal(
     requestBody.canonicalRequest.input.some((item: any) => item.type === 'message' && item.role === 'system'),
@@ -224,10 +277,71 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /BatchId:/);
   assert.doesNotMatch(currentPrompt, /SessionKey:/);
   assert.doesNotMatch(currentPrompt, /ToolUsage:/);
-  assert.match(currentPrompt, /#1 \{Alice\(@202\)\} \[mentioned bot\]: 问问\{Bob\(@404\)\} 今天玩什么/);
+  assert.match(currentPrompt, /Conversation info:\n```json\n\{\n  "sequence": 1,\n  "chat_type": "group"\n\}\n```/);
+  assert.match(currentPrompt, /Sender:\n```text\n\{Alice\(@202\)\}\n```/);
+  assert.match(currentPrompt, /Mentions in current message:\n```text\n\[\{Bob\(@404\)\}\]\n```/);
+  assert.match(currentPrompt, /Visible message text:\n```text\n问问@Bob 今天玩什么\n```/);
+  assert.match(currentPrompt, /Message semantics:\n```json\n\{\n  "text": "问问@Bob 今天玩什么"\n\}\n```/);
+  assert.doesNotMatch(currentPrompt, /\[mentioned bot\]/);
   assert.doesNotMatch(currentPrompt, /ChatType:/);
   assert.doesNotMatch(currentPrompt, /DefaultPrivateTarget:/);
   assert.doesNotMatch(currentPrompt, /DefaultGroupTarget:/);
+});
+
+test('buildInitialInput renders reply context and strips leading mention in message semantics', () => {
+  const payload = createQueuePayload();
+  payload.bodyForAgent = '@Bob 嘿';
+  payload.rawBody = '@Bob 嘿';
+  payload.messages[0].bodyForAgent = '@Bob 嘿';
+  payload.messages[0].rawBody = '@Bob 嘿';
+  payload.messages[0].inboundContext = {
+    ...payload.messages[0].inboundContext,
+    ReplyToBody: '上一条消息',
+    ReplyToSender: 'Carol',
+    ReplyToSenderName: 'Carol',
+    ReplyToSenderId: '505'
+  };
+
+  const loopInput = buildInitialInput([], payload);
+  const currentPrompt = loopInput[1]?.type === 'message'
+    ? String(loopInput[1].content)
+    : '';
+
+  assert.match(currentPrompt, /Visible message text:\n```text\n@Bob 嘿\n```/);
+  assert.match(currentPrompt, /Message semantics:\n```json\n\{\n  "text": "嘿"\n\}\n```/);
+  assert.match(currentPrompt, /Reply to:\n```json\n\{\n  "sender": "\{Carol\(@505\)\}",\n  "text": "上一条消息"\n\}\n```/);
+});
+
+test('buildInitialInput renders each message in a batch as its own structured block', () => {
+  const payload = createQueuePayload();
+  payload.messages.push({
+    ...payload.messages[0],
+    queueMessageId: 2,
+    messageId: 12,
+    messageSid: 'sid-2',
+    senderId: '606',
+    senderName: 'Carol',
+    bodyForAgent: '@Bob 嘿',
+    rawBody: '@Bob 嘿',
+    wasMentioned: false,
+    inboundContext: {
+      ...payload.messages[0].inboundContext,
+      MentionedUsers: [{
+        userId: '404',
+        label: 'Bob'
+      }]
+    }
+  });
+
+  const loopInput = buildInitialInput([], payload);
+  const currentPrompt = loopInput[1]?.type === 'message'
+    ? String(loopInput[1].content)
+    : '';
+
+  assert.equal((currentPrompt.match(/Conversation info:/g) || []).length, 2);
+  assert.match(currentPrompt, /"sequence": 1/);
+  assert.match(currentPrompt, /"sequence": 2/);
+  assert.match(currentPrompt, /Sender:\n```text\n\{Carol\(@606\)\}\n```/);
 });
 
 test('buildInitialInput appends transcript summary to the system prompt when provided', () => {
@@ -239,7 +353,32 @@ test('buildInitialInput appends transcript summary to the system prompt when pro
 
   assert.equal(loopInput[0]?.type, 'message');
   assert.equal(loopInput[0]?.role, 'system');
+  assert.match(String(loopInput[0]?.content), /Runtime behavior contract:/);
+  assert.match(String(loopInput[0]?.content), /Group reply contract:/);
   assert.match(String(loopInput[0]?.content), /Conversation summary:\n这是一个固定记忆区摘要/);
+});
+
+test('buildInitialInput appends group reply contract for group chats', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }));
+
+  assert.equal(loopInput[0]?.type, 'message');
+  assert.equal(loopInput[0]?.role, 'system');
+  assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
+  assert.match(String(loopInput[0]?.content), /Runtime behavior contract:\nGroup reply contract:/);
+  assert.match(String(loopInput[0]?.content), /不是每句话都值得你回复/);
+  assert.match(String(loopInput[0]?.content), /如果你不确定这句话像不像真人群友，优先不要发，直接调用 stay_silent。/);
+});
+
+test('buildInitialInput does not append group reply contract for direct chats', () => {
+  const loopInput = buildInitialInput([], createDirectQueuePayload(), createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }));
+
+  assert.equal(loopInput[0]?.type, 'message');
+  assert.equal(loopInput[0]?.role, 'system');
+  assert.equal(String(loopInput[0]?.content), '你是小腻主AGENT');
 });
 
 test('buildInitialInput applies bound user prompt template to the current message block', () => {
@@ -253,7 +392,8 @@ test('buildInitialInput applies bound user prompt template to the current messag
 
   assert.equal(loopInput[0]?.type, 'message');
   assert.equal(loopInput[0]?.role, 'system');
-  assert.equal(loopInput[0]?.content, '你是小腻主AGENT');
+  assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
+  assert.match(String(loopInput[0]?.content), /Runtime behavior contract:/);
   assert.equal(loopInput[1]?.type, 'message');
   assert.equal(loopInput[1]?.role, 'user');
   assert.match(String(loopInput[1]?.content), /群上下文如下：/);
@@ -412,7 +552,7 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
 
   const continuation = applyToolResultToLoopInput({
     callId: 'call-1',
-    name: 'send_private_message',
+    name: PRIVATE_REPLY_TOOL,
     rawArguments: '{"message":"我们出去玩吧"}'
   }, {
     sent_messages: ['我们出去玩吧']
@@ -435,7 +575,7 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), true);
 });
 
-test('send_group_message always uses the current conversation group target', async () => {
+test('speak_in_group always uses the current conversation group target', async () => {
   const service = new AgentLoopService({} as any);
   const originalFetch = globalThis.fetch;
   const calls: Array<{ url: string; body: any }> = [];
@@ -480,7 +620,7 @@ test('send_group_message always uses the current conversation group target', asy
   });
 });
 
-test('send_private_message always uses the current conversation sender', async () => {
+test('reply_in_private always uses the current conversation sender', async () => {
   const service = new AgentLoopService({} as any);
   const originalFetch = globalThis.fetch;
   const calls: Array<{ url: string; body: any }> = [];
@@ -632,14 +772,27 @@ test('processQueueMessage persists delivered assistant transcript items with fin
     createConversation: [],
     completeQueueMessage: [],
     completeAgentRun: [],
-    updateLlmJob: []
+    updateLlmJob: [],
+    markRunDeliveryCommitted: []
   };
+  let deliveryPhase = 'reasoning_open';
 
   const store = {
     createLlmJob: async () => 'job-success',
     logTimelineEvent: async () => {},
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
     listRecentTurns: async () => [],
+    getRunDeliveryState: async () => ({
+      deliveryPhase,
+      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    markRunDeliveryCommitted: async (_runId: string) => {
+      deliveryPhase = 'delivery_committed';
+      storeCalls.markRunDeliveryCommitted.push(_runId);
+    },
+    markRunDeliveryBlocked: async () => {},
     createToolExecutionLog: async () => 1,
     completeToolExecutionLog: async () => {},
     createConversation: async (params: any) => {
@@ -667,7 +820,7 @@ test('processQueueMessage persists delivered assistant transcript items with fin
           output: [{
             type: 'function_call',
             call_id: 'call-send-success',
-            name: 'send_group_message',
+            name: GROUP_REPLY_TOOL,
             arguments: JSON.stringify({ messages: ['第一条', '第二条'] })
           }]
         }
@@ -681,14 +834,14 @@ test('processQueueMessage persists delivered assistant transcript items with fin
         output: [{
           type: 'function_call',
           call_id: 'call-finish-success',
-          name: 'finish',
+          name: SILENT_FINISH_TOOL,
           arguments: JSON.stringify({ reason: 'done', outcome: 'complete' })
         }]
       }
     };
   };
   (service as any).executeTool = async (toolCall: any) => {
-    if (toolCall.name === 'send_group_message') {
+    if (toolCall.name === GROUP_REPLY_TOOL) {
       return {
         message_type: 'group',
         sent_messages: ['第一条', '第二条'],
@@ -747,6 +900,7 @@ test('processQueueMessage persists delivered assistant transcript items with fin
   assert.deepEqual(storeCalls.completeQueueMessage[0]?.result?.sent_messages, ['第一条', '第二条']);
   assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'reply_sent');
   assert.equal(storeCalls.updateLlmJob[0]?.finalResponse, '第一条\n\n第二条');
+  assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-success']);
 });
 
 test('processQueueMessage stores partially delivered assistant transcript as commentary on failure', async () => {
@@ -764,14 +918,27 @@ test('processQueueMessage stores partially delivered assistant transcript as com
   const storeCalls: Record<string, any[]> = {
     createConversation: [],
     failQueueMessage: [],
-    completeAgentRun: []
+    completeAgentRun: [],
+    markRunDeliveryCommitted: []
   };
+  let deliveryPhase = 'reasoning_open';
 
   const store = {
     createLlmJob: async () => 'job-failure',
     logTimelineEvent: async () => {},
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
     listRecentTurns: async () => [],
+    getRunDeliveryState: async () => ({
+      deliveryPhase,
+      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    markRunDeliveryCommitted: async (_runId: string) => {
+      deliveryPhase = 'delivery_committed';
+      storeCalls.markRunDeliveryCommitted.push(_runId);
+    },
+    markRunDeliveryBlocked: async () => {},
     createToolExecutionLog: async () => 1,
     completeToolExecutionLog: async () => {},
     createConversation: async (params: any) => {
@@ -799,7 +966,7 @@ test('processQueueMessage stores partially delivered assistant transcript as com
           output: [{
             type: 'function_call',
             call_id: 'call-send-failure',
-            name: 'send_group_message',
+            name: GROUP_REPLY_TOOL,
             arguments: JSON.stringify({ message: '先发一条' })
           }]
         }
@@ -813,14 +980,14 @@ test('processQueueMessage stores partially delivered assistant transcript as com
         output: [{
           type: 'function_call',
           call_id: 'call-finish-failure',
-          name: 'finish',
+          name: SILENT_FINISH_TOOL,
           arguments: JSON.stringify({ reason: 'done', outcome: 'complete' })
         }]
       }
     };
   };
   (service as any).executeTool = async (toolCall: any) => {
-    if (toolCall.name === 'send_group_message') {
+    if (toolCall.name === GROUP_REPLY_TOOL) {
       return {
         message_type: 'group',
         sent_messages: ['先发一条'],
@@ -828,7 +995,7 @@ test('processQueueMessage stores partially delivered assistant transcript as com
       };
     }
 
-    throw new Error('finish failed');
+    throw new Error('stay_silent failed');
   };
 
   await service.processQueueMessage(queueMessage as any);
@@ -855,12 +1022,240 @@ test('processQueueMessage stores partially delivered assistant transcript as com
       }
     ]
   );
-  assert.deepEqual(storeCalls.failQueueMessage[0], ['run-queue-failure', 'finish failed', 2001]);
+  assert.deepEqual(storeCalls.failQueueMessage[0], ['run-queue-failure', 'stay_silent failed', 2001]);
   assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'delivery_error');
   assert.deepEqual(storeCalls.completeAgentRun[0]?.sentMessages, ['先发一条']);
+  assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-failure']);
 });
 
-test('applyToolResultToLoopInput ends the turn on finish without replaying tool payload', () => {
+test('processQueueMessage suppresses duplicate outbound reply attempts within the same run', async () => {
+  const queueMessage = {
+    id: 'run-queue-duplicate',
+    traceId: 'trace-duplicate',
+    batchId: 'batch-duplicate',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    completeToolExecutionLog: [],
+    completeQueueMessage: [],
+    completeAgentRun: [],
+    markRunDeliveryCommitted: [],
+    markRunDeliveryBlocked: [],
+    logTimelineEvent: []
+  };
+  let deliveryPhase = 'reasoning_open';
+
+  const store = {
+    createLlmJob: async () => 'job-duplicate',
+    logTimelineEvent: async (params: any) => { storeCalls.logTimelineEvent.push(params); },
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getRunDeliveryState: async () => ({
+      deliveryPhase,
+      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      blockedDeliveryAttemptCount: storeCalls.markRunDeliveryBlocked.length,
+      lastBlockedDeliveryReason: storeCalls.markRunDeliveryBlocked[storeCalls.markRunDeliveryBlocked.length - 1] ?? null
+    }),
+    markRunDeliveryCommitted: async (_runId: string) => {
+      deliveryPhase = 'delivery_committed';
+      storeCalls.markRunDeliveryCommitted.push(_runId);
+    },
+    markRunDeliveryBlocked: async (_runId: string, reason: string) => {
+      storeCalls.markRunDeliveryBlocked.push(reason);
+    },
+    createToolExecutionLog: async () => 1,
+    completeToolExecutionLog: async (_logId: number, params: any) => { storeCalls.completeToolExecutionLog.push(params); },
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 3001;
+    },
+    attachConversationIdToTrace: async () => {},
+    completeQueueMessage: async (_runId: string, params: any) => { storeCalls.completeQueueMessage.push(params); },
+    completeAgentRun: async (_runId: string, params: any) => { storeCalls.completeAgentRun.push(params); },
+    updateLlmJob: async () => {}
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  let turn = 0;
+  let executeToolCalls = 0;
+  (service as any).executeAgentTurn = async () => {
+    turn += 1;
+    if (turn === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-duplicate-1',
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-send-duplicate-1',
+            name: GROUP_REPLY_TOOL,
+            arguments: JSON.stringify({ message: '同一句话' })
+          }]
+        }
+      };
+    }
+
+    return {
+      success: true,
+      llm_call_id: 'llm-duplicate-2',
+      canonical_response: {
+        output: [{
+          type: 'function_call',
+          call_id: 'call-send-duplicate-2',
+          name: GROUP_REPLY_TOOL,
+          arguments: JSON.stringify({ message: '同一句话' })
+        }]
+      }
+    };
+  };
+  (service as any).executeTool = async (toolCall: any) => {
+    executeToolCalls += 1;
+    assert.equal(toolCall.name, GROUP_REPLY_TOOL);
+    return {
+      message_type: 'group',
+      sent_messages: ['同一句话'],
+      delivery: [{ message_id: 7001 }]
+    };
+  };
+
+  await service.processQueueMessage(queueMessage as any);
+
+  assert.equal(executeToolCalls, 1);
+  assert.equal(storeCalls.createConversation.length, 1);
+  assert.equal(storeCalls.createConversation[0]?.aiResponse, '同一句话');
+  assert.deepEqual(
+    storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => item.content),
+    [
+      '#1 {Alice(@202)} [mentioned bot]: 问问{Bob(@404)} 今天玩什么',
+      '同一句话'
+    ]
+  );
+  assert.equal(storeCalls.completeQueueMessage[0]?.result?.termination_reason, 'reply_sent');
+  assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'reply_sent');
+  assert.equal(storeCalls.completeAgentRun[0]?.finishOutcome, 'blocked_transition');
+  assert.match(String(storeCalls.completeAgentRun[0]?.finishReason), /already committed earlier in this run/i);
+  assert.equal(storeCalls.completeToolExecutionLog.length, 2);
+  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.blocked_transition, true);
+  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.duplicate_suppressed, true);
+  assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-duplicate']);
+  assert.equal(storeCalls.markRunDeliveryBlocked.length, 1);
+  assert.equal(storeCalls.logTimelineEvent.some((event) => event.eventName === 'delivery_commit'), true);
+  assert.equal(storeCalls.logTimelineEvent.some((event) => event.eventName === 'blocked_transition'), true);
+});
+
+test('processQueueMessage blocks near-duplicate second outbound reply after delivery commit', async () => {
+  const queueMessage = {
+    id: 'run-queue-near-duplicate',
+    traceId: 'trace-near-duplicate',
+    batchId: 'batch-near-duplicate',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    completeToolExecutionLog: [],
+    completeAgentRun: [],
+    markRunDeliveryCommitted: [],
+    markRunDeliveryBlocked: []
+  };
+  let deliveryPhase = 'reasoning_open';
+
+  const store = {
+    createLlmJob: async () => 'job-near-duplicate',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getRunDeliveryState: async () => ({
+      deliveryPhase,
+      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      blockedDeliveryAttemptCount: storeCalls.markRunDeliveryBlocked.length,
+      lastBlockedDeliveryReason: storeCalls.markRunDeliveryBlocked[storeCalls.markRunDeliveryBlocked.length - 1] ?? null
+    }),
+    markRunDeliveryCommitted: async (_runId: string) => {
+      deliveryPhase = 'delivery_committed';
+      storeCalls.markRunDeliveryCommitted.push(_runId);
+    },
+    markRunDeliveryBlocked: async (_runId: string, reason: string) => {
+      storeCalls.markRunDeliveryBlocked.push(reason);
+    },
+    createToolExecutionLog: async () => 1,
+    completeToolExecutionLog: async (_logId: number, params: any) => { storeCalls.completeToolExecutionLog.push(params); },
+    createConversation: async () => 4001,
+    attachConversationIdToTrace: async () => {},
+    completeQueueMessage: async () => {},
+    completeAgentRun: async (_runId: string, params: any) => { storeCalls.completeAgentRun.push(params); },
+    updateLlmJob: async () => {}
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  let turn = 0;
+  let executeToolCalls = 0;
+  (service as any).executeAgentTurn = async () => {
+    turn += 1;
+    if (turn === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-near-duplicate-1',
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-send-near-duplicate-1',
+            name: GROUP_REPLY_TOOL,
+            arguments: JSON.stringify({ message: '同一句话' })
+          }]
+        }
+      };
+    }
+
+    return {
+      success: true,
+      llm_call_id: 'llm-near-duplicate-2',
+      canonical_response: {
+        output: [{
+          type: 'function_call',
+          call_id: 'call-send-near-duplicate-2',
+          name: GROUP_REPLY_TOOL,
+          arguments: JSON.stringify({ message: '同一句话。' })
+        }]
+      }
+    };
+  };
+  (service as any).executeTool = async () => {
+    executeToolCalls += 1;
+    return {
+      message_type: 'group',
+      sent_messages: ['同一句话'],
+      delivery: [{ message_id: 7101 }]
+    };
+  };
+
+  await service.processQueueMessage(queueMessage as any);
+
+  assert.equal(executeToolCalls, 1);
+  assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'reply_sent');
+  assert.equal(storeCalls.completeAgentRun[0]?.finishOutcome, 'blocked_transition');
+  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.blocked_transition, true);
+  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.duplicate_suppressed, false);
+  assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-near-duplicate']);
+  assert.equal(storeCalls.markRunDeliveryBlocked.length, 1);
+});
+
+test('applyToolResultToLoopInput ends the turn on stay_silent without replaying tool payload', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
   const finishResult = {
     finished: true,
@@ -870,7 +1265,7 @@ test('applyToolResultToLoopInput ends the turn on finish without replaying tool 
 
   const continuation = applyToolResultToLoopInput({
     callId: 'call-2',
-    name: 'finish',
+    name: SILENT_FINISH_TOOL,
     rawArguments: '{"reason":"done","outcome":"complete"}'
   }, finishResult);
 
@@ -880,4 +1275,57 @@ test('applyToolResultToLoopInput ends the turn on finish without replaying tool 
   });
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), false);
+});
+
+test('legacy tool aliases still dispatch during the transition', async () => {
+  const service = new AgentLoopService({} as any);
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body: any }> = [];
+
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({
+      url: String(url),
+      body: JSON.parse(String(init?.body || '{}'))
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { delivered: true }
+      })
+    } as any;
+  }) as typeof fetch;
+
+  try {
+    const groupResult = await (service as any).executeTool({
+      callId: 'legacy-group',
+      name: 'send_group_message',
+      args: { message: 'legacy group' },
+      rawArguments: '{"message":"legacy group"}'
+    }, createQueuePayload());
+    const privateResult = await (service as any).executeTool({
+      callId: 'legacy-private',
+      name: 'send_private_message',
+      args: { message: 'legacy private' },
+      rawArguments: '{"message":"legacy private"}'
+    }, createDirectQueuePayload());
+    const finishResult = await (service as any).executeTool({
+      callId: 'legacy-finish',
+      name: 'finish',
+      args: { reason: 'legacy', outcome: 'noop' },
+      rawArguments: '{"reason":"legacy","outcome":"noop"}'
+    }, createQueuePayload());
+
+    assert.equal(groupResult.message_type, 'group');
+    assert.equal(privateResult.message_type, 'private');
+    assert.deepEqual(finishResult, {
+      finished: true,
+      reason: 'legacy',
+      outcome: 'noop'
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(calls.length, 2);
 });

@@ -335,4 +335,54 @@ describe('buildConversationTracePayload', () => {
       response_body: sseBody,
     });
   });
+
+  it('renders blocked second-send attempts as blocked transition tool spans', async () => {
+    const db = createDatabase({
+      toolCallRows: [
+        {
+          id: 301,
+          tool_call_id: 'tool-call-301',
+          trace_id: 'trace-1',
+          conversation_id: 'conversation-1',
+          job_id: 'job-1',
+          agent_turn: 2,
+          llm_call_id: 'llm-call-1',
+          tool_type: 'function',
+          tool_name: 'speak_in_group',
+          method_id: 'speak_in_group',
+          arguments: JSON.stringify({ message: '同一句话。' }),
+          result: JSON.stringify({
+            outcome: 'blocked_transition',
+            blocked_reason: 'already_delivery_committed',
+            reason: 'Outbound delivery already committed earlier in this run.',
+            duplicate_suppressed: false
+          }),
+          status: 'completed',
+          error_message: null,
+          execution_mode: 'agent_loop',
+          side_effect: true,
+          started_at: '2026-03-28T10:00:04.000Z',
+          completed_at: '2026-03-28T10:00:04.010Z',
+          duration_ms: 10
+        }
+      ]
+    });
+
+    (listTraceTrafficLogs as jest.Mock).mockResolvedValue([]);
+
+    const payload = await buildConversationTracePayload(db as never, createLogger(), 'conversation-1');
+    expect(payload).not.toBeNull();
+
+    const blockedSpan = payload!.spans.find((span) => span.span_id === 'tool-call:tool-call-301');
+    expect(blockedSpan).toMatchObject({
+      name: 'tool.blocked_transition',
+      attributes: expect.objectContaining({
+        'semantic.role': 'blocked_transition',
+        'tool.outcome': 'blocked_transition',
+        'tool.blocked_reason': 'already_delivery_committed',
+        'tool.duplicate_suppressed': false
+      })
+    });
+    expect(String(blockedSpan?.summary)).toMatch(/already committed/i);
+  });
 });

@@ -286,6 +286,7 @@ function buildPlaygroundSnapshot(call: any, spanId: string) {
 }
 
 function normalizeToolCall(call: any) {
+  const result = parseJsonField<any>(call.result, null);
   return {
     id: call.id,
     tool_call_id: call.tool_call_id || null,
@@ -298,7 +299,10 @@ function normalizeToolCall(call: any) {
     tool_name: call.tool_name,
     method_id: call.method_id || null,
     arguments: parseJsonField<any>(call.arguments, null),
-    result: parseJsonField<any>(call.result, null),
+    result,
+    outcome: typeof result?.outcome === 'string' ? result.outcome : null,
+    blocked_reason: typeof result?.blocked_reason === 'string' ? result.blocked_reason : null,
+    duplicate_suppressed: Boolean(result?.duplicate_suppressed),
     status: normalizeStatusCode(call.status),
     error_message: call.error_message || null,
     execution_mode: call.execution_mode || null,
@@ -1131,6 +1135,7 @@ export async function buildConversationTracePayload(
     if (call.tool_call_id) {
       toolSpanIdByCallId.set(call.tool_call_id, spanId);
     }
+    const isBlockedTransition = call.outcome === 'blocked_transition';
     spanRecords.push(createSpan({
       span_id: spanId,
       parent_span_id: (call.llm_call_id && llmSpanIdByCallId.get(call.llm_call_id))
@@ -1138,23 +1143,31 @@ export async function buildConversationTracePayload(
         || rootSpanId,
       trace_id: traceId,
       conversation_id: call.conversation_id || conversationId,
-      name: 'tool.invocation',
+      name: isBlockedTransition ? 'tool.blocked_transition' : 'tool.invocation',
       kind: 'internal',
       status_code: call.status,
       status_message: call.error_message || null,
       started_at: call.started_at,
       ended_at: call.completed_at,
       duration_ms: call.duration_ms,
-      summary: safePreview(call.result || call.error_message || call.arguments),
+      summary: safePreview(
+        (isBlockedTransition && (call.result?.reason || call.blocked_reason || call.tool_name))
+          || call.result
+          || call.error_message
+          || call.arguments
+      ),
       attributes: {
-        'semantic.role': 'invocation',
+        'semantic.role': isBlockedTransition ? 'blocked_transition' : 'invocation',
         'semantic.capability': call.method_id || call.tool_name,
         'semantic.display_name': call.tool_name,
         'tool.name': call.tool_name,
         'tool.method_id': call.method_id,
         'tool.execution_mode': call.execution_mode,
         'tool.side_effect': call.side_effect,
-        'trace.agent_turn': call.agent_turn
+        'trace.agent_turn': call.agent_turn,
+        'tool.outcome': call.outcome,
+        'tool.blocked_reason': call.blocked_reason,
+        'tool.duplicate_suppressed': call.duplicate_suppressed
       },
       input: call.arguments,
       output: {
