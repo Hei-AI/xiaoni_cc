@@ -112,6 +112,51 @@ function buildParticipationSummary(timeline: any[]) {
   };
 }
 
+function buildParticipationEvent(row: any) {
+  const metadata = parseJsonObject(row.metadata);
+  const scores = parseJsonObject(metadata.scores);
+
+  return {
+    event_id: Number(row.id || 0),
+    trace_id: row.trace_id || null,
+    event_time: row.event_time || null,
+    decision: metadata.decision || null,
+    reason: metadata.reason || null,
+    confidence: metadata.confidence || null,
+    conservative_fallback: Boolean(metadata.conservative_fallback),
+    used_embeddings: Boolean(metadata.used_embeddings),
+    used_llm_judge: Boolean(metadata.used_llm_judge || metadata.usedLlmJudge),
+    llm_judge_model: metadata.llmJudgeModel || null,
+    llm_judge_decision: metadata.llmJudgeDecision || null,
+    llm_judge_confidence: metadata.llmJudgeConfidence || null,
+    llm_judge_reason: metadata.llmJudgeReason || null,
+    llm_judge_error: metadata.llmJudgeError || null,
+    continuity_similarity: metadata.continuitySimilarity ?? null,
+    interest_similarity: metadata.interestSimilarity ?? null,
+    scores: {
+      addressedness: toNumber(scores.addressedness),
+      continuity: toNumber(scores.continuity),
+      social_position: toNumber(scores.socialPosition),
+      interest: toNumber(scores.interest),
+      timing: toNumber(scores.timing),
+      value_add: toNumber(scores.valueAdd),
+      final: toNumber(scores.final)
+    },
+    recent_inbound_count: toNumber(metadata.recentInboundCount),
+    recent_reply_count: toNumber(metadata.recentReplyCount),
+    cooldown_remaining_ms: toNumber(metadata.cooldownRemainingMs),
+    path: metadata.path || null,
+    embedding_error: metadata.embeddingError || null,
+    inbound: {
+      sender_id: row.sender_id || null,
+      sender_name: row.sender_name || null,
+      body_for_agent: row.body_for_agent || null,
+      raw_body: row.raw_body || null,
+      was_mentioned: Boolean(row.was_mentioned)
+    }
+  };
+}
+
 export function createRunRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
 
@@ -129,8 +174,8 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
         filters.push(`(
           s.session_key ILIKE ?
           OR COALESCE(s.peer_name, '') ILIKE ?
-          OR COALESCE(s.summary, '') ILIKE ?
-          OR COALESCE(s.finish_reason, '') ILIKE ?
+          OR COALESCE(s.latest_message_preview, '') ILIKE ?
+          OR COALESCE(s.last_finish_reason, '') ILIKE ?
         )`);
         params.push(pattern, pattern, pattern, pattern);
       }
@@ -138,7 +183,14 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
       const whereClause = filters.length > 0 ? ` AND ${filters.join(' AND ')}` : '';
       const rows = await database.executeQuery(
         `
-          WITH ranked_runs AS (
+          WITH queued_trace_ids AS (
+            SELECT DISTINCT trace_id
+            FROM timeline_events
+            WHERE event_type = 'queue'
+              AND event_name = 'enqueue'
+              AND event_phase = 'end'
+          ),
+          ranked_runs AS (
             SELECT
               r.id AS run_id,
               r.session_key,
@@ -167,30 +219,111 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
               COUNT(*) FILTER (WHERE no_reply = TRUE) AS no_reply_runs
             FROM agent_runs
             GROUP BY session_key
+          ),
+          participation_only_sessions AS (
+            SELECT
+              COALESCE(t.metadata->>'sessionKey', t.metadata->>'session_key') AS session_key,
+              COALESCE(inbound.peer_name, COALESCE(t.metadata->>'sessionKey', t.metadata->>'session_key')) AS peer_name,
+              COALESCE(inbound.chat_type, 'group') AS chat_type,
+              NULL::text AS latest_run_id,
+              CONCAT('pre_run_', COALESCE(t.metadata->>'decision', 'unknown')) AS latest_status,
+              NULL::text AS last_termination_reason,
+              NULL::text AS last_finish_reason,
+              NULL::text AS last_finish_outcome,
+              TRUE AS last_no_reply,
+              NULL::text AS last_final_response,
+              t.event_time AS latest_started_at,
+              t.event_time AS latest_completed_at,
+              1 AS latest_input_message_count,
+              COALESCE(inbound.raw_body, inbound.body_for_agent, '') AS latest_message_preview,
+              0::bigint AS total_runs,
+              0::bigint AS failed_runs,
+              0::bigint AS no_reply_runs,
+              t.event_time AS sort_created_at,
+              ROW_NUMBER() OVER (
+                PARTITION BY COALESCE(t.metadata->>'sessionKey', t.metadata->>'session_key')
+                ORDER BY t.event_time DESC, t.id DESC
+              ) AS rn
+            FROM timeline_events t
+            LEFT JOIN agent_inbound_messages inbound ON inbound.trace_id = t.trace_id
+            LEFT JOIN queued_trace_ids queued ON queued.trace_id = t.trace_id
+            LEFT JOIN session_stats stats ON stats.session_key = COALESCE(t.metadata->>'sessionKey', t.metadata->>'session_key')
+            WHERE t.event_type = 'participation'
+              AND t.event_name = 'decision'
+              AND t.event_phase = 'end'
+              AND queued.trace_id IS NULL
+              AND stats.session_key IS NULL
+          ),
+          all_sessions AS (
+            SELECT
+              s.session_key,
+              s.peer_name,
+              s.chat_type,
+              s.run_id AS latest_run_id,
+              s.status AS latest_status,
+              s.termination_reason AS last_termination_reason,
+              s.finish_reason AS last_finish_reason,
+              s.finish_outcome AS last_finish_outcome,
+              s.no_reply AS last_no_reply,
+              s.final_response AS last_final_response,
+              s.started_at AS latest_started_at,
+              s.completed_at AS latest_completed_at,
+              s.input_message_count AS latest_input_message_count,
+              split_part(COALESCE(s.summary, ''), E'\n', 1) AS latest_message_preview,
+              stats.total_runs,
+              stats.failed_runs,
+              stats.no_reply_runs,
+              s.created_at AS sort_created_at
+            FROM ranked_runs s
+            INNER JOIN session_stats stats ON stats.session_key = s.session_key
+            WHERE s.rn = 1
+
+            UNION ALL
+
+            SELECT
+              p.session_key,
+              p.peer_name,
+              p.chat_type,
+              p.latest_run_id,
+              p.latest_status,
+              p.last_termination_reason,
+              p.last_finish_reason,
+              p.last_finish_outcome,
+              p.last_no_reply,
+              p.last_final_response,
+              p.latest_started_at,
+              p.latest_completed_at,
+              p.latest_input_message_count,
+              p.latest_message_preview,
+              p.total_runs,
+              p.failed_runs,
+              p.no_reply_runs,
+              p.sort_created_at
+            FROM participation_only_sessions p
+            WHERE p.rn = 1
           )
           SELECT
             s.session_key,
             s.peer_name,
             s.chat_type,
-            s.run_id AS latest_run_id,
-            s.status AS latest_status,
-            s.termination_reason AS last_termination_reason,
-            s.finish_reason AS last_finish_reason,
-            s.finish_outcome AS last_finish_outcome,
-            s.no_reply AS last_no_reply,
-            s.final_response AS last_final_response,
-            s.started_at AS latest_started_at,
-            s.completed_at AS latest_completed_at,
-            s.input_message_count AS latest_input_message_count,
-            split_part(COALESCE(s.summary, ''), E'\n', 1) AS latest_message_preview,
-            stats.total_runs,
-            stats.failed_runs,
-            stats.no_reply_runs
-          FROM ranked_runs s
-          INNER JOIN session_stats stats ON stats.session_key = s.session_key
-          WHERE s.rn = 1
+            s.latest_run_id,
+            s.latest_status,
+            s.last_termination_reason,
+            s.last_finish_reason,
+            s.last_finish_outcome,
+            s.last_no_reply,
+            s.last_final_response,
+            s.latest_started_at,
+            s.latest_completed_at,
+            s.latest_input_message_count,
+            s.latest_message_preview,
+            s.total_runs,
+            s.failed_runs,
+            s.no_reply_runs
+          FROM all_sessions s
+          WHERE 1 = 1
           ${whereClause}
-          ORDER BY s.created_at DESC
+          ORDER BY s.sort_created_at DESC
           LIMIT ? OFFSET ?
         `,
         [...params, limit, offset]
@@ -198,19 +331,70 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
 
       const totalRows = await database.executeQuery<{ total: number }>(
         `
-          WITH ranked_runs AS (
+          WITH queued_trace_ids AS (
+            SELECT DISTINCT trace_id
+            FROM timeline_events
+            WHERE event_type = 'queue'
+              AND event_name = 'enqueue'
+              AND event_phase = 'end'
+          ),
+          ranked_runs AS (
             SELECT
               r.session_key,
-              b.summary,
               r.peer_name,
-              r.finish_reason,
+              split_part(COALESCE(b.summary, ''), E'\n', 1) AS latest_message_preview,
+              r.finish_reason AS last_finish_reason,
               ROW_NUMBER() OVER (PARTITION BY r.session_key ORDER BY r.created_at DESC, r.id DESC) AS rn
             FROM agent_runs r
             INNER JOIN agent_message_batches b ON b.id = r.batch_id
+          ),
+          session_stats AS (
+            SELECT session_key
+            FROM agent_runs
+            GROUP BY session_key
+          ),
+          participation_only_sessions AS (
+            SELECT
+              COALESCE(t.metadata->>'sessionKey', t.metadata->>'session_key') AS session_key,
+              COALESCE(inbound.peer_name, COALESCE(t.metadata->>'sessionKey', t.metadata->>'session_key')) AS peer_name,
+              COALESCE(inbound.raw_body, inbound.body_for_agent, '') AS latest_message_preview,
+              NULL::text AS last_finish_reason,
+              ROW_NUMBER() OVER (
+                PARTITION BY COALESCE(t.metadata->>'sessionKey', t.metadata->>'session_key')
+                ORDER BY t.event_time DESC, t.id DESC
+              ) AS rn
+            FROM timeline_events t
+            LEFT JOIN agent_inbound_messages inbound ON inbound.trace_id = t.trace_id
+            LEFT JOIN queued_trace_ids queued ON queued.trace_id = t.trace_id
+            LEFT JOIN session_stats stats ON stats.session_key = COALESCE(t.metadata->>'sessionKey', t.metadata->>'session_key')
+            WHERE t.event_type = 'participation'
+              AND t.event_name = 'decision'
+              AND t.event_phase = 'end'
+              AND queued.trace_id IS NULL
+              AND stats.session_key IS NULL
+          ),
+          all_sessions AS (
+            SELECT
+              session_key,
+              peer_name,
+              latest_message_preview,
+              last_finish_reason
+            FROM ranked_runs
+            WHERE rn = 1
+
+            UNION ALL
+
+            SELECT
+              session_key,
+              peer_name,
+              latest_message_preview,
+              last_finish_reason
+            FROM participation_only_sessions
+            WHERE rn = 1
           )
           SELECT COUNT(*) AS total
-          FROM ranked_runs s
-          WHERE s.rn = 1
+          FROM all_sessions s
+          WHERE 1 = 1
           ${whereClause}
         `,
         params
@@ -306,6 +490,58 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
       res.status(500).json({
         success: false,
         error: 'Failed to list runs for session',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/runs/sessions/:sessionKey/participation-events', async (req, res) => {
+    try {
+      const sessionKey = decodeSessionKey(req.params.sessionKey);
+      const limit = Math.max(1, Math.min(20, Number.parseInt(String(req.query.limit || '10'), 10)));
+
+      const rows = await database.executeQuery(
+        `
+          SELECT
+            t.id,
+            t.trace_id,
+            t.event_time,
+            t.metadata,
+            inbound.sender_id,
+            inbound.sender_name,
+            inbound.body_for_agent,
+            inbound.raw_body,
+            inbound.was_mentioned
+          FROM timeline_events t
+          LEFT JOIN agent_inbound_messages inbound ON inbound.trace_id = t.trace_id
+          WHERE t.event_type = 'participation'
+            AND t.event_name = 'decision'
+            AND t.event_phase = 'end'
+            AND COALESCE(t.metadata->>'sessionKey', t.metadata->>'session_key') = ?
+            AND NOT EXISTS (
+              SELECT 1
+              FROM timeline_events queued
+              WHERE queued.trace_id = t.trace_id
+                AND queued.event_type = 'queue'
+                AND queued.event_name = 'enqueue'
+                AND queued.event_phase = 'end'
+            )
+          ORDER BY t.event_time DESC, t.id DESC
+          LIMIT ?
+        `,
+        [sessionKey, limit]
+      );
+
+      res.json({
+        success: true,
+        data: rows.map(buildParticipationEvent),
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to list participation-only events for session', { error, sessionKey: req.params.sessionKey });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to list participation-only events for session',
         timestamp: new Date().toISOString()
       });
     }

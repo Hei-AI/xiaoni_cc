@@ -21,6 +21,152 @@ function createApp(database: ReturnType<typeof createDatabaseMock>) {
 }
 
 describe('run routes', () => {
+  it('lists sessions that only have pre-run participation decisions', async () => {
+    const database = createDatabaseMock();
+    database.executeQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('FROM all_sessions s') && sql.includes('ORDER BY s.sort_created_at DESC')) {
+        expect(params).toEqual([30, 0]);
+        return [{
+          session_key: 'qq:group:67890',
+          peer_name: 'group_67890',
+          chat_type: 'group',
+          latest_run_id: null,
+          latest_status: 'pre_run_ignore',
+          last_termination_reason: null,
+          last_finish_reason: null,
+          last_finish_outcome: null,
+          last_no_reply: true,
+          last_final_response: null,
+          latest_started_at: '2026-03-31T13:45:00.000Z',
+          latest_completed_at: '2026-03-31T13:45:00.000Z',
+          latest_input_message_count: 1,
+          latest_message_preview: '1',
+          total_runs: 0,
+          failed_runs: 0,
+          no_reply_runs: 0
+        }];
+      }
+
+      if (sql.includes('SELECT COUNT(*) AS total') && sql.includes('FROM all_sessions s')) {
+        expect(params).toEqual([]);
+        return [{ total: 1 }];
+      }
+
+      return [];
+    });
+
+    const response = await request(createApp(database)).get('/api/runs/sessions');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual([{
+      session_key: 'qq:group:67890',
+      peer_name: 'group_67890',
+      chat_type: 'group',
+      latest_run_id: null,
+      latest_status: 'pre_run_ignore',
+      last_termination_reason: null,
+      last_finish_reason: null,
+      last_finish_outcome: null,
+      last_no_reply: true,
+      last_final_response: null,
+      latest_started_at: '2026-03-31T13:45:00.000Z',
+      latest_completed_at: '2026-03-31T13:45:00.000Z',
+      latest_input_message_count: 1,
+      latest_message_preview: '1',
+      total_runs: 0,
+      failed_runs: 0,
+      no_reply_runs: 0
+    }]);
+    expect(response.body.total).toBe(1);
+  });
+
+  it('returns participation-only events for ignored messages that never created a run', async () => {
+    const database = createDatabaseMock();
+    database.executeQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("FROM timeline_events t")) {
+        expect(params).toEqual(['qq:group:1042994150', 10]);
+        return [{
+          id: 1503,
+          trace_id: 'sim_1774963986743_8b8200ad',
+          event_time: '2026-03-31T13:33:06.833Z',
+          metadata: JSON.stringify({
+            decision: 'ignore',
+            reason: 'low_signal',
+            confidence: 'medium',
+            conservative_fallback: false,
+            used_embeddings: true,
+            used_llm_judge: false,
+            continuitySimilarity: 0,
+            interestSimilarity: 0.879272623279608,
+            recentInboundCount: 0,
+            recentReplyCount: 0,
+            cooldownRemainingMs: 0,
+            path: 'score_deny',
+            scores: {
+              addressedness: 0,
+              continuity: 0,
+              socialPosition: 0.2,
+              interest: 0.2975,
+              timing: 1,
+              valueAdd: 0.45,
+              final: 0.17665
+            }
+          }),
+          sender_id: '3375477814',
+          sender_name: 'liahua',
+          body_for_agent: '1',
+          raw_body: '1',
+          was_mentioned: 0
+        }];
+      }
+
+      return [];
+    });
+
+    const response = await request(createApp(database)).get('/api/runs/sessions/qq%3Agroup%3A1042994150/participation-events');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual([{
+      event_id: 1503,
+      trace_id: 'sim_1774963986743_8b8200ad',
+      event_time: '2026-03-31T13:33:06.833Z',
+      decision: 'ignore',
+      reason: 'low_signal',
+      confidence: 'medium',
+      conservative_fallback: false,
+      used_embeddings: true,
+      used_llm_judge: false,
+      llm_judge_model: null,
+      llm_judge_decision: null,
+      llm_judge_confidence: null,
+      llm_judge_reason: null,
+      llm_judge_error: null,
+      continuity_similarity: 0,
+      interest_similarity: 0.879272623279608,
+      scores: {
+        addressedness: 0,
+        continuity: 0,
+        social_position: 0.2,
+        interest: 0.2975,
+        timing: 1,
+        value_add: 0.45,
+        final: 0.17665
+      },
+      recent_inbound_count: 0,
+      recent_reply_count: 0,
+      cooldown_remaining_ms: 0,
+      path: 'score_deny',
+      embedding_error: null,
+      inbound: {
+        sender_id: '3375477814',
+        sender_name: 'liahua',
+        body_for_agent: '1',
+        raw_body: '1',
+        was_mentioned: false
+      }
+    }]);
+  });
+
   it('returns delivery state fields in run detail without inflating sent message counts', async () => {
     const database = createDatabaseMock();
     database.executeQuery.mockImplementation(async (sql: string) => {

@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { formatTimestamp } from '@/lib/utils';
-import { useRunDetail, useRunSessions, useSessionRuns } from '@/hooks/useAgentRuns';
+import { useRunDetail, useRunSessions, useSessionParticipationEvents, useSessionRuns } from '@/hooks/useAgentRuns';
 
 function toneForRun(status: string, noReply?: boolean): 'danger' | 'warning' | 'success' | 'info' {
   if (status === 'failed') return 'danger';
@@ -57,7 +57,9 @@ export const ConversationsPage: React.FC = () => {
   const sessionsQuery = useRunSessions(debouncedSearch);
   const sessions = sessionsQuery.data?.data || [];
   const sessionRunsQuery = useSessionRuns(selectedSessionKey);
+  const participationEventsQuery = useSessionParticipationEvents(selectedSessionKey);
   const runs = sessionRunsQuery.data || [];
+  const participationEvents = participationEventsQuery.data || [];
   const runDetailQuery = useRunDetail(selectedRunId);
   const selectedRun = runDetailQuery.data;
 
@@ -83,6 +85,7 @@ export const ConversationsPage: React.FC = () => {
 
   const sessionsLoading = sessionsQuery.isLoading || sessionsQuery.isFetching;
   const runsLoading = sessionsLoading || sessionRunsQuery.isLoading || (Boolean(selectedSessionKey) && sessionRunsQuery.isFetching);
+  const participationLoading = sessionsLoading || participationEventsQuery.isLoading || (Boolean(selectedSessionKey) && participationEventsQuery.isFetching);
 
   return (
     <PageShell>
@@ -169,43 +172,86 @@ export const ConversationsPage: React.FC = () => {
               ))
             ) : !selectedSessionKey ? (
               <EmptyState icon={<Bot className="h-10 w-10" />} title="选择会话" description="先在左侧选择一个会话，再查看对应 runs。" />
-            ) : runs.length === 0 ? (
-              <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无 runs" description="选择一个有数据的会话。" />
             ) : (
-              runs.map((run) => (
-                <div
-                  key={run.id}
-                  className={`w-full rounded-2xl border p-4 text-left transition ${
-                    selectedRunId === run.id ? 'border-primary bg-primary/5' : 'border-border bg-card hover:bg-muted/30'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-foreground">{formatTimestamp(run.started_at || run.created_at)}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{run.id}</div>
+              <>
+                {participationLoading ? (
+                  <div className="h-32 animate-pulse rounded-2xl border border-border bg-muted/40" />
+                ) : participationEvents.length > 0 ? (
+                  <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/60 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-foreground">Pre-Run Decisions</div>
+                        <div className="mt-1 text-xs text-muted-foreground">这些消息在进入主循环前就被 Stage 2 挡掉了。</div>
+                      </div>
+                      <Badge variant="secondary">{participationEvents.length} 条</Badge>
                     </div>
-                    <StatusPill tone={toneForRun(run.status, run.no_reply)}>{run.no_reply ? 'no_reply' : run.status}</StatusPill>
+                    <div className="mt-4 space-y-3">
+                      {participationEvents.map((event) => (
+                        <div key={event.event_id} className="rounded-2xl border border-amber-200 bg-white/80 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-foreground">{formatTimestamp(event.event_time || '')}</div>
+                              <div className="mt-1 text-xs text-muted-foreground">{event.inbound?.sender_name || event.inbound?.sender_id || 'unknown sender'}</div>
+                            </div>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              <Badge variant="secondary">{event.decision || 'unknown'}</Badge>
+                              {event.reason ? <Badge variant="outline">{event.reason}</Badge> : null}
+                              {event.confidence ? <Badge variant="outline">{event.confidence}</Badge> : null}
+                            </div>
+                          </div>
+                          <div className="mt-3 text-sm text-foreground/85">{event.inbound?.raw_body || event.inbound?.body_for_agent || '无消息预览'}</div>
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                            <span>Final {formatPercent(event.scores?.final)}</span>
+                            <span>Continuity {formatPercent(event.continuity_similarity)}</span>
+                            <span>Interest {formatPercent(event.interest_similarity)}</span>
+                            <span>{event.used_embeddings ? 'embedding on' : 'embedding off'}</span>
+                            <span>{event.used_llm_judge ? 'llm judge on' : 'llm judge off'}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Badge variant="outline">{run.input_message_count} 条输入</Badge>
-                    <Badge variant="outline">{run.total_turns} turns</Badge>
-                    <Badge variant="outline">In {formatTokenCount(run.input_tokens_total)}</Badge>
-                    <Badge variant="outline">Out {formatTokenCount(run.output_tokens_total)}</Badge>
-                    <Badge variant="outline">Cache {formatTokenCount(run.cached_input_tokens_total)}</Badge>
-                    {run.termination_reason ? <Badge variant="outline">{run.termination_reason}</Badge> : null}
-                  </div>
-                  <div className="mt-3 text-sm text-foreground/85 line-clamp-3">{run.final_response || run.finish_outcome || run.error_message || '未产生最终回复'}</div>
-                  <div className="mt-4 flex items-center justify-between gap-3">
-                    <Button variant={selectedRunId === run.id ? 'default' : 'outline'} size="sm" onClick={() => setSelectedRunId(run.id)}>
-                      {selectedRunId === run.id ? '当前 Run' : '查看详情'}
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => navigate(`/runs/${run.id}/trace`)}>
-                      Trace
-                      <ArrowRight className="ml-1 h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))
+                ) : null}
+
+                {runs.length === 0 ? (
+                  <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无 runs" description="这个会话最近只有 pre-run decision，或还没有 agent run。" />
+                ) : (
+                  runs.map((run) => (
+                    <div
+                      key={run.id}
+                      className={`w-full rounded-2xl border p-4 text-left transition ${
+                        selectedRunId === run.id ? 'border-primary bg-primary/5' : 'border-border bg-card hover:bg-muted/30'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">{formatTimestamp(run.started_at || run.created_at)}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{run.id}</div>
+                        </div>
+                        <StatusPill tone={toneForRun(run.status, run.no_reply)}>{run.no_reply ? 'no_reply' : run.status}</StatusPill>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Badge variant="outline">{run.input_message_count} 条输入</Badge>
+                        <Badge variant="outline">{run.total_turns} turns</Badge>
+                        <Badge variant="outline">In {formatTokenCount(run.input_tokens_total)}</Badge>
+                        <Badge variant="outline">Out {formatTokenCount(run.output_tokens_total)}</Badge>
+                        <Badge variant="outline">Cache {formatTokenCount(run.cached_input_tokens_total)}</Badge>
+                        {run.termination_reason ? <Badge variant="outline">{run.termination_reason}</Badge> : null}
+                      </div>
+                      <div className="mt-3 text-sm text-foreground/85 line-clamp-3">{run.final_response || run.finish_outcome || run.error_message || '未产生最终回复'}</div>
+                      <div className="mt-4 flex items-center justify-between gap-3">
+                        <Button variant={selectedRunId === run.id ? 'default' : 'outline'} size="sm" onClick={() => setSelectedRunId(run.id)}>
+                          {selectedRunId === run.id ? '当前 Run' : '查看详情'}
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => navigate(`/runs/${run.id}/trace`)}>
+                          Trace
+                          <ArrowRight className="ml-1 h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </>
             )}
           </div>
         </SectionPanel>
