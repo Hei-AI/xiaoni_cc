@@ -172,6 +172,55 @@ describe('buildConversationTracePayload', () => {
     expect(spans.some((span) => span.span_id === 'http:101')).toBe(false);
   });
 
+  it('surfaces participation decision timeline metadata as readable decision spans', async () => {
+    const db = createDatabase({
+      timelineRows: [
+        {
+          id: 301,
+          trace_id: 'trace-1',
+          conversation_id: 'conversation-1',
+          event_type: 'participation',
+          event_name: 'decision',
+          event_phase: 'end',
+          duration_ms: 8,
+          metadata: JSON.stringify({
+            decision: 'ignore',
+            reason: 'cooldown_active',
+            confidence: 'high',
+            used_embeddings: false,
+            used_llm_judge: true,
+            llmJudgeModel: 'gpt-5.4-mini',
+            llmJudgeDecision: 'ignore',
+            llmJudgeConfidence: 'high',
+            conservative_fallback: true
+          }),
+          event_time: '2026-03-28T10:00:00.500Z'
+        }
+      ]
+    });
+
+    (listTraceTrafficLogs as jest.Mock).mockResolvedValue([]);
+
+    const payload = await buildConversationTracePayload(db as never, createLogger(), 'conversation-1');
+    expect(payload).not.toBeNull();
+
+    const participationSpan = payload!.spans.find((span) => span.name === 'phase.decision' && span.attributes['semantic.display_name'] === 'participation.decision');
+    expect(participationSpan).toMatchObject({
+      summary: 'participation / ignore / cooldown_active / high',
+      attributes: expect.objectContaining({
+        'participation.decision': 'ignore',
+        'participation.reason': 'cooldown_active',
+        'participation.confidence': 'high',
+        'participation.used_embeddings': false,
+        'participation.used_llm_judge': true,
+        'participation.llm_judge_model': 'gpt-5.4-mini',
+        'participation.llm_judge_decision': 'ignore',
+        'participation.llm_judge_confidence': 'high',
+        'participation.conservative_fallback': true
+      })
+    });
+  });
+
   it('keeps AI traffic without llm_call_id out of provider spans', async () => {
     const db = createDatabase({
       llmCallRows: [

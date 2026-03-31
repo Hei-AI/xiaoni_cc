@@ -614,6 +614,7 @@ test('speak_in_group always uses the current conversation group target', async (
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.url, `${agentConfig.providerServiceUrl}/api/internal/send_group`);
   assert.deepEqual(calls[0]?.body, {
+    session_key: 'qq:group:101',
     group_id: 101,
     messages: ['当前群里回复'],
     mention_user_ids: [404]

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bot, MessageCircleMore, RefreshCw, Search, Workflow } from 'lucide-react';
+import { ArrowRight, Bot, Clock3, MessageCircleMore, RefreshCw, Search, Sparkles, Workflow } from 'lucide-react';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
 import { SectionPanel } from '@/components/console/SectionPanel';
@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { formatTimestamp } from '@/lib/utils';
-import { useRunSessions, useSessionRuns } from '@/hooks/useAgentRuns';
+import { useRunDetail, useRunSessions, useSessionRuns } from '@/hooks/useAgentRuns';
 
 function toneForRun(status: string, noReply?: boolean): 'danger' | 'warning' | 'success' | 'info' {
   if (status === 'failed') return 'danger';
@@ -22,6 +22,24 @@ function toneForRun(status: string, noReply?: boolean): 'danger' | 'warning' | '
 
 function formatTokenCount(value: number | null | undefined): string {
   return new Intl.NumberFormat('zh-CN').format(Number(value || 0));
+}
+
+function formatPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return 'n/a';
+  }
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatDurationMs(value: number | null | undefined): string {
+  const numeric = Number(value || 0);
+  if (!numeric) {
+    return '0 ms';
+  }
+  if (numeric < 1000) {
+    return `${numeric} ms`;
+  }
+  return `${(numeric / 1000).toFixed(1)} s`;
 }
 
 export const ConversationsPage: React.FC = () => {
@@ -40,6 +58,8 @@ export const ConversationsPage: React.FC = () => {
   const sessions = sessionsQuery.data?.data || [];
   const sessionRunsQuery = useSessionRuns(selectedSessionKey);
   const runs = sessionRunsQuery.data || [];
+  const runDetailQuery = useRunDetail(selectedRunId);
+  const selectedRun = runDetailQuery.data;
 
   React.useEffect(() => {
     if (!sessions.length) {
@@ -91,7 +111,7 @@ export const ConversationsPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid gap-4 xl:grid-cols-[320px_380px_minmax(0,1fr)]">
         <div className="space-y-4">
           <SectionPanel
             title="会话"
@@ -137,7 +157,7 @@ export const ConversationsPage: React.FC = () => {
 
         <SectionPanel
           title="Runs"
-          description="二级选择区；点击一个 run 直接进入 Trace 详情。"
+          description="二级选择区；先选 run，再决定要不要跳 Trace。"
           contentClassName="pt-3"
         >
           <div className="space-y-3">
@@ -153,10 +173,8 @@ export const ConversationsPage: React.FC = () => {
               <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无 runs" description="选择一个有数据的会话。" />
             ) : (
               runs.map((run) => (
-                <button
-                  type="button"
+                <div
                   key={run.id}
-                  onClick={() => navigate(`/runs/${run.id}/trace`)}
                   className={`w-full rounded-2xl border p-4 text-left transition ${
                     selectedRunId === run.id ? 'border-primary bg-primary/5' : 'border-border bg-card hover:bg-muted/30'
                   }`}
@@ -177,11 +195,164 @@ export const ConversationsPage: React.FC = () => {
                     {run.termination_reason ? <Badge variant="outline">{run.termination_reason}</Badge> : null}
                   </div>
                   <div className="mt-3 text-sm text-foreground/85 line-clamp-3">{run.final_response || run.finish_outcome || run.error_message || '未产生最终回复'}</div>
-                  <div className="mt-4 text-xs font-medium text-primary">进入 Trace 详情</div>
-                </button>
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <Button variant={selectedRunId === run.id ? 'default' : 'outline'} size="sm" onClick={() => setSelectedRunId(run.id)}>
+                      {selectedRunId === run.id ? '当前 Run' : '查看详情'}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => navigate(`/runs/${run.id}/trace`)}>
+                      Trace
+                      <ArrowRight className="ml-1 h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
               ))
             )}
           </div>
+        </SectionPanel>
+
+        <SectionPanel
+          title="Run Detail"
+          description="在列表页直接看这次 run 为什么回、为什么没回，以及 participation decision 的关键分数。"
+          contentClassName="pt-3"
+        >
+          {runDetailQuery.error ? (
+            <ErrorState description={runDetailQuery.error.message} onRetry={() => runDetailQuery.refetch()} />
+          ) : runDetailQuery.isLoading || runDetailQuery.isFetching ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="h-24 animate-pulse rounded-2xl border border-border bg-muted/40" />
+              ))}
+            </div>
+          ) : !selectedRunId || !selectedRun ? (
+            <EmptyState icon={<Bot className="h-10 w-10" />} title="选择一个 run" description="右侧会显示 participation decision、输入批次和当前结果。" />
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">{selectedRun.session.peer_name || selectedRun.session.session_key}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{selectedRun.run.id}</div>
+                  </div>
+                  <StatusPill tone={toneForRun(selectedRun.run.status, selectedRun.run.no_reply)}>
+                    {selectedRun.run.no_reply ? 'no_reply' : selectedRun.run.status}
+                  </StatusPill>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Badge variant="outline">{selectedRun.input_batch.message_count} 条输入</Badge>
+                  <Badge variant="outline">{selectedRun.decision.llm_calls_count} 次 LLM</Badge>
+                  <Badge variant="outline">{selectedRun.decision.tool_calls_count} 次工具</Badge>
+                  <Badge variant="outline">{selectedRun.decision.sent_messages_count} 条发出</Badge>
+                  {selectedRun.run.termination_reason ? <Badge variant="outline">{selectedRun.run.termination_reason}</Badge> : null}
+                </div>
+                <div className="mt-4 text-sm text-foreground/85">
+                  {selectedRun.result.final_response || selectedRun.run.final_response || selectedRun.run.finish_outcome || selectedRun.run.error_message || '未产生最终回复'}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-[linear-gradient(180deg,#fffdf7_0%,#fffaf0_100%)] p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Sparkles className="h-4 w-4 text-amber-600" />
+                  Participation Decision
+                </div>
+                {selectedRun.decision.participation?.latest ? (
+                  <div className="mt-4 space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="secondary">{selectedRun.decision.participation.latest.decision || 'unknown'}</Badge>
+                      <Badge variant="outline">{selectedRun.decision.participation.latest.reason || 'unknown_reason'}</Badge>
+                      <Badge variant="outline">{selectedRun.decision.participation.latest.confidence || 'unknown_confidence'}</Badge>
+                      <Badge variant="outline">{selectedRun.decision.participation.latest.used_embeddings ? 'embedding on' : 'embedding off'}</Badge>
+                      <Badge variant="outline">{selectedRun.decision.participation.latest.used_llm_judge ? 'llm judge on' : 'llm judge off'}</Badge>
+                      {selectedRun.decision.participation.latest.conservative_fallback ? <Badge variant="outline">conservative fallback</Badge> : null}
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl border border-border/70 bg-background/80 p-3">
+                        <div className="text-xs text-muted-foreground">最近一次判定</div>
+                        <div className="mt-1 text-sm font-medium text-foreground">{formatTimestamp(selectedRun.decision.participation.latest.event_time, { fallback: 'n/a' })}</div>
+                        <div className="mt-2 text-xs text-muted-foreground">路径: {selectedRun.decision.participation.latest.path || 'n/a'}</div>
+                        {selectedRun.decision.participation.latest.used_llm_judge ? (
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            judge: {selectedRun.decision.participation.latest.llm_judge_model || 'unknown'} / {selectedRun.decision.participation.latest.llm_judge_decision || 'n/a'} / {selectedRun.decision.participation.latest.llm_judge_confidence || 'n/a'}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="rounded-xl border border-border/70 bg-background/80 p-3">
+                        <div className="text-xs text-muted-foreground">冷却 / 最近活跃</div>
+                        <div className="mt-1 text-sm font-medium text-foreground">
+                          {formatDurationMs(selectedRun.decision.participation.latest.cooldown_remaining_ms)} remaining
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          recent inbound {selectedRun.decision.participation.latest.recent_inbound_count || 0}, recent replies {selectedRun.decision.participation.latest.recent_reply_count || 0}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      <div className="rounded-xl border border-border/70 bg-background/80 p-3">
+                        <div className="text-xs text-muted-foreground">Final Score</div>
+                        <div className="mt-1 text-lg font-semibold text-foreground">{formatPercent(selectedRun.decision.participation.latest.scores?.final)}</div>
+                      </div>
+                      <div className="rounded-xl border border-border/70 bg-background/80 p-3">
+                        <div className="text-xs text-muted-foreground">Continuity Similarity</div>
+                        <div className="mt-1 text-lg font-semibold text-foreground">{formatPercent(selectedRun.decision.participation.latest.continuity_similarity)}</div>
+                      </div>
+                      <div className="rounded-xl border border-border/70 bg-background/80 p-3">
+                        <div className="text-xs text-muted-foreground">Interest Similarity</div>
+                        <div className="mt-1 text-lg font-semibold text-foreground">{formatPercent(selectedRun.decision.participation.latest.interest_similarity)}</div>
+                      </div>
+                      <div className="rounded-xl border border-border/70 bg-background/80 p-3">
+                        <div className="text-xs text-muted-foreground">Addressedness</div>
+                        <div className="mt-1 text-lg font-semibold text-foreground">{formatPercent(selectedRun.decision.participation.latest.scores?.addressedness)}</div>
+                      </div>
+                      <div className="rounded-xl border border-border/70 bg-background/80 p-3">
+                        <div className="text-xs text-muted-foreground">Social Position</div>
+                        <div className="mt-1 text-lg font-semibold text-foreground">{formatPercent(selectedRun.decision.participation.latest.scores?.social_position)}</div>
+                      </div>
+                      <div className="rounded-xl border border-border/70 bg-background/80 p-3">
+                        <div className="text-xs text-muted-foreground">Timing</div>
+                        <div className="mt-1 text-lg font-semibold text-foreground">{formatPercent(selectedRun.decision.participation.latest.scores?.timing)}</div>
+                      </div>
+                    </div>
+
+                    {selectedRun.decision.participation.latest.embedding_error ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                        embedding error: {selectedRun.decision.participation.latest.embedding_error}
+                      </div>
+                    ) : null}
+                    {selectedRun.decision.participation.latest.llm_judge_error ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                        llm judge error: {selectedRun.decision.participation.latest.llm_judge_error}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-xl border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                    这个 run 还没有 participation decision 数据。通常说明它来自旧数据，或者这次不是通过新的 Stage 2 path 进入的。
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Clock3 className="h-4 w-4 text-muted-foreground" />
+                  Input Batch
+                </div>
+                <div className="mt-3 space-y-3">
+                  {selectedRun.input_batch.messages.map((message) => (
+                    <div key={`${message.queue_message_id}-${message.position}`} className="rounded-xl border border-border/70 bg-background/80 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-medium text-foreground">
+                          #{message.position} {message.sender_name || message.sender_id}
+                        </div>
+                        <Badge variant="outline">{message.message_sid || `queue:${message.queue_message_id}`}</Badge>
+                      </div>
+                      <div className="mt-2 text-sm text-foreground/85">{message.body_for_agent}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </SectionPanel>
       </div>
     </PageShell>

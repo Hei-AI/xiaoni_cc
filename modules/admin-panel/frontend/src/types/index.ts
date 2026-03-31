@@ -105,6 +105,41 @@ export interface AgentRunDetail {
     llm_calls_count: number;
     tool_calls_count: number;
     sent_messages_count: number;
+    participation?: {
+      attempts: number;
+      latest?: {
+        event_id: number;
+        event_time?: string | null;
+        decision?: string | null;
+        reason?: string | null;
+        confidence?: string | null;
+        conservative_fallback: boolean;
+        used_embeddings: boolean;
+        used_llm_judge: boolean;
+        llm_judge_model?: string | null;
+        llm_judge_decision?: string | null;
+        llm_judge_confidence?: string | null;
+        llm_judge_reason?: string | null;
+        llm_judge_error?: string | null;
+        continuity_similarity?: number | null;
+        interest_similarity?: number | null;
+        scores?: {
+          addressedness: number;
+          continuity: number;
+          social_position: number;
+          interest: number;
+          timing: number;
+          value_add: number;
+          final: number;
+        };
+        session_key?: string | null;
+        recent_inbound_count?: number;
+        recent_reply_count?: number;
+        cooldown_remaining_ms?: number;
+        path?: string | null;
+        embedding_error?: string | null;
+      } | null;
+    };
     token_totals: {
       input_tokens: number;
       output_tokens: number;

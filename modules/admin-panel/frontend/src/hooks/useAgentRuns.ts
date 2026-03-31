@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { AgentRunListItem, AgentRunSessionSummary, ConversationTraceData } from '@/types';
+import { AgentRunDetail, AgentRunListItem, AgentRunSessionSummary, ConversationTraceData } from '@/types';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -52,5 +52,14 @@ export function useRunTrace(runId: string, autoRefreshEnabled = true) {
     queryFn: () => fetchJson<ConversationTraceData>(`/api/runs/${runId}/trace`),
     enabled: Boolean(runId),
     refetchInterval: autoRefreshEnabled ? 30000 : false,
+  });
+}
+
+export function useRunDetail(runId: string | null) {
+  return useQuery<AgentRunDetail>({
+    queryKey: ['run-detail', runId],
+    queryFn: () => fetchJson<AgentRunDetail>(`/api/runs/${runId}`),
+    enabled: Boolean(runId),
+    staleTime: 10000,
   });
 }

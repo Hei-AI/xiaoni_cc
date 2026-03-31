@@ -466,6 +466,37 @@ function pairTimelineEvents(events: any[]) {
     return eventType || 'trace';
   };
 
+  const summarizeLifecycleEvent = (event: any) => {
+    const metadata = parseJsonField<any>(event.metadata, {});
+    if (event.event_type === 'participation' && event.event_name === 'decision') {
+      const decision = typeof metadata.decision === 'string' ? metadata.decision : 'unknown';
+      const reason = typeof metadata.reason === 'string' ? metadata.reason : 'unknown_reason';
+      const confidence = typeof metadata.confidence === 'string' ? metadata.confidence : 'unknown_confidence';
+      return `participation / ${decision} / ${reason} / ${confidence}`;
+    }
+    return `${event.event_type} / ${event.event_name} / ${event.event_phase || 'instant'}`;
+  };
+
+  const buildLifecycleAttributes = (event: any) => {
+    const metadata = parseJsonField<any>(event.metadata, {});
+    const attributes: Record<string, unknown> = {
+      metadata
+    };
+    if (event.event_type === 'participation' && event.event_name === 'decision') {
+      attributes['participation.decision'] = metadata.decision || null;
+      attributes['participation.reason'] = metadata.reason || null;
+      attributes['participation.confidence'] = metadata.confidence || null;
+      attributes['participation.used_embeddings'] = metadata.used_embeddings ?? null;
+      attributes['participation.used_llm_judge'] = metadata.used_llm_judge ?? metadata.usedLlmJudge ?? null;
+      attributes['participation.llm_judge_model'] = metadata.llmJudgeModel || null;
+      attributes['participation.llm_judge_decision'] = metadata.llmJudgeDecision || null;
+      attributes['participation.llm_judge_confidence'] = metadata.llmJudgeConfidence || null;
+      attributes['participation.llm_judge_error'] = metadata.llmJudgeError || null;
+      attributes['participation.conservative_fallback'] = metadata.conservative_fallback ?? null;
+    }
+    return attributes;
+  };
+
   for (const event of events) {
     const key = `${event.event_type}:${event.event_name}`;
     const eventDto: TraceSpanEventDto = {
@@ -476,7 +507,7 @@ function pairTimelineEvents(events: any[]) {
         event_type: event.event_type,
         event_name: event.event_name,
         event_phase: event.event_phase,
-        metadata: parseJsonField<any>(event.metadata, {})
+        ...buildLifecycleAttributes(event)
       }
     };
 
@@ -504,7 +535,7 @@ function pairTimelineEvents(events: any[]) {
         duration_ms: getDurationMs(startEvent?.event_time, event.event_time, event.duration_ms),
         status: 'ok',
         title: `${event.event_type}.${event.event_name}`,
-        summary: `${event.event_type} / ${event.event_name} / ${event.event_phase}`,
+        summary: summarizeLifecycleEvent(event),
         evidence: {
           start: startEvent || null,
           end: event
@@ -514,9 +545,7 @@ function pairTimelineEvents(events: any[]) {
             id: `timeline-event-${startEvent.id}`,
             name: `${startEvent.event_type}.${startEvent.event_name}.start`,
             timestamp: toIsoString(startEvent.event_time),
-            attributes: {
-              metadata: parseJsonField<any>(startEvent.metadata, {})
-            }
+            attributes: buildLifecycleAttributes(startEvent)
           },
           eventDto
         ] : [eventDto],
@@ -533,7 +562,7 @@ function pairTimelineEvents(events: any[]) {
       duration_ms: event.duration_ms ?? null,
       status: normalizeStatusCode(event.event_name),
       title: `${event.event_type}.${event.event_name}`,
-      summary: `${event.event_type} / ${event.event_name} / ${event.event_phase || 'instant'}`,
+      summary: summarizeLifecycleEvent(event),
       evidence: event,
       events: [eventDto],
       confidence: 'observed'
@@ -916,6 +945,7 @@ export async function buildConversationTracePayload(
   }
 
   lifecycleSpans.forEach((span) => {
+    const endMetadata = parseJsonField<any>(span.evidence?.end?.metadata, {});
     spanRecords.push(createSpan({
       span_id: span.id,
       parent_span_id: rootSpanId,
@@ -931,7 +961,21 @@ export async function buildConversationTracePayload(
       summary: safePreview(span.summary),
       attributes: {
         'semantic.role': span.type,
-        'semantic.display_name': span.title
+        'semantic.display_name': span.title,
+        ...(span.type === 'decision' && span.title === 'participation.decision'
+          ? {
+              'participation.decision': endMetadata.decision || null,
+              'participation.reason': endMetadata.reason || null,
+              'participation.confidence': endMetadata.confidence || null,
+              'participation.used_embeddings': endMetadata.used_embeddings ?? null,
+              'participation.used_llm_judge': endMetadata.used_llm_judge ?? endMetadata.usedLlmJudge ?? null,
+              'participation.llm_judge_model': endMetadata.llmJudgeModel || null,
+              'participation.llm_judge_decision': endMetadata.llmJudgeDecision || null,
+              'participation.llm_judge_confidence': endMetadata.llmJudgeConfidence || null,
+              'participation.llm_judge_error': endMetadata.llmJudgeError || null,
+              'participation.conservative_fallback': endMetadata.conservative_fallback ?? null
+            }
+          : {})
       },
       input: span.evidence?.start || null,
       output: span.evidence?.end || span.evidence || null,

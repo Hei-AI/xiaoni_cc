@@ -14,6 +14,7 @@ import { InboundInboxService } from './services/inbound-inbox-service';
 import { ConversationStoreService } from './services/conversation-store-service';
 import { SessionTranscriptService } from './services/session-transcript-service';
 import { TranscriptSnapshotService } from './services/transcript-snapshot-service';
+import { GroupParticipationService } from './services/group-participation-service';
 import { FinalizedInboundContext } from './types';
 import { runtimeStoreService } from './services/runtime-store-service';
 import { logger } from './utils/logger';
@@ -25,6 +26,7 @@ const napcatClient = new NapcatClient();
 const inboxService = new InboundInboxService();
 const chatPolicyService = new ChatPolicyService();
 const recentMessageCache = new RecentMessageCache();
+const groupParticipationService = new GroupParticipationService({ embeddingService });
 const conversationStoreService = new ConversationStoreService();
 const transcriptSnapshotService = new TranscriptSnapshotService();
 const transcriptService = new SessionTranscriptService({
@@ -322,6 +324,44 @@ async function processAutoReply(params: {
   }
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
+    eventType: 'participation',
+    eventName: 'decision',
+    eventPhase: 'start',
+    metadata: {
+      source: params.source,
+      session_key: params.inboxEvent.sessionKey,
+      chat_type: params.inboxEvent.chatType
+    }
+  });
+  const participationDecision = await groupParticipationService.decide(params.inboundContext);
+  await runtimeStoreService.logTimelineEvent({
+    traceId: params.traceId,
+    eventType: 'participation',
+    eventName: 'decision',
+    eventPhase: 'end',
+    metadata: {
+      source: params.source,
+      decision: participationDecision.decision,
+      reason: participationDecision.reason,
+      confidence: participationDecision.confidence,
+      conservative_fallback: participationDecision.conservativeFallback,
+      used_embeddings: participationDecision.usedEmbeddings,
+      used_llm_judge: participationDecision.usedLlmJudge,
+      scores: participationDecision.scores,
+      ...participationDecision.metadata
+    }
+  });
+  if (participationDecision.decision !== 'reply') {
+    return {
+      attempted: true,
+      queued: false,
+      reason: participationDecision.reason,
+      traceId: params.traceId,
+      participationDecision
+    };
+  }
+  await runtimeStoreService.logTimelineEvent({
+    traceId: params.traceId,
     eventType: 'queue',
     eventName: 'normalize',
     eventPhase: 'start',
@@ -367,13 +407,13 @@ async function processAutoReply(params: {
       queue_status: queueResult.status
     }
   });
-
   return {
     attempted: true,
     queued: true,
     queueId: queueResult.queueId,
     queueStatus: queueResult.status,
-    traceId: params.traceId
+    traceId: params.traceId,
+    participationDecision
   };
 }
 
@@ -456,6 +496,9 @@ app.post('/api/internal/send_group', async (req, res) => {
     const groupId = Number(req.body?.group_id);
     const messages = normalizeOutboundMessages(req.body || {});
     const mentionUserIds = normalizeOptionalNumericIdList(req.body?.mention_user_ids, 'mention_user_ids');
+    const sessionKey = typeof req.body?.session_key === 'string' && req.body.session_key.trim().length > 0
+      ? req.body.session_key.trim()
+      : null;
     const enforcePolicy = Boolean(req.body?.enforce_policy);
     if (!Number.isFinite(groupId) || messages.length === 0) {
       return res.status(400).json({
@@ -487,6 +530,9 @@ app.post('/api/internal/send_group', async (req, res) => {
         message,
         index === 0 ? mentionUserIds : []
       ));
+    }
+    if (sessionKey) {
+      groupParticipationService.recordBotReply(sessionKey);
     }
     res.json({
       success: true,

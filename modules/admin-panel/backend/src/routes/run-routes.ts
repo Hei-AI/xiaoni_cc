@@ -58,6 +58,56 @@ function extractCachedInputTokens(tokenUsage: Record<string, any>): number {
   );
 }
 
+function buildParticipationSummary(timeline: any[]) {
+  const decisionEvents = timeline
+    .filter((event: any) => event.event_type === 'participation' && event.event_name === 'decision' && event.event_phase === 'end')
+    .map((event: any) => ({
+      id: event.id,
+      event_time: event.event_time,
+      metadata: parseJsonObject(event.metadata)
+    }));
+
+  const latest = decisionEvents[decisionEvents.length - 1];
+  const latestMetadata = latest?.metadata || {};
+  const scores = parseJsonObject(latestMetadata.scores);
+
+  return {
+    attempts: decisionEvents.length,
+    latest: latest ? {
+      event_id: latest.id,
+      event_time: latest.event_time,
+      decision: latestMetadata.decision || null,
+      reason: latestMetadata.reason || null,
+      confidence: latestMetadata.confidence || null,
+      conservative_fallback: Boolean(latestMetadata.conservative_fallback),
+      used_embeddings: Boolean(latestMetadata.used_embeddings),
+      used_llm_judge: Boolean(latestMetadata.used_llm_judge || latestMetadata.usedLlmJudge),
+      llm_judge_model: latestMetadata.llmJudgeModel || null,
+      llm_judge_decision: latestMetadata.llmJudgeDecision || null,
+      llm_judge_confidence: latestMetadata.llmJudgeConfidence || null,
+      llm_judge_reason: latestMetadata.llmJudgeReason || null,
+      llm_judge_error: latestMetadata.llmJudgeError || null,
+      continuity_similarity: latestMetadata.continuitySimilarity ?? null,
+      interest_similarity: latestMetadata.interestSimilarity ?? null,
+      scores: {
+        addressedness: toNumber(scores.addressedness),
+        continuity: toNumber(scores.continuity),
+        social_position: toNumber(scores.socialPosition),
+        interest: toNumber(scores.interest),
+        timing: toNumber(scores.timing),
+        value_add: toNumber(scores.valueAdd),
+        final: toNumber(scores.final)
+      },
+      session_key: latestMetadata.sessionKey || null,
+      recent_inbound_count: toNumber(latestMetadata.recentInboundCount),
+      recent_reply_count: toNumber(latestMetadata.recentReplyCount),
+      cooldown_remaining_ms: toNumber(latestMetadata.cooldownRemainingMs),
+      path: latestMetadata.path || null,
+      embedding_error: latestMetadata.embeddingError || null
+    } : null
+  };
+}
+
 export function createRunRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
 
@@ -354,6 +404,7 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
         `,
         [run.trace_id]
       );
+      const participation = buildParticipationSummary(timeline);
 
       const sentMessages = parseJsonArray(run.sent_messages) as string[];
       const llmTokenTotals = llmCalls.reduce<{ input_tokens: number; output_tokens: number; total_tokens: number; cached_input_tokens: number }>((totals, call: any) => {
@@ -417,6 +468,7 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
             tool_calls_count: toolCalls.length,
             sent_messages_count: sentMessages.length,
             token_totals: llmTokenTotals,
+            participation,
             llm_calls: llmCalls,
             tool_calls: toolCalls,
             timeline

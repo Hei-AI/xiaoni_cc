@@ -14,9 +14,9 @@
   - `docs/AGENTS_EMBEDDINGS.md`
 - Git 提交、推送、PR：
   - `docs/AGENTS_GIT_PR.md`
-- `AGENTS.md`、`docs/` 结构、execution plans、文档治理：
+- `AGENTS.md`、`docs/` 结构、gstack 使用约定、文档治理：
   - 使用 `$harness-engineering`
-  - 再看 `docs/exec-plans/README.md`
+  - 再看 `AGENTS.md`
 
 ## Runtime And Operations
 - 路线图：
@@ -24,15 +24,17 @@
 - 脚本入口：
   - `scripts/README.md`
 
-## Execution Plans
-- 活跃执行计划目录：
-  - `docs/exec-plans/active/`
-- 已完成执行计划目录：
-  - `docs/exec-plans/completed/`
-- 计划书写规范：
-  - `docs/exec-plans/README.md`
-- 计划生命周期、完成判定、归档规则：
-  - `docs/exec-plans/README.md`
+## GStack Workflows
+- 长任务自动评审：
+  - `/autoplan`
+- 架构与执行评审：
+  - `/plan-eng-review`
+- Bug / 异常根因调查：
+  - `/investigate`
+- 站点或功能 QA：
+  - `/qa`
+- 提交、PR、发版：
+  - `/ship`
 
 ## Maintenance Rules
 - 修改代码时，如果对应文档已不再真实，顺手修正文档。

@@ -61,7 +61,7 @@ Inbound message
 - Existing run traces, tool execution logs, and timeline events already expose enough surface to debug runtime behavior after additional instrumentation.
 - Existing active plans already point in the right direction:
   - `docs/exec-plans/active/response-chain-cache-anchor.md` fixed replay continuity.
-  - `docs/exec-plans/active/agent-input-message-structure-v2.md` moves inbound context toward structured semantics.
+  - `docs/exec-plans/completed/agent-input-message-structure-v2.md` moves inbound context toward structured semantics.
 
 ## Premise Challenge
 - The real problem is not "duplicate exact strings." The real problem is "the runtime has no concept of outbound commit finality."
@@ -241,66 +241,66 @@ Suggested event names:
 ## Implementation Checklist
 
 ### 1. Schema and Persistence
-- [ ] Extend `agent_runs` schema in `modules/agent-service/src/services/runtime-store.ts`
-  - [ ] add `delivery_phase TEXT NOT NULL DEFAULT 'reasoning_open'`
-  - [ ] add `delivery_commit_count INTEGER NOT NULL DEFAULT 0`
-  - [ ] add `blocked_delivery_attempt_count INTEGER NOT NULL DEFAULT 0`
-  - [ ] add `last_blocked_delivery_reason TEXT`
-- [ ] Initialize new runs with `delivery_phase = reasoning_open`
-- [ ] Add explicit state-transition methods in `RuntimeStore`
-- [ ] Keep writes idempotent enough that reprocessing cannot push `delivery_commit_count` above `1`
+- [x] Extend `agent_runs` schema in `modules/agent-service/src/services/runtime-store.ts`
+  - [x] add `delivery_phase TEXT NOT NULL DEFAULT 'reasoning_open'`
+  - [x] add `delivery_commit_count INTEGER NOT NULL DEFAULT 0`
+  - [x] add `blocked_delivery_attempt_count INTEGER NOT NULL DEFAULT 0`
+  - [x] add `last_blocked_delivery_reason TEXT`
+- [x] Initialize new runs with `delivery_phase = reasoning_open`
+- [x] Add explicit state-transition methods in `RuntimeStore`
+- [x] Keep writes idempotent enough that reprocessing cannot push `delivery_commit_count` above `1`
 
 ### 2. Agent Loop Enforcement
-- [ ] In `modules/agent-service/src/services/agent-loop-service.ts`, load run delivery state from store instead of trusting only in-memory fingerprints
-- [ ] Allow speaking tools only while `delivery_phase = reasoning_open`
-- [ ] On first successful speaking tool execution:
-  - [ ] persist `delivery_committed`
-  - [ ] persist `delivery_commit_count = 1`
-  - [ ] keep current exact-duplicate fingerprint guard as defense in depth
-- [ ] On later speaking tool execution:
-  - [ ] do not call provider delivery path
-  - [ ] mark blocked transition in store
-  - [ ] finish the run cleanly
-- [ ] On `finish` / `stay_silent`:
-  - [ ] transition to `finished`
-  - [ ] do not wipe prior delivery counters
+- [x] In `modules/agent-service/src/services/agent-loop-service.ts`, load run delivery state from store instead of trusting only in-memory fingerprints
+- [x] Allow speaking tools only while `delivery_phase = reasoning_open`
+- [x] On first successful speaking tool execution:
+  - [x] persist `delivery_committed`
+  - [x] persist `delivery_commit_count = 1`
+  - [x] keep current exact-duplicate fingerprint guard as defense in depth
+- [x] On later speaking tool execution:
+  - [x] do not call provider delivery path
+  - [x] mark blocked transition in store
+  - [x] finish the run cleanly
+- [x] On `finish` / `stay_silent`:
+  - [x] transition to `finished`
+  - [x] do not wipe prior delivery counters
 
 ### 3. Admin and Trace Surfaces
-- [ ] Expose `delivery_phase`, `delivery_commit_count`, `blocked_delivery_attempt_count`, `last_blocked_delivery_reason` in `GET /api/runs/:runId`
-- [ ] Expose run-level delivery fields in session list / session detail only if they materially help operators, otherwise keep them in run detail only
-- [ ] Update trace-building code so blocked second-send attempts render as blocked transitions, not ordinary tool success
-- [ ] Keep `sent_messages_count` derived only from actual delivered messages, never from blocked attempts
+- [x] Expose `delivery_phase`, `delivery_commit_count`, `blocked_delivery_attempt_count`, `last_blocked_delivery_reason` in `GET /api/runs/:runId`
+- [x] Expose run-level delivery fields in run detail, while keeping session-level surfaces unchanged unless they materially help operators
+- [x] Update trace-building code so blocked second-send attempts render as blocked transitions, not ordinary tool success
+- [x] Keep `sent_messages_count` derived only from actual delivered messages, never from blocked attempts
 
 ### 4. Tests
-- [ ] `modules/agent-service/src/__tests__/agent-loop-service.test.ts`
-  - [ ] first successful `speak(messages[])` commits delivery state
-  - [ ] multi-message single commit still counts as one delivery commit
-  - [ ] second speaking attempt after commit is blocked
-  - [ ] near-duplicate second attempt is blocked
-  - [ ] punctuation-drift second attempt is blocked
-  - [ ] `stay_silent` path finishes without delivery commit
-- [ ] `modules/agent-service/src/__tests__/runtime-store.test.ts`
-  - [ ] new runs start in `reasoning_open`
-  - [ ] `markRunDeliveryCommitted()` persists counts and phase
-  - [ ] `markRunDeliveryBlocked()` increments blocked count and reason
-  - [ ] `completeAgentRun()` preserves prior delivery facts
-- [ ] admin/backend tests
-  - [ ] run detail includes new delivery fields
-  - [ ] trace payload includes blocked-transition entries
-  - [ ] blocked attempts do not inflate sent-message counts
+- [x] `modules/agent-service/src/__tests__/agent-loop-service.test.ts`
+  - [x] first successful `speak(messages[])` commits delivery state
+  - [x] multi-message single commit still counts as one delivery commit
+  - [x] second speaking attempt after commit is blocked
+  - [x] near-duplicate second attempt is blocked
+  - [x] punctuation-drift second attempt is blocked
+  - [x] `stay_silent` path finishes without delivery commit
+- [x] `modules/agent-service/src/__tests__/runtime-store.test.ts`
+  - [x] new runs start in `reasoning_open`
+  - [x] `markRunDeliveryCommitted()` persists counts and phase
+  - [x] `markRunDeliveryBlocked()` increments blocked count and reason
+  - [x] `completeAgentRun()` preserves prior delivery facts
+- [x] admin/backend tests
+  - [x] run detail includes new delivery fields
+  - [x] trace payload includes blocked-transition entries
+  - [x] blocked attempts do not inflate sent-message counts
 
 ### 5. Verification
-- [ ] `npm test` in `modules/agent-service`
-- [ ] backend tests covering run detail / trace builders
-- [ ] `docker compose build agent-service`
-- [ ] `docker compose up -d agent-service`
-- [ ] `docker compose build admin-backend` if backend output changes
-- [ ] `docker compose up -d admin-backend` if backend output changes
-- [ ] replay at least one known-bad historical run and verify:
-  - [ ] exactly one real outbound delivery
-  - [ ] `delivery_commit_count = 1`
-  - [ ] `blocked_delivery_attempt_count >= 1` when model retries
-  - [ ] admin run detail explains the block clearly
+- [x] `npm test` in `modules/agent-service`
+- [x] backend tests covering run detail / trace builders
+- [x] `docker compose build agent-service`
+- [x] `docker compose up -d agent-service`
+- [x] `docker compose build admin-backend` if backend output changes
+- [x] `docker compose up -d admin-backend` if backend output changes
+- [x] replay at least one known-bad historical run and verify:
+  - [x] exactly one real outbound delivery
+  - [x] `delivery_commit_count = 1`
+  - [x] `blocked_delivery_attempt_count >= 1` when model retries
+  - [x] admin run detail explains the block clearly
 
 ## Rollout Plan
 
@@ -364,6 +364,9 @@ This should stay within the "engineered enough" zone:
 - 2026-03-31: Investigated three production runs with repeated same-message sends: `run_1774890793930_fc3ebeed`, `run_1774890812735_818ccc2f`, `run_1774891604498_2fa9fa3e`.
 - 2026-03-31: Verified via direct replay that the current hotfix suppresses exact repeated sends, but the model still attempts a second `speak_in_group` on turn 2.
 - 2026-03-31: Concluded that the runtime still lacks an explicit "delivery committed, sending now closed" state transition, which is why near-duplicate variants remain a live risk.
+- 2026-03-31: Landed the runtime-state fix in `agent-service`: `agent_runs` now persists delivery phase and blocked-attempt counters, and speaking tools are refused after the first committed outbound send.
+- 2026-03-31: Landed admin/backend visibility for delivery state and blocked transitions so operators can tell the difference between a real send and a refused second send.
+- 2026-03-31: Added regression coverage for exact duplicate and near-duplicate retry paths, plus runtime-store and backend assertions for the new delivery fields.
 
 ## Verification
 - Investigated original runs through `/api/runs/:runId` and PostgreSQL.
@@ -373,3 +376,8 @@ This should stay within the "engineered enough" zone:
   - `run_1774925955812_332940b5`
 - Observed each replay still attempted a second `speak_in_group`, but the runtime suppressed it and emitted `finish_outcome = duplicate_suppressed`.
 - This proves the stopgap works and also proves the root contract is still wrong.
+- Root-fix implementation verification:
+  - `modules/agent-service` test suite covers delivery commit, blocked transition, near-duplicate retry, and state persistence behavior.
+  - admin/backend tests cover run detail delivery fields and blocked-transition trace rendering.
+  - compose-managed services were rebuilt and restarted for the shipped runtime path.
+  - operator-facing run detail now reports `delivery_phase`, `delivery_commit_count`, `blocked_delivery_attempt_count`, and `last_blocked_delivery_reason`.

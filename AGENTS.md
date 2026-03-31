@@ -43,13 +43,15 @@
 - 未经明确评审确认 ORM 无法合理表达前，禁止新增原生 SQL；即使必须使用原生 SQL，也只能封装在 `packages/persistence` 内，不能绕过持久层下沉到业务模块
 - 管理端页面中的 Playground，以及对话流中的 Playground 导入，必须严格与我们提供的通用 Provider 参数契约保持一致；禁止自行扩展、重命名、省略或映射出另一套参数语义。这是管理面这两块业务的红线
 - 仓库文档是可追溯真相源；聊天、口头说明、临时记录都不算交付
-- 复杂任务不要只靠聊天上下文推进；参考 OpenAI《Harness engineering: leveraging Codex in an agent-first world》的做法，长任务需要显式 planning artifact，而不是只靠会话记忆
-- 跨模块、多阶段、持续数天、需要交接、需要记录决策/验证/回滚点的工作，必须在 `docs/exec-plans/active/` 新建 execution plan
-- 执行计划格式、目录约定和维护规则以 `docs/exec-plans/README.md` 为准
-- 复杂 execution plan 需要持续维护 `Progress Log` 和 `Decision Log`，不能只写初稿不更新
-- execution plan 的状态维护属于 done 的一部分；具体生命周期与归档规则统一以 `docs/exec-plans/README.md` 为准
-- 计划完成后移到 `docs/exec-plans/completed/`；不要把失效或已完成计划继续留在 `active/`
-- 当任务涉及 `AGENTS.md`、`docs/` 知识库结构、execution plans、文档去重/裁剪、system-of-record、渐进披露、长任务协作规则时，优先使用 `$harness-engineering`
+- 复杂任务不要只靠聊天上下文推进；优先使用 gstack 的结构化工作流来做评审、调查、QA、发版和长任务推进，不要再把仓库内 execution plan 当成默认项目进度跟踪机制
+- 需要规划、评审或长链路推进时，默认优先考虑这些 gstack 工作流：
+  - `/autoplan`：自动串 CEO / design / eng review
+  - `/plan-eng-review`：锁架构、边界、测试和风险
+  - `/investigate`：先做根因调查，再做修复
+  - `/review`：看 diff / PR 风险
+  - `/qa`：做站点或功能 QA
+  - `/ship`：走提交、PR、发版链路
+- 当任务涉及 `AGENTS.md`、`docs/` 知识库结构、文档去重/裁剪、system-of-record、渐进披露或长任务协作规则时，优先使用 `$harness-engineering`
 
 ## Default Commands
 - 安装：`npm run install:all`
@@ -67,5 +69,5 @@
 ## Open Extra Docs Only When Needed
 - 先看 `docs/INDEX.md`，再按任务进入最少的相关文档
 - 常用下一跳：`docs/AGENTS_FRONTEND.md`、`docs/AGENTS_BACKEND_DATA.md`、`docs/AGENTS_SECRETS_LOCAL_STATE.md`、`docs/AGENTS_EMBEDDINGS.md`、`docs/AGENTS_GIT_PR.md`
-- 做跨模块、多阶段或需要交接的任务时，额外打开 `docs/exec-plans/README.md`
-- 做仓库协作规范、文档治理或 execution plan 维护时，额外使用 `$harness-engineering`
+- 做跨模块、多阶段或需要交接的任务时，优先直接进入对应 gstack 工作流，而不是新增仓库内 plan 文件
+- 做仓库协作规范、文档治理或 gstack 使用约定调整时，额外使用 `$harness-engineering`

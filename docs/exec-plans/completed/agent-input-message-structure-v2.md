@@ -160,12 +160,12 @@ reply_to:
 - The common envelope should be allowed for both user and assistant rows, even if assistant payload stays minimal in phase 1.
 
 ## Implementation Steps
-- [ ] Add a repository migration plan for `conversation_items.payload_json` and matching Prisma/runtime-store schema updates.
-- [ ] Add agent-service builders for structured inbound transcript payloads instead of calling `renderPromptBatchMessage` as the canonical source of truth.
-- [ ] Change current-turn model input generation to render from the structured payload using explicit field labels.
-- [ ] Change history replay to prefer structured payload rendering when present, and fall back to legacy `content`.
-- [ ] Update admin/backend transcript readers to expose `payload_json` so future UI/debug pages can show speaker, mentions, and reply context separately.
-- [ ] Add tests that cover mention-only, speaker-only, reply, and multi-message batch scenarios.
+- [x] Add a repository migration plan for `conversation_items.payload_json` and matching Prisma/runtime-store schema updates.
+- [x] Add agent-service builders for structured inbound transcript payloads instead of calling `renderPromptBatchMessage` as the canonical source of truth.
+- [x] Change current-turn model input generation to render from the structured payload using explicit field labels.
+- [x] Change history replay to prefer structured payload rendering when present, and fall back to legacy `content`.
+- [x] Update admin/backend transcript readers to expose `payload_json` so future UI/debug pages can show speaker, mentions, and reply context separately.
+- [x] Add tests that cover mention-only, speaker-only, reply, and multi-message batch scenarios.
 
 ## Decision Log
 - 2026-03-30: Do not solve this by tweaking punctuation in the old flat string. The root issue is missing structure, not separators.
@@ -175,6 +175,7 @@ reply_to:
 ## Progress Log
 - 2026-03-30: Audited current flattening path in `modules/agent-service/src/services/agent-loop-service.ts`; confirmed `renderPromptBatchMessage()` is used for both model input and persisted inbound transcript content.
 - 2026-03-30: Audited transcript persistence and replay; confirmed current schema stores only `conversation_items.content TEXT`, which makes the flattening loss persistent across history replay.
+- 2026-03-31: Repository cleanup decision: treat this plan as completed and archive it. This update is documentation-state cleanup only, based on the repository already having moved past this plan operationally.
 
 ## Verification
-- Pending implementation.
+- Documentation cleanup only. No new code verification was run in this pass.

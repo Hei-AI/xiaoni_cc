@@ -94,7 +94,36 @@ describe('run routes', () => {
       }
 
       if (sql.includes('FROM timeline_events')) {
-        return [];
+        return [{
+          id: 9,
+          event_type: 'participation',
+          event_name: 'decision',
+          event_phase: 'end',
+          duration_ms: 12,
+          metadata: JSON.stringify({
+            decision: 'ignore',
+            reason: 'cooldown_active',
+            confidence: 'high',
+            conservative_fallback: true,
+            used_embeddings: false,
+            used_llm_judge: false,
+            sessionKey: 'qq:group:101',
+            recentInboundCount: 4,
+            recentReplyCount: 1,
+            cooldownRemainingMs: 42000,
+            path: 'fast_deny',
+            scores: {
+              addressedness: 0.1,
+              continuity: 0,
+              socialPosition: 0.2,
+              interest: 0.1,
+              timing: 0,
+              valueAdd: 0.2,
+              final: 0.08
+            }
+          }),
+          event_time: '2026-03-31T10:00:00.050Z'
+        }];
       }
 
       return [];
@@ -115,5 +144,24 @@ describe('run routes', () => {
       blocked_delivery_attempt_count: 1
     });
     expect(response.body.data.decision.sent_messages_count).toBe(1);
+    expect(response.body.data.decision.participation).toMatchObject({
+      attempts: 1,
+      latest: {
+        decision: 'ignore',
+        reason: 'cooldown_active',
+        confidence: 'high',
+        conservative_fallback: true,
+        used_embeddings: false,
+        used_llm_judge: false,
+        session_key: 'qq:group:101',
+        recent_inbound_count: 4,
+        recent_reply_count: 1,
+        cooldown_remaining_ms: 42000,
+        path: 'fast_deny',
+        scores: {
+          final: 0.08
+        }
+      }
+    });
   });
 });

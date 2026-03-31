@@ -28,3 +28,29 @@ Depends on / blocked by:
 - Finish Stage A first: stabilize prompt/runtime/tool wording so 小腻 stops sounding like customer support.
 - Then design Stage B: memory + topic continuity + "who is this message actually for?" inference.
 - Only after those exist should we add a pre-agent gate.
+
+## Materialize transcript snapshot compaction in production
+
+What:
+Make `provider-service` actually produce and refresh `chat_transcript_snapshots` rows in live traffic, instead of only having the fixed-anchor replay code ready to consume them once they exist.
+
+Why:
+The stateless replay refactor is already done. What is still missing is the production loop that turns long conversation history into a ready summary anchor. Until that happens, replay is still correct, but it falls back to rebuilding from the start of the session.
+
+Pros:
+- Unlocks the intended cache-stability win for longer-running sessions.
+- Puts the existing `transcript_compact_offset` setting to real use.
+- Keeps the replay contract and the compaction pipeline clearly separated.
+
+Cons:
+- Adds background summarization behavior that needs monitoring and failure handling.
+- Needs careful rollout so summary freshness and bad-summary recovery are observable.
+
+Context:
+The fixed-anchor replay work is complete and has been archived out of `active/`.
+What remains is not a blocker for replay correctness. It is follow-up productionization work for the snapshot materialization path already scaffolded in `provider-service`.
+
+Depends on / blocked by:
+- Confirm the summary webhook or equivalent production summary executor that will consume pending snapshot jobs.
+- Add deployment-time verification that `chat_transcript_snapshots.summary_status` moves through `pending -> ready`.
+- Add operator checks for failed or stale snapshot rows before relying on compaction for long-session performance.

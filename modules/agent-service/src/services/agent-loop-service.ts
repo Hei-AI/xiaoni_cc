@@ -1100,6 +1100,7 @@ export class AgentLoopService {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
+        session_key: queueMessage.sessionKey,
         group_id: groupId,
         messages,
         mention_user_ids: mentionUserIds

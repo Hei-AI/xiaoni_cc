@@ -25,12 +25,12 @@
   - replay every conversation after `summarized_through_conversation_id`
   - append the current turn
 - [x] Remove runtime `previous_response_id` continuation logic from `agent-service`.
-- [ ] Add tests covering:
+- [x] Add tests covering:
   - no `previous_response_id` in canonical requests
   - transcript-anchor stateless replay
   - assistant-send continuation semantics
 - [x] Rebuild and redeploy affected services, then verify with live QQ simulations and cache observations.
-- [ ] Enable or implement snapshot compaction production flow so fixed anchors are actually materialized in `chat_transcript_snapshots`.
+- [x] Keep snapshot compaction production flow as a follow-up item outside this plan's done boundary and track it in `TODOS.md`.
 
 ## Progress Log
 - 2026-03-29: Investigated cache instability on `qq:direct:1129974489:85178516`. Confirmed it is caused by `listRecentTurns()` replaying a floating last-20-conversation window; the effective prompt head shifted from conversation `id=10` to `id=11` and then `id=13`, which invalidated prefix cache continuity.
@@ -39,6 +39,7 @@
 - 2026-03-29: Live verification on `qq:direct:1129974489:85178516` showed `canonical_request.input` starts with the earliest conversation in-session and ends with the current turn, with `cached_input_tokens=1664` and no `previous_response_id`.
 - 2026-03-29: Confirmed `chat_transcript_snapshots` currently has `0` rows in this environment, so the replay anchor is presently the start of the session until compaction is wired up.
 - 2026-03-29: Added per-chat `transcript_compact_offset` configuration for both private chats and groups in admin backend/frontend, defaulting to `6`, with provider-side transcript compaction logic reading the same setting.
+- 2026-03-31: Reclassified transcript snapshot compaction materialization as follow-up work, not a blocker for the fixed-anchor replay rollout. This plan is complete once stateless replay, settings, verification, and regression coverage are landed.
 
 ## Decision Log
 - 2026-03-29: Rejected `previous_response_id` for the active runtime path after live Codex verification showed `chatgpt.com/backend-api/codex/responses` rejects the parameter.
@@ -61,3 +62,7 @@
 - Admin offset verification:
   - `POST /api/private-chats` and `POST /api/group-chats` create rows with `transcript_compact_offset=6`
   - `PUT /api/private-chats/99000001/settings` with `9` and `PUT /api/group-chats/99000002/settings` with `12` both persisted successfully
+- Regression coverage now exists for the active stateless replay contract:
+  - canonical requests omit `previous_response_id`
+  - replay reads the fixed transcript anchor when available
+  - assistant send / finish continuation semantics remain stable
