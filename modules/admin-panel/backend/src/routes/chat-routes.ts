@@ -32,6 +32,9 @@ interface GroupChatSettingRow {
 export function createChatRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
 
+  const hasAgentPromptBinding = (value: unknown): boolean =>
+    typeof value === 'string' && value.trim().length > 0;
+
   router.post('/group-chats', async (req, res) => {
     try {
       const groupId = Number(req.body?.group_id);
@@ -700,16 +703,24 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         });
       }
 
+      const currentSettings = await database.getPrivateChatSettingById(userId);
+      const nextAgentPromptId = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'agent_prompt_id')
+        ? sanitizedUpdates.agent_prompt_id
+        : currentSettings?.agent_prompt_id;
+      const nextAutoReplyEnabled = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'auto_reply_enabled')
+        ? sanitizedUpdates.auto_reply_enabled
+        : currentSettings?.auto_reply_enabled ?? 0;
+
+      if (nextAutoReplyEnabled === 1 && !hasAgentPromptBinding(nextAgentPromptId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cannot enable auto reply without an agent prompt binding',
+          timestamp: new Date().toISOString()
+        });
+      }
+
       const success = await database.upsertPrivateChatSettings(userId, sanitizedUpdates);
-
-      const updatedSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
-        SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
-               transcript_compact_offset, agent_prompt_id, last_activity
-        FROM private_chat_settings
-        WHERE user_id = ?
-      `, [userId]);
-
-      const updatedSettings = updatedSettingsRows[0] || null;
+      const updatedSettings = await database.getPrivateChatSettingById(userId);
 
       res.json({
         success,
@@ -954,6 +965,20 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         return res.status(400).json({
           success: false,
           error: 'No valid fields to update',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const currentSettings = await database.getGroupChatSettingById(groupId);
+      const nextAgentPromptId = currentSettings?.agent_prompt_id;
+      const nextAutoReplyEnabled = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'auto_reply_enabled')
+        ? sanitizedUpdates.auto_reply_enabled
+        : currentSettings?.auto_reply_enabled ?? 0;
+
+      if (nextAutoReplyEnabled === 1 && !hasAgentPromptBinding(nextAgentPromptId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cannot enable auto reply without an agent prompt binding',
           timestamp: new Date().toISOString()
         });
       }
