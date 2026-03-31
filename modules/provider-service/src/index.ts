@@ -15,6 +15,11 @@ import { ConversationStoreService } from './services/conversation-store-service'
 import { SessionTranscriptService } from './services/session-transcript-service';
 import { TranscriptSnapshotService } from './services/transcript-snapshot-service';
 import { GroupParticipationService } from './services/group-participation-service';
+import {
+  buildSimpleQueueSimulationContext,
+  type ProviderMessageType,
+  type SimpleQueueSimulationPayload,
+} from './services/simple-queue-simulation-context';
 import { FinalizedInboundContext } from './types';
 import { runtimeStoreService } from './services/runtime-store-service';
 import { logger } from './utils/logger';
@@ -39,15 +44,6 @@ const transcriptService = new SessionTranscriptService({
   ].join('\n'),
   summaryWebhookUrl: process.env.TRANSCRIPT_SUMMARY_WEBHOOK_URL || undefined
 });
-
-type ProviderMessageType = 'private' | 'group';
-
-type SimpleQueueSimulationPayload = {
-  user_id?: number | string;
-  group_id?: number | string;
-  message?: string;
-  priority?: string;
-};
 
 function normalizeOutboundMessages(body: Record<string, unknown>) {
   const messages: string[] = [];
@@ -127,49 +123,6 @@ function inferPolicyTargets(inboundContext: FinalizedInboundContext) {
     messageType,
     userId,
     groupId: groupId === null ? undefined : groupId
-  };
-}
-
-function buildSimpleQueueSimulationContext(
-  messageType: ProviderMessageType,
-  payload: SimpleQueueSimulationPayload
-): Partial<FinalizedInboundContext> {
-  const userId = toNumericId(payload.user_id);
-  const groupId = toNumericId(payload.group_id);
-  const message = typeof payload.message === 'string' ? payload.message.trim() : '';
-
-  if (!userId || !message) {
-    throw new Error('Missing required parameters: user_id, message');
-  }
-
-  if (messageType === 'group' && !groupId) {
-    throw new Error('Missing required parameter: group_id');
-  }
-
-  const accountId = String(aiConfig.bot_qq_number);
-  const nativeChannelId = messageType === 'group' ? String(groupId) : String(userId);
-
-  return {
-    AccountId: accountId,
-    ChatType: messageType === 'group' ? 'group' : 'direct',
-    SenderId: String(userId),
-    SenderName: `user_${userId}`,
-    NativeChannelId: nativeChannelId,
-    ConversationLabel: messageType === 'group' ? `group_${groupId}` : `user_${userId}`,
-    GroupSubject: messageType === 'group' ? `group_${groupId}` : undefined,
-    Body: message,
-    BodyForAgent: message,
-    RawBody: message,
-    CommandBody: message,
-    BodyForCommands: message,
-    Timestamp: Date.now(),
-    Provider: 'qq',
-    Surface: 'simple-queue-simulator',
-    OriginatingChannel: 'qq',
-    OriginatingTo: messageType === 'group' ? `group:${groupId}` : `user:${userId}`,
-    To: messageType === 'group' ? `group:${groupId}` : `user:${userId}`,
-    From: `qq:${userId}`,
-    WasMentioned: false
   };
 }
 
