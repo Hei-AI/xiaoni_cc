@@ -58,6 +58,10 @@ function extractCachedInputTokens(tokenUsage: Record<string, any>): number {
   );
 }
 
+function buildInClause(count: number) {
+  return Array.from({ length: count }, () => '?').join(', ');
+}
+
 function buildParticipationSummary(timeline: any[]) {
   const decisionEvents = timeline
     .filter((event: any) => event.event_type === 'participation' && event.event_name === 'decision' && event.event_phase === 'end')
@@ -344,6 +348,7 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
           SELECT
             bi.position,
             q.id AS queue_message_id,
+            inbound.trace_id AS input_trace_id,
             q.message_sid,
             q.sender_id,
             q.sender_name,
@@ -355,6 +360,7 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
             q.completed_at
           FROM agent_message_batch_items bi
           INNER JOIN agent_queue_messages q ON q.id = bi.queue_message_id
+          LEFT JOIN agent_inbound_messages inbound ON inbound.message_sid = q.message_sid
           WHERE bi.batch_id = ?
           ORDER BY bi.position ASC
         `,
@@ -395,15 +401,24 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
         [run.trace_id]
       );
 
-      const timeline = await database.executeQuery(
-        `
-          SELECT id, event_type, event_name, event_phase, duration_ms, metadata, event_time
-          FROM timeline_events
-          WHERE trace_id = ?
-          ORDER BY event_time ASC, id ASC
-        `,
-        [run.trace_id]
+      const timelineTraceIds = Array.from(
+        new Set(
+          [run.trace_id, ...inputMessages.map((message: any) => message.input_trace_id)]
+            .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        )
       );
+
+      const timeline = timelineTraceIds.length > 0
+        ? await database.executeQuery(
+          `
+            SELECT id, event_type, event_name, event_phase, duration_ms, metadata, event_time
+            FROM timeline_events
+            WHERE trace_id IN (${buildInClause(timelineTraceIds.length)})
+            ORDER BY event_time ASC, id ASC
+          `,
+          timelineTraceIds
+        )
+        : [];
       const participation = buildParticipationSummary(timeline);
 
       const sentMessages = parseJsonArray(run.sent_messages) as string[];

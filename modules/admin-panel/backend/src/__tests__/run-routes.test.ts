@@ -60,6 +60,7 @@ describe('run routes', () => {
         return [{
           position: 1,
           queue_message_id: 1,
+          input_trace_id: 'trace-input-1',
           message_sid: 'sid-1',
           sender_id: '202',
           sender_name: 'Alice',
