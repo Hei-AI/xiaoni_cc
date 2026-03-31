@@ -72,3 +72,4 @@ coverage/
 *.temp
 **/qq-log*
 models/embedding-server/
+.gstack/

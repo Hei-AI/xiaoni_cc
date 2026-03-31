@@ -30,6 +30,7 @@
 - 2026-03-30: Ran five real `/api/simple-queue/simulate/private` executions on `qq:direct:1129974489:1129974489`. All five runs completed in two turns, persisted `conversation_items` as one user item plus one delivered assistant item per conversation, and preserved `phase=final_answer` on the delivered assistant transcript row.
 - 2026-03-30: Verified runtime/input shape in PostgreSQL. Turn 1 of each run replayed transcript-only messages; turn 2 appended exactly one `function_call` and one `function_call_output`, with no duplicated assistant send text in the same-run continuation.
 - 2026-03-30: Verified cache behavior across the five live runs. `cached_input_tokens` on turn 2 was stable at `4224/4224/4224/4224/4224`; turn 1 hit `4224` on runs 2, 4, and 5, and missed on runs 1 and 3, which is consistent with prefix-cache routing variability rather than transcript-shape drift.
+- 2026-03-30: Deleted local analysis artifacts under `tmp/codex-cli-multiturn-chain/` and `tmp/codex-cli-multiturn-sample/` after finishing the replay/cache comparison, keeping the execution plan as the durable repository record.
 
 ## Decision Log
 - Store transcript at the batch/run boundary, not per single user/assistant pair.
