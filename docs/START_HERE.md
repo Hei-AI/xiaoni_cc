@@ -27,7 +27,7 @@
   - 承接 provider debug、embeddings、NapCat 发消息、消息模拟、简单队列
 - `modules/admin-panel/backend`
   - 运营 API
-  - 为前端提供 conversations、queue、prompt、playground、traffic replay 等能力
+  - 为前端提供 runs、queue、prompt、playground、traffic replay、runtime status 等能力
 - `modules/admin-panel/frontend`
   - 管理端 UI
   - 默认只调用 `admin-panel/backend`
@@ -54,9 +54,11 @@
 
 ## 新人最容易踩的坑
 - 不要因为 `agent-service` 在 compose 里，就误以为它是管理端主链路入口。
+- 不要再把旧的 conversation timeline 当成当前调试主入口；现在看的是 agent run workspace。
 - 完成判定统一回到 `AGENTS.md` 的 `Done Means`，不要在这里脑补另一套交付标准。
 - 不要把 `embedding-server` 当对外服务；对外是 `provider-service /v1/*`。
 - 不要默认前端直连 `provider-service`；默认是前端 -> admin backend。
 - 不要把“本地前端联调”和“公网 Docker 前端”当成同一条链路；本地页面调试只起本地 Vite 前端，后端仍走容器。
 - 不要再让本地前端复用 `3003`；本地联调固定走 `13003`，公网 Docker 前端继续占用 `3003`。
+- 不要再参考 `database/` 里的历史 MySQL 文档；当前真实数据库以 PostgreSQL 初始化脚本和 `packages/persistence` 为准。
 - 不要把聊天记录、口头说明当文档真相；仓库内 markdown 才是可追溯来源。

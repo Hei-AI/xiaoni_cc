@@ -13,3 +13,8 @@
 - 队列/模拟/代理链路优先回归：
   - `./scripts/test-queue-connection.sh`
   - `./scripts/self-verification.sh`
+
+## Current Backend Focus
+- 当前管理端后端以 run-centric 视角为准：优先看 `run-routes`、chat settings、playground、traffic replay、runtime status。
+- `agent_runs` 现在已经承载 delivery state，例如 `delivery_phase`、`delivery_commit_count`、`blocked_delivery_attempt_count`；不要再把重复回复问题只当成 prompt 文案问题排查。
+- 私聊和群聊设置里已有 `transcript_compact_offset`，它会直接影响 transcript compact 后保留多少尾部对话继续原样重放。

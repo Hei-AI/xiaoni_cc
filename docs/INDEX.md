@@ -21,6 +21,8 @@
 ## Runtime And Operations
 - 路线图：
   - `docs/ROADMAP.md`
+- 脚本入口：
+  - `scripts/README.md`
 
 ## Execution Plans
 - 活跃执行计划目录：

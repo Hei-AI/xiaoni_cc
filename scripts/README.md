@@ -19,6 +19,12 @@
 - `prepare_admin_expose_auth.sh`
   - 为公网管理端生成本机保存的 debug token，并写出 Caddy 鉴权片段
 
+## Current Expectations
+
+- 当前脚本面围绕 PostgreSQL + compose 主栈维护，不再以 MySQL 直连为主线。
+- 页面联调默认是本地 Vite 前端 + 容器内 backend/provider/agent-service，不要把 `start_modules.py` 理解成“起整套本地后端”。
+- 如果脚本描述与 `AGENTS.md`、`docs/START_HERE.md`、`docs/INDEX.md` 冲突，以这些仓库入口文档为准并顺手修正文档。
+
 ## 保留的脚本域
 
 - `development/`

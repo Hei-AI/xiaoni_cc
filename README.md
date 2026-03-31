@@ -5,6 +5,7 @@
 当前主仓保留运行底座和管理端：
 
 - `provider-service`: LLM provider、NapCat 发送适配、消息模拟、embeddings、简单队列
+- `agent-service`: 主 agent loop worker，消费 queue batch 并产出 agent run
 - `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、流量查看/回放
 - `admin-panel/frontend`: 管理界面
 - `postgres`: 数据存储
@@ -20,8 +21,11 @@
 ├── docs/
 ├── modules/
 │   ├── admin-panel/
+│   ├── agent-service/
+│   ├── embedding-server/
 │   ├── http-traffic-monitor/
 │   └── provider-service/
+├── packages/
 ├── resource/
 └── scripts/
 ```
@@ -34,13 +38,15 @@
 NapCat -> provider-service
                       \
                        -> admin-backend -> admin-frontend
+                       -> agent-service
                        -> PostgreSQL (via admin / business data)
 ```
 
 说明：
 
 - NapCat 独立部署，不包含在主业务 compose 中。
-- 管理端直接连接 `provider-service` 和 PostgreSQL。
+- 管理端默认链路是前端 -> `admin-panel/backend`。
+- `agent-service` 负责消费消息批次、执行 loop agent，并把 run / trace / transcript 写回 PostgreSQL。
 - HTTP 流量监控/回放属于管理端运维工具链。
 
 ## 快速开始
@@ -77,15 +83,17 @@ docker compose ps
 保留的调试面：
 
 - `provider-service` 健康检查、消息模拟、LLM 调试、简单队列接口、embeddings
-- Admin 会话/聊天查看
+- Admin agent run workspace、会话明细与 runtime status
 - Admin Queue Management
 - Prompt 管理 / 编辑 / 调试
+- Playground case library、Trace / Conversation 导入、Provider 请求 payload 查看
 - HTTP 流量查看与回放
 
 ## 常用命令
 
 ```bash
 docker compose logs -f qqbot-provider-service
+docker compose logs -f qqbot-agent-service
 docker compose logs -f qqbot-admin-backend
 docker exec -it qqbot-provider-service /bin/sh
 python3 scripts/start_modules.py start
@@ -111,4 +119,6 @@ python3 scripts/start_modules.py status
 
 ## 文档
 
+- [docs/START_HERE.md](docs/START_HERE.md)
+- [docs/INDEX.md](docs/INDEX.md)
 - [docs/ROADMAP.md](docs/ROADMAP.md)
