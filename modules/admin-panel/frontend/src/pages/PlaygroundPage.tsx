@@ -13,7 +13,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { ResizableSplit } from '@/components/ui/resizable-split';
 import { PageShell } from '@/components/console/PageShell';
 import {
-  applyPlaygroundModelOverride,
   createPlaygroundToolDefinition,
   derivePlaygroundModelOverride,
   duplicatePlaygroundToolDefinition,
@@ -133,6 +132,11 @@ function parsePromptSystemInstruction(value: unknown): string {
 function parsePromptContextVariables(value: unknown): Record<string, unknown> {
   const parsed = parseMaybeJson(value);
   return asRecord(parsed) || {};
+}
+
+function normalizeOptionalModelName(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function pickFirstDefined(...values: unknown[]): unknown {
@@ -351,6 +355,7 @@ export function PlaygroundPage() {
   const [promptId, setPromptId] = useState<string | null>(searchParams.get('promptId'));
   const [promptInput, setPromptInput] = useState<PlaygroundPromptInput>(DEFAULT_PROMPT_INPUT);
   const [providerConfig, setProviderConfig] = useState<PlaygroundProviderConfig>(DEFAULT_PROVIDER_CONFIG);
+  const [providerSelectionDirty, setProviderSelectionDirty] = useState(false);
   const [modelOverrideText, setModelOverrideText] = useState('');
   const [draftSystemInstruction, setDraftSystemInstruction] = useState('');
   const [draftUserPromptTemplate, setDraftUserPromptTemplate] = useState('');
@@ -541,8 +546,13 @@ export function PlaygroundPage() {
     setPromptMode(currentCase.promptModeDefault);
     setPromptId(currentPromptId);
     setPromptInput(currentCase.promptInput);
-    const normalizedProviderConfig = normalizePlaygroundProviderConfig(currentCase.providerConfig || DEFAULT_PROVIDER_CONFIG);
+    const promptResolvedProviderConfig = currentPrompt ? resolvePromptProviderConfig(currentPrompt) : null;
+    const normalizedProviderConfig = normalizePlaygroundProviderConfig(
+      currentCase.providerConfig || promptResolvedProviderConfig || DEFAULT_PROVIDER_CONFIG,
+      promptResolvedProviderConfig ? getPlaygroundProviderId(promptResolvedProviderConfig) : undefined
+    );
     setProviderConfig(normalizedProviderConfig);
+    setProviderSelectionDirty(false);
     setModelOverrideText(derivePlaygroundModelOverride(normalizedProviderConfig, currentPrompt));
     setDraftSystemInstruction(currentCase.promptInput.systemInstruction || '');
     setDraftUserPromptTemplate('');
@@ -629,13 +639,54 @@ export function PlaygroundPage() {
     contextVariables: parseJsonText<Record<string, unknown>>(contextVariablesText, {}),
   });
 
-  const buildCurrentProviderConfig = (): PlaygroundProviderConfig => ({
-    ...withPlaygroundProviderSpecific(
-      applyPlaygroundModelOverride(normalizePlaygroundProviderConfig(providerConfig), modelOverrideText),
-      parseJsonText<Record<string, unknown>>(providerSpecificText, {})
-    ),
-    safety: parseJsonText<Array<Record<string, unknown>>>(safetyText, []),
-  });
+  const buildCurrentProviderConfig = (): PlaygroundProviderConfig => {
+    const promptResolvedProviderConfig = selectedPrompt ? resolvePromptProviderConfig(selectedPrompt) : null;
+    const fallbackProvider = promptResolvedProviderConfig
+      ? getPlaygroundProviderId(promptResolvedProviderConfig)
+      : undefined;
+    const persistedProviderConfig = selectedCaseQuery.data?.providerConfig || null;
+    const normalizedStateConfig = normalizePlaygroundProviderConfig(providerConfig, fallbackProvider);
+    const normalizedPersistedConfig = persistedProviderConfig
+      ? normalizePlaygroundProviderConfig(persistedProviderConfig, fallbackProvider)
+      : null;
+    const normalizedBaseConfig = normalizedPersistedConfig || normalizedStateConfig;
+    const explicitModelOverride = normalizeOptionalModelName(modelOverrideText);
+    const effectiveModelName = explicitModelOverride
+      || normalizedBaseConfig.model.name
+      || promptDefaultModel
+      || null;
+    const effectiveProvider = providerSelectionDirty
+      ? normalizedStateConfig.model.provider
+      : normalizedBaseConfig.model.provider;
+    const providerSpecific = parseJsonText<Record<string, unknown>>(providerSpecificText, {});
+    const nextContext = {
+      ...(normalizedBaseConfig.context || {}),
+      ...(normalizedStateConfig.context || {}),
+    } as Record<string, unknown>;
+
+    if (effectiveModelName) {
+      nextContext.modelName = effectiveModelName;
+    } else {
+      delete nextContext.modelName;
+    }
+
+    return {
+      ...normalizedBaseConfig,
+      generation: normalizedStateConfig.generation || normalizedBaseConfig.generation,
+      thinking: normalizedStateConfig.thinking || normalizedBaseConfig.thinking,
+      safety: parseJsonText<Array<Record<string, unknown>>>(safetyText, []),
+      tools: normalizedStateConfig.tools || normalizedBaseConfig.tools,
+      context: nextContext,
+      performance: normalizedStateConfig.performance || normalizedBaseConfig.performance,
+      version: normalizedBaseConfig.version,
+      model: {
+        ...normalizedBaseConfig.model,
+        provider: effectiveProvider,
+        name: effectiveModelName,
+        providerSpecific,
+      },
+    };
+  };
 
   const normalizedTools = useMemo(
     () => normalizePlaygroundTools(providerConfig.tools),
@@ -754,6 +805,7 @@ export function PlaygroundPage() {
     setDraftSystemInstruction(systemInstruction);
     setDraftUserPromptTemplate(prompt.user_prompt_template || '');
     setContextVariablesText(stringifyJson(contextVariables));
+    setProviderSelectionDirty(false);
     syncProviderTextFields(resolvePromptProviderConfig(prompt));
   };
 
@@ -822,6 +874,7 @@ export function PlaygroundPage() {
   };
 
   const updateProviderSelection = (nextProvider: PlaygroundProviderConfig['model']['provider']) => {
+    setProviderSelectionDirty(true);
     syncProviderTextFields(withPlaygroundProviderId(providerConfig, nextProvider));
   };
 
