@@ -42,6 +42,8 @@ const TOGGLE_FIELDS: readonly ChatSettingToggleField[] = [
   'auto_reply_enabled'
 ];
 
+const HAS_PROMPT_BINDING_SQL = "CASE WHEN agent_prompt_id IS NOT NULL AND TRIM(agent_prompt_id) <> '' THEN 1 ELSE 0 END";
+
 export function normalizeChatSettingUpdates(
   updates: Record<string, unknown>,
   options: ChatSettingSanitizeOptions
@@ -152,7 +154,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       }
 
       if (status === 'active') {
-        whereConditions.push('g.is_enabled = 1 AND g.auto_reply_enabled = 1');
+        whereConditions.push(`g.is_enabled = 1 AND ${HAS_PROMPT_BINDING_SQL} = 1 AND g.auto_reply_enabled = 1`);
       }
 
       const whereClause = whereConditions.join(' AND ');
@@ -170,7 +172,10 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           g.group_name,
           g.is_enabled,
           CASE WHEN g.is_enabled = 1 THEN g.continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
-          CASE WHEN g.is_enabled = 1 THEN g.auto_reply_enabled ELSE 0 END as auto_reply_enabled,
+          CASE
+            WHEN g.is_enabled = 1 AND ${HAS_PROMPT_BINDING_SQL} = 1 THEN g.auto_reply_enabled
+            ELSE 0
+          END as auto_reply_enabled,
           g.transcript_compact_offset,
           g.welcome_message,
           g.admin_user_id,
@@ -191,7 +196,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
             ELSE 10
           END as activity_level,
           CASE
-            WHEN g.is_enabled = 1 AND g.auto_reply_enabled = 1 THEN 'active'
+            WHEN g.is_enabled = 1 AND ${HAS_PROMPT_BINDING_SQL} = 1 AND g.auto_reply_enabled = 1 THEN 'active'
             WHEN g.is_enabled = 1 AND g.continuous_learning_enabled = 1 THEN 'learning_only'
             WHEN g.is_enabled = 1 THEN 'receiving_only'
             ELSE 'disabled'
@@ -232,7 +237,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         SELECT
           COUNT(DISTINCT g.group_id) as total_groups,
           COUNT(CASE WHEN g.is_enabled = 1 THEN 1 END) as enabled_groups,
-          COUNT(CASE WHEN g.is_enabled = 1 AND g.auto_reply_enabled = 1 THEN 1 END) as auto_reply_groups,
+          COUNT(CASE WHEN g.is_enabled = 1 AND ${HAS_PROMPT_BINDING_SQL} = 1 AND g.auto_reply_enabled = 1 THEN 1 END) as auto_reply_groups,
           COUNT(CASE WHEN g.last_activity >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 END) as active_groups
         FROM group_chat_settings g
       `);
@@ -285,7 +290,15 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       }
 
       if (auto_reply_enabled !== undefined) {
-        whereConditions.push('COALESCE(pcs.auto_reply_enabled, 0) = ?');
+        whereConditions.push(`(
+          CASE
+            WHEN COALESCE(pcs.is_enabled, 1) = 1
+             AND pcs.agent_prompt_id IS NOT NULL
+             AND TRIM(pcs.agent_prompt_id) <> ''
+            THEN COALESCE(pcs.auto_reply_enabled, 0)
+            ELSE 0
+          END
+        ) = ?`);
         queryParams.push(auto_reply_enabled === 'true' ? 1 : 0);
       }
 
@@ -319,7 +332,10 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
             ELSE 0
           END as continuous_learning_enabled,
           CASE
-            WHEN COALESCE(pcs.is_enabled, 1) = 1 THEN COALESCE(pcs.auto_reply_enabled, 0)
+            WHEN COALESCE(pcs.is_enabled, 1) = 1
+             AND pcs.agent_prompt_id IS NOT NULL
+             AND TRIM(pcs.agent_prompt_id) <> ''
+            THEN COALESCE(pcs.auto_reply_enabled, 0)
             ELSE 0
           END as auto_reply_enabled,
           COALESCE(pcs.transcript_compact_offset, 6) as transcript_compact_offset,
@@ -429,7 +445,10 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       const userSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
         SELECT user_id, username, is_enabled,
                CASE WHEN is_enabled = 1 THEN continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
-               CASE WHEN is_enabled = 1 THEN auto_reply_enabled ELSE 0 END as auto_reply_enabled,
+               CASE
+                 WHEN is_enabled = 1 AND agent_prompt_id IS NOT NULL AND TRIM(agent_prompt_id) <> '' THEN auto_reply_enabled
+                 ELSE 0
+               END as auto_reply_enabled,
                welcome_message, user_notes,
                transcript_compact_offset, agent_prompt_id, last_activity
         FROM private_chat_settings
@@ -894,7 +913,10 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       const groupSettingsRows = await database.executeQuery<GroupChatSettingRow>(`
         SELECT group_id, group_name, is_enabled,
                CASE WHEN is_enabled = 1 THEN continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
-               CASE WHEN is_enabled = 1 THEN auto_reply_enabled ELSE 0 END as auto_reply_enabled,
+               CASE
+                 WHEN is_enabled = 1 AND agent_prompt_id IS NOT NULL AND TRIM(agent_prompt_id) <> '' THEN auto_reply_enabled
+                 ELSE 0
+               END as auto_reply_enabled,
                welcome_message,
                transcript_compact_offset, admin_user_id, agent_prompt_id, last_activity
         FROM group_chat_settings

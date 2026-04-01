@@ -8,6 +8,7 @@ type ChatPolicyRecord = {
   is_enabled: number | bigint | null;
   continuous_learning_enabled: number | bigint | null;
   auto_reply_enabled: number | bigint | null;
+  agent_prompt_id?: string | null;
 };
 
 export type PolicyState = {
@@ -134,7 +135,10 @@ export class ChatPolicyService {
 
     const isEnabled = Boolean(row.is_enabled);
     const continuousLearningEnabled = isEnabled && Boolean(row.continuous_learning_enabled);
-    const autoReplyEnabled = isEnabled && Boolean(row.auto_reply_enabled);
+    const autoReplyEnabled = isEnabled
+      && typeof row.agent_prompt_id === 'string'
+      && row.agent_prompt_id.trim().length > 0
+      && Boolean(row.auto_reply_enabled);
 
     return {
       exists: true,
@@ -154,7 +158,8 @@ export class ChatPolicyService {
       select: {
         is_enabled: true,
         continuous_learning_enabled: true,
-        auto_reply_enabled: true
+        auto_reply_enabled: true,
+        agent_prompt_id: true
       }
     });
 
@@ -167,7 +172,8 @@ export class ChatPolicyService {
       select: {
         is_enabled: true,
         continuous_learning_enabled: true,
-        auto_reply_enabled: true
+        auto_reply_enabled: true,
+        agent_prompt_id: true
       }
     });
 
