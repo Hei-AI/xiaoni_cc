@@ -110,9 +110,15 @@ function stripNonSemanticPlaceholders(value: unknown) {
     .trim();
 }
 
+function normalizeLedgerSemanticText(value: unknown) {
+  return stripNonSemanticPlaceholders(value)
+    .replace(/^(?:旧话题关键词延续|重复出现的共享关键词|连续复用前文表达)\s*[:：]?\s*/u, '')
+    .trim();
+}
+
 function isSemanticLedgerEvent(event: LedgerEventRecord) {
-  const excerpt = stripNonSemanticPlaceholders(event.source_excerpt);
-  const keyword = stripNonSemanticPlaceholders((event.metadata as Record<string, unknown> | null | undefined)?.keyword);
+  const excerpt = normalizeLedgerSemanticText(event.source_excerpt);
+  const keyword = normalizeLedgerSemanticText((event.metadata as Record<string, unknown> | null | undefined)?.keyword);
   return Boolean(excerpt || keyword);
 }
 
