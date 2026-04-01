@@ -156,6 +156,62 @@ function recordRelationshipLedgerAsync(inboundContext: FinalizedInboundContext, 
   });
 }
 
+async function materializeContinuousLearningTurn(params: {
+  inboundContext: FinalizedInboundContext;
+  currentMessageId?: number | null;
+  traceId: string;
+}) {
+  const targets = inferPolicyTargets(params.inboundContext);
+  if (!targets) {
+    return false;
+  }
+
+  await conversationStoreService.materializeInboundConversation({
+    userId: targets.userId,
+    groupId: targets.groupId,
+    userMessage: params.inboundContext.BodyForAgent || params.inboundContext.Body || '',
+    traceId: params.traceId,
+    sourceMessageId: params.currentMessageId ?? null,
+    sourceMessageSid: params.inboundContext.MessageSid || null,
+    rawRequest: {
+      session_key: params.inboundContext.SessionKey,
+      chat_type: params.inboundContext.ChatType,
+      sender_id: params.inboundContext.SenderId,
+      sender_name: params.inboundContext.SenderName || null
+    }
+  });
+  return true;
+}
+
+async function runContinuousLearningIfEnabled(params: {
+  policyState: Awaited<ReturnType<ChatPolicyService['getPolicyState']>>;
+  inboxEventId?: number | null;
+  inboundContext: FinalizedInboundContext;
+  traceId: string;
+  skipMaterialization?: boolean;
+}) {
+  if (!params.policyState.continuousLearningEnabled) {
+    return {
+      attempted: false,
+      reason: 'continuous_learning_disabled'
+    };
+  }
+
+  if (!params.skipMaterialization) {
+    await materializeContinuousLearningTurn({
+      inboundContext: params.inboundContext,
+      currentMessageId: params.inboxEventId,
+      traceId: params.traceId
+    });
+  }
+
+  scheduleCompactionSideEffects(params.inboundContext);
+  return {
+    attempted: true,
+    reason: params.skipMaterialization ? 'scheduled_existing_transcript' : 'materialized_and_scheduled'
+  };
+}
+
 function parseBoolean(value: unknown) {
   if (typeof value === 'boolean') {
     return value;
@@ -216,6 +272,11 @@ async function simulateSimpleQueueMessage(messageType: ProviderMessageType, payl
     String(aiConfig.bot_qq_number),
     result.traceId
   );
+  const policyState = await chatPolicyService.getPolicyState({
+    messageType,
+    userId: Number(payload.user_id),
+    groupId: messageType === 'group' ? Number(payload.group_id) : undefined
+  });
   recordRelationshipLedgerAsync(finalizedContext, result.event.id);
   const autoReply = await processAutoReply({
     inboxEvent: result.event,
@@ -227,12 +288,28 @@ async function simulateSimpleQueueMessage(messageType: ProviderMessageType, payl
       payload
     },
     traceId: result.traceId,
-    source: 'simulator'
+    source: 'simulator',
+    policyState
   });
+  const learning = !autoReply.queued
+    ? await runContinuousLearningIfEnabled({
+        policyState,
+        inboxEventId: result.event.id,
+        inboundContext: finalizedContext,
+        traceId: result.traceId
+      })
+    : await runContinuousLearningIfEnabled({
+        policyState,
+        inboxEventId: result.event.id,
+        inboundContext: finalizedContext,
+        traceId: result.traceId,
+        skipMaterialization: true
+      });
 
   return {
     ...result,
-    autoReply
+    autoReply,
+    learning
   };
 }
 
@@ -253,17 +330,21 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     return { accepted: false, reason: 'self_message' as const };
   }
 
-  const policy = await chatPolicyService.checkIncomingPolicy({
+  const policy = await chatPolicyService.getPolicyState({
     messageType,
     userId,
     groupId
   });
 
-  if (!policy.allowed) {
+  if (!policy.isEnabled) {
     return {
       accepted: false,
-      reason: policy.reason,
-      policy
+      reason: 'receive_disabled' as const,
+      policy: {
+        ...policy,
+        allowed: false,
+        reason: 'receive_disabled' as const
+      }
     };
   }
 
@@ -308,13 +389,33 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     inboundContext,
     rawPayload: message as Record<string, unknown>,
     traceId: result.traceId,
-    source: 'napcat'
+    source: 'napcat',
+    policyState: policy
   });
+  const learning = !autoReply.queued
+    ? await runContinuousLearningIfEnabled({
+        policyState: policy,
+        inboxEventId: result.event.id,
+        inboundContext,
+        traceId: result.traceId
+      })
+    : await runContinuousLearningIfEnabled({
+        policyState: policy,
+        inboxEventId: result.event.id,
+        inboundContext,
+        traceId: result.traceId,
+        skipMaterialization: true
+      });
 
   return {
     accepted: true,
-    policy,
+    policy: {
+      ...policy,
+      allowed: true,
+      reason: 'accepted' as const
+    },
     autoReply,
+    learning,
     ...result
   };
 }
@@ -325,6 +426,7 @@ async function processAutoReply(params: {
   rawPayload: Record<string, unknown>;
   traceId: string;
   source: 'napcat' | 'simulator';
+  policyState?: Awaited<ReturnType<ChatPolicyService['getPolicyState']>>;
 }) {
   const policyTargets = inferPolicyTargets(params.inboundContext);
   if (!policyTargets) {
@@ -334,12 +436,16 @@ async function processAutoReply(params: {
     };
   }
 
-  const policy = await chatPolicyService.checkAutoReplyPolicy(policyTargets);
-  if (!policy.allowed) {
+  const policy = params.policyState || await chatPolicyService.getPolicyState(policyTargets);
+  if (!policy.autoReplyEnabled) {
     return {
       attempted: false,
-      reason: policy.reason,
-      policy
+      reason: 'auto_reply_disabled',
+      policy: {
+        ...policy,
+        allowed: false,
+        reason: 'auto_reply_disabled' as const
+      }
     };
   }
   await runtimeStoreService.logTimelineEvent({
@@ -417,7 +523,6 @@ async function processAutoReply(params: {
     }
   });
   const queueResult = await runtimeStoreService.enqueueSemanticMessage(semanticMessage);
-  scheduleCompactionSideEffects(params.inboundContext);
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
     eventType: 'queue',
@@ -1195,19 +1300,23 @@ app.post('/api/inbox/simulate', async (req, res) => {
       });
     }
 
-    const policy = await chatPolicyService.checkIncomingPolicy({
+    const policy = await chatPolicyService.getPolicyState({
       messageType: targets.messageType,
       userId: targets.userId,
       groupId: targets.groupId
     });
 
-    if (!policy.allowed) {
+    if (!policy.isEnabled) {
       return res.json({
         success: true,
         data: {
           accepted: false,
-          reason: policy.reason,
-          policy
+          reason: 'receive_disabled',
+          policy: {
+            ...policy,
+            allowed: false,
+            reason: 'receive_disabled'
+          }
         }
       });
     }
@@ -1228,12 +1337,23 @@ app.post('/api/inbox/simulate', async (req, res) => {
       groupId: targets.groupId
     });
     recordRelationshipLedgerAsync(finalizedContext, result.event.id);
+    const learning = await runContinuousLearningIfEnabled({
+      policyState: policy,
+      inboxEventId: result.event.id,
+      inboundContext: finalizedContext,
+      traceId: result.traceId
+    });
 
     res.json({
       success: true,
       data: {
         accepted: true,
-        policy,
+        policy: {
+          ...policy,
+          allowed: true,
+          reason: 'accepted'
+        },
+        learning,
         ...result
       }
     });

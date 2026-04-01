@@ -18,6 +18,7 @@ import { Textarea } from '../components/ui/textarea';
 import { Switch } from '../components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { usePromptTemplates } from '../hooks/usePromptTemplates';
+import { applyChatSettingToggle, isChatSettingToggleDisabled } from '@/lib/chat-settings';
 import { formatPromptBindingLabel } from '@/lib/contract-display';
 import { formatTimestamp } from '@/lib/utils';
 import { 
@@ -40,6 +41,7 @@ interface GroupSettings {
   group_id: number;
   group_name: string;
   is_enabled: number;
+  continuous_learning_enabled: number;
   auto_reply_enabled: number;
   transcript_compact_offset: number;
   welcome_message: string | null;
@@ -234,6 +236,13 @@ export const GroupChatDetailPage: React.FC = () => {
   };
 
   const handleSettingsChange = (field: string, value: any) => {
+    if (field === 'is_enabled' || field === 'continuous_learning_enabled' || field === 'auto_reply_enabled') {
+      setSettingsForm(prev => ({
+        ...prev,
+        ...applyChatSettingToggle((prev as GroupSettings) || {}, field, Boolean(value))
+      }));
+      return;
+    }
     setSettingsForm(prev => ({
       ...prev,
       [field]: value
@@ -379,16 +388,27 @@ export const GroupChatDetailPage: React.FC = () => {
                       <Switch
                         id="is_enabled"
                         checked={!!settingsForm.is_enabled}
-                        onCheckedChange={(checked) => handleSettingsChange('is_enabled', checked ? 1 : 0)}
+                        onCheckedChange={(checked) => handleSettingsChange('is_enabled', checked)}
                       />
                       <Label htmlFor="is_enabled">接收群聊消息</Label>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="continuous_learning_enabled"
+                        checked={!!settingsForm.continuous_learning_enabled}
+                        onCheckedChange={(checked) => handleSettingsChange('continuous_learning_enabled', checked)}
+                        disabled={isChatSettingToggleDisabled(settingsForm, 'continuous_learning_enabled')}
+                      />
+                      <Label htmlFor="continuous_learning_enabled">持续学习</Label>
                     </div>
                     
                     <div className="flex items-center space-x-2">
                       <Switch
                         id="auto_reply_enabled"
                         checked={!!settingsForm.auto_reply_enabled}
-                        onCheckedChange={(checked) => handleSettingsChange('auto_reply_enabled', checked ? 1 : 0)}
+                        onCheckedChange={(checked) => handleSettingsChange('auto_reply_enabled', checked)}
+                        disabled={isChatSettingToggleDisabled(settingsForm, 'auto_reply_enabled')}
                       />
                       <Label htmlFor="auto_reply_enabled">开启自动回复</Label>
                     </div>
@@ -419,6 +439,12 @@ export const GroupChatDetailPage: React.FC = () => {
                     <p className="text-sm text-muted-foreground">接收状态</p>
                     <Badge variant={groupData.data.group_settings.is_enabled ? "default" : "secondary"}>
                       {groupData.data.group_settings.is_enabled ? "接收中" : "已忽略"}
+                    </Badge>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">持续学习</p>
+                    <Badge variant={groupData.data.group_settings.continuous_learning_enabled ? "default" : "outline"}>
+                      {groupData.data.group_settings.continuous_learning_enabled ? "开启" : "关闭"}
                     </Badge>
                   </div>
                   <div>

@@ -8,6 +8,7 @@ interface PrivateChatSettingRow {
   user_id: number;
   username: string | null;
   is_enabled: number;
+  continuous_learning_enabled: number;
   auto_reply_enabled: number;
   transcript_compact_offset: number | null;
   welcome_message: string | null;
@@ -20,12 +21,64 @@ interface GroupChatSettingRow {
   group_id: number;
   group_name: string | null;
   is_enabled: number;
+  continuous_learning_enabled: number;
   auto_reply_enabled: number;
   transcript_compact_offset: number | null;
   welcome_message: string | null;
   admin_user_id: number | null;
   agent_prompt_id: string | null;
   last_activity: string | null;
+}
+
+type ChatSettingToggleField = 'is_enabled' | 'continuous_learning_enabled' | 'auto_reply_enabled';
+
+type ChatSettingSanitizeOptions = {
+  allowedFields: readonly string[];
+};
+
+const TOGGLE_FIELDS: readonly ChatSettingToggleField[] = [
+  'is_enabled',
+  'continuous_learning_enabled',
+  'auto_reply_enabled'
+];
+
+export function normalizeChatSettingUpdates(
+  updates: Record<string, unknown>,
+  options: ChatSettingSanitizeOptions
+): { sanitizedUpdates: Record<string, unknown>; validationError: string | null } {
+  const allowedFields = new Set(options.allowedFields);
+  const sanitizedUpdates: Record<string, unknown> = {};
+  let validationError: string | null = null;
+
+  Object.entries(updates || {}).forEach(([key, value]) => {
+    if (!allowedFields.has(key) || value === undefined) {
+      return;
+    }
+
+    if ((TOGGLE_FIELDS as readonly string[]).includes(key)) {
+      sanitizedUpdates[key] = value ? 1 : 0;
+      return;
+    }
+
+    if (key === 'transcript_compact_offset') {
+      const numericValue = Number(value);
+      if (!Number.isInteger(numericValue) || numericValue < 0 || numericValue > 500) {
+        validationError = 'transcript_compact_offset must be an integer between 0 and 500';
+        return;
+      }
+      sanitizedUpdates[key] = numericValue;
+      return;
+    }
+
+    sanitizedUpdates[key] = value;
+  });
+
+  if (sanitizedUpdates.is_enabled === 0) {
+    sanitizedUpdates.continuous_learning_enabled = 0;
+    sanitizedUpdates.auto_reply_enabled = 0;
+  }
+
+  return { sanitizedUpdates, validationError };
 }
 
 // 创建聊天管理相关路由
@@ -51,6 +104,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       const success = await database.upsertGroupChatSettings(groupId, {
         group_name: groupName || null,
         is_enabled: 1,
+        continuous_learning_enabled: 1,
         auto_reply_enabled: 0
       });
       const groupSettings = await database.getGroupChatSettingById(groupId);
@@ -62,6 +116,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           group_id: groupId,
           group_name: groupName || null,
           is_enabled: 1,
+          continuous_learning_enabled: 1,
           auto_reply_enabled: 0
         },
         timestamp: new Date().toISOString()
@@ -114,6 +169,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           g.group_id,
           g.group_name,
           g.is_enabled,
+          g.continuous_learning_enabled,
           g.auto_reply_enabled,
           g.transcript_compact_offset,
           g.welcome_message,
@@ -136,6 +192,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           END as activity_level,
           CASE
             WHEN g.is_enabled = 1 AND g.auto_reply_enabled = 1 THEN 'active'
+            WHEN g.is_enabled = 1 AND g.continuous_learning_enabled = 1 THEN 'learning_only'
             WHEN g.is_enabled = 1 THEN 'receiving_only'
             ELSE 'disabled'
           END as status,
@@ -145,9 +202,13 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           SELECT
             group_id,
             COUNT(*) as total_conversations,
+            COUNT(CASE WHEN status <> 'received' THEN 1 END) as total_reply_attempts,
             COUNT(CASE WHEN status = 'completed' AND ai_response IS NOT NULL AND ai_response != '' THEN 1 END) as successful_replies,
-            COUNT(CASE WHEN status = 'failed' OR ai_response IS NULL OR ai_response = '' THEN 1 END) as failed_replies,
-            ROUND(COUNT(CASE WHEN status = 'completed' AND ai_response IS NOT NULL AND ai_response != '' THEN 1 END) * 100.0 / COUNT(*), 1) as success_rate,
+            COUNT(CASE WHEN status = 'failed' OR (status <> 'received' AND (ai_response IS NULL OR ai_response = '')) THEN 1 END) as failed_replies,
+            CASE
+              WHEN COUNT(CASE WHEN status <> 'received' THEN 1 END) = 0 THEN 0
+              ELSE ROUND(COUNT(CASE WHEN status = 'completed' AND ai_response IS NOT NULL AND ai_response != '' THEN 1 END) * 100.0 / COUNT(CASE WHEN status <> 'received' THEN 1 END), 1)
+            END as success_rate,
             AVG(CASE WHEN response_time > 0 THEN response_time ELSE NULL END) as avg_response_time
           FROM conversations
           WHERE group_id IS NOT NULL
@@ -245,14 +306,15 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           COALESCE(stats.successful_replies, 0) as successful_replies,
           COALESCE(stats.failed_replies, 0) as failed_replies,
           CASE
-            WHEN COALESCE(stats.total_conversations, 0) = 0 THEN 0
-            ELSE ROUND(COALESCE(stats.successful_replies, 0) * 100.0 / stats.total_conversations, 1)
+            WHEN COALESCE(stats.total_reply_attempts, 0) = 0 THEN 0
+            ELSE ROUND(COALESCE(stats.successful_replies, 0) * 100.0 / stats.total_reply_attempts, 1)
           END as success_rate,
           CASE
             WHEN stats.avg_response_time IS NULL THEN '0ms'
             ELSE CONCAT(ROUND(stats.avg_response_time), 'ms')
           END as avg_response_time,
           COALESCE(pcs.is_enabled, 1) as is_enabled,
+          COALESCE(pcs.continuous_learning_enabled, 1) as continuous_learning_enabled,
           COALESCE(pcs.auto_reply_enabled, 0) as auto_reply_enabled,
           COALESCE(pcs.transcript_compact_offset, 6) as transcript_compact_offset,
           pcs.user_notes,
@@ -268,8 +330,9 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
             user_id,
             MAX(timestamp) as last_conversation_time,
             COUNT(*) as total_conversations,
+            COUNT(CASE WHEN status <> 'received' THEN 1 END) as total_reply_attempts,
             COUNT(CASE WHEN status = 'completed' AND ai_response IS NOT NULL AND ai_response != '' THEN 1 END) as successful_replies,
-            COUNT(CASE WHEN status = 'failed' OR ai_response IS NULL OR ai_response = '' THEN 1 END) as failed_replies,
+            COUNT(CASE WHEN status = 'failed' OR (status <> 'received' AND (ai_response IS NULL OR ai_response = '')) THEN 1 END) as failed_replies,
             AVG(CASE WHEN response_time > 0 THEN response_time ELSE NULL END) as avg_response_time
           FROM conversations
           WHERE group_id IS NULL
@@ -358,7 +421,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
 
       // 获取用户设置
       const userSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
-        SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
+        SELECT user_id, username, is_enabled, continuous_learning_enabled, auto_reply_enabled, welcome_message, user_notes,
                transcript_compact_offset, agent_prompt_id, last_activity
         FROM private_chat_settings
         WHERE user_id = ?
@@ -369,6 +432,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         user_id: userId,
         nickname: userSettingRow?.username || `用户${userId}`,
         is_enabled: userSettingRow?.is_enabled ?? 1,
+        continuous_learning_enabled: userSettingRow?.continuous_learning_enabled ?? 1,
         auto_reply_enabled: userSettingRow?.auto_reply_enabled ?? 0,
         transcript_compact_offset: userSettingRow?.transcript_compact_offset ?? 6,
         welcome_message: userSettingRow?.welcome_message || null,
@@ -448,7 +512,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
   // 批量更新私聊用户设置
   router.post('/private-chats/batch', async (req, res) => {
     try {
-      const { user_ids, is_enabled, auto_reply_enabled } = req.body;
+      const { user_ids, is_enabled, continuous_learning_enabled, auto_reply_enabled } = req.body;
 
       if (!Array.isArray(user_ids) || user_ids.length === 0) {
         return res.status(400).json({
@@ -477,9 +541,25 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         updateValues.push(is_enabled ? 1 : 0);
       }
 
+      if (continuous_learning_enabled !== undefined) {
+        updateFields.push('continuous_learning_enabled = ?');
+        updateValues.push(continuous_learning_enabled ? 1 : 0);
+      }
+
       if (auto_reply_enabled !== undefined) {
         updateFields.push('auto_reply_enabled = ?');
         updateValues.push(auto_reply_enabled ? 1 : 0);
+      }
+
+      if (is_enabled === false || is_enabled === 0) {
+        updateFields = updateFields.filter((field) => field !== 'continuous_learning_enabled = ?' && field !== 'auto_reply_enabled = ?');
+        if (updateValues.length > 1) {
+          updateValues = updateValues.slice(0, 1);
+        }
+        updateFields.push('continuous_learning_enabled = ?');
+        updateValues.push(0);
+        updateFields.push('auto_reply_enabled = ?');
+        updateValues.push(0);
       }
 
       if (updateFields.length === 0) {
@@ -505,6 +585,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       logger.info('Batch private chat settings updated', {
         user_ids: validIds,
         is_enabled,
+        continuous_learning_enabled,
         auto_reply_enabled,
         affectedRows: result
       });
@@ -546,6 +627,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       const success = await database.upsertPrivateChatSettings(userId, {
         username: username || null,
         is_enabled: 1,
+        continuous_learning_enabled: 1,
         auto_reply_enabled: 0
       });
       const settings = await database.getPrivateChatSettingById(userId);
@@ -557,6 +639,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           user_id: userId,
           username: username || null,
           is_enabled: 1,
+          continuous_learning_enabled: 1,
           auto_reply_enabled: 0
         },
         timestamp: new Date().toISOString()
@@ -652,39 +735,17 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         });
       }
 
-      const allowedFields = new Set([
-        'username',
-        'is_enabled',
-        'auto_reply_enabled',
-        'transcript_compact_offset',
-        'welcome_message',
-        'user_notes',
-        'agent_prompt_id'
-      ]);
-      const sanitizedUpdates: Record<string, any> = {};
-      let validationError: string | null = null;
-
-      Object.entries(updates || {}).forEach(([key, value]) => {
-        if (!allowedFields.has(key) || value === undefined) {
-          return;
-        }
-
-        if (key === 'is_enabled' || key === 'auto_reply_enabled') {
-          sanitizedUpdates[key] = value ? 1 : 0;
-          return;
-        }
-
-        if (key === 'transcript_compact_offset') {
-          const numericValue = Number(value);
-          if (!Number.isInteger(numericValue) || numericValue < 0 || numericValue > 500) {
-            validationError = 'transcript_compact_offset must be an integer between 0 and 500';
-            return;
-          }
-          sanitizedUpdates[key] = numericValue;
-          return;
-        }
-
-        sanitizedUpdates[key] = value;
+      const { sanitizedUpdates, validationError } = normalizeChatSettingUpdates(updates, {
+        allowedFields: [
+          'username',
+          'is_enabled',
+          'continuous_learning_enabled',
+          'auto_reply_enabled',
+          'transcript_compact_offset',
+          'welcome_message',
+          'user_notes',
+          'agent_prompt_id'
+        ]
       });
 
       if (validationError) {
@@ -822,7 +883,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
 
       // 获取群聊设置
       const groupSettingsRows = await database.executeQuery<GroupChatSettingRow>(`
-        SELECT group_id, group_name, is_enabled, auto_reply_enabled, welcome_message,
+        SELECT group_id, group_name, is_enabled, continuous_learning_enabled, auto_reply_enabled, welcome_message,
                transcript_compact_offset, admin_user_id, agent_prompt_id, last_activity
         FROM group_chat_settings
         WHERE group_id = ?
@@ -833,6 +894,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         group_id: groupId,
         group_name: groupSettingsRow?.group_name || `群聊${groupId}`,
         is_enabled: groupSettingsRow?.is_enabled ?? 1,
+        continuous_learning_enabled: groupSettingsRow?.continuous_learning_enabled ?? 1,
         auto_reply_enabled: groupSettingsRow?.auto_reply_enabled ?? 0,
         transcript_compact_offset: groupSettingsRow?.transcript_compact_offset ?? 6,
         welcome_message: groupSettingsRow?.welcome_message || null,
@@ -919,38 +981,16 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         });
       }
 
-      const allowedFields = new Set([
-        'group_name',
-        'is_enabled',
-        'auto_reply_enabled',
-        'transcript_compact_offset',
-        'welcome_message',
-        'admin_user_id'
-      ]);
-      const sanitizedUpdates: Record<string, any> = {};
-      let validationError: string | null = null;
-
-      Object.entries(updates || {}).forEach(([key, value]) => {
-        if (!allowedFields.has(key) || value === undefined) {
-          return;
-        }
-
-        if (key === 'is_enabled' || key === 'auto_reply_enabled') {
-          sanitizedUpdates[key] = value ? 1 : 0;
-          return;
-        }
-
-        if (key === 'transcript_compact_offset') {
-          const numericValue = Number(value);
-          if (!Number.isInteger(numericValue) || numericValue < 0 || numericValue > 500) {
-            validationError = 'transcript_compact_offset must be an integer between 0 and 500';
-            return;
-          }
-          sanitizedUpdates[key] = numericValue;
-          return;
-        }
-
-        sanitizedUpdates[key] = value;
+      const { sanitizedUpdates, validationError } = normalizeChatSettingUpdates(updates, {
+        allowedFields: [
+          'group_name',
+          'is_enabled',
+          'continuous_learning_enabled',
+          'auto_reply_enabled',
+          'transcript_compact_offset',
+          'welcome_message',
+          'admin_user_id'
+        ]
       });
 
       if (validationError) {

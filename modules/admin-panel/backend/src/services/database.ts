@@ -425,6 +425,7 @@ export class DatabaseManager {
           user_id: BigInt(userId),
           agent_prompt_id: promptId,
           is_enabled: 1,
+          continuous_learning_enabled: 1,
           auto_reply_enabled: 0,
           transcript_compact_offset: 6
         },
@@ -449,6 +450,7 @@ export class DatabaseManager {
           group_id: BigInt(groupId),
           agent_prompt_id: promptId,
           is_enabled: 1,
+          continuous_learning_enabled: 1,
           auto_reply_enabled: 0,
           transcript_compact_offset: 6
         },
@@ -476,6 +478,7 @@ export class DatabaseManager {
         create: {
           group_id: BigInt(groupId),
           is_enabled: 1,
+          continuous_learning_enabled: 1,
           auto_reply_enabled: 0,
           ...updates
         },
@@ -493,7 +496,7 @@ export class DatabaseManager {
   public async getPrivateChatSettingById(userId: number): Promise<any | null> {
     try {
       const query = `
-        SELECT user_id, username, is_enabled, auto_reply_enabled, welcome_message, user_notes,
+        SELECT user_id, username, is_enabled, continuous_learning_enabled, auto_reply_enabled, welcome_message, user_notes,
                transcript_compact_offset, agent_prompt_id, last_activity, created_at, updated_at
         FROM private_chat_settings
         WHERE user_id = ?
@@ -673,6 +676,7 @@ export class DatabaseManager {
         create: {
           user_id: BigInt(userId),
           is_enabled: 1,
+          continuous_learning_enabled: 1,
           auto_reply_enabled: 0,
           transcript_compact_offset: 6,
           ...updates
@@ -691,7 +695,7 @@ export class DatabaseManager {
   public async getGroupChatSettingById(groupId: number): Promise<any | null> {
     try {
       const query = `
-        SELECT group_id, group_name, is_enabled, auto_reply_enabled, welcome_message,
+        SELECT group_id, group_name, is_enabled, continuous_learning_enabled, auto_reply_enabled, welcome_message,
                transcript_compact_offset, admin_user_id, agent_prompt_id, last_activity, created_at, updated_at
         FROM group_chat_settings
         WHERE group_id = ?
@@ -713,6 +717,14 @@ export class DatabaseManager {
   }
 
   private async ensureChatSettingsColumns(): Promise<void> {
+    await this.executeUpdate(
+      `ALTER TABLE private_chat_settings
+       ADD COLUMN IF NOT EXISTS continuous_learning_enabled INTEGER NOT NULL DEFAULT 1`
+    );
+    await this.executeUpdate(
+      `ALTER TABLE group_chat_settings
+       ADD COLUMN IF NOT EXISTS continuous_learning_enabled INTEGER NOT NULL DEFAULT 1`
+    );
     await this.executeUpdate(
       `ALTER TABLE private_chat_settings
        ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`

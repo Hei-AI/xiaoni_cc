@@ -35,6 +35,7 @@ import { EntityCard } from '@/components/console/EntityCard';
 import { ErrorState } from '@/components/console/ErrorState';
 import { EmptyState } from '@/components/console/EmptyState';
 import { StatusPill } from '@/components/console/StatusPill';
+import { applyChatSettingToggle, isChatSettingToggleDisabled, type ChatSettingsToggleField } from '@/lib/chat-settings';
 import { formatTimestamp } from '@/lib/utils';
 
 interface GroupChat {
@@ -48,6 +49,7 @@ interface GroupChat {
   avg_response_time: number;
   activity_level: number;
   is_enabled: number;
+  continuous_learning_enabled: number;
   auto_reply_enabled: number;
   admin_user_id: number | null;
   welcome_message: string | null;
@@ -67,7 +69,7 @@ interface GroupResponse {
   };
 }
 
-type GroupToggleField = 'is_enabled' | 'auto_reply_enabled';
+type GroupToggleField = ChatSettingsToggleField;
 
 const fetchGroups = async (params: {
   page: number;
@@ -94,7 +96,7 @@ const fetchGroups = async (params: {
 
 const updateGroup = async (
   groupId: number,
-  data: { is_enabled?: boolean; auto_reply_enabled?: boolean; group_name?: string; welcome_message?: string }
+  data: { is_enabled?: number; continuous_learning_enabled?: number; auto_reply_enabled?: number; group_name?: string | null; welcome_message?: string | null }
 ) => {
   const response = await fetch(`/api/group-chats/${groupId}/settings`, {
     method: 'PUT',
@@ -177,6 +179,10 @@ export const GroupManagementPage: React.FC = () => {
     const loadingKey = `${groupId}_${field}`;
     setLoadingStates((prev) => ({ ...prev, [loadingKey]: true }));
     const previous = queryClient.getQueryData<GroupResponse>(groupsQueryKey);
+    const currentGroup = previous?.data.find((group) => group.group_id === groupId);
+    const optimisticPatch = currentGroup
+      ? applyChatSettingToggle(currentGroup, field, value)
+      : { [field]: value ? 1 : 0 };
 
     queryClient.setQueryData<GroupResponse>(groupsQueryKey, (current) => {
       if (!current) {
@@ -187,14 +193,14 @@ export const GroupManagementPage: React.FC = () => {
         ...current,
         data: current.data.map((group) => (
           group.group_id === groupId
-            ? { ...group, [field]: value ? 1 : 0 }
+            ? { ...group, ...optimisticPatch }
             : group
         )),
       };
     });
 
     try {
-      await updateGroup(groupId, { [field]: value });
+      await updateGroup(groupId, optimisticPatch);
       await queryClient.invalidateQueries({ queryKey: ['groups'] });
     } catch (updateError) {
       queryClient.setQueryData(groupsQueryKey, previous);
@@ -225,17 +231,19 @@ export const GroupManagementPage: React.FC = () => {
   const rows = data?.data ?? [];
   const metrics = useMemo(() => {
     const enabled = rows.filter((group) => group.is_enabled).length;
+    const learning = rows.filter((group) => group.continuous_learning_enabled).length;
     const autoReply = rows.filter((group) => group.auto_reply_enabled).length;
     const avgActivity =
       rows.length > 0
         ? Math.round(rows.reduce((sum, group) => sum + group.activity_level, 0) / rows.length)
         : 0;
-    return { enabled, autoReply, avgActivity };
+    return { enabled, learning, autoReply, avgActivity };
   }, [rows]);
 
   const renderToggleControl = (group: GroupChat, field: GroupToggleField, label: string) => {
     const checked = Boolean(group[field]);
     const loadingKey = `${group.group_id}_${field}`;
+    const disabled = (loadingStates[loadingKey] || false) || isChatSettingToggleDisabled(group, field);
 
     return (
       <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background/70 px-3 py-2">
@@ -246,7 +254,7 @@ export const GroupManagementPage: React.FC = () => {
         <Switch
           checked={checked}
           onCheckedChange={(nextChecked) => void handleGroupUpdate(group.group_id, field, nextChecked)}
-          disabled={loadingStates[loadingKey] || false}
+          disabled={disabled}
           aria-label={`group-${group.group_id}-${field}`}
         />
       </label>
@@ -333,7 +341,7 @@ export const GroupManagementPage: React.FC = () => {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <MetricCard label="当前页群组" value={rows.length} icon={<Users className="h-5 w-5" />} />
-        <MetricCard label="接收开启" value={metrics.enabled} detail={`自动回复开启 ${metrics.autoReply}`} icon={<PlayCircle className="h-5 w-5" />} tone="success" />
+        <MetricCard label="接收开启" value={metrics.enabled} detail={`学习开启 ${metrics.learning} / 自动回复 ${metrics.autoReply}`} icon={<PlayCircle className="h-5 w-5" />} tone="success" />
         <MetricCard label="平均活跃度" value={`${metrics.avgActivity}%`} icon={<MessageCircle className="h-5 w-5" />} tone="warning" />
       </div>
 
@@ -414,6 +422,9 @@ export const GroupManagementPage: React.FC = () => {
                   badges={
                     <>
                       <StatusPill tone={group.is_enabled ? 'success' : 'neutral'}>{group.is_enabled ? '接收中' : '已忽略'}</StatusPill>
+                      <StatusPill tone={group.continuous_learning_enabled ? 'info' : 'neutral'}>
+                        {group.continuous_learning_enabled ? '持续学习开启' : '持续学习关闭'}
+                      </StatusPill>
                       <StatusPill tone={group.auto_reply_enabled ? 'info' : 'warning'}>
                         {group.auto_reply_enabled ? '自动回复开启' : '自动回复关闭'}
                       </StatusPill>
@@ -436,6 +447,7 @@ export const GroupManagementPage: React.FC = () => {
                 >
                   <div className="space-y-2">
                     {renderToggleControl(group, 'is_enabled', '接收开关')}
+                    {renderToggleControl(group, 'continuous_learning_enabled', '持续学习')}
                     {renderToggleControl(group, 'auto_reply_enabled', '自动回复')}
                   </div>
                 </EntityCard>
@@ -449,6 +461,7 @@ export const GroupManagementPage: React.FC = () => {
                     <TableHead>群号</TableHead>
                     <TableHead>群名称</TableHead>
                     <TableHead>接收状态</TableHead>
+                    <TableHead>持续学习</TableHead>
                     <TableHead>自动回复</TableHead>
                     <TableHead>活跃度</TableHead>
                     <TableHead>统计信息</TableHead>
@@ -463,6 +476,9 @@ export const GroupManagementPage: React.FC = () => {
                       <TableCell>{group.group_name || '未知群聊'}</TableCell>
                       <TableCell>
                         <StatusPill tone={group.is_enabled ? 'success' : 'neutral'}>{group.is_enabled ? '接收中' : '已忽略'}</StatusPill>
+                      </TableCell>
+                      <TableCell>
+                        <StatusPill tone={group.continuous_learning_enabled ? 'info' : 'neutral'}>{group.continuous_learning_enabled ? '开启' : '关闭'}</StatusPill>
                       </TableCell>
                       <TableCell>
                         <StatusPill tone={group.auto_reply_enabled ? 'info' : 'warning'}>{group.auto_reply_enabled ? '开启' : '关闭'}</StatusPill>
@@ -487,11 +503,20 @@ export const GroupManagementPage: React.FC = () => {
                             />
                           </div>
                           <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-muted-foreground">学习</span>
+                            <Switch
+                              checked={Boolean(group.continuous_learning_enabled)}
+                              onCheckedChange={(nextChecked) => void handleGroupUpdate(group.group_id, 'continuous_learning_enabled', nextChecked)}
+                              disabled={loadingStates[`${group.group_id}_continuous_learning_enabled`] || isChatSettingToggleDisabled(group, 'continuous_learning_enabled')}
+                              aria-label={`group-${group.group_id}-continuous-learning`}
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
                             <span className="text-xs font-medium text-muted-foreground">自动回复</span>
                             <Switch
                               checked={Boolean(group.auto_reply_enabled)}
                               onCheckedChange={(nextChecked) => void handleGroupUpdate(group.group_id, 'auto_reply_enabled', nextChecked)}
-                              disabled={loadingStates[`${group.group_id}_auto_reply_enabled`] || false}
+                              disabled={loadingStates[`${group.group_id}_auto_reply_enabled`] || isChatSettingToggleDisabled(group, 'auto_reply_enabled')}
                               aria-label={`group-${group.group_id}-auto-reply`}
                             />
                           </div>

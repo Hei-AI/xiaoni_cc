@@ -1,7 +1,7 @@
 import express from 'express';
 import request from 'supertest';
 import winston from 'winston';
-import { createChatRoutes } from '../routes/chat-routes';
+import { createChatRoutes, normalizeChatSettingUpdates } from '../routes/chat-routes';
 
 function createLogger(): winston.Logger {
   return winston.createLogger({ silent: true });
@@ -37,6 +37,7 @@ describe('chat settings routes', () => {
       group_id: 123,
       group_name: 'Test Group',
       is_enabled: 0,
+      continuous_learning_enabled: 0,
       auto_reply_enabled: 1,
       transcript_compact_offset: 6,
       agent_prompt_id: 'prompt-123',
@@ -49,11 +50,13 @@ describe('chat settings routes', () => {
     expect(response.status).toBe(200);
     expect(database.upsertGroupChatSettings).toHaveBeenCalledWith(123, {
       is_enabled: 0,
-      auto_reply_enabled: 1,
+      continuous_learning_enabled: 0,
+      auto_reply_enabled: 0,
     });
     expect(response.body.data).toMatchObject({
       group_id: 123,
       is_enabled: 0,
+      continuous_learning_enabled: 0,
       auto_reply_enabled: 1,
     });
   });
@@ -66,6 +69,7 @@ describe('chat settings routes', () => {
         user_id: 456,
         username: 'tester',
         is_enabled: 1,
+        continuous_learning_enabled: 1,
         auto_reply_enabled: 0,
         transcript_compact_offset: 6,
         welcome_message: null,
@@ -77,6 +81,7 @@ describe('chat settings routes', () => {
         user_id: 456,
         username: 'tester',
         is_enabled: 1,
+        continuous_learning_enabled: 1,
         auto_reply_enabled: 0,
         transcript_compact_offset: 6,
         welcome_message: null,
@@ -98,6 +103,45 @@ describe('chat settings routes', () => {
       user_id: 456,
       is_enabled: 1,
       auto_reply_enabled: 0,
+    });
+  });
+
+  it('normalizes continuous learning updates to integer flags', async () => {
+    const database = createDatabaseMock();
+    database.upsertPrivateChatSettings.mockResolvedValue(true);
+    database.getPrivateChatSettingById
+      .mockResolvedValueOnce({
+        user_id: 456,
+        username: 'tester',
+        is_enabled: 1,
+        continuous_learning_enabled: 0,
+        auto_reply_enabled: 0,
+        transcript_compact_offset: 6,
+        welcome_message: null,
+        user_notes: null,
+        agent_prompt_id: 'prompt-456',
+        last_activity: null,
+      })
+      .mockResolvedValue({
+        user_id: 456,
+        username: 'tester',
+        is_enabled: 1,
+        continuous_learning_enabled: 1,
+        auto_reply_enabled: 0,
+        transcript_compact_offset: 6,
+        welcome_message: null,
+        user_notes: null,
+        agent_prompt_id: 'prompt-456',
+        last_activity: null,
+      });
+
+    const response = await request(createApp(database))
+      .put('/api/private-chats/456/settings')
+      .send({ continuous_learning_enabled: true });
+
+    expect(response.status).toBe(200);
+    expect(database.upsertPrivateChatSettings).toHaveBeenCalledWith(456, {
+      continuous_learning_enabled: 1,
     });
   });
 
@@ -227,6 +271,26 @@ describe('chat settings routes', () => {
     expect(database.upsertPrivateChatSettings).toHaveBeenCalledWith(456, {
       auto_reply_enabled: 1,
       agent_prompt_id: 'prompt-456',
+    });
+  });
+
+  it('clears child switches when receive is disabled', () => {
+    expect(normalizeChatSettingUpdates(
+      {
+        is_enabled: false,
+        continuous_learning_enabled: true,
+        auto_reply_enabled: true,
+      },
+      {
+        allowedFields: ['is_enabled', 'continuous_learning_enabled', 'auto_reply_enabled'],
+      }
+    )).toEqual({
+      sanitizedUpdates: {
+        is_enabled: 0,
+        continuous_learning_enabled: 0,
+        auto_reply_enabled: 0,
+      },
+      validationError: null,
     });
   });
 });

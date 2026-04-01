@@ -33,6 +33,16 @@ type CreateConversationInput = {
   traceId?: string | null;
 };
 
+type MaterializeInboundConversationInput = {
+  userId: number;
+  groupId?: number | null;
+  userMessage: string;
+  traceId?: string | null;
+  sourceMessageId?: number | null;
+  sourceMessageSid?: string | null;
+  rawRequest?: Record<string, unknown>;
+};
+
 export class ConversationStoreService {
   private readonly sql: SqlAdapter;
 
@@ -151,13 +161,21 @@ export class ConversationStoreService {
       }
     }
 
-    return rows.reverse().map((row) => ({
-      ...row,
-      raw_request: normalizeJson(row.raw_request),
-      raw_response: normalizeJson(row.raw_response),
-      source_message_ids: messageIdsByTrace.get(typeof row.trace_id === 'string' ? row.trace_id.trim() : '') || [],
-      source_message_sids: messageSidsByTrace.get(typeof row.trace_id === 'string' ? row.trace_id.trim() : '') || []
-    }));
+    return rows.reverse().map((row) => {
+      const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
+      const rawRequest = normalizeJson(row.raw_request);
+      const rawResponse = normalizeJson(row.raw_response);
+      const fallbackMessageIds = normalizeNumberArray(rawRequest.source_message_ids);
+      const fallbackMessageSids = normalizeStringArray(rawRequest.source_message_sids);
+
+      return {
+        ...row,
+        raw_request: rawRequest,
+        raw_response: rawResponse,
+        source_message_ids: messageIdsByTrace.get(traceId) || fallbackMessageIds,
+        source_message_sids: messageSidsByTrace.get(traceId) || fallbackMessageSids
+      };
+    });
   }
 
   async createConversation(input: CreateConversationInput): Promise<number> {
@@ -196,6 +214,25 @@ export class ConversationStoreService {
     return result.insertId;
   }
 
+  async materializeInboundConversation(input: MaterializeInboundConversationInput): Promise<number> {
+    return this.createConversation({
+      userId: input.userId,
+      groupId: input.groupId,
+      userMessage: input.userMessage,
+      aiResponse: null,
+      responseTimeMs: 0,
+      status: 'received',
+      traceId: input.traceId ?? null,
+      rawRequest: {
+        mode: 'continuous_learning',
+        source_message_ids: input.sourceMessageId ? [input.sourceMessageId] : [],
+        source_message_sids: input.sourceMessageSid ? [input.sourceMessageSid] : [],
+        ...(input.rawRequest || {})
+      },
+      rawResponse: {}
+    });
+  }
+
   async close() {
     await this.sql.close();
   }
@@ -212,6 +249,14 @@ export class ConversationStoreService {
   private async ensureChatSettingsColumns() {
     await this.sql.execute(
       `ALTER TABLE private_chat_settings
+       ADD COLUMN IF NOT EXISTS continuous_learning_enabled INTEGER NOT NULL DEFAULT 1`
+    );
+    await this.sql.execute(
+      `ALTER TABLE group_chat_settings
+       ADD COLUMN IF NOT EXISTS continuous_learning_enabled INTEGER NOT NULL DEFAULT 1`
+    );
+    await this.sql.execute(
+      `ALTER TABLE private_chat_settings
        ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`
     );
     await this.sql.execute(
@@ -219,6 +264,25 @@ export class ConversationStoreService {
        ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`
     );
   }
+}
+
+function normalizeNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(new Set(value
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item > 0)
+    .map((item) => Math.trunc(item))));
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(new Set(value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean)));
 }
 
 function normalizeJson(value: unknown): Record<string, unknown> {

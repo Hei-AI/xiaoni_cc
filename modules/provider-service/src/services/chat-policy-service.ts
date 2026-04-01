@@ -6,12 +6,14 @@ type MessageType = 'private' | 'group';
 
 type ChatPolicyRecord = {
   is_enabled: number | bigint | null;
+  continuous_learning_enabled: number | bigint | null;
   auto_reply_enabled: number | bigint | null;
 };
 
-type PolicyState = {
+export type PolicyState = {
   exists: boolean;
   isEnabled: boolean;
+  continuousLearningEnabled: boolean;
   autoReplyEnabled: boolean;
 };
 
@@ -23,6 +25,11 @@ type IncomingPolicyResult = PolicyState & {
 type AutoReplyPolicyResult = PolicyState & {
   allowed: boolean;
   reason: 'accepted' | 'auto_reply_disabled';
+};
+
+type ContinuousLearningPolicyResult = PolicyState & {
+  allowed: boolean;
+  reason: 'accepted' | 'continuous_learning_disabled';
 };
 
 export class ChatPolicyService {
@@ -58,6 +65,19 @@ export class ChatPolicyService {
     };
   }
 
+  async checkContinuousLearningPolicy(params: { messageType: MessageType; userId: number; groupId?: number }): Promise<ContinuousLearningPolicyResult> {
+    const state = await this.resolvePolicyState(params);
+    return {
+      ...state,
+      allowed: state.continuousLearningEnabled,
+      reason: state.continuousLearningEnabled ? 'accepted' : 'continuous_learning_disabled'
+    };
+  }
+
+  async getPolicyState(params: { messageType: MessageType; userId: number; groupId?: number }): Promise<PolicyState> {
+    return this.resolvePolicyState(params);
+  }
+
   async markIncomingActivity(params: { messageType: MessageType; userId: number; groupId?: number }): Promise<void> {
     try {
       if (params.messageType === 'group' && params.groupId) {
@@ -66,6 +86,7 @@ export class ChatPolicyService {
           create: {
             group_id: BigInt(params.groupId),
             is_enabled: 1,
+            continuous_learning_enabled: 1,
             auto_reply_enabled: 0,
             last_activity: new Date()
           },
@@ -81,6 +102,7 @@ export class ChatPolicyService {
         create: {
           user_id: BigInt(params.userId),
           is_enabled: 1,
+          continuous_learning_enabled: 1,
           auto_reply_enabled: 0,
           last_activity: new Date()
         },
@@ -105,14 +127,20 @@ export class ChatPolicyService {
       return {
         exists: false,
         isEnabled: true,
+        continuousLearningEnabled: true,
         autoReplyEnabled: false
       };
     }
 
+    const isEnabled = Boolean(row.is_enabled);
+    const continuousLearningEnabled = isEnabled && Boolean(row.continuous_learning_enabled);
+    const autoReplyEnabled = isEnabled && Boolean(row.auto_reply_enabled);
+
     return {
       exists: true,
-      isEnabled: Boolean(row.is_enabled),
-      autoReplyEnabled: Boolean(row.auto_reply_enabled)
+      isEnabled,
+      continuousLearningEnabled,
+      autoReplyEnabled
     };
   }
 
@@ -125,6 +153,7 @@ export class ChatPolicyService {
       where: { group_id: BigInt(groupId) },
       select: {
         is_enabled: true,
+        continuous_learning_enabled: true,
         auto_reply_enabled: true
       }
     });
@@ -137,6 +166,7 @@ export class ChatPolicyService {
       where: { user_id: BigInt(userId) },
       select: {
         is_enabled: true,
+        continuous_learning_enabled: true,
         auto_reply_enabled: true
       }
     });

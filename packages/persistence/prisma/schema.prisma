@@ -12,6 +12,7 @@ model GroupChatSetting {
   group_id           BigInt    @id @db.BigInt
   group_name         String?
   is_enabled         Int       @default(1)
+  continuous_learning_enabled Int @default(1)
   auto_reply_enabled Int       @default(0)
   transcript_compact_offset Int @default(6)
   welcome_message    String?
@@ -28,6 +29,7 @@ model PrivateChatSetting {
   user_id            BigInt    @id @db.BigInt
   username           String?
   is_enabled         Int       @default(1)
+  continuous_learning_enabled Int @default(1)
   auto_reply_enabled Int       @default(0)
   transcript_compact_offset Int @default(6)
   welcome_message    String?

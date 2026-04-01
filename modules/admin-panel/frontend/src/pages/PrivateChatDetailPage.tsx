@@ -15,6 +15,7 @@ import {
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { usePromptTemplates } from '../hooks/usePromptTemplates';
+import { applyChatSettingToggle, isChatSettingToggleDisabled, type ChatSettingsToggleField } from '@/lib/chat-settings';
 import { formatPromptBindingLabel } from '@/lib/contract-display';
 import { formatIsoOffset, formatTimestamp, getEast8StartOfDay } from '@/lib/utils';
 import { 
@@ -52,6 +53,7 @@ interface UserSettings {
   user_id: number;
   nickname: string;
   is_enabled: number;
+  continuous_learning_enabled: number;
   auto_reply_enabled: number;
   transcript_compact_offset: number;
   welcome_message: string | null;
@@ -252,13 +254,15 @@ export const PrivateChatDetailPage: React.FC = () => {
     }
   };
 
-  const handleQuickToggle = (field: 'is_enabled' | 'auto_reply_enabled') => {
+  const handleQuickToggle = (field: ChatSettingsToggleField) => {
     if (!conversationData?.data.user_settings) return;
     
     const currentValue = conversationData.data.user_settings[field];
-    updateSettingsMutation.mutate({
-      [field]: !currentValue
-    });
+    updateSettingsMutation.mutate(applyChatSettingToggle(
+      conversationData.data.user_settings,
+      field,
+      !currentValue
+    ));
   };
 
   const handleOffsetSave = () => {
@@ -346,12 +350,25 @@ export const PrivateChatDetailPage: React.FC = () => {
               </div>
               <div>
                 <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">持续学习:</span>
+                  <Button
+                    size="sm"
+                    variant={conversationData.data.user_settings.continuous_learning_enabled ? "default" : "outline"}
+                    onClick={() => handleQuickToggle('continuous_learning_enabled')}
+                    disabled={updateSettingsMutation.isPending || isChatSettingToggleDisabled(conversationData.data.user_settings, 'continuous_learning_enabled')}
+                  >
+                    {conversationData.data.user_settings.continuous_learning_enabled ? '开启' : '关闭'}
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">自动回复:</span>
                   <Button
                     size="sm"
                     variant={conversationData.data.user_settings.auto_reply_enabled ? "default" : "outline"}
                     onClick={() => handleQuickToggle('auto_reply_enabled')}
-                    disabled={updateSettingsMutation.isPending}
+                    disabled={updateSettingsMutation.isPending || isChatSettingToggleDisabled(conversationData.data.user_settings, 'auto_reply_enabled')}
                   >
                     {conversationData.data.user_settings.auto_reply_enabled ? '开启' : '关闭'}
                   </Button>

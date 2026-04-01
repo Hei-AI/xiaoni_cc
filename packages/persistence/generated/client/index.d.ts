@@ -1695,6 +1695,7 @@ export namespace Prisma {
   export type GroupChatSettingAvgAggregateOutputType = {
     group_id: number | null
     is_enabled: number | null
+    continuous_learning_enabled: number | null
     auto_reply_enabled: number | null
     transcript_compact_offset: number | null
     admin_user_id: number | null
@@ -1703,6 +1704,7 @@ export namespace Prisma {
   export type GroupChatSettingSumAggregateOutputType = {
     group_id: bigint | null
     is_enabled: number | null
+    continuous_learning_enabled: number | null
     auto_reply_enabled: number | null
     transcript_compact_offset: number | null
     admin_user_id: bigint | null
@@ -1712,6 +1714,7 @@ export namespace Prisma {
     group_id: bigint | null
     group_name: string | null
     is_enabled: number | null
+    continuous_learning_enabled: number | null
     auto_reply_enabled: number | null
     transcript_compact_offset: number | null
     welcome_message: string | null
@@ -1726,6 +1729,7 @@ export namespace Prisma {
     group_id: bigint | null
     group_name: string | null
     is_enabled: number | null
+    continuous_learning_enabled: number | null
     auto_reply_enabled: number | null
     transcript_compact_offset: number | null
     welcome_message: string | null
@@ -1740,6 +1744,7 @@ export namespace Prisma {
     group_id: number
     group_name: number
     is_enabled: number
+    continuous_learning_enabled: number
     auto_reply_enabled: number
     transcript_compact_offset: number
     welcome_message: number
@@ -1755,6 +1760,7 @@ export namespace Prisma {
   export type GroupChatSettingAvgAggregateInputType = {
     group_id?: true
     is_enabled?: true
+    continuous_learning_enabled?: true
     auto_reply_enabled?: true
     transcript_compact_offset?: true
     admin_user_id?: true
@@ -1763,6 +1769,7 @@ export namespace Prisma {
   export type GroupChatSettingSumAggregateInputType = {
     group_id?: true
     is_enabled?: true
+    continuous_learning_enabled?: true
     auto_reply_enabled?: true
     transcript_compact_offset?: true
     admin_user_id?: true
@@ -1772,6 +1779,7 @@ export namespace Prisma {
     group_id?: true
     group_name?: true
     is_enabled?: true
+    continuous_learning_enabled?: true
     auto_reply_enabled?: true
     transcript_compact_offset?: true
     welcome_message?: true
@@ -1786,6 +1794,7 @@ export namespace Prisma {
     group_id?: true
     group_name?: true
     is_enabled?: true
+    continuous_learning_enabled?: true
     auto_reply_enabled?: true
     transcript_compact_offset?: true
     welcome_message?: true
@@ -1800,6 +1809,7 @@ export namespace Prisma {
     group_id?: true
     group_name?: true
     is_enabled?: true
+    continuous_learning_enabled?: true
     auto_reply_enabled?: true
     transcript_compact_offset?: true
     welcome_message?: true
@@ -1901,6 +1911,7 @@ export namespace Prisma {
     group_id: bigint
     group_name: string | null
     is_enabled: number
+    continuous_learning_enabled: number
     auto_reply_enabled: number
     transcript_compact_offset: number
     welcome_message: string | null
@@ -1934,6 +1945,7 @@ export namespace Prisma {
     group_id?: boolean
     group_name?: boolean
     is_enabled?: boolean
+    continuous_learning_enabled?: boolean
     auto_reply_enabled?: boolean
     transcript_compact_offset?: boolean
     welcome_message?: boolean
@@ -1948,6 +1960,7 @@ export namespace Prisma {
     group_id?: boolean
     group_name?: boolean
     is_enabled?: boolean
+    continuous_learning_enabled?: boolean
     auto_reply_enabled?: boolean
     transcript_compact_offset?: boolean
     welcome_message?: boolean
@@ -1962,6 +1975,7 @@ export namespace Prisma {
     group_id?: boolean
     group_name?: boolean
     is_enabled?: boolean
+    continuous_learning_enabled?: boolean
     auto_reply_enabled?: boolean
     transcript_compact_offset?: boolean
     welcome_message?: boolean
@@ -1976,6 +1990,7 @@ export namespace Prisma {
     group_id?: boolean
     group_name?: boolean
     is_enabled?: boolean
+    continuous_learning_enabled?: boolean
     auto_reply_enabled?: boolean
     transcript_compact_offset?: boolean
     welcome_message?: boolean
@@ -1986,7 +2001,7 @@ export namespace Prisma {
     updated_at?: boolean
   }
 
-  export type GroupChatSettingOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"group_id" | "group_name" | "is_enabled" | "auto_reply_enabled" | "transcript_compact_offset" | "welcome_message" | "admin_user_id" | "agent_prompt_id" | "last_activity" | "created_at" | "updated_at", ExtArgs["result"]["groupChatSetting"]>
+  export type GroupChatSettingOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"group_id" | "group_name" | "is_enabled" | "continuous_learning_enabled" | "auto_reply_enabled" | "transcript_compact_offset" | "welcome_message" | "admin_user_id" | "agent_prompt_id" | "last_activity" | "created_at" | "updated_at", ExtArgs["result"]["groupChatSetting"]>
 
   export type $GroupChatSettingPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "GroupChatSetting"
@@ -1995,6 +2010,7 @@ export namespace Prisma {
       group_id: bigint
       group_name: string | null
       is_enabled: number
+      continuous_learning_enabled: number
       auto_reply_enabled: number
       transcript_compact_offset: number
       welcome_message: string | null
@@ -2429,6 +2445,7 @@ export namespace Prisma {
     readonly group_id: FieldRef<"GroupChatSetting", 'BigInt'>
     readonly group_name: FieldRef<"GroupChatSetting", 'String'>
     readonly is_enabled: FieldRef<"GroupChatSetting", 'Int'>
+    readonly continuous_learning_enabled: FieldRef<"GroupChatSetting", 'Int'>
     readonly auto_reply_enabled: FieldRef<"GroupChatSetting", 'Int'>
     readonly transcript_compact_offset: FieldRef<"GroupChatSetting", 'Int'>
     readonly welcome_message: FieldRef<"GroupChatSetting", 'String'>
@@ -2818,6 +2835,7 @@ export namespace Prisma {
   export type PrivateChatSettingAvgAggregateOutputType = {
     user_id: number | null
     is_enabled: number | null
+    continuous_learning_enabled: number | null
     auto_reply_enabled: number | null
     transcript_compact_offset: number | null
   }
@@ -2825,6 +2843,7 @@ export namespace Prisma {
   export type PrivateChatSettingSumAggregateOutputType = {
     user_id: bigint | null
     is_enabled: number | null
+    continuous_learning_enabled: number | null
     auto_reply_enabled: number | null
     transcript_compact_offset: number | null
   }
@@ -2833,6 +2852,7 @@ export namespace Prisma {
     user_id: bigint | null
     username: string | null
     is_enabled: number | null
+    continuous_learning_enabled: number | null
     auto_reply_enabled: number | null
     transcript_compact_offset: number | null
     welcome_message: string | null
@@ -2847,6 +2867,7 @@ export namespace Prisma {
     user_id: bigint | null
     username: string | null
     is_enabled: number | null
+    continuous_learning_enabled: number | null
     auto_reply_enabled: number | null
     transcript_compact_offset: number | null
     welcome_message: string | null
@@ -2861,6 +2882,7 @@ export namespace Prisma {
     user_id: number
     username: number
     is_enabled: number
+    continuous_learning_enabled: number
     auto_reply_enabled: number
     transcript_compact_offset: number
     welcome_message: number
@@ -2876,6 +2898,7 @@ export namespace Prisma {
   export type PrivateChatSettingAvgAggregateInputType = {
     user_id?: true
     is_enabled?: true
+    continuous_learning_enabled?: true
     auto_reply_enabled?: true
     transcript_compact_offset?: true
   }
@@ -2883,6 +2906,7 @@ export namespace Prisma {
   export type PrivateChatSettingSumAggregateInputType = {
     user_id?: true
     is_enabled?: true
+    continuous_learning_enabled?: true
     auto_reply_enabled?: true
     transcript_compact_offset?: true
   }
@@ -2891,6 +2915,7 @@ export namespace Prisma {
     user_id?: true
     username?: true
     is_enabled?: true
+    continuous_learning_enabled?: true
     auto_reply_enabled?: true
     transcript_compact_offset?: true
     welcome_message?: true
@@ -2905,6 +2930,7 @@ export namespace Prisma {
     user_id?: true
     username?: true
     is_enabled?: true
+    continuous_learning_enabled?: true
     auto_reply_enabled?: true
     transcript_compact_offset?: true
     welcome_message?: true
@@ -2919,6 +2945,7 @@ export namespace Prisma {
     user_id?: true
     username?: true
     is_enabled?: true
+    continuous_learning_enabled?: true
     auto_reply_enabled?: true
     transcript_compact_offset?: true
     welcome_message?: true
@@ -3020,6 +3047,7 @@ export namespace Prisma {
     user_id: bigint
     username: string | null
     is_enabled: number
+    continuous_learning_enabled: number
     auto_reply_enabled: number
     transcript_compact_offset: number
     welcome_message: string | null
@@ -3053,6 +3081,7 @@ export namespace Prisma {
     user_id?: boolean
     username?: boolean
     is_enabled?: boolean
+    continuous_learning_enabled?: boolean
     auto_reply_enabled?: boolean
     transcript_compact_offset?: boolean
     welcome_message?: boolean
@@ -3067,6 +3096,7 @@ export namespace Prisma {
     user_id?: boolean
     username?: boolean
     is_enabled?: boolean
+    continuous_learning_enabled?: boolean
     auto_reply_enabled?: boolean
     transcript_compact_offset?: boolean
     welcome_message?: boolean
@@ -3081,6 +3111,7 @@ export namespace Prisma {
     user_id?: boolean
     username?: boolean
     is_enabled?: boolean
+    continuous_learning_enabled?: boolean
     auto_reply_enabled?: boolean
     transcript_compact_offset?: boolean
     welcome_message?: boolean
@@ -3095,6 +3126,7 @@ export namespace Prisma {
     user_id?: boolean
     username?: boolean
     is_enabled?: boolean
+    continuous_learning_enabled?: boolean
     auto_reply_enabled?: boolean
     transcript_compact_offset?: boolean
     welcome_message?: boolean
@@ -3105,7 +3137,7 @@ export namespace Prisma {
     updated_at?: boolean
   }
 
-  export type PrivateChatSettingOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"user_id" | "username" | "is_enabled" | "auto_reply_enabled" | "transcript_compact_offset" | "welcome_message" | "user_notes" | "agent_prompt_id" | "last_activity" | "created_at" | "updated_at", ExtArgs["result"]["privateChatSetting"]>
+  export type PrivateChatSettingOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"user_id" | "username" | "is_enabled" | "continuous_learning_enabled" | "auto_reply_enabled" | "transcript_compact_offset" | "welcome_message" | "user_notes" | "agent_prompt_id" | "last_activity" | "created_at" | "updated_at", ExtArgs["result"]["privateChatSetting"]>
 
   export type $PrivateChatSettingPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "PrivateChatSetting"
@@ -3114,6 +3146,7 @@ export namespace Prisma {
       user_id: bigint
       username: string | null
       is_enabled: number
+      continuous_learning_enabled: number
       auto_reply_enabled: number
       transcript_compact_offset: number
       welcome_message: string | null
@@ -3548,6 +3581,7 @@ export namespace Prisma {
     readonly user_id: FieldRef<"PrivateChatSetting", 'BigInt'>
     readonly username: FieldRef<"PrivateChatSetting", 'String'>
     readonly is_enabled: FieldRef<"PrivateChatSetting", 'Int'>
+    readonly continuous_learning_enabled: FieldRef<"PrivateChatSetting", 'Int'>
     readonly auto_reply_enabled: FieldRef<"PrivateChatSetting", 'Int'>
     readonly transcript_compact_offset: FieldRef<"PrivateChatSetting", 'Int'>
     readonly welcome_message: FieldRef<"PrivateChatSetting", 'String'>
@@ -13883,6 +13917,7 @@ export namespace Prisma {
     group_id: 'group_id',
     group_name: 'group_name',
     is_enabled: 'is_enabled',
+    continuous_learning_enabled: 'continuous_learning_enabled',
     auto_reply_enabled: 'auto_reply_enabled',
     transcript_compact_offset: 'transcript_compact_offset',
     welcome_message: 'welcome_message',
@@ -13900,6 +13935,7 @@ export namespace Prisma {
     user_id: 'user_id',
     username: 'username',
     is_enabled: 'is_enabled',
+    continuous_learning_enabled: 'continuous_learning_enabled',
     auto_reply_enabled: 'auto_reply_enabled',
     transcript_compact_offset: 'transcript_compact_offset',
     welcome_message: 'welcome_message',
@@ -14282,6 +14318,7 @@ export namespace Prisma {
     group_id?: BigIntFilter<"GroupChatSetting"> | bigint | number
     group_name?: StringNullableFilter<"GroupChatSetting"> | string | null
     is_enabled?: IntFilter<"GroupChatSetting"> | number
+    continuous_learning_enabled?: IntFilter<"GroupChatSetting"> | number
     auto_reply_enabled?: IntFilter<"GroupChatSetting"> | number
     transcript_compact_offset?: IntFilter<"GroupChatSetting"> | number
     welcome_message?: StringNullableFilter<"GroupChatSetting"> | string | null
@@ -14296,6 +14333,7 @@ export namespace Prisma {
     group_id?: SortOrder
     group_name?: SortOrderInput | SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
     welcome_message?: SortOrderInput | SortOrder
@@ -14313,6 +14351,7 @@ export namespace Prisma {
     NOT?: GroupChatSettingWhereInput | GroupChatSettingWhereInput[]
     group_name?: StringNullableFilter<"GroupChatSetting"> | string | null
     is_enabled?: IntFilter<"GroupChatSetting"> | number
+    continuous_learning_enabled?: IntFilter<"GroupChatSetting"> | number
     auto_reply_enabled?: IntFilter<"GroupChatSetting"> | number
     transcript_compact_offset?: IntFilter<"GroupChatSetting"> | number
     welcome_message?: StringNullableFilter<"GroupChatSetting"> | string | null
@@ -14327,6 +14366,7 @@ export namespace Prisma {
     group_id?: SortOrder
     group_name?: SortOrderInput | SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
     welcome_message?: SortOrderInput | SortOrder
@@ -14349,6 +14389,7 @@ export namespace Prisma {
     group_id?: BigIntWithAggregatesFilter<"GroupChatSetting"> | bigint | number
     group_name?: StringNullableWithAggregatesFilter<"GroupChatSetting"> | string | null
     is_enabled?: IntWithAggregatesFilter<"GroupChatSetting"> | number
+    continuous_learning_enabled?: IntWithAggregatesFilter<"GroupChatSetting"> | number
     auto_reply_enabled?: IntWithAggregatesFilter<"GroupChatSetting"> | number
     transcript_compact_offset?: IntWithAggregatesFilter<"GroupChatSetting"> | number
     welcome_message?: StringNullableWithAggregatesFilter<"GroupChatSetting"> | string | null
@@ -14366,6 +14407,7 @@ export namespace Prisma {
     user_id?: BigIntFilter<"PrivateChatSetting"> | bigint | number
     username?: StringNullableFilter<"PrivateChatSetting"> | string | null
     is_enabled?: IntFilter<"PrivateChatSetting"> | number
+    continuous_learning_enabled?: IntFilter<"PrivateChatSetting"> | number
     auto_reply_enabled?: IntFilter<"PrivateChatSetting"> | number
     transcript_compact_offset?: IntFilter<"PrivateChatSetting"> | number
     welcome_message?: StringNullableFilter<"PrivateChatSetting"> | string | null
@@ -14380,6 +14422,7 @@ export namespace Prisma {
     user_id?: SortOrder
     username?: SortOrderInput | SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
     welcome_message?: SortOrderInput | SortOrder
@@ -14397,6 +14440,7 @@ export namespace Prisma {
     NOT?: PrivateChatSettingWhereInput | PrivateChatSettingWhereInput[]
     username?: StringNullableFilter<"PrivateChatSetting"> | string | null
     is_enabled?: IntFilter<"PrivateChatSetting"> | number
+    continuous_learning_enabled?: IntFilter<"PrivateChatSetting"> | number
     auto_reply_enabled?: IntFilter<"PrivateChatSetting"> | number
     transcript_compact_offset?: IntFilter<"PrivateChatSetting"> | number
     welcome_message?: StringNullableFilter<"PrivateChatSetting"> | string | null
@@ -14411,6 +14455,7 @@ export namespace Prisma {
     user_id?: SortOrder
     username?: SortOrderInput | SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
     welcome_message?: SortOrderInput | SortOrder
@@ -14433,6 +14478,7 @@ export namespace Prisma {
     user_id?: BigIntWithAggregatesFilter<"PrivateChatSetting"> | bigint | number
     username?: StringNullableWithAggregatesFilter<"PrivateChatSetting"> | string | null
     is_enabled?: IntWithAggregatesFilter<"PrivateChatSetting"> | number
+    continuous_learning_enabled?: IntWithAggregatesFilter<"PrivateChatSetting"> | number
     auto_reply_enabled?: IntWithAggregatesFilter<"PrivateChatSetting"> | number
     transcript_compact_offset?: IntWithAggregatesFilter<"PrivateChatSetting"> | number
     welcome_message?: StringNullableWithAggregatesFilter<"PrivateChatSetting"> | string | null
@@ -15514,6 +15560,7 @@ export namespace Prisma {
     group_id: bigint | number
     group_name?: string | null
     is_enabled?: number
+    continuous_learning_enabled?: number
     auto_reply_enabled?: number
     transcript_compact_offset?: number
     welcome_message?: string | null
@@ -15528,6 +15575,7 @@ export namespace Prisma {
     group_id: bigint | number
     group_name?: string | null
     is_enabled?: number
+    continuous_learning_enabled?: number
     auto_reply_enabled?: number
     transcript_compact_offset?: number
     welcome_message?: string | null
@@ -15542,6 +15590,7 @@ export namespace Prisma {
     group_id?: BigIntFieldUpdateOperationsInput | bigint | number
     group_name?: NullableStringFieldUpdateOperationsInput | string | null
     is_enabled?: IntFieldUpdateOperationsInput | number
+    continuous_learning_enabled?: IntFieldUpdateOperationsInput | number
     auto_reply_enabled?: IntFieldUpdateOperationsInput | number
     transcript_compact_offset?: IntFieldUpdateOperationsInput | number
     welcome_message?: NullableStringFieldUpdateOperationsInput | string | null
@@ -15556,6 +15605,7 @@ export namespace Prisma {
     group_id?: BigIntFieldUpdateOperationsInput | bigint | number
     group_name?: NullableStringFieldUpdateOperationsInput | string | null
     is_enabled?: IntFieldUpdateOperationsInput | number
+    continuous_learning_enabled?: IntFieldUpdateOperationsInput | number
     auto_reply_enabled?: IntFieldUpdateOperationsInput | number
     transcript_compact_offset?: IntFieldUpdateOperationsInput | number
     welcome_message?: NullableStringFieldUpdateOperationsInput | string | null
@@ -15570,6 +15620,7 @@ export namespace Prisma {
     group_id: bigint | number
     group_name?: string | null
     is_enabled?: number
+    continuous_learning_enabled?: number
     auto_reply_enabled?: number
     transcript_compact_offset?: number
     welcome_message?: string | null
@@ -15584,6 +15635,7 @@ export namespace Prisma {
     group_id?: BigIntFieldUpdateOperationsInput | bigint | number
     group_name?: NullableStringFieldUpdateOperationsInput | string | null
     is_enabled?: IntFieldUpdateOperationsInput | number
+    continuous_learning_enabled?: IntFieldUpdateOperationsInput | number
     auto_reply_enabled?: IntFieldUpdateOperationsInput | number
     transcript_compact_offset?: IntFieldUpdateOperationsInput | number
     welcome_message?: NullableStringFieldUpdateOperationsInput | string | null
@@ -15598,6 +15650,7 @@ export namespace Prisma {
     group_id?: BigIntFieldUpdateOperationsInput | bigint | number
     group_name?: NullableStringFieldUpdateOperationsInput | string | null
     is_enabled?: IntFieldUpdateOperationsInput | number
+    continuous_learning_enabled?: IntFieldUpdateOperationsInput | number
     auto_reply_enabled?: IntFieldUpdateOperationsInput | number
     transcript_compact_offset?: IntFieldUpdateOperationsInput | number
     welcome_message?: NullableStringFieldUpdateOperationsInput | string | null
@@ -15612,6 +15665,7 @@ export namespace Prisma {
     user_id: bigint | number
     username?: string | null
     is_enabled?: number
+    continuous_learning_enabled?: number
     auto_reply_enabled?: number
     transcript_compact_offset?: number
     welcome_message?: string | null
@@ -15626,6 +15680,7 @@ export namespace Prisma {
     user_id: bigint | number
     username?: string | null
     is_enabled?: number
+    continuous_learning_enabled?: number
     auto_reply_enabled?: number
     transcript_compact_offset?: number
     welcome_message?: string | null
@@ -15640,6 +15695,7 @@ export namespace Prisma {
     user_id?: BigIntFieldUpdateOperationsInput | bigint | number
     username?: NullableStringFieldUpdateOperationsInput | string | null
     is_enabled?: IntFieldUpdateOperationsInput | number
+    continuous_learning_enabled?: IntFieldUpdateOperationsInput | number
     auto_reply_enabled?: IntFieldUpdateOperationsInput | number
     transcript_compact_offset?: IntFieldUpdateOperationsInput | number
     welcome_message?: NullableStringFieldUpdateOperationsInput | string | null
@@ -15654,6 +15710,7 @@ export namespace Prisma {
     user_id?: BigIntFieldUpdateOperationsInput | bigint | number
     username?: NullableStringFieldUpdateOperationsInput | string | null
     is_enabled?: IntFieldUpdateOperationsInput | number
+    continuous_learning_enabled?: IntFieldUpdateOperationsInput | number
     auto_reply_enabled?: IntFieldUpdateOperationsInput | number
     transcript_compact_offset?: IntFieldUpdateOperationsInput | number
     welcome_message?: NullableStringFieldUpdateOperationsInput | string | null
@@ -15668,6 +15725,7 @@ export namespace Prisma {
     user_id: bigint | number
     username?: string | null
     is_enabled?: number
+    continuous_learning_enabled?: number
     auto_reply_enabled?: number
     transcript_compact_offset?: number
     welcome_message?: string | null
@@ -15682,6 +15740,7 @@ export namespace Prisma {
     user_id?: BigIntFieldUpdateOperationsInput | bigint | number
     username?: NullableStringFieldUpdateOperationsInput | string | null
     is_enabled?: IntFieldUpdateOperationsInput | number
+    continuous_learning_enabled?: IntFieldUpdateOperationsInput | number
     auto_reply_enabled?: IntFieldUpdateOperationsInput | number
     transcript_compact_offset?: IntFieldUpdateOperationsInput | number
     welcome_message?: NullableStringFieldUpdateOperationsInput | string | null
@@ -15696,6 +15755,7 @@ export namespace Prisma {
     user_id?: BigIntFieldUpdateOperationsInput | bigint | number
     username?: NullableStringFieldUpdateOperationsInput | string | null
     is_enabled?: IntFieldUpdateOperationsInput | number
+    continuous_learning_enabled?: IntFieldUpdateOperationsInput | number
     auto_reply_enabled?: IntFieldUpdateOperationsInput | number
     transcript_compact_offset?: IntFieldUpdateOperationsInput | number
     welcome_message?: NullableStringFieldUpdateOperationsInput | string | null
@@ -17122,6 +17182,7 @@ export namespace Prisma {
     group_id?: SortOrder
     group_name?: SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
     welcome_message?: SortOrder
@@ -17135,6 +17196,7 @@ export namespace Prisma {
   export type GroupChatSettingAvgOrderByAggregateInput = {
     group_id?: SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
     admin_user_id?: SortOrder
@@ -17144,6 +17206,7 @@ export namespace Prisma {
     group_id?: SortOrder
     group_name?: SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
     welcome_message?: SortOrder
@@ -17158,6 +17221,7 @@ export namespace Prisma {
     group_id?: SortOrder
     group_name?: SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
     welcome_message?: SortOrder
@@ -17171,6 +17235,7 @@ export namespace Prisma {
   export type GroupChatSettingSumOrderByAggregateInput = {
     group_id?: SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
     admin_user_id?: SortOrder
@@ -17274,6 +17339,7 @@ export namespace Prisma {
     user_id?: SortOrder
     username?: SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
     welcome_message?: SortOrder
@@ -17287,6 +17353,7 @@ export namespace Prisma {
   export type PrivateChatSettingAvgOrderByAggregateInput = {
     user_id?: SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
   }
@@ -17295,6 +17362,7 @@ export namespace Prisma {
     user_id?: SortOrder
     username?: SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
     welcome_message?: SortOrder
@@ -17309,6 +17377,7 @@ export namespace Prisma {
     user_id?: SortOrder
     username?: SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
     welcome_message?: SortOrder
@@ -17322,6 +17391,7 @@ export namespace Prisma {
   export type PrivateChatSettingSumOrderByAggregateInput = {
     user_id?: SortOrder
     is_enabled?: SortOrder
+    continuous_learning_enabled?: SortOrder
     auto_reply_enabled?: SortOrder
     transcript_compact_offset?: SortOrder
   }
