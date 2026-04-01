@@ -103,6 +103,19 @@ function truncateText(value: unknown, maxLength: number) {
   return `${trimmed.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
+function stripNonSemanticPlaceholders(value: unknown) {
+  return (typeof value === 'string' ? value : '')
+    .replace(/\[(?:Image|Video|Audio|Voice|Sticker|Emoji|File(?::[^\]]*)?)\]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isSemanticLedgerEvent(event: LedgerEventRecord) {
+  const excerpt = stripNonSemanticPlaceholders(event.source_excerpt);
+  const keyword = stripNonSemanticPlaceholders((event.metadata as Record<string, unknown> | null | undefined)?.keyword);
+  return Boolean(excerpt || keyword);
+}
+
 function normalizeNumericArray(value: unknown): number[] {
   if (!Array.isArray(value)) {
     return [];
@@ -289,10 +302,14 @@ export class RelationshipMemoryExecutorService {
   }
 
   async execute(payload: RelationshipMemoryExecutionPayload): Promise<ExecutionResult> {
+    const filteredPayload: RelationshipMemoryExecutionPayload = {
+      ...payload,
+      ledger_events: payload.ledger_events.filter((event) => isSemanticLedgerEvent(event))
+    };
     const providerId = resolveProviderId(null, this.modelName);
     const provider = this.llmProviderFactory(providerId);
     const config = buildRelationshipMemoryConfig(this.modelName, providerId);
-    const requestPayload = buildPromptPayload(payload);
+    const requestPayload = buildPromptPayload(filteredPayload);
     const instructions = [
       '你是群聊关系记忆整理器。你的任务是把最近群聊和结构化 ledger 事件整理成可追溯的关系卡片。',
       '必须严格依据输入，不要编造不存在的关系、梗、情绪或结论。',
@@ -327,13 +344,13 @@ export class RelationshipMemoryExecutorService {
       providerConfig: config,
       request,
       context: {
-        sessionId: payload.session_key,
+        sessionId: filteredPayload.session_key,
         agentType: 'relationship_memory_executor',
         promptName: 'relationship_memory_executor'
       }
     });
 
-    const cards = this.parseCards(result.text, payload);
+    const cards = this.parseCards(result.text, filteredPayload);
     return {
       modelName: result.modelName,
       cards,

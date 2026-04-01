@@ -150,3 +150,58 @@ test('execute delegates to llm provider and validates JSON response', async () =
   assert.equal(result.cards[0]?.target_user_id, 20002);
   assert.match(String(calls[0]?.request?.instructions), /只输出 JSON/);
 });
+
+test('execute filters placeholder-only ledger events before prompting the model', async () => {
+  const calls: any[] = [];
+  const service = new RelationshipMemoryExecutorService({
+    llmProviderFactory: () => ({
+      id: 'google-gemini-cli',
+      generateText: async () => {
+        throw new Error('not used');
+      },
+      generateContent: async (input: any) => {
+        calls.push(input);
+        return {
+          provider: 'google-gemini-cli',
+          modelName: 'gemini-2.5-flash',
+          text: JSON.stringify({ group_cards: [], person_cards: [] }),
+          response: {} as any,
+          rawResponse: {},
+          canonicalRequest: input.request,
+          wireRequest: {},
+          canonicalResponse: {} as any,
+          wireResponse: {},
+          requestFormatVersion: 'test',
+          wireProviderFormat: 'test',
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 2,
+            processingTimeMs: 1
+          }
+        };
+      }
+    }) as any
+  });
+
+  const payload = buildPayload() as any;
+  payload.ledger_events = [
+    {
+      id: 600,
+      group_id: 100,
+      target_user_id: 20002,
+      event_type: 'topic_reactivated',
+      source_message_ids: [1001],
+      source_excerpt: '旧话题关键词延续: [Image]',
+      metadata: { keyword: '[Image]' },
+      created_at: '2026-03-31T10:02:00.000Z'
+    },
+    ...payload.ledger_events
+  ];
+
+  await service.execute(payload);
+
+  const content = String(calls[0]?.request?.input?.[0]?.content || '');
+  assert.match(content, /奶茶圣经/);
+  assert.doesNotMatch(content, /\[Image\]/);
+});
