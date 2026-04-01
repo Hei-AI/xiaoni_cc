@@ -132,3 +132,45 @@ test('records shared_joke_formed when same sender repeats a distinctive phrase',
   assert.equal(created.some((item) => item.eventType === 'shared_joke_formed'), true);
   assert.deepEqual(created[0]?.sourceMessageIds, [92, 104]);
 });
+
+test('does not treat media placeholders as topic overlap or shared joke keywords', async () => {
+  const created: any[] = [];
+  const recentMessages: RecentLedgerInboundMessage[] = [
+    {
+      messageId: 93,
+      messageSid: 'prev_3',
+      senderId: '30001',
+      senderName: 'bob',
+      bodyForAgent: '[Image]',
+      wasMentioned: false,
+      receivedAtMs: Date.now() - 5000
+    },
+    {
+      messageId: 94,
+      messageSid: 'prev_4',
+      senderId: '20001',
+      senderName: 'alice',
+      bodyForAgent: '[File: notes.txt]',
+      wasMentioned: false,
+      receivedAtMs: Date.now() - 3000
+    }
+  ];
+  const service = new RelationshipLedgerService({
+    appendEvent: async (input: any) => {
+      created.push(input);
+      return input;
+    },
+    recentMessageProvider: async () => recentMessages
+  });
+
+  const result = await service.recordFromInboundContext(buildContext({
+    MessageSid: 'msg_5',
+    SenderId: '20001',
+    BodyForAgent: '[Image]'
+  }), {
+    currentMessageId: 105
+  });
+
+  assert.deepEqual(result.created, []);
+  assert.deepEqual(created, []);
+});

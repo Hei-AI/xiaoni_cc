@@ -30,8 +30,14 @@ function normalizeText(value: string | undefined | null) {
   return (value || '').trim().replace(/\s+/g, ' ');
 }
 
+function stripNonSemanticPlaceholders(value: string | undefined | null) {
+  return normalizeText(value)
+    .replace(/\[(?:Image|Video|Audio|Voice|Sticker|Emoji|File(?::[^\]]*)?)\]/gi, ' ')
+    .trim();
+}
+
 function extractKeywordCandidates(text: string) {
-  const normalized = normalizeText(text);
+  const normalized = stripNonSemanticPlaceholders(text);
   if (!normalized) {
     return [];
   }
@@ -51,8 +57,8 @@ function hasSharedKeywordOverlap(left: string, right: string) {
 }
 
 function sharedBigramOverlap(left: string, right: string) {
-  const normalizedLeft = normalizeText(left);
-  const normalizedRight = normalizeText(right);
+  const normalizedLeft = stripNonSemanticPlaceholders(left);
+  const normalizedRight = stripNonSemanticPlaceholders(right);
   if (normalizedLeft.length < 2 || normalizedRight.length < 2) {
     return null;
   }
@@ -73,8 +79,8 @@ function sharedBigramOverlap(left: string, right: string) {
 }
 
 function containsQuotedCallback(current: string, previous: string) {
-  const normalizedCurrent = normalizeText(current);
-  const normalizedPrevious = normalizeText(previous);
+  const normalizedCurrent = stripNonSemanticPlaceholders(current);
+  const normalizedPrevious = stripNonSemanticPlaceholders(previous);
   if (!normalizedCurrent || !normalizedPrevious) {
     return false;
   }
