@@ -217,6 +217,22 @@ exports.Prisma.HttpTrafficLogScalarFieldEnum = {
   created_at: 'created_at'
 };
 
+exports.Prisma.ConversationItemScalarFieldEnum = {
+  id: 'id',
+  conversation_id: 'conversation_id',
+  session_key: 'session_key',
+  role: 'role',
+  phase: 'phase',
+  content: 'content',
+  group_index: 'group_index',
+  item_index: 'item_index',
+  source: 'source',
+  delivery_message_id: 'delivery_message_id',
+  run_id: 'run_id',
+  trace_id: 'trace_id',
+  created_at: 'created_at'
+};
+
 exports.Prisma.TrafficReplayHistoryScalarFieldEnum = {
   id: 'id',
   original_log_id: 'original_log_id',
@@ -252,6 +268,76 @@ exports.Prisma.TrafficReplayHistoryScalarFieldEnum = {
   body_size_diff: 'body_size_diff',
   success: 'success',
   template_id: 'template_id'
+};
+
+exports.Prisma.RelationshipLedgerEventScalarFieldEnum = {
+  id: 'id',
+  group_id: 'group_id',
+  target_user_id: 'target_user_id',
+  session_key: 'session_key',
+  event_type: 'event_type',
+  event_weight: 'event_weight',
+  confidence: 'confidence',
+  source_message_ids: 'source_message_ids',
+  source_excerpt: 'source_excerpt',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  last_reinforced_at: 'last_reinforced_at'
+};
+
+exports.Prisma.RelationshipMemoryJobScalarFieldEnum = {
+  id: 'id',
+  group_id: 'group_id',
+  session_key: 'session_key',
+  status: 'status',
+  trigger_reason: 'trigger_reason',
+  turn_range_start: 'turn_range_start',
+  turn_range_end: 'turn_range_end',
+  ledger_event_count: 'ledger_event_count',
+  input_message_ids: 'input_message_ids',
+  output_card_version: 'output_card_version',
+  error_message: 'error_message',
+  metadata: 'metadata',
+  started_at: 'started_at',
+  finished_at: 'finished_at',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.RelationshipMemoryCardScalarFieldEnum = {
+  id: 'id',
+  card_type: 'card_type',
+  group_id: 'group_id',
+  target_user_id: 'target_user_id',
+  version: 'version',
+  is_active: 'is_active',
+  summary_text: 'summary_text',
+  actors: 'actors',
+  context_before: 'context_before',
+  trigger: 'trigger',
+  interaction: 'interaction',
+  outcome: 'outcome',
+  source_event_ids: 'source_event_ids',
+  source_message_ids: 'source_message_ids',
+  importance_score: 'importance_score',
+  freshness_score: 'freshness_score',
+  decayed_score: 'decayed_score',
+  retrieval_text: 'retrieval_text',
+  embedding_text: 'embedding_text',
+  last_hit_at: 'last_hit_at',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.RelationshipMemoryOverrideScalarFieldEnum = {
+  id: 'id',
+  card_id: 'card_id',
+  action_type: 'action_type',
+  manual_note: 'manual_note',
+  created_by: 'created_by',
+  metadata: 'metadata',
+  created_at: 'created_at'
 };
 
 exports.Prisma.SortOrder = {
@@ -290,7 +376,12 @@ exports.Prisma.ModelName = {
   PrivateChatSetting: 'PrivateChatSetting',
   AgentInboundMessage: 'AgentInboundMessage',
   HttpTrafficLog: 'HttpTrafficLog',
-  TrafficReplayHistory: 'TrafficReplayHistory'
+  ConversationItem: 'ConversationItem',
+  TrafficReplayHistory: 'TrafficReplayHistory',
+  RelationshipLedgerEvent: 'RelationshipLedgerEvent',
+  RelationshipMemoryJob: 'RelationshipMemoryJob',
+  RelationshipMemoryCard: 'RelationshipMemoryCard',
+  RelationshipMemoryOverride: 'RelationshipMemoryOverride'
 };
 
 /**

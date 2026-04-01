@@ -1,4 +1,14 @@
 import express from 'express';
+import {
+  deleteRelationshipMemoryOverride,
+  getRelationshipMemoryCardById,
+  listConversationItemsByIds,
+  listRelationshipLedgerEventsByIds,
+  listRelationshipMemoryCards,
+  listRelationshipMemoryJobs,
+  listRelationshipMemoryOverrides,
+  recordRelationshipMemoryOverride
+} from '@qq-bot/persistence';
 import winston from 'winston';
 import { DatabaseManager } from '../services/database';
 import { buildConversationTracePayload } from '../services/trace-span-builder';
@@ -60,6 +70,131 @@ function extractCachedInputTokens(tokenUsage: Record<string, any>): number {
 
 function buildInClause(count: number) {
   return Array.from({ length: count }, () => '?').join(', ');
+}
+
+function parseRelationshipScopeFromSessionKey(sessionKey: string) {
+  const groupMatch = sessionKey.match(/(?:^|:)group:(\d+)$/);
+  if (groupMatch) {
+    return {
+      chatType: 'group' as const,
+      groupId: Number(groupMatch[1]),
+      normalizedSessionKey: `group:${groupMatch[1]}`
+    };
+  }
+
+  const privateMatch = sessionKey.match(/(?:^|:)private:(\d+)$/);
+  if (privateMatch) {
+    return {
+      chatType: 'direct' as const,
+      groupId: null,
+      normalizedSessionKey: `private:${privateMatch[1]}`
+    };
+  }
+
+  return {
+    chatType: null,
+    groupId: null,
+    normalizedSessionKey: sessionKey
+  };
+}
+
+function normalizeRelationshipCard(record: any, overrides: any[]) {
+  return {
+    id: Number(record.id || 0),
+    card_type: record.card_type || null,
+    group_id: record.group_id === null || typeof record.group_id === 'undefined' ? null : Number(record.group_id),
+    target_user_id: record.target_user_id === null || typeof record.target_user_id === 'undefined' ? null : Number(record.target_user_id),
+    version: Number(record.version || 0),
+    summary_text: record.summary_text || '',
+    actors: parseJsonArray(record.actors).map((item) => String(item)),
+    context_before: record.context_before || null,
+    trigger: record.trigger || null,
+    interaction: record.interaction || null,
+    outcome: record.outcome || null,
+    source_event_ids: parseJsonArray(record.source_event_ids).map((item) => Number(item)).filter(Number.isFinite),
+    source_message_ids: parseJsonArray(record.source_message_ids).map((item) => Number(item)).filter(Number.isFinite),
+    importance_score: toNumber(record.importance_score),
+    freshness_score: toNumber(record.freshness_score),
+    decayed_score: toNumber(record.decayed_score),
+    metadata: parseJsonObject(record.metadata),
+    created_at: record.created_at || null,
+    updated_at: record.updated_at || null,
+    overrides: overrides.map((override) => ({
+      id: Number(override.id || 0),
+      action_type: override.action_type || null,
+      manual_note: override.manual_note || null,
+      created_by: override.created_by || null,
+      metadata: parseJsonObject(override.metadata),
+      created_at: override.created_at || null
+    }))
+  };
+}
+
+function truncateEvidenceText(value: unknown, maxLength = 240): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function normalizeRelationshipEventEvidence(record: any) {
+  return {
+    id: Number(record.id || 0),
+    event_type: record.event_type || null,
+    session_key: record.session_key || null,
+    target_user_id: record.target_user_id === null || typeof record.target_user_id === 'undefined' ? null : Number(record.target_user_id),
+    source_message_ids: parseJsonArray(record.source_message_ids).map((item) => Number(item)).filter(Number.isFinite),
+    source_excerpt: truncateEvidenceText(record.source_excerpt),
+    event_weight: toNumber(record.event_weight),
+    confidence: record.confidence || null,
+    created_at: record.created_at || null,
+    last_reinforced_at: record.last_reinforced_at || null,
+    metadata: parseJsonObject(record.metadata)
+  };
+}
+
+function normalizeRelationshipMessageEvidence(record: any) {
+  return {
+    id: Number(record.id || 0),
+    session_key: record.session_key || null,
+    role: record.role || null,
+    phase: record.phase || null,
+    source: record.source || null,
+    trace_id: record.trace_id || null,
+    run_id: record.run_id || null,
+    group_index: Number(record.group_index || 0),
+    item_index: Number(record.item_index || 0),
+    content: truncateEvidenceText(record.content, 320),
+    created_at: record.created_at || null
+  };
+}
+
+async function hydrateRelationshipCardEvidence(cards: any[]) {
+  const eventIds = Array.from(new Set(cards.flatMap((card) => card.source_event_ids || [])));
+  const messageIds = Array.from(new Set(cards.flatMap((card) => card.source_message_ids || [])));
+  const [events, messages] = await Promise.all([
+    listRelationshipLedgerEventsByIds(eventIds),
+    listConversationItemsByIds(messageIds)
+  ]);
+  const eventMap = new Map(events.map((event) => [Number(event.id), normalizeRelationshipEventEvidence(event)]));
+  const messageMap = new Map(messages.map((message) => [Number(message.id), normalizeRelationshipMessageEvidence(message)]));
+
+  return cards.map((card) => ({
+    ...card,
+    evidence_events: (card.source_event_ids || [])
+      .map((eventId: number) => eventMap.get(Number(eventId)))
+      .filter(Boolean),
+    evidence_messages: (card.source_message_ids || [])
+      .map((messageId: number) => messageMap.get(Number(messageId)))
+      .filter(Boolean)
+  }));
 }
 
 function buildParticipationSummary(timeline: any[]) {
@@ -542,6 +677,275 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
       res.status(500).json({
         success: false,
         error: 'Failed to list participation-only events for session',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/runs/sessions/:sessionKey/conversation-items', async (req, res) => {
+    try {
+      const sessionKey = decodeSessionKey(req.params.sessionKey || '');
+      const limit = Math.max(1, Math.min(300, Number.parseInt(String(req.query.limit || '200'), 10)));
+
+      if (!sessionKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing session key',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const rows = await database.executeQuery(
+        `
+          SELECT
+            id,
+            session_key,
+            role,
+            phase,
+            source,
+            trace_id,
+            run_id,
+            group_index,
+            item_index,
+            content,
+            created_at
+          FROM conversation_items
+          WHERE session_key = ?
+          ORDER BY created_at ASC, group_index ASC, item_index ASC, id ASC
+          LIMIT ?
+        `,
+        [sessionKey, limit]
+      );
+
+      return res.json({
+        success: true,
+        data: rows.map(normalizeRelationshipMessageEvidence),
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to list conversation items for session', { error, sessionKey: req.params.sessionKey });
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to list conversation items for session',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/runs/sessions/:sessionKey/relationship-memory', async (req, res) => {
+    try {
+      const sessionKey = decodeSessionKey(req.params.sessionKey || '');
+      if (!sessionKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing session key',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const scope = parseRelationshipScopeFromSessionKey(sessionKey);
+      const jobSessionKeys = Array.from(new Set([sessionKey, scope.normalizedSessionKey].filter(Boolean)));
+      const jobLists = await Promise.all(jobSessionKeys.map((key) => listRelationshipMemoryJobs({
+        sessionKey: key,
+        limit: 20
+      })));
+      const jobs = jobLists
+        .flat()
+        .reduce<any[]>((items, job) => {
+          if (items.some((existing) => Number(existing.id) === Number(job.id))) {
+            return items;
+          }
+          items.push({
+            id: Number(job.id || 0),
+            session_key: job.session_key || null,
+            group_id: job.group_id === null || typeof job.group_id === 'undefined' ? null : Number(job.group_id),
+            status: job.status || null,
+            trigger_reason: job.trigger_reason || null,
+            turn_range_start: job.turn_range_start === null || typeof job.turn_range_start === 'undefined' ? null : Number(job.turn_range_start),
+            turn_range_end: job.turn_range_end === null || typeof job.turn_range_end === 'undefined' ? null : Number(job.turn_range_end),
+            ledger_event_count: toNumber(job.ledger_event_count),
+            input_message_ids: parseJsonArray(job.input_message_ids).map((item) => Number(item)).filter(Number.isFinite),
+            output_card_version: job.output_card_version === null || typeof job.output_card_version === 'undefined' ? null : Number(job.output_card_version),
+            error_message: job.error_message || null,
+            metadata: parseJsonObject(job.metadata),
+            started_at: job.started_at || null,
+            finished_at: job.finished_at || null,
+            created_at: job.created_at || null,
+            updated_at: job.updated_at || null
+          });
+          return items;
+        }, [])
+        .sort((left, right) => new Date(right.updated_at || 0).getTime() - new Date(left.updated_at || 0).getTime());
+
+      if (scope.chatType !== 'group' || !scope.groupId) {
+        return res.json({
+          success: true,
+          data: {
+            session_key: sessionKey,
+            normalized_session_key: scope.normalizedSessionKey,
+            chat_type: scope.chatType || 'direct',
+            jobs,
+            group_cards: [],
+            person_cards: []
+          },
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const activeCards = await listRelationshipMemoryCards({
+        groupId: scope.groupId,
+        isActive: true,
+        limit: 100
+      });
+      const normalizedCards = await Promise.all(activeCards.map(async (card) => normalizeRelationshipCard(
+        card,
+        await listRelationshipMemoryOverrides(Number(card.id || 0))
+      )));
+      const hydratedCards = await hydrateRelationshipCardEvidence(normalizedCards);
+
+      const groupCards = hydratedCards
+        .filter((card) => card.target_user_id === null)
+        .sort((left, right) => right.decayed_score - left.decayed_score || right.id - left.id);
+      const personCards = hydratedCards
+        .filter((card) => card.target_user_id !== null)
+        .sort((left, right) => right.decayed_score - left.decayed_score || right.id - left.id);
+
+      return res.json({
+        success: true,
+        data: {
+          session_key: sessionKey,
+          normalized_session_key: scope.normalizedSessionKey,
+          chat_type: scope.chatType,
+          group_id: scope.groupId,
+          jobs,
+          group_cards: groupCards,
+          person_cards: personCards
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to fetch relationship memory', { error, sessionKey: req.params.sessionKey });
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch relationship memory',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.post('/runs/relationship-memory/cards/:cardId/overrides', async (req, res) => {
+    try {
+      const cardId = Number(req.params.cardId);
+      const actionType = typeof req.body?.action_type === 'string' ? req.body.action_type.trim() : '';
+      const manualNote = typeof req.body?.manual_note === 'string' ? req.body.manual_note.trim() : null;
+      const createdBy = typeof req.body?.created_by === 'string' ? req.body.created_by.trim() : 'admin-panel';
+
+      if (!Number.isFinite(cardId) || cardId <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid card id',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      if (!['pin', 'downrank', 'archive'].includes(actionType)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid action_type',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const existingCard = await getRelationshipMemoryCardById(cardId);
+      if (!existingCard) {
+        return res.status(404).json({
+          success: false,
+          error: 'Relationship memory card not found',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const existingOverrides = await listRelationshipMemoryOverrides(cardId);
+      const duplicateOverride = existingOverrides.find((override) => override.action_type === actionType);
+      if (duplicateOverride) {
+        return res.json({
+          success: true,
+          data: {
+            id: Number(duplicateOverride.id || 0),
+            card_id: cardId,
+            action_type: actionType,
+            manual_note: duplicateOverride.manual_note || null,
+            created_by: duplicateOverride.created_by || null,
+            deduped: true
+          },
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const created = await recordRelationshipMemoryOverride({
+        cardId,
+        actionType,
+        manualNote,
+        createdBy,
+        metadata: {
+          source: 'admin-panel'
+        }
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          id: Number(created.id || 0),
+          card_id: cardId,
+          action_type: actionType,
+          manual_note: manualNote,
+          created_by: createdBy,
+          deduped: false
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to create relationship memory override', {
+        error,
+        cardId: req.params.cardId,
+        body: req.body
+      });
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to create relationship memory override',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.delete('/runs/relationship-memory/overrides/:overrideId', async (req, res) => {
+    try {
+      const overrideId = Number(req.params.overrideId);
+      if (!Number.isFinite(overrideId) || overrideId <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid override id',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const deleted = await deleteRelationshipMemoryOverride(overrideId);
+
+      return res.json({
+        success: true,
+        data: {
+          id: Number(deleted.id || 0)
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to delete relationship memory override', {
+        error,
+        overrideId: req.params.overrideId
+      });
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to delete relationship memory override',
         timestamp: new Date().toISOString()
       });
     }

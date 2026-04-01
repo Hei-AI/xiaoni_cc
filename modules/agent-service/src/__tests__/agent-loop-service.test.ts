@@ -358,6 +358,57 @@ test('buildInitialInput appends transcript summary to the system prompt when pro
   assert.match(String(loopInput[0]?.content), /Conversation summary:\n这是一个固定记忆区摘要/);
 });
 
+test('buildInitialInput appends relationship memory cues when provided', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }), {
+    relationshipMemory: {
+      groupCards: [{
+        id: 1,
+        cardType: 'group_memory',
+        groupId: 101,
+        targetUserId: null,
+        summaryText: '群里已经把奶茶圣经当成公共梗了',
+        actors: ['20001', '20002'],
+        contextBefore: '昨天已经有人拿这个梗互相打趣',
+        trigger: '今天又被翻出来',
+        interaction: '大家顺势接话',
+        outcome: '这个梗已经稳定存在',
+        sourceEventIds: [11],
+        sourceMessageIds: [21, 22],
+        decayedScore: 0.9,
+        metadata: {}
+      }],
+      currentUserCards: [{
+        id: 2,
+        cardType: 'person_memory',
+        groupId: 101,
+        targetUserId: 202,
+        summaryText: '和当前发言人已经形成共享梗',
+        actors: ['小腻', '202'],
+        contextBefore: '前两次都能接住这个梗',
+        trigger: '这次再次主动提起',
+        interaction: '对话顺利续上',
+        outcome: '关系又被强化了一次',
+        sourceEventIds: [12],
+        sourceMessageIds: [23],
+        decayedScore: 0.8,
+        metadata: {}
+      }],
+      recentUserCards: []
+    }
+  });
+  const systemContent = loopInput[0]?.type === 'message'
+    ? String(loopInput[0].content)
+    : '';
+
+  assert.match(systemContent, /Relationship memory cues:/);
+  assert.match(systemContent, /这些记忆是有损投影/);
+  assert.match(systemContent, /群公共记忆:/);
+  assert.match(systemContent, /当前发言人关系记忆:/);
+  assert.match(systemContent, /奶茶圣经/);
+});
+
 test('buildInitialInput appends group reply contract for group chats', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'

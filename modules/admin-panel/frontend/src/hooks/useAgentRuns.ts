@@ -1,5 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { AgentRunDetail, AgentRunListItem, AgentRunSessionSummary, ConversationTraceData, SessionParticipationEvent } from '@/types';
+import {
+  AgentRunDetail,
+  AgentRunListItem,
+  AgentRunSessionSummary,
+  ConversationTraceData,
+  SessionParticipationEvent,
+  SessionConversationItemRecord,
+  SessionRelationshipMemoryData
+} from '@/types';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -50,6 +58,24 @@ export function useSessionParticipationEvents(sessionKey: string | null) {
   return useQuery<SessionParticipationEvent[]>({
     queryKey: ['session-participation-events', sessionKey],
     queryFn: () => fetchJson<SessionParticipationEvent[]>(`/api/runs/sessions/${encodeURIComponent(sessionKey || '')}/participation-events`),
+    enabled: Boolean(sessionKey),
+    staleTime: 10000,
+  });
+}
+
+export function useSessionRelationshipMemory(sessionKey: string | null) {
+  return useQuery<SessionRelationshipMemoryData>({
+    queryKey: ['session-relationship-memory', sessionKey],
+    queryFn: () => fetchJson<SessionRelationshipMemoryData>(`/api/runs/sessions/${encodeURIComponent(sessionKey || '')}/relationship-memory`),
+    enabled: Boolean(sessionKey),
+    staleTime: 10000,
+  });
+}
+
+export function useSessionConversationItems(sessionKey: string | null, limit = 200) {
+  return useQuery<SessionConversationItemRecord[]>({
+    queryKey: ['session-conversation-items', sessionKey, limit],
+    queryFn: () => fetchJson<SessionConversationItemRecord[]>(`/api/runs/sessions/${encodeURIComponent(sessionKey || '')}/conversation-items?limit=${limit}`),
     enabled: Boolean(sessionKey),
     staleTime: 10000,
   });

@@ -54,3 +54,40 @@ Depends on / blocked by:
 - Confirm the summary webhook or equivalent production summary executor that will consume pending snapshot jobs.
 - Add deployment-time verification that `chat_transcript_snapshots.summary_status` moves through `pending -> ready`.
 - Add operator checks for failed or stale snapshot rows before relying on compaction for long-session performance.
+
+## Expand deferred Xiaoni relationship-ledger event types after v1
+
+What:
+After the first v1 relationship-ledger rollout lands with the minimal 3 event types, add the deferred higher-order social events:
+- `user_reengaged_xiaoni`
+- `relationship_cooled`
+
+Why:
+The v1 relationship memory plan intentionally starts with the smallest stable set of events that can produce visible shared-history behavior:
+- `shared_joke_formed`
+- `reply_chain_success`
+- `topic_reactivated`
+
+That keeps the first implementation from turning into a noisy social-theory engine. But long-term, we still need two additional signals:
+- `user_reengaged_xiaoni`: someone actively pulls 小腻 back into the thread, which is different from generic reply success
+- `relationship_cooled`: a once-real connection has gone stale and should fade for product reasons, not just generic score decay
+
+Pros:
+- Preserves the v1 scope boundary while keeping the fuller relationship model visible
+- Avoids losing two product-important signals in chat history or tribal memory
+- Creates a clean stage-2 TODO for the relationship-ledger system instead of quietly expanding v1
+
+Cons:
+- Leaves the first rollout without explicit “they came back for her” and “this relationship actually cooled” event semantics
+- Some early card behavior will rely on score decay alone instead of first-class cooling events
+
+Context:
+The approved relationship-memory direction is `B + A`:
+- relationship ledger as truth layer
+- traceable relationship cards as runtime projection layer
+
+During planning we explicitly chose to keep v1 event generation to 3 event types only, and defer the other 2 to a later pass so the first implementation stays disciplined.
+
+Depends on / blocked by:
+- Land the v1 relationship-ledger plan first
+- Observe real traffic and confirm the first 3 event types are stable enough before adding higher-order social events

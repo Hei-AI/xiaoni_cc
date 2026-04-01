@@ -20,7 +20,7 @@ import {
   normalizeTranscriptMessageText,
   renderRuntimeBatchInput
 } from './runtime-input-renderer';
-import { RuntimeStore } from './runtime-store';
+import { RuntimeStore, type RuntimeRelationshipMemoryCard } from './runtime-store';
 
 type OpenResponseInputItem =
   | {
@@ -511,7 +511,12 @@ function appendRuntimePromptSection(basePrompt: string, sectionTitle: string, se
 function composeSystemPrompt(
   systemPrompt: string,
   chatType: 'group' | 'direct',
-  summaryText?: string | null
+  summaryText?: string | null,
+  relationshipMemory?: {
+    groupCards?: RuntimeRelationshipMemoryCard[];
+    currentUserCards?: RuntimeRelationshipMemoryCard[];
+    recentUserCards?: RuntimeRelationshipMemoryCard[];
+  } | null
 ) {
   let composed = systemPrompt.trim();
 
@@ -532,7 +537,79 @@ function composeSystemPrompt(
     );
   }
 
+  const relationshipSection = formatRelationshipMemorySection(relationshipMemory);
+  if (relationshipSection) {
+    composed = appendRuntimePromptSection(
+      composed,
+      'Relationship memory cues:',
+      relationshipSection
+    );
+  }
+
   return composed;
+}
+
+function formatRelationshipCard(card: RuntimeRelationshipMemoryCard) {
+  const details = [
+    card.summaryText,
+    card.contextBefore ? `前因: ${card.contextBefore}` : '',
+    card.trigger ? `触发: ${card.trigger}` : '',
+    card.interaction ? `经过: ${card.interaction}` : '',
+    card.outcome ? `结果: ${card.outcome}` : ''
+  ].filter(Boolean);
+  return `- ${details.join(' | ')}`;
+}
+
+function formatRelationshipMemorySection(relationshipMemory?: {
+  groupCards?: RuntimeRelationshipMemoryCard[];
+  currentUserCards?: RuntimeRelationshipMemoryCard[];
+  recentUserCards?: RuntimeRelationshipMemoryCard[];
+} | null) {
+  if (!relationshipMemory) {
+    return '';
+  }
+
+  const sections: string[] = [
+    '这些记忆是有损投影，不是绝对真相。当前批次真实聊天记录优先。',
+    '只有在自然合适时才轻轻提旧梗、续旧话，不要每次都硬提。'
+  ];
+
+  const groupCards = Array.isArray(relationshipMemory.groupCards) ? relationshipMemory.groupCards : [];
+  if (groupCards.length > 0) {
+    sections.push(`群公共记忆:\n${groupCards.map(formatRelationshipCard).join('\n')}`);
+  }
+
+  const currentUserCards = Array.isArray(relationshipMemory.currentUserCards) ? relationshipMemory.currentUserCards : [];
+  if (currentUserCards.length > 0) {
+    sections.push(`当前发言人关系记忆:\n${currentUserCards.map(formatRelationshipCard).join('\n')}`);
+  }
+
+  const recentUserCards = Array.isArray(relationshipMemory.recentUserCards) ? relationshipMemory.recentUserCards : [];
+  if (recentUserCards.length > 0) {
+    sections.push(`最近相关他人记忆:\n${recentUserCards.map(formatRelationshipCard).join('\n')}`);
+  }
+
+  return sections.length > 2 ? sections.join('\n\n') : '';
+}
+
+function resolveRecentRelatedUserIds(queueMessage: QueueMessageRecord['payload']) {
+  const currentSenderId = Number(queueMessage.senderId);
+  const seen = new Set<number>();
+  const recentUserIds: number[] = [];
+
+  for (const message of [...queueMessage.messages].reverse()) {
+    const senderId = Number(message.senderId);
+    if (!Number.isFinite(senderId) || senderId <= 0 || senderId === currentSenderId || seen.has(senderId)) {
+      continue;
+    }
+    seen.add(senderId);
+    recentUserIds.push(senderId);
+    if (recentUserIds.length >= 2) {
+      break;
+    }
+  }
+
+  return recentUserIds;
 }
 
 export function applyToolResultToLoopInput(
@@ -623,7 +700,8 @@ export class AgentLoopService {
     try {
       const replayState = await this.store.loadSessionReplayState({
         userId: sessionIds.userId,
-        groupId: sessionIds.groupId
+        groupId: sessionIds.groupId,
+        recentUserIds: resolveRecentRelatedUserIds(payload)
       });
       const history = await this.store.listRecentTurns({
         userId: sessionIds.userId,
@@ -634,7 +712,8 @@ export class AgentLoopService {
 
       runtimePrompt = await this.promptResolver.resolveForQueueMessage(payload);
       let cumulativeInput = buildInitialInput(history, payload, runtimePrompt, {
-        summaryText: replayState.summaryText
+        summaryText: replayState.summaryText,
+        relationshipMemory: replayState.relationshipCards
       });
       let requestInput = cumulativeInput;
       let finishResult: Record<string, unknown> | null = null;
@@ -1130,13 +1209,18 @@ export function buildInitialInput(
   },
   options: {
     summaryText?: string | null;
+    relationshipMemory?: {
+      groupCards?: RuntimeRelationshipMemoryCard[];
+      currentUserCards?: RuntimeRelationshipMemoryCard[];
+      recentUserCards?: RuntimeRelationshipMemoryCard[];
+    } | null;
   } = {}
 ): OpenResponseInputItem[] {
   const items: OpenResponseInputItem[] = [
     {
       type: 'message',
       role: 'system',
-      content: composeSystemPrompt(runtimePrompt.systemPrompt, queueMessage.chatType, options.summaryText)
+      content: composeSystemPrompt(runtimePrompt.systemPrompt, queueMessage.chatType, options.summaryText, options.relationshipMemory)
     }
   ];
 

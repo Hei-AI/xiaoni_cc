@@ -63,3 +63,10 @@ export const databaseConfig = {
 export const agentRunConfig = {
   batchWindowMs: Math.max(200, Number.parseInt(process.env.AGENT_RUN_BATCH_WINDOW_MS || '4000', 10))
 };
+
+export const relationshipMemoryConfig = {
+  enabled: process.env.RELATIONSHIP_MEMORY_ENABLED !== 'false',
+  webhookUrl: process.env.RELATIONSHIP_MEMORY_WEBHOOK_URL || `http://127.0.0.1:${serverConfig.port}/api/internal/relationship-memory/execute`,
+  minNewTurns: Math.max(1, Number.parseInt(process.env.RELATIONSHIP_MEMORY_MIN_NEW_TURNS || '6', 10)),
+  minNewLedgerEvents: Math.max(1, Number.parseInt(process.env.RELATIONSHIP_MEMORY_MIN_NEW_LEDGER_EVENTS || '2', 10))
+};

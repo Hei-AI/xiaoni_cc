@@ -136,6 +136,63 @@ export type TrafficReplayHistoryInput = {
   template_id?: number | null;
 };
 
+export type RelationshipLedgerEventInput = {
+  groupId?: number | bigint | string | null;
+  targetUserId?: number | bigint | string | null;
+  sessionKey: string;
+  eventType: string;
+  eventWeight?: number;
+  confidence?: 'high' | 'medium' | 'low' | string;
+  sourceMessageIds: Array<number | bigint | string> | Array<string>;
+  sourceExcerpt?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt?: string | Date | null;
+  lastReinforcedAt?: string | Date | null;
+};
+
+export type RelationshipMemoryJobInput = {
+  groupId?: number | bigint | string | null;
+  sessionKey: string;
+  status?: 'pending' | 'running' | 'succeeded' | 'failed' | string;
+  triggerReason?: string;
+  turnRangeStart?: number | bigint | string | null;
+  turnRangeEnd?: number | bigint | string | null;
+  ledgerEventCount?: number;
+  inputMessageIds?: Array<number | bigint | string> | Array<string>;
+  outputCardVersion?: number | null;
+  errorMessage?: string | null;
+  metadata?: Record<string, unknown> | null;
+  startedAt?: string | Date | null;
+  finishedAt?: string | Date | null;
+};
+
+export type RelationshipMemoryCardInput = {
+  isActive?: boolean;
+  summaryText: string;
+  actors?: unknown[];
+  contextBefore?: string | null;
+  trigger?: string | null;
+  interaction?: string | null;
+  outcome?: string | null;
+  sourceEventIds?: Array<number | bigint | string> | Array<string>;
+  sourceMessageIds?: Array<number | bigint | string> | Array<string>;
+  importanceScore?: number;
+  freshnessScore?: number;
+  decayedScore?: number;
+  retrievalText?: string | null;
+  embeddingText?: string | null;
+  lastHitAt?: string | Date | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type RelationshipMemoryOverrideInput = {
+  cardId: number | bigint | string;
+  actionType: string;
+  manualNote?: string | null;
+  createdBy?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
 export type ChatPromptBindingSource = 'group' | 'private';
 
 export type ResolvedChatAgentPrompt = {
@@ -188,3 +245,53 @@ export function listTrafficReplayHistory(originalLogId: number | bigint | string
 export function createTrafficReplayHistory(data: TrafficReplayHistoryInput): Promise<any>;
 export function listAiTrafficSamples(params?: { search?: string; limit?: number }): Promise<any[]>;
 export function createTrafficLogBatch(records: TrafficLogBatchInput[]): Promise<{ count: number }>;
+export function ensureRelationshipMemorySchema(config?: DatabaseUrlConfig): Promise<void>;
+export function appendRelationshipLedgerEvent(input: RelationshipLedgerEventInput, config?: DatabaseUrlConfig): Promise<any>;
+export function reinforceRelationshipLedgerEvent(
+  id: number | bigint | string,
+  updates?: Partial<RelationshipLedgerEventInput>,
+  config?: DatabaseUrlConfig
+): Promise<any>;
+export function listRelationshipLedgerEvents(
+  filters?: { groupId?: number | bigint | string; targetUserId?: number | bigint | string; sessionKey?: string; eventType?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function listRelationshipLedgerEventsByIds(
+  ids: Array<number | bigint | string>,
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function createRelationshipMemoryJob(input: RelationshipMemoryJobInput, config?: DatabaseUrlConfig): Promise<any>;
+export function updateRelationshipMemoryJob(
+  id: number | bigint | string,
+  updates?: Partial<RelationshipMemoryJobInput>,
+  config?: DatabaseUrlConfig
+): Promise<any>;
+export function listRelationshipMemoryJobs(
+  filters?: { groupId?: number | bigint | string; sessionKey?: string; status?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function replaceRelationshipMemoryCards(
+  input: {
+    groupId?: number | bigint | string | null;
+    targetUserId?: number | bigint | string | null;
+    cardType: string;
+    version: number;
+    cards: RelationshipMemoryCardInput[];
+  },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function listRelationshipMemoryCards(
+  filters?: { groupId?: number | bigint | string; targetUserId?: number | bigint | string; cardType?: string; isActive?: boolean; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function getRelationshipMemoryCardById(
+  id: number | bigint | string,
+  config?: DatabaseUrlConfig
+): Promise<any | null>;
+export function listConversationItemsByIds(
+  ids: Array<number | bigint | string>,
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function recordRelationshipMemoryOverride(input: RelationshipMemoryOverrideInput, config?: DatabaseUrlConfig): Promise<any>;
+export function listRelationshipMemoryOverrides(cardId: number | bigint | string, config?: DatabaseUrlConfig): Promise<any[]>;
+export function deleteRelationshipMemoryOverride(id: number | bigint | string, config?: DatabaseUrlConfig): Promise<any>;

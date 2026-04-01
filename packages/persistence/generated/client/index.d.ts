@@ -34,10 +34,35 @@ export type AgentInboundMessage = $Result.DefaultSelection<Prisma.$AgentInboundM
  */
 export type HttpTrafficLog = $Result.DefaultSelection<Prisma.$HttpTrafficLogPayload>
 /**
+ * Model ConversationItem
+ * 
+ */
+export type ConversationItem = $Result.DefaultSelection<Prisma.$ConversationItemPayload>
+/**
  * Model TrafficReplayHistory
  * 
  */
 export type TrafficReplayHistory = $Result.DefaultSelection<Prisma.$TrafficReplayHistoryPayload>
+/**
+ * Model RelationshipLedgerEvent
+ * 
+ */
+export type RelationshipLedgerEvent = $Result.DefaultSelection<Prisma.$RelationshipLedgerEventPayload>
+/**
+ * Model RelationshipMemoryJob
+ * 
+ */
+export type RelationshipMemoryJob = $Result.DefaultSelection<Prisma.$RelationshipMemoryJobPayload>
+/**
+ * Model RelationshipMemoryCard
+ * 
+ */
+export type RelationshipMemoryCard = $Result.DefaultSelection<Prisma.$RelationshipMemoryCardPayload>
+/**
+ * Model RelationshipMemoryOverride
+ * 
+ */
+export type RelationshipMemoryOverride = $Result.DefaultSelection<Prisma.$RelationshipMemoryOverridePayload>
 
 /**
  * ##  Prisma Client ʲˢ
@@ -198,6 +223,16 @@ export class PrismaClient<
   get httpTrafficLog(): Prisma.HttpTrafficLogDelegate<ExtArgs, ClientOptions>;
 
   /**
+   * `prisma.conversationItem`: Exposes CRUD operations for the **ConversationItem** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more ConversationItems
+    * const conversationItems = await prisma.conversationItem.findMany()
+    * ```
+    */
+  get conversationItem(): Prisma.ConversationItemDelegate<ExtArgs, ClientOptions>;
+
+  /**
    * `prisma.trafficReplayHistory`: Exposes CRUD operations for the **TrafficReplayHistory** model.
     * Example usage:
     * ```ts
@@ -206,6 +241,46 @@ export class PrismaClient<
     * ```
     */
   get trafficReplayHistory(): Prisma.TrafficReplayHistoryDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.relationshipLedgerEvent`: Exposes CRUD operations for the **RelationshipLedgerEvent** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more RelationshipLedgerEvents
+    * const relationshipLedgerEvents = await prisma.relationshipLedgerEvent.findMany()
+    * ```
+    */
+  get relationshipLedgerEvent(): Prisma.RelationshipLedgerEventDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.relationshipMemoryJob`: Exposes CRUD operations for the **RelationshipMemoryJob** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more RelationshipMemoryJobs
+    * const relationshipMemoryJobs = await prisma.relationshipMemoryJob.findMany()
+    * ```
+    */
+  get relationshipMemoryJob(): Prisma.RelationshipMemoryJobDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.relationshipMemoryCard`: Exposes CRUD operations for the **RelationshipMemoryCard** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more RelationshipMemoryCards
+    * const relationshipMemoryCards = await prisma.relationshipMemoryCard.findMany()
+    * ```
+    */
+  get relationshipMemoryCard(): Prisma.RelationshipMemoryCardDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.relationshipMemoryOverride`: Exposes CRUD operations for the **RelationshipMemoryOverride** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more RelationshipMemoryOverrides
+    * const relationshipMemoryOverrides = await prisma.relationshipMemoryOverride.findMany()
+    * ```
+    */
+  get relationshipMemoryOverride(): Prisma.RelationshipMemoryOverrideDelegate<ExtArgs, ClientOptions>;
 }
 
 export namespace Prisma {
@@ -651,7 +726,12 @@ export namespace Prisma {
     PrivateChatSetting: 'PrivateChatSetting',
     AgentInboundMessage: 'AgentInboundMessage',
     HttpTrafficLog: 'HttpTrafficLog',
-    TrafficReplayHistory: 'TrafficReplayHistory'
+    ConversationItem: 'ConversationItem',
+    TrafficReplayHistory: 'TrafficReplayHistory',
+    RelationshipLedgerEvent: 'RelationshipLedgerEvent',
+    RelationshipMemoryJob: 'RelationshipMemoryJob',
+    RelationshipMemoryCard: 'RelationshipMemoryCard',
+    RelationshipMemoryOverride: 'RelationshipMemoryOverride'
   };
 
   export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -670,7 +750,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "trafficReplayHistory"
+      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "relationshipLedgerEvent" | "relationshipMemoryJob" | "relationshipMemoryCard" | "relationshipMemoryOverride"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -970,6 +1050,80 @@ export namespace Prisma {
           }
         }
       }
+      ConversationItem: {
+        payload: Prisma.$ConversationItemPayload<ExtArgs>
+        fields: Prisma.ConversationItemFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.ConversationItemFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ConversationItemPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.ConversationItemFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ConversationItemPayload>
+          }
+          findFirst: {
+            args: Prisma.ConversationItemFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ConversationItemPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.ConversationItemFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ConversationItemPayload>
+          }
+          findMany: {
+            args: Prisma.ConversationItemFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ConversationItemPayload>[]
+          }
+          create: {
+            args: Prisma.ConversationItemCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ConversationItemPayload>
+          }
+          createMany: {
+            args: Prisma.ConversationItemCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.ConversationItemCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ConversationItemPayload>[]
+          }
+          delete: {
+            args: Prisma.ConversationItemDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ConversationItemPayload>
+          }
+          update: {
+            args: Prisma.ConversationItemUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ConversationItemPayload>
+          }
+          deleteMany: {
+            args: Prisma.ConversationItemDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.ConversationItemUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.ConversationItemUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ConversationItemPayload>[]
+          }
+          upsert: {
+            args: Prisma.ConversationItemUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ConversationItemPayload>
+          }
+          aggregate: {
+            args: Prisma.ConversationItemAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateConversationItem>
+          }
+          groupBy: {
+            args: Prisma.ConversationItemGroupByArgs<ExtArgs>
+            result: $Utils.Optional<ConversationItemGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.ConversationItemCountArgs<ExtArgs>
+            result: $Utils.Optional<ConversationItemCountAggregateOutputType> | number
+          }
+        }
+      }
       TrafficReplayHistory: {
         payload: Prisma.$TrafficReplayHistoryPayload<ExtArgs>
         fields: Prisma.TrafficReplayHistoryFieldRefs
@@ -1041,6 +1195,302 @@ export namespace Prisma {
           count: {
             args: Prisma.TrafficReplayHistoryCountArgs<ExtArgs>
             result: $Utils.Optional<TrafficReplayHistoryCountAggregateOutputType> | number
+          }
+        }
+      }
+      RelationshipLedgerEvent: {
+        payload: Prisma.$RelationshipLedgerEventPayload<ExtArgs>
+        fields: Prisma.RelationshipLedgerEventFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.RelationshipLedgerEventFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipLedgerEventPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.RelationshipLedgerEventFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipLedgerEventPayload>
+          }
+          findFirst: {
+            args: Prisma.RelationshipLedgerEventFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipLedgerEventPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.RelationshipLedgerEventFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipLedgerEventPayload>
+          }
+          findMany: {
+            args: Prisma.RelationshipLedgerEventFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipLedgerEventPayload>[]
+          }
+          create: {
+            args: Prisma.RelationshipLedgerEventCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipLedgerEventPayload>
+          }
+          createMany: {
+            args: Prisma.RelationshipLedgerEventCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.RelationshipLedgerEventCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipLedgerEventPayload>[]
+          }
+          delete: {
+            args: Prisma.RelationshipLedgerEventDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipLedgerEventPayload>
+          }
+          update: {
+            args: Prisma.RelationshipLedgerEventUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipLedgerEventPayload>
+          }
+          deleteMany: {
+            args: Prisma.RelationshipLedgerEventDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.RelationshipLedgerEventUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.RelationshipLedgerEventUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipLedgerEventPayload>[]
+          }
+          upsert: {
+            args: Prisma.RelationshipLedgerEventUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipLedgerEventPayload>
+          }
+          aggregate: {
+            args: Prisma.RelationshipLedgerEventAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateRelationshipLedgerEvent>
+          }
+          groupBy: {
+            args: Prisma.RelationshipLedgerEventGroupByArgs<ExtArgs>
+            result: $Utils.Optional<RelationshipLedgerEventGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.RelationshipLedgerEventCountArgs<ExtArgs>
+            result: $Utils.Optional<RelationshipLedgerEventCountAggregateOutputType> | number
+          }
+        }
+      }
+      RelationshipMemoryJob: {
+        payload: Prisma.$RelationshipMemoryJobPayload<ExtArgs>
+        fields: Prisma.RelationshipMemoryJobFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.RelationshipMemoryJobFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryJobPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.RelationshipMemoryJobFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryJobPayload>
+          }
+          findFirst: {
+            args: Prisma.RelationshipMemoryJobFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryJobPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.RelationshipMemoryJobFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryJobPayload>
+          }
+          findMany: {
+            args: Prisma.RelationshipMemoryJobFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryJobPayload>[]
+          }
+          create: {
+            args: Prisma.RelationshipMemoryJobCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryJobPayload>
+          }
+          createMany: {
+            args: Prisma.RelationshipMemoryJobCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.RelationshipMemoryJobCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryJobPayload>[]
+          }
+          delete: {
+            args: Prisma.RelationshipMemoryJobDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryJobPayload>
+          }
+          update: {
+            args: Prisma.RelationshipMemoryJobUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryJobPayload>
+          }
+          deleteMany: {
+            args: Prisma.RelationshipMemoryJobDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.RelationshipMemoryJobUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.RelationshipMemoryJobUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryJobPayload>[]
+          }
+          upsert: {
+            args: Prisma.RelationshipMemoryJobUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryJobPayload>
+          }
+          aggregate: {
+            args: Prisma.RelationshipMemoryJobAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateRelationshipMemoryJob>
+          }
+          groupBy: {
+            args: Prisma.RelationshipMemoryJobGroupByArgs<ExtArgs>
+            result: $Utils.Optional<RelationshipMemoryJobGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.RelationshipMemoryJobCountArgs<ExtArgs>
+            result: $Utils.Optional<RelationshipMemoryJobCountAggregateOutputType> | number
+          }
+        }
+      }
+      RelationshipMemoryCard: {
+        payload: Prisma.$RelationshipMemoryCardPayload<ExtArgs>
+        fields: Prisma.RelationshipMemoryCardFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.RelationshipMemoryCardFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryCardPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.RelationshipMemoryCardFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryCardPayload>
+          }
+          findFirst: {
+            args: Prisma.RelationshipMemoryCardFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryCardPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.RelationshipMemoryCardFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryCardPayload>
+          }
+          findMany: {
+            args: Prisma.RelationshipMemoryCardFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryCardPayload>[]
+          }
+          create: {
+            args: Prisma.RelationshipMemoryCardCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryCardPayload>
+          }
+          createMany: {
+            args: Prisma.RelationshipMemoryCardCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.RelationshipMemoryCardCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryCardPayload>[]
+          }
+          delete: {
+            args: Prisma.RelationshipMemoryCardDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryCardPayload>
+          }
+          update: {
+            args: Prisma.RelationshipMemoryCardUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryCardPayload>
+          }
+          deleteMany: {
+            args: Prisma.RelationshipMemoryCardDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.RelationshipMemoryCardUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.RelationshipMemoryCardUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryCardPayload>[]
+          }
+          upsert: {
+            args: Prisma.RelationshipMemoryCardUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryCardPayload>
+          }
+          aggregate: {
+            args: Prisma.RelationshipMemoryCardAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateRelationshipMemoryCard>
+          }
+          groupBy: {
+            args: Prisma.RelationshipMemoryCardGroupByArgs<ExtArgs>
+            result: $Utils.Optional<RelationshipMemoryCardGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.RelationshipMemoryCardCountArgs<ExtArgs>
+            result: $Utils.Optional<RelationshipMemoryCardCountAggregateOutputType> | number
+          }
+        }
+      }
+      RelationshipMemoryOverride: {
+        payload: Prisma.$RelationshipMemoryOverridePayload<ExtArgs>
+        fields: Prisma.RelationshipMemoryOverrideFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.RelationshipMemoryOverrideFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryOverridePayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.RelationshipMemoryOverrideFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryOverridePayload>
+          }
+          findFirst: {
+            args: Prisma.RelationshipMemoryOverrideFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryOverridePayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.RelationshipMemoryOverrideFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryOverridePayload>
+          }
+          findMany: {
+            args: Prisma.RelationshipMemoryOverrideFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryOverridePayload>[]
+          }
+          create: {
+            args: Prisma.RelationshipMemoryOverrideCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryOverridePayload>
+          }
+          createMany: {
+            args: Prisma.RelationshipMemoryOverrideCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.RelationshipMemoryOverrideCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryOverridePayload>[]
+          }
+          delete: {
+            args: Prisma.RelationshipMemoryOverrideDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryOverridePayload>
+          }
+          update: {
+            args: Prisma.RelationshipMemoryOverrideUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryOverridePayload>
+          }
+          deleteMany: {
+            args: Prisma.RelationshipMemoryOverrideDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.RelationshipMemoryOverrideUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.RelationshipMemoryOverrideUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryOverridePayload>[]
+          }
+          upsert: {
+            args: Prisma.RelationshipMemoryOverrideUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RelationshipMemoryOverridePayload>
+          }
+          aggregate: {
+            args: Prisma.RelationshipMemoryOverrideAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateRelationshipMemoryOverride>
+          }
+          groupBy: {
+            args: Prisma.RelationshipMemoryOverrideGroupByArgs<ExtArgs>
+            result: $Utils.Optional<RelationshipMemoryOverrideGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.RelationshipMemoryOverrideCountArgs<ExtArgs>
+            result: $Utils.Optional<RelationshipMemoryOverrideCountAggregateOutputType> | number
           }
         }
       }
@@ -1144,7 +1594,12 @@ export namespace Prisma {
     privateChatSetting?: PrivateChatSettingOmit
     agentInboundMessage?: AgentInboundMessageOmit
     httpTrafficLog?: HttpTrafficLogOmit
+    conversationItem?: ConversationItemOmit
     trafficReplayHistory?: TrafficReplayHistoryOmit
+    relationshipLedgerEvent?: RelationshipLedgerEventOmit
+    relationshipMemoryJob?: RelationshipMemoryJobOmit
+    relationshipMemoryCard?: RelationshipMemoryCardOmit
+    relationshipMemoryOverride?: RelationshipMemoryOverrideOmit
   }
 
   /* Types for Logging */
@@ -6214,6 +6669,1155 @@ export namespace Prisma {
 
 
   /**
+   * Model ConversationItem
+   */
+
+  export type AggregateConversationItem = {
+    _count: ConversationItemCountAggregateOutputType | null
+    _avg: ConversationItemAvgAggregateOutputType | null
+    _sum: ConversationItemSumAggregateOutputType | null
+    _min: ConversationItemMinAggregateOutputType | null
+    _max: ConversationItemMaxAggregateOutputType | null
+  }
+
+  export type ConversationItemAvgAggregateOutputType = {
+    id: number | null
+    conversation_id: number | null
+    group_index: number | null
+    item_index: number | null
+    delivery_message_id: number | null
+  }
+
+  export type ConversationItemSumAggregateOutputType = {
+    id: bigint | null
+    conversation_id: bigint | null
+    group_index: number | null
+    item_index: number | null
+    delivery_message_id: bigint | null
+  }
+
+  export type ConversationItemMinAggregateOutputType = {
+    id: bigint | null
+    conversation_id: bigint | null
+    session_key: string | null
+    role: string | null
+    phase: string | null
+    content: string | null
+    group_index: number | null
+    item_index: number | null
+    source: string | null
+    delivery_message_id: bigint | null
+    run_id: string | null
+    trace_id: string | null
+    created_at: Date | null
+  }
+
+  export type ConversationItemMaxAggregateOutputType = {
+    id: bigint | null
+    conversation_id: bigint | null
+    session_key: string | null
+    role: string | null
+    phase: string | null
+    content: string | null
+    group_index: number | null
+    item_index: number | null
+    source: string | null
+    delivery_message_id: bigint | null
+    run_id: string | null
+    trace_id: string | null
+    created_at: Date | null
+  }
+
+  export type ConversationItemCountAggregateOutputType = {
+    id: number
+    conversation_id: number
+    session_key: number
+    role: number
+    phase: number
+    content: number
+    group_index: number
+    item_index: number
+    source: number
+    delivery_message_id: number
+    run_id: number
+    trace_id: number
+    created_at: number
+    _all: number
+  }
+
+
+  export type ConversationItemAvgAggregateInputType = {
+    id?: true
+    conversation_id?: true
+    group_index?: true
+    item_index?: true
+    delivery_message_id?: true
+  }
+
+  export type ConversationItemSumAggregateInputType = {
+    id?: true
+    conversation_id?: true
+    group_index?: true
+    item_index?: true
+    delivery_message_id?: true
+  }
+
+  export type ConversationItemMinAggregateInputType = {
+    id?: true
+    conversation_id?: true
+    session_key?: true
+    role?: true
+    phase?: true
+    content?: true
+    group_index?: true
+    item_index?: true
+    source?: true
+    delivery_message_id?: true
+    run_id?: true
+    trace_id?: true
+    created_at?: true
+  }
+
+  export type ConversationItemMaxAggregateInputType = {
+    id?: true
+    conversation_id?: true
+    session_key?: true
+    role?: true
+    phase?: true
+    content?: true
+    group_index?: true
+    item_index?: true
+    source?: true
+    delivery_message_id?: true
+    run_id?: true
+    trace_id?: true
+    created_at?: true
+  }
+
+  export type ConversationItemCountAggregateInputType = {
+    id?: true
+    conversation_id?: true
+    session_key?: true
+    role?: true
+    phase?: true
+    content?: true
+    group_index?: true
+    item_index?: true
+    source?: true
+    delivery_message_id?: true
+    run_id?: true
+    trace_id?: true
+    created_at?: true
+    _all?: true
+  }
+
+  export type ConversationItemAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ConversationItem to aggregate.
+     */
+    where?: ConversationItemWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ConversationItems to fetch.
+     */
+    orderBy?: ConversationItemOrderByWithRelationInput | ConversationItemOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: ConversationItemWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ConversationItems from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ConversationItems.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned ConversationItems
+    **/
+    _count?: true | ConversationItemCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: ConversationItemAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: ConversationItemSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: ConversationItemMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: ConversationItemMaxAggregateInputType
+  }
+
+  export type GetConversationItemAggregateType<T extends ConversationItemAggregateArgs> = {
+        [P in keyof T & keyof AggregateConversationItem]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateConversationItem[P]>
+      : GetScalarType<T[P], AggregateConversationItem[P]>
+  }
+
+
+
+
+  export type ConversationItemGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: ConversationItemWhereInput
+    orderBy?: ConversationItemOrderByWithAggregationInput | ConversationItemOrderByWithAggregationInput[]
+    by: ConversationItemScalarFieldEnum[] | ConversationItemScalarFieldEnum
+    having?: ConversationItemScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: ConversationItemCountAggregateInputType | true
+    _avg?: ConversationItemAvgAggregateInputType
+    _sum?: ConversationItemSumAggregateInputType
+    _min?: ConversationItemMinAggregateInputType
+    _max?: ConversationItemMaxAggregateInputType
+  }
+
+  export type ConversationItemGroupByOutputType = {
+    id: bigint
+    conversation_id: bigint
+    session_key: string | null
+    role: string
+    phase: string | null
+    content: string
+    group_index: number
+    item_index: number
+    source: string
+    delivery_message_id: bigint | null
+    run_id: string | null
+    trace_id: string | null
+    created_at: Date
+    _count: ConversationItemCountAggregateOutputType | null
+    _avg: ConversationItemAvgAggregateOutputType | null
+    _sum: ConversationItemSumAggregateOutputType | null
+    _min: ConversationItemMinAggregateOutputType | null
+    _max: ConversationItemMaxAggregateOutputType | null
+  }
+
+  type GetConversationItemGroupByPayload<T extends ConversationItemGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<ConversationItemGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof ConversationItemGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], ConversationItemGroupByOutputType[P]>
+            : GetScalarType<T[P], ConversationItemGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type ConversationItemSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    conversation_id?: boolean
+    session_key?: boolean
+    role?: boolean
+    phase?: boolean
+    content?: boolean
+    group_index?: boolean
+    item_index?: boolean
+    source?: boolean
+    delivery_message_id?: boolean
+    run_id?: boolean
+    trace_id?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["conversationItem"]>
+
+  export type ConversationItemSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    conversation_id?: boolean
+    session_key?: boolean
+    role?: boolean
+    phase?: boolean
+    content?: boolean
+    group_index?: boolean
+    item_index?: boolean
+    source?: boolean
+    delivery_message_id?: boolean
+    run_id?: boolean
+    trace_id?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["conversationItem"]>
+
+  export type ConversationItemSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    conversation_id?: boolean
+    session_key?: boolean
+    role?: boolean
+    phase?: boolean
+    content?: boolean
+    group_index?: boolean
+    item_index?: boolean
+    source?: boolean
+    delivery_message_id?: boolean
+    run_id?: boolean
+    trace_id?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["conversationItem"]>
+
+  export type ConversationItemSelectScalar = {
+    id?: boolean
+    conversation_id?: boolean
+    session_key?: boolean
+    role?: boolean
+    phase?: boolean
+    content?: boolean
+    group_index?: boolean
+    item_index?: boolean
+    source?: boolean
+    delivery_message_id?: boolean
+    run_id?: boolean
+    trace_id?: boolean
+    created_at?: boolean
+  }
+
+  export type ConversationItemOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "conversation_id" | "session_key" | "role" | "phase" | "content" | "group_index" | "item_index" | "source" | "delivery_message_id" | "run_id" | "trace_id" | "created_at", ExtArgs["result"]["conversationItem"]>
+
+  export type $ConversationItemPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "ConversationItem"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      conversation_id: bigint
+      session_key: string | null
+      role: string
+      phase: string | null
+      content: string
+      group_index: number
+      item_index: number
+      source: string
+      delivery_message_id: bigint | null
+      run_id: string | null
+      trace_id: string | null
+      created_at: Date
+    }, ExtArgs["result"]["conversationItem"]>
+    composites: {}
+  }
+
+  type ConversationItemGetPayload<S extends boolean | null | undefined | ConversationItemDefaultArgs> = $Result.GetResult<Prisma.$ConversationItemPayload, S>
+
+  type ConversationItemCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<ConversationItemFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: ConversationItemCountAggregateInputType | true
+    }
+
+  export interface ConversationItemDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['ConversationItem'], meta: { name: 'ConversationItem' } }
+    /**
+     * Find zero or one ConversationItem that matches the filter.
+     * @param {ConversationItemFindUniqueArgs} args - Arguments to find a ConversationItem
+     * @example
+     * // Get one ConversationItem
+     * const conversationItem = await prisma.conversationItem.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends ConversationItemFindUniqueArgs>(args: SelectSubset<T, ConversationItemFindUniqueArgs<ExtArgs>>): Prisma__ConversationItemClient<$Result.GetResult<Prisma.$ConversationItemPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one ConversationItem that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {ConversationItemFindUniqueOrThrowArgs} args - Arguments to find a ConversationItem
+     * @example
+     * // Get one ConversationItem
+     * const conversationItem = await prisma.conversationItem.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends ConversationItemFindUniqueOrThrowArgs>(args: SelectSubset<T, ConversationItemFindUniqueOrThrowArgs<ExtArgs>>): Prisma__ConversationItemClient<$Result.GetResult<Prisma.$ConversationItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ConversationItem that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ConversationItemFindFirstArgs} args - Arguments to find a ConversationItem
+     * @example
+     * // Get one ConversationItem
+     * const conversationItem = await prisma.conversationItem.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends ConversationItemFindFirstArgs>(args?: SelectSubset<T, ConversationItemFindFirstArgs<ExtArgs>>): Prisma__ConversationItemClient<$Result.GetResult<Prisma.$ConversationItemPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ConversationItem that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ConversationItemFindFirstOrThrowArgs} args - Arguments to find a ConversationItem
+     * @example
+     * // Get one ConversationItem
+     * const conversationItem = await prisma.conversationItem.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends ConversationItemFindFirstOrThrowArgs>(args?: SelectSubset<T, ConversationItemFindFirstOrThrowArgs<ExtArgs>>): Prisma__ConversationItemClient<$Result.GetResult<Prisma.$ConversationItemPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more ConversationItems that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ConversationItemFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all ConversationItems
+     * const conversationItems = await prisma.conversationItem.findMany()
+     * 
+     * // Get first 10 ConversationItems
+     * const conversationItems = await prisma.conversationItem.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const conversationItemWithIdOnly = await prisma.conversationItem.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends ConversationItemFindManyArgs>(args?: SelectSubset<T, ConversationItemFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ConversationItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a ConversationItem.
+     * @param {ConversationItemCreateArgs} args - Arguments to create a ConversationItem.
+     * @example
+     * // Create one ConversationItem
+     * const ConversationItem = await prisma.conversationItem.create({
+     *   data: {
+     *     // ... data to create a ConversationItem
+     *   }
+     * })
+     * 
+     */
+    create<T extends ConversationItemCreateArgs>(args: SelectSubset<T, ConversationItemCreateArgs<ExtArgs>>): Prisma__ConversationItemClient<$Result.GetResult<Prisma.$ConversationItemPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many ConversationItems.
+     * @param {ConversationItemCreateManyArgs} args - Arguments to create many ConversationItems.
+     * @example
+     * // Create many ConversationItems
+     * const conversationItem = await prisma.conversationItem.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends ConversationItemCreateManyArgs>(args?: SelectSubset<T, ConversationItemCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many ConversationItems and returns the data saved in the database.
+     * @param {ConversationItemCreateManyAndReturnArgs} args - Arguments to create many ConversationItems.
+     * @example
+     * // Create many ConversationItems
+     * const conversationItem = await prisma.conversationItem.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many ConversationItems and only return the `id`
+     * const conversationItemWithIdOnly = await prisma.conversationItem.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends ConversationItemCreateManyAndReturnArgs>(args?: SelectSubset<T, ConversationItemCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ConversationItemPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a ConversationItem.
+     * @param {ConversationItemDeleteArgs} args - Arguments to delete one ConversationItem.
+     * @example
+     * // Delete one ConversationItem
+     * const ConversationItem = await prisma.conversationItem.delete({
+     *   where: {
+     *     // ... filter to delete one ConversationItem
+     *   }
+     * })
+     * 
+     */
+    delete<T extends ConversationItemDeleteArgs>(args: SelectSubset<T, ConversationItemDeleteArgs<ExtArgs>>): Prisma__ConversationItemClient<$Result.GetResult<Prisma.$ConversationItemPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one ConversationItem.
+     * @param {ConversationItemUpdateArgs} args - Arguments to update one ConversationItem.
+     * @example
+     * // Update one ConversationItem
+     * const conversationItem = await prisma.conversationItem.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends ConversationItemUpdateArgs>(args: SelectSubset<T, ConversationItemUpdateArgs<ExtArgs>>): Prisma__ConversationItemClient<$Result.GetResult<Prisma.$ConversationItemPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more ConversationItems.
+     * @param {ConversationItemDeleteManyArgs} args - Arguments to filter ConversationItems to delete.
+     * @example
+     * // Delete a few ConversationItems
+     * const { count } = await prisma.conversationItem.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends ConversationItemDeleteManyArgs>(args?: SelectSubset<T, ConversationItemDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ConversationItems.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ConversationItemUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many ConversationItems
+     * const conversationItem = await prisma.conversationItem.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends ConversationItemUpdateManyArgs>(args: SelectSubset<T, ConversationItemUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ConversationItems and returns the data updated in the database.
+     * @param {ConversationItemUpdateManyAndReturnArgs} args - Arguments to update many ConversationItems.
+     * @example
+     * // Update many ConversationItems
+     * const conversationItem = await prisma.conversationItem.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more ConversationItems and only return the `id`
+     * const conversationItemWithIdOnly = await prisma.conversationItem.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends ConversationItemUpdateManyAndReturnArgs>(args: SelectSubset<T, ConversationItemUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ConversationItemPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one ConversationItem.
+     * @param {ConversationItemUpsertArgs} args - Arguments to update or create a ConversationItem.
+     * @example
+     * // Update or create a ConversationItem
+     * const conversationItem = await prisma.conversationItem.upsert({
+     *   create: {
+     *     // ... data to create a ConversationItem
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the ConversationItem we want to update
+     *   }
+     * })
+     */
+    upsert<T extends ConversationItemUpsertArgs>(args: SelectSubset<T, ConversationItemUpsertArgs<ExtArgs>>): Prisma__ConversationItemClient<$Result.GetResult<Prisma.$ConversationItemPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of ConversationItems.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ConversationItemCountArgs} args - Arguments to filter ConversationItems to count.
+     * @example
+     * // Count the number of ConversationItems
+     * const count = await prisma.conversationItem.count({
+     *   where: {
+     *     // ... the filter for the ConversationItems we want to count
+     *   }
+     * })
+    **/
+    count<T extends ConversationItemCountArgs>(
+      args?: Subset<T, ConversationItemCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], ConversationItemCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a ConversationItem.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ConversationItemAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends ConversationItemAggregateArgs>(args: Subset<T, ConversationItemAggregateArgs>): Prisma.PrismaPromise<GetConversationItemAggregateType<T>>
+
+    /**
+     * Group by ConversationItem.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ConversationItemGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends ConversationItemGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: ConversationItemGroupByArgs['orderBy'] }
+        : { orderBy?: ConversationItemGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, ConversationItemGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetConversationItemGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the ConversationItem model
+   */
+  readonly fields: ConversationItemFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for ConversationItem.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__ConversationItemClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the ConversationItem model
+   */
+  interface ConversationItemFieldRefs {
+    readonly id: FieldRef<"ConversationItem", 'BigInt'>
+    readonly conversation_id: FieldRef<"ConversationItem", 'BigInt'>
+    readonly session_key: FieldRef<"ConversationItem", 'String'>
+    readonly role: FieldRef<"ConversationItem", 'String'>
+    readonly phase: FieldRef<"ConversationItem", 'String'>
+    readonly content: FieldRef<"ConversationItem", 'String'>
+    readonly group_index: FieldRef<"ConversationItem", 'Int'>
+    readonly item_index: FieldRef<"ConversationItem", 'Int'>
+    readonly source: FieldRef<"ConversationItem", 'String'>
+    readonly delivery_message_id: FieldRef<"ConversationItem", 'BigInt'>
+    readonly run_id: FieldRef<"ConversationItem", 'String'>
+    readonly trace_id: FieldRef<"ConversationItem", 'String'>
+    readonly created_at: FieldRef<"ConversationItem", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * ConversationItem findUnique
+   */
+  export type ConversationItemFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ConversationItem
+     */
+    select?: ConversationItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ConversationItem
+     */
+    omit?: ConversationItemOmit<ExtArgs> | null
+    /**
+     * Filter, which ConversationItem to fetch.
+     */
+    where: ConversationItemWhereUniqueInput
+  }
+
+  /**
+   * ConversationItem findUniqueOrThrow
+   */
+  export type ConversationItemFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ConversationItem
+     */
+    select?: ConversationItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ConversationItem
+     */
+    omit?: ConversationItemOmit<ExtArgs> | null
+    /**
+     * Filter, which ConversationItem to fetch.
+     */
+    where: ConversationItemWhereUniqueInput
+  }
+
+  /**
+   * ConversationItem findFirst
+   */
+  export type ConversationItemFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ConversationItem
+     */
+    select?: ConversationItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ConversationItem
+     */
+    omit?: ConversationItemOmit<ExtArgs> | null
+    /**
+     * Filter, which ConversationItem to fetch.
+     */
+    where?: ConversationItemWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ConversationItems to fetch.
+     */
+    orderBy?: ConversationItemOrderByWithRelationInput | ConversationItemOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ConversationItems.
+     */
+    cursor?: ConversationItemWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ConversationItems from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ConversationItems.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ConversationItems.
+     */
+    distinct?: ConversationItemScalarFieldEnum | ConversationItemScalarFieldEnum[]
+  }
+
+  /**
+   * ConversationItem findFirstOrThrow
+   */
+  export type ConversationItemFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ConversationItem
+     */
+    select?: ConversationItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ConversationItem
+     */
+    omit?: ConversationItemOmit<ExtArgs> | null
+    /**
+     * Filter, which ConversationItem to fetch.
+     */
+    where?: ConversationItemWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ConversationItems to fetch.
+     */
+    orderBy?: ConversationItemOrderByWithRelationInput | ConversationItemOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ConversationItems.
+     */
+    cursor?: ConversationItemWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ConversationItems from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ConversationItems.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ConversationItems.
+     */
+    distinct?: ConversationItemScalarFieldEnum | ConversationItemScalarFieldEnum[]
+  }
+
+  /**
+   * ConversationItem findMany
+   */
+  export type ConversationItemFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ConversationItem
+     */
+    select?: ConversationItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ConversationItem
+     */
+    omit?: ConversationItemOmit<ExtArgs> | null
+    /**
+     * Filter, which ConversationItems to fetch.
+     */
+    where?: ConversationItemWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ConversationItems to fetch.
+     */
+    orderBy?: ConversationItemOrderByWithRelationInput | ConversationItemOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing ConversationItems.
+     */
+    cursor?: ConversationItemWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ConversationItems from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ConversationItems.
+     */
+    skip?: number
+    distinct?: ConversationItemScalarFieldEnum | ConversationItemScalarFieldEnum[]
+  }
+
+  /**
+   * ConversationItem create
+   */
+  export type ConversationItemCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ConversationItem
+     */
+    select?: ConversationItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ConversationItem
+     */
+    omit?: ConversationItemOmit<ExtArgs> | null
+    /**
+     * The data needed to create a ConversationItem.
+     */
+    data: XOR<ConversationItemCreateInput, ConversationItemUncheckedCreateInput>
+  }
+
+  /**
+   * ConversationItem createMany
+   */
+  export type ConversationItemCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many ConversationItems.
+     */
+    data: ConversationItemCreateManyInput | ConversationItemCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ConversationItem createManyAndReturn
+   */
+  export type ConversationItemCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ConversationItem
+     */
+    select?: ConversationItemSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ConversationItem
+     */
+    omit?: ConversationItemOmit<ExtArgs> | null
+    /**
+     * The data used to create many ConversationItems.
+     */
+    data: ConversationItemCreateManyInput | ConversationItemCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ConversationItem update
+   */
+  export type ConversationItemUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ConversationItem
+     */
+    select?: ConversationItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ConversationItem
+     */
+    omit?: ConversationItemOmit<ExtArgs> | null
+    /**
+     * The data needed to update a ConversationItem.
+     */
+    data: XOR<ConversationItemUpdateInput, ConversationItemUncheckedUpdateInput>
+    /**
+     * Choose, which ConversationItem to update.
+     */
+    where: ConversationItemWhereUniqueInput
+  }
+
+  /**
+   * ConversationItem updateMany
+   */
+  export type ConversationItemUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update ConversationItems.
+     */
+    data: XOR<ConversationItemUpdateManyMutationInput, ConversationItemUncheckedUpdateManyInput>
+    /**
+     * Filter which ConversationItems to update
+     */
+    where?: ConversationItemWhereInput
+    /**
+     * Limit how many ConversationItems to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ConversationItem updateManyAndReturn
+   */
+  export type ConversationItemUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ConversationItem
+     */
+    select?: ConversationItemSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ConversationItem
+     */
+    omit?: ConversationItemOmit<ExtArgs> | null
+    /**
+     * The data used to update ConversationItems.
+     */
+    data: XOR<ConversationItemUpdateManyMutationInput, ConversationItemUncheckedUpdateManyInput>
+    /**
+     * Filter which ConversationItems to update
+     */
+    where?: ConversationItemWhereInput
+    /**
+     * Limit how many ConversationItems to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ConversationItem upsert
+   */
+  export type ConversationItemUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ConversationItem
+     */
+    select?: ConversationItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ConversationItem
+     */
+    omit?: ConversationItemOmit<ExtArgs> | null
+    /**
+     * The filter to search for the ConversationItem to update in case it exists.
+     */
+    where: ConversationItemWhereUniqueInput
+    /**
+     * In case the ConversationItem found by the `where` argument doesn't exist, create a new ConversationItem with this data.
+     */
+    create: XOR<ConversationItemCreateInput, ConversationItemUncheckedCreateInput>
+    /**
+     * In case the ConversationItem was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<ConversationItemUpdateInput, ConversationItemUncheckedUpdateInput>
+  }
+
+  /**
+   * ConversationItem delete
+   */
+  export type ConversationItemDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ConversationItem
+     */
+    select?: ConversationItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ConversationItem
+     */
+    omit?: ConversationItemOmit<ExtArgs> | null
+    /**
+     * Filter which ConversationItem to delete.
+     */
+    where: ConversationItemWhereUniqueInput
+  }
+
+  /**
+   * ConversationItem deleteMany
+   */
+  export type ConversationItemDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ConversationItems to delete
+     */
+    where?: ConversationItemWhereInput
+    /**
+     * Limit how many ConversationItems to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * ConversationItem without action
+   */
+  export type ConversationItemDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ConversationItem
+     */
+    select?: ConversationItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ConversationItem
+     */
+    omit?: ConversationItemOmit<ExtArgs> | null
+  }
+
+
+  /**
    * Model TrafficReplayHistory
    */
 
@@ -7628,6 +9232,4640 @@ export namespace Prisma {
 
 
   /**
+   * Model RelationshipLedgerEvent
+   */
+
+  export type AggregateRelationshipLedgerEvent = {
+    _count: RelationshipLedgerEventCountAggregateOutputType | null
+    _avg: RelationshipLedgerEventAvgAggregateOutputType | null
+    _sum: RelationshipLedgerEventSumAggregateOutputType | null
+    _min: RelationshipLedgerEventMinAggregateOutputType | null
+    _max: RelationshipLedgerEventMaxAggregateOutputType | null
+  }
+
+  export type RelationshipLedgerEventAvgAggregateOutputType = {
+    id: number | null
+    group_id: number | null
+    target_user_id: number | null
+    event_weight: number | null
+  }
+
+  export type RelationshipLedgerEventSumAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    target_user_id: bigint | null
+    event_weight: number | null
+  }
+
+  export type RelationshipLedgerEventMinAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    target_user_id: bigint | null
+    session_key: string | null
+    event_type: string | null
+    event_weight: number | null
+    confidence: string | null
+    source_excerpt: string | null
+    created_at: Date | null
+    last_reinforced_at: Date | null
+  }
+
+  export type RelationshipLedgerEventMaxAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    target_user_id: bigint | null
+    session_key: string | null
+    event_type: string | null
+    event_weight: number | null
+    confidence: string | null
+    source_excerpt: string | null
+    created_at: Date | null
+    last_reinforced_at: Date | null
+  }
+
+  export type RelationshipLedgerEventCountAggregateOutputType = {
+    id: number
+    group_id: number
+    target_user_id: number
+    session_key: number
+    event_type: number
+    event_weight: number
+    confidence: number
+    source_message_ids: number
+    source_excerpt: number
+    metadata: number
+    created_at: number
+    last_reinforced_at: number
+    _all: number
+  }
+
+
+  export type RelationshipLedgerEventAvgAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    event_weight?: true
+  }
+
+  export type RelationshipLedgerEventSumAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    event_weight?: true
+  }
+
+  export type RelationshipLedgerEventMinAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    session_key?: true
+    event_type?: true
+    event_weight?: true
+    confidence?: true
+    source_excerpt?: true
+    created_at?: true
+    last_reinforced_at?: true
+  }
+
+  export type RelationshipLedgerEventMaxAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    session_key?: true
+    event_type?: true
+    event_weight?: true
+    confidence?: true
+    source_excerpt?: true
+    created_at?: true
+    last_reinforced_at?: true
+  }
+
+  export type RelationshipLedgerEventCountAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    session_key?: true
+    event_type?: true
+    event_weight?: true
+    confidence?: true
+    source_message_ids?: true
+    source_excerpt?: true
+    metadata?: true
+    created_at?: true
+    last_reinforced_at?: true
+    _all?: true
+  }
+
+  export type RelationshipLedgerEventAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which RelationshipLedgerEvent to aggregate.
+     */
+    where?: RelationshipLedgerEventWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipLedgerEvents to fetch.
+     */
+    orderBy?: RelationshipLedgerEventOrderByWithRelationInput | RelationshipLedgerEventOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: RelationshipLedgerEventWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipLedgerEvents from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipLedgerEvents.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned RelationshipLedgerEvents
+    **/
+    _count?: true | RelationshipLedgerEventCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: RelationshipLedgerEventAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: RelationshipLedgerEventSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: RelationshipLedgerEventMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: RelationshipLedgerEventMaxAggregateInputType
+  }
+
+  export type GetRelationshipLedgerEventAggregateType<T extends RelationshipLedgerEventAggregateArgs> = {
+        [P in keyof T & keyof AggregateRelationshipLedgerEvent]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateRelationshipLedgerEvent[P]>
+      : GetScalarType<T[P], AggregateRelationshipLedgerEvent[P]>
+  }
+
+
+
+
+  export type RelationshipLedgerEventGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: RelationshipLedgerEventWhereInput
+    orderBy?: RelationshipLedgerEventOrderByWithAggregationInput | RelationshipLedgerEventOrderByWithAggregationInput[]
+    by: RelationshipLedgerEventScalarFieldEnum[] | RelationshipLedgerEventScalarFieldEnum
+    having?: RelationshipLedgerEventScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: RelationshipLedgerEventCountAggregateInputType | true
+    _avg?: RelationshipLedgerEventAvgAggregateInputType
+    _sum?: RelationshipLedgerEventSumAggregateInputType
+    _min?: RelationshipLedgerEventMinAggregateInputType
+    _max?: RelationshipLedgerEventMaxAggregateInputType
+  }
+
+  export type RelationshipLedgerEventGroupByOutputType = {
+    id: bigint
+    group_id: bigint | null
+    target_user_id: bigint | null
+    session_key: string
+    event_type: string
+    event_weight: number
+    confidence: string
+    source_message_ids: JsonValue
+    source_excerpt: string | null
+    metadata: JsonValue | null
+    created_at: Date
+    last_reinforced_at: Date | null
+    _count: RelationshipLedgerEventCountAggregateOutputType | null
+    _avg: RelationshipLedgerEventAvgAggregateOutputType | null
+    _sum: RelationshipLedgerEventSumAggregateOutputType | null
+    _min: RelationshipLedgerEventMinAggregateOutputType | null
+    _max: RelationshipLedgerEventMaxAggregateOutputType | null
+  }
+
+  type GetRelationshipLedgerEventGroupByPayload<T extends RelationshipLedgerEventGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<RelationshipLedgerEventGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof RelationshipLedgerEventGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], RelationshipLedgerEventGroupByOutputType[P]>
+            : GetScalarType<T[P], RelationshipLedgerEventGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type RelationshipLedgerEventSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    session_key?: boolean
+    event_type?: boolean
+    event_weight?: boolean
+    confidence?: boolean
+    source_message_ids?: boolean
+    source_excerpt?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    last_reinforced_at?: boolean
+  }, ExtArgs["result"]["relationshipLedgerEvent"]>
+
+  export type RelationshipLedgerEventSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    session_key?: boolean
+    event_type?: boolean
+    event_weight?: boolean
+    confidence?: boolean
+    source_message_ids?: boolean
+    source_excerpt?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    last_reinforced_at?: boolean
+  }, ExtArgs["result"]["relationshipLedgerEvent"]>
+
+  export type RelationshipLedgerEventSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    session_key?: boolean
+    event_type?: boolean
+    event_weight?: boolean
+    confidence?: boolean
+    source_message_ids?: boolean
+    source_excerpt?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    last_reinforced_at?: boolean
+  }, ExtArgs["result"]["relationshipLedgerEvent"]>
+
+  export type RelationshipLedgerEventSelectScalar = {
+    id?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    session_key?: boolean
+    event_type?: boolean
+    event_weight?: boolean
+    confidence?: boolean
+    source_message_ids?: boolean
+    source_excerpt?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    last_reinforced_at?: boolean
+  }
+
+  export type RelationshipLedgerEventOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "group_id" | "target_user_id" | "session_key" | "event_type" | "event_weight" | "confidence" | "source_message_ids" | "source_excerpt" | "metadata" | "created_at" | "last_reinforced_at", ExtArgs["result"]["relationshipLedgerEvent"]>
+
+  export type $RelationshipLedgerEventPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "RelationshipLedgerEvent"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      group_id: bigint | null
+      target_user_id: bigint | null
+      session_key: string
+      event_type: string
+      event_weight: number
+      confidence: string
+      source_message_ids: Prisma.JsonValue
+      source_excerpt: string | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+      last_reinforced_at: Date | null
+    }, ExtArgs["result"]["relationshipLedgerEvent"]>
+    composites: {}
+  }
+
+  type RelationshipLedgerEventGetPayload<S extends boolean | null | undefined | RelationshipLedgerEventDefaultArgs> = $Result.GetResult<Prisma.$RelationshipLedgerEventPayload, S>
+
+  type RelationshipLedgerEventCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<RelationshipLedgerEventFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: RelationshipLedgerEventCountAggregateInputType | true
+    }
+
+  export interface RelationshipLedgerEventDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['RelationshipLedgerEvent'], meta: { name: 'RelationshipLedgerEvent' } }
+    /**
+     * Find zero or one RelationshipLedgerEvent that matches the filter.
+     * @param {RelationshipLedgerEventFindUniqueArgs} args - Arguments to find a RelationshipLedgerEvent
+     * @example
+     * // Get one RelationshipLedgerEvent
+     * const relationshipLedgerEvent = await prisma.relationshipLedgerEvent.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends RelationshipLedgerEventFindUniqueArgs>(args: SelectSubset<T, RelationshipLedgerEventFindUniqueArgs<ExtArgs>>): Prisma__RelationshipLedgerEventClient<$Result.GetResult<Prisma.$RelationshipLedgerEventPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one RelationshipLedgerEvent that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {RelationshipLedgerEventFindUniqueOrThrowArgs} args - Arguments to find a RelationshipLedgerEvent
+     * @example
+     * // Get one RelationshipLedgerEvent
+     * const relationshipLedgerEvent = await prisma.relationshipLedgerEvent.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends RelationshipLedgerEventFindUniqueOrThrowArgs>(args: SelectSubset<T, RelationshipLedgerEventFindUniqueOrThrowArgs<ExtArgs>>): Prisma__RelationshipLedgerEventClient<$Result.GetResult<Prisma.$RelationshipLedgerEventPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first RelationshipLedgerEvent that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipLedgerEventFindFirstArgs} args - Arguments to find a RelationshipLedgerEvent
+     * @example
+     * // Get one RelationshipLedgerEvent
+     * const relationshipLedgerEvent = await prisma.relationshipLedgerEvent.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends RelationshipLedgerEventFindFirstArgs>(args?: SelectSubset<T, RelationshipLedgerEventFindFirstArgs<ExtArgs>>): Prisma__RelationshipLedgerEventClient<$Result.GetResult<Prisma.$RelationshipLedgerEventPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first RelationshipLedgerEvent that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipLedgerEventFindFirstOrThrowArgs} args - Arguments to find a RelationshipLedgerEvent
+     * @example
+     * // Get one RelationshipLedgerEvent
+     * const relationshipLedgerEvent = await prisma.relationshipLedgerEvent.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends RelationshipLedgerEventFindFirstOrThrowArgs>(args?: SelectSubset<T, RelationshipLedgerEventFindFirstOrThrowArgs<ExtArgs>>): Prisma__RelationshipLedgerEventClient<$Result.GetResult<Prisma.$RelationshipLedgerEventPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more RelationshipLedgerEvents that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipLedgerEventFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all RelationshipLedgerEvents
+     * const relationshipLedgerEvents = await prisma.relationshipLedgerEvent.findMany()
+     * 
+     * // Get first 10 RelationshipLedgerEvents
+     * const relationshipLedgerEvents = await prisma.relationshipLedgerEvent.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const relationshipLedgerEventWithIdOnly = await prisma.relationshipLedgerEvent.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends RelationshipLedgerEventFindManyArgs>(args?: SelectSubset<T, RelationshipLedgerEventFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RelationshipLedgerEventPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a RelationshipLedgerEvent.
+     * @param {RelationshipLedgerEventCreateArgs} args - Arguments to create a RelationshipLedgerEvent.
+     * @example
+     * // Create one RelationshipLedgerEvent
+     * const RelationshipLedgerEvent = await prisma.relationshipLedgerEvent.create({
+     *   data: {
+     *     // ... data to create a RelationshipLedgerEvent
+     *   }
+     * })
+     * 
+     */
+    create<T extends RelationshipLedgerEventCreateArgs>(args: SelectSubset<T, RelationshipLedgerEventCreateArgs<ExtArgs>>): Prisma__RelationshipLedgerEventClient<$Result.GetResult<Prisma.$RelationshipLedgerEventPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many RelationshipLedgerEvents.
+     * @param {RelationshipLedgerEventCreateManyArgs} args - Arguments to create many RelationshipLedgerEvents.
+     * @example
+     * // Create many RelationshipLedgerEvents
+     * const relationshipLedgerEvent = await prisma.relationshipLedgerEvent.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends RelationshipLedgerEventCreateManyArgs>(args?: SelectSubset<T, RelationshipLedgerEventCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many RelationshipLedgerEvents and returns the data saved in the database.
+     * @param {RelationshipLedgerEventCreateManyAndReturnArgs} args - Arguments to create many RelationshipLedgerEvents.
+     * @example
+     * // Create many RelationshipLedgerEvents
+     * const relationshipLedgerEvent = await prisma.relationshipLedgerEvent.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many RelationshipLedgerEvents and only return the `id`
+     * const relationshipLedgerEventWithIdOnly = await prisma.relationshipLedgerEvent.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends RelationshipLedgerEventCreateManyAndReturnArgs>(args?: SelectSubset<T, RelationshipLedgerEventCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RelationshipLedgerEventPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a RelationshipLedgerEvent.
+     * @param {RelationshipLedgerEventDeleteArgs} args - Arguments to delete one RelationshipLedgerEvent.
+     * @example
+     * // Delete one RelationshipLedgerEvent
+     * const RelationshipLedgerEvent = await prisma.relationshipLedgerEvent.delete({
+     *   where: {
+     *     // ... filter to delete one RelationshipLedgerEvent
+     *   }
+     * })
+     * 
+     */
+    delete<T extends RelationshipLedgerEventDeleteArgs>(args: SelectSubset<T, RelationshipLedgerEventDeleteArgs<ExtArgs>>): Prisma__RelationshipLedgerEventClient<$Result.GetResult<Prisma.$RelationshipLedgerEventPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one RelationshipLedgerEvent.
+     * @param {RelationshipLedgerEventUpdateArgs} args - Arguments to update one RelationshipLedgerEvent.
+     * @example
+     * // Update one RelationshipLedgerEvent
+     * const relationshipLedgerEvent = await prisma.relationshipLedgerEvent.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends RelationshipLedgerEventUpdateArgs>(args: SelectSubset<T, RelationshipLedgerEventUpdateArgs<ExtArgs>>): Prisma__RelationshipLedgerEventClient<$Result.GetResult<Prisma.$RelationshipLedgerEventPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more RelationshipLedgerEvents.
+     * @param {RelationshipLedgerEventDeleteManyArgs} args - Arguments to filter RelationshipLedgerEvents to delete.
+     * @example
+     * // Delete a few RelationshipLedgerEvents
+     * const { count } = await prisma.relationshipLedgerEvent.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends RelationshipLedgerEventDeleteManyArgs>(args?: SelectSubset<T, RelationshipLedgerEventDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more RelationshipLedgerEvents.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipLedgerEventUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many RelationshipLedgerEvents
+     * const relationshipLedgerEvent = await prisma.relationshipLedgerEvent.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends RelationshipLedgerEventUpdateManyArgs>(args: SelectSubset<T, RelationshipLedgerEventUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more RelationshipLedgerEvents and returns the data updated in the database.
+     * @param {RelationshipLedgerEventUpdateManyAndReturnArgs} args - Arguments to update many RelationshipLedgerEvents.
+     * @example
+     * // Update many RelationshipLedgerEvents
+     * const relationshipLedgerEvent = await prisma.relationshipLedgerEvent.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more RelationshipLedgerEvents and only return the `id`
+     * const relationshipLedgerEventWithIdOnly = await prisma.relationshipLedgerEvent.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends RelationshipLedgerEventUpdateManyAndReturnArgs>(args: SelectSubset<T, RelationshipLedgerEventUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RelationshipLedgerEventPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one RelationshipLedgerEvent.
+     * @param {RelationshipLedgerEventUpsertArgs} args - Arguments to update or create a RelationshipLedgerEvent.
+     * @example
+     * // Update or create a RelationshipLedgerEvent
+     * const relationshipLedgerEvent = await prisma.relationshipLedgerEvent.upsert({
+     *   create: {
+     *     // ... data to create a RelationshipLedgerEvent
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the RelationshipLedgerEvent we want to update
+     *   }
+     * })
+     */
+    upsert<T extends RelationshipLedgerEventUpsertArgs>(args: SelectSubset<T, RelationshipLedgerEventUpsertArgs<ExtArgs>>): Prisma__RelationshipLedgerEventClient<$Result.GetResult<Prisma.$RelationshipLedgerEventPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of RelationshipLedgerEvents.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipLedgerEventCountArgs} args - Arguments to filter RelationshipLedgerEvents to count.
+     * @example
+     * // Count the number of RelationshipLedgerEvents
+     * const count = await prisma.relationshipLedgerEvent.count({
+     *   where: {
+     *     // ... the filter for the RelationshipLedgerEvents we want to count
+     *   }
+     * })
+    **/
+    count<T extends RelationshipLedgerEventCountArgs>(
+      args?: Subset<T, RelationshipLedgerEventCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], RelationshipLedgerEventCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a RelationshipLedgerEvent.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipLedgerEventAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends RelationshipLedgerEventAggregateArgs>(args: Subset<T, RelationshipLedgerEventAggregateArgs>): Prisma.PrismaPromise<GetRelationshipLedgerEventAggregateType<T>>
+
+    /**
+     * Group by RelationshipLedgerEvent.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipLedgerEventGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends RelationshipLedgerEventGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: RelationshipLedgerEventGroupByArgs['orderBy'] }
+        : { orderBy?: RelationshipLedgerEventGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, RelationshipLedgerEventGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetRelationshipLedgerEventGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the RelationshipLedgerEvent model
+   */
+  readonly fields: RelationshipLedgerEventFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for RelationshipLedgerEvent.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__RelationshipLedgerEventClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the RelationshipLedgerEvent model
+   */
+  interface RelationshipLedgerEventFieldRefs {
+    readonly id: FieldRef<"RelationshipLedgerEvent", 'BigInt'>
+    readonly group_id: FieldRef<"RelationshipLedgerEvent", 'BigInt'>
+    readonly target_user_id: FieldRef<"RelationshipLedgerEvent", 'BigInt'>
+    readonly session_key: FieldRef<"RelationshipLedgerEvent", 'String'>
+    readonly event_type: FieldRef<"RelationshipLedgerEvent", 'String'>
+    readonly event_weight: FieldRef<"RelationshipLedgerEvent", 'Float'>
+    readonly confidence: FieldRef<"RelationshipLedgerEvent", 'String'>
+    readonly source_message_ids: FieldRef<"RelationshipLedgerEvent", 'Json'>
+    readonly source_excerpt: FieldRef<"RelationshipLedgerEvent", 'String'>
+    readonly metadata: FieldRef<"RelationshipLedgerEvent", 'Json'>
+    readonly created_at: FieldRef<"RelationshipLedgerEvent", 'DateTime'>
+    readonly last_reinforced_at: FieldRef<"RelationshipLedgerEvent", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * RelationshipLedgerEvent findUnique
+   */
+  export type RelationshipLedgerEventFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipLedgerEvent
+     */
+    select?: RelationshipLedgerEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipLedgerEvent
+     */
+    omit?: RelationshipLedgerEventOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipLedgerEvent to fetch.
+     */
+    where: RelationshipLedgerEventWhereUniqueInput
+  }
+
+  /**
+   * RelationshipLedgerEvent findUniqueOrThrow
+   */
+  export type RelationshipLedgerEventFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipLedgerEvent
+     */
+    select?: RelationshipLedgerEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipLedgerEvent
+     */
+    omit?: RelationshipLedgerEventOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipLedgerEvent to fetch.
+     */
+    where: RelationshipLedgerEventWhereUniqueInput
+  }
+
+  /**
+   * RelationshipLedgerEvent findFirst
+   */
+  export type RelationshipLedgerEventFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipLedgerEvent
+     */
+    select?: RelationshipLedgerEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipLedgerEvent
+     */
+    omit?: RelationshipLedgerEventOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipLedgerEvent to fetch.
+     */
+    where?: RelationshipLedgerEventWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipLedgerEvents to fetch.
+     */
+    orderBy?: RelationshipLedgerEventOrderByWithRelationInput | RelationshipLedgerEventOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for RelationshipLedgerEvents.
+     */
+    cursor?: RelationshipLedgerEventWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipLedgerEvents from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipLedgerEvents.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of RelationshipLedgerEvents.
+     */
+    distinct?: RelationshipLedgerEventScalarFieldEnum | RelationshipLedgerEventScalarFieldEnum[]
+  }
+
+  /**
+   * RelationshipLedgerEvent findFirstOrThrow
+   */
+  export type RelationshipLedgerEventFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipLedgerEvent
+     */
+    select?: RelationshipLedgerEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipLedgerEvent
+     */
+    omit?: RelationshipLedgerEventOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipLedgerEvent to fetch.
+     */
+    where?: RelationshipLedgerEventWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipLedgerEvents to fetch.
+     */
+    orderBy?: RelationshipLedgerEventOrderByWithRelationInput | RelationshipLedgerEventOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for RelationshipLedgerEvents.
+     */
+    cursor?: RelationshipLedgerEventWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipLedgerEvents from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipLedgerEvents.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of RelationshipLedgerEvents.
+     */
+    distinct?: RelationshipLedgerEventScalarFieldEnum | RelationshipLedgerEventScalarFieldEnum[]
+  }
+
+  /**
+   * RelationshipLedgerEvent findMany
+   */
+  export type RelationshipLedgerEventFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipLedgerEvent
+     */
+    select?: RelationshipLedgerEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipLedgerEvent
+     */
+    omit?: RelationshipLedgerEventOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipLedgerEvents to fetch.
+     */
+    where?: RelationshipLedgerEventWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipLedgerEvents to fetch.
+     */
+    orderBy?: RelationshipLedgerEventOrderByWithRelationInput | RelationshipLedgerEventOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing RelationshipLedgerEvents.
+     */
+    cursor?: RelationshipLedgerEventWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipLedgerEvents from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipLedgerEvents.
+     */
+    skip?: number
+    distinct?: RelationshipLedgerEventScalarFieldEnum | RelationshipLedgerEventScalarFieldEnum[]
+  }
+
+  /**
+   * RelationshipLedgerEvent create
+   */
+  export type RelationshipLedgerEventCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipLedgerEvent
+     */
+    select?: RelationshipLedgerEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipLedgerEvent
+     */
+    omit?: RelationshipLedgerEventOmit<ExtArgs> | null
+    /**
+     * The data needed to create a RelationshipLedgerEvent.
+     */
+    data: XOR<RelationshipLedgerEventCreateInput, RelationshipLedgerEventUncheckedCreateInput>
+  }
+
+  /**
+   * RelationshipLedgerEvent createMany
+   */
+  export type RelationshipLedgerEventCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many RelationshipLedgerEvents.
+     */
+    data: RelationshipLedgerEventCreateManyInput | RelationshipLedgerEventCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * RelationshipLedgerEvent createManyAndReturn
+   */
+  export type RelationshipLedgerEventCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipLedgerEvent
+     */
+    select?: RelationshipLedgerEventSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipLedgerEvent
+     */
+    omit?: RelationshipLedgerEventOmit<ExtArgs> | null
+    /**
+     * The data used to create many RelationshipLedgerEvents.
+     */
+    data: RelationshipLedgerEventCreateManyInput | RelationshipLedgerEventCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * RelationshipLedgerEvent update
+   */
+  export type RelationshipLedgerEventUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipLedgerEvent
+     */
+    select?: RelationshipLedgerEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipLedgerEvent
+     */
+    omit?: RelationshipLedgerEventOmit<ExtArgs> | null
+    /**
+     * The data needed to update a RelationshipLedgerEvent.
+     */
+    data: XOR<RelationshipLedgerEventUpdateInput, RelationshipLedgerEventUncheckedUpdateInput>
+    /**
+     * Choose, which RelationshipLedgerEvent to update.
+     */
+    where: RelationshipLedgerEventWhereUniqueInput
+  }
+
+  /**
+   * RelationshipLedgerEvent updateMany
+   */
+  export type RelationshipLedgerEventUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update RelationshipLedgerEvents.
+     */
+    data: XOR<RelationshipLedgerEventUpdateManyMutationInput, RelationshipLedgerEventUncheckedUpdateManyInput>
+    /**
+     * Filter which RelationshipLedgerEvents to update
+     */
+    where?: RelationshipLedgerEventWhereInput
+    /**
+     * Limit how many RelationshipLedgerEvents to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * RelationshipLedgerEvent updateManyAndReturn
+   */
+  export type RelationshipLedgerEventUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipLedgerEvent
+     */
+    select?: RelationshipLedgerEventSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipLedgerEvent
+     */
+    omit?: RelationshipLedgerEventOmit<ExtArgs> | null
+    /**
+     * The data used to update RelationshipLedgerEvents.
+     */
+    data: XOR<RelationshipLedgerEventUpdateManyMutationInput, RelationshipLedgerEventUncheckedUpdateManyInput>
+    /**
+     * Filter which RelationshipLedgerEvents to update
+     */
+    where?: RelationshipLedgerEventWhereInput
+    /**
+     * Limit how many RelationshipLedgerEvents to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * RelationshipLedgerEvent upsert
+   */
+  export type RelationshipLedgerEventUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipLedgerEvent
+     */
+    select?: RelationshipLedgerEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipLedgerEvent
+     */
+    omit?: RelationshipLedgerEventOmit<ExtArgs> | null
+    /**
+     * The filter to search for the RelationshipLedgerEvent to update in case it exists.
+     */
+    where: RelationshipLedgerEventWhereUniqueInput
+    /**
+     * In case the RelationshipLedgerEvent found by the `where` argument doesn't exist, create a new RelationshipLedgerEvent with this data.
+     */
+    create: XOR<RelationshipLedgerEventCreateInput, RelationshipLedgerEventUncheckedCreateInput>
+    /**
+     * In case the RelationshipLedgerEvent was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<RelationshipLedgerEventUpdateInput, RelationshipLedgerEventUncheckedUpdateInput>
+  }
+
+  /**
+   * RelationshipLedgerEvent delete
+   */
+  export type RelationshipLedgerEventDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipLedgerEvent
+     */
+    select?: RelationshipLedgerEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipLedgerEvent
+     */
+    omit?: RelationshipLedgerEventOmit<ExtArgs> | null
+    /**
+     * Filter which RelationshipLedgerEvent to delete.
+     */
+    where: RelationshipLedgerEventWhereUniqueInput
+  }
+
+  /**
+   * RelationshipLedgerEvent deleteMany
+   */
+  export type RelationshipLedgerEventDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which RelationshipLedgerEvents to delete
+     */
+    where?: RelationshipLedgerEventWhereInput
+    /**
+     * Limit how many RelationshipLedgerEvents to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * RelationshipLedgerEvent without action
+   */
+  export type RelationshipLedgerEventDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipLedgerEvent
+     */
+    select?: RelationshipLedgerEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipLedgerEvent
+     */
+    omit?: RelationshipLedgerEventOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model RelationshipMemoryJob
+   */
+
+  export type AggregateRelationshipMemoryJob = {
+    _count: RelationshipMemoryJobCountAggregateOutputType | null
+    _avg: RelationshipMemoryJobAvgAggregateOutputType | null
+    _sum: RelationshipMemoryJobSumAggregateOutputType | null
+    _min: RelationshipMemoryJobMinAggregateOutputType | null
+    _max: RelationshipMemoryJobMaxAggregateOutputType | null
+  }
+
+  export type RelationshipMemoryJobAvgAggregateOutputType = {
+    id: number | null
+    group_id: number | null
+    turn_range_start: number | null
+    turn_range_end: number | null
+    ledger_event_count: number | null
+    output_card_version: number | null
+  }
+
+  export type RelationshipMemoryJobSumAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    turn_range_start: bigint | null
+    turn_range_end: bigint | null
+    ledger_event_count: number | null
+    output_card_version: number | null
+  }
+
+  export type RelationshipMemoryJobMinAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    session_key: string | null
+    status: string | null
+    trigger_reason: string | null
+    turn_range_start: bigint | null
+    turn_range_end: bigint | null
+    ledger_event_count: number | null
+    output_card_version: number | null
+    error_message: string | null
+    started_at: Date | null
+    finished_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type RelationshipMemoryJobMaxAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    session_key: string | null
+    status: string | null
+    trigger_reason: string | null
+    turn_range_start: bigint | null
+    turn_range_end: bigint | null
+    ledger_event_count: number | null
+    output_card_version: number | null
+    error_message: string | null
+    started_at: Date | null
+    finished_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type RelationshipMemoryJobCountAggregateOutputType = {
+    id: number
+    group_id: number
+    session_key: number
+    status: number
+    trigger_reason: number
+    turn_range_start: number
+    turn_range_end: number
+    ledger_event_count: number
+    input_message_ids: number
+    output_card_version: number
+    error_message: number
+    metadata: number
+    started_at: number
+    finished_at: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type RelationshipMemoryJobAvgAggregateInputType = {
+    id?: true
+    group_id?: true
+    turn_range_start?: true
+    turn_range_end?: true
+    ledger_event_count?: true
+    output_card_version?: true
+  }
+
+  export type RelationshipMemoryJobSumAggregateInputType = {
+    id?: true
+    group_id?: true
+    turn_range_start?: true
+    turn_range_end?: true
+    ledger_event_count?: true
+    output_card_version?: true
+  }
+
+  export type RelationshipMemoryJobMinAggregateInputType = {
+    id?: true
+    group_id?: true
+    session_key?: true
+    status?: true
+    trigger_reason?: true
+    turn_range_start?: true
+    turn_range_end?: true
+    ledger_event_count?: true
+    output_card_version?: true
+    error_message?: true
+    started_at?: true
+    finished_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type RelationshipMemoryJobMaxAggregateInputType = {
+    id?: true
+    group_id?: true
+    session_key?: true
+    status?: true
+    trigger_reason?: true
+    turn_range_start?: true
+    turn_range_end?: true
+    ledger_event_count?: true
+    output_card_version?: true
+    error_message?: true
+    started_at?: true
+    finished_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type RelationshipMemoryJobCountAggregateInputType = {
+    id?: true
+    group_id?: true
+    session_key?: true
+    status?: true
+    trigger_reason?: true
+    turn_range_start?: true
+    turn_range_end?: true
+    ledger_event_count?: true
+    input_message_ids?: true
+    output_card_version?: true
+    error_message?: true
+    metadata?: true
+    started_at?: true
+    finished_at?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type RelationshipMemoryJobAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which RelationshipMemoryJob to aggregate.
+     */
+    where?: RelationshipMemoryJobWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipMemoryJobs to fetch.
+     */
+    orderBy?: RelationshipMemoryJobOrderByWithRelationInput | RelationshipMemoryJobOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: RelationshipMemoryJobWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipMemoryJobs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipMemoryJobs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned RelationshipMemoryJobs
+    **/
+    _count?: true | RelationshipMemoryJobCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: RelationshipMemoryJobAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: RelationshipMemoryJobSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: RelationshipMemoryJobMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: RelationshipMemoryJobMaxAggregateInputType
+  }
+
+  export type GetRelationshipMemoryJobAggregateType<T extends RelationshipMemoryJobAggregateArgs> = {
+        [P in keyof T & keyof AggregateRelationshipMemoryJob]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateRelationshipMemoryJob[P]>
+      : GetScalarType<T[P], AggregateRelationshipMemoryJob[P]>
+  }
+
+
+
+
+  export type RelationshipMemoryJobGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: RelationshipMemoryJobWhereInput
+    orderBy?: RelationshipMemoryJobOrderByWithAggregationInput | RelationshipMemoryJobOrderByWithAggregationInput[]
+    by: RelationshipMemoryJobScalarFieldEnum[] | RelationshipMemoryJobScalarFieldEnum
+    having?: RelationshipMemoryJobScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: RelationshipMemoryJobCountAggregateInputType | true
+    _avg?: RelationshipMemoryJobAvgAggregateInputType
+    _sum?: RelationshipMemoryJobSumAggregateInputType
+    _min?: RelationshipMemoryJobMinAggregateInputType
+    _max?: RelationshipMemoryJobMaxAggregateInputType
+  }
+
+  export type RelationshipMemoryJobGroupByOutputType = {
+    id: bigint
+    group_id: bigint | null
+    session_key: string
+    status: string
+    trigger_reason: string
+    turn_range_start: bigint | null
+    turn_range_end: bigint | null
+    ledger_event_count: number
+    input_message_ids: JsonValue
+    output_card_version: number | null
+    error_message: string | null
+    metadata: JsonValue | null
+    started_at: Date | null
+    finished_at: Date | null
+    created_at: Date
+    updated_at: Date
+    _count: RelationshipMemoryJobCountAggregateOutputType | null
+    _avg: RelationshipMemoryJobAvgAggregateOutputType | null
+    _sum: RelationshipMemoryJobSumAggregateOutputType | null
+    _min: RelationshipMemoryJobMinAggregateOutputType | null
+    _max: RelationshipMemoryJobMaxAggregateOutputType | null
+  }
+
+  type GetRelationshipMemoryJobGroupByPayload<T extends RelationshipMemoryJobGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<RelationshipMemoryJobGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof RelationshipMemoryJobGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], RelationshipMemoryJobGroupByOutputType[P]>
+            : GetScalarType<T[P], RelationshipMemoryJobGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type RelationshipMemoryJobSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    group_id?: boolean
+    session_key?: boolean
+    status?: boolean
+    trigger_reason?: boolean
+    turn_range_start?: boolean
+    turn_range_end?: boolean
+    ledger_event_count?: boolean
+    input_message_ids?: boolean
+    output_card_version?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    finished_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["relationshipMemoryJob"]>
+
+  export type RelationshipMemoryJobSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    group_id?: boolean
+    session_key?: boolean
+    status?: boolean
+    trigger_reason?: boolean
+    turn_range_start?: boolean
+    turn_range_end?: boolean
+    ledger_event_count?: boolean
+    input_message_ids?: boolean
+    output_card_version?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    finished_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["relationshipMemoryJob"]>
+
+  export type RelationshipMemoryJobSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    group_id?: boolean
+    session_key?: boolean
+    status?: boolean
+    trigger_reason?: boolean
+    turn_range_start?: boolean
+    turn_range_end?: boolean
+    ledger_event_count?: boolean
+    input_message_ids?: boolean
+    output_card_version?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    finished_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["relationshipMemoryJob"]>
+
+  export type RelationshipMemoryJobSelectScalar = {
+    id?: boolean
+    group_id?: boolean
+    session_key?: boolean
+    status?: boolean
+    trigger_reason?: boolean
+    turn_range_start?: boolean
+    turn_range_end?: boolean
+    ledger_event_count?: boolean
+    input_message_ids?: boolean
+    output_card_version?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    finished_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type RelationshipMemoryJobOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "group_id" | "session_key" | "status" | "trigger_reason" | "turn_range_start" | "turn_range_end" | "ledger_event_count" | "input_message_ids" | "output_card_version" | "error_message" | "metadata" | "started_at" | "finished_at" | "created_at" | "updated_at", ExtArgs["result"]["relationshipMemoryJob"]>
+
+  export type $RelationshipMemoryJobPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "RelationshipMemoryJob"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      group_id: bigint | null
+      session_key: string
+      status: string
+      trigger_reason: string
+      turn_range_start: bigint | null
+      turn_range_end: bigint | null
+      ledger_event_count: number
+      input_message_ids: Prisma.JsonValue
+      output_card_version: number | null
+      error_message: string | null
+      metadata: Prisma.JsonValue | null
+      started_at: Date | null
+      finished_at: Date | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["relationshipMemoryJob"]>
+    composites: {}
+  }
+
+  type RelationshipMemoryJobGetPayload<S extends boolean | null | undefined | RelationshipMemoryJobDefaultArgs> = $Result.GetResult<Prisma.$RelationshipMemoryJobPayload, S>
+
+  type RelationshipMemoryJobCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<RelationshipMemoryJobFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: RelationshipMemoryJobCountAggregateInputType | true
+    }
+
+  export interface RelationshipMemoryJobDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['RelationshipMemoryJob'], meta: { name: 'RelationshipMemoryJob' } }
+    /**
+     * Find zero or one RelationshipMemoryJob that matches the filter.
+     * @param {RelationshipMemoryJobFindUniqueArgs} args - Arguments to find a RelationshipMemoryJob
+     * @example
+     * // Get one RelationshipMemoryJob
+     * const relationshipMemoryJob = await prisma.relationshipMemoryJob.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends RelationshipMemoryJobFindUniqueArgs>(args: SelectSubset<T, RelationshipMemoryJobFindUniqueArgs<ExtArgs>>): Prisma__RelationshipMemoryJobClient<$Result.GetResult<Prisma.$RelationshipMemoryJobPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one RelationshipMemoryJob that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {RelationshipMemoryJobFindUniqueOrThrowArgs} args - Arguments to find a RelationshipMemoryJob
+     * @example
+     * // Get one RelationshipMemoryJob
+     * const relationshipMemoryJob = await prisma.relationshipMemoryJob.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends RelationshipMemoryJobFindUniqueOrThrowArgs>(args: SelectSubset<T, RelationshipMemoryJobFindUniqueOrThrowArgs<ExtArgs>>): Prisma__RelationshipMemoryJobClient<$Result.GetResult<Prisma.$RelationshipMemoryJobPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first RelationshipMemoryJob that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryJobFindFirstArgs} args - Arguments to find a RelationshipMemoryJob
+     * @example
+     * // Get one RelationshipMemoryJob
+     * const relationshipMemoryJob = await prisma.relationshipMemoryJob.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends RelationshipMemoryJobFindFirstArgs>(args?: SelectSubset<T, RelationshipMemoryJobFindFirstArgs<ExtArgs>>): Prisma__RelationshipMemoryJobClient<$Result.GetResult<Prisma.$RelationshipMemoryJobPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first RelationshipMemoryJob that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryJobFindFirstOrThrowArgs} args - Arguments to find a RelationshipMemoryJob
+     * @example
+     * // Get one RelationshipMemoryJob
+     * const relationshipMemoryJob = await prisma.relationshipMemoryJob.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends RelationshipMemoryJobFindFirstOrThrowArgs>(args?: SelectSubset<T, RelationshipMemoryJobFindFirstOrThrowArgs<ExtArgs>>): Prisma__RelationshipMemoryJobClient<$Result.GetResult<Prisma.$RelationshipMemoryJobPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more RelationshipMemoryJobs that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryJobFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all RelationshipMemoryJobs
+     * const relationshipMemoryJobs = await prisma.relationshipMemoryJob.findMany()
+     * 
+     * // Get first 10 RelationshipMemoryJobs
+     * const relationshipMemoryJobs = await prisma.relationshipMemoryJob.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const relationshipMemoryJobWithIdOnly = await prisma.relationshipMemoryJob.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends RelationshipMemoryJobFindManyArgs>(args?: SelectSubset<T, RelationshipMemoryJobFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RelationshipMemoryJobPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a RelationshipMemoryJob.
+     * @param {RelationshipMemoryJobCreateArgs} args - Arguments to create a RelationshipMemoryJob.
+     * @example
+     * // Create one RelationshipMemoryJob
+     * const RelationshipMemoryJob = await prisma.relationshipMemoryJob.create({
+     *   data: {
+     *     // ... data to create a RelationshipMemoryJob
+     *   }
+     * })
+     * 
+     */
+    create<T extends RelationshipMemoryJobCreateArgs>(args: SelectSubset<T, RelationshipMemoryJobCreateArgs<ExtArgs>>): Prisma__RelationshipMemoryJobClient<$Result.GetResult<Prisma.$RelationshipMemoryJobPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many RelationshipMemoryJobs.
+     * @param {RelationshipMemoryJobCreateManyArgs} args - Arguments to create many RelationshipMemoryJobs.
+     * @example
+     * // Create many RelationshipMemoryJobs
+     * const relationshipMemoryJob = await prisma.relationshipMemoryJob.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends RelationshipMemoryJobCreateManyArgs>(args?: SelectSubset<T, RelationshipMemoryJobCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many RelationshipMemoryJobs and returns the data saved in the database.
+     * @param {RelationshipMemoryJobCreateManyAndReturnArgs} args - Arguments to create many RelationshipMemoryJobs.
+     * @example
+     * // Create many RelationshipMemoryJobs
+     * const relationshipMemoryJob = await prisma.relationshipMemoryJob.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many RelationshipMemoryJobs and only return the `id`
+     * const relationshipMemoryJobWithIdOnly = await prisma.relationshipMemoryJob.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends RelationshipMemoryJobCreateManyAndReturnArgs>(args?: SelectSubset<T, RelationshipMemoryJobCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RelationshipMemoryJobPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a RelationshipMemoryJob.
+     * @param {RelationshipMemoryJobDeleteArgs} args - Arguments to delete one RelationshipMemoryJob.
+     * @example
+     * // Delete one RelationshipMemoryJob
+     * const RelationshipMemoryJob = await prisma.relationshipMemoryJob.delete({
+     *   where: {
+     *     // ... filter to delete one RelationshipMemoryJob
+     *   }
+     * })
+     * 
+     */
+    delete<T extends RelationshipMemoryJobDeleteArgs>(args: SelectSubset<T, RelationshipMemoryJobDeleteArgs<ExtArgs>>): Prisma__RelationshipMemoryJobClient<$Result.GetResult<Prisma.$RelationshipMemoryJobPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one RelationshipMemoryJob.
+     * @param {RelationshipMemoryJobUpdateArgs} args - Arguments to update one RelationshipMemoryJob.
+     * @example
+     * // Update one RelationshipMemoryJob
+     * const relationshipMemoryJob = await prisma.relationshipMemoryJob.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends RelationshipMemoryJobUpdateArgs>(args: SelectSubset<T, RelationshipMemoryJobUpdateArgs<ExtArgs>>): Prisma__RelationshipMemoryJobClient<$Result.GetResult<Prisma.$RelationshipMemoryJobPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more RelationshipMemoryJobs.
+     * @param {RelationshipMemoryJobDeleteManyArgs} args - Arguments to filter RelationshipMemoryJobs to delete.
+     * @example
+     * // Delete a few RelationshipMemoryJobs
+     * const { count } = await prisma.relationshipMemoryJob.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends RelationshipMemoryJobDeleteManyArgs>(args?: SelectSubset<T, RelationshipMemoryJobDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more RelationshipMemoryJobs.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryJobUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many RelationshipMemoryJobs
+     * const relationshipMemoryJob = await prisma.relationshipMemoryJob.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends RelationshipMemoryJobUpdateManyArgs>(args: SelectSubset<T, RelationshipMemoryJobUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more RelationshipMemoryJobs and returns the data updated in the database.
+     * @param {RelationshipMemoryJobUpdateManyAndReturnArgs} args - Arguments to update many RelationshipMemoryJobs.
+     * @example
+     * // Update many RelationshipMemoryJobs
+     * const relationshipMemoryJob = await prisma.relationshipMemoryJob.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more RelationshipMemoryJobs and only return the `id`
+     * const relationshipMemoryJobWithIdOnly = await prisma.relationshipMemoryJob.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends RelationshipMemoryJobUpdateManyAndReturnArgs>(args: SelectSubset<T, RelationshipMemoryJobUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RelationshipMemoryJobPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one RelationshipMemoryJob.
+     * @param {RelationshipMemoryJobUpsertArgs} args - Arguments to update or create a RelationshipMemoryJob.
+     * @example
+     * // Update or create a RelationshipMemoryJob
+     * const relationshipMemoryJob = await prisma.relationshipMemoryJob.upsert({
+     *   create: {
+     *     // ... data to create a RelationshipMemoryJob
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the RelationshipMemoryJob we want to update
+     *   }
+     * })
+     */
+    upsert<T extends RelationshipMemoryJobUpsertArgs>(args: SelectSubset<T, RelationshipMemoryJobUpsertArgs<ExtArgs>>): Prisma__RelationshipMemoryJobClient<$Result.GetResult<Prisma.$RelationshipMemoryJobPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of RelationshipMemoryJobs.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryJobCountArgs} args - Arguments to filter RelationshipMemoryJobs to count.
+     * @example
+     * // Count the number of RelationshipMemoryJobs
+     * const count = await prisma.relationshipMemoryJob.count({
+     *   where: {
+     *     // ... the filter for the RelationshipMemoryJobs we want to count
+     *   }
+     * })
+    **/
+    count<T extends RelationshipMemoryJobCountArgs>(
+      args?: Subset<T, RelationshipMemoryJobCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], RelationshipMemoryJobCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a RelationshipMemoryJob.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryJobAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends RelationshipMemoryJobAggregateArgs>(args: Subset<T, RelationshipMemoryJobAggregateArgs>): Prisma.PrismaPromise<GetRelationshipMemoryJobAggregateType<T>>
+
+    /**
+     * Group by RelationshipMemoryJob.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryJobGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends RelationshipMemoryJobGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: RelationshipMemoryJobGroupByArgs['orderBy'] }
+        : { orderBy?: RelationshipMemoryJobGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, RelationshipMemoryJobGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetRelationshipMemoryJobGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the RelationshipMemoryJob model
+   */
+  readonly fields: RelationshipMemoryJobFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for RelationshipMemoryJob.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__RelationshipMemoryJobClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the RelationshipMemoryJob model
+   */
+  interface RelationshipMemoryJobFieldRefs {
+    readonly id: FieldRef<"RelationshipMemoryJob", 'BigInt'>
+    readonly group_id: FieldRef<"RelationshipMemoryJob", 'BigInt'>
+    readonly session_key: FieldRef<"RelationshipMemoryJob", 'String'>
+    readonly status: FieldRef<"RelationshipMemoryJob", 'String'>
+    readonly trigger_reason: FieldRef<"RelationshipMemoryJob", 'String'>
+    readonly turn_range_start: FieldRef<"RelationshipMemoryJob", 'BigInt'>
+    readonly turn_range_end: FieldRef<"RelationshipMemoryJob", 'BigInt'>
+    readonly ledger_event_count: FieldRef<"RelationshipMemoryJob", 'Int'>
+    readonly input_message_ids: FieldRef<"RelationshipMemoryJob", 'Json'>
+    readonly output_card_version: FieldRef<"RelationshipMemoryJob", 'Int'>
+    readonly error_message: FieldRef<"RelationshipMemoryJob", 'String'>
+    readonly metadata: FieldRef<"RelationshipMemoryJob", 'Json'>
+    readonly started_at: FieldRef<"RelationshipMemoryJob", 'DateTime'>
+    readonly finished_at: FieldRef<"RelationshipMemoryJob", 'DateTime'>
+    readonly created_at: FieldRef<"RelationshipMemoryJob", 'DateTime'>
+    readonly updated_at: FieldRef<"RelationshipMemoryJob", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * RelationshipMemoryJob findUnique
+   */
+  export type RelationshipMemoryJobFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryJob
+     */
+    select?: RelationshipMemoryJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryJob
+     */
+    omit?: RelationshipMemoryJobOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryJob to fetch.
+     */
+    where: RelationshipMemoryJobWhereUniqueInput
+  }
+
+  /**
+   * RelationshipMemoryJob findUniqueOrThrow
+   */
+  export type RelationshipMemoryJobFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryJob
+     */
+    select?: RelationshipMemoryJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryJob
+     */
+    omit?: RelationshipMemoryJobOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryJob to fetch.
+     */
+    where: RelationshipMemoryJobWhereUniqueInput
+  }
+
+  /**
+   * RelationshipMemoryJob findFirst
+   */
+  export type RelationshipMemoryJobFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryJob
+     */
+    select?: RelationshipMemoryJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryJob
+     */
+    omit?: RelationshipMemoryJobOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryJob to fetch.
+     */
+    where?: RelationshipMemoryJobWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipMemoryJobs to fetch.
+     */
+    orderBy?: RelationshipMemoryJobOrderByWithRelationInput | RelationshipMemoryJobOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for RelationshipMemoryJobs.
+     */
+    cursor?: RelationshipMemoryJobWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipMemoryJobs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipMemoryJobs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of RelationshipMemoryJobs.
+     */
+    distinct?: RelationshipMemoryJobScalarFieldEnum | RelationshipMemoryJobScalarFieldEnum[]
+  }
+
+  /**
+   * RelationshipMemoryJob findFirstOrThrow
+   */
+  export type RelationshipMemoryJobFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryJob
+     */
+    select?: RelationshipMemoryJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryJob
+     */
+    omit?: RelationshipMemoryJobOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryJob to fetch.
+     */
+    where?: RelationshipMemoryJobWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipMemoryJobs to fetch.
+     */
+    orderBy?: RelationshipMemoryJobOrderByWithRelationInput | RelationshipMemoryJobOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for RelationshipMemoryJobs.
+     */
+    cursor?: RelationshipMemoryJobWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipMemoryJobs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipMemoryJobs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of RelationshipMemoryJobs.
+     */
+    distinct?: RelationshipMemoryJobScalarFieldEnum | RelationshipMemoryJobScalarFieldEnum[]
+  }
+
+  /**
+   * RelationshipMemoryJob findMany
+   */
+  export type RelationshipMemoryJobFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryJob
+     */
+    select?: RelationshipMemoryJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryJob
+     */
+    omit?: RelationshipMemoryJobOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryJobs to fetch.
+     */
+    where?: RelationshipMemoryJobWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipMemoryJobs to fetch.
+     */
+    orderBy?: RelationshipMemoryJobOrderByWithRelationInput | RelationshipMemoryJobOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing RelationshipMemoryJobs.
+     */
+    cursor?: RelationshipMemoryJobWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipMemoryJobs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipMemoryJobs.
+     */
+    skip?: number
+    distinct?: RelationshipMemoryJobScalarFieldEnum | RelationshipMemoryJobScalarFieldEnum[]
+  }
+
+  /**
+   * RelationshipMemoryJob create
+   */
+  export type RelationshipMemoryJobCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryJob
+     */
+    select?: RelationshipMemoryJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryJob
+     */
+    omit?: RelationshipMemoryJobOmit<ExtArgs> | null
+    /**
+     * The data needed to create a RelationshipMemoryJob.
+     */
+    data: XOR<RelationshipMemoryJobCreateInput, RelationshipMemoryJobUncheckedCreateInput>
+  }
+
+  /**
+   * RelationshipMemoryJob createMany
+   */
+  export type RelationshipMemoryJobCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many RelationshipMemoryJobs.
+     */
+    data: RelationshipMemoryJobCreateManyInput | RelationshipMemoryJobCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * RelationshipMemoryJob createManyAndReturn
+   */
+  export type RelationshipMemoryJobCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryJob
+     */
+    select?: RelationshipMemoryJobSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryJob
+     */
+    omit?: RelationshipMemoryJobOmit<ExtArgs> | null
+    /**
+     * The data used to create many RelationshipMemoryJobs.
+     */
+    data: RelationshipMemoryJobCreateManyInput | RelationshipMemoryJobCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * RelationshipMemoryJob update
+   */
+  export type RelationshipMemoryJobUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryJob
+     */
+    select?: RelationshipMemoryJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryJob
+     */
+    omit?: RelationshipMemoryJobOmit<ExtArgs> | null
+    /**
+     * The data needed to update a RelationshipMemoryJob.
+     */
+    data: XOR<RelationshipMemoryJobUpdateInput, RelationshipMemoryJobUncheckedUpdateInput>
+    /**
+     * Choose, which RelationshipMemoryJob to update.
+     */
+    where: RelationshipMemoryJobWhereUniqueInput
+  }
+
+  /**
+   * RelationshipMemoryJob updateMany
+   */
+  export type RelationshipMemoryJobUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update RelationshipMemoryJobs.
+     */
+    data: XOR<RelationshipMemoryJobUpdateManyMutationInput, RelationshipMemoryJobUncheckedUpdateManyInput>
+    /**
+     * Filter which RelationshipMemoryJobs to update
+     */
+    where?: RelationshipMemoryJobWhereInput
+    /**
+     * Limit how many RelationshipMemoryJobs to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * RelationshipMemoryJob updateManyAndReturn
+   */
+  export type RelationshipMemoryJobUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryJob
+     */
+    select?: RelationshipMemoryJobSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryJob
+     */
+    omit?: RelationshipMemoryJobOmit<ExtArgs> | null
+    /**
+     * The data used to update RelationshipMemoryJobs.
+     */
+    data: XOR<RelationshipMemoryJobUpdateManyMutationInput, RelationshipMemoryJobUncheckedUpdateManyInput>
+    /**
+     * Filter which RelationshipMemoryJobs to update
+     */
+    where?: RelationshipMemoryJobWhereInput
+    /**
+     * Limit how many RelationshipMemoryJobs to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * RelationshipMemoryJob upsert
+   */
+  export type RelationshipMemoryJobUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryJob
+     */
+    select?: RelationshipMemoryJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryJob
+     */
+    omit?: RelationshipMemoryJobOmit<ExtArgs> | null
+    /**
+     * The filter to search for the RelationshipMemoryJob to update in case it exists.
+     */
+    where: RelationshipMemoryJobWhereUniqueInput
+    /**
+     * In case the RelationshipMemoryJob found by the `where` argument doesn't exist, create a new RelationshipMemoryJob with this data.
+     */
+    create: XOR<RelationshipMemoryJobCreateInput, RelationshipMemoryJobUncheckedCreateInput>
+    /**
+     * In case the RelationshipMemoryJob was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<RelationshipMemoryJobUpdateInput, RelationshipMemoryJobUncheckedUpdateInput>
+  }
+
+  /**
+   * RelationshipMemoryJob delete
+   */
+  export type RelationshipMemoryJobDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryJob
+     */
+    select?: RelationshipMemoryJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryJob
+     */
+    omit?: RelationshipMemoryJobOmit<ExtArgs> | null
+    /**
+     * Filter which RelationshipMemoryJob to delete.
+     */
+    where: RelationshipMemoryJobWhereUniqueInput
+  }
+
+  /**
+   * RelationshipMemoryJob deleteMany
+   */
+  export type RelationshipMemoryJobDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which RelationshipMemoryJobs to delete
+     */
+    where?: RelationshipMemoryJobWhereInput
+    /**
+     * Limit how many RelationshipMemoryJobs to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * RelationshipMemoryJob without action
+   */
+  export type RelationshipMemoryJobDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryJob
+     */
+    select?: RelationshipMemoryJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryJob
+     */
+    omit?: RelationshipMemoryJobOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model RelationshipMemoryCard
+   */
+
+  export type AggregateRelationshipMemoryCard = {
+    _count: RelationshipMemoryCardCountAggregateOutputType | null
+    _avg: RelationshipMemoryCardAvgAggregateOutputType | null
+    _sum: RelationshipMemoryCardSumAggregateOutputType | null
+    _min: RelationshipMemoryCardMinAggregateOutputType | null
+    _max: RelationshipMemoryCardMaxAggregateOutputType | null
+  }
+
+  export type RelationshipMemoryCardAvgAggregateOutputType = {
+    id: number | null
+    group_id: number | null
+    target_user_id: number | null
+    version: number | null
+    importance_score: number | null
+    freshness_score: number | null
+    decayed_score: number | null
+  }
+
+  export type RelationshipMemoryCardSumAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    target_user_id: bigint | null
+    version: number | null
+    importance_score: number | null
+    freshness_score: number | null
+    decayed_score: number | null
+  }
+
+  export type RelationshipMemoryCardMinAggregateOutputType = {
+    id: bigint | null
+    card_type: string | null
+    group_id: bigint | null
+    target_user_id: bigint | null
+    version: number | null
+    is_active: boolean | null
+    summary_text: string | null
+    context_before: string | null
+    trigger: string | null
+    interaction: string | null
+    outcome: string | null
+    importance_score: number | null
+    freshness_score: number | null
+    decayed_score: number | null
+    retrieval_text: string | null
+    embedding_text: string | null
+    last_hit_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type RelationshipMemoryCardMaxAggregateOutputType = {
+    id: bigint | null
+    card_type: string | null
+    group_id: bigint | null
+    target_user_id: bigint | null
+    version: number | null
+    is_active: boolean | null
+    summary_text: string | null
+    context_before: string | null
+    trigger: string | null
+    interaction: string | null
+    outcome: string | null
+    importance_score: number | null
+    freshness_score: number | null
+    decayed_score: number | null
+    retrieval_text: string | null
+    embedding_text: string | null
+    last_hit_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type RelationshipMemoryCardCountAggregateOutputType = {
+    id: number
+    card_type: number
+    group_id: number
+    target_user_id: number
+    version: number
+    is_active: number
+    summary_text: number
+    actors: number
+    context_before: number
+    trigger: number
+    interaction: number
+    outcome: number
+    source_event_ids: number
+    source_message_ids: number
+    importance_score: number
+    freshness_score: number
+    decayed_score: number
+    retrieval_text: number
+    embedding_text: number
+    last_hit_at: number
+    metadata: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type RelationshipMemoryCardAvgAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    version?: true
+    importance_score?: true
+    freshness_score?: true
+    decayed_score?: true
+  }
+
+  export type RelationshipMemoryCardSumAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    version?: true
+    importance_score?: true
+    freshness_score?: true
+    decayed_score?: true
+  }
+
+  export type RelationshipMemoryCardMinAggregateInputType = {
+    id?: true
+    card_type?: true
+    group_id?: true
+    target_user_id?: true
+    version?: true
+    is_active?: true
+    summary_text?: true
+    context_before?: true
+    trigger?: true
+    interaction?: true
+    outcome?: true
+    importance_score?: true
+    freshness_score?: true
+    decayed_score?: true
+    retrieval_text?: true
+    embedding_text?: true
+    last_hit_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type RelationshipMemoryCardMaxAggregateInputType = {
+    id?: true
+    card_type?: true
+    group_id?: true
+    target_user_id?: true
+    version?: true
+    is_active?: true
+    summary_text?: true
+    context_before?: true
+    trigger?: true
+    interaction?: true
+    outcome?: true
+    importance_score?: true
+    freshness_score?: true
+    decayed_score?: true
+    retrieval_text?: true
+    embedding_text?: true
+    last_hit_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type RelationshipMemoryCardCountAggregateInputType = {
+    id?: true
+    card_type?: true
+    group_id?: true
+    target_user_id?: true
+    version?: true
+    is_active?: true
+    summary_text?: true
+    actors?: true
+    context_before?: true
+    trigger?: true
+    interaction?: true
+    outcome?: true
+    source_event_ids?: true
+    source_message_ids?: true
+    importance_score?: true
+    freshness_score?: true
+    decayed_score?: true
+    retrieval_text?: true
+    embedding_text?: true
+    last_hit_at?: true
+    metadata?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type RelationshipMemoryCardAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which RelationshipMemoryCard to aggregate.
+     */
+    where?: RelationshipMemoryCardWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipMemoryCards to fetch.
+     */
+    orderBy?: RelationshipMemoryCardOrderByWithRelationInput | RelationshipMemoryCardOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: RelationshipMemoryCardWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipMemoryCards from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipMemoryCards.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned RelationshipMemoryCards
+    **/
+    _count?: true | RelationshipMemoryCardCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: RelationshipMemoryCardAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: RelationshipMemoryCardSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: RelationshipMemoryCardMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: RelationshipMemoryCardMaxAggregateInputType
+  }
+
+  export type GetRelationshipMemoryCardAggregateType<T extends RelationshipMemoryCardAggregateArgs> = {
+        [P in keyof T & keyof AggregateRelationshipMemoryCard]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateRelationshipMemoryCard[P]>
+      : GetScalarType<T[P], AggregateRelationshipMemoryCard[P]>
+  }
+
+
+
+
+  export type RelationshipMemoryCardGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: RelationshipMemoryCardWhereInput
+    orderBy?: RelationshipMemoryCardOrderByWithAggregationInput | RelationshipMemoryCardOrderByWithAggregationInput[]
+    by: RelationshipMemoryCardScalarFieldEnum[] | RelationshipMemoryCardScalarFieldEnum
+    having?: RelationshipMemoryCardScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: RelationshipMemoryCardCountAggregateInputType | true
+    _avg?: RelationshipMemoryCardAvgAggregateInputType
+    _sum?: RelationshipMemoryCardSumAggregateInputType
+    _min?: RelationshipMemoryCardMinAggregateInputType
+    _max?: RelationshipMemoryCardMaxAggregateInputType
+  }
+
+  export type RelationshipMemoryCardGroupByOutputType = {
+    id: bigint
+    card_type: string
+    group_id: bigint | null
+    target_user_id: bigint | null
+    version: number
+    is_active: boolean
+    summary_text: string
+    actors: JsonValue
+    context_before: string | null
+    trigger: string | null
+    interaction: string | null
+    outcome: string | null
+    source_event_ids: JsonValue
+    source_message_ids: JsonValue
+    importance_score: number
+    freshness_score: number
+    decayed_score: number
+    retrieval_text: string | null
+    embedding_text: string | null
+    last_hit_at: Date | null
+    metadata: JsonValue | null
+    created_at: Date
+    updated_at: Date
+    _count: RelationshipMemoryCardCountAggregateOutputType | null
+    _avg: RelationshipMemoryCardAvgAggregateOutputType | null
+    _sum: RelationshipMemoryCardSumAggregateOutputType | null
+    _min: RelationshipMemoryCardMinAggregateOutputType | null
+    _max: RelationshipMemoryCardMaxAggregateOutputType | null
+  }
+
+  type GetRelationshipMemoryCardGroupByPayload<T extends RelationshipMemoryCardGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<RelationshipMemoryCardGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof RelationshipMemoryCardGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], RelationshipMemoryCardGroupByOutputType[P]>
+            : GetScalarType<T[P], RelationshipMemoryCardGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type RelationshipMemoryCardSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    card_type?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    version?: boolean
+    is_active?: boolean
+    summary_text?: boolean
+    actors?: boolean
+    context_before?: boolean
+    trigger?: boolean
+    interaction?: boolean
+    outcome?: boolean
+    source_event_ids?: boolean
+    source_message_ids?: boolean
+    importance_score?: boolean
+    freshness_score?: boolean
+    decayed_score?: boolean
+    retrieval_text?: boolean
+    embedding_text?: boolean
+    last_hit_at?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["relationshipMemoryCard"]>
+
+  export type RelationshipMemoryCardSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    card_type?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    version?: boolean
+    is_active?: boolean
+    summary_text?: boolean
+    actors?: boolean
+    context_before?: boolean
+    trigger?: boolean
+    interaction?: boolean
+    outcome?: boolean
+    source_event_ids?: boolean
+    source_message_ids?: boolean
+    importance_score?: boolean
+    freshness_score?: boolean
+    decayed_score?: boolean
+    retrieval_text?: boolean
+    embedding_text?: boolean
+    last_hit_at?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["relationshipMemoryCard"]>
+
+  export type RelationshipMemoryCardSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    card_type?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    version?: boolean
+    is_active?: boolean
+    summary_text?: boolean
+    actors?: boolean
+    context_before?: boolean
+    trigger?: boolean
+    interaction?: boolean
+    outcome?: boolean
+    source_event_ids?: boolean
+    source_message_ids?: boolean
+    importance_score?: boolean
+    freshness_score?: boolean
+    decayed_score?: boolean
+    retrieval_text?: boolean
+    embedding_text?: boolean
+    last_hit_at?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["relationshipMemoryCard"]>
+
+  export type RelationshipMemoryCardSelectScalar = {
+    id?: boolean
+    card_type?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    version?: boolean
+    is_active?: boolean
+    summary_text?: boolean
+    actors?: boolean
+    context_before?: boolean
+    trigger?: boolean
+    interaction?: boolean
+    outcome?: boolean
+    source_event_ids?: boolean
+    source_message_ids?: boolean
+    importance_score?: boolean
+    freshness_score?: boolean
+    decayed_score?: boolean
+    retrieval_text?: boolean
+    embedding_text?: boolean
+    last_hit_at?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type RelationshipMemoryCardOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "card_type" | "group_id" | "target_user_id" | "version" | "is_active" | "summary_text" | "actors" | "context_before" | "trigger" | "interaction" | "outcome" | "source_event_ids" | "source_message_ids" | "importance_score" | "freshness_score" | "decayed_score" | "retrieval_text" | "embedding_text" | "last_hit_at" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["relationshipMemoryCard"]>
+
+  export type $RelationshipMemoryCardPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "RelationshipMemoryCard"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      card_type: string
+      group_id: bigint | null
+      target_user_id: bigint | null
+      version: number
+      is_active: boolean
+      summary_text: string
+      actors: Prisma.JsonValue
+      context_before: string | null
+      trigger: string | null
+      interaction: string | null
+      outcome: string | null
+      source_event_ids: Prisma.JsonValue
+      source_message_ids: Prisma.JsonValue
+      importance_score: number
+      freshness_score: number
+      decayed_score: number
+      retrieval_text: string | null
+      embedding_text: string | null
+      last_hit_at: Date | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["relationshipMemoryCard"]>
+    composites: {}
+  }
+
+  type RelationshipMemoryCardGetPayload<S extends boolean | null | undefined | RelationshipMemoryCardDefaultArgs> = $Result.GetResult<Prisma.$RelationshipMemoryCardPayload, S>
+
+  type RelationshipMemoryCardCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<RelationshipMemoryCardFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: RelationshipMemoryCardCountAggregateInputType | true
+    }
+
+  export interface RelationshipMemoryCardDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['RelationshipMemoryCard'], meta: { name: 'RelationshipMemoryCard' } }
+    /**
+     * Find zero or one RelationshipMemoryCard that matches the filter.
+     * @param {RelationshipMemoryCardFindUniqueArgs} args - Arguments to find a RelationshipMemoryCard
+     * @example
+     * // Get one RelationshipMemoryCard
+     * const relationshipMemoryCard = await prisma.relationshipMemoryCard.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends RelationshipMemoryCardFindUniqueArgs>(args: SelectSubset<T, RelationshipMemoryCardFindUniqueArgs<ExtArgs>>): Prisma__RelationshipMemoryCardClient<$Result.GetResult<Prisma.$RelationshipMemoryCardPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one RelationshipMemoryCard that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {RelationshipMemoryCardFindUniqueOrThrowArgs} args - Arguments to find a RelationshipMemoryCard
+     * @example
+     * // Get one RelationshipMemoryCard
+     * const relationshipMemoryCard = await prisma.relationshipMemoryCard.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends RelationshipMemoryCardFindUniqueOrThrowArgs>(args: SelectSubset<T, RelationshipMemoryCardFindUniqueOrThrowArgs<ExtArgs>>): Prisma__RelationshipMemoryCardClient<$Result.GetResult<Prisma.$RelationshipMemoryCardPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first RelationshipMemoryCard that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryCardFindFirstArgs} args - Arguments to find a RelationshipMemoryCard
+     * @example
+     * // Get one RelationshipMemoryCard
+     * const relationshipMemoryCard = await prisma.relationshipMemoryCard.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends RelationshipMemoryCardFindFirstArgs>(args?: SelectSubset<T, RelationshipMemoryCardFindFirstArgs<ExtArgs>>): Prisma__RelationshipMemoryCardClient<$Result.GetResult<Prisma.$RelationshipMemoryCardPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first RelationshipMemoryCard that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryCardFindFirstOrThrowArgs} args - Arguments to find a RelationshipMemoryCard
+     * @example
+     * // Get one RelationshipMemoryCard
+     * const relationshipMemoryCard = await prisma.relationshipMemoryCard.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends RelationshipMemoryCardFindFirstOrThrowArgs>(args?: SelectSubset<T, RelationshipMemoryCardFindFirstOrThrowArgs<ExtArgs>>): Prisma__RelationshipMemoryCardClient<$Result.GetResult<Prisma.$RelationshipMemoryCardPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more RelationshipMemoryCards that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryCardFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all RelationshipMemoryCards
+     * const relationshipMemoryCards = await prisma.relationshipMemoryCard.findMany()
+     * 
+     * // Get first 10 RelationshipMemoryCards
+     * const relationshipMemoryCards = await prisma.relationshipMemoryCard.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const relationshipMemoryCardWithIdOnly = await prisma.relationshipMemoryCard.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends RelationshipMemoryCardFindManyArgs>(args?: SelectSubset<T, RelationshipMemoryCardFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RelationshipMemoryCardPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a RelationshipMemoryCard.
+     * @param {RelationshipMemoryCardCreateArgs} args - Arguments to create a RelationshipMemoryCard.
+     * @example
+     * // Create one RelationshipMemoryCard
+     * const RelationshipMemoryCard = await prisma.relationshipMemoryCard.create({
+     *   data: {
+     *     // ... data to create a RelationshipMemoryCard
+     *   }
+     * })
+     * 
+     */
+    create<T extends RelationshipMemoryCardCreateArgs>(args: SelectSubset<T, RelationshipMemoryCardCreateArgs<ExtArgs>>): Prisma__RelationshipMemoryCardClient<$Result.GetResult<Prisma.$RelationshipMemoryCardPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many RelationshipMemoryCards.
+     * @param {RelationshipMemoryCardCreateManyArgs} args - Arguments to create many RelationshipMemoryCards.
+     * @example
+     * // Create many RelationshipMemoryCards
+     * const relationshipMemoryCard = await prisma.relationshipMemoryCard.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends RelationshipMemoryCardCreateManyArgs>(args?: SelectSubset<T, RelationshipMemoryCardCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many RelationshipMemoryCards and returns the data saved in the database.
+     * @param {RelationshipMemoryCardCreateManyAndReturnArgs} args - Arguments to create many RelationshipMemoryCards.
+     * @example
+     * // Create many RelationshipMemoryCards
+     * const relationshipMemoryCard = await prisma.relationshipMemoryCard.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many RelationshipMemoryCards and only return the `id`
+     * const relationshipMemoryCardWithIdOnly = await prisma.relationshipMemoryCard.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends RelationshipMemoryCardCreateManyAndReturnArgs>(args?: SelectSubset<T, RelationshipMemoryCardCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RelationshipMemoryCardPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a RelationshipMemoryCard.
+     * @param {RelationshipMemoryCardDeleteArgs} args - Arguments to delete one RelationshipMemoryCard.
+     * @example
+     * // Delete one RelationshipMemoryCard
+     * const RelationshipMemoryCard = await prisma.relationshipMemoryCard.delete({
+     *   where: {
+     *     // ... filter to delete one RelationshipMemoryCard
+     *   }
+     * })
+     * 
+     */
+    delete<T extends RelationshipMemoryCardDeleteArgs>(args: SelectSubset<T, RelationshipMemoryCardDeleteArgs<ExtArgs>>): Prisma__RelationshipMemoryCardClient<$Result.GetResult<Prisma.$RelationshipMemoryCardPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one RelationshipMemoryCard.
+     * @param {RelationshipMemoryCardUpdateArgs} args - Arguments to update one RelationshipMemoryCard.
+     * @example
+     * // Update one RelationshipMemoryCard
+     * const relationshipMemoryCard = await prisma.relationshipMemoryCard.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends RelationshipMemoryCardUpdateArgs>(args: SelectSubset<T, RelationshipMemoryCardUpdateArgs<ExtArgs>>): Prisma__RelationshipMemoryCardClient<$Result.GetResult<Prisma.$RelationshipMemoryCardPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more RelationshipMemoryCards.
+     * @param {RelationshipMemoryCardDeleteManyArgs} args - Arguments to filter RelationshipMemoryCards to delete.
+     * @example
+     * // Delete a few RelationshipMemoryCards
+     * const { count } = await prisma.relationshipMemoryCard.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends RelationshipMemoryCardDeleteManyArgs>(args?: SelectSubset<T, RelationshipMemoryCardDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more RelationshipMemoryCards.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryCardUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many RelationshipMemoryCards
+     * const relationshipMemoryCard = await prisma.relationshipMemoryCard.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends RelationshipMemoryCardUpdateManyArgs>(args: SelectSubset<T, RelationshipMemoryCardUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more RelationshipMemoryCards and returns the data updated in the database.
+     * @param {RelationshipMemoryCardUpdateManyAndReturnArgs} args - Arguments to update many RelationshipMemoryCards.
+     * @example
+     * // Update many RelationshipMemoryCards
+     * const relationshipMemoryCard = await prisma.relationshipMemoryCard.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more RelationshipMemoryCards and only return the `id`
+     * const relationshipMemoryCardWithIdOnly = await prisma.relationshipMemoryCard.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends RelationshipMemoryCardUpdateManyAndReturnArgs>(args: SelectSubset<T, RelationshipMemoryCardUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RelationshipMemoryCardPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one RelationshipMemoryCard.
+     * @param {RelationshipMemoryCardUpsertArgs} args - Arguments to update or create a RelationshipMemoryCard.
+     * @example
+     * // Update or create a RelationshipMemoryCard
+     * const relationshipMemoryCard = await prisma.relationshipMemoryCard.upsert({
+     *   create: {
+     *     // ... data to create a RelationshipMemoryCard
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the RelationshipMemoryCard we want to update
+     *   }
+     * })
+     */
+    upsert<T extends RelationshipMemoryCardUpsertArgs>(args: SelectSubset<T, RelationshipMemoryCardUpsertArgs<ExtArgs>>): Prisma__RelationshipMemoryCardClient<$Result.GetResult<Prisma.$RelationshipMemoryCardPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of RelationshipMemoryCards.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryCardCountArgs} args - Arguments to filter RelationshipMemoryCards to count.
+     * @example
+     * // Count the number of RelationshipMemoryCards
+     * const count = await prisma.relationshipMemoryCard.count({
+     *   where: {
+     *     // ... the filter for the RelationshipMemoryCards we want to count
+     *   }
+     * })
+    **/
+    count<T extends RelationshipMemoryCardCountArgs>(
+      args?: Subset<T, RelationshipMemoryCardCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], RelationshipMemoryCardCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a RelationshipMemoryCard.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryCardAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends RelationshipMemoryCardAggregateArgs>(args: Subset<T, RelationshipMemoryCardAggregateArgs>): Prisma.PrismaPromise<GetRelationshipMemoryCardAggregateType<T>>
+
+    /**
+     * Group by RelationshipMemoryCard.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryCardGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends RelationshipMemoryCardGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: RelationshipMemoryCardGroupByArgs['orderBy'] }
+        : { orderBy?: RelationshipMemoryCardGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, RelationshipMemoryCardGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetRelationshipMemoryCardGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the RelationshipMemoryCard model
+   */
+  readonly fields: RelationshipMemoryCardFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for RelationshipMemoryCard.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__RelationshipMemoryCardClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the RelationshipMemoryCard model
+   */
+  interface RelationshipMemoryCardFieldRefs {
+    readonly id: FieldRef<"RelationshipMemoryCard", 'BigInt'>
+    readonly card_type: FieldRef<"RelationshipMemoryCard", 'String'>
+    readonly group_id: FieldRef<"RelationshipMemoryCard", 'BigInt'>
+    readonly target_user_id: FieldRef<"RelationshipMemoryCard", 'BigInt'>
+    readonly version: FieldRef<"RelationshipMemoryCard", 'Int'>
+    readonly is_active: FieldRef<"RelationshipMemoryCard", 'Boolean'>
+    readonly summary_text: FieldRef<"RelationshipMemoryCard", 'String'>
+    readonly actors: FieldRef<"RelationshipMemoryCard", 'Json'>
+    readonly context_before: FieldRef<"RelationshipMemoryCard", 'String'>
+    readonly trigger: FieldRef<"RelationshipMemoryCard", 'String'>
+    readonly interaction: FieldRef<"RelationshipMemoryCard", 'String'>
+    readonly outcome: FieldRef<"RelationshipMemoryCard", 'String'>
+    readonly source_event_ids: FieldRef<"RelationshipMemoryCard", 'Json'>
+    readonly source_message_ids: FieldRef<"RelationshipMemoryCard", 'Json'>
+    readonly importance_score: FieldRef<"RelationshipMemoryCard", 'Float'>
+    readonly freshness_score: FieldRef<"RelationshipMemoryCard", 'Float'>
+    readonly decayed_score: FieldRef<"RelationshipMemoryCard", 'Float'>
+    readonly retrieval_text: FieldRef<"RelationshipMemoryCard", 'String'>
+    readonly embedding_text: FieldRef<"RelationshipMemoryCard", 'String'>
+    readonly last_hit_at: FieldRef<"RelationshipMemoryCard", 'DateTime'>
+    readonly metadata: FieldRef<"RelationshipMemoryCard", 'Json'>
+    readonly created_at: FieldRef<"RelationshipMemoryCard", 'DateTime'>
+    readonly updated_at: FieldRef<"RelationshipMemoryCard", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * RelationshipMemoryCard findUnique
+   */
+  export type RelationshipMemoryCardFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryCard
+     */
+    select?: RelationshipMemoryCardSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryCard
+     */
+    omit?: RelationshipMemoryCardOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryCard to fetch.
+     */
+    where: RelationshipMemoryCardWhereUniqueInput
+  }
+
+  /**
+   * RelationshipMemoryCard findUniqueOrThrow
+   */
+  export type RelationshipMemoryCardFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryCard
+     */
+    select?: RelationshipMemoryCardSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryCard
+     */
+    omit?: RelationshipMemoryCardOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryCard to fetch.
+     */
+    where: RelationshipMemoryCardWhereUniqueInput
+  }
+
+  /**
+   * RelationshipMemoryCard findFirst
+   */
+  export type RelationshipMemoryCardFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryCard
+     */
+    select?: RelationshipMemoryCardSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryCard
+     */
+    omit?: RelationshipMemoryCardOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryCard to fetch.
+     */
+    where?: RelationshipMemoryCardWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipMemoryCards to fetch.
+     */
+    orderBy?: RelationshipMemoryCardOrderByWithRelationInput | RelationshipMemoryCardOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for RelationshipMemoryCards.
+     */
+    cursor?: RelationshipMemoryCardWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipMemoryCards from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipMemoryCards.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of RelationshipMemoryCards.
+     */
+    distinct?: RelationshipMemoryCardScalarFieldEnum | RelationshipMemoryCardScalarFieldEnum[]
+  }
+
+  /**
+   * RelationshipMemoryCard findFirstOrThrow
+   */
+  export type RelationshipMemoryCardFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryCard
+     */
+    select?: RelationshipMemoryCardSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryCard
+     */
+    omit?: RelationshipMemoryCardOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryCard to fetch.
+     */
+    where?: RelationshipMemoryCardWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipMemoryCards to fetch.
+     */
+    orderBy?: RelationshipMemoryCardOrderByWithRelationInput | RelationshipMemoryCardOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for RelationshipMemoryCards.
+     */
+    cursor?: RelationshipMemoryCardWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipMemoryCards from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipMemoryCards.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of RelationshipMemoryCards.
+     */
+    distinct?: RelationshipMemoryCardScalarFieldEnum | RelationshipMemoryCardScalarFieldEnum[]
+  }
+
+  /**
+   * RelationshipMemoryCard findMany
+   */
+  export type RelationshipMemoryCardFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryCard
+     */
+    select?: RelationshipMemoryCardSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryCard
+     */
+    omit?: RelationshipMemoryCardOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryCards to fetch.
+     */
+    where?: RelationshipMemoryCardWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipMemoryCards to fetch.
+     */
+    orderBy?: RelationshipMemoryCardOrderByWithRelationInput | RelationshipMemoryCardOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing RelationshipMemoryCards.
+     */
+    cursor?: RelationshipMemoryCardWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipMemoryCards from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipMemoryCards.
+     */
+    skip?: number
+    distinct?: RelationshipMemoryCardScalarFieldEnum | RelationshipMemoryCardScalarFieldEnum[]
+  }
+
+  /**
+   * RelationshipMemoryCard create
+   */
+  export type RelationshipMemoryCardCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryCard
+     */
+    select?: RelationshipMemoryCardSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryCard
+     */
+    omit?: RelationshipMemoryCardOmit<ExtArgs> | null
+    /**
+     * The data needed to create a RelationshipMemoryCard.
+     */
+    data: XOR<RelationshipMemoryCardCreateInput, RelationshipMemoryCardUncheckedCreateInput>
+  }
+
+  /**
+   * RelationshipMemoryCard createMany
+   */
+  export type RelationshipMemoryCardCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many RelationshipMemoryCards.
+     */
+    data: RelationshipMemoryCardCreateManyInput | RelationshipMemoryCardCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * RelationshipMemoryCard createManyAndReturn
+   */
+  export type RelationshipMemoryCardCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryCard
+     */
+    select?: RelationshipMemoryCardSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryCard
+     */
+    omit?: RelationshipMemoryCardOmit<ExtArgs> | null
+    /**
+     * The data used to create many RelationshipMemoryCards.
+     */
+    data: RelationshipMemoryCardCreateManyInput | RelationshipMemoryCardCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * RelationshipMemoryCard update
+   */
+  export type RelationshipMemoryCardUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryCard
+     */
+    select?: RelationshipMemoryCardSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryCard
+     */
+    omit?: RelationshipMemoryCardOmit<ExtArgs> | null
+    /**
+     * The data needed to update a RelationshipMemoryCard.
+     */
+    data: XOR<RelationshipMemoryCardUpdateInput, RelationshipMemoryCardUncheckedUpdateInput>
+    /**
+     * Choose, which RelationshipMemoryCard to update.
+     */
+    where: RelationshipMemoryCardWhereUniqueInput
+  }
+
+  /**
+   * RelationshipMemoryCard updateMany
+   */
+  export type RelationshipMemoryCardUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update RelationshipMemoryCards.
+     */
+    data: XOR<RelationshipMemoryCardUpdateManyMutationInput, RelationshipMemoryCardUncheckedUpdateManyInput>
+    /**
+     * Filter which RelationshipMemoryCards to update
+     */
+    where?: RelationshipMemoryCardWhereInput
+    /**
+     * Limit how many RelationshipMemoryCards to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * RelationshipMemoryCard updateManyAndReturn
+   */
+  export type RelationshipMemoryCardUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryCard
+     */
+    select?: RelationshipMemoryCardSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryCard
+     */
+    omit?: RelationshipMemoryCardOmit<ExtArgs> | null
+    /**
+     * The data used to update RelationshipMemoryCards.
+     */
+    data: XOR<RelationshipMemoryCardUpdateManyMutationInput, RelationshipMemoryCardUncheckedUpdateManyInput>
+    /**
+     * Filter which RelationshipMemoryCards to update
+     */
+    where?: RelationshipMemoryCardWhereInput
+    /**
+     * Limit how many RelationshipMemoryCards to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * RelationshipMemoryCard upsert
+   */
+  export type RelationshipMemoryCardUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryCard
+     */
+    select?: RelationshipMemoryCardSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryCard
+     */
+    omit?: RelationshipMemoryCardOmit<ExtArgs> | null
+    /**
+     * The filter to search for the RelationshipMemoryCard to update in case it exists.
+     */
+    where: RelationshipMemoryCardWhereUniqueInput
+    /**
+     * In case the RelationshipMemoryCard found by the `where` argument doesn't exist, create a new RelationshipMemoryCard with this data.
+     */
+    create: XOR<RelationshipMemoryCardCreateInput, RelationshipMemoryCardUncheckedCreateInput>
+    /**
+     * In case the RelationshipMemoryCard was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<RelationshipMemoryCardUpdateInput, RelationshipMemoryCardUncheckedUpdateInput>
+  }
+
+  /**
+   * RelationshipMemoryCard delete
+   */
+  export type RelationshipMemoryCardDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryCard
+     */
+    select?: RelationshipMemoryCardSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryCard
+     */
+    omit?: RelationshipMemoryCardOmit<ExtArgs> | null
+    /**
+     * Filter which RelationshipMemoryCard to delete.
+     */
+    where: RelationshipMemoryCardWhereUniqueInput
+  }
+
+  /**
+   * RelationshipMemoryCard deleteMany
+   */
+  export type RelationshipMemoryCardDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which RelationshipMemoryCards to delete
+     */
+    where?: RelationshipMemoryCardWhereInput
+    /**
+     * Limit how many RelationshipMemoryCards to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * RelationshipMemoryCard without action
+   */
+  export type RelationshipMemoryCardDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryCard
+     */
+    select?: RelationshipMemoryCardSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryCard
+     */
+    omit?: RelationshipMemoryCardOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model RelationshipMemoryOverride
+   */
+
+  export type AggregateRelationshipMemoryOverride = {
+    _count: RelationshipMemoryOverrideCountAggregateOutputType | null
+    _avg: RelationshipMemoryOverrideAvgAggregateOutputType | null
+    _sum: RelationshipMemoryOverrideSumAggregateOutputType | null
+    _min: RelationshipMemoryOverrideMinAggregateOutputType | null
+    _max: RelationshipMemoryOverrideMaxAggregateOutputType | null
+  }
+
+  export type RelationshipMemoryOverrideAvgAggregateOutputType = {
+    id: number | null
+    card_id: number | null
+  }
+
+  export type RelationshipMemoryOverrideSumAggregateOutputType = {
+    id: bigint | null
+    card_id: bigint | null
+  }
+
+  export type RelationshipMemoryOverrideMinAggregateOutputType = {
+    id: bigint | null
+    card_id: bigint | null
+    action_type: string | null
+    manual_note: string | null
+    created_by: string | null
+    created_at: Date | null
+  }
+
+  export type RelationshipMemoryOverrideMaxAggregateOutputType = {
+    id: bigint | null
+    card_id: bigint | null
+    action_type: string | null
+    manual_note: string | null
+    created_by: string | null
+    created_at: Date | null
+  }
+
+  export type RelationshipMemoryOverrideCountAggregateOutputType = {
+    id: number
+    card_id: number
+    action_type: number
+    manual_note: number
+    created_by: number
+    metadata: number
+    created_at: number
+    _all: number
+  }
+
+
+  export type RelationshipMemoryOverrideAvgAggregateInputType = {
+    id?: true
+    card_id?: true
+  }
+
+  export type RelationshipMemoryOverrideSumAggregateInputType = {
+    id?: true
+    card_id?: true
+  }
+
+  export type RelationshipMemoryOverrideMinAggregateInputType = {
+    id?: true
+    card_id?: true
+    action_type?: true
+    manual_note?: true
+    created_by?: true
+    created_at?: true
+  }
+
+  export type RelationshipMemoryOverrideMaxAggregateInputType = {
+    id?: true
+    card_id?: true
+    action_type?: true
+    manual_note?: true
+    created_by?: true
+    created_at?: true
+  }
+
+  export type RelationshipMemoryOverrideCountAggregateInputType = {
+    id?: true
+    card_id?: true
+    action_type?: true
+    manual_note?: true
+    created_by?: true
+    metadata?: true
+    created_at?: true
+    _all?: true
+  }
+
+  export type RelationshipMemoryOverrideAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which RelationshipMemoryOverride to aggregate.
+     */
+    where?: RelationshipMemoryOverrideWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipMemoryOverrides to fetch.
+     */
+    orderBy?: RelationshipMemoryOverrideOrderByWithRelationInput | RelationshipMemoryOverrideOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: RelationshipMemoryOverrideWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipMemoryOverrides from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipMemoryOverrides.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned RelationshipMemoryOverrides
+    **/
+    _count?: true | RelationshipMemoryOverrideCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: RelationshipMemoryOverrideAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: RelationshipMemoryOverrideSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: RelationshipMemoryOverrideMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: RelationshipMemoryOverrideMaxAggregateInputType
+  }
+
+  export type GetRelationshipMemoryOverrideAggregateType<T extends RelationshipMemoryOverrideAggregateArgs> = {
+        [P in keyof T & keyof AggregateRelationshipMemoryOverride]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateRelationshipMemoryOverride[P]>
+      : GetScalarType<T[P], AggregateRelationshipMemoryOverride[P]>
+  }
+
+
+
+
+  export type RelationshipMemoryOverrideGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: RelationshipMemoryOverrideWhereInput
+    orderBy?: RelationshipMemoryOverrideOrderByWithAggregationInput | RelationshipMemoryOverrideOrderByWithAggregationInput[]
+    by: RelationshipMemoryOverrideScalarFieldEnum[] | RelationshipMemoryOverrideScalarFieldEnum
+    having?: RelationshipMemoryOverrideScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: RelationshipMemoryOverrideCountAggregateInputType | true
+    _avg?: RelationshipMemoryOverrideAvgAggregateInputType
+    _sum?: RelationshipMemoryOverrideSumAggregateInputType
+    _min?: RelationshipMemoryOverrideMinAggregateInputType
+    _max?: RelationshipMemoryOverrideMaxAggregateInputType
+  }
+
+  export type RelationshipMemoryOverrideGroupByOutputType = {
+    id: bigint
+    card_id: bigint
+    action_type: string
+    manual_note: string | null
+    created_by: string | null
+    metadata: JsonValue | null
+    created_at: Date
+    _count: RelationshipMemoryOverrideCountAggregateOutputType | null
+    _avg: RelationshipMemoryOverrideAvgAggregateOutputType | null
+    _sum: RelationshipMemoryOverrideSumAggregateOutputType | null
+    _min: RelationshipMemoryOverrideMinAggregateOutputType | null
+    _max: RelationshipMemoryOverrideMaxAggregateOutputType | null
+  }
+
+  type GetRelationshipMemoryOverrideGroupByPayload<T extends RelationshipMemoryOverrideGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<RelationshipMemoryOverrideGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof RelationshipMemoryOverrideGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], RelationshipMemoryOverrideGroupByOutputType[P]>
+            : GetScalarType<T[P], RelationshipMemoryOverrideGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type RelationshipMemoryOverrideSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    card_id?: boolean
+    action_type?: boolean
+    manual_note?: boolean
+    created_by?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["relationshipMemoryOverride"]>
+
+  export type RelationshipMemoryOverrideSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    card_id?: boolean
+    action_type?: boolean
+    manual_note?: boolean
+    created_by?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["relationshipMemoryOverride"]>
+
+  export type RelationshipMemoryOverrideSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    card_id?: boolean
+    action_type?: boolean
+    manual_note?: boolean
+    created_by?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["relationshipMemoryOverride"]>
+
+  export type RelationshipMemoryOverrideSelectScalar = {
+    id?: boolean
+    card_id?: boolean
+    action_type?: boolean
+    manual_note?: boolean
+    created_by?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }
+
+  export type RelationshipMemoryOverrideOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "card_id" | "action_type" | "manual_note" | "created_by" | "metadata" | "created_at", ExtArgs["result"]["relationshipMemoryOverride"]>
+
+  export type $RelationshipMemoryOverridePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "RelationshipMemoryOverride"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      card_id: bigint
+      action_type: string
+      manual_note: string | null
+      created_by: string | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+    }, ExtArgs["result"]["relationshipMemoryOverride"]>
+    composites: {}
+  }
+
+  type RelationshipMemoryOverrideGetPayload<S extends boolean | null | undefined | RelationshipMemoryOverrideDefaultArgs> = $Result.GetResult<Prisma.$RelationshipMemoryOverridePayload, S>
+
+  type RelationshipMemoryOverrideCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<RelationshipMemoryOverrideFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: RelationshipMemoryOverrideCountAggregateInputType | true
+    }
+
+  export interface RelationshipMemoryOverrideDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['RelationshipMemoryOverride'], meta: { name: 'RelationshipMemoryOverride' } }
+    /**
+     * Find zero or one RelationshipMemoryOverride that matches the filter.
+     * @param {RelationshipMemoryOverrideFindUniqueArgs} args - Arguments to find a RelationshipMemoryOverride
+     * @example
+     * // Get one RelationshipMemoryOverride
+     * const relationshipMemoryOverride = await prisma.relationshipMemoryOverride.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends RelationshipMemoryOverrideFindUniqueArgs>(args: SelectSubset<T, RelationshipMemoryOverrideFindUniqueArgs<ExtArgs>>): Prisma__RelationshipMemoryOverrideClient<$Result.GetResult<Prisma.$RelationshipMemoryOverridePayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one RelationshipMemoryOverride that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {RelationshipMemoryOverrideFindUniqueOrThrowArgs} args - Arguments to find a RelationshipMemoryOverride
+     * @example
+     * // Get one RelationshipMemoryOverride
+     * const relationshipMemoryOverride = await prisma.relationshipMemoryOverride.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends RelationshipMemoryOverrideFindUniqueOrThrowArgs>(args: SelectSubset<T, RelationshipMemoryOverrideFindUniqueOrThrowArgs<ExtArgs>>): Prisma__RelationshipMemoryOverrideClient<$Result.GetResult<Prisma.$RelationshipMemoryOverridePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first RelationshipMemoryOverride that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryOverrideFindFirstArgs} args - Arguments to find a RelationshipMemoryOverride
+     * @example
+     * // Get one RelationshipMemoryOverride
+     * const relationshipMemoryOverride = await prisma.relationshipMemoryOverride.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends RelationshipMemoryOverrideFindFirstArgs>(args?: SelectSubset<T, RelationshipMemoryOverrideFindFirstArgs<ExtArgs>>): Prisma__RelationshipMemoryOverrideClient<$Result.GetResult<Prisma.$RelationshipMemoryOverridePayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first RelationshipMemoryOverride that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryOverrideFindFirstOrThrowArgs} args - Arguments to find a RelationshipMemoryOverride
+     * @example
+     * // Get one RelationshipMemoryOverride
+     * const relationshipMemoryOverride = await prisma.relationshipMemoryOverride.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends RelationshipMemoryOverrideFindFirstOrThrowArgs>(args?: SelectSubset<T, RelationshipMemoryOverrideFindFirstOrThrowArgs<ExtArgs>>): Prisma__RelationshipMemoryOverrideClient<$Result.GetResult<Prisma.$RelationshipMemoryOverridePayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more RelationshipMemoryOverrides that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryOverrideFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all RelationshipMemoryOverrides
+     * const relationshipMemoryOverrides = await prisma.relationshipMemoryOverride.findMany()
+     * 
+     * // Get first 10 RelationshipMemoryOverrides
+     * const relationshipMemoryOverrides = await prisma.relationshipMemoryOverride.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const relationshipMemoryOverrideWithIdOnly = await prisma.relationshipMemoryOverride.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends RelationshipMemoryOverrideFindManyArgs>(args?: SelectSubset<T, RelationshipMemoryOverrideFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RelationshipMemoryOverridePayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a RelationshipMemoryOverride.
+     * @param {RelationshipMemoryOverrideCreateArgs} args - Arguments to create a RelationshipMemoryOverride.
+     * @example
+     * // Create one RelationshipMemoryOverride
+     * const RelationshipMemoryOverride = await prisma.relationshipMemoryOverride.create({
+     *   data: {
+     *     // ... data to create a RelationshipMemoryOverride
+     *   }
+     * })
+     * 
+     */
+    create<T extends RelationshipMemoryOverrideCreateArgs>(args: SelectSubset<T, RelationshipMemoryOverrideCreateArgs<ExtArgs>>): Prisma__RelationshipMemoryOverrideClient<$Result.GetResult<Prisma.$RelationshipMemoryOverridePayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many RelationshipMemoryOverrides.
+     * @param {RelationshipMemoryOverrideCreateManyArgs} args - Arguments to create many RelationshipMemoryOverrides.
+     * @example
+     * // Create many RelationshipMemoryOverrides
+     * const relationshipMemoryOverride = await prisma.relationshipMemoryOverride.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends RelationshipMemoryOverrideCreateManyArgs>(args?: SelectSubset<T, RelationshipMemoryOverrideCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many RelationshipMemoryOverrides and returns the data saved in the database.
+     * @param {RelationshipMemoryOverrideCreateManyAndReturnArgs} args - Arguments to create many RelationshipMemoryOverrides.
+     * @example
+     * // Create many RelationshipMemoryOverrides
+     * const relationshipMemoryOverride = await prisma.relationshipMemoryOverride.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many RelationshipMemoryOverrides and only return the `id`
+     * const relationshipMemoryOverrideWithIdOnly = await prisma.relationshipMemoryOverride.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends RelationshipMemoryOverrideCreateManyAndReturnArgs>(args?: SelectSubset<T, RelationshipMemoryOverrideCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RelationshipMemoryOverridePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a RelationshipMemoryOverride.
+     * @param {RelationshipMemoryOverrideDeleteArgs} args - Arguments to delete one RelationshipMemoryOverride.
+     * @example
+     * // Delete one RelationshipMemoryOverride
+     * const RelationshipMemoryOverride = await prisma.relationshipMemoryOverride.delete({
+     *   where: {
+     *     // ... filter to delete one RelationshipMemoryOverride
+     *   }
+     * })
+     * 
+     */
+    delete<T extends RelationshipMemoryOverrideDeleteArgs>(args: SelectSubset<T, RelationshipMemoryOverrideDeleteArgs<ExtArgs>>): Prisma__RelationshipMemoryOverrideClient<$Result.GetResult<Prisma.$RelationshipMemoryOverridePayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one RelationshipMemoryOverride.
+     * @param {RelationshipMemoryOverrideUpdateArgs} args - Arguments to update one RelationshipMemoryOverride.
+     * @example
+     * // Update one RelationshipMemoryOverride
+     * const relationshipMemoryOverride = await prisma.relationshipMemoryOverride.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends RelationshipMemoryOverrideUpdateArgs>(args: SelectSubset<T, RelationshipMemoryOverrideUpdateArgs<ExtArgs>>): Prisma__RelationshipMemoryOverrideClient<$Result.GetResult<Prisma.$RelationshipMemoryOverridePayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more RelationshipMemoryOverrides.
+     * @param {RelationshipMemoryOverrideDeleteManyArgs} args - Arguments to filter RelationshipMemoryOverrides to delete.
+     * @example
+     * // Delete a few RelationshipMemoryOverrides
+     * const { count } = await prisma.relationshipMemoryOverride.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends RelationshipMemoryOverrideDeleteManyArgs>(args?: SelectSubset<T, RelationshipMemoryOverrideDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more RelationshipMemoryOverrides.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryOverrideUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many RelationshipMemoryOverrides
+     * const relationshipMemoryOverride = await prisma.relationshipMemoryOverride.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends RelationshipMemoryOverrideUpdateManyArgs>(args: SelectSubset<T, RelationshipMemoryOverrideUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more RelationshipMemoryOverrides and returns the data updated in the database.
+     * @param {RelationshipMemoryOverrideUpdateManyAndReturnArgs} args - Arguments to update many RelationshipMemoryOverrides.
+     * @example
+     * // Update many RelationshipMemoryOverrides
+     * const relationshipMemoryOverride = await prisma.relationshipMemoryOverride.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more RelationshipMemoryOverrides and only return the `id`
+     * const relationshipMemoryOverrideWithIdOnly = await prisma.relationshipMemoryOverride.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends RelationshipMemoryOverrideUpdateManyAndReturnArgs>(args: SelectSubset<T, RelationshipMemoryOverrideUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RelationshipMemoryOverridePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one RelationshipMemoryOverride.
+     * @param {RelationshipMemoryOverrideUpsertArgs} args - Arguments to update or create a RelationshipMemoryOverride.
+     * @example
+     * // Update or create a RelationshipMemoryOverride
+     * const relationshipMemoryOverride = await prisma.relationshipMemoryOverride.upsert({
+     *   create: {
+     *     // ... data to create a RelationshipMemoryOverride
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the RelationshipMemoryOverride we want to update
+     *   }
+     * })
+     */
+    upsert<T extends RelationshipMemoryOverrideUpsertArgs>(args: SelectSubset<T, RelationshipMemoryOverrideUpsertArgs<ExtArgs>>): Prisma__RelationshipMemoryOverrideClient<$Result.GetResult<Prisma.$RelationshipMemoryOverridePayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of RelationshipMemoryOverrides.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryOverrideCountArgs} args - Arguments to filter RelationshipMemoryOverrides to count.
+     * @example
+     * // Count the number of RelationshipMemoryOverrides
+     * const count = await prisma.relationshipMemoryOverride.count({
+     *   where: {
+     *     // ... the filter for the RelationshipMemoryOverrides we want to count
+     *   }
+     * })
+    **/
+    count<T extends RelationshipMemoryOverrideCountArgs>(
+      args?: Subset<T, RelationshipMemoryOverrideCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], RelationshipMemoryOverrideCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a RelationshipMemoryOverride.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryOverrideAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends RelationshipMemoryOverrideAggregateArgs>(args: Subset<T, RelationshipMemoryOverrideAggregateArgs>): Prisma.PrismaPromise<GetRelationshipMemoryOverrideAggregateType<T>>
+
+    /**
+     * Group by RelationshipMemoryOverride.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RelationshipMemoryOverrideGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends RelationshipMemoryOverrideGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: RelationshipMemoryOverrideGroupByArgs['orderBy'] }
+        : { orderBy?: RelationshipMemoryOverrideGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, RelationshipMemoryOverrideGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetRelationshipMemoryOverrideGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the RelationshipMemoryOverride model
+   */
+  readonly fields: RelationshipMemoryOverrideFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for RelationshipMemoryOverride.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__RelationshipMemoryOverrideClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the RelationshipMemoryOverride model
+   */
+  interface RelationshipMemoryOverrideFieldRefs {
+    readonly id: FieldRef<"RelationshipMemoryOverride", 'BigInt'>
+    readonly card_id: FieldRef<"RelationshipMemoryOverride", 'BigInt'>
+    readonly action_type: FieldRef<"RelationshipMemoryOverride", 'String'>
+    readonly manual_note: FieldRef<"RelationshipMemoryOverride", 'String'>
+    readonly created_by: FieldRef<"RelationshipMemoryOverride", 'String'>
+    readonly metadata: FieldRef<"RelationshipMemoryOverride", 'Json'>
+    readonly created_at: FieldRef<"RelationshipMemoryOverride", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * RelationshipMemoryOverride findUnique
+   */
+  export type RelationshipMemoryOverrideFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryOverride
+     */
+    select?: RelationshipMemoryOverrideSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryOverride
+     */
+    omit?: RelationshipMemoryOverrideOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryOverride to fetch.
+     */
+    where: RelationshipMemoryOverrideWhereUniqueInput
+  }
+
+  /**
+   * RelationshipMemoryOverride findUniqueOrThrow
+   */
+  export type RelationshipMemoryOverrideFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryOverride
+     */
+    select?: RelationshipMemoryOverrideSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryOverride
+     */
+    omit?: RelationshipMemoryOverrideOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryOverride to fetch.
+     */
+    where: RelationshipMemoryOverrideWhereUniqueInput
+  }
+
+  /**
+   * RelationshipMemoryOverride findFirst
+   */
+  export type RelationshipMemoryOverrideFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryOverride
+     */
+    select?: RelationshipMemoryOverrideSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryOverride
+     */
+    omit?: RelationshipMemoryOverrideOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryOverride to fetch.
+     */
+    where?: RelationshipMemoryOverrideWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipMemoryOverrides to fetch.
+     */
+    orderBy?: RelationshipMemoryOverrideOrderByWithRelationInput | RelationshipMemoryOverrideOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for RelationshipMemoryOverrides.
+     */
+    cursor?: RelationshipMemoryOverrideWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipMemoryOverrides from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipMemoryOverrides.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of RelationshipMemoryOverrides.
+     */
+    distinct?: RelationshipMemoryOverrideScalarFieldEnum | RelationshipMemoryOverrideScalarFieldEnum[]
+  }
+
+  /**
+   * RelationshipMemoryOverride findFirstOrThrow
+   */
+  export type RelationshipMemoryOverrideFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryOverride
+     */
+    select?: RelationshipMemoryOverrideSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryOverride
+     */
+    omit?: RelationshipMemoryOverrideOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryOverride to fetch.
+     */
+    where?: RelationshipMemoryOverrideWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipMemoryOverrides to fetch.
+     */
+    orderBy?: RelationshipMemoryOverrideOrderByWithRelationInput | RelationshipMemoryOverrideOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for RelationshipMemoryOverrides.
+     */
+    cursor?: RelationshipMemoryOverrideWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipMemoryOverrides from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipMemoryOverrides.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of RelationshipMemoryOverrides.
+     */
+    distinct?: RelationshipMemoryOverrideScalarFieldEnum | RelationshipMemoryOverrideScalarFieldEnum[]
+  }
+
+  /**
+   * RelationshipMemoryOverride findMany
+   */
+  export type RelationshipMemoryOverrideFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryOverride
+     */
+    select?: RelationshipMemoryOverrideSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryOverride
+     */
+    omit?: RelationshipMemoryOverrideOmit<ExtArgs> | null
+    /**
+     * Filter, which RelationshipMemoryOverrides to fetch.
+     */
+    where?: RelationshipMemoryOverrideWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RelationshipMemoryOverrides to fetch.
+     */
+    orderBy?: RelationshipMemoryOverrideOrderByWithRelationInput | RelationshipMemoryOverrideOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing RelationshipMemoryOverrides.
+     */
+    cursor?: RelationshipMemoryOverrideWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RelationshipMemoryOverrides from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RelationshipMemoryOverrides.
+     */
+    skip?: number
+    distinct?: RelationshipMemoryOverrideScalarFieldEnum | RelationshipMemoryOverrideScalarFieldEnum[]
+  }
+
+  /**
+   * RelationshipMemoryOverride create
+   */
+  export type RelationshipMemoryOverrideCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryOverride
+     */
+    select?: RelationshipMemoryOverrideSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryOverride
+     */
+    omit?: RelationshipMemoryOverrideOmit<ExtArgs> | null
+    /**
+     * The data needed to create a RelationshipMemoryOverride.
+     */
+    data: XOR<RelationshipMemoryOverrideCreateInput, RelationshipMemoryOverrideUncheckedCreateInput>
+  }
+
+  /**
+   * RelationshipMemoryOverride createMany
+   */
+  export type RelationshipMemoryOverrideCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many RelationshipMemoryOverrides.
+     */
+    data: RelationshipMemoryOverrideCreateManyInput | RelationshipMemoryOverrideCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * RelationshipMemoryOverride createManyAndReturn
+   */
+  export type RelationshipMemoryOverrideCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryOverride
+     */
+    select?: RelationshipMemoryOverrideSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryOverride
+     */
+    omit?: RelationshipMemoryOverrideOmit<ExtArgs> | null
+    /**
+     * The data used to create many RelationshipMemoryOverrides.
+     */
+    data: RelationshipMemoryOverrideCreateManyInput | RelationshipMemoryOverrideCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * RelationshipMemoryOverride update
+   */
+  export type RelationshipMemoryOverrideUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryOverride
+     */
+    select?: RelationshipMemoryOverrideSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryOverride
+     */
+    omit?: RelationshipMemoryOverrideOmit<ExtArgs> | null
+    /**
+     * The data needed to update a RelationshipMemoryOverride.
+     */
+    data: XOR<RelationshipMemoryOverrideUpdateInput, RelationshipMemoryOverrideUncheckedUpdateInput>
+    /**
+     * Choose, which RelationshipMemoryOverride to update.
+     */
+    where: RelationshipMemoryOverrideWhereUniqueInput
+  }
+
+  /**
+   * RelationshipMemoryOverride updateMany
+   */
+  export type RelationshipMemoryOverrideUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update RelationshipMemoryOverrides.
+     */
+    data: XOR<RelationshipMemoryOverrideUpdateManyMutationInput, RelationshipMemoryOverrideUncheckedUpdateManyInput>
+    /**
+     * Filter which RelationshipMemoryOverrides to update
+     */
+    where?: RelationshipMemoryOverrideWhereInput
+    /**
+     * Limit how many RelationshipMemoryOverrides to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * RelationshipMemoryOverride updateManyAndReturn
+   */
+  export type RelationshipMemoryOverrideUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryOverride
+     */
+    select?: RelationshipMemoryOverrideSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryOverride
+     */
+    omit?: RelationshipMemoryOverrideOmit<ExtArgs> | null
+    /**
+     * The data used to update RelationshipMemoryOverrides.
+     */
+    data: XOR<RelationshipMemoryOverrideUpdateManyMutationInput, RelationshipMemoryOverrideUncheckedUpdateManyInput>
+    /**
+     * Filter which RelationshipMemoryOverrides to update
+     */
+    where?: RelationshipMemoryOverrideWhereInput
+    /**
+     * Limit how many RelationshipMemoryOverrides to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * RelationshipMemoryOverride upsert
+   */
+  export type RelationshipMemoryOverrideUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryOverride
+     */
+    select?: RelationshipMemoryOverrideSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryOverride
+     */
+    omit?: RelationshipMemoryOverrideOmit<ExtArgs> | null
+    /**
+     * The filter to search for the RelationshipMemoryOverride to update in case it exists.
+     */
+    where: RelationshipMemoryOverrideWhereUniqueInput
+    /**
+     * In case the RelationshipMemoryOverride found by the `where` argument doesn't exist, create a new RelationshipMemoryOverride with this data.
+     */
+    create: XOR<RelationshipMemoryOverrideCreateInput, RelationshipMemoryOverrideUncheckedCreateInput>
+    /**
+     * In case the RelationshipMemoryOverride was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<RelationshipMemoryOverrideUpdateInput, RelationshipMemoryOverrideUncheckedUpdateInput>
+  }
+
+  /**
+   * RelationshipMemoryOverride delete
+   */
+  export type RelationshipMemoryOverrideDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryOverride
+     */
+    select?: RelationshipMemoryOverrideSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryOverride
+     */
+    omit?: RelationshipMemoryOverrideOmit<ExtArgs> | null
+    /**
+     * Filter which RelationshipMemoryOverride to delete.
+     */
+    where: RelationshipMemoryOverrideWhereUniqueInput
+  }
+
+  /**
+   * RelationshipMemoryOverride deleteMany
+   */
+  export type RelationshipMemoryOverrideDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which RelationshipMemoryOverrides to delete
+     */
+    where?: RelationshipMemoryOverrideWhereInput
+    /**
+     * Limit how many RelationshipMemoryOverrides to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * RelationshipMemoryOverride without action
+   */
+  export type RelationshipMemoryOverrideDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RelationshipMemoryOverride
+     */
+    select?: RelationshipMemoryOverrideSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RelationshipMemoryOverride
+     */
+    omit?: RelationshipMemoryOverrideOmit<ExtArgs> | null
+  }
+
+
+  /**
    * Enums
    */
 
@@ -7749,6 +13987,25 @@ export namespace Prisma {
   export type HttpTrafficLogScalarFieldEnum = (typeof HttpTrafficLogScalarFieldEnum)[keyof typeof HttpTrafficLogScalarFieldEnum]
 
 
+  export const ConversationItemScalarFieldEnum: {
+    id: 'id',
+    conversation_id: 'conversation_id',
+    session_key: 'session_key',
+    role: 'role',
+    phase: 'phase',
+    content: 'content',
+    group_index: 'group_index',
+    item_index: 'item_index',
+    source: 'source',
+    delivery_message_id: 'delivery_message_id',
+    run_id: 'run_id',
+    trace_id: 'trace_id',
+    created_at: 'created_at'
+  };
+
+  export type ConversationItemScalarFieldEnum = (typeof ConversationItemScalarFieldEnum)[keyof typeof ConversationItemScalarFieldEnum]
+
+
   export const TrafficReplayHistoryScalarFieldEnum: {
     id: 'id',
     original_log_id: 'original_log_id',
@@ -7787,6 +14044,88 @@ export namespace Prisma {
   };
 
   export type TrafficReplayHistoryScalarFieldEnum = (typeof TrafficReplayHistoryScalarFieldEnum)[keyof typeof TrafficReplayHistoryScalarFieldEnum]
+
+
+  export const RelationshipLedgerEventScalarFieldEnum: {
+    id: 'id',
+    group_id: 'group_id',
+    target_user_id: 'target_user_id',
+    session_key: 'session_key',
+    event_type: 'event_type',
+    event_weight: 'event_weight',
+    confidence: 'confidence',
+    source_message_ids: 'source_message_ids',
+    source_excerpt: 'source_excerpt',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    last_reinforced_at: 'last_reinforced_at'
+  };
+
+  export type RelationshipLedgerEventScalarFieldEnum = (typeof RelationshipLedgerEventScalarFieldEnum)[keyof typeof RelationshipLedgerEventScalarFieldEnum]
+
+
+  export const RelationshipMemoryJobScalarFieldEnum: {
+    id: 'id',
+    group_id: 'group_id',
+    session_key: 'session_key',
+    status: 'status',
+    trigger_reason: 'trigger_reason',
+    turn_range_start: 'turn_range_start',
+    turn_range_end: 'turn_range_end',
+    ledger_event_count: 'ledger_event_count',
+    input_message_ids: 'input_message_ids',
+    output_card_version: 'output_card_version',
+    error_message: 'error_message',
+    metadata: 'metadata',
+    started_at: 'started_at',
+    finished_at: 'finished_at',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type RelationshipMemoryJobScalarFieldEnum = (typeof RelationshipMemoryJobScalarFieldEnum)[keyof typeof RelationshipMemoryJobScalarFieldEnum]
+
+
+  export const RelationshipMemoryCardScalarFieldEnum: {
+    id: 'id',
+    card_type: 'card_type',
+    group_id: 'group_id',
+    target_user_id: 'target_user_id',
+    version: 'version',
+    is_active: 'is_active',
+    summary_text: 'summary_text',
+    actors: 'actors',
+    context_before: 'context_before',
+    trigger: 'trigger',
+    interaction: 'interaction',
+    outcome: 'outcome',
+    source_event_ids: 'source_event_ids',
+    source_message_ids: 'source_message_ids',
+    importance_score: 'importance_score',
+    freshness_score: 'freshness_score',
+    decayed_score: 'decayed_score',
+    retrieval_text: 'retrieval_text',
+    embedding_text: 'embedding_text',
+    last_hit_at: 'last_hit_at',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type RelationshipMemoryCardScalarFieldEnum = (typeof RelationshipMemoryCardScalarFieldEnum)[keyof typeof RelationshipMemoryCardScalarFieldEnum]
+
+
+  export const RelationshipMemoryOverrideScalarFieldEnum: {
+    id: 'id',
+    card_id: 'card_id',
+    action_type: 'action_type',
+    manual_note: 'manual_note',
+    created_by: 'created_by',
+    metadata: 'metadata',
+    created_at: 'created_at'
+  };
+
+  export type RelationshipMemoryOverrideScalarFieldEnum = (typeof RelationshipMemoryOverrideScalarFieldEnum)[keyof typeof RelationshipMemoryOverrideScalarFieldEnum]
 
 
   export const SortOrder: {
@@ -8472,6 +14811,100 @@ export namespace Prisma {
     created_at?: DateTimeWithAggregatesFilter<"HttpTrafficLog"> | Date | string
   }
 
+  export type ConversationItemWhereInput = {
+    AND?: ConversationItemWhereInput | ConversationItemWhereInput[]
+    OR?: ConversationItemWhereInput[]
+    NOT?: ConversationItemWhereInput | ConversationItemWhereInput[]
+    id?: BigIntFilter<"ConversationItem"> | bigint | number
+    conversation_id?: BigIntFilter<"ConversationItem"> | bigint | number
+    session_key?: StringNullableFilter<"ConversationItem"> | string | null
+    role?: StringFilter<"ConversationItem"> | string
+    phase?: StringNullableFilter<"ConversationItem"> | string | null
+    content?: StringFilter<"ConversationItem"> | string
+    group_index?: IntFilter<"ConversationItem"> | number
+    item_index?: IntFilter<"ConversationItem"> | number
+    source?: StringFilter<"ConversationItem"> | string
+    delivery_message_id?: BigIntNullableFilter<"ConversationItem"> | bigint | number | null
+    run_id?: StringNullableFilter<"ConversationItem"> | string | null
+    trace_id?: StringNullableFilter<"ConversationItem"> | string | null
+    created_at?: DateTimeFilter<"ConversationItem"> | Date | string
+  }
+
+  export type ConversationItemOrderByWithRelationInput = {
+    id?: SortOrder
+    conversation_id?: SortOrder
+    session_key?: SortOrderInput | SortOrder
+    role?: SortOrder
+    phase?: SortOrderInput | SortOrder
+    content?: SortOrder
+    group_index?: SortOrder
+    item_index?: SortOrder
+    source?: SortOrder
+    delivery_message_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+  }
+
+  export type ConversationItemWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: ConversationItemWhereInput | ConversationItemWhereInput[]
+    OR?: ConversationItemWhereInput[]
+    NOT?: ConversationItemWhereInput | ConversationItemWhereInput[]
+    conversation_id?: BigIntFilter<"ConversationItem"> | bigint | number
+    session_key?: StringNullableFilter<"ConversationItem"> | string | null
+    role?: StringFilter<"ConversationItem"> | string
+    phase?: StringNullableFilter<"ConversationItem"> | string | null
+    content?: StringFilter<"ConversationItem"> | string
+    group_index?: IntFilter<"ConversationItem"> | number
+    item_index?: IntFilter<"ConversationItem"> | number
+    source?: StringFilter<"ConversationItem"> | string
+    delivery_message_id?: BigIntNullableFilter<"ConversationItem"> | bigint | number | null
+    run_id?: StringNullableFilter<"ConversationItem"> | string | null
+    trace_id?: StringNullableFilter<"ConversationItem"> | string | null
+    created_at?: DateTimeFilter<"ConversationItem"> | Date | string
+  }, "id">
+
+  export type ConversationItemOrderByWithAggregationInput = {
+    id?: SortOrder
+    conversation_id?: SortOrder
+    session_key?: SortOrderInput | SortOrder
+    role?: SortOrder
+    phase?: SortOrderInput | SortOrder
+    content?: SortOrder
+    group_index?: SortOrder
+    item_index?: SortOrder
+    source?: SortOrder
+    delivery_message_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    _count?: ConversationItemCountOrderByAggregateInput
+    _avg?: ConversationItemAvgOrderByAggregateInput
+    _max?: ConversationItemMaxOrderByAggregateInput
+    _min?: ConversationItemMinOrderByAggregateInput
+    _sum?: ConversationItemSumOrderByAggregateInput
+  }
+
+  export type ConversationItemScalarWhereWithAggregatesInput = {
+    AND?: ConversationItemScalarWhereWithAggregatesInput | ConversationItemScalarWhereWithAggregatesInput[]
+    OR?: ConversationItemScalarWhereWithAggregatesInput[]
+    NOT?: ConversationItemScalarWhereWithAggregatesInput | ConversationItemScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"ConversationItem"> | bigint | number
+    conversation_id?: BigIntWithAggregatesFilter<"ConversationItem"> | bigint | number
+    session_key?: StringNullableWithAggregatesFilter<"ConversationItem"> | string | null
+    role?: StringWithAggregatesFilter<"ConversationItem"> | string
+    phase?: StringNullableWithAggregatesFilter<"ConversationItem"> | string | null
+    content?: StringWithAggregatesFilter<"ConversationItem"> | string
+    group_index?: IntWithAggregatesFilter<"ConversationItem"> | number
+    item_index?: IntWithAggregatesFilter<"ConversationItem"> | number
+    source?: StringWithAggregatesFilter<"ConversationItem"> | string
+    delivery_message_id?: BigIntNullableWithAggregatesFilter<"ConversationItem"> | bigint | number | null
+    run_id?: StringNullableWithAggregatesFilter<"ConversationItem"> | string | null
+    trace_id?: StringNullableWithAggregatesFilter<"ConversationItem"> | string | null
+    created_at?: DateTimeWithAggregatesFilter<"ConversationItem"> | Date | string
+  }
+
   export type TrafficReplayHistoryWhereInput = {
     AND?: TrafficReplayHistoryWhereInput | TrafficReplayHistoryWhereInput[]
     OR?: TrafficReplayHistoryWhereInput[]
@@ -8669,6 +15102,412 @@ export namespace Prisma {
     body_size_diff?: IntNullableWithAggregatesFilter<"TrafficReplayHistory"> | number | null
     success?: BoolWithAggregatesFilter<"TrafficReplayHistory"> | boolean
     template_id?: IntNullableWithAggregatesFilter<"TrafficReplayHistory"> | number | null
+  }
+
+  export type RelationshipLedgerEventWhereInput = {
+    AND?: RelationshipLedgerEventWhereInput | RelationshipLedgerEventWhereInput[]
+    OR?: RelationshipLedgerEventWhereInput[]
+    NOT?: RelationshipLedgerEventWhereInput | RelationshipLedgerEventWhereInput[]
+    id?: BigIntFilter<"RelationshipLedgerEvent"> | bigint | number
+    group_id?: BigIntNullableFilter<"RelationshipLedgerEvent"> | bigint | number | null
+    target_user_id?: BigIntNullableFilter<"RelationshipLedgerEvent"> | bigint | number | null
+    session_key?: StringFilter<"RelationshipLedgerEvent"> | string
+    event_type?: StringFilter<"RelationshipLedgerEvent"> | string
+    event_weight?: FloatFilter<"RelationshipLedgerEvent"> | number
+    confidence?: StringFilter<"RelationshipLedgerEvent"> | string
+    source_message_ids?: JsonFilter<"RelationshipLedgerEvent">
+    source_excerpt?: StringNullableFilter<"RelationshipLedgerEvent"> | string | null
+    metadata?: JsonNullableFilter<"RelationshipLedgerEvent">
+    created_at?: DateTimeFilter<"RelationshipLedgerEvent"> | Date | string
+    last_reinforced_at?: DateTimeNullableFilter<"RelationshipLedgerEvent"> | Date | string | null
+  }
+
+  export type RelationshipLedgerEventOrderByWithRelationInput = {
+    id?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    target_user_id?: SortOrderInput | SortOrder
+    session_key?: SortOrder
+    event_type?: SortOrder
+    event_weight?: SortOrder
+    confidence?: SortOrder
+    source_message_ids?: SortOrder
+    source_excerpt?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    last_reinforced_at?: SortOrderInput | SortOrder
+  }
+
+  export type RelationshipLedgerEventWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: RelationshipLedgerEventWhereInput | RelationshipLedgerEventWhereInput[]
+    OR?: RelationshipLedgerEventWhereInput[]
+    NOT?: RelationshipLedgerEventWhereInput | RelationshipLedgerEventWhereInput[]
+    group_id?: BigIntNullableFilter<"RelationshipLedgerEvent"> | bigint | number | null
+    target_user_id?: BigIntNullableFilter<"RelationshipLedgerEvent"> | bigint | number | null
+    session_key?: StringFilter<"RelationshipLedgerEvent"> | string
+    event_type?: StringFilter<"RelationshipLedgerEvent"> | string
+    event_weight?: FloatFilter<"RelationshipLedgerEvent"> | number
+    confidence?: StringFilter<"RelationshipLedgerEvent"> | string
+    source_message_ids?: JsonFilter<"RelationshipLedgerEvent">
+    source_excerpt?: StringNullableFilter<"RelationshipLedgerEvent"> | string | null
+    metadata?: JsonNullableFilter<"RelationshipLedgerEvent">
+    created_at?: DateTimeFilter<"RelationshipLedgerEvent"> | Date | string
+    last_reinforced_at?: DateTimeNullableFilter<"RelationshipLedgerEvent"> | Date | string | null
+  }, "id">
+
+  export type RelationshipLedgerEventOrderByWithAggregationInput = {
+    id?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    target_user_id?: SortOrderInput | SortOrder
+    session_key?: SortOrder
+    event_type?: SortOrder
+    event_weight?: SortOrder
+    confidence?: SortOrder
+    source_message_ids?: SortOrder
+    source_excerpt?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    last_reinforced_at?: SortOrderInput | SortOrder
+    _count?: RelationshipLedgerEventCountOrderByAggregateInput
+    _avg?: RelationshipLedgerEventAvgOrderByAggregateInput
+    _max?: RelationshipLedgerEventMaxOrderByAggregateInput
+    _min?: RelationshipLedgerEventMinOrderByAggregateInput
+    _sum?: RelationshipLedgerEventSumOrderByAggregateInput
+  }
+
+  export type RelationshipLedgerEventScalarWhereWithAggregatesInput = {
+    AND?: RelationshipLedgerEventScalarWhereWithAggregatesInput | RelationshipLedgerEventScalarWhereWithAggregatesInput[]
+    OR?: RelationshipLedgerEventScalarWhereWithAggregatesInput[]
+    NOT?: RelationshipLedgerEventScalarWhereWithAggregatesInput | RelationshipLedgerEventScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"RelationshipLedgerEvent"> | bigint | number
+    group_id?: BigIntNullableWithAggregatesFilter<"RelationshipLedgerEvent"> | bigint | number | null
+    target_user_id?: BigIntNullableWithAggregatesFilter<"RelationshipLedgerEvent"> | bigint | number | null
+    session_key?: StringWithAggregatesFilter<"RelationshipLedgerEvent"> | string
+    event_type?: StringWithAggregatesFilter<"RelationshipLedgerEvent"> | string
+    event_weight?: FloatWithAggregatesFilter<"RelationshipLedgerEvent"> | number
+    confidence?: StringWithAggregatesFilter<"RelationshipLedgerEvent"> | string
+    source_message_ids?: JsonWithAggregatesFilter<"RelationshipLedgerEvent">
+    source_excerpt?: StringNullableWithAggregatesFilter<"RelationshipLedgerEvent"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"RelationshipLedgerEvent">
+    created_at?: DateTimeWithAggregatesFilter<"RelationshipLedgerEvent"> | Date | string
+    last_reinforced_at?: DateTimeNullableWithAggregatesFilter<"RelationshipLedgerEvent"> | Date | string | null
+  }
+
+  export type RelationshipMemoryJobWhereInput = {
+    AND?: RelationshipMemoryJobWhereInput | RelationshipMemoryJobWhereInput[]
+    OR?: RelationshipMemoryJobWhereInput[]
+    NOT?: RelationshipMemoryJobWhereInput | RelationshipMemoryJobWhereInput[]
+    id?: BigIntFilter<"RelationshipMemoryJob"> | bigint | number
+    group_id?: BigIntNullableFilter<"RelationshipMemoryJob"> | bigint | number | null
+    session_key?: StringFilter<"RelationshipMemoryJob"> | string
+    status?: StringFilter<"RelationshipMemoryJob"> | string
+    trigger_reason?: StringFilter<"RelationshipMemoryJob"> | string
+    turn_range_start?: BigIntNullableFilter<"RelationshipMemoryJob"> | bigint | number | null
+    turn_range_end?: BigIntNullableFilter<"RelationshipMemoryJob"> | bigint | number | null
+    ledger_event_count?: IntFilter<"RelationshipMemoryJob"> | number
+    input_message_ids?: JsonFilter<"RelationshipMemoryJob">
+    output_card_version?: IntNullableFilter<"RelationshipMemoryJob"> | number | null
+    error_message?: StringNullableFilter<"RelationshipMemoryJob"> | string | null
+    metadata?: JsonNullableFilter<"RelationshipMemoryJob">
+    started_at?: DateTimeNullableFilter<"RelationshipMemoryJob"> | Date | string | null
+    finished_at?: DateTimeNullableFilter<"RelationshipMemoryJob"> | Date | string | null
+    created_at?: DateTimeFilter<"RelationshipMemoryJob"> | Date | string
+    updated_at?: DateTimeFilter<"RelationshipMemoryJob"> | Date | string
+  }
+
+  export type RelationshipMemoryJobOrderByWithRelationInput = {
+    id?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    session_key?: SortOrder
+    status?: SortOrder
+    trigger_reason?: SortOrder
+    turn_range_start?: SortOrderInput | SortOrder
+    turn_range_end?: SortOrderInput | SortOrder
+    ledger_event_count?: SortOrder
+    input_message_ids?: SortOrder
+    output_card_version?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    started_at?: SortOrderInput | SortOrder
+    finished_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type RelationshipMemoryJobWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: RelationshipMemoryJobWhereInput | RelationshipMemoryJobWhereInput[]
+    OR?: RelationshipMemoryJobWhereInput[]
+    NOT?: RelationshipMemoryJobWhereInput | RelationshipMemoryJobWhereInput[]
+    group_id?: BigIntNullableFilter<"RelationshipMemoryJob"> | bigint | number | null
+    session_key?: StringFilter<"RelationshipMemoryJob"> | string
+    status?: StringFilter<"RelationshipMemoryJob"> | string
+    trigger_reason?: StringFilter<"RelationshipMemoryJob"> | string
+    turn_range_start?: BigIntNullableFilter<"RelationshipMemoryJob"> | bigint | number | null
+    turn_range_end?: BigIntNullableFilter<"RelationshipMemoryJob"> | bigint | number | null
+    ledger_event_count?: IntFilter<"RelationshipMemoryJob"> | number
+    input_message_ids?: JsonFilter<"RelationshipMemoryJob">
+    output_card_version?: IntNullableFilter<"RelationshipMemoryJob"> | number | null
+    error_message?: StringNullableFilter<"RelationshipMemoryJob"> | string | null
+    metadata?: JsonNullableFilter<"RelationshipMemoryJob">
+    started_at?: DateTimeNullableFilter<"RelationshipMemoryJob"> | Date | string | null
+    finished_at?: DateTimeNullableFilter<"RelationshipMemoryJob"> | Date | string | null
+    created_at?: DateTimeFilter<"RelationshipMemoryJob"> | Date | string
+    updated_at?: DateTimeFilter<"RelationshipMemoryJob"> | Date | string
+  }, "id">
+
+  export type RelationshipMemoryJobOrderByWithAggregationInput = {
+    id?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    session_key?: SortOrder
+    status?: SortOrder
+    trigger_reason?: SortOrder
+    turn_range_start?: SortOrderInput | SortOrder
+    turn_range_end?: SortOrderInput | SortOrder
+    ledger_event_count?: SortOrder
+    input_message_ids?: SortOrder
+    output_card_version?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    started_at?: SortOrderInput | SortOrder
+    finished_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: RelationshipMemoryJobCountOrderByAggregateInput
+    _avg?: RelationshipMemoryJobAvgOrderByAggregateInput
+    _max?: RelationshipMemoryJobMaxOrderByAggregateInput
+    _min?: RelationshipMemoryJobMinOrderByAggregateInput
+    _sum?: RelationshipMemoryJobSumOrderByAggregateInput
+  }
+
+  export type RelationshipMemoryJobScalarWhereWithAggregatesInput = {
+    AND?: RelationshipMemoryJobScalarWhereWithAggregatesInput | RelationshipMemoryJobScalarWhereWithAggregatesInput[]
+    OR?: RelationshipMemoryJobScalarWhereWithAggregatesInput[]
+    NOT?: RelationshipMemoryJobScalarWhereWithAggregatesInput | RelationshipMemoryJobScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"RelationshipMemoryJob"> | bigint | number
+    group_id?: BigIntNullableWithAggregatesFilter<"RelationshipMemoryJob"> | bigint | number | null
+    session_key?: StringWithAggregatesFilter<"RelationshipMemoryJob"> | string
+    status?: StringWithAggregatesFilter<"RelationshipMemoryJob"> | string
+    trigger_reason?: StringWithAggregatesFilter<"RelationshipMemoryJob"> | string
+    turn_range_start?: BigIntNullableWithAggregatesFilter<"RelationshipMemoryJob"> | bigint | number | null
+    turn_range_end?: BigIntNullableWithAggregatesFilter<"RelationshipMemoryJob"> | bigint | number | null
+    ledger_event_count?: IntWithAggregatesFilter<"RelationshipMemoryJob"> | number
+    input_message_ids?: JsonWithAggregatesFilter<"RelationshipMemoryJob">
+    output_card_version?: IntNullableWithAggregatesFilter<"RelationshipMemoryJob"> | number | null
+    error_message?: StringNullableWithAggregatesFilter<"RelationshipMemoryJob"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"RelationshipMemoryJob">
+    started_at?: DateTimeNullableWithAggregatesFilter<"RelationshipMemoryJob"> | Date | string | null
+    finished_at?: DateTimeNullableWithAggregatesFilter<"RelationshipMemoryJob"> | Date | string | null
+    created_at?: DateTimeWithAggregatesFilter<"RelationshipMemoryJob"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"RelationshipMemoryJob"> | Date | string
+  }
+
+  export type RelationshipMemoryCardWhereInput = {
+    AND?: RelationshipMemoryCardWhereInput | RelationshipMemoryCardWhereInput[]
+    OR?: RelationshipMemoryCardWhereInput[]
+    NOT?: RelationshipMemoryCardWhereInput | RelationshipMemoryCardWhereInput[]
+    id?: BigIntFilter<"RelationshipMemoryCard"> | bigint | number
+    card_type?: StringFilter<"RelationshipMemoryCard"> | string
+    group_id?: BigIntNullableFilter<"RelationshipMemoryCard"> | bigint | number | null
+    target_user_id?: BigIntNullableFilter<"RelationshipMemoryCard"> | bigint | number | null
+    version?: IntFilter<"RelationshipMemoryCard"> | number
+    is_active?: BoolFilter<"RelationshipMemoryCard"> | boolean
+    summary_text?: StringFilter<"RelationshipMemoryCard"> | string
+    actors?: JsonFilter<"RelationshipMemoryCard">
+    context_before?: StringNullableFilter<"RelationshipMemoryCard"> | string | null
+    trigger?: StringNullableFilter<"RelationshipMemoryCard"> | string | null
+    interaction?: StringNullableFilter<"RelationshipMemoryCard"> | string | null
+    outcome?: StringNullableFilter<"RelationshipMemoryCard"> | string | null
+    source_event_ids?: JsonFilter<"RelationshipMemoryCard">
+    source_message_ids?: JsonFilter<"RelationshipMemoryCard">
+    importance_score?: FloatFilter<"RelationshipMemoryCard"> | number
+    freshness_score?: FloatFilter<"RelationshipMemoryCard"> | number
+    decayed_score?: FloatFilter<"RelationshipMemoryCard"> | number
+    retrieval_text?: StringNullableFilter<"RelationshipMemoryCard"> | string | null
+    embedding_text?: StringNullableFilter<"RelationshipMemoryCard"> | string | null
+    last_hit_at?: DateTimeNullableFilter<"RelationshipMemoryCard"> | Date | string | null
+    metadata?: JsonNullableFilter<"RelationshipMemoryCard">
+    created_at?: DateTimeFilter<"RelationshipMemoryCard"> | Date | string
+    updated_at?: DateTimeFilter<"RelationshipMemoryCard"> | Date | string
+  }
+
+  export type RelationshipMemoryCardOrderByWithRelationInput = {
+    id?: SortOrder
+    card_type?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    target_user_id?: SortOrderInput | SortOrder
+    version?: SortOrder
+    is_active?: SortOrder
+    summary_text?: SortOrder
+    actors?: SortOrder
+    context_before?: SortOrderInput | SortOrder
+    trigger?: SortOrderInput | SortOrder
+    interaction?: SortOrderInput | SortOrder
+    outcome?: SortOrderInput | SortOrder
+    source_event_ids?: SortOrder
+    source_message_ids?: SortOrder
+    importance_score?: SortOrder
+    freshness_score?: SortOrder
+    decayed_score?: SortOrder
+    retrieval_text?: SortOrderInput | SortOrder
+    embedding_text?: SortOrderInput | SortOrder
+    last_hit_at?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type RelationshipMemoryCardWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: RelationshipMemoryCardWhereInput | RelationshipMemoryCardWhereInput[]
+    OR?: RelationshipMemoryCardWhereInput[]
+    NOT?: RelationshipMemoryCardWhereInput | RelationshipMemoryCardWhereInput[]
+    card_type?: StringFilter<"RelationshipMemoryCard"> | string
+    group_id?: BigIntNullableFilter<"RelationshipMemoryCard"> | bigint | number | null
+    target_user_id?: BigIntNullableFilter<"RelationshipMemoryCard"> | bigint | number | null
+    version?: IntFilter<"RelationshipMemoryCard"> | number
+    is_active?: BoolFilter<"RelationshipMemoryCard"> | boolean
+    summary_text?: StringFilter<"RelationshipMemoryCard"> | string
+    actors?: JsonFilter<"RelationshipMemoryCard">
+    context_before?: StringNullableFilter<"RelationshipMemoryCard"> | string | null
+    trigger?: StringNullableFilter<"RelationshipMemoryCard"> | string | null
+    interaction?: StringNullableFilter<"RelationshipMemoryCard"> | string | null
+    outcome?: StringNullableFilter<"RelationshipMemoryCard"> | string | null
+    source_event_ids?: JsonFilter<"RelationshipMemoryCard">
+    source_message_ids?: JsonFilter<"RelationshipMemoryCard">
+    importance_score?: FloatFilter<"RelationshipMemoryCard"> | number
+    freshness_score?: FloatFilter<"RelationshipMemoryCard"> | number
+    decayed_score?: FloatFilter<"RelationshipMemoryCard"> | number
+    retrieval_text?: StringNullableFilter<"RelationshipMemoryCard"> | string | null
+    embedding_text?: StringNullableFilter<"RelationshipMemoryCard"> | string | null
+    last_hit_at?: DateTimeNullableFilter<"RelationshipMemoryCard"> | Date | string | null
+    metadata?: JsonNullableFilter<"RelationshipMemoryCard">
+    created_at?: DateTimeFilter<"RelationshipMemoryCard"> | Date | string
+    updated_at?: DateTimeFilter<"RelationshipMemoryCard"> | Date | string
+  }, "id">
+
+  export type RelationshipMemoryCardOrderByWithAggregationInput = {
+    id?: SortOrder
+    card_type?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    target_user_id?: SortOrderInput | SortOrder
+    version?: SortOrder
+    is_active?: SortOrder
+    summary_text?: SortOrder
+    actors?: SortOrder
+    context_before?: SortOrderInput | SortOrder
+    trigger?: SortOrderInput | SortOrder
+    interaction?: SortOrderInput | SortOrder
+    outcome?: SortOrderInput | SortOrder
+    source_event_ids?: SortOrder
+    source_message_ids?: SortOrder
+    importance_score?: SortOrder
+    freshness_score?: SortOrder
+    decayed_score?: SortOrder
+    retrieval_text?: SortOrderInput | SortOrder
+    embedding_text?: SortOrderInput | SortOrder
+    last_hit_at?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: RelationshipMemoryCardCountOrderByAggregateInput
+    _avg?: RelationshipMemoryCardAvgOrderByAggregateInput
+    _max?: RelationshipMemoryCardMaxOrderByAggregateInput
+    _min?: RelationshipMemoryCardMinOrderByAggregateInput
+    _sum?: RelationshipMemoryCardSumOrderByAggregateInput
+  }
+
+  export type RelationshipMemoryCardScalarWhereWithAggregatesInput = {
+    AND?: RelationshipMemoryCardScalarWhereWithAggregatesInput | RelationshipMemoryCardScalarWhereWithAggregatesInput[]
+    OR?: RelationshipMemoryCardScalarWhereWithAggregatesInput[]
+    NOT?: RelationshipMemoryCardScalarWhereWithAggregatesInput | RelationshipMemoryCardScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"RelationshipMemoryCard"> | bigint | number
+    card_type?: StringWithAggregatesFilter<"RelationshipMemoryCard"> | string
+    group_id?: BigIntNullableWithAggregatesFilter<"RelationshipMemoryCard"> | bigint | number | null
+    target_user_id?: BigIntNullableWithAggregatesFilter<"RelationshipMemoryCard"> | bigint | number | null
+    version?: IntWithAggregatesFilter<"RelationshipMemoryCard"> | number
+    is_active?: BoolWithAggregatesFilter<"RelationshipMemoryCard"> | boolean
+    summary_text?: StringWithAggregatesFilter<"RelationshipMemoryCard"> | string
+    actors?: JsonWithAggregatesFilter<"RelationshipMemoryCard">
+    context_before?: StringNullableWithAggregatesFilter<"RelationshipMemoryCard"> | string | null
+    trigger?: StringNullableWithAggregatesFilter<"RelationshipMemoryCard"> | string | null
+    interaction?: StringNullableWithAggregatesFilter<"RelationshipMemoryCard"> | string | null
+    outcome?: StringNullableWithAggregatesFilter<"RelationshipMemoryCard"> | string | null
+    source_event_ids?: JsonWithAggregatesFilter<"RelationshipMemoryCard">
+    source_message_ids?: JsonWithAggregatesFilter<"RelationshipMemoryCard">
+    importance_score?: FloatWithAggregatesFilter<"RelationshipMemoryCard"> | number
+    freshness_score?: FloatWithAggregatesFilter<"RelationshipMemoryCard"> | number
+    decayed_score?: FloatWithAggregatesFilter<"RelationshipMemoryCard"> | number
+    retrieval_text?: StringNullableWithAggregatesFilter<"RelationshipMemoryCard"> | string | null
+    embedding_text?: StringNullableWithAggregatesFilter<"RelationshipMemoryCard"> | string | null
+    last_hit_at?: DateTimeNullableWithAggregatesFilter<"RelationshipMemoryCard"> | Date | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"RelationshipMemoryCard">
+    created_at?: DateTimeWithAggregatesFilter<"RelationshipMemoryCard"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"RelationshipMemoryCard"> | Date | string
+  }
+
+  export type RelationshipMemoryOverrideWhereInput = {
+    AND?: RelationshipMemoryOverrideWhereInput | RelationshipMemoryOverrideWhereInput[]
+    OR?: RelationshipMemoryOverrideWhereInput[]
+    NOT?: RelationshipMemoryOverrideWhereInput | RelationshipMemoryOverrideWhereInput[]
+    id?: BigIntFilter<"RelationshipMemoryOverride"> | bigint | number
+    card_id?: BigIntFilter<"RelationshipMemoryOverride"> | bigint | number
+    action_type?: StringFilter<"RelationshipMemoryOverride"> | string
+    manual_note?: StringNullableFilter<"RelationshipMemoryOverride"> | string | null
+    created_by?: StringNullableFilter<"RelationshipMemoryOverride"> | string | null
+    metadata?: JsonNullableFilter<"RelationshipMemoryOverride">
+    created_at?: DateTimeFilter<"RelationshipMemoryOverride"> | Date | string
+  }
+
+  export type RelationshipMemoryOverrideOrderByWithRelationInput = {
+    id?: SortOrder
+    card_id?: SortOrder
+    action_type?: SortOrder
+    manual_note?: SortOrderInput | SortOrder
+    created_by?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+  }
+
+  export type RelationshipMemoryOverrideWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: RelationshipMemoryOverrideWhereInput | RelationshipMemoryOverrideWhereInput[]
+    OR?: RelationshipMemoryOverrideWhereInput[]
+    NOT?: RelationshipMemoryOverrideWhereInput | RelationshipMemoryOverrideWhereInput[]
+    card_id?: BigIntFilter<"RelationshipMemoryOverride"> | bigint | number
+    action_type?: StringFilter<"RelationshipMemoryOverride"> | string
+    manual_note?: StringNullableFilter<"RelationshipMemoryOverride"> | string | null
+    created_by?: StringNullableFilter<"RelationshipMemoryOverride"> | string | null
+    metadata?: JsonNullableFilter<"RelationshipMemoryOverride">
+    created_at?: DateTimeFilter<"RelationshipMemoryOverride"> | Date | string
+  }, "id">
+
+  export type RelationshipMemoryOverrideOrderByWithAggregationInput = {
+    id?: SortOrder
+    card_id?: SortOrder
+    action_type?: SortOrder
+    manual_note?: SortOrderInput | SortOrder
+    created_by?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    _count?: RelationshipMemoryOverrideCountOrderByAggregateInput
+    _avg?: RelationshipMemoryOverrideAvgOrderByAggregateInput
+    _max?: RelationshipMemoryOverrideMaxOrderByAggregateInput
+    _min?: RelationshipMemoryOverrideMinOrderByAggregateInput
+    _sum?: RelationshipMemoryOverrideSumOrderByAggregateInput
+  }
+
+  export type RelationshipMemoryOverrideScalarWhereWithAggregatesInput = {
+    AND?: RelationshipMemoryOverrideScalarWhereWithAggregatesInput | RelationshipMemoryOverrideScalarWhereWithAggregatesInput[]
+    OR?: RelationshipMemoryOverrideScalarWhereWithAggregatesInput[]
+    NOT?: RelationshipMemoryOverrideScalarWhereWithAggregatesInput | RelationshipMemoryOverrideScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"RelationshipMemoryOverride"> | bigint | number
+    card_id?: BigIntWithAggregatesFilter<"RelationshipMemoryOverride"> | bigint | number
+    action_type?: StringWithAggregatesFilter<"RelationshipMemoryOverride"> | string
+    manual_note?: StringNullableWithAggregatesFilter<"RelationshipMemoryOverride"> | string | null
+    created_by?: StringNullableWithAggregatesFilter<"RelationshipMemoryOverride"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"RelationshipMemoryOverride">
+    created_at?: DateTimeWithAggregatesFilter<"RelationshipMemoryOverride"> | Date | string
   }
 
   export type GroupChatSettingCreateInput = {
@@ -9343,6 +16182,118 @@ export namespace Prisma {
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
+  export type ConversationItemCreateInput = {
+    id?: bigint | number
+    conversation_id: bigint | number
+    session_key?: string | null
+    role: string
+    phase?: string | null
+    content: string
+    group_index?: number
+    item_index?: number
+    source: string
+    delivery_message_id?: bigint | number | null
+    run_id?: string | null
+    trace_id?: string | null
+    created_at?: Date | string
+  }
+
+  export type ConversationItemUncheckedCreateInput = {
+    id?: bigint | number
+    conversation_id: bigint | number
+    session_key?: string | null
+    role: string
+    phase?: string | null
+    content: string
+    group_index?: number
+    item_index?: number
+    source: string
+    delivery_message_id?: bigint | number | null
+    run_id?: string | null
+    trace_id?: string | null
+    created_at?: Date | string
+  }
+
+  export type ConversationItemUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    conversation_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: NullableStringFieldUpdateOperationsInput | string | null
+    role?: StringFieldUpdateOperationsInput | string
+    phase?: NullableStringFieldUpdateOperationsInput | string | null
+    content?: StringFieldUpdateOperationsInput | string
+    group_index?: IntFieldUpdateOperationsInput | number
+    item_index?: IntFieldUpdateOperationsInput | number
+    source?: StringFieldUpdateOperationsInput | string
+    delivery_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ConversationItemUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    conversation_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: NullableStringFieldUpdateOperationsInput | string | null
+    role?: StringFieldUpdateOperationsInput | string
+    phase?: NullableStringFieldUpdateOperationsInput | string | null
+    content?: StringFieldUpdateOperationsInput | string
+    group_index?: IntFieldUpdateOperationsInput | number
+    item_index?: IntFieldUpdateOperationsInput | number
+    source?: StringFieldUpdateOperationsInput | string
+    delivery_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ConversationItemCreateManyInput = {
+    id?: bigint | number
+    conversation_id: bigint | number
+    session_key?: string | null
+    role: string
+    phase?: string | null
+    content: string
+    group_index?: number
+    item_index?: number
+    source: string
+    delivery_message_id?: bigint | number | null
+    run_id?: string | null
+    trace_id?: string | null
+    created_at?: Date | string
+  }
+
+  export type ConversationItemUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    conversation_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: NullableStringFieldUpdateOperationsInput | string | null
+    role?: StringFieldUpdateOperationsInput | string
+    phase?: NullableStringFieldUpdateOperationsInput | string | null
+    content?: StringFieldUpdateOperationsInput | string
+    group_index?: IntFieldUpdateOperationsInput | number
+    item_index?: IntFieldUpdateOperationsInput | number
+    source?: StringFieldUpdateOperationsInput | string
+    delivery_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ConversationItemUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    conversation_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: NullableStringFieldUpdateOperationsInput | string | null
+    role?: StringFieldUpdateOperationsInput | string
+    phase?: NullableStringFieldUpdateOperationsInput | string | null
+    content?: StringFieldUpdateOperationsInput | string
+    group_index?: IntFieldUpdateOperationsInput | number
+    item_index?: IntFieldUpdateOperationsInput | number
+    source?: StringFieldUpdateOperationsInput | string
+    delivery_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
   export type TrafficReplayHistoryCreateInput = {
     id?: bigint | number
     original_log_id: bigint | number
@@ -9600,6 +16551,496 @@ export namespace Prisma {
     body_size_diff?: NullableIntFieldUpdateOperationsInput | number | null
     success?: BoolFieldUpdateOperationsInput | boolean
     template_id?: NullableIntFieldUpdateOperationsInput | number | null
+  }
+
+  export type RelationshipLedgerEventCreateInput = {
+    id?: bigint | number
+    group_id?: bigint | number | null
+    target_user_id?: bigint | number | null
+    session_key: string
+    event_type: string
+    event_weight?: number
+    confidence?: string
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    source_excerpt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    last_reinforced_at?: Date | string | null
+  }
+
+  export type RelationshipLedgerEventUncheckedCreateInput = {
+    id?: bigint | number
+    group_id?: bigint | number | null
+    target_user_id?: bigint | number | null
+    session_key: string
+    event_type: string
+    event_weight?: number
+    confidence?: string
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    source_excerpt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    last_reinforced_at?: Date | string | null
+  }
+
+  export type RelationshipLedgerEventUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    event_type?: StringFieldUpdateOperationsInput | string
+    event_weight?: FloatFieldUpdateOperationsInput | number
+    confidence?: StringFieldUpdateOperationsInput | string
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    source_excerpt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    last_reinforced_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  }
+
+  export type RelationshipLedgerEventUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    event_type?: StringFieldUpdateOperationsInput | string
+    event_weight?: FloatFieldUpdateOperationsInput | number
+    confidence?: StringFieldUpdateOperationsInput | string
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    source_excerpt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    last_reinforced_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  }
+
+  export type RelationshipLedgerEventCreateManyInput = {
+    id?: bigint | number
+    group_id?: bigint | number | null
+    target_user_id?: bigint | number | null
+    session_key: string
+    event_type: string
+    event_weight?: number
+    confidence?: string
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    source_excerpt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    last_reinforced_at?: Date | string | null
+  }
+
+  export type RelationshipLedgerEventUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    event_type?: StringFieldUpdateOperationsInput | string
+    event_weight?: FloatFieldUpdateOperationsInput | number
+    confidence?: StringFieldUpdateOperationsInput | string
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    source_excerpt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    last_reinforced_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  }
+
+  export type RelationshipLedgerEventUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    event_type?: StringFieldUpdateOperationsInput | string
+    event_weight?: FloatFieldUpdateOperationsInput | number
+    confidence?: StringFieldUpdateOperationsInput | string
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    source_excerpt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    last_reinforced_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  }
+
+  export type RelationshipMemoryJobCreateInput = {
+    id?: bigint | number
+    group_id?: bigint | number | null
+    session_key: string
+    status: string
+    trigger_reason: string
+    turn_range_start?: bigint | number | null
+    turn_range_end?: bigint | number | null
+    ledger_event_count?: number
+    input_message_ids: JsonNullValueInput | InputJsonValue
+    output_card_version?: number | null
+    error_message?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    finished_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type RelationshipMemoryJobUncheckedCreateInput = {
+    id?: bigint | number
+    group_id?: bigint | number | null
+    session_key: string
+    status: string
+    trigger_reason: string
+    turn_range_start?: bigint | number | null
+    turn_range_end?: bigint | number | null
+    ledger_event_count?: number
+    input_message_ids: JsonNullValueInput | InputJsonValue
+    output_card_version?: number | null
+    error_message?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    finished_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type RelationshipMemoryJobUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    trigger_reason?: StringFieldUpdateOperationsInput | string
+    turn_range_start?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    turn_range_end?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    ledger_event_count?: IntFieldUpdateOperationsInput | number
+    input_message_ids?: JsonNullValueInput | InputJsonValue
+    output_card_version?: NullableIntFieldUpdateOperationsInput | number | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    finished_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type RelationshipMemoryJobUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    trigger_reason?: StringFieldUpdateOperationsInput | string
+    turn_range_start?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    turn_range_end?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    ledger_event_count?: IntFieldUpdateOperationsInput | number
+    input_message_ids?: JsonNullValueInput | InputJsonValue
+    output_card_version?: NullableIntFieldUpdateOperationsInput | number | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    finished_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type RelationshipMemoryJobCreateManyInput = {
+    id?: bigint | number
+    group_id?: bigint | number | null
+    session_key: string
+    status: string
+    trigger_reason: string
+    turn_range_start?: bigint | number | null
+    turn_range_end?: bigint | number | null
+    ledger_event_count?: number
+    input_message_ids: JsonNullValueInput | InputJsonValue
+    output_card_version?: number | null
+    error_message?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    finished_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type RelationshipMemoryJobUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    trigger_reason?: StringFieldUpdateOperationsInput | string
+    turn_range_start?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    turn_range_end?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    ledger_event_count?: IntFieldUpdateOperationsInput | number
+    input_message_ids?: JsonNullValueInput | InputJsonValue
+    output_card_version?: NullableIntFieldUpdateOperationsInput | number | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    finished_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type RelationshipMemoryJobUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    trigger_reason?: StringFieldUpdateOperationsInput | string
+    turn_range_start?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    turn_range_end?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    ledger_event_count?: IntFieldUpdateOperationsInput | number
+    input_message_ids?: JsonNullValueInput | InputJsonValue
+    output_card_version?: NullableIntFieldUpdateOperationsInput | number | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    finished_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type RelationshipMemoryCardCreateInput = {
+    id?: bigint | number
+    card_type: string
+    group_id?: bigint | number | null
+    target_user_id?: bigint | number | null
+    version?: number
+    is_active?: boolean
+    summary_text: string
+    actors: JsonNullValueInput | InputJsonValue
+    context_before?: string | null
+    trigger?: string | null
+    interaction?: string | null
+    outcome?: string | null
+    source_event_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    importance_score?: number
+    freshness_score?: number
+    decayed_score?: number
+    retrieval_text?: string | null
+    embedding_text?: string | null
+    last_hit_at?: Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type RelationshipMemoryCardUncheckedCreateInput = {
+    id?: bigint | number
+    card_type: string
+    group_id?: bigint | number | null
+    target_user_id?: bigint | number | null
+    version?: number
+    is_active?: boolean
+    summary_text: string
+    actors: JsonNullValueInput | InputJsonValue
+    context_before?: string | null
+    trigger?: string | null
+    interaction?: string | null
+    outcome?: string | null
+    source_event_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    importance_score?: number
+    freshness_score?: number
+    decayed_score?: number
+    retrieval_text?: string | null
+    embedding_text?: string | null
+    last_hit_at?: Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type RelationshipMemoryCardUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    card_type?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    version?: IntFieldUpdateOperationsInput | number
+    is_active?: BoolFieldUpdateOperationsInput | boolean
+    summary_text?: StringFieldUpdateOperationsInput | string
+    actors?: JsonNullValueInput | InputJsonValue
+    context_before?: NullableStringFieldUpdateOperationsInput | string | null
+    trigger?: NullableStringFieldUpdateOperationsInput | string | null
+    interaction?: NullableStringFieldUpdateOperationsInput | string | null
+    outcome?: NullableStringFieldUpdateOperationsInput | string | null
+    source_event_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    importance_score?: FloatFieldUpdateOperationsInput | number
+    freshness_score?: FloatFieldUpdateOperationsInput | number
+    decayed_score?: FloatFieldUpdateOperationsInput | number
+    retrieval_text?: NullableStringFieldUpdateOperationsInput | string | null
+    embedding_text?: NullableStringFieldUpdateOperationsInput | string | null
+    last_hit_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type RelationshipMemoryCardUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    card_type?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    version?: IntFieldUpdateOperationsInput | number
+    is_active?: BoolFieldUpdateOperationsInput | boolean
+    summary_text?: StringFieldUpdateOperationsInput | string
+    actors?: JsonNullValueInput | InputJsonValue
+    context_before?: NullableStringFieldUpdateOperationsInput | string | null
+    trigger?: NullableStringFieldUpdateOperationsInput | string | null
+    interaction?: NullableStringFieldUpdateOperationsInput | string | null
+    outcome?: NullableStringFieldUpdateOperationsInput | string | null
+    source_event_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    importance_score?: FloatFieldUpdateOperationsInput | number
+    freshness_score?: FloatFieldUpdateOperationsInput | number
+    decayed_score?: FloatFieldUpdateOperationsInput | number
+    retrieval_text?: NullableStringFieldUpdateOperationsInput | string | null
+    embedding_text?: NullableStringFieldUpdateOperationsInput | string | null
+    last_hit_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type RelationshipMemoryCardCreateManyInput = {
+    id?: bigint | number
+    card_type: string
+    group_id?: bigint | number | null
+    target_user_id?: bigint | number | null
+    version?: number
+    is_active?: boolean
+    summary_text: string
+    actors: JsonNullValueInput | InputJsonValue
+    context_before?: string | null
+    trigger?: string | null
+    interaction?: string | null
+    outcome?: string | null
+    source_event_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    importance_score?: number
+    freshness_score?: number
+    decayed_score?: number
+    retrieval_text?: string | null
+    embedding_text?: string | null
+    last_hit_at?: Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type RelationshipMemoryCardUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    card_type?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    version?: IntFieldUpdateOperationsInput | number
+    is_active?: BoolFieldUpdateOperationsInput | boolean
+    summary_text?: StringFieldUpdateOperationsInput | string
+    actors?: JsonNullValueInput | InputJsonValue
+    context_before?: NullableStringFieldUpdateOperationsInput | string | null
+    trigger?: NullableStringFieldUpdateOperationsInput | string | null
+    interaction?: NullableStringFieldUpdateOperationsInput | string | null
+    outcome?: NullableStringFieldUpdateOperationsInput | string | null
+    source_event_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    importance_score?: FloatFieldUpdateOperationsInput | number
+    freshness_score?: FloatFieldUpdateOperationsInput | number
+    decayed_score?: FloatFieldUpdateOperationsInput | number
+    retrieval_text?: NullableStringFieldUpdateOperationsInput | string | null
+    embedding_text?: NullableStringFieldUpdateOperationsInput | string | null
+    last_hit_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type RelationshipMemoryCardUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    card_type?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    version?: IntFieldUpdateOperationsInput | number
+    is_active?: BoolFieldUpdateOperationsInput | boolean
+    summary_text?: StringFieldUpdateOperationsInput | string
+    actors?: JsonNullValueInput | InputJsonValue
+    context_before?: NullableStringFieldUpdateOperationsInput | string | null
+    trigger?: NullableStringFieldUpdateOperationsInput | string | null
+    interaction?: NullableStringFieldUpdateOperationsInput | string | null
+    outcome?: NullableStringFieldUpdateOperationsInput | string | null
+    source_event_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    importance_score?: FloatFieldUpdateOperationsInput | number
+    freshness_score?: FloatFieldUpdateOperationsInput | number
+    decayed_score?: FloatFieldUpdateOperationsInput | number
+    retrieval_text?: NullableStringFieldUpdateOperationsInput | string | null
+    embedding_text?: NullableStringFieldUpdateOperationsInput | string | null
+    last_hit_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type RelationshipMemoryOverrideCreateInput = {
+    id?: bigint | number
+    card_id: bigint | number
+    action_type: string
+    manual_note?: string | null
+    created_by?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type RelationshipMemoryOverrideUncheckedCreateInput = {
+    id?: bigint | number
+    card_id: bigint | number
+    action_type: string
+    manual_note?: string | null
+    created_by?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type RelationshipMemoryOverrideUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    card_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    action_type?: StringFieldUpdateOperationsInput | string
+    manual_note?: NullableStringFieldUpdateOperationsInput | string | null
+    created_by?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type RelationshipMemoryOverrideUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    card_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    action_type?: StringFieldUpdateOperationsInput | string
+    manual_note?: NullableStringFieldUpdateOperationsInput | string | null
+    created_by?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type RelationshipMemoryOverrideCreateManyInput = {
+    id?: bigint | number
+    card_id: bigint | number
+    action_type: string
+    manual_note?: string | null
+    created_by?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type RelationshipMemoryOverrideUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    card_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    action_type?: StringFieldUpdateOperationsInput | string
+    manual_note?: NullableStringFieldUpdateOperationsInput | string | null
+    created_by?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type RelationshipMemoryOverrideUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    card_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    action_type?: StringFieldUpdateOperationsInput | string
+    manual_note?: NullableStringFieldUpdateOperationsInput | string | null
+    created_by?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type BigIntFilter<$PrismaModel = never> = {
@@ -10282,6 +17723,70 @@ export namespace Prisma {
     _max?: NestedBoolFilter<$PrismaModel>
   }
 
+  export type ConversationItemCountOrderByAggregateInput = {
+    id?: SortOrder
+    conversation_id?: SortOrder
+    session_key?: SortOrder
+    role?: SortOrder
+    phase?: SortOrder
+    content?: SortOrder
+    group_index?: SortOrder
+    item_index?: SortOrder
+    source?: SortOrder
+    delivery_message_id?: SortOrder
+    run_id?: SortOrder
+    trace_id?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type ConversationItemAvgOrderByAggregateInput = {
+    id?: SortOrder
+    conversation_id?: SortOrder
+    group_index?: SortOrder
+    item_index?: SortOrder
+    delivery_message_id?: SortOrder
+  }
+
+  export type ConversationItemMaxOrderByAggregateInput = {
+    id?: SortOrder
+    conversation_id?: SortOrder
+    session_key?: SortOrder
+    role?: SortOrder
+    phase?: SortOrder
+    content?: SortOrder
+    group_index?: SortOrder
+    item_index?: SortOrder
+    source?: SortOrder
+    delivery_message_id?: SortOrder
+    run_id?: SortOrder
+    trace_id?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type ConversationItemMinOrderByAggregateInput = {
+    id?: SortOrder
+    conversation_id?: SortOrder
+    session_key?: SortOrder
+    role?: SortOrder
+    phase?: SortOrder
+    content?: SortOrder
+    group_index?: SortOrder
+    item_index?: SortOrder
+    source?: SortOrder
+    delivery_message_id?: SortOrder
+    run_id?: SortOrder
+    trace_id?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type ConversationItemSumOrderByAggregateInput = {
+    id?: SortOrder
+    conversation_id?: SortOrder
+    group_index?: SortOrder
+    item_index?: SortOrder
+    delivery_message_id?: SortOrder
+  }
+
   export type TrafficReplayHistoryCountOrderByAggregateInput = {
     id?: SortOrder
     original_log_id?: SortOrder
@@ -10405,6 +17910,287 @@ export namespace Prisma {
     template_id?: SortOrder
   }
 
+  export type FloatFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel>
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatFilter<$PrismaModel> | number
+  }
+
+  export type RelationshipLedgerEventCountOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    session_key?: SortOrder
+    event_type?: SortOrder
+    event_weight?: SortOrder
+    confidence?: SortOrder
+    source_message_ids?: SortOrder
+    source_excerpt?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    last_reinforced_at?: SortOrder
+  }
+
+  export type RelationshipLedgerEventAvgOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    event_weight?: SortOrder
+  }
+
+  export type RelationshipLedgerEventMaxOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    session_key?: SortOrder
+    event_type?: SortOrder
+    event_weight?: SortOrder
+    confidence?: SortOrder
+    source_excerpt?: SortOrder
+    created_at?: SortOrder
+    last_reinforced_at?: SortOrder
+  }
+
+  export type RelationshipLedgerEventMinOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    session_key?: SortOrder
+    event_type?: SortOrder
+    event_weight?: SortOrder
+    confidence?: SortOrder
+    source_excerpt?: SortOrder
+    created_at?: SortOrder
+    last_reinforced_at?: SortOrder
+  }
+
+  export type RelationshipLedgerEventSumOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    event_weight?: SortOrder
+  }
+
+  export type FloatWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel>
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatWithAggregatesFilter<$PrismaModel> | number
+    _count?: NestedIntFilter<$PrismaModel>
+    _avg?: NestedFloatFilter<$PrismaModel>
+    _sum?: NestedFloatFilter<$PrismaModel>
+    _min?: NestedFloatFilter<$PrismaModel>
+    _max?: NestedFloatFilter<$PrismaModel>
+  }
+
+  export type RelationshipMemoryJobCountOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    session_key?: SortOrder
+    status?: SortOrder
+    trigger_reason?: SortOrder
+    turn_range_start?: SortOrder
+    turn_range_end?: SortOrder
+    ledger_event_count?: SortOrder
+    input_message_ids?: SortOrder
+    output_card_version?: SortOrder
+    error_message?: SortOrder
+    metadata?: SortOrder
+    started_at?: SortOrder
+    finished_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type RelationshipMemoryJobAvgOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    turn_range_start?: SortOrder
+    turn_range_end?: SortOrder
+    ledger_event_count?: SortOrder
+    output_card_version?: SortOrder
+  }
+
+  export type RelationshipMemoryJobMaxOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    session_key?: SortOrder
+    status?: SortOrder
+    trigger_reason?: SortOrder
+    turn_range_start?: SortOrder
+    turn_range_end?: SortOrder
+    ledger_event_count?: SortOrder
+    output_card_version?: SortOrder
+    error_message?: SortOrder
+    started_at?: SortOrder
+    finished_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type RelationshipMemoryJobMinOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    session_key?: SortOrder
+    status?: SortOrder
+    trigger_reason?: SortOrder
+    turn_range_start?: SortOrder
+    turn_range_end?: SortOrder
+    ledger_event_count?: SortOrder
+    output_card_version?: SortOrder
+    error_message?: SortOrder
+    started_at?: SortOrder
+    finished_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type RelationshipMemoryJobSumOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    turn_range_start?: SortOrder
+    turn_range_end?: SortOrder
+    ledger_event_count?: SortOrder
+    output_card_version?: SortOrder
+  }
+
+  export type RelationshipMemoryCardCountOrderByAggregateInput = {
+    id?: SortOrder
+    card_type?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    version?: SortOrder
+    is_active?: SortOrder
+    summary_text?: SortOrder
+    actors?: SortOrder
+    context_before?: SortOrder
+    trigger?: SortOrder
+    interaction?: SortOrder
+    outcome?: SortOrder
+    source_event_ids?: SortOrder
+    source_message_ids?: SortOrder
+    importance_score?: SortOrder
+    freshness_score?: SortOrder
+    decayed_score?: SortOrder
+    retrieval_text?: SortOrder
+    embedding_text?: SortOrder
+    last_hit_at?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type RelationshipMemoryCardAvgOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    version?: SortOrder
+    importance_score?: SortOrder
+    freshness_score?: SortOrder
+    decayed_score?: SortOrder
+  }
+
+  export type RelationshipMemoryCardMaxOrderByAggregateInput = {
+    id?: SortOrder
+    card_type?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    version?: SortOrder
+    is_active?: SortOrder
+    summary_text?: SortOrder
+    context_before?: SortOrder
+    trigger?: SortOrder
+    interaction?: SortOrder
+    outcome?: SortOrder
+    importance_score?: SortOrder
+    freshness_score?: SortOrder
+    decayed_score?: SortOrder
+    retrieval_text?: SortOrder
+    embedding_text?: SortOrder
+    last_hit_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type RelationshipMemoryCardMinOrderByAggregateInput = {
+    id?: SortOrder
+    card_type?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    version?: SortOrder
+    is_active?: SortOrder
+    summary_text?: SortOrder
+    context_before?: SortOrder
+    trigger?: SortOrder
+    interaction?: SortOrder
+    outcome?: SortOrder
+    importance_score?: SortOrder
+    freshness_score?: SortOrder
+    decayed_score?: SortOrder
+    retrieval_text?: SortOrder
+    embedding_text?: SortOrder
+    last_hit_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type RelationshipMemoryCardSumOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    version?: SortOrder
+    importance_score?: SortOrder
+    freshness_score?: SortOrder
+    decayed_score?: SortOrder
+  }
+
+  export type RelationshipMemoryOverrideCountOrderByAggregateInput = {
+    id?: SortOrder
+    card_id?: SortOrder
+    action_type?: SortOrder
+    manual_note?: SortOrder
+    created_by?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type RelationshipMemoryOverrideAvgOrderByAggregateInput = {
+    id?: SortOrder
+    card_id?: SortOrder
+  }
+
+  export type RelationshipMemoryOverrideMaxOrderByAggregateInput = {
+    id?: SortOrder
+    card_id?: SortOrder
+    action_type?: SortOrder
+    manual_note?: SortOrder
+    created_by?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type RelationshipMemoryOverrideMinOrderByAggregateInput = {
+    id?: SortOrder
+    card_id?: SortOrder
+    action_type?: SortOrder
+    manual_note?: SortOrder
+    created_by?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type RelationshipMemoryOverrideSumOrderByAggregateInput = {
+    id?: SortOrder
+    card_id?: SortOrder
+  }
+
   export type BigIntFieldUpdateOperationsInput = {
     set?: bigint | number
     increment?: bigint | number
@@ -10455,6 +18241,14 @@ export namespace Prisma {
 
   export type BoolFieldUpdateOperationsInput = {
     set?: boolean
+  }
+
+  export type FloatFieldUpdateOperationsInput = {
+    set?: number
+    increment?: number
+    decrement?: number
+    multiply?: number
+    divide?: number
   }
 
   export type NestedBigIntFilter<$PrismaModel = never> = {
@@ -10756,6 +18550,22 @@ export namespace Prisma {
     _count?: NestedIntFilter<$PrismaModel>
     _min?: NestedBoolFilter<$PrismaModel>
     _max?: NestedBoolFilter<$PrismaModel>
+  }
+
+  export type NestedFloatWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel>
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatWithAggregatesFilter<$PrismaModel> | number
+    _count?: NestedIntFilter<$PrismaModel>
+    _avg?: NestedFloatFilter<$PrismaModel>
+    _sum?: NestedFloatFilter<$PrismaModel>
+    _min?: NestedFloatFilter<$PrismaModel>
+    _max?: NestedFloatFilter<$PrismaModel>
   }
 
 

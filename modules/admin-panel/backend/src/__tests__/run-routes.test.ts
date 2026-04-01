@@ -3,6 +3,27 @@ import request from 'supertest';
 import winston from 'winston';
 import { createRunRoutes } from '../routes/run-routes';
 
+jest.mock('@qq-bot/persistence', () => ({
+  getRelationshipMemoryCardById: jest.fn(async () => ({
+    id: 42
+  })),
+  listRelationshipMemoryJobs: jest.fn(async () => []),
+  listRelationshipMemoryCards: jest.fn(async () => []),
+  listRelationshipMemoryOverrides: jest.fn(async () => []),
+  listRelationshipLedgerEventsByIds: jest.fn(async () => []),
+  listConversationItemsByIds: jest.fn(async () => []),
+  deleteRelationshipMemoryOverride: jest.fn(async (id: any) => ({
+    id
+  })),
+  recordRelationshipMemoryOverride: jest.fn(async (input: any) => ({
+    id: 9001,
+    card_id: input.cardId,
+    action_type: input.actionType,
+    manual_note: input.manualNote,
+    created_by: input.createdBy
+  }))
+}));
+
 function createLogger(): winston.Logger {
   return winston.createLogger({ silent: true });
 }
@@ -21,6 +42,238 @@ function createApp(database: ReturnType<typeof createDatabaseMock>) {
 }
 
 describe('run routes', () => {
+  it('lists conversation items for a session in timeline order', async () => {
+    const database = createDatabaseMock();
+    database.executeQuery.mockResolvedValueOnce([{
+      id: 9001,
+      session_key: 'qq:group:123',
+      role: 'user',
+      phase: 'inbound',
+      source: 'napcat',
+      trace_id: 'trace-1',
+      run_id: 'run-1',
+      group_index: 3,
+      item_index: 1,
+      content: '第一句',
+      created_at: '2026-04-01T01:00:00.000Z'
+    }, {
+      id: 9002,
+      session_key: 'qq:group:123',
+      role: 'assistant',
+      phase: 'outbound',
+      source: 'agent',
+      trace_id: 'trace-1',
+      run_id: 'run-1',
+      group_index: 3,
+      item_index: 2,
+      content: '第二句',
+      created_at: '2026-04-01T01:00:01.000Z'
+    }]);
+
+    const response = await request(createApp(database))
+      .get('/api/runs/sessions/qq%3Agroup%3A123/conversation-items?limit=50');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(database.executeQuery).toHaveBeenCalledWith(expect.stringContaining('FROM conversation_items'), ['qq:group:123', 50]);
+    expect(response.body.data).toEqual([{
+      id: 9001,
+      session_key: 'qq:group:123',
+      role: 'user',
+      phase: 'inbound',
+      source: 'napcat',
+      trace_id: 'trace-1',
+      run_id: 'run-1',
+      group_index: 3,
+      item_index: 1,
+      content: '第一句',
+      created_at: '2026-04-01T01:00:00.000Z'
+    }, {
+      id: 9002,
+      session_key: 'qq:group:123',
+      role: 'assistant',
+      phase: 'outbound',
+      source: 'agent',
+      trace_id: 'trace-1',
+      run_id: 'run-1',
+      group_index: 3,
+      item_index: 2,
+      content: '第二句',
+      created_at: '2026-04-01T01:00:01.000Z'
+    }]);
+  });
+
+  it('rejects overrides for missing relationship memory cards', async () => {
+    const database = createDatabaseMock();
+    const persistence = jest.requireMock('@qq-bot/persistence');
+    persistence.getRelationshipMemoryCardById.mockResolvedValueOnce(null);
+
+    const response = await request(createApp(database))
+      .post('/api/runs/relationship-memory/cards/999999/overrides')
+      .send({
+        action_type: 'pin'
+      });
+
+    expect(response.status).toBe(404);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBe('Relationship memory card not found');
+  });
+
+  it('dedupes repeated relationship memory overrides for the same action', async () => {
+    const database = createDatabaseMock();
+    const persistence = jest.requireMock('@qq-bot/persistence');
+    persistence.listRelationshipMemoryOverrides.mockResolvedValueOnce([{
+      id: 77,
+      card_id: 42,
+      action_type: 'pin',
+      manual_note: null,
+      created_by: 'admin-panel'
+    }]);
+
+    const response = await request(createApp(database))
+      .post('/api/runs/relationship-memory/cards/42/overrides')
+      .send({
+        action_type: 'pin'
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.id).toBe(77);
+    expect(response.body.data.action_type).toBe('pin');
+    expect(response.body.data.deduped).toBe(true);
+  });
+
+  it('returns evidence details for relationship memory cards', async () => {
+    const database = createDatabaseMock();
+    const persistence = jest.requireMock('@qq-bot/persistence');
+    persistence.listRelationshipMemoryJobs.mockResolvedValueOnce([{
+      id: 11,
+      session_key: 'group:123',
+      status: 'succeeded',
+      ledger_event_count: 2,
+      updated_at: '2026-04-01T01:00:00.000Z',
+      created_at: '2026-04-01T00:59:00.000Z'
+    }]);
+    persistence.listRelationshipMemoryCards.mockResolvedValueOnce([{
+      id: 42,
+      card_type: 'person',
+      group_id: 123,
+      target_user_id: 456,
+      version: 2,
+      summary_text: '他和小腻已经形成固定接梗方式',
+      actors: ['小腻', 'liahua'],
+      source_event_ids: [701],
+      source_message_ids: [8001, 8002],
+      decayed_score: 0.83,
+      metadata: {}
+    }]);
+    persistence.listRelationshipMemoryOverrides.mockResolvedValueOnce([]);
+    persistence.listRelationshipLedgerEventsByIds.mockResolvedValueOnce([{
+      id: 701,
+      event_type: 'shared_joke_formed',
+      session_key: 'group:123',
+      target_user_id: 456,
+      source_message_ids: [8001, 8002],
+      source_excerpt: 'liahua 先起头，小腻马上接住同一个梗，然后群里继续顺着笑。',
+      event_weight: 0.9,
+      confidence: 'high',
+      created_at: '2026-04-01T00:58:00.000Z',
+      metadata: {}
+    }]);
+    persistence.listConversationItemsByIds.mockResolvedValueOnce([{
+      id: 8001,
+      session_key: 'qq:group:123',
+      role: 'user',
+      phase: 'inbound',
+      source: 'napcat',
+      content: '你又开始拿昨天那个梗说事了',
+      group_index: 4,
+      item_index: 1,
+      created_at: '2026-04-01T00:57:00.000Z'
+    }, {
+      id: 8002,
+      session_key: 'qq:group:123',
+      role: 'assistant',
+      phase: 'outbound',
+      source: 'agent',
+      content: '那不是你们先提的吗，我只是顺着接',
+      group_index: 4,
+      item_index: 2,
+      created_at: '2026-04-01T00:57:05.000Z'
+    }]);
+
+    const response = await request(createApp(database))
+      .get('/api/runs/sessions/qq%3Agroup%3A123/relationship-memory');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.person_cards[0].evidence_events).toEqual([{
+      id: 701,
+      event_type: 'shared_joke_formed',
+      session_key: 'group:123',
+      target_user_id: 456,
+      source_message_ids: [8001, 8002],
+      source_excerpt: 'liahua 先起头，小腻马上接住同一个梗，然后群里继续顺着笑。',
+      event_weight: 0.9,
+      confidence: 'high',
+      created_at: '2026-04-01T00:58:00.000Z',
+      last_reinforced_at: null,
+      metadata: {}
+    }]);
+    expect(response.body.data.person_cards[0].evidence_messages).toEqual([{
+      id: 8001,
+      session_key: 'qq:group:123',
+      role: 'user',
+      phase: 'inbound',
+      source: 'napcat',
+      trace_id: null,
+      run_id: null,
+      group_index: 4,
+      item_index: 1,
+      content: '你又开始拿昨天那个梗说事了',
+      created_at: '2026-04-01T00:57:00.000Z'
+    }, {
+      id: 8002,
+      session_key: 'qq:group:123',
+      role: 'assistant',
+      phase: 'outbound',
+      source: 'agent',
+      trace_id: null,
+      run_id: null,
+      group_index: 4,
+      item_index: 2,
+      content: '那不是你们先提的吗，我只是顺着接',
+      created_at: '2026-04-01T00:57:05.000Z'
+    }]);
+  });
+
+  it('deletes relationship memory overrides by id', async () => {
+    const database = createDatabaseMock();
+
+    const response = await request(createApp(database))
+      .delete('/api/runs/relationship-memory/overrides/9001');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.id).toBe(9001);
+  });
+
+  it('creates relationship memory overrides for supported actions', async () => {
+    const database = createDatabaseMock();
+
+    const response = await request(createApp(database))
+      .post('/api/runs/relationship-memory/cards/42/overrides')
+      .send({
+        action_type: 'pin',
+        manual_note: 'keep this one'
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.card_id).toBe(42);
+    expect(response.body.data.action_type).toBe('pin');
+  });
+
   it('lists sessions that only have pre-run participation decisions', async () => {
     const database = createDatabaseMock();
     database.executeQuery.mockImplementation(async (sql: string, params?: unknown[]) => {

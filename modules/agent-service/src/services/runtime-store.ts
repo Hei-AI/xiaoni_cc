@@ -1,4 +1,10 @@
-import { createSqlAdapter, serializeTimestampForApi, type SqlAdapter } from '@qq-bot/persistence';
+import {
+  createSqlAdapter,
+  listRelationshipMemoryCards,
+  listRelationshipMemoryOverrides,
+  serializeTimestampForApi,
+  type SqlAdapter
+} from '@qq-bot/persistence';
 import { v4 as uuidv4 } from 'uuid';
 import { databaseConfig } from '../config';
 import {
@@ -78,6 +84,23 @@ export type AgentRunDeliveryState = {
   lastBlockedDeliveryReason: string | null;
 };
 
+export type RuntimeRelationshipMemoryCard = {
+  id: number;
+  cardType: string;
+  groupId: number | null;
+  targetUserId: number | null;
+  summaryText: string;
+  actors: string[];
+  contextBefore: string | null;
+  trigger: string | null;
+  interaction: string | null;
+  outcome: string | null;
+  sourceEventIds: number[];
+  sourceMessageIds: number[];
+  decayedScore: number;
+  metadata: Record<string, unknown>;
+};
+
 function toIso(value: string | Date | null | undefined): string | null {
   return serializeTimestampForApi(value) as string | null;
 }
@@ -126,6 +149,81 @@ function buildTranscriptSessionId(userId: number, groupId?: number | null) {
     return `group:${groupId}`;
   }
   return `private:${userId}`;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+}
+
+function normalizeNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item))
+    .map((item) => Math.trunc(item));
+}
+
+function parseRelationshipMemoryCard(record: any): RuntimeRelationshipMemoryCard {
+  return {
+    id: Number(record.id),
+    cardType: typeof record.card_type === 'string' ? record.card_type : 'person_memory',
+    groupId: record.group_id === null || typeof record.group_id === 'undefined' ? null : Number(record.group_id),
+    targetUserId: record.target_user_id === null || typeof record.target_user_id === 'undefined' ? null : Number(record.target_user_id),
+    summaryText: typeof record.summary_text === 'string' ? record.summary_text.trim() : '',
+    actors: normalizeStringArray(record.actors),
+    contextBefore: typeof record.context_before === 'string' ? record.context_before.trim() : null,
+    trigger: typeof record.trigger === 'string' ? record.trigger.trim() : null,
+    interaction: typeof record.interaction === 'string' ? record.interaction.trim() : null,
+    outcome: typeof record.outcome === 'string' ? record.outcome.trim() : null,
+    sourceEventIds: normalizeNumberArray(record.source_event_ids),
+    sourceMessageIds: normalizeNumberArray(record.source_message_ids),
+    decayedScore: Number.isFinite(Number(record.decayed_score)) ? Number(record.decayed_score) : 0,
+    metadata: record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
+      ? record.metadata as Record<string, unknown>
+      : {}
+  };
+}
+
+async function applyRelationshipMemoryOverrides(cards: RuntimeRelationshipMemoryCard[]) {
+  const adjusted: RuntimeRelationshipMemoryCard[] = [];
+
+  for (const card of cards) {
+    const overrides = await listRelationshipMemoryOverrides(card.id, databaseConfig);
+    let archived = false;
+    let score = card.decayedScore;
+
+    for (const override of overrides) {
+      const actionType = typeof override.action_type === 'string' ? override.action_type : '';
+      if (actionType === 'archive') {
+        archived = true;
+        break;
+      }
+      if (actionType === 'pin') {
+        score += 100;
+      }
+      if (actionType === 'downrank') {
+        score -= 1;
+      }
+    }
+
+    if (archived) {
+      continue;
+    }
+
+    adjusted.push({
+      ...card,
+      decayedScore: score
+    });
+  }
+
+  return adjusted;
 }
 
 type ConversationTranscriptItemInput = {
@@ -923,9 +1021,15 @@ export class RuntimeStore {
   async loadSessionReplayState(params: {
     userId: number;
     groupId?: number | null;
+    recentUserIds?: number[];
   }): Promise<{
     summaryText: string | null;
     summarizedThroughConversationId: number | null;
+    relationshipCards: {
+      groupCards: RuntimeRelationshipMemoryCard[];
+      currentUserCards: RuntimeRelationshipMemoryCard[];
+      recentUserCards: RuntimeRelationshipMemoryCard[];
+    };
   }> {
     const snapshotSessionId = buildTranscriptSessionId(params.userId, params.groupId);
     const snapshotRows = await this.sql.query<{
@@ -947,11 +1051,76 @@ export class RuntimeStore {
     );
 
     const snapshot = snapshotRows[0];
+    const relationshipCards = await this.loadRelationshipMemoryCards({
+      groupId: params.groupId ?? null,
+      currentUserId: params.userId,
+      recentUserIds: params.recentUserIds || []
+    });
     return {
       summaryText: snapshot?.summary_text?.trim() || null,
       summarizedThroughConversationId: snapshot
         ? Number(snapshot.summarized_through_conversation_id)
-        : null
+        : null,
+      relationshipCards
+    };
+  }
+
+  private async loadRelationshipMemoryCards(params: {
+    groupId: number | null;
+    currentUserId: number;
+    recentUserIds: number[];
+  }): Promise<{
+    groupCards: RuntimeRelationshipMemoryCard[];
+    currentUserCards: RuntimeRelationshipMemoryCard[];
+    recentUserCards: RuntimeRelationshipMemoryCard[];
+  }> {
+    if (!params.groupId || !Number.isFinite(params.groupId)) {
+      return {
+        groupCards: [],
+        currentUserCards: [],
+        recentUserCards: []
+      };
+    }
+
+    const uniqueRecentUserIds = Array.from(new Set(
+      params.recentUserIds
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0 && value !== params.currentUserId)
+    )).slice(0, 2);
+
+    const [groupRows, currentUserRows, ...recentRowsList] = await Promise.all([
+      listRelationshipMemoryCards({
+        groupId: params.groupId,
+        isActive: true,
+        limit: 6
+      }, databaseConfig),
+      listRelationshipMemoryCards({
+        groupId: params.groupId,
+        targetUserId: params.currentUserId,
+        isActive: true,
+        limit: 6
+      }, databaseConfig),
+      ...uniqueRecentUserIds.map((userId) => listRelationshipMemoryCards({
+        groupId: params.groupId as number,
+        targetUserId: userId,
+        isActive: true,
+        limit: 4
+      }, databaseConfig))
+    ]);
+
+    const groupCards = await applyRelationshipMemoryOverrides(groupRows.map(parseRelationshipMemoryCard));
+    const currentUserCards = await applyRelationshipMemoryOverrides(currentUserRows.map(parseRelationshipMemoryCard));
+    const recentUserCards = await applyRelationshipMemoryOverrides(
+      recentRowsList.flat().map(parseRelationshipMemoryCard)
+    );
+
+    const sortCards = (cards: RuntimeRelationshipMemoryCard[]) => cards
+      .sort((left, right) => right.decayedScore - left.decayedScore || right.id - left.id);
+
+    return {
+      groupCards: sortCards(groupCards).slice(0, 2),
+      currentUserCards: sortCards(currentUserCards).slice(0, 3),
+      recentUserCards: sortCards(recentUserCards).slice(0, 2)
     };
   }
 

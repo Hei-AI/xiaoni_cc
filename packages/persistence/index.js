@@ -3,6 +3,7 @@
 const { PrismaClient, Prisma } = require('./generated/client');
 const { Pool, types } = require('pg');
 const { createTrafficPersistence } = require('./traffic');
+const { createRelationshipMemoryPersistence } = require('./relationship-memory');
 const {
   STORAGE_TIMEZONE,
   TIMESTAMP_WITHOUT_TZ_OID,
@@ -295,6 +296,11 @@ const trafficPersistence = createTrafficPersistence({
   Prisma
 });
 
+const relationshipMemoryPersistence = createRelationshipMemoryPersistence({
+  getPrismaClient,
+  createSqlAdapter
+});
+
 module.exports = {
   Prisma,
   buildDatabaseUrl,
@@ -304,5 +310,6 @@ module.exports = {
   closePrismaClient,
   resolveChatAgentPrompt,
   ...require('./time'),
-  ...trafficPersistence
+  ...trafficPersistence,
+  ...relationshipMemoryPersistence
 };

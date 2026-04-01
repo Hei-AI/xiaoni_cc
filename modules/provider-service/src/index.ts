@@ -1,5 +1,6 @@
 import express from 'express';
-import { aiConfig, serverConfig } from './config';
+import { ensureRelationshipMemorySchema } from '@qq-bot/persistence';
+import { aiConfig, relationshipMemoryConfig, serverConfig } from './config';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
 import { NapcatClient } from './services/napcat-client';
@@ -14,6 +15,9 @@ import { InboundInboxService } from './services/inbound-inbox-service';
 import { ConversationStoreService } from './services/conversation-store-service';
 import { SessionTranscriptService } from './services/session-transcript-service';
 import { TranscriptSnapshotService } from './services/transcript-snapshot-service';
+import RelationshipLedgerService from './services/relationship-ledger-service';
+import RelationshipMemoryService from './services/relationship-memory-service';
+import RelationshipMemoryExecutorService from './services/relationship-memory-executor-service';
 import { GroupParticipationService } from './services/group-participation-service';
 import {
   buildSimpleQueueSimulationContext,
@@ -34,6 +38,14 @@ const recentMessageCache = new RecentMessageCache();
 const groupParticipationService = new GroupParticipationService({ embeddingService });
 const conversationStoreService = new ConversationStoreService();
 const transcriptSnapshotService = new TranscriptSnapshotService();
+const relationshipLedgerService = new RelationshipLedgerService();
+const relationshipMemoryService = new RelationshipMemoryService({
+  enabled: relationshipMemoryConfig.enabled,
+  webhookUrl: relationshipMemoryConfig.webhookUrl,
+  minNewTurns: relationshipMemoryConfig.minNewTurns,
+  minNewLedgerEvents: relationshipMemoryConfig.minNewLedgerEvents
+});
+const relationshipMemoryExecutorService = new RelationshipMemoryExecutorService();
 const transcriptService = new SessionTranscriptService({
   conversationStore: conversationStoreService,
   snapshotService: transcriptSnapshotService,
@@ -44,6 +56,24 @@ const transcriptService = new SessionTranscriptService({
   ].join('\n'),
   summaryWebhookUrl: process.env.TRANSCRIPT_SUMMARY_WEBHOOK_URL || undefined
 });
+
+function scheduleCompactionSideEffects(inboundContext: FinalizedInboundContext) {
+  void (async () => {
+    try {
+      const state = await transcriptService.loadSessionState(inboundContext, aiConfig.model_name);
+      if (!state) {
+        return;
+      }
+      await transcriptService.maybeRequestSummary(state);
+      await relationshipMemoryService.maybeRequestRefresh(state);
+    } catch (error) {
+      moduleLogger.warn('Failed to schedule transcript or relationship compaction side effects', {
+        error: error instanceof Error ? error.message : String(error),
+        sessionKey: inboundContext.SessionKey
+      });
+    }
+  })();
+}
 
 function normalizeOutboundMessages(body: Record<string, unknown>) {
   const messages: string[] = [];
@@ -87,6 +117,16 @@ function markIncomingActivityAsync(params: { messageType: ProviderMessageType; u
     moduleLogger.warn('Failed to update chat activity after accepting message', {
       error: error instanceof Error ? error.message : String(error),
       ...params
+    });
+  });
+}
+
+function recordRelationshipLedgerAsync(inboundContext: FinalizedInboundContext) {
+  void relationshipLedgerService.recordFromInboundContext(inboundContext).catch((error) => {
+    moduleLogger.warn('Failed to record relationship ledger events', {
+      error: error instanceof Error ? error.message : String(error),
+      sessionKey: inboundContext.SessionKey,
+      messageSid: inboundContext.MessageSid
     });
   });
 }
@@ -151,6 +191,7 @@ async function simulateSimpleQueueMessage(messageType: ProviderMessageType, payl
     String(aiConfig.bot_qq_number),
     result.traceId
   );
+  recordRelationshipLedgerAsync(finalizedContext);
   const autoReply = await processAutoReply({
     inboxEvent: result.event,
     inboundContext: finalizedContext,
@@ -225,6 +266,7 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     userId,
     groupId
   });
+  recordRelationshipLedgerAsync(inboundContext);
 
   moduleLogger.info('Accepted OneBot message event', {
     messageType,
@@ -350,6 +392,7 @@ async function processAutoReply(params: {
     }
   });
   const queueResult = await runtimeStoreService.enqueueSemanticMessage(semanticMessage);
+  scheduleCompactionSideEffects(params.inboundContext);
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
     eventType: 'queue',
@@ -658,6 +701,178 @@ app.post('/api/internal/transcript-summary/result', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to apply transcript summary result',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/relationship-memory/result', async (req, res) => {
+  try {
+    const jobId = Number(req.body?.job_id);
+    const sessionKey = typeof req.body?.session_key === 'string' ? req.body.session_key.trim() : '';
+    const groupId = Number(req.body?.group_id);
+    const version = Number(req.body?.version);
+    const status = req.body?.status === 'failed' ? 'failed' : 'ready';
+
+    if (!Number.isFinite(jobId) || jobId <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: job_id',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (status === 'failed') {
+      await relationshipMemoryService.markFailed(
+        jobId,
+        typeof req.body?.error_message === 'string' && req.body.error_message.trim()
+          ? req.body.error_message.trim()
+          : 'relationship_memory_failed'
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          job_id: jobId,
+          status: 'failed'
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const cards = Array.isArray(req.body?.cards) ? req.body.cards : [];
+    if (!sessionKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: session_key',
+        timestamp: new Date().toISOString()
+      });
+    }
+    if (!Number.isFinite(groupId) || groupId <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: group_id',
+        timestamp: new Date().toISOString()
+      });
+    }
+    if (!Number.isFinite(version) || version <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: version',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    await relationshipMemoryService.applyResult({
+      jobId,
+      sessionKey,
+      groupId,
+      version,
+      cards
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        job_id: jobId,
+        status: 'ready',
+        version,
+        card_count: cards.length
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    moduleLogger.error('Failed to apply relationship memory result', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to apply relationship memory result',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/relationship-memory/execute', async (req, res) => {
+  const jobId = Number(req.body?.job_id);
+  const sessionKey = typeof req.body?.session_key === 'string' ? req.body.session_key.trim() : '';
+  const groupId = Number(req.body?.group_id);
+  const version = Number(req.body?.version);
+  const triggerReason = typeof req.body?.trigger_reason === 'string' ? req.body.trigger_reason.trim() : 'compact_checkpoint';
+  const turns = Array.isArray(req.body?.turns) ? req.body.turns : [];
+  const ledgerEvents = Array.isArray(req.body?.ledger_events) ? req.body.ledger_events : [];
+
+  if (!Number.isFinite(jobId) || jobId <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameter: job_id',
+      timestamp: new Date().toISOString()
+    });
+  }
+  if (!sessionKey) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameter: session_key',
+      timestamp: new Date().toISOString()
+    });
+  }
+  if (!Number.isFinite(groupId) || groupId <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameter: group_id',
+      timestamp: new Date().toISOString()
+    });
+  }
+  if (!Number.isFinite(version) || version <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameter: version',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  try {
+    await relationshipMemoryService.markRunning(jobId);
+    const execution = await relationshipMemoryExecutorService.execute({
+      job_id: jobId,
+      session_key: sessionKey,
+      group_id: groupId,
+      version,
+      trigger_reason: triggerReason,
+      turns,
+      ledger_events: ledgerEvents
+    });
+
+    await relationshipMemoryService.applyResult({
+      jobId,
+      sessionKey,
+      groupId,
+      version,
+      cards: execution.cards
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        job_id: jobId,
+        status: 'ready',
+        version,
+        model_name: execution.modelName,
+        card_count: execution.cards.length
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'relationship_memory_execute_failed';
+    await relationshipMemoryService.markFailed(jobId, message).catch(() => undefined);
+    moduleLogger.error('Failed to execute relationship memory job', {
+      error: message,
+      jobId,
+      sessionKey
+    });
+    return res.status(500).json({
+      success: false,
+      error: message,
       timestamp: new Date().toISOString()
     });
   }
@@ -987,6 +1202,7 @@ app.post('/api/inbox/simulate', async (req, res) => {
       userId: targets.userId,
       groupId: targets.groupId
     });
+    recordRelationshipLedgerAsync(finalizedContext);
 
     res.json({
       success: true,
@@ -1086,6 +1302,7 @@ app.get('/api/internal/embedding/health', async (_req, res) => {
 });
 
 async function startServer() {
+  await ensureRelationshipMemorySchema();
   await inboxService.initialize();
   await conversationStoreService.initialize();
   await transcriptSnapshotService.initialize();
