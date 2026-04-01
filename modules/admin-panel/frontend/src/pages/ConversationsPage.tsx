@@ -95,6 +95,8 @@ const RelationshipEvidenceBlock: React.FC<{ card: RelationshipMemoryCardRecord }
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <Badge variant="outline">{message.role || 'message'}</Badge>
                 <span>#{message.id}</span>
+                {message.sender_name ? <span>{message.sender_name}</span> : null}
+                {message.message_sid ? <span>{message.message_sid}</span> : null}
                 {message.phase ? <span>{message.phase}</span> : null}
                 {message.created_at ? <span>{formatTimestamp(message.created_at)}</span> : null}
               </div>
@@ -579,6 +581,10 @@ export const ConversationsPage: React.FC = () => {
                             {card.context_before ? `前因: ${card.context_before}` : '无前因摘要'}
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                            {card.entered_runtime ? <Badge variant="secondary">已进入 runtime</Badge> : <Badge variant="outline">尚未命中 runtime</Badge>}
+                            <span>最近命中: {card.last_hit_at ? formatTimestamp(card.last_hit_at) : 'n/a'}</span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
                             <div className="flex flex-wrap items-center gap-1">
                               <span>msg</span>
                               {card.source_message_ids.length > 0 ? card.source_message_ids.map((messageId) => (
@@ -640,6 +646,10 @@ export const ConversationsPage: React.FC = () => {
                           </div>
                           <div className="mt-2 text-xs text-muted-foreground">
                             {card.trigger ? `触发: ${card.trigger}` : '无触发摘要'}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                            {card.entered_runtime ? <Badge variant="secondary">已进入 runtime</Badge> : <Badge variant="outline">尚未命中 runtime</Badge>}
+                            <span>最近命中: {card.last_hit_at ? formatTimestamp(card.last_hit_at) : 'n/a'}</span>
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
                             <div className="flex flex-wrap items-center gap-1">
@@ -718,6 +728,8 @@ export const ConversationsPage: React.FC = () => {
                                 {highlighted ? <Badge variant="secondary">memory hit</Badge> : null}
                               </div>
                               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                {message.sender_name ? <span>{message.sender_name}</span> : null}
+                                {message.message_sid ? <span>{message.message_sid}</span> : null}
                                 <span>{message.group_index}.{message.item_index}</span>
                                 {message.phase ? <span>{message.phase}</span> : null}
                                 {message.created_at ? <span>{formatTimestamp(message.created_at)}</span> : null}

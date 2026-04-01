@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RuntimeStore } from '../services/runtime-store';
+import {
+  parseRelationshipRagSelection,
+  rankRelationshipCardsForPrompt,
+  RuntimeStore
+} from '../services/runtime-store';
 
 function createStoreWithQuery(query: (sql: string, params?: unknown[]) => Promise<unknown[]>) {
   const store = new RuntimeStore() as any;
@@ -205,4 +209,147 @@ test('markRunDeliveryBlocked increments blocked attempt count and reason', async
   assert.match(executeCalls[0]?.sql || '', /blocked_delivery_attempt_count = COALESCE\(blocked_delivery_attempt_count, 0\) \+ 1/);
   assert.match(executeCalls[0]?.sql || '', /last_blocked_delivery_reason = \?/);
   assert.deepEqual(executeCalls[0]?.params, ['Outbound delivery already committed earlier in this run.', 'run-blocked']);
+});
+
+test('rankRelationshipCardsForPrompt prioritizes lexical and embedding relevance over stale decay ordering', () => {
+  const ranked = rankRelationshipCardsForPrompt({
+    cards: [{
+      id: 1,
+      cardType: 'person',
+      groupId: 101,
+      targetUserId: 202,
+      summaryText: '经常聊做饭',
+      actors: ['Alice'],
+      contextBefore: null,
+      trigger: null,
+      interaction: null,
+      outcome: null,
+      sourceEventIds: [],
+      sourceMessageIds: [],
+      decayedScore: 0.95,
+      retrievalText: '做饭 菜谱 厨房',
+      embeddingText: '做饭 菜谱 厨房',
+      lastHitAt: null,
+      metadata: {}
+    }, {
+      id: 2,
+      cardType: 'person',
+      groupId: 101,
+      targetUserId: 202,
+      summaryText: '最近一直在接梗讲猫',
+      actors: ['Alice'],
+      contextBefore: null,
+      trigger: null,
+      interaction: null,
+      outcome: null,
+      sourceEventIds: [],
+      sourceMessageIds: [],
+      decayedScore: 0.1,
+      retrievalText: '猫咪 接梗 表情包',
+      embeddingText: '猫咪 接梗 表情包',
+      lastHitAt: '2026-03-31T08:00:00.000Z',
+      metadata: {}
+    }],
+    queryText: '今天又在讲猫咪表情包',
+    embeddingScores: new Map([
+      [1, 0.05],
+      [2, 0.98]
+    ]),
+    limit: 1
+  });
+
+  assert.equal(ranked.length, 1);
+  assert.equal(ranked[0]?.card.id, 2);
+  assert.ok((ranked[0]?.bm25Score || 0) > 0);
+  assert.ok((ranked[0]?.embeddingScore || 0) > 0.9);
+});
+
+test('rankRelationshipCardsForPrompt falls back to decayed score when retrieval query is empty', () => {
+  const ranked = rankRelationshipCardsForPrompt({
+    cards: [{
+      id: 7,
+      cardType: 'group',
+      groupId: 101,
+      targetUserId: null,
+      summaryText: '旧高权重卡片',
+      actors: [],
+      contextBefore: null,
+      trigger: null,
+      interaction: null,
+      outcome: null,
+      sourceEventIds: [],
+      sourceMessageIds: [],
+      decayedScore: 0.9,
+      retrievalText: null,
+      embeddingText: null,
+      lastHitAt: null,
+      metadata: {}
+    }, {
+      id: 8,
+      cardType: 'group',
+      groupId: 101,
+      targetUserId: null,
+      summaryText: '新低权重卡片',
+      actors: [],
+      contextBefore: null,
+      trigger: null,
+      interaction: null,
+      outcome: null,
+      sourceEventIds: [],
+      sourceMessageIds: [],
+      decayedScore: 0.2,
+      retrievalText: null,
+      embeddingText: null,
+      lastHitAt: null,
+      metadata: {}
+    }],
+    queryText: '',
+    limit: 2
+  });
+
+  assert.deepEqual(ranked.map((item) => item.card.id), [7, 8]);
+});
+
+test('parseRelationshipRagSelection keeps only allowed card ids per scope', () => {
+  const selection = parseRelationshipRagSelection({
+    text: JSON.stringify({
+      group_card_ids: [11, 99, 11],
+      current_user_card_ids: [21],
+      recent_user_card_ids: [31, '32']
+    }),
+    candidateIdsByScope: {
+      group: [11, 12],
+      current_user: [21, 22],
+      recent_users: [31]
+    },
+    limits: {
+      group: 2,
+      current_user: 3,
+      recent_users: 2
+    }
+  });
+
+  assert.deepEqual(selection, {
+    groupCardIds: [11],
+    currentUserCardIds: [21],
+    recentUserCardIds: [31]
+  });
+});
+
+test('parseRelationshipRagSelection returns null for unusable payloads', () => {
+  const selection = parseRelationshipRagSelection({
+    text: '{"group_card_ids":[999]}',
+    candidateIdsByScope: {
+      group: [11],
+      current_user: [21],
+      recent_users: [31]
+    },
+    limits: {
+      group: 2,
+      current_user: 3,
+      recent_users: 2
+    }
+  });
+
+  assert.equal(selection, null);
 });

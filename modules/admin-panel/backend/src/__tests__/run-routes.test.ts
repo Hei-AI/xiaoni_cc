@@ -7,11 +7,12 @@ jest.mock('@qq-bot/persistence', () => ({
   getRelationshipMemoryCardById: jest.fn(async () => ({
     id: 42
   })),
+  listAgentInboundMessages: jest.fn(async () => []),
+  listAgentInboundMessagesByIds: jest.fn(async () => []),
   listRelationshipMemoryJobs: jest.fn(async () => []),
   listRelationshipMemoryCards: jest.fn(async () => []),
   listRelationshipMemoryOverrides: jest.fn(async () => []),
   listRelationshipLedgerEventsByIds: jest.fn(async () => []),
-  listConversationItemsByIds: jest.fn(async () => []),
   deleteRelationshipMemoryOverride: jest.fn(async (id: any) => ({
     id
   })),
@@ -44,30 +45,25 @@ function createApp(database: ReturnType<typeof createDatabaseMock>) {
 describe('run routes', () => {
   it('lists conversation items for a session in timeline order', async () => {
     const database = createDatabaseMock();
-    database.executeQuery.mockResolvedValueOnce([{
-      id: 9001,
-      session_key: 'qq:group:123',
-      role: 'user',
-      phase: 'inbound',
-      source: 'napcat',
-      trace_id: 'trace-1',
-      run_id: 'run-1',
-      group_index: 3,
-      item_index: 1,
-      content: '第一句',
-      created_at: '2026-04-01T01:00:00.000Z'
-    }, {
+    const persistence = jest.requireMock('@qq-bot/persistence');
+    persistence.listAgentInboundMessages.mockResolvedValueOnce([{
       id: 9002,
       session_key: 'qq:group:123',
-      role: 'assistant',
-      phase: 'outbound',
+      message_sid: 'sid-2',
+      sender_id: '202',
+      sender_name: 'Alice',
       source: 'agent',
-      trace_id: 'trace-1',
-      run_id: 'run-1',
-      group_index: 3,
-      item_index: 2,
-      content: '第二句',
-      created_at: '2026-04-01T01:00:01.000Z'
+      body_for_agent: '第二句',
+      received_at: '2026-04-01T01:00:01.000Z'
+    }, {
+      id: 9001,
+      session_key: 'qq:group:123',
+      message_sid: 'sid-1',
+      sender_id: '201',
+      sender_name: 'Bob',
+      source: 'napcat',
+      body_for_agent: '第一句',
+      received_at: '2026-04-01T01:00:00.000Z'
     }]);
 
     const response = await request(createApp(database))
@@ -75,29 +71,38 @@ describe('run routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
-    expect(database.executeQuery).toHaveBeenCalledWith(expect.stringContaining('FROM conversation_items'), ['qq:group:123', 50]);
+    expect(persistence.listAgentInboundMessages).toHaveBeenCalledWith({
+      sessionKey: 'qq:group:123',
+      limit: 50
+    });
     expect(response.body.data).toEqual([{
       id: 9001,
       session_key: 'qq:group:123',
       role: 'user',
       phase: 'inbound',
       source: 'napcat',
-      trace_id: 'trace-1',
-      run_id: 'run-1',
-      group_index: 3,
-      item_index: 1,
+      trace_id: null,
+      run_id: null,
+      group_index: 1,
+      item_index: 0,
+      message_sid: 'sid-1',
+      sender_id: '201',
+      sender_name: 'Bob',
       content: '第一句',
       created_at: '2026-04-01T01:00:00.000Z'
     }, {
       id: 9002,
       session_key: 'qq:group:123',
-      role: 'assistant',
-      phase: 'outbound',
+      role: 'user',
+      phase: 'inbound',
       source: 'agent',
-      trace_id: 'trace-1',
-      run_id: 'run-1',
-      group_index: 3,
-      item_index: 2,
+      trace_id: null,
+      run_id: null,
+      group_index: 2,
+      item_index: 0,
+      message_sid: 'sid-2',
+      sender_id: '202',
+      sender_name: 'Alice',
       content: '第二句',
       created_at: '2026-04-01T01:00:01.000Z'
     }]);
@@ -165,6 +170,7 @@ describe('run routes', () => {
       source_event_ids: [701],
       source_message_ids: [8001, 8002],
       decayed_score: 0.83,
+      last_hit_at: '2026-04-01T00:59:30.000Z',
       metadata: {}
     }]);
     persistence.listRelationshipMemoryOverrides.mockResolvedValueOnce([]);
@@ -180,26 +186,24 @@ describe('run routes', () => {
       created_at: '2026-04-01T00:58:00.000Z',
       metadata: {}
     }]);
-    persistence.listConversationItemsByIds.mockResolvedValueOnce([{
+    persistence.listAgentInboundMessagesByIds.mockResolvedValueOnce([{
       id: 8001,
       session_key: 'qq:group:123',
-      role: 'user',
-      phase: 'inbound',
+      message_sid: 'sid-8001',
+      sender_id: '456',
+      sender_name: 'liahua',
       source: 'napcat',
-      content: '你又开始拿昨天那个梗说事了',
-      group_index: 4,
-      item_index: 1,
-      created_at: '2026-04-01T00:57:00.000Z'
+      body_for_agent: '你又开始拿昨天那个梗说事了',
+      received_at: '2026-04-01T00:57:00.000Z'
     }, {
       id: 8002,
       session_key: 'qq:group:123',
-      role: 'assistant',
-      phase: 'outbound',
-      source: 'agent',
-      content: '那不是你们先提的吗，我只是顺着接',
-      group_index: 4,
-      item_index: 2,
-      created_at: '2026-04-01T00:57:05.000Z'
+      message_sid: 'sid-8002',
+      sender_id: '1129974489',
+      sender_name: '小腻',
+      source: 'napcat',
+      body_for_agent: '那不是你们先提的吗，我只是顺着接',
+      received_at: '2026-04-01T00:57:05.000Z'
     }]);
 
     const response = await request(createApp(database))
@@ -207,6 +211,8 @@ describe('run routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
+    expect(response.body.data.person_cards[0].last_hit_at).toBe('2026-04-01T00:59:30.000Z');
+    expect(response.body.data.person_cards[0].entered_runtime).toBe(true);
     expect(response.body.data.person_cards[0].evidence_events).toEqual([{
       id: 701,
       event_type: 'shared_joke_formed',
@@ -228,20 +234,26 @@ describe('run routes', () => {
       source: 'napcat',
       trace_id: null,
       run_id: null,
-      group_index: 4,
-      item_index: 1,
+      group_index: 0,
+      item_index: 0,
+      message_sid: 'sid-8001',
+      sender_id: '456',
+      sender_name: 'liahua',
       content: '你又开始拿昨天那个梗说事了',
       created_at: '2026-04-01T00:57:00.000Z'
     }, {
       id: 8002,
       session_key: 'qq:group:123',
-      role: 'assistant',
-      phase: 'outbound',
-      source: 'agent',
+      role: 'user',
+      phase: 'inbound',
+      source: 'napcat',
       trace_id: null,
       run_id: null,
-      group_index: 4,
-      item_index: 2,
+      group_index: 0,
+      item_index: 0,
+      message_sid: 'sid-8002',
+      sender_id: '1129974489',
+      sender_name: '小腻',
       content: '那不是你们先提的吗，我只是顺着接',
       created_at: '2026-04-01T00:57:05.000Z'
     }]);

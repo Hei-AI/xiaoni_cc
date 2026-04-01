@@ -12,6 +12,7 @@ function buildPayload() {
     turns: [
       {
         id: 101,
+        source_message_ids: [1001],
         user_id: 20001,
         group_id: 100,
         user_message: '昨天那个梗太离谱了',
@@ -27,6 +28,7 @@ function buildPayload() {
       },
       {
         id: 102,
+        source_message_ids: [1002],
         user_id: 20002,
         group_id: 100,
         user_message: '你又提奶茶圣经',
@@ -47,7 +49,7 @@ function buildPayload() {
         group_id: 100,
         target_user_id: 20002,
         event_type: 'shared_joke_formed',
-        source_message_ids: [101, 102],
+        source_message_ids: [1001, 1002],
         source_excerpt: '奶茶圣经',
         created_at: '2026-03-31T10:01:30.000Z'
       }
@@ -68,7 +70,7 @@ test('parses structured relationship memory cards into runtime card format', () 
         trigger: '20002 再次提到奶茶圣经',
         interaction: '大家顺着这个梗继续接话',
         outcome: '这个梗已经成了群公共梗',
-        evidence_message_ids: [101, 102],
+        evidence_message_ids: [1001, 1002],
         summary_text: '群里已经把奶茶圣经当成公共梗了'
       }
     ],
@@ -80,7 +82,7 @@ test('parses structured relationship memory cards into runtime card format', () 
         trigger: '20002 再次把奶茶圣经翻出来',
         interaction: '这次话题被顺利续上',
         outcome: '和 20002 的共享梗更稳了',
-        evidence_message_ids: [101, 102],
+        evidence_message_ids: [1001, 1002],
         summary_text: '和 20002 已经形成奶茶圣经这个共享梗'
       }
     ]
@@ -117,7 +119,7 @@ test('execute delegates to llm provider and validates JSON response', async () =
                 trigger: '这次再次主动提旧梗',
                 interaction: '群里顺着这个话头续上了',
                 outcome: '关系卡被强化',
-                evidence_message_ids: [101, 102],
+                evidence_message_ids: [1001, 1002],
                 summary_text: '和 20002 的旧梗继续被强化'
               }
             ]

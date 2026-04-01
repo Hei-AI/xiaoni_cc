@@ -129,6 +129,9 @@ export interface RelationshipMemoryMessageEvidenceRecord {
   run_id?: string | null;
   group_index: number;
   item_index: number;
+  message_sid?: string | null;
+  sender_id?: string | null;
+  sender_name?: string | null;
   content?: string | null;
   created_at?: string | null;
 }
@@ -143,6 +146,9 @@ export interface SessionConversationItemRecord {
   run_id?: string | null;
   group_index: number;
   item_index: number;
+  message_sid?: string | null;
+  sender_id?: string | null;
+  sender_name?: string | null;
   content?: string | null;
   created_at?: string | null;
 }
@@ -164,6 +170,8 @@ export interface RelationshipMemoryCardRecord {
   importance_score: number;
   freshness_score: number;
   decayed_score: number;
+  last_hit_at?: string | null;
+  entered_runtime: boolean;
   metadata?: Record<string, unknown>;
   created_at?: string | null;
   updated_at?: string | null;

@@ -701,7 +701,16 @@ export class AgentLoopService {
       const replayState = await this.store.loadSessionReplayState({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
-        recentUserIds: resolveRecentRelatedUserIds(payload)
+        recentUserIds: resolveRecentRelatedUserIds(payload),
+        retrievalContext: {
+          currentMessageText: payload.bodyForAgent,
+          replyToBody: payload.inboundContext.ReplyToBody || null,
+          currentSenderName: payload.senderName || null,
+          recentMessageTexts: payload.messages
+            .map((message) => message.bodyForAgent)
+            .filter((message) => message && message !== payload.bodyForAgent)
+            .slice(-3)
+        }
       });
       const history = await this.store.listRecentTurns({
         userId: sessionIds.userId,

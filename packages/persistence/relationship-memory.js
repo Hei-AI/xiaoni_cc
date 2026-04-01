@@ -31,6 +31,10 @@ function normalizeJsonObject(value) {
   return {};
 }
 
+function normalizeString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function normalizeDate(value) {
   if (!value) {
     return null;
@@ -414,6 +418,63 @@ function createRelationshipMemoryPersistence({ getPrismaClient, createSqlAdapter
       .sort((left, right) => (order.get(String(left.id)) ?? Number.MAX_SAFE_INTEGER) - (order.get(String(right.id)) ?? Number.MAX_SAFE_INTEGER));
   }
 
+  async function listAgentInboundMessages(filters = {}, config = {}) {
+    const prisma = getClient(config);
+    const rows = await prisma.agentInboundMessage.findMany({
+      where: {
+        session_key: typeof filters.sessionKey === 'string' ? normalizeString(filters.sessionKey) : undefined,
+        chat_type: typeof filters.chatType === 'string' ? normalizeString(filters.chatType) : undefined,
+        sender_id: typeof filters.senderId === 'string' ? normalizeString(filters.senderId) : undefined
+      },
+      orderBy: [
+        { received_at: 'desc' },
+        { id: 'desc' }
+      ],
+      take: Number.isFinite(filters.limit) ? Number(filters.limit) : 100
+    });
+    return rows.map(normalizeRelationshipRecord);
+  }
+
+  async function listAgentInboundMessagesByIds(ids = [], config = {}) {
+    const prisma = getClient(config);
+    const normalizedIds = normalizeIdList(ids);
+    if (normalizedIds.length === 0) {
+      return [];
+    }
+
+    const rows = await prisma.agentInboundMessage.findMany({
+      where: {
+        id: { in: normalizedIds }
+      }
+    });
+
+    const order = new Map(normalizedIds.map((id, index) => [id.toString(), index]));
+    return rows
+      .map(normalizeRelationshipRecord)
+      .sort((left, right) => (order.get(String(left.id)) ?? Number.MAX_SAFE_INTEGER) - (order.get(String(right.id)) ?? Number.MAX_SAFE_INTEGER));
+  }
+
+  async function getAgentInboundMessageByMessageSid(messageSid, filters = {}, config = {}) {
+    const prisma = getClient(config);
+    const normalizedMessageSid = normalizeString(messageSid);
+    if (!normalizedMessageSid) {
+      return null;
+    }
+
+    const row = await prisma.agentInboundMessage.findFirst({
+      where: {
+        message_sid: normalizedMessageSid,
+        session_key: typeof filters.sessionKey === 'string' ? normalizeString(filters.sessionKey) : undefined
+      },
+      orderBy: [
+        { received_at: 'desc' },
+        { id: 'desc' }
+      ]
+    });
+
+    return row ? normalizeRelationshipRecord(row) : null;
+  }
+
   async function recordRelationshipMemoryOverride(input, config = {}) {
     const prisma = getClient(config);
     const created = await prisma.relationshipMemoryOverride.create({
@@ -448,6 +509,29 @@ function createRelationshipMemoryPersistence({ getPrismaClient, createSqlAdapter
     return normalizeRelationshipRecord(deleted);
   }
 
+  async function markRelationshipMemoryCardsHit(ids = [], params = {}, config = {}) {
+    const prisma = getClient(config);
+    const normalizedIds = normalizeIdList(ids);
+    if (normalizedIds.length === 0) {
+      return { count: 0 };
+    }
+
+    const hitAt = normalizeDate(params.hitAt) || new Date();
+    const result = await prisma.relationshipMemoryCard.updateMany({
+      where: {
+        id: { in: normalizedIds }
+      },
+      data: {
+        last_hit_at: hitAt
+      }
+    });
+
+    return {
+      count: Number(result.count || 0),
+      hit_at: hitAt
+    };
+  }
+
   return {
     ensureRelationshipMemorySchema,
     appendRelationshipLedgerEvent,
@@ -461,9 +545,13 @@ function createRelationshipMemoryPersistence({ getPrismaClient, createSqlAdapter
     listRelationshipMemoryCards,
     getRelationshipMemoryCardById,
     listConversationItemsByIds,
+    listAgentInboundMessages,
+    listAgentInboundMessagesByIds,
+    getAgentInboundMessageByMessageSid,
     recordRelationshipMemoryOverride,
     listRelationshipMemoryOverrides,
-    deleteRelationshipMemoryOverride
+    deleteRelationshipMemoryOverride,
+    markRelationshipMemoryCardsHit
   };
 }
 

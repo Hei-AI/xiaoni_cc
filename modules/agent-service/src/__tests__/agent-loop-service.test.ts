@@ -377,6 +377,9 @@ test('buildInitialInput appends relationship memory cues when provided', () => {
         sourceEventIds: [11],
         sourceMessageIds: [21, 22],
         decayedScore: 0.9,
+        retrievalText: '群里已经把奶茶圣经当成公共梗了',
+        embeddingText: '群里已经把奶茶圣经当成公共梗了',
+        lastHitAt: null,
         metadata: {}
       }],
       currentUserCards: [{
@@ -393,6 +396,9 @@ test('buildInitialInput appends relationship memory cues when provided', () => {
         sourceEventIds: [12],
         sourceMessageIds: [23],
         decayedScore: 0.8,
+        retrievalText: '和当前发言人已经形成共享梗',
+        embeddingText: '和当前发言人已经形成共享梗',
+        lastHitAt: null,
         metadata: {}
       }],
       recentUserCards: []

@@ -14,12 +14,12 @@ function buildState(overrides: Partial<SessionTranscriptState> = {}): SessionTra
     snapshot: overrides.snapshot ?? null,
     messages: overrides.messages ?? [],
     turns: overrides.turns ?? [
-      { id: 11, user_id: 20001, group_id: 100, user_message: 'a', ai_response: null, timestamp: new Date().toISOString(), response_time: 0, status: null, error_reason: null, model_name: null, raw_request: {}, raw_response: {}, trace_id: null },
-      { id: 12, user_id: 20002, group_id: 100, user_message: 'b', ai_response: null, timestamp: new Date().toISOString(), response_time: 0, status: null, error_reason: null, model_name: null, raw_request: {}, raw_response: {}, trace_id: null },
-      { id: 13, user_id: 20003, group_id: 100, user_message: 'c', ai_response: null, timestamp: new Date().toISOString(), response_time: 0, status: null, error_reason: null, model_name: null, raw_request: {}, raw_response: {}, trace_id: null },
-      { id: 14, user_id: 20004, group_id: 100, user_message: 'd', ai_response: null, timestamp: new Date().toISOString(), response_time: 0, status: null, error_reason: null, model_name: null, raw_request: {}, raw_response: {}, trace_id: null },
-      { id: 15, user_id: 20005, group_id: 100, user_message: 'e', ai_response: null, timestamp: new Date().toISOString(), response_time: 0, status: null, error_reason: null, model_name: null, raw_request: {}, raw_response: {}, trace_id: null },
-      { id: 16, user_id: 20006, group_id: 100, user_message: 'f', ai_response: null, timestamp: new Date().toISOString(), response_time: 0, status: null, error_reason: null, model_name: null, raw_request: {}, raw_response: {}, trace_id: null }
+      { id: 11, user_id: 20001, group_id: 100, user_message: 'a', ai_response: null, timestamp: new Date().toISOString(), response_time: 0, status: null, error_reason: null, model_name: null, raw_request: {}, raw_response: {}, trace_id: null, source_message_ids: [1001], source_message_sids: ['sid-1001'] },
+      { id: 12, user_id: 20002, group_id: 100, user_message: 'b', ai_response: null, timestamp: new Date().toISOString(), response_time: 0, status: null, error_reason: null, model_name: null, raw_request: {}, raw_response: {}, trace_id: null, source_message_ids: [1002], source_message_sids: ['sid-1002'] },
+      { id: 13, user_id: 20003, group_id: 100, user_message: 'c', ai_response: null, timestamp: new Date().toISOString(), response_time: 0, status: null, error_reason: null, model_name: null, raw_request: {}, raw_response: {}, trace_id: null, source_message_ids: [1003], source_message_sids: ['sid-1003'] },
+      { id: 14, user_id: 20004, group_id: 100, user_message: 'd', ai_response: null, timestamp: new Date().toISOString(), response_time: 0, status: null, error_reason: null, model_name: null, raw_request: {}, raw_response: {}, trace_id: null, source_message_ids: [1004], source_message_sids: ['sid-1004'] },
+      { id: 15, user_id: 20005, group_id: 100, user_message: 'e', ai_response: null, timestamp: new Date().toISOString(), response_time: 0, status: null, error_reason: null, model_name: null, raw_request: {}, raw_response: {}, trace_id: null, source_message_ids: [1005], source_message_sids: ['sid-1005'] },
+      { id: 16, user_id: 20006, group_id: 100, user_message: 'f', ai_response: null, timestamp: new Date().toISOString(), response_time: 0, status: null, error_reason: null, model_name: null, raw_request: {}, raw_response: {}, trace_id: null, source_message_ids: [1006], source_message_sids: ['sid-1006'] }
     ],
     estimatedInputTokens: overrides.estimatedInputTokens ?? 9000,
     contextPolicy: overrides.contextPolicy ?? null as any,
@@ -112,4 +112,69 @@ test('marks jobs as running before execution', async () => {
   assert.equal(updates[0].id, 88);
   assert.equal(updates[0].payload.status, 'running');
   assert.equal(updates[0].payload.errorMessage, null);
+});
+
+test('applyResult clears previously active scopes that disappear from the refresh output', async () => {
+  const replaceCalls: any[] = [];
+  const service = new RelationshipMemoryService({
+    listCards: async () => [{
+      id: 1,
+      card_type: 'group',
+      target_user_id: null
+    }, {
+      id: 2,
+      card_type: 'person',
+      target_user_id: 20001
+    }] as any,
+    replaceCards: async (input: any) => {
+      replaceCalls.push(input);
+      return [];
+    },
+    updateJob: async () => ({ id: 101 } as any)
+  });
+
+  await service.applyResult({
+    jobId: 101,
+    sessionKey: 'group:100',
+    groupId: 100,
+    version: 3,
+    cards: [{
+      card_type: 'group',
+      summary_text: '群体氛围已经稳定',
+      actors: ['A', 'B'],
+      source_event_ids: [701],
+      source_message_ids: [1001]
+    }]
+  });
+
+  assert.equal(replaceCalls.length, 2);
+  assert.deepEqual(replaceCalls[0], {
+    groupId: 100,
+    targetUserId: null,
+    cardType: 'group',
+    version: 3,
+    cards: [{
+      summaryText: '群体氛围已经稳定',
+      actors: ['A', 'B'],
+      contextBefore: null,
+      trigger: null,
+      interaction: null,
+      outcome: null,
+      sourceEventIds: [701],
+      sourceMessageIds: [1001],
+      importanceScore: 0,
+      freshnessScore: 0,
+      decayedScore: 0,
+      retrievalText: '群体氛围已经稳定',
+      embeddingText: '群体氛围已经稳定',
+      metadata: {}
+    }]
+  });
+  assert.deepEqual(replaceCalls[1], {
+    groupId: 100,
+    targetUserId: 20001,
+    cardType: 'person',
+    version: 3,
+    cards: []
+  });
 });

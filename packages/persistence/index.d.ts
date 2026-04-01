@@ -193,6 +193,10 @@ export type RelationshipMemoryOverrideInput = {
   metadata?: Record<string, unknown> | null;
 };
 
+export type RelationshipMemoryHitInput = {
+  hitAt?: string | Date | null;
+};
+
 export type ChatPromptBindingSource = 'group' | 'private';
 
 export type ResolvedChatAgentPrompt = {
@@ -281,7 +285,7 @@ export function replaceRelationshipMemoryCards(
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
 export function listRelationshipMemoryCards(
-  filters?: { groupId?: number | bigint | string; targetUserId?: number | bigint | string; cardType?: string; isActive?: boolean; limit?: number },
+  filters?: { groupId?: number | bigint | string; targetUserId?: number | bigint | string | null; cardType?: string; isActive?: boolean; limit?: number },
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
 export function getRelationshipMemoryCardById(
@@ -292,6 +296,24 @@ export function listConversationItemsByIds(
   ids: Array<number | bigint | string>,
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
+export function listAgentInboundMessages(
+  filters?: { sessionKey?: string; chatType?: string; senderId?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function listAgentInboundMessagesByIds(
+  ids: Array<number | bigint | string>,
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function getAgentInboundMessageByMessageSid(
+  messageSid: string,
+  filters?: { sessionKey?: string },
+  config?: DatabaseUrlConfig
+): Promise<any | null>;
 export function recordRelationshipMemoryOverride(input: RelationshipMemoryOverrideInput, config?: DatabaseUrlConfig): Promise<any>;
 export function listRelationshipMemoryOverrides(cardId: number | bigint | string, config?: DatabaseUrlConfig): Promise<any[]>;
 export function deleteRelationshipMemoryOverride(id: number | bigint | string, config?: DatabaseUrlConfig): Promise<any>;
+export function markRelationshipMemoryCardsHit(
+  ids: Array<number | bigint | string>,
+  params?: RelationshipMemoryHitInput,
+  config?: DatabaseUrlConfig
+): Promise<{ count: number; hit_at: Date | null }>;

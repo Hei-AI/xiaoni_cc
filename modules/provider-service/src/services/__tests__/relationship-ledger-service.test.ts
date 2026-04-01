@@ -46,7 +46,8 @@ test('records reply_chain_success when inbound context replies to prior message'
       created.push(input);
       return input;
     },
-    recentMessageProvider: async () => []
+    recentMessageProvider: async () => [],
+    lookupMessageBySid: async () => ({ id: 77 })
   });
 
   const result = await service.recordFromInboundContext(buildContext({
@@ -56,16 +57,20 @@ test('records reply_chain_success when inbound context replies to prior message'
     ReplyToSenderId: '30001',
     ReplyToSenderName: 'bob',
     ReplyToIsQuote: true
-  }));
+  }), {
+    currentMessageId: 102
+  });
 
   assert.deepEqual(result.created, ['reply_chain_success']);
   assert.equal(created[0]?.eventType, 'reply_chain_success');
+  assert.deepEqual(created[0]?.sourceMessageIds, [77, 102]);
 });
 
 test('records topic_reactivated when current message overlaps recent other-speaker topic', async () => {
   const created: any[] = [];
   const recentMessages: RecentLedgerInboundMessage[] = [
     {
+      messageId: 91,
       messageSid: 'prev_1',
       senderId: '30001',
       senderName: 'bob',
@@ -85,16 +90,20 @@ test('records topic_reactivated when current message overlaps recent other-speak
   const result = await service.recordFromInboundContext(buildContext({
     MessageSid: 'msg_3',
     BodyForAgent: '今天继续吃火锅？'
-  }));
+  }), {
+    currentMessageId: 103
+  });
 
   assert.equal(result.created.includes('topic_reactivated'), true);
   assert.equal(created.some((item) => item.eventType === 'topic_reactivated'), true);
+  assert.deepEqual(created[0]?.sourceMessageIds, [91, 103]);
 });
 
 test('records shared_joke_formed when same sender repeats a distinctive phrase', async () => {
   const created: any[] = [];
   const recentMessages: RecentLedgerInboundMessage[] = [
     {
+      messageId: 92,
       messageSid: 'prev_2',
       senderId: '20001',
       senderName: 'alice',
@@ -115,8 +124,11 @@ test('records shared_joke_formed when same sender repeats a distinctive phrase',
     MessageSid: 'msg_4',
     SenderId: '20001',
     BodyForAgent: '这个群又开始电子包浆了'
-  }));
+  }), {
+    currentMessageId: 104
+  });
 
   assert.equal(result.created.includes('shared_joke_formed'), true);
   assert.equal(created.some((item) => item.eventType === 'shared_joke_formed'), true);
+  assert.deepEqual(created[0]?.sourceMessageIds, [92, 104]);
 });

@@ -2,7 +2,8 @@ import express from 'express';
 import {
   deleteRelationshipMemoryOverride,
   getRelationshipMemoryCardById,
-  listConversationItemsByIds,
+  listAgentInboundMessages,
+  listAgentInboundMessagesByIds,
   listRelationshipLedgerEventsByIds,
   listRelationshipMemoryCards,
   listRelationshipMemoryJobs,
@@ -116,6 +117,8 @@ function normalizeRelationshipCard(record: any, overrides: any[]) {
     importance_score: toNumber(record.importance_score),
     freshness_score: toNumber(record.freshness_score),
     decayed_score: toNumber(record.decayed_score),
+    last_hit_at: record.last_hit_at || null,
+    entered_runtime: Boolean(record.last_hit_at),
     metadata: parseJsonObject(record.metadata),
     created_at: record.created_at || null,
     updated_at: record.updated_at || null,
@@ -164,15 +167,18 @@ function normalizeRelationshipMessageEvidence(record: any) {
   return {
     id: Number(record.id || 0),
     session_key: record.session_key || null,
-    role: record.role || null,
-    phase: record.phase || null,
+    role: record.role || 'user',
+    phase: record.phase || 'inbound',
     source: record.source || null,
     trace_id: record.trace_id || null,
     run_id: record.run_id || null,
     group_index: Number(record.group_index || 0),
     item_index: Number(record.item_index || 0),
-    content: truncateEvidenceText(record.content, 320),
-    created_at: record.created_at || null
+    message_sid: record.message_sid || null,
+    sender_id: record.sender_id || null,
+    sender_name: record.sender_name || null,
+    content: truncateEvidenceText(record.content ?? record.body_for_agent, 320),
+    created_at: record.created_at || record.received_at || null
   };
 }
 
@@ -181,7 +187,7 @@ async function hydrateRelationshipCardEvidence(cards: any[]) {
   const messageIds = Array.from(new Set(cards.flatMap((card) => card.source_message_ids || [])));
   const [events, messages] = await Promise.all([
     listRelationshipLedgerEventsByIds(eventIds),
-    listConversationItemsByIds(messageIds)
+    listAgentInboundMessagesByIds(messageIds)
   ]);
   const eventMap = new Map(events.map((event) => [Number(event.id), normalizeRelationshipEventEvidence(event)]));
   const messageMap = new Map(messages.map((message) => [Number(message.id), normalizeRelationshipMessageEvidence(message)]));
@@ -695,31 +701,21 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
         });
       }
 
-      const rows = await database.executeQuery(
-        `
-          SELECT
-            id,
-            session_key,
-            role,
-            phase,
-            source,
-            trace_id,
-            run_id,
-            group_index,
-            item_index,
-            content,
-            created_at
-          FROM conversation_items
-          WHERE session_key = ?
-          ORDER BY created_at ASC, group_index ASC, item_index ASC, id ASC
-          LIMIT ?
-        `,
-        [sessionKey, limit]
-      );
+      const rows = await listAgentInboundMessages({
+        sessionKey,
+        limit
+      });
 
       return res.json({
         success: true,
-        data: rows.map(normalizeRelationshipMessageEvidence),
+        data: rows
+          .slice()
+          .reverse()
+          .map((row, index) => normalizeRelationshipMessageEvidence({
+            ...row,
+            group_index: index + 1,
+            item_index: 0
+          })),
         timestamp: new Date().toISOString()
       });
     } catch (error) {

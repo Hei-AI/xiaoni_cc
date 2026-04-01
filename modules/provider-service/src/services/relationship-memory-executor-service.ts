@@ -156,11 +156,19 @@ function buildEventLookup(events: LedgerEventRecord[]) {
 }
 
 function buildTurnLookup(turns: StoredConversationTurn[]) {
-  return new Map<number, StoredConversationTurn>(
-    turns
-      .filter((turn) => Number.isFinite(Number(turn.id)))
-      .map((turn) => [Number(turn.id), turn])
-  );
+  const lookup = new Map<number, StoredConversationTurn>();
+  for (const turn of turns) {
+    const sourceMessageIds = Array.isArray(turn.source_message_ids) && turn.source_message_ids.length > 0
+      ? turn.source_message_ids
+      : [turn.id];
+    for (const sourceMessageId of sourceMessageIds) {
+      const numeric = Number(sourceMessageId);
+      if (Number.isFinite(numeric) && numeric > 0 && !lookup.has(numeric)) {
+        lookup.set(numeric, turn);
+      }
+    }
+  }
+  return lookup;
 }
 
 function deriveSourceEventIds(
@@ -225,6 +233,9 @@ function buildPromptPayload(payload: RelationshipMemoryExecutionPayload) {
     trigger_reason: payload.trigger_reason,
     turns: payload.turns.map((turn) => ({
       id: turn.id,
+      source_message_ids: Array.isArray(turn.source_message_ids) && turn.source_message_ids.length > 0
+        ? turn.source_message_ids
+        : [turn.id],
       user_id: turn.user_id,
       group_id: turn.group_id,
       user_message: truncateText(turn.user_message, 180),
@@ -288,7 +299,7 @@ export class RelationshipMemoryExecutorService {
       '只输出 JSON，不要输出解释、Markdown 或代码块外文字。',
       '如果证据不足，返回空数组，不要硬写。',
       '优先抽取：共享梗、成功接话、旧话题再激活。',
-      '每张卡片都必须保留 evidence_message_ids，且这些 id 必须来自 turns。',
+      '每张卡片都必须保留 evidence_message_ids，且这些 id 必须来自 turns[*].source_message_ids。',
       'group_cards 表示群公共记忆，不带 target_user_id。',
       'person_cards 表示和具体人的关系记忆，必须填写 target_user_id。',
       '每个 card 只保留 7 个核心字段：actors, context_before, trigger, interaction, outcome, evidence_message_ids, summary_text。',

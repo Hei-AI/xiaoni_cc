@@ -1,9 +1,14 @@
-import { appendRelationshipLedgerEvent, type DatabaseUrlConfig } from '@qq-bot/persistence';
+import {
+  appendRelationshipLedgerEvent,
+  getAgentInboundMessageByMessageSid,
+  type DatabaseUrlConfig
+} from '@qq-bot/persistence';
 import { databaseConfig } from '../config';
 import type { FinalizedInboundContext } from '../types';
 import { logger } from '../utils/logger';
 
 export type RecentLedgerInboundMessage = {
+  messageId: number | null;
   messageSid: string;
   senderId: string;
   senderName?: string | null;
@@ -18,6 +23,7 @@ export type RecentLedgerInboundMessage = {
 type RelationshipLedgerServiceDeps = {
   recentMessageProvider?: (params: { sessionKey: string; currentMessageSid?: string }) => Promise<RecentLedgerInboundMessage[]>;
   appendEvent?: typeof appendRelationshipLedgerEvent;
+  lookupMessageBySid?: (params: { messageSid: string; sessionKey?: string }) => Promise<{ id: number | null } | null>;
 };
 
 function normalizeText(value: string | undefined | null) {
@@ -84,13 +90,26 @@ export class RelationshipLedgerService {
   private readonly moduleLogger = logger.createModuleLogger('relationship-ledger-service');
   private readonly recentMessageProvider?: RelationshipLedgerServiceDeps['recentMessageProvider'];
   private readonly appendEvent: typeof appendRelationshipLedgerEvent;
+  private readonly lookupMessageBySid: NonNullable<RelationshipLedgerServiceDeps['lookupMessageBySid']>;
 
   constructor(deps: RelationshipLedgerServiceDeps = {}) {
     this.recentMessageProvider = deps.recentMessageProvider;
     this.appendEvent = deps.appendEvent || ((input, config?: DatabaseUrlConfig) => appendRelationshipLedgerEvent(input, config || databaseConfig));
+    this.lookupMessageBySid = deps.lookupMessageBySid || (async (params) => {
+      const row = await getAgentInboundMessageByMessageSid(
+        params.messageSid,
+        { sessionKey: params.sessionKey },
+        databaseConfig
+      );
+      return row
+        ? { id: Number(row.id) }
+        : null;
+    });
   }
 
-  async recordFromInboundContext(inboundContext: FinalizedInboundContext): Promise<{ created: string[] }> {
+  async recordFromInboundContext(inboundContext: FinalizedInboundContext, options: {
+    currentMessageId?: number | null;
+  } = {}): Promise<{ created: string[] }> {
     if (inboundContext.ChatType !== 'group' || !inboundContext.SessionKey || !inboundContext.NativeChannelId) {
       return { created: [] };
     }
@@ -112,6 +131,10 @@ export class RelationshipLedgerService {
     if (!currentBody) {
       return { created };
     }
+    const currentMessageId = Number.isFinite(Number(options.currentMessageId))
+      ? Number(options.currentMessageId)
+      : null;
+    const messageIds = (...values: Array<number | null | undefined>) => values.filter((value): value is number => Number.isFinite(value));
 
     const latestOther = recentMessages.find((message) => message.senderId !== inboundContext.SenderId) || null;
     const latestSameSender = recentMessages.find((message) => message.senderId === inboundContext.SenderId) || null;
@@ -127,12 +150,13 @@ export class RelationshipLedgerService {
           eventType: 'topic_reactivated',
           eventWeight: 0.8,
           confidence: 'medium',
-          sourceMessageIds: [latestOther.messageSid, inboundContext.MessageSid || ''],
+          sourceMessageIds: messageIds(latestOther.messageId, currentMessageId),
           sourceExcerpt: `旧话题关键词延续: ${overlap}`,
           metadata: {
             keyword: overlap,
             previousSenderId: latestOther.senderId,
-            previousSenderName: latestOther.senderName || null
+            previousSenderName: latestOther.senderName || null,
+            source_message_sids: [latestOther.messageSid, inboundContext.MessageSid || ''].filter(Boolean)
           }
         });
         created.push('topic_reactivated');
@@ -151,13 +175,14 @@ export class RelationshipLedgerService {
           eventType: 'shared_joke_formed',
           eventWeight: 0.9,
           confidence: overlap ? 'medium' : 'low',
-          sourceMessageIds: [latestSameSender.messageSid, inboundContext.MessageSid || ''],
+          sourceMessageIds: messageIds(latestSameSender.messageId, currentMessageId),
           sourceExcerpt: overlap
             ? `重复出现的共享关键词: ${overlap}`
             : '连续复用前文表达',
           metadata: {
             keyword: overlap,
-            previousMessageSid: latestSameSender.messageSid
+            previousMessageSid: latestSameSender.messageSid,
+            source_message_sids: [latestSameSender.messageSid, inboundContext.MessageSid || ''].filter(Boolean)
           }
         });
         created.push('shared_joke_formed');
@@ -165,6 +190,12 @@ export class RelationshipLedgerService {
     }
 
     if (inboundContext.ReplyToSenderId || inboundContext.ReplyToBody) {
+      const replySource = inboundContext.ReplyToId
+        ? await this.lookupMessageBySid({
+            messageSid: inboundContext.ReplyToId,
+            sessionKey: inboundContext.SessionKey
+          }).catch(() => null)
+        : null;
       await this.appendEvent({
         groupId,
         targetUserId: Number(inboundContext.SenderId),
@@ -172,12 +203,13 @@ export class RelationshipLedgerService {
         eventType: 'reply_chain_success',
         eventWeight: 1,
         confidence: 'high',
-        sourceMessageIds: [inboundContext.ReplyToId || '', inboundContext.MessageSid || ''].filter(Boolean),
+        sourceMessageIds: messageIds(replySource?.id, currentMessageId),
         sourceExcerpt: normalizeText(inboundContext.ReplyToBody || currentBody).slice(0, 120),
         metadata: {
           replyToSenderId: inboundContext.ReplyToSenderId || null,
           replyToSenderName: inboundContext.ReplyToSenderName || null,
-          replyToIsQuote: inboundContext.ReplyToIsQuote === true
+          replyToIsQuote: inboundContext.ReplyToIsQuote === true,
+          source_message_sids: [inboundContext.ReplyToId || '', inboundContext.MessageSid || ''].filter(Boolean)
         }
       });
       created.push('reply_chain_success');

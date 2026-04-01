@@ -15,6 +15,8 @@ export type StoredConversationTurn = {
   raw_request: Record<string, unknown>;
   raw_response: Record<string, unknown>;
   trace_id: string | null;
+  source_message_ids: number[];
+  source_message_sids: string[];
 };
 
 type CreateConversationInput = {
@@ -102,10 +104,59 @@ export class ConversationStoreService {
       values
     );
 
+    const traceIds = Array.from(new Set(
+      rows
+        .map((row) => (typeof row.trace_id === 'string' ? row.trace_id.trim() : ''))
+        .filter(Boolean)
+    ));
+    const queueRows = traceIds.length > 0
+      ? await this.sql.query<{
+          trace_id: string;
+          message_sid: string;
+          payload: string | Record<string, unknown>;
+        }>(
+          `
+            SELECT
+              trace_id,
+              message_sid,
+              payload
+            FROM agent_queue_messages
+            WHERE trace_id IN (${traceIds.map(() => '?').join(', ')})
+            ORDER BY id ASC
+          `,
+          traceIds
+        )
+      : [];
+    const messageIdsByTrace = new Map<string, number[]>();
+    const messageSidsByTrace = new Map<string, string[]>();
+
+    for (const row of queueRows) {
+      const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
+      if (!traceId) {
+        continue;
+      }
+      const payload = normalizeJson(row.payload);
+      const sourceMessageId = Number(payload.messageId);
+      const sourceMessageIds = messageIdsByTrace.get(traceId) || [];
+      if (Number.isFinite(sourceMessageId) && sourceMessageId > 0 && !sourceMessageIds.includes(sourceMessageId)) {
+        sourceMessageIds.push(sourceMessageId);
+        messageIdsByTrace.set(traceId, sourceMessageIds);
+      }
+
+      const sourceMessageSid = typeof row.message_sid === 'string' ? row.message_sid.trim() : '';
+      const sourceMessageSids = messageSidsByTrace.get(traceId) || [];
+      if (sourceMessageSid && !sourceMessageSids.includes(sourceMessageSid)) {
+        sourceMessageSids.push(sourceMessageSid);
+        messageSidsByTrace.set(traceId, sourceMessageSids);
+      }
+    }
+
     return rows.reverse().map((row) => ({
       ...row,
       raw_request: normalizeJson(row.raw_request),
-      raw_response: normalizeJson(row.raw_response)
+      raw_response: normalizeJson(row.raw_response),
+      source_message_ids: messageIdsByTrace.get(typeof row.trace_id === 'string' ? row.trace_id.trim() : '') || [],
+      source_message_sids: messageSidsByTrace.get(typeof row.trace_id === 'string' ? row.trace_id.trim() : '') || []
     }));
   }
 

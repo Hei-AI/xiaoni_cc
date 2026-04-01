@@ -1,6 +1,7 @@
 import {
   createRelationshipMemoryJob,
   listRelationshipLedgerEvents,
+  listRelationshipMemoryCards,
   listRelationshipMemoryJobs,
   replaceRelationshipMemoryCards,
   updateRelationshipMemoryJob
@@ -49,6 +50,7 @@ type RelationshipMemoryServiceDeps = {
   updateJob?: typeof updateRelationshipMemoryJob;
   listJobs?: typeof listRelationshipMemoryJobs;
   listEvents?: typeof listRelationshipLedgerEvents;
+  listCards?: typeof listRelationshipMemoryCards;
   replaceCards?: typeof replaceRelationshipMemoryCards;
   fetchImpl?: typeof fetch;
 };
@@ -80,6 +82,7 @@ export class RelationshipMemoryService {
   private readonly updateJob: typeof updateRelationshipMemoryJob;
   private readonly listJobs: typeof listRelationshipMemoryJobs;
   private readonly listEvents: typeof listRelationshipLedgerEvents;
+  private readonly listCards: typeof listRelationshipMemoryCards;
   private readonly replaceCards: typeof replaceRelationshipMemoryCards;
   private readonly fetchImpl?: typeof fetch;
 
@@ -93,6 +96,7 @@ export class RelationshipMemoryService {
     this.updateJob = deps.updateJob || ((id, updates) => updateRelationshipMemoryJob(id, updates, databaseConfig));
     this.listJobs = deps.listJobs || ((filters) => listRelationshipMemoryJobs(filters, databaseConfig));
     this.listEvents = deps.listEvents || ((filters) => listRelationshipLedgerEvents(filters, databaseConfig));
+    this.listCards = deps.listCards || ((filters) => listRelationshipMemoryCards(filters, databaseConfig));
     this.replaceCards = deps.replaceCards || ((input) => replaceRelationshipMemoryCards(input, databaseConfig));
     this.fetchImpl = deps.fetchImpl || globalThis.fetch;
   }
@@ -138,6 +142,11 @@ export class RelationshipMemoryService {
     const version = (typeof lastSucceeded?.output_card_version === 'number' ? lastSucceeded.output_card_version : Number(lastSucceeded?.output_card_version || 0)) + 1;
     const turnRangeStart = newTurns[0]?.id || null;
     const turnRangeEnd = newTurns[newTurns.length - 1]?.id || null;
+    const inputMessageIds = Array.from(new Set(
+      newTurns.flatMap((turn) => Array.isArray(turn.source_message_ids) && turn.source_message_ids.length > 0
+        ? turn.source_message_ids
+        : [])
+    ));
     const job = await this.createJob({
       groupId: state.groupId,
       sessionKey: state.sessionId,
@@ -146,7 +155,7 @@ export class RelationshipMemoryService {
       turnRangeStart,
       turnRangeEnd,
       ledgerEventCount: newEvents.length,
-      inputMessageIds: newTurns.map((turn) => turn.id),
+      inputMessageIds,
       outputCardVersion: version,
       metadata: {
         createdAtMs: this.now()
@@ -203,6 +212,15 @@ export class RelationshipMemoryService {
       items.push(card);
       buckets.set(key, items);
     }
+    const existingCards = await this.listCards({
+      groupId: params.groupId,
+      isActive: true,
+      limit: 500
+    });
+    const existingScopes = new Set(
+      existingCards.map((card) => `${card.card_type}::${card.target_user_id ?? 'group'}`)
+    );
+    const nextScopes = new Set(buckets.keys());
 
     for (const [key, cards] of buckets.entries()) {
       const [cardType, targetUserKey] = key.split('::');
@@ -227,6 +245,20 @@ export class RelationshipMemoryService {
           embeddingText: card.embedding_text || card.summary_text,
           metadata: card.metadata || {}
         }))
+      });
+    }
+
+    for (const scopeKey of existingScopes) {
+      if (nextScopes.has(scopeKey)) {
+        continue;
+      }
+      const [cardType, targetUserKey] = scopeKey.split('::');
+      await this.replaceCards({
+        groupId: params.groupId,
+        targetUserId: targetUserKey === 'group' ? null : Number(targetUserKey),
+        cardType,
+        version: params.version,
+        cards: []
       });
     }
 

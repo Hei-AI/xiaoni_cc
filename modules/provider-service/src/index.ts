@@ -38,7 +38,30 @@ const recentMessageCache = new RecentMessageCache();
 const groupParticipationService = new GroupParticipationService({ embeddingService });
 const conversationStoreService = new ConversationStoreService();
 const transcriptSnapshotService = new TranscriptSnapshotService();
-const relationshipLedgerService = new RelationshipLedgerService();
+const relationshipLedgerService = new RelationshipLedgerService({
+  recentMessageProvider: async ({ sessionKey, currentMessageSid }) => {
+    const messages = await inboxService.listConversationMessages({
+      sessionKey,
+      includeRead: true,
+      limit: 8
+    });
+
+    return messages
+      .filter((message) => !currentMessageSid || message.messageSid !== currentMessageSid)
+      .map((message) => ({
+        messageId: message.id,
+        messageSid: message.messageSid,
+        senderId: message.senderId,
+        senderName: message.senderName || null,
+        bodyForAgent: message.bodyForAgent,
+        rawBody: message.rawBody || null,
+        wasMentioned: message.wasMentioned,
+        replyToSender: message.replyToSender || null,
+        replyToBody: message.replyToBody || null,
+        receivedAtMs: new Date(message.receivedAt).getTime()
+      }));
+  }
+});
 const relationshipMemoryService = new RelationshipMemoryService({
   enabled: relationshipMemoryConfig.enabled,
   webhookUrl: relationshipMemoryConfig.webhookUrl,
@@ -121,8 +144,10 @@ function markIncomingActivityAsync(params: { messageType: ProviderMessageType; u
   });
 }
 
-function recordRelationshipLedgerAsync(inboundContext: FinalizedInboundContext) {
-  void relationshipLedgerService.recordFromInboundContext(inboundContext).catch((error) => {
+function recordRelationshipLedgerAsync(inboundContext: FinalizedInboundContext, currentMessageId?: number | null) {
+  void relationshipLedgerService.recordFromInboundContext(inboundContext, {
+    currentMessageId
+  }).catch((error) => {
     moduleLogger.warn('Failed to record relationship ledger events', {
       error: error instanceof Error ? error.message : String(error),
       sessionKey: inboundContext.SessionKey,
@@ -191,7 +216,7 @@ async function simulateSimpleQueueMessage(messageType: ProviderMessageType, payl
     String(aiConfig.bot_qq_number),
     result.traceId
   );
-  recordRelationshipLedgerAsync(finalizedContext);
+  recordRelationshipLedgerAsync(finalizedContext, result.event.id);
   const autoReply = await processAutoReply({
     inboxEvent: result.event,
     inboundContext: finalizedContext,
@@ -266,7 +291,7 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     userId,
     groupId
   });
-  recordRelationshipLedgerAsync(inboundContext);
+  recordRelationshipLedgerAsync(inboundContext, result.event.id);
 
   moduleLogger.info('Accepted OneBot message event', {
     messageType,
@@ -1202,7 +1227,7 @@ app.post('/api/inbox/simulate', async (req, res) => {
       userId: targets.userId,
       groupId: targets.groupId
     });
-    recordRelationshipLedgerAsync(finalizedContext);
+    recordRelationshipLedgerAsync(finalizedContext, result.event.id);
 
     res.json({
       success: true,
