@@ -169,8 +169,8 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           g.group_id,
           g.group_name,
           g.is_enabled,
-          g.continuous_learning_enabled,
-          g.auto_reply_enabled,
+          CASE WHEN g.is_enabled = 1 THEN g.continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
+          CASE WHEN g.is_enabled = 1 THEN g.auto_reply_enabled ELSE 0 END as auto_reply_enabled,
           g.transcript_compact_offset,
           g.welcome_message,
           g.admin_user_id,
@@ -232,7 +232,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         SELECT
           COUNT(DISTINCT g.group_id) as total_groups,
           COUNT(CASE WHEN g.is_enabled = 1 THEN 1 END) as enabled_groups,
-          COUNT(CASE WHEN g.auto_reply_enabled = 1 THEN 1 END) as auto_reply_groups,
+          COUNT(CASE WHEN g.is_enabled = 1 AND g.auto_reply_enabled = 1 THEN 1 END) as auto_reply_groups,
           COUNT(CASE WHEN g.last_activity >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 END) as active_groups
         FROM group_chat_settings g
       `);
@@ -314,8 +314,14 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
             ELSE CONCAT(ROUND(stats.avg_response_time), 'ms')
           END as avg_response_time,
           COALESCE(pcs.is_enabled, 1) as is_enabled,
-          COALESCE(pcs.continuous_learning_enabled, 1) as continuous_learning_enabled,
-          COALESCE(pcs.auto_reply_enabled, 0) as auto_reply_enabled,
+          CASE
+            WHEN COALESCE(pcs.is_enabled, 1) = 1 THEN COALESCE(pcs.continuous_learning_enabled, 1)
+            ELSE 0
+          END as continuous_learning_enabled,
+          CASE
+            WHEN COALESCE(pcs.is_enabled, 1) = 1 THEN COALESCE(pcs.auto_reply_enabled, 0)
+            ELSE 0
+          END as auto_reply_enabled,
           COALESCE(pcs.transcript_compact_offset, 6) as transcript_compact_offset,
           pcs.user_notes,
           pcs.agent_prompt_id
@@ -421,7 +427,10 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
 
       // 获取用户设置
       const userSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
-        SELECT user_id, username, is_enabled, continuous_learning_enabled, auto_reply_enabled, welcome_message, user_notes,
+        SELECT user_id, username, is_enabled,
+               CASE WHEN is_enabled = 1 THEN continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
+               CASE WHEN is_enabled = 1 THEN auto_reply_enabled ELSE 0 END as auto_reply_enabled,
+               welcome_message, user_notes,
                transcript_compact_offset, agent_prompt_id, last_activity
         FROM private_chat_settings
         WHERE user_id = ?
@@ -883,7 +892,10 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
 
       // 获取群聊设置
       const groupSettingsRows = await database.executeQuery<GroupChatSettingRow>(`
-        SELECT group_id, group_name, is_enabled, continuous_learning_enabled, auto_reply_enabled, welcome_message,
+        SELECT group_id, group_name, is_enabled,
+               CASE WHEN is_enabled = 1 THEN continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
+               CASE WHEN is_enabled = 1 THEN auto_reply_enabled ELSE 0 END as auto_reply_enabled,
+               welcome_message,
                transcript_compact_offset, admin_user_id, agent_prompt_id, last_activity
         FROM group_chat_settings
         WHERE group_id = ?

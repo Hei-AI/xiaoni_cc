@@ -496,7 +496,10 @@ export class DatabaseManager {
   public async getPrivateChatSettingById(userId: number): Promise<any | null> {
     try {
       const query = `
-        SELECT user_id, username, is_enabled, continuous_learning_enabled, auto_reply_enabled, welcome_message, user_notes,
+        SELECT user_id, username, is_enabled,
+               CASE WHEN is_enabled = 1 THEN continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
+               CASE WHEN is_enabled = 1 THEN auto_reply_enabled ELSE 0 END as auto_reply_enabled,
+               welcome_message, user_notes,
                transcript_compact_offset, agent_prompt_id, last_activity, created_at, updated_at
         FROM private_chat_settings
         WHERE user_id = ?
@@ -695,7 +698,10 @@ export class DatabaseManager {
   public async getGroupChatSettingById(groupId: number): Promise<any | null> {
     try {
       const query = `
-        SELECT group_id, group_name, is_enabled, continuous_learning_enabled, auto_reply_enabled, welcome_message,
+        SELECT group_id, group_name, is_enabled,
+               CASE WHEN is_enabled = 1 THEN continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
+               CASE WHEN is_enabled = 1 THEN auto_reply_enabled ELSE 0 END as auto_reply_enabled,
+               welcome_message,
                transcript_compact_offset, admin_user_id, agent_prompt_id, last_activity, created_at, updated_at
         FROM group_chat_settings
         WHERE group_id = ?
