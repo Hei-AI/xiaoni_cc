@@ -102,6 +102,7 @@ export class RelationshipMemoryService {
   }
 
   async maybeRequestRefresh(state: SessionTranscriptState): Promise<{ requested: boolean; reason: string; jobId?: number | null }> {
+    const sessionKey = state.runtimeSessionKey || state.sessionId;
     if (!this.enabled) {
       return { requested: false, reason: 'disabled' };
     }
@@ -114,7 +115,7 @@ export class RelationshipMemoryService {
 
     const jobs = await this.listJobs({
       groupId: state.groupId,
-      sessionKey: state.sessionId,
+      sessionKey,
       limit: 20
     });
     if (jobs.some((job) => job.status === 'pending' || job.status === 'running')) {
@@ -130,7 +131,7 @@ export class RelationshipMemoryService {
 
     const events = await this.listEvents({
       groupId: state.groupId,
-      sessionKey: state.sessionId,
+      sessionKey,
       limit: 200
     });
     const lastFinishedAt = normalizeDate(lastSucceeded?.finished_at);
@@ -149,7 +150,7 @@ export class RelationshipMemoryService {
     ));
     const job = await this.createJob({
       groupId: state.groupId,
-      sessionKey: state.sessionId,
+      sessionKey,
       status: 'pending',
       triggerReason: 'compact_checkpoint',
       turnRangeStart,
@@ -164,7 +165,7 @@ export class RelationshipMemoryService {
 
     const payload: RelationshipMemoryJobPayload = {
       job_id: Number(job.id),
-      session_key: state.sessionId,
+      session_key: sessionKey,
       group_id: state.groupId,
       version,
       trigger_reason: 'compact_checkpoint',
@@ -181,7 +182,7 @@ export class RelationshipMemoryService {
     }).catch(async (error) => {
       this.moduleLogger.warn('Relationship memory webhook dispatch failed', {
         error: error instanceof Error ? error.message : String(error),
-        sessionId: state.sessionId,
+        sessionId: sessionKey,
         groupId: state.groupId
       });
       await this.updateJob(Number(job.id), {

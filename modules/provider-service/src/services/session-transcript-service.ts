@@ -14,6 +14,7 @@ export type SessionTranscriptMessage = {
 
 export type SessionTranscriptState = {
   sessionId: string;
+  runtimeSessionKey: string;
   chatType: 'direct' | 'group';
   userId: number;
   groupId?: number | null;
@@ -97,6 +98,7 @@ export class SessionTranscriptService {
 
     return {
       sessionId: identity.sessionId,
+      runtimeSessionKey: identity.runtimeSessionKey,
       chatType: identity.chatType,
       userId: identity.userId,
       groupId: identity.groupId,
@@ -247,6 +249,9 @@ function extractSessionIdentity(inboundContext: FinalizedInboundContext) {
 
     return {
       sessionId: `group:${groupId}`,
+      runtimeSessionKey: typeof inboundContext.SessionKey === 'string' && inboundContext.SessionKey.trim()
+        ? inboundContext.SessionKey.trim()
+        : `group:${groupId}`,
       chatType: 'group' as const,
       userId,
       groupId
@@ -255,6 +260,9 @@ function extractSessionIdentity(inboundContext: FinalizedInboundContext) {
 
   return {
     sessionId: `private:${userId}`,
+    runtimeSessionKey: typeof inboundContext.SessionKey === 'string' && inboundContext.SessionKey.trim()
+      ? inboundContext.SessionKey.trim()
+      : `private:${userId}`,
     chatType: 'direct' as const,
     userId,
     groupId: null
