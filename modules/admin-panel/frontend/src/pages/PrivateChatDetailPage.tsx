@@ -591,7 +591,7 @@ export const PrivateChatDetailPage: React.FC = () => {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => navigate(`/conversation/${conversation.conversation_id}/timeline`)}
+                            onClick={() => navigate(`/runs/${conversation.conversation_id}/trace`)}
                             title="查看对话链路详情"
                           >
                             <LinkIcon className="h-3 w-3" />

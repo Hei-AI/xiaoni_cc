@@ -1166,20 +1166,12 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
         [runId]
       );
 
-      const conversationId = runs[0]?.conversation_id;
-      if (!conversationId) {
-        return res.status(404).json({
-          success: false,
-          error: 'Run trace not available yet',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      const payload = await buildConversationTracePayload(database, logger, String(conversationId));
+      const conversationId = runs[0]?.conversation_id ? String(runs[0].conversation_id) : runId;
+      const payload = await buildConversationTracePayload(database, logger, conversationId);
       if (!payload) {
         return res.status(404).json({
           success: false,
-          error: 'Trace not found',
+          error: runs[0]?.conversation_id ? 'Trace not found' : 'Run trace not available yet',
           timestamp: new Date().toISOString()
         });
       }

@@ -689,7 +689,7 @@ export const GroupChatDetailPage: React.FC = () => {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => navigate(`/conversation/${conversation.id}/timeline`)}
+                              onClick={() => navigate(`/runs/${conversation.id}/trace`)}
                               title="查看对话链路详情"
                             >
                               <Eye className="h-3 w-3" />

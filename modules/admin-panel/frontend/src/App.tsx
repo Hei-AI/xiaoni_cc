@@ -66,6 +66,11 @@ const PromptDebugRedirect: React.FC = () => {
   return <Navigate to={`/playground?promptId=${promptId}`} replace />;
 };
 
+const ConversationTimelineRedirect: React.FC = () => {
+  const { conversationId } = useParams<{ conversationId: string }>();
+  return conversationId ? <Navigate to={`/runs/${conversationId}/trace`} replace /> : <Navigate to="/conversations" replace />;
+};
+
 function RouteFallback() {
   return (
     <div className="flex min-h-[calc(100vh-12rem)] items-center justify-center px-6">
@@ -86,6 +91,7 @@ function App() {
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/conversations" element={<ConversationsPage />} />
+              <Route path="/conversation/:conversationId/timeline" element={<ConversationTimelineRedirect />} />
               <Route path="/runs/:runId/trace" element={<RunTracePage />} />
               <Route path="/groups" element={<GroupManagementPage />} />
               <Route path="/groups/:groupId" element={<GroupChatDetailPage />} />
