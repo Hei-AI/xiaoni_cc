@@ -342,6 +342,128 @@ exports.Prisma.RelationshipMemoryOverrideScalarFieldEnum = {
   created_at: 'created_at'
 };
 
+exports.Prisma.ChatSpaceTopicScalarFieldEnum = {
+  id: 'id',
+  chat_space_type: 'chat_space_type',
+  chat_space_id: 'chat_space_id',
+  status: 'status',
+  canonical_title: 'canonical_title',
+  started_at: 'started_at',
+  last_activity_at: 'last_activity_at',
+  closed_at: 'closed_at',
+  current_accepted_version_id: 'current_accepted_version_id',
+  current_candidate_version_id: 'current_candidate_version_id',
+  last_projection_job_id: 'last_projection_job_id',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.TopicProjectionJobScalarFieldEnum = {
+  id: 'id',
+  chat_space_type: 'chat_space_type',
+  chat_space_id: 'chat_space_id',
+  trigger_type: 'trigger_type',
+  status: 'status',
+  input_bundle_json: 'input_bundle_json',
+  input_bundle_hash: 'input_bundle_hash',
+  base_version_ids: 'base_version_ids',
+  model_name: 'model_name',
+  model_config_json: 'model_config_json',
+  prompt_version: 'prompt_version',
+  error_code: 'error_code',
+  error_message: 'error_message',
+  metadata: 'metadata',
+  started_at: 'started_at',
+  finished_at: 'finished_at',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.TopicProjectionVersionScalarFieldEnum = {
+  id: 'id',
+  topic_id: 'topic_id',
+  projection_job_id: 'projection_job_id',
+  version_number: 'version_number',
+  status: 'status',
+  lifecycle_state: 'lifecycle_state',
+  title: 'title',
+  summary_text: 'summary_text',
+  review_priority_score: 'review_priority_score',
+  heat_score: 'heat_score',
+  participant_ids: 'participant_ids',
+  topic_keywords: 'topic_keywords',
+  evidence_count: 'evidence_count',
+  relationship_count: 'relationship_count',
+  runtime_hit_count: 'runtime_hit_count',
+  last_runtime_hit_at: 'last_runtime_hit_at',
+  input_bundle_hash: 'input_bundle_hash',
+  snapshot_json: 'snapshot_json',
+  provenance_json: 'provenance_json',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.TopicVersionRelationshipScalarFieldEnum = {
+  id: 'id',
+  projection_version_id: 'projection_version_id',
+  target_user_id: 'target_user_id',
+  relationship_kind: 'relationship_kind',
+  summary_text: 'summary_text',
+  actors: 'actors',
+  source_event_ids: 'source_event_ids',
+  source_message_ids: 'source_message_ids',
+  metadata: 'metadata',
+  created_at: 'created_at'
+};
+
+exports.Prisma.TopicVersionEvidenceScalarFieldEnum = {
+  id: 'id',
+  projection_version_id: 'projection_version_id',
+  source_kind: 'source_kind',
+  source_id: 'source_id',
+  sort_order: 'sort_order',
+  excerpt_text: 'excerpt_text',
+  speaker_id: 'speaker_id',
+  speaker_name: 'speaker_name',
+  occurred_at: 'occurred_at',
+  metadata: 'metadata',
+  created_at: 'created_at'
+};
+
+exports.Prisma.TopicReviewEventScalarFieldEnum = {
+  id: 'id',
+  topic_id: 'topic_id',
+  base_projection_version_id: 'base_projection_version_id',
+  result_projection_version_id: 'result_projection_version_id',
+  action_type: 'action_type',
+  status: 'status',
+  created_by: 'created_by',
+  manual_note: 'manual_note',
+  patch_json: 'patch_json',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.GoldenChatCaseScalarFieldEnum = {
+  id: 'id',
+  chat_space_type: 'chat_space_type',
+  chat_space_id: 'chat_space_id',
+  topic_id: 'topic_id',
+  source_projection_version_id: 'source_projection_version_id',
+  label: 'label',
+  status: 'status',
+  input_bundle_hash: 'input_bundle_hash',
+  expected_snapshot_json: 'expected_snapshot_json',
+  fixture_bundle_json: 'fixture_bundle_json',
+  created_by: 'created_by',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -383,7 +505,14 @@ exports.Prisma.ModelName = {
   RelationshipLedgerEvent: 'RelationshipLedgerEvent',
   RelationshipMemoryJob: 'RelationshipMemoryJob',
   RelationshipMemoryCard: 'RelationshipMemoryCard',
-  RelationshipMemoryOverride: 'RelationshipMemoryOverride'
+  RelationshipMemoryOverride: 'RelationshipMemoryOverride',
+  ChatSpaceTopic: 'ChatSpaceTopic',
+  TopicProjectionJob: 'TopicProjectionJob',
+  TopicProjectionVersion: 'TopicProjectionVersion',
+  TopicVersionRelationship: 'TopicVersionRelationship',
+  TopicVersionEvidence: 'TopicVersionEvidence',
+  TopicReviewEvent: 'TopicReviewEvent',
+  GoldenChatCase: 'GoldenChatCase'
 };
 
 /**

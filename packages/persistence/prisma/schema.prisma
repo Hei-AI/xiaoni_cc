@@ -262,3 +262,154 @@ model RelationshipMemoryOverride {
   @@index([card_id, created_at], map: "idx_relationship_memory_overrides_card_created")
   @@map("relationship_memory_overrides")
 }
+
+model ChatSpaceTopic {
+  id                           BigInt    @id @default(autoincrement()) @db.BigInt
+  chat_space_type              String    @db.VarChar(16)
+  chat_space_id                BigInt    @db.BigInt
+  status                       String    @default("candidate") @db.VarChar(32)
+  canonical_title              String?
+  started_at                   DateTime? @db.Timestamp(3)
+  last_activity_at             DateTime? @db.Timestamp(3)
+  closed_at                    DateTime? @db.Timestamp(3)
+  current_accepted_version_id  BigInt?   @db.BigInt
+  current_candidate_version_id BigInt?   @db.BigInt
+  last_projection_job_id       BigInt?   @db.BigInt
+  metadata                     Json?
+  created_at                   DateTime  @default(now()) @db.Timestamp(3)
+  updated_at                   DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([chat_space_type, chat_space_id, status, last_activity_at], map: "idx_chat_space_topics_space_status_activity")
+  @@index([chat_space_type, chat_space_id, updated_at], map: "idx_chat_space_topics_space_updated")
+  @@map("chat_space_topics")
+}
+
+model TopicProjectionJob {
+  id                       BigInt    @id @default(autoincrement()) @db.BigInt
+  chat_space_type          String    @db.VarChar(16)
+  chat_space_id            BigInt    @db.BigInt
+  trigger_type             String    @db.VarChar(32)
+  status                   String    @db.VarChar(32)
+  input_bundle_json        Json
+  input_bundle_hash        String    @db.VarChar(191)
+  base_version_ids         Json
+  model_name               String?   @db.VarChar(191)
+  model_config_json        Json?
+  prompt_version           String?   @db.VarChar(191)
+  error_code               String?   @db.VarChar(64)
+  error_message            String?
+  metadata                 Json?
+  started_at               DateTime? @db.Timestamp(3)
+  finished_at              DateTime? @db.Timestamp(3)
+  created_at               DateTime  @default(now()) @db.Timestamp(3)
+  updated_at               DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([chat_space_type, chat_space_id, status, updated_at], map: "idx_topic_projection_jobs_space_status_updated")
+  @@index([input_bundle_hash, created_at], map: "idx_topic_projection_jobs_bundle_hash")
+  @@map("topic_projection_jobs")
+}
+
+model TopicProjectionVersion {
+  id                  BigInt    @id @default(autoincrement()) @db.BigInt
+  topic_id            BigInt    @db.BigInt
+  projection_job_id   BigInt?   @db.BigInt
+  version_number      Int
+  status              String    @default("candidate") @db.VarChar(32)
+  lifecycle_state     String    @default("candidate") @db.VarChar(32)
+  title               String?
+  summary_text        String
+  review_priority_score Float   @default(0)
+  heat_score          Float     @default(0)
+  participant_ids     Json
+  topic_keywords      Json
+  evidence_count      Int       @default(0)
+  relationship_count  Int       @default(0)
+  runtime_hit_count   Int       @default(0)
+  last_runtime_hit_at DateTime? @db.Timestamp(3)
+  input_bundle_hash   String    @db.VarChar(191)
+  snapshot_json       Json
+  provenance_json     Json
+  metadata            Json?
+  created_at          DateTime  @default(now()) @db.Timestamp(3)
+  updated_at          DateTime  @updatedAt @db.Timestamp(3)
+
+  @@unique([topic_id, version_number], map: "uniq_topic_projection_versions_topic_version")
+  @@index([topic_id, created_at], map: "idx_topic_projection_versions_topic_created")
+  @@index([projection_job_id, created_at], map: "idx_topic_projection_versions_job_created")
+  @@index([status, updated_at], map: "idx_topic_projection_versions_status_updated")
+  @@map("topic_projection_versions")
+}
+
+model TopicVersionRelationship {
+  id                    BigInt   @id @default(autoincrement()) @db.BigInt
+  projection_version_id BigInt   @db.BigInt
+  target_user_id        BigInt   @db.BigInt
+  relationship_kind     String?  @db.VarChar(64)
+  summary_text          String
+  actors                Json
+  source_event_ids      Json
+  source_message_ids    Json
+  metadata              Json?
+  created_at            DateTime @default(now()) @db.Timestamp(3)
+
+  @@index([projection_version_id, target_user_id], map: "idx_topic_version_relationships_version_target")
+  @@map("topic_version_relationships")
+}
+
+model TopicVersionEvidence {
+  id                    BigInt    @id @default(autoincrement()) @db.BigInt
+  projection_version_id BigInt    @db.BigInt
+  source_kind           String    @db.VarChar(32)
+  source_id             BigInt    @db.BigInt
+  sort_order            Int       @default(0)
+  excerpt_text          String?
+  speaker_id            String?   @db.VarChar(191)
+  speaker_name          String?   @db.VarChar(255)
+  occurred_at           DateTime? @db.Timestamp(3)
+  metadata              Json?
+  created_at            DateTime  @default(now()) @db.Timestamp(3)
+
+  @@index([projection_version_id, sort_order, id], map: "idx_topic_version_evidence_version_sort")
+  @@index([source_kind, source_id], map: "idx_topic_version_evidence_source")
+  @@map("topic_version_evidence")
+}
+
+model TopicReviewEvent {
+  id                         BigInt    @id @default(autoincrement()) @db.BigInt
+  topic_id                   BigInt    @db.BigInt
+  base_projection_version_id BigInt?   @db.BigInt
+  result_projection_version_id BigInt? @db.BigInt
+  action_type                String    @db.VarChar(64)
+  status                     String    @default("recorded") @db.VarChar(32)
+  created_by                 String?   @db.VarChar(191)
+  manual_note                String?
+  patch_json                 Json?
+  metadata                   Json?
+  created_at                 DateTime  @default(now()) @db.Timestamp(3)
+  updated_at                 DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([topic_id, created_at], map: "idx_topic_review_events_topic_created")
+  @@index([status, updated_at], map: "idx_topic_review_events_status_updated")
+  @@map("topic_review_events")
+}
+
+model GoldenChatCase {
+  id                         BigInt   @id @default(autoincrement()) @db.BigInt
+  chat_space_type            String   @db.VarChar(16)
+  chat_space_id              BigInt   @db.BigInt
+  topic_id                   BigInt?  @db.BigInt
+  source_projection_version_id BigInt @db.BigInt
+  label                      String?  @db.VarChar(255)
+  status                     String   @default("active") @db.VarChar(32)
+  input_bundle_hash          String   @db.VarChar(191)
+  expected_snapshot_json     Json
+  fixture_bundle_json        Json
+  created_by                 String?  @db.VarChar(191)
+  metadata                   Json?
+  created_at                 DateTime @default(now()) @db.Timestamp(3)
+  updated_at                 DateTime @updatedAt @db.Timestamp(3)
+
+  @@index([chat_space_type, chat_space_id, status, updated_at], map: "idx_golden_chat_cases_space_status_updated")
+  @@index([source_projection_version_id, created_at], map: "idx_golden_chat_cases_source_version")
+  @@map("golden_chat_cases")
+}

@@ -197,6 +197,110 @@ export type RelationshipMemoryHitInput = {
   hitAt?: string | Date | null;
 };
 
+export type ChatSpaceTopicInput = {
+  chatSpaceType: 'group' | 'direct' | string;
+  chatSpaceId: number | bigint | string;
+  status?: string;
+  canonicalTitle?: string | null;
+  startedAt?: string | Date | null;
+  lastActivityAt?: string | Date | null;
+  closedAt?: string | Date | null;
+  currentAcceptedVersionId?: number | bigint | string | null;
+  currentCandidateVersionId?: number | bigint | string | null;
+  lastProjectionJobId?: number | bigint | string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type TopicProjectionJobInput = {
+  chatSpaceType: 'group' | 'direct' | string;
+  chatSpaceId: number | bigint | string;
+  triggerType?: string;
+  status?: string;
+  inputBundleJson?: Record<string, unknown> | null;
+  inputBundleHash: string;
+  baseVersionIds?: Array<number | bigint | string>;
+  modelName?: string | null;
+  modelConfigJson?: Record<string, unknown> | null;
+  promptVersion?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  metadata?: Record<string, unknown> | null;
+  startedAt?: string | Date | null;
+  finishedAt?: string | Date | null;
+};
+
+export type TopicVersionRelationshipInput = {
+  targetUserId: number | bigint | string;
+  relationshipKind?: string | null;
+  summaryText: string;
+  actors?: unknown[];
+  sourceEventIds?: Array<number | bigint | string>;
+  sourceMessageIds?: Array<number | bigint | string>;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type TopicVersionEvidenceInput = {
+  sourceKind: string;
+  sourceId: number | bigint | string;
+  sortOrder?: number;
+  excerptText?: string | null;
+  speakerId?: string | null;
+  speakerName?: string | null;
+  occurredAt?: string | Date | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type TopicProjectionVersionSnapshotInput = {
+  topicId: number | bigint | string;
+  projectionJobId?: number | bigint | string | null;
+  versionNumber: number;
+  status?: string;
+  lifecycleState?: string;
+  title?: string | null;
+  summaryText: string;
+  reviewPriorityScore?: number;
+  heatScore?: number;
+  participantIds?: Array<number | bigint | string> | Array<string>;
+  topicKeywords?: string[];
+  evidenceCount?: number;
+  relationshipCount?: number;
+  runtimeHitCount?: number;
+  lastRuntimeHitAt?: string | Date | null;
+  inputBundleHash: string;
+  snapshotJson?: Record<string, unknown> | null;
+  provenanceJson?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  relationships?: TopicVersionRelationshipInput[];
+  evidence?: TopicVersionEvidenceInput[];
+  topicUpdates?: Partial<ChatSpaceTopicInput>;
+};
+
+export type TopicReviewEventInput = {
+  topicId: number | bigint | string;
+  baseProjectionVersionId?: number | bigint | string | null;
+  resultProjectionVersionId?: number | bigint | string | null;
+  actionType: string;
+  status?: string;
+  createdBy?: string | null;
+  manualNote?: string | null;
+  patchJson?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type GoldenChatCaseInput = {
+  chatSpaceType: 'group' | 'direct' | string;
+  chatSpaceId: number | bigint | string;
+  topicId?: number | bigint | string | null;
+  sourceProjectionVersionId: number | bigint | string;
+  label?: string | null;
+  status?: string;
+  inputBundleHash: string;
+  expectedSnapshotJson?: Record<string, unknown> | null;
+  fixtureBundleJson?: Record<string, unknown> | null;
+  createdBy?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
 export type ChatPromptBindingSource = 'group' | 'private';
 
 export type ResolvedChatAgentPrompt = {
@@ -250,6 +354,7 @@ export function createTrafficReplayHistory(data: TrafficReplayHistoryInput): Pro
 export function listAiTrafficSamples(params?: { search?: string; limit?: number }): Promise<any[]>;
 export function createTrafficLogBatch(records: TrafficLogBatchInput[]): Promise<{ count: number }>;
 export function ensureRelationshipMemorySchema(config?: DatabaseUrlConfig): Promise<void>;
+export function ensureTopicLabSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function appendRelationshipLedgerEvent(input: RelationshipLedgerEventInput, config?: DatabaseUrlConfig): Promise<any>;
 export function reinforceRelationshipLedgerEvent(
   id: number | bigint | string,
@@ -285,7 +390,7 @@ export function replaceRelationshipMemoryCards(
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
 export function listRelationshipMemoryCards(
-  filters?: { groupId?: number | bigint | string; targetUserId?: number | bigint | string | null; cardType?: string; isActive?: boolean; limit?: number },
+  filters?: { groupId?: number | bigint | string | null; targetUserId?: number | bigint | string | null; cardType?: string; isActive?: boolean; limit?: number },
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
 export function getRelationshipMemoryCardById(
@@ -317,3 +422,63 @@ export function markRelationshipMemoryCardsHit(
   params?: RelationshipMemoryHitInput,
   config?: DatabaseUrlConfig
 ): Promise<{ count: number; hit_at: Date | null }>;
+export function createChatSpaceTopic(input: ChatSpaceTopicInput, config?: DatabaseUrlConfig): Promise<any>;
+export function updateChatSpaceTopic(
+  id: number | bigint | string,
+  updates?: Partial<ChatSpaceTopicInput>,
+  config?: DatabaseUrlConfig
+): Promise<any>;
+export function getChatSpaceTopicById(id: number | bigint | string, config?: DatabaseUrlConfig): Promise<any | null>;
+export function listChatSpaceTopics(
+  filters?: { chatSpaceType?: string; chatSpaceId?: number | bigint | string; status?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function createTopicProjectionJob(input: TopicProjectionJobInput, config?: DatabaseUrlConfig): Promise<any>;
+export function updateTopicProjectionJob(
+  id: number | bigint | string,
+  updates?: Partial<TopicProjectionJobInput>,
+  config?: DatabaseUrlConfig
+): Promise<any>;
+export function getTopicProjectionJobById(id: number | bigint | string, config?: DatabaseUrlConfig): Promise<any | null>;
+export function listTopicProjectionJobs(
+  filters?: { chatSpaceType?: string; chatSpaceId?: number | bigint | string; status?: string; triggerType?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function createTopicProjectionVersionSnapshot(
+  input: TopicProjectionVersionSnapshotInput,
+  config?: DatabaseUrlConfig
+): Promise<any>;
+export function updateTopicProjectionVersion(
+  id: number | bigint | string,
+  updates?: Partial<TopicProjectionVersionSnapshotInput>,
+  config?: DatabaseUrlConfig
+): Promise<any>;
+export function getTopicProjectionVersionById(id: number | bigint | string, config?: DatabaseUrlConfig): Promise<any | null>;
+export function listTopicProjectionVersions(
+  filters?: { topicId?: number | bigint | string; projectionJobId?: number | bigint | string; status?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function listTopicVersionRelationships(
+  filters?: { projectionVersionId?: number | bigint | string; targetUserId?: number | bigint | string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function listTopicVersionEvidence(
+  filters?: { projectionVersionId?: number | bigint | string; sourceKind?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function createTopicReviewEvent(input: TopicReviewEventInput, config?: DatabaseUrlConfig): Promise<any>;
+export function updateTopicReviewEvent(
+  id: number | bigint | string,
+  updates?: Partial<TopicReviewEventInput>,
+  config?: DatabaseUrlConfig
+): Promise<any>;
+export function getTopicReviewEventById(id: number | bigint | string, config?: DatabaseUrlConfig): Promise<any | null>;
+export function listTopicReviewEvents(
+  filters?: { topicId?: number | bigint | string; baseProjectionVersionId?: number | bigint | string; status?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function createGoldenChatCase(input: GoldenChatCaseInput, config?: DatabaseUrlConfig): Promise<any>;
+export function listGoldenChatCases(
+  filters?: { chatSpaceType?: string; chatSpaceId?: number | bigint | string; topicId?: number | bigint | string; status?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;

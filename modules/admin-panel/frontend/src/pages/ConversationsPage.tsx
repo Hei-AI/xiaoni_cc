@@ -1,19 +1,18 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Bot, Clock3, MessageCircleMore, RefreshCw, Search, Sparkles, Workflow, X } from 'lucide-react';
+import { ArrowRight, Bot, Clock3, MessageCircleMore, RefreshCw, Search, Sparkles, Workflow } from 'lucide-react';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
 import { SectionPanel } from '@/components/console/SectionPanel';
 import { ErrorState } from '@/components/console/ErrorState';
 import { EmptyState } from '@/components/console/EmptyState';
 import { StatusPill } from '@/components/console/StatusPill';
+import { ChatSpaceRelationshipMemoryWorkspace } from '@/components/ChatSpaceRelationshipMemoryWorkspace';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { formatTimestamp } from '@/lib/utils';
-import { useRunDetail, useRunSessions, useSessionConversationItems, useSessionParticipationEvents, useSessionRelationshipMemory, useSessionRuns } from '@/hooks/useAgentRuns';
-import type { RelationshipMemoryCardRecord, SessionConversationItemRecord } from '@/types';
+import { useRunDetail, useRunSessions, useSessionParticipationEvents, useSessionRuns } from '@/hooks/useAgentRuns';
 
 function toneForRun(status: string, noReply?: boolean): 'danger' | 'warning' | 'success' | 'info' {
   if (status === 'failed') return 'danger';
@@ -44,74 +43,23 @@ function formatDurationMs(value: number | null | undefined): string {
   return `${(numeric / 1000).toFixed(1)} s`;
 }
 
-function scrollToEvidenceMessage(messageId: number) {
-  if (!Number.isFinite(messageId)) {
-    return;
+function buildChatDetailHref(sessionKey: string | null): string | null {
+  if (!sessionKey) {
+    return null;
   }
-  const element = document.getElementById(`relationship-evidence-message-${messageId}`);
-  if (element) {
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const groupMatch = sessionKey.match(/(?:^|:)group:(\d+)$/);
+  if (groupMatch) {
+    return `/groups/${groupMatch[1]}`;
   }
+  const directMatch = sessionKey.match(/(?:^|:)private:(\d+)$/);
+  if (directMatch) {
+    return `/private-chats/${directMatch[1]}`;
+  }
+  return null;
 }
-
-const RelationshipEvidenceBlock: React.FC<{ card: RelationshipMemoryCardRecord }> = ({ card }) => {
-  const hasEvidence = card.evidence_events.length > 0 || card.evidence_messages.length > 0;
-  if (!hasEvidence) {
-    return (
-      <div className="mt-3 text-xs text-muted-foreground">
-        暂无可展开证据
-      </div>
-    );
-  }
-
-  return (
-    <details className="mt-3 rounded-xl border border-dashed border-border/70 bg-muted/20 px-3 py-2">
-      <summary className="cursor-pointer text-xs font-medium text-foreground">
-        展开来源证据
-      </summary>
-      {card.evidence_events.length > 0 ? (
-        <div className="mt-3 space-y-2">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Ledger Events</div>
-          {card.evidence_events.map((event) => (
-            <div key={event.id} className="rounded-xl border border-border/60 bg-background/80 p-2">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <Badge variant="outline">{event.event_type || 'event'}</Badge>
-                <span>#{event.id}</span>
-                {event.confidence ? <span>{event.confidence}</span> : null}
-                {event.created_at ? <span>{formatTimestamp(event.created_at)}</span> : null}
-              </div>
-              {event.source_excerpt ? (
-                <div className="mt-2 text-sm text-foreground/85">{event.source_excerpt}</div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {card.evidence_messages.length > 0 ? (
-        <div className="mt-3 space-y-2">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Chat Excerpts</div>
-          {card.evidence_messages.map((message) => (
-            <div key={message.id} className="rounded-xl border border-border/60 bg-background/80 p-2">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <Badge variant="outline">{message.role || 'message'}</Badge>
-                <span>#{message.id}</span>
-                {message.sender_name ? <span>{message.sender_name}</span> : null}
-                {message.message_sid ? <span>{message.message_sid}</span> : null}
-                {message.phase ? <span>{message.phase}</span> : null}
-                {message.created_at ? <span>{formatTimestamp(message.created_at)}</span> : null}
-              </div>
-              <div className="mt-2 text-sm text-foreground/85">{message.content || '无内容摘录'}</div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </details>
-  );
-};
 
 export const ConversationsPage: React.FC = () => {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = React.useState('');
   const [debouncedSearch, setDebouncedSearch] = React.useState('');
   const [selectedSessionKey, setSelectedSessionKey] = React.useState<string | null>(null);
@@ -126,57 +74,10 @@ export const ConversationsPage: React.FC = () => {
   const sessions = sessionsQuery.data?.data || [];
   const sessionRunsQuery = useSessionRuns(selectedSessionKey);
   const participationEventsQuery = useSessionParticipationEvents(selectedSessionKey);
-  const relationshipMemoryQuery = useSessionRelationshipMemory(selectedSessionKey);
-  const conversationItemsQuery = useSessionConversationItems(selectedSessionKey);
   const runs = sessionRunsQuery.data || [];
   const participationEvents = participationEventsQuery.data || [];
-  const relationshipMemory = relationshipMemoryQuery.data;
-  const sessionConversationItems = conversationItemsQuery.data || [];
-  const evidenceMessageIds = React.useMemo(
-    () => new Set([
-      ...((relationshipMemory?.group_cards || []).flatMap((card) => card.source_message_ids || [])),
-      ...((relationshipMemory?.person_cards || []).flatMap((card) => card.source_message_ids || []))
-    ]),
-    [relationshipMemory]
-  );
   const runDetailQuery = useRunDetail(selectedRunId);
   const selectedRun = runDetailQuery.data;
-
-  const overrideMutation = useMutation({
-    mutationFn: async (payload: { cardId: number; actionType: 'pin' | 'downrank' | 'archive' }) => {
-      const response = await fetch(`/api/runs/relationship-memory/cards/${payload.cardId}/overrides`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          action_type: payload.actionType,
-          created_by: 'admin-panel'
-        })
-      });
-      if (!response.ok) {
-        throw new Error('Failed to update relationship memory override');
-      }
-      return response.json();
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['session-relationship-memory', selectedSessionKey] });
-    }
-  });
-  const removeOverrideMutation = useMutation({
-    mutationFn: async (overrideId: number) => {
-      const response = await fetch(`/api/runs/relationship-memory/overrides/${overrideId}`, {
-        method: 'DELETE'
-      });
-      if (!response.ok) {
-        throw new Error('Failed to delete relationship memory override');
-      }
-      return response.json();
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['session-relationship-memory', selectedSessionKey] });
-    }
-  });
 
   React.useEffect(() => {
     if (!sessions.length) {
@@ -201,8 +102,7 @@ export const ConversationsPage: React.FC = () => {
   const sessionsLoading = sessionsQuery.isLoading || sessionsQuery.isFetching;
   const runsLoading = sessionsLoading || sessionRunsQuery.isLoading || (Boolean(selectedSessionKey) && sessionRunsQuery.isFetching);
   const participationLoading = sessionsLoading || participationEventsQuery.isLoading || (Boolean(selectedSessionKey) && participationEventsQuery.isFetching);
-  const relationshipLoading = sessionsLoading || relationshipMemoryQuery.isLoading || (Boolean(selectedSessionKey) && relationshipMemoryQuery.isFetching);
-  const conversationItemsLoading = sessionsLoading || conversationItemsQuery.isLoading || (Boolean(selectedSessionKey) && conversationItemsQuery.isFetching);
+  const selectedChatDetailHref = buildChatDetailHref(selectedSessionKey);
 
   return (
     <PageShell>
@@ -291,45 +191,6 @@ export const ConversationsPage: React.FC = () => {
               <EmptyState icon={<Bot className="h-10 w-10" />} title="选择会话" description="先在左侧选择一个会话，再查看对应 runs。" />
             ) : (
               <>
-                {relationshipMemoryQuery.error ? (
-                  <ErrorState description={relationshipMemoryQuery.error.message} onRetry={() => relationshipMemoryQuery.refetch()} />
-                ) : relationshipLoading ? (
-                  <div className="h-32 animate-pulse rounded-2xl border border-border bg-muted/40" />
-                ) : relationshipMemory ? (
-                  <div className="rounded-2xl border border-dashed border-sky-300 bg-sky-50/60 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-foreground">Relationship Memory</div>
-                        <div className="mt-1 text-xs text-muted-foreground">看这段会话当前沉淀下来的关系卡和最近结算 job。</div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Badge variant="secondary">{relationshipMemory.group_cards.length} 群卡</Badge>
-                        <Badge variant="secondary">{relationshipMemory.person_cards.length} 人际卡</Badge>
-                      </div>
-                    </div>
-                    <div className="mt-4 space-y-3">
-                      {(relationshipMemory.jobs || []).slice(0, 3).map((job) => (
-                        <div key={job.id} className="rounded-2xl border border-sky-200 bg-white/80 p-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-semibold text-foreground">Job #{job.id}</div>
-                              <div className="mt-1 text-xs text-muted-foreground">{formatTimestamp(job.updated_at || job.created_at || '')}</div>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {job.status ? <Badge variant="outline">{job.status}</Badge> : null}
-                              {job.output_card_version ? <Badge variant="outline">v{job.output_card_version}</Badge> : null}
-                              <Badge variant="outline">{job.ledger_event_count} events</Badge>
-                            </div>
-                          </div>
-                          {job.error_message ? (
-                            <div className="mt-2 text-xs text-red-600">{job.error_message}</div>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
                 {participationLoading ? (
                   <div className="h-32 animate-pulse rounded-2xl border border-border bg-muted/40" />
                 ) : participationEvents.length > 0 ? (
@@ -554,199 +415,12 @@ export const ConversationsPage: React.FC = () => {
                 </div>
               </div>
 
-              {relationshipMemory && selectedSessionKey ? (
-                <div className="rounded-2xl border border-border bg-[linear-gradient(180deg,#f7fcff_0%,#f2f8ff_100%)] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-foreground">Relationship Memory Cards</div>
-                    <Button variant="outline" size="sm" onClick={() => relationshipMemoryQuery.refetch()} disabled={relationshipMemoryQuery.isFetching}>
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                      刷新记忆
-                    </Button>
-                  </div>
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    session: {relationshipMemory.normalized_session_key}
-                  </div>
-                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                    <div className="space-y-3">
-                      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">群公共卡片</div>
-                      {relationshipMemory.group_cards.length === 0 ? (
-                        <EmptyState icon={<Sparkles className="h-8 w-8" />} title="暂无群卡片" description="这段会话还没沉淀出 group memory。" />
-                      ) : relationshipMemory.group_cards.map((card) => (
-                        <div key={card.id} className="rounded-2xl border border-border/70 bg-background/80 p-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="text-sm font-semibold text-foreground">{card.summary_text}</div>
-                            <Badge variant="outline">{formatPercent(card.decayed_score)}</Badge>
-                          </div>
-                          <div className="mt-2 text-xs text-muted-foreground">
-                            {card.context_before ? `前因: ${card.context_before}` : '无前因摘要'}
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                            {card.entered_runtime ? <Badge variant="secondary">已进入 runtime</Badge> : <Badge variant="outline">尚未命中 runtime</Badge>}
-                            <span>最近命中: {card.last_hit_at ? formatTimestamp(card.last_hit_at) : 'n/a'}</span>
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                            <div className="flex flex-wrap items-center gap-1">
-                              <span>msg</span>
-                              {card.source_message_ids.length > 0 ? card.source_message_ids.map((messageId) => (
-                                <Button
-                                  key={messageId}
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-6 px-2 text-xs"
-                                  onClick={() => scrollToEvidenceMessage(messageId)}
-                                >
-                                  #{messageId}
-                                </Button>
-                              )) : <span>n/a</span>}
-                            </div>
-                            <span>event {card.source_event_ids.join(', ') || 'n/a'}</span>
-                            <span>v{card.version}</span>
-                          </div>
-                          <RelationshipEvidenceBlock card={card} />
-                          {card.overrides.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {card.overrides.map((override) => (
-                                <div key={override.id} className="inline-flex items-center gap-1">
-                                  <Badge variant="secondary">{override.action_type || 'override'}</Badge>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 px-2"
-                                    disabled={removeOverrideMutation.isPending}
-                                    onClick={() => removeOverrideMutation.mutate(override.id)}
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              ))}
-                            </div>
-                          ) : null}
-                          <RelationshipOverrideActions
-                            card={card}
-                            busy={overrideMutation.isPending}
-                            onAction={(actionType) => overrideMutation.mutate({ cardId: card.id, actionType })}
-                          />
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">人际卡片</div>
-                      {relationshipMemory.person_cards.length === 0 ? (
-                        <EmptyState icon={<Sparkles className="h-8 w-8" />} title="暂无人际卡片" description="这段会话还没沉淀出 person memory。" />
-                      ) : relationshipMemory.person_cards.map((card) => (
-                        <div key={card.id} className="rounded-2xl border border-border/70 bg-background/80 p-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-semibold text-foreground">{card.summary_text}</div>
-                              <div className="mt-1 text-xs text-muted-foreground">target {card.target_user_id || 'n/a'}</div>
-                            </div>
-                            <Badge variant="outline">{formatPercent(card.decayed_score)}</Badge>
-                          </div>
-                          <div className="mt-2 text-xs text-muted-foreground">
-                            {card.trigger ? `触发: ${card.trigger}` : '无触发摘要'}
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                            {card.entered_runtime ? <Badge variant="secondary">已进入 runtime</Badge> : <Badge variant="outline">尚未命中 runtime</Badge>}
-                            <span>最近命中: {card.last_hit_at ? formatTimestamp(card.last_hit_at) : 'n/a'}</span>
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                            <div className="flex flex-wrap items-center gap-1">
-                              <span>msg</span>
-                              {card.source_message_ids.length > 0 ? card.source_message_ids.map((messageId) => (
-                                <Button
-                                  key={messageId}
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-6 px-2 text-xs"
-                                  onClick={() => scrollToEvidenceMessage(messageId)}
-                                >
-                                  #{messageId}
-                                </Button>
-                              )) : <span>n/a</span>}
-                            </div>
-                            <span>event {card.source_event_ids.join(', ') || 'n/a'}</span>
-                            <span>v{card.version}</span>
-                          </div>
-                          <RelationshipEvidenceBlock card={card} />
-                          {card.overrides.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {card.overrides.map((override) => (
-                                <div key={override.id} className="inline-flex items-center gap-1">
-                                  <Badge variant="secondary">{override.action_type || 'override'}</Badge>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 px-2"
-                                    disabled={removeOverrideMutation.isPending}
-                                    onClick={() => removeOverrideMutation.mutate(override.id)}
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              ))}
-                            </div>
-                          ) : null}
-                          <RelationshipOverrideActions
-                            card={card}
-                            busy={overrideMutation.isPending}
-                            onAction={(actionType) => overrideMutation.mutate({ cardId: card.id, actionType })}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
-              {relationshipMemory && (conversationItemsLoading || sessionConversationItems.length > 0) ? (
-                <div className="rounded-2xl border border-border bg-[linear-gradient(180deg,#fcfcff_0%,#f7f8ff_100%)] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-foreground">Session Evidence Timeline</div>
-                      <div className="mt-1 text-xs text-muted-foreground">按完整会话顺序看上下文，命中的 relationship evidence 会高亮。</div>
-                    </div>
-                    <Badge variant="secondary">{sessionConversationItems.length} 条消息</Badge>
-                  </div>
-                  {conversationItemsLoading ? (
-                    <div className="mt-4 h-32 animate-pulse rounded-2xl border border-border bg-muted/40" />
-                  ) : (
-                    <div className="mt-4 space-y-3">
-                      {sessionConversationItems.map((message: SessionConversationItemRecord) => {
-                        const highlighted = evidenceMessageIds.has(message.id);
-                        return (
-                          <div
-                            key={message.id}
-                            id={`relationship-evidence-message-${message.id}`}
-                            className={`rounded-xl border p-3 ${highlighted ? 'border-sky-300 bg-sky-50/80' : 'border-border/70 bg-background/80'}`}
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                                <span>#{message.id} {message.role || 'message'}</span>
-                                {highlighted ? <Badge variant="secondary">memory hit</Badge> : null}
-                              </div>
-                              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                                {message.sender_name ? <span>{message.sender_name}</span> : null}
-                                {message.message_sid ? <span>{message.message_sid}</span> : null}
-                                <span>{message.group_index}.{message.item_index}</span>
-                                {message.phase ? <span>{message.phase}</span> : null}
-                                {message.created_at ? <span>{formatTimestamp(message.created_at)}</span> : null}
-                              </div>
-                            </div>
-                            <div className="mt-2 text-sm text-foreground/85">{message.content || '无内容摘录'}</div>
-                          </div>
-                        );
-                      })}
-                      {sessionConversationItems.length === 0 ? (
-                        <div className="rounded-xl border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-                          当前会话还没有可展示的 conversation items。
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
+              {selectedSessionKey ? (
+                <ChatSpaceRelationshipMemoryWorkspace
+                  sessionKey={selectedSessionKey}
+                  mode="run-reference"
+                  chatDetailHref={selectedChatDetailHref || undefined}
+                />
               ) : null}
             </div>
           )}
@@ -755,37 +429,3 @@ export const ConversationsPage: React.FC = () => {
     </PageShell>
   );
 };
-
-function RelationshipOverrideActions(props: {
-  card: RelationshipMemoryCardRecord;
-  busy: boolean;
-  onAction: (actionType: 'pin' | 'downrank' | 'archive') => void;
-}) {
-  const activeActions = new Set(
-    props.card.overrides
-      .map((override) => override.action_type)
-      .filter((actionType): actionType is 'pin' | 'downrank' | 'archive' => actionType === 'pin' || actionType === 'downrank' || actionType === 'archive')
-  );
-
-  function renderAction(actionType: 'pin' | 'downrank' | 'archive', label: string) {
-    const active = activeActions.has(actionType);
-    return (
-      <Button
-        variant={active ? 'secondary' : 'outline'}
-        size="sm"
-        disabled={props.busy || active}
-        onClick={() => props.onAction(actionType)}
-      >
-        {active ? `${label} 已生效` : label}
-      </Button>
-    );
-  }
-
-  return (
-    <div className="mt-2 flex flex-wrap gap-2">
-      {renderAction('pin', 'Pin')}
-      {renderAction('downrank', 'Downrank')}
-      {renderAction('archive', 'Archive')}
-    </div>
-  );
-}

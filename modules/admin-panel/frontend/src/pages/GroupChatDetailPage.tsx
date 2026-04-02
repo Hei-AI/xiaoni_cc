@@ -17,6 +17,8 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Switch } from '../components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { ChatSpaceTopicWorkspace } from '../components/ChatSpaceTopicWorkspace';
+import { ChatSpaceRelationshipMemoryWorkspace } from '../components/ChatSpaceRelationshipMemoryWorkspace';
 import { usePromptTemplates } from '../hooks/usePromptTemplates';
 import { applyChatSettingToggle, isChatSettingToggleDisabled } from '@/lib/chat-settings';
 import { formatPromptBindingLabel } from '@/lib/contract-display';
@@ -511,6 +513,10 @@ export const GroupChatDetailPage: React.FC = () => {
               </p>
             </CardContent>
           </Card>
+
+          <ChatSpaceTopicWorkspace chatSpaceType="group" chatSpaceId={Number(groupId)} />
+
+          <ChatSpaceRelationshipMemoryWorkspace sessionKey={groupId ? `group:${groupId}` : null} />
 
           {/* 今日统计卡片 */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

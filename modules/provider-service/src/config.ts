@@ -70,3 +70,10 @@ export const relationshipMemoryConfig = {
   minNewTurns: Math.max(1, Number.parseInt(process.env.RELATIONSHIP_MEMORY_MIN_NEW_TURNS || '6', 10)),
   minNewLedgerEvents: Math.max(1, Number.parseInt(process.env.RELATIONSHIP_MEMORY_MIN_NEW_LEDGER_EVENTS || '2', 10))
 };
+
+export const topicProjectionConfig = {
+  enabled: process.env.TOPIC_PROJECTION_ENABLED !== 'false',
+  webhookUrl: process.env.TOPIC_PROJECTION_WEBHOOK_URL || `http://127.0.0.1:${serverConfig.port}/api/internal/topic-projection/execute`,
+  minNewTurns: Math.max(1, Number.parseInt(process.env.TOPIC_PROJECTION_MIN_NEW_TURNS || '6', 10)),
+  minNewLedgerEvents: Math.max(1, Number.parseInt(process.env.TOPIC_PROJECTION_MIN_NEW_LEDGER_EVENTS || '2', 10))
+};

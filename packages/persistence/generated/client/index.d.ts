@@ -63,6 +63,41 @@ export type RelationshipMemoryCard = $Result.DefaultSelection<Prisma.$Relationsh
  * 
  */
 export type RelationshipMemoryOverride = $Result.DefaultSelection<Prisma.$RelationshipMemoryOverridePayload>
+/**
+ * Model ChatSpaceTopic
+ * 
+ */
+export type ChatSpaceTopic = $Result.DefaultSelection<Prisma.$ChatSpaceTopicPayload>
+/**
+ * Model TopicProjectionJob
+ * 
+ */
+export type TopicProjectionJob = $Result.DefaultSelection<Prisma.$TopicProjectionJobPayload>
+/**
+ * Model TopicProjectionVersion
+ * 
+ */
+export type TopicProjectionVersion = $Result.DefaultSelection<Prisma.$TopicProjectionVersionPayload>
+/**
+ * Model TopicVersionRelationship
+ * 
+ */
+export type TopicVersionRelationship = $Result.DefaultSelection<Prisma.$TopicVersionRelationshipPayload>
+/**
+ * Model TopicVersionEvidence
+ * 
+ */
+export type TopicVersionEvidence = $Result.DefaultSelection<Prisma.$TopicVersionEvidencePayload>
+/**
+ * Model TopicReviewEvent
+ * 
+ */
+export type TopicReviewEvent = $Result.DefaultSelection<Prisma.$TopicReviewEventPayload>
+/**
+ * Model GoldenChatCase
+ * 
+ */
+export type GoldenChatCase = $Result.DefaultSelection<Prisma.$GoldenChatCasePayload>
 
 /**
  * ##  Prisma Client ʲˢ
@@ -281,6 +316,76 @@ export class PrismaClient<
     * ```
     */
   get relationshipMemoryOverride(): Prisma.RelationshipMemoryOverrideDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.chatSpaceTopic`: Exposes CRUD operations for the **ChatSpaceTopic** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more ChatSpaceTopics
+    * const chatSpaceTopics = await prisma.chatSpaceTopic.findMany()
+    * ```
+    */
+  get chatSpaceTopic(): Prisma.ChatSpaceTopicDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.topicProjectionJob`: Exposes CRUD operations for the **TopicProjectionJob** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more TopicProjectionJobs
+    * const topicProjectionJobs = await prisma.topicProjectionJob.findMany()
+    * ```
+    */
+  get topicProjectionJob(): Prisma.TopicProjectionJobDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.topicProjectionVersion`: Exposes CRUD operations for the **TopicProjectionVersion** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more TopicProjectionVersions
+    * const topicProjectionVersions = await prisma.topicProjectionVersion.findMany()
+    * ```
+    */
+  get topicProjectionVersion(): Prisma.TopicProjectionVersionDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.topicVersionRelationship`: Exposes CRUD operations for the **TopicVersionRelationship** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more TopicVersionRelationships
+    * const topicVersionRelationships = await prisma.topicVersionRelationship.findMany()
+    * ```
+    */
+  get topicVersionRelationship(): Prisma.TopicVersionRelationshipDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.topicVersionEvidence`: Exposes CRUD operations for the **TopicVersionEvidence** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more TopicVersionEvidences
+    * const topicVersionEvidences = await prisma.topicVersionEvidence.findMany()
+    * ```
+    */
+  get topicVersionEvidence(): Prisma.TopicVersionEvidenceDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.topicReviewEvent`: Exposes CRUD operations for the **TopicReviewEvent** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more TopicReviewEvents
+    * const topicReviewEvents = await prisma.topicReviewEvent.findMany()
+    * ```
+    */
+  get topicReviewEvent(): Prisma.TopicReviewEventDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.goldenChatCase`: Exposes CRUD operations for the **GoldenChatCase** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more GoldenChatCases
+    * const goldenChatCases = await prisma.goldenChatCase.findMany()
+    * ```
+    */
+  get goldenChatCase(): Prisma.GoldenChatCaseDelegate<ExtArgs, ClientOptions>;
 }
 
 export namespace Prisma {
@@ -731,7 +836,14 @@ export namespace Prisma {
     RelationshipLedgerEvent: 'RelationshipLedgerEvent',
     RelationshipMemoryJob: 'RelationshipMemoryJob',
     RelationshipMemoryCard: 'RelationshipMemoryCard',
-    RelationshipMemoryOverride: 'RelationshipMemoryOverride'
+    RelationshipMemoryOverride: 'RelationshipMemoryOverride',
+    ChatSpaceTopic: 'ChatSpaceTopic',
+    TopicProjectionJob: 'TopicProjectionJob',
+    TopicProjectionVersion: 'TopicProjectionVersion',
+    TopicVersionRelationship: 'TopicVersionRelationship',
+    TopicVersionEvidence: 'TopicVersionEvidence',
+    TopicReviewEvent: 'TopicReviewEvent',
+    GoldenChatCase: 'GoldenChatCase'
   };
 
   export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -750,7 +862,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "relationshipLedgerEvent" | "relationshipMemoryJob" | "relationshipMemoryCard" | "relationshipMemoryOverride"
+      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "relationshipLedgerEvent" | "relationshipMemoryJob" | "relationshipMemoryCard" | "relationshipMemoryOverride" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -1494,6 +1606,524 @@ export namespace Prisma {
           }
         }
       }
+      ChatSpaceTopic: {
+        payload: Prisma.$ChatSpaceTopicPayload<ExtArgs>
+        fields: Prisma.ChatSpaceTopicFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.ChatSpaceTopicFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ChatSpaceTopicPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.ChatSpaceTopicFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ChatSpaceTopicPayload>
+          }
+          findFirst: {
+            args: Prisma.ChatSpaceTopicFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ChatSpaceTopicPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.ChatSpaceTopicFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ChatSpaceTopicPayload>
+          }
+          findMany: {
+            args: Prisma.ChatSpaceTopicFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ChatSpaceTopicPayload>[]
+          }
+          create: {
+            args: Prisma.ChatSpaceTopicCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ChatSpaceTopicPayload>
+          }
+          createMany: {
+            args: Prisma.ChatSpaceTopicCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.ChatSpaceTopicCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ChatSpaceTopicPayload>[]
+          }
+          delete: {
+            args: Prisma.ChatSpaceTopicDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ChatSpaceTopicPayload>
+          }
+          update: {
+            args: Prisma.ChatSpaceTopicUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ChatSpaceTopicPayload>
+          }
+          deleteMany: {
+            args: Prisma.ChatSpaceTopicDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.ChatSpaceTopicUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.ChatSpaceTopicUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ChatSpaceTopicPayload>[]
+          }
+          upsert: {
+            args: Prisma.ChatSpaceTopicUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ChatSpaceTopicPayload>
+          }
+          aggregate: {
+            args: Prisma.ChatSpaceTopicAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateChatSpaceTopic>
+          }
+          groupBy: {
+            args: Prisma.ChatSpaceTopicGroupByArgs<ExtArgs>
+            result: $Utils.Optional<ChatSpaceTopicGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.ChatSpaceTopicCountArgs<ExtArgs>
+            result: $Utils.Optional<ChatSpaceTopicCountAggregateOutputType> | number
+          }
+        }
+      }
+      TopicProjectionJob: {
+        payload: Prisma.$TopicProjectionJobPayload<ExtArgs>
+        fields: Prisma.TopicProjectionJobFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.TopicProjectionJobFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionJobPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.TopicProjectionJobFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionJobPayload>
+          }
+          findFirst: {
+            args: Prisma.TopicProjectionJobFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionJobPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.TopicProjectionJobFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionJobPayload>
+          }
+          findMany: {
+            args: Prisma.TopicProjectionJobFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionJobPayload>[]
+          }
+          create: {
+            args: Prisma.TopicProjectionJobCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionJobPayload>
+          }
+          createMany: {
+            args: Prisma.TopicProjectionJobCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.TopicProjectionJobCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionJobPayload>[]
+          }
+          delete: {
+            args: Prisma.TopicProjectionJobDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionJobPayload>
+          }
+          update: {
+            args: Prisma.TopicProjectionJobUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionJobPayload>
+          }
+          deleteMany: {
+            args: Prisma.TopicProjectionJobDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.TopicProjectionJobUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.TopicProjectionJobUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionJobPayload>[]
+          }
+          upsert: {
+            args: Prisma.TopicProjectionJobUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionJobPayload>
+          }
+          aggregate: {
+            args: Prisma.TopicProjectionJobAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateTopicProjectionJob>
+          }
+          groupBy: {
+            args: Prisma.TopicProjectionJobGroupByArgs<ExtArgs>
+            result: $Utils.Optional<TopicProjectionJobGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.TopicProjectionJobCountArgs<ExtArgs>
+            result: $Utils.Optional<TopicProjectionJobCountAggregateOutputType> | number
+          }
+        }
+      }
+      TopicProjectionVersion: {
+        payload: Prisma.$TopicProjectionVersionPayload<ExtArgs>
+        fields: Prisma.TopicProjectionVersionFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.TopicProjectionVersionFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionVersionPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.TopicProjectionVersionFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionVersionPayload>
+          }
+          findFirst: {
+            args: Prisma.TopicProjectionVersionFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionVersionPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.TopicProjectionVersionFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionVersionPayload>
+          }
+          findMany: {
+            args: Prisma.TopicProjectionVersionFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionVersionPayload>[]
+          }
+          create: {
+            args: Prisma.TopicProjectionVersionCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionVersionPayload>
+          }
+          createMany: {
+            args: Prisma.TopicProjectionVersionCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.TopicProjectionVersionCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionVersionPayload>[]
+          }
+          delete: {
+            args: Prisma.TopicProjectionVersionDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionVersionPayload>
+          }
+          update: {
+            args: Prisma.TopicProjectionVersionUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionVersionPayload>
+          }
+          deleteMany: {
+            args: Prisma.TopicProjectionVersionDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.TopicProjectionVersionUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.TopicProjectionVersionUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionVersionPayload>[]
+          }
+          upsert: {
+            args: Prisma.TopicProjectionVersionUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicProjectionVersionPayload>
+          }
+          aggregate: {
+            args: Prisma.TopicProjectionVersionAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateTopicProjectionVersion>
+          }
+          groupBy: {
+            args: Prisma.TopicProjectionVersionGroupByArgs<ExtArgs>
+            result: $Utils.Optional<TopicProjectionVersionGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.TopicProjectionVersionCountArgs<ExtArgs>
+            result: $Utils.Optional<TopicProjectionVersionCountAggregateOutputType> | number
+          }
+        }
+      }
+      TopicVersionRelationship: {
+        payload: Prisma.$TopicVersionRelationshipPayload<ExtArgs>
+        fields: Prisma.TopicVersionRelationshipFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.TopicVersionRelationshipFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionRelationshipPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.TopicVersionRelationshipFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionRelationshipPayload>
+          }
+          findFirst: {
+            args: Prisma.TopicVersionRelationshipFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionRelationshipPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.TopicVersionRelationshipFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionRelationshipPayload>
+          }
+          findMany: {
+            args: Prisma.TopicVersionRelationshipFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionRelationshipPayload>[]
+          }
+          create: {
+            args: Prisma.TopicVersionRelationshipCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionRelationshipPayload>
+          }
+          createMany: {
+            args: Prisma.TopicVersionRelationshipCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.TopicVersionRelationshipCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionRelationshipPayload>[]
+          }
+          delete: {
+            args: Prisma.TopicVersionRelationshipDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionRelationshipPayload>
+          }
+          update: {
+            args: Prisma.TopicVersionRelationshipUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionRelationshipPayload>
+          }
+          deleteMany: {
+            args: Prisma.TopicVersionRelationshipDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.TopicVersionRelationshipUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.TopicVersionRelationshipUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionRelationshipPayload>[]
+          }
+          upsert: {
+            args: Prisma.TopicVersionRelationshipUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionRelationshipPayload>
+          }
+          aggregate: {
+            args: Prisma.TopicVersionRelationshipAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateTopicVersionRelationship>
+          }
+          groupBy: {
+            args: Prisma.TopicVersionRelationshipGroupByArgs<ExtArgs>
+            result: $Utils.Optional<TopicVersionRelationshipGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.TopicVersionRelationshipCountArgs<ExtArgs>
+            result: $Utils.Optional<TopicVersionRelationshipCountAggregateOutputType> | number
+          }
+        }
+      }
+      TopicVersionEvidence: {
+        payload: Prisma.$TopicVersionEvidencePayload<ExtArgs>
+        fields: Prisma.TopicVersionEvidenceFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.TopicVersionEvidenceFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionEvidencePayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.TopicVersionEvidenceFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionEvidencePayload>
+          }
+          findFirst: {
+            args: Prisma.TopicVersionEvidenceFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionEvidencePayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.TopicVersionEvidenceFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionEvidencePayload>
+          }
+          findMany: {
+            args: Prisma.TopicVersionEvidenceFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionEvidencePayload>[]
+          }
+          create: {
+            args: Prisma.TopicVersionEvidenceCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionEvidencePayload>
+          }
+          createMany: {
+            args: Prisma.TopicVersionEvidenceCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.TopicVersionEvidenceCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionEvidencePayload>[]
+          }
+          delete: {
+            args: Prisma.TopicVersionEvidenceDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionEvidencePayload>
+          }
+          update: {
+            args: Prisma.TopicVersionEvidenceUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionEvidencePayload>
+          }
+          deleteMany: {
+            args: Prisma.TopicVersionEvidenceDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.TopicVersionEvidenceUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.TopicVersionEvidenceUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionEvidencePayload>[]
+          }
+          upsert: {
+            args: Prisma.TopicVersionEvidenceUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicVersionEvidencePayload>
+          }
+          aggregate: {
+            args: Prisma.TopicVersionEvidenceAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateTopicVersionEvidence>
+          }
+          groupBy: {
+            args: Prisma.TopicVersionEvidenceGroupByArgs<ExtArgs>
+            result: $Utils.Optional<TopicVersionEvidenceGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.TopicVersionEvidenceCountArgs<ExtArgs>
+            result: $Utils.Optional<TopicVersionEvidenceCountAggregateOutputType> | number
+          }
+        }
+      }
+      TopicReviewEvent: {
+        payload: Prisma.$TopicReviewEventPayload<ExtArgs>
+        fields: Prisma.TopicReviewEventFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.TopicReviewEventFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicReviewEventPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.TopicReviewEventFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicReviewEventPayload>
+          }
+          findFirst: {
+            args: Prisma.TopicReviewEventFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicReviewEventPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.TopicReviewEventFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicReviewEventPayload>
+          }
+          findMany: {
+            args: Prisma.TopicReviewEventFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicReviewEventPayload>[]
+          }
+          create: {
+            args: Prisma.TopicReviewEventCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicReviewEventPayload>
+          }
+          createMany: {
+            args: Prisma.TopicReviewEventCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.TopicReviewEventCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicReviewEventPayload>[]
+          }
+          delete: {
+            args: Prisma.TopicReviewEventDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicReviewEventPayload>
+          }
+          update: {
+            args: Prisma.TopicReviewEventUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicReviewEventPayload>
+          }
+          deleteMany: {
+            args: Prisma.TopicReviewEventDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.TopicReviewEventUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.TopicReviewEventUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicReviewEventPayload>[]
+          }
+          upsert: {
+            args: Prisma.TopicReviewEventUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TopicReviewEventPayload>
+          }
+          aggregate: {
+            args: Prisma.TopicReviewEventAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateTopicReviewEvent>
+          }
+          groupBy: {
+            args: Prisma.TopicReviewEventGroupByArgs<ExtArgs>
+            result: $Utils.Optional<TopicReviewEventGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.TopicReviewEventCountArgs<ExtArgs>
+            result: $Utils.Optional<TopicReviewEventCountAggregateOutputType> | number
+          }
+        }
+      }
+      GoldenChatCase: {
+        payload: Prisma.$GoldenChatCasePayload<ExtArgs>
+        fields: Prisma.GoldenChatCaseFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.GoldenChatCaseFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$GoldenChatCasePayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.GoldenChatCaseFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$GoldenChatCasePayload>
+          }
+          findFirst: {
+            args: Prisma.GoldenChatCaseFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$GoldenChatCasePayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.GoldenChatCaseFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$GoldenChatCasePayload>
+          }
+          findMany: {
+            args: Prisma.GoldenChatCaseFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$GoldenChatCasePayload>[]
+          }
+          create: {
+            args: Prisma.GoldenChatCaseCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$GoldenChatCasePayload>
+          }
+          createMany: {
+            args: Prisma.GoldenChatCaseCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.GoldenChatCaseCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$GoldenChatCasePayload>[]
+          }
+          delete: {
+            args: Prisma.GoldenChatCaseDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$GoldenChatCasePayload>
+          }
+          update: {
+            args: Prisma.GoldenChatCaseUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$GoldenChatCasePayload>
+          }
+          deleteMany: {
+            args: Prisma.GoldenChatCaseDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.GoldenChatCaseUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.GoldenChatCaseUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$GoldenChatCasePayload>[]
+          }
+          upsert: {
+            args: Prisma.GoldenChatCaseUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$GoldenChatCasePayload>
+          }
+          aggregate: {
+            args: Prisma.GoldenChatCaseAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateGoldenChatCase>
+          }
+          groupBy: {
+            args: Prisma.GoldenChatCaseGroupByArgs<ExtArgs>
+            result: $Utils.Optional<GoldenChatCaseGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.GoldenChatCaseCountArgs<ExtArgs>
+            result: $Utils.Optional<GoldenChatCaseCountAggregateOutputType> | number
+          }
+        }
+      }
     }
   } & {
     other: {
@@ -1600,6 +2230,13 @@ export namespace Prisma {
     relationshipMemoryJob?: RelationshipMemoryJobOmit
     relationshipMemoryCard?: RelationshipMemoryCardOmit
     relationshipMemoryOverride?: RelationshipMemoryOverrideOmit
+    chatSpaceTopic?: ChatSpaceTopicOmit
+    topicProjectionJob?: TopicProjectionJobOmit
+    topicProjectionVersion?: TopicProjectionVersionOmit
+    topicVersionRelationship?: TopicVersionRelationshipOmit
+    topicVersionEvidence?: TopicVersionEvidenceOmit
+    topicReviewEvent?: TopicReviewEventOmit
+    goldenChatCase?: GoldenChatCaseOmit
   }
 
   /* Types for Logging */
@@ -13900,6 +14537,8083 @@ export namespace Prisma {
 
 
   /**
+   * Model ChatSpaceTopic
+   */
+
+  export type AggregateChatSpaceTopic = {
+    _count: ChatSpaceTopicCountAggregateOutputType | null
+    _avg: ChatSpaceTopicAvgAggregateOutputType | null
+    _sum: ChatSpaceTopicSumAggregateOutputType | null
+    _min: ChatSpaceTopicMinAggregateOutputType | null
+    _max: ChatSpaceTopicMaxAggregateOutputType | null
+  }
+
+  export type ChatSpaceTopicAvgAggregateOutputType = {
+    id: number | null
+    chat_space_id: number | null
+    current_accepted_version_id: number | null
+    current_candidate_version_id: number | null
+    last_projection_job_id: number | null
+  }
+
+  export type ChatSpaceTopicSumAggregateOutputType = {
+    id: bigint | null
+    chat_space_id: bigint | null
+    current_accepted_version_id: bigint | null
+    current_candidate_version_id: bigint | null
+    last_projection_job_id: bigint | null
+  }
+
+  export type ChatSpaceTopicMinAggregateOutputType = {
+    id: bigint | null
+    chat_space_type: string | null
+    chat_space_id: bigint | null
+    status: string | null
+    canonical_title: string | null
+    started_at: Date | null
+    last_activity_at: Date | null
+    closed_at: Date | null
+    current_accepted_version_id: bigint | null
+    current_candidate_version_id: bigint | null
+    last_projection_job_id: bigint | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type ChatSpaceTopicMaxAggregateOutputType = {
+    id: bigint | null
+    chat_space_type: string | null
+    chat_space_id: bigint | null
+    status: string | null
+    canonical_title: string | null
+    started_at: Date | null
+    last_activity_at: Date | null
+    closed_at: Date | null
+    current_accepted_version_id: bigint | null
+    current_candidate_version_id: bigint | null
+    last_projection_job_id: bigint | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type ChatSpaceTopicCountAggregateOutputType = {
+    id: number
+    chat_space_type: number
+    chat_space_id: number
+    status: number
+    canonical_title: number
+    started_at: number
+    last_activity_at: number
+    closed_at: number
+    current_accepted_version_id: number
+    current_candidate_version_id: number
+    last_projection_job_id: number
+    metadata: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type ChatSpaceTopicAvgAggregateInputType = {
+    id?: true
+    chat_space_id?: true
+    current_accepted_version_id?: true
+    current_candidate_version_id?: true
+    last_projection_job_id?: true
+  }
+
+  export type ChatSpaceTopicSumAggregateInputType = {
+    id?: true
+    chat_space_id?: true
+    current_accepted_version_id?: true
+    current_candidate_version_id?: true
+    last_projection_job_id?: true
+  }
+
+  export type ChatSpaceTopicMinAggregateInputType = {
+    id?: true
+    chat_space_type?: true
+    chat_space_id?: true
+    status?: true
+    canonical_title?: true
+    started_at?: true
+    last_activity_at?: true
+    closed_at?: true
+    current_accepted_version_id?: true
+    current_candidate_version_id?: true
+    last_projection_job_id?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type ChatSpaceTopicMaxAggregateInputType = {
+    id?: true
+    chat_space_type?: true
+    chat_space_id?: true
+    status?: true
+    canonical_title?: true
+    started_at?: true
+    last_activity_at?: true
+    closed_at?: true
+    current_accepted_version_id?: true
+    current_candidate_version_id?: true
+    last_projection_job_id?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type ChatSpaceTopicCountAggregateInputType = {
+    id?: true
+    chat_space_type?: true
+    chat_space_id?: true
+    status?: true
+    canonical_title?: true
+    started_at?: true
+    last_activity_at?: true
+    closed_at?: true
+    current_accepted_version_id?: true
+    current_candidate_version_id?: true
+    last_projection_job_id?: true
+    metadata?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type ChatSpaceTopicAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ChatSpaceTopic to aggregate.
+     */
+    where?: ChatSpaceTopicWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ChatSpaceTopics to fetch.
+     */
+    orderBy?: ChatSpaceTopicOrderByWithRelationInput | ChatSpaceTopicOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: ChatSpaceTopicWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ChatSpaceTopics from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ChatSpaceTopics.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned ChatSpaceTopics
+    **/
+    _count?: true | ChatSpaceTopicCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: ChatSpaceTopicAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: ChatSpaceTopicSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: ChatSpaceTopicMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: ChatSpaceTopicMaxAggregateInputType
+  }
+
+  export type GetChatSpaceTopicAggregateType<T extends ChatSpaceTopicAggregateArgs> = {
+        [P in keyof T & keyof AggregateChatSpaceTopic]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateChatSpaceTopic[P]>
+      : GetScalarType<T[P], AggregateChatSpaceTopic[P]>
+  }
+
+
+
+
+  export type ChatSpaceTopicGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: ChatSpaceTopicWhereInput
+    orderBy?: ChatSpaceTopicOrderByWithAggregationInput | ChatSpaceTopicOrderByWithAggregationInput[]
+    by: ChatSpaceTopicScalarFieldEnum[] | ChatSpaceTopicScalarFieldEnum
+    having?: ChatSpaceTopicScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: ChatSpaceTopicCountAggregateInputType | true
+    _avg?: ChatSpaceTopicAvgAggregateInputType
+    _sum?: ChatSpaceTopicSumAggregateInputType
+    _min?: ChatSpaceTopicMinAggregateInputType
+    _max?: ChatSpaceTopicMaxAggregateInputType
+  }
+
+  export type ChatSpaceTopicGroupByOutputType = {
+    id: bigint
+    chat_space_type: string
+    chat_space_id: bigint
+    status: string
+    canonical_title: string | null
+    started_at: Date | null
+    last_activity_at: Date | null
+    closed_at: Date | null
+    current_accepted_version_id: bigint | null
+    current_candidate_version_id: bigint | null
+    last_projection_job_id: bigint | null
+    metadata: JsonValue | null
+    created_at: Date
+    updated_at: Date
+    _count: ChatSpaceTopicCountAggregateOutputType | null
+    _avg: ChatSpaceTopicAvgAggregateOutputType | null
+    _sum: ChatSpaceTopicSumAggregateOutputType | null
+    _min: ChatSpaceTopicMinAggregateOutputType | null
+    _max: ChatSpaceTopicMaxAggregateOutputType | null
+  }
+
+  type GetChatSpaceTopicGroupByPayload<T extends ChatSpaceTopicGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<ChatSpaceTopicGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof ChatSpaceTopicGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], ChatSpaceTopicGroupByOutputType[P]>
+            : GetScalarType<T[P], ChatSpaceTopicGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type ChatSpaceTopicSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    chat_space_type?: boolean
+    chat_space_id?: boolean
+    status?: boolean
+    canonical_title?: boolean
+    started_at?: boolean
+    last_activity_at?: boolean
+    closed_at?: boolean
+    current_accepted_version_id?: boolean
+    current_candidate_version_id?: boolean
+    last_projection_job_id?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["chatSpaceTopic"]>
+
+  export type ChatSpaceTopicSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    chat_space_type?: boolean
+    chat_space_id?: boolean
+    status?: boolean
+    canonical_title?: boolean
+    started_at?: boolean
+    last_activity_at?: boolean
+    closed_at?: boolean
+    current_accepted_version_id?: boolean
+    current_candidate_version_id?: boolean
+    last_projection_job_id?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["chatSpaceTopic"]>
+
+  export type ChatSpaceTopicSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    chat_space_type?: boolean
+    chat_space_id?: boolean
+    status?: boolean
+    canonical_title?: boolean
+    started_at?: boolean
+    last_activity_at?: boolean
+    closed_at?: boolean
+    current_accepted_version_id?: boolean
+    current_candidate_version_id?: boolean
+    last_projection_job_id?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["chatSpaceTopic"]>
+
+  export type ChatSpaceTopicSelectScalar = {
+    id?: boolean
+    chat_space_type?: boolean
+    chat_space_id?: boolean
+    status?: boolean
+    canonical_title?: boolean
+    started_at?: boolean
+    last_activity_at?: boolean
+    closed_at?: boolean
+    current_accepted_version_id?: boolean
+    current_candidate_version_id?: boolean
+    last_projection_job_id?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type ChatSpaceTopicOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "chat_space_type" | "chat_space_id" | "status" | "canonical_title" | "started_at" | "last_activity_at" | "closed_at" | "current_accepted_version_id" | "current_candidate_version_id" | "last_projection_job_id" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["chatSpaceTopic"]>
+
+  export type $ChatSpaceTopicPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "ChatSpaceTopic"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      chat_space_type: string
+      chat_space_id: bigint
+      status: string
+      canonical_title: string | null
+      started_at: Date | null
+      last_activity_at: Date | null
+      closed_at: Date | null
+      current_accepted_version_id: bigint | null
+      current_candidate_version_id: bigint | null
+      last_projection_job_id: bigint | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["chatSpaceTopic"]>
+    composites: {}
+  }
+
+  type ChatSpaceTopicGetPayload<S extends boolean | null | undefined | ChatSpaceTopicDefaultArgs> = $Result.GetResult<Prisma.$ChatSpaceTopicPayload, S>
+
+  type ChatSpaceTopicCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<ChatSpaceTopicFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: ChatSpaceTopicCountAggregateInputType | true
+    }
+
+  export interface ChatSpaceTopicDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['ChatSpaceTopic'], meta: { name: 'ChatSpaceTopic' } }
+    /**
+     * Find zero or one ChatSpaceTopic that matches the filter.
+     * @param {ChatSpaceTopicFindUniqueArgs} args - Arguments to find a ChatSpaceTopic
+     * @example
+     * // Get one ChatSpaceTopic
+     * const chatSpaceTopic = await prisma.chatSpaceTopic.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends ChatSpaceTopicFindUniqueArgs>(args: SelectSubset<T, ChatSpaceTopicFindUniqueArgs<ExtArgs>>): Prisma__ChatSpaceTopicClient<$Result.GetResult<Prisma.$ChatSpaceTopicPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one ChatSpaceTopic that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {ChatSpaceTopicFindUniqueOrThrowArgs} args - Arguments to find a ChatSpaceTopic
+     * @example
+     * // Get one ChatSpaceTopic
+     * const chatSpaceTopic = await prisma.chatSpaceTopic.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends ChatSpaceTopicFindUniqueOrThrowArgs>(args: SelectSubset<T, ChatSpaceTopicFindUniqueOrThrowArgs<ExtArgs>>): Prisma__ChatSpaceTopicClient<$Result.GetResult<Prisma.$ChatSpaceTopicPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ChatSpaceTopic that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ChatSpaceTopicFindFirstArgs} args - Arguments to find a ChatSpaceTopic
+     * @example
+     * // Get one ChatSpaceTopic
+     * const chatSpaceTopic = await prisma.chatSpaceTopic.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends ChatSpaceTopicFindFirstArgs>(args?: SelectSubset<T, ChatSpaceTopicFindFirstArgs<ExtArgs>>): Prisma__ChatSpaceTopicClient<$Result.GetResult<Prisma.$ChatSpaceTopicPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ChatSpaceTopic that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ChatSpaceTopicFindFirstOrThrowArgs} args - Arguments to find a ChatSpaceTopic
+     * @example
+     * // Get one ChatSpaceTopic
+     * const chatSpaceTopic = await prisma.chatSpaceTopic.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends ChatSpaceTopicFindFirstOrThrowArgs>(args?: SelectSubset<T, ChatSpaceTopicFindFirstOrThrowArgs<ExtArgs>>): Prisma__ChatSpaceTopicClient<$Result.GetResult<Prisma.$ChatSpaceTopicPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more ChatSpaceTopics that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ChatSpaceTopicFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all ChatSpaceTopics
+     * const chatSpaceTopics = await prisma.chatSpaceTopic.findMany()
+     * 
+     * // Get first 10 ChatSpaceTopics
+     * const chatSpaceTopics = await prisma.chatSpaceTopic.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const chatSpaceTopicWithIdOnly = await prisma.chatSpaceTopic.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends ChatSpaceTopicFindManyArgs>(args?: SelectSubset<T, ChatSpaceTopicFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ChatSpaceTopicPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a ChatSpaceTopic.
+     * @param {ChatSpaceTopicCreateArgs} args - Arguments to create a ChatSpaceTopic.
+     * @example
+     * // Create one ChatSpaceTopic
+     * const ChatSpaceTopic = await prisma.chatSpaceTopic.create({
+     *   data: {
+     *     // ... data to create a ChatSpaceTopic
+     *   }
+     * })
+     * 
+     */
+    create<T extends ChatSpaceTopicCreateArgs>(args: SelectSubset<T, ChatSpaceTopicCreateArgs<ExtArgs>>): Prisma__ChatSpaceTopicClient<$Result.GetResult<Prisma.$ChatSpaceTopicPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many ChatSpaceTopics.
+     * @param {ChatSpaceTopicCreateManyArgs} args - Arguments to create many ChatSpaceTopics.
+     * @example
+     * // Create many ChatSpaceTopics
+     * const chatSpaceTopic = await prisma.chatSpaceTopic.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends ChatSpaceTopicCreateManyArgs>(args?: SelectSubset<T, ChatSpaceTopicCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many ChatSpaceTopics and returns the data saved in the database.
+     * @param {ChatSpaceTopicCreateManyAndReturnArgs} args - Arguments to create many ChatSpaceTopics.
+     * @example
+     * // Create many ChatSpaceTopics
+     * const chatSpaceTopic = await prisma.chatSpaceTopic.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many ChatSpaceTopics and only return the `id`
+     * const chatSpaceTopicWithIdOnly = await prisma.chatSpaceTopic.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends ChatSpaceTopicCreateManyAndReturnArgs>(args?: SelectSubset<T, ChatSpaceTopicCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ChatSpaceTopicPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a ChatSpaceTopic.
+     * @param {ChatSpaceTopicDeleteArgs} args - Arguments to delete one ChatSpaceTopic.
+     * @example
+     * // Delete one ChatSpaceTopic
+     * const ChatSpaceTopic = await prisma.chatSpaceTopic.delete({
+     *   where: {
+     *     // ... filter to delete one ChatSpaceTopic
+     *   }
+     * })
+     * 
+     */
+    delete<T extends ChatSpaceTopicDeleteArgs>(args: SelectSubset<T, ChatSpaceTopicDeleteArgs<ExtArgs>>): Prisma__ChatSpaceTopicClient<$Result.GetResult<Prisma.$ChatSpaceTopicPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one ChatSpaceTopic.
+     * @param {ChatSpaceTopicUpdateArgs} args - Arguments to update one ChatSpaceTopic.
+     * @example
+     * // Update one ChatSpaceTopic
+     * const chatSpaceTopic = await prisma.chatSpaceTopic.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends ChatSpaceTopicUpdateArgs>(args: SelectSubset<T, ChatSpaceTopicUpdateArgs<ExtArgs>>): Prisma__ChatSpaceTopicClient<$Result.GetResult<Prisma.$ChatSpaceTopicPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more ChatSpaceTopics.
+     * @param {ChatSpaceTopicDeleteManyArgs} args - Arguments to filter ChatSpaceTopics to delete.
+     * @example
+     * // Delete a few ChatSpaceTopics
+     * const { count } = await prisma.chatSpaceTopic.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends ChatSpaceTopicDeleteManyArgs>(args?: SelectSubset<T, ChatSpaceTopicDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ChatSpaceTopics.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ChatSpaceTopicUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many ChatSpaceTopics
+     * const chatSpaceTopic = await prisma.chatSpaceTopic.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends ChatSpaceTopicUpdateManyArgs>(args: SelectSubset<T, ChatSpaceTopicUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ChatSpaceTopics and returns the data updated in the database.
+     * @param {ChatSpaceTopicUpdateManyAndReturnArgs} args - Arguments to update many ChatSpaceTopics.
+     * @example
+     * // Update many ChatSpaceTopics
+     * const chatSpaceTopic = await prisma.chatSpaceTopic.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more ChatSpaceTopics and only return the `id`
+     * const chatSpaceTopicWithIdOnly = await prisma.chatSpaceTopic.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends ChatSpaceTopicUpdateManyAndReturnArgs>(args: SelectSubset<T, ChatSpaceTopicUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ChatSpaceTopicPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one ChatSpaceTopic.
+     * @param {ChatSpaceTopicUpsertArgs} args - Arguments to update or create a ChatSpaceTopic.
+     * @example
+     * // Update or create a ChatSpaceTopic
+     * const chatSpaceTopic = await prisma.chatSpaceTopic.upsert({
+     *   create: {
+     *     // ... data to create a ChatSpaceTopic
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the ChatSpaceTopic we want to update
+     *   }
+     * })
+     */
+    upsert<T extends ChatSpaceTopicUpsertArgs>(args: SelectSubset<T, ChatSpaceTopicUpsertArgs<ExtArgs>>): Prisma__ChatSpaceTopicClient<$Result.GetResult<Prisma.$ChatSpaceTopicPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of ChatSpaceTopics.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ChatSpaceTopicCountArgs} args - Arguments to filter ChatSpaceTopics to count.
+     * @example
+     * // Count the number of ChatSpaceTopics
+     * const count = await prisma.chatSpaceTopic.count({
+     *   where: {
+     *     // ... the filter for the ChatSpaceTopics we want to count
+     *   }
+     * })
+    **/
+    count<T extends ChatSpaceTopicCountArgs>(
+      args?: Subset<T, ChatSpaceTopicCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], ChatSpaceTopicCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a ChatSpaceTopic.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ChatSpaceTopicAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends ChatSpaceTopicAggregateArgs>(args: Subset<T, ChatSpaceTopicAggregateArgs>): Prisma.PrismaPromise<GetChatSpaceTopicAggregateType<T>>
+
+    /**
+     * Group by ChatSpaceTopic.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ChatSpaceTopicGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends ChatSpaceTopicGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: ChatSpaceTopicGroupByArgs['orderBy'] }
+        : { orderBy?: ChatSpaceTopicGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, ChatSpaceTopicGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetChatSpaceTopicGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the ChatSpaceTopic model
+   */
+  readonly fields: ChatSpaceTopicFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for ChatSpaceTopic.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__ChatSpaceTopicClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the ChatSpaceTopic model
+   */
+  interface ChatSpaceTopicFieldRefs {
+    readonly id: FieldRef<"ChatSpaceTopic", 'BigInt'>
+    readonly chat_space_type: FieldRef<"ChatSpaceTopic", 'String'>
+    readonly chat_space_id: FieldRef<"ChatSpaceTopic", 'BigInt'>
+    readonly status: FieldRef<"ChatSpaceTopic", 'String'>
+    readonly canonical_title: FieldRef<"ChatSpaceTopic", 'String'>
+    readonly started_at: FieldRef<"ChatSpaceTopic", 'DateTime'>
+    readonly last_activity_at: FieldRef<"ChatSpaceTopic", 'DateTime'>
+    readonly closed_at: FieldRef<"ChatSpaceTopic", 'DateTime'>
+    readonly current_accepted_version_id: FieldRef<"ChatSpaceTopic", 'BigInt'>
+    readonly current_candidate_version_id: FieldRef<"ChatSpaceTopic", 'BigInt'>
+    readonly last_projection_job_id: FieldRef<"ChatSpaceTopic", 'BigInt'>
+    readonly metadata: FieldRef<"ChatSpaceTopic", 'Json'>
+    readonly created_at: FieldRef<"ChatSpaceTopic", 'DateTime'>
+    readonly updated_at: FieldRef<"ChatSpaceTopic", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * ChatSpaceTopic findUnique
+   */
+  export type ChatSpaceTopicFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ChatSpaceTopic
+     */
+    select?: ChatSpaceTopicSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ChatSpaceTopic
+     */
+    omit?: ChatSpaceTopicOmit<ExtArgs> | null
+    /**
+     * Filter, which ChatSpaceTopic to fetch.
+     */
+    where: ChatSpaceTopicWhereUniqueInput
+  }
+
+  /**
+   * ChatSpaceTopic findUniqueOrThrow
+   */
+  export type ChatSpaceTopicFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ChatSpaceTopic
+     */
+    select?: ChatSpaceTopicSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ChatSpaceTopic
+     */
+    omit?: ChatSpaceTopicOmit<ExtArgs> | null
+    /**
+     * Filter, which ChatSpaceTopic to fetch.
+     */
+    where: ChatSpaceTopicWhereUniqueInput
+  }
+
+  /**
+   * ChatSpaceTopic findFirst
+   */
+  export type ChatSpaceTopicFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ChatSpaceTopic
+     */
+    select?: ChatSpaceTopicSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ChatSpaceTopic
+     */
+    omit?: ChatSpaceTopicOmit<ExtArgs> | null
+    /**
+     * Filter, which ChatSpaceTopic to fetch.
+     */
+    where?: ChatSpaceTopicWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ChatSpaceTopics to fetch.
+     */
+    orderBy?: ChatSpaceTopicOrderByWithRelationInput | ChatSpaceTopicOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ChatSpaceTopics.
+     */
+    cursor?: ChatSpaceTopicWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ChatSpaceTopics from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ChatSpaceTopics.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ChatSpaceTopics.
+     */
+    distinct?: ChatSpaceTopicScalarFieldEnum | ChatSpaceTopicScalarFieldEnum[]
+  }
+
+  /**
+   * ChatSpaceTopic findFirstOrThrow
+   */
+  export type ChatSpaceTopicFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ChatSpaceTopic
+     */
+    select?: ChatSpaceTopicSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ChatSpaceTopic
+     */
+    omit?: ChatSpaceTopicOmit<ExtArgs> | null
+    /**
+     * Filter, which ChatSpaceTopic to fetch.
+     */
+    where?: ChatSpaceTopicWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ChatSpaceTopics to fetch.
+     */
+    orderBy?: ChatSpaceTopicOrderByWithRelationInput | ChatSpaceTopicOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ChatSpaceTopics.
+     */
+    cursor?: ChatSpaceTopicWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ChatSpaceTopics from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ChatSpaceTopics.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ChatSpaceTopics.
+     */
+    distinct?: ChatSpaceTopicScalarFieldEnum | ChatSpaceTopicScalarFieldEnum[]
+  }
+
+  /**
+   * ChatSpaceTopic findMany
+   */
+  export type ChatSpaceTopicFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ChatSpaceTopic
+     */
+    select?: ChatSpaceTopicSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ChatSpaceTopic
+     */
+    omit?: ChatSpaceTopicOmit<ExtArgs> | null
+    /**
+     * Filter, which ChatSpaceTopics to fetch.
+     */
+    where?: ChatSpaceTopicWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ChatSpaceTopics to fetch.
+     */
+    orderBy?: ChatSpaceTopicOrderByWithRelationInput | ChatSpaceTopicOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing ChatSpaceTopics.
+     */
+    cursor?: ChatSpaceTopicWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ChatSpaceTopics from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ChatSpaceTopics.
+     */
+    skip?: number
+    distinct?: ChatSpaceTopicScalarFieldEnum | ChatSpaceTopicScalarFieldEnum[]
+  }
+
+  /**
+   * ChatSpaceTopic create
+   */
+  export type ChatSpaceTopicCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ChatSpaceTopic
+     */
+    select?: ChatSpaceTopicSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ChatSpaceTopic
+     */
+    omit?: ChatSpaceTopicOmit<ExtArgs> | null
+    /**
+     * The data needed to create a ChatSpaceTopic.
+     */
+    data: XOR<ChatSpaceTopicCreateInput, ChatSpaceTopicUncheckedCreateInput>
+  }
+
+  /**
+   * ChatSpaceTopic createMany
+   */
+  export type ChatSpaceTopicCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many ChatSpaceTopics.
+     */
+    data: ChatSpaceTopicCreateManyInput | ChatSpaceTopicCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ChatSpaceTopic createManyAndReturn
+   */
+  export type ChatSpaceTopicCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ChatSpaceTopic
+     */
+    select?: ChatSpaceTopicSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ChatSpaceTopic
+     */
+    omit?: ChatSpaceTopicOmit<ExtArgs> | null
+    /**
+     * The data used to create many ChatSpaceTopics.
+     */
+    data: ChatSpaceTopicCreateManyInput | ChatSpaceTopicCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ChatSpaceTopic update
+   */
+  export type ChatSpaceTopicUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ChatSpaceTopic
+     */
+    select?: ChatSpaceTopicSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ChatSpaceTopic
+     */
+    omit?: ChatSpaceTopicOmit<ExtArgs> | null
+    /**
+     * The data needed to update a ChatSpaceTopic.
+     */
+    data: XOR<ChatSpaceTopicUpdateInput, ChatSpaceTopicUncheckedUpdateInput>
+    /**
+     * Choose, which ChatSpaceTopic to update.
+     */
+    where: ChatSpaceTopicWhereUniqueInput
+  }
+
+  /**
+   * ChatSpaceTopic updateMany
+   */
+  export type ChatSpaceTopicUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update ChatSpaceTopics.
+     */
+    data: XOR<ChatSpaceTopicUpdateManyMutationInput, ChatSpaceTopicUncheckedUpdateManyInput>
+    /**
+     * Filter which ChatSpaceTopics to update
+     */
+    where?: ChatSpaceTopicWhereInput
+    /**
+     * Limit how many ChatSpaceTopics to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ChatSpaceTopic updateManyAndReturn
+   */
+  export type ChatSpaceTopicUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ChatSpaceTopic
+     */
+    select?: ChatSpaceTopicSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ChatSpaceTopic
+     */
+    omit?: ChatSpaceTopicOmit<ExtArgs> | null
+    /**
+     * The data used to update ChatSpaceTopics.
+     */
+    data: XOR<ChatSpaceTopicUpdateManyMutationInput, ChatSpaceTopicUncheckedUpdateManyInput>
+    /**
+     * Filter which ChatSpaceTopics to update
+     */
+    where?: ChatSpaceTopicWhereInput
+    /**
+     * Limit how many ChatSpaceTopics to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ChatSpaceTopic upsert
+   */
+  export type ChatSpaceTopicUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ChatSpaceTopic
+     */
+    select?: ChatSpaceTopicSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ChatSpaceTopic
+     */
+    omit?: ChatSpaceTopicOmit<ExtArgs> | null
+    /**
+     * The filter to search for the ChatSpaceTopic to update in case it exists.
+     */
+    where: ChatSpaceTopicWhereUniqueInput
+    /**
+     * In case the ChatSpaceTopic found by the `where` argument doesn't exist, create a new ChatSpaceTopic with this data.
+     */
+    create: XOR<ChatSpaceTopicCreateInput, ChatSpaceTopicUncheckedCreateInput>
+    /**
+     * In case the ChatSpaceTopic was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<ChatSpaceTopicUpdateInput, ChatSpaceTopicUncheckedUpdateInput>
+  }
+
+  /**
+   * ChatSpaceTopic delete
+   */
+  export type ChatSpaceTopicDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ChatSpaceTopic
+     */
+    select?: ChatSpaceTopicSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ChatSpaceTopic
+     */
+    omit?: ChatSpaceTopicOmit<ExtArgs> | null
+    /**
+     * Filter which ChatSpaceTopic to delete.
+     */
+    where: ChatSpaceTopicWhereUniqueInput
+  }
+
+  /**
+   * ChatSpaceTopic deleteMany
+   */
+  export type ChatSpaceTopicDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ChatSpaceTopics to delete
+     */
+    where?: ChatSpaceTopicWhereInput
+    /**
+     * Limit how many ChatSpaceTopics to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * ChatSpaceTopic without action
+   */
+  export type ChatSpaceTopicDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ChatSpaceTopic
+     */
+    select?: ChatSpaceTopicSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ChatSpaceTopic
+     */
+    omit?: ChatSpaceTopicOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model TopicProjectionJob
+   */
+
+  export type AggregateTopicProjectionJob = {
+    _count: TopicProjectionJobCountAggregateOutputType | null
+    _avg: TopicProjectionJobAvgAggregateOutputType | null
+    _sum: TopicProjectionJobSumAggregateOutputType | null
+    _min: TopicProjectionJobMinAggregateOutputType | null
+    _max: TopicProjectionJobMaxAggregateOutputType | null
+  }
+
+  export type TopicProjectionJobAvgAggregateOutputType = {
+    id: number | null
+    chat_space_id: number | null
+  }
+
+  export type TopicProjectionJobSumAggregateOutputType = {
+    id: bigint | null
+    chat_space_id: bigint | null
+  }
+
+  export type TopicProjectionJobMinAggregateOutputType = {
+    id: bigint | null
+    chat_space_type: string | null
+    chat_space_id: bigint | null
+    trigger_type: string | null
+    status: string | null
+    input_bundle_hash: string | null
+    model_name: string | null
+    prompt_version: string | null
+    error_code: string | null
+    error_message: string | null
+    started_at: Date | null
+    finished_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type TopicProjectionJobMaxAggregateOutputType = {
+    id: bigint | null
+    chat_space_type: string | null
+    chat_space_id: bigint | null
+    trigger_type: string | null
+    status: string | null
+    input_bundle_hash: string | null
+    model_name: string | null
+    prompt_version: string | null
+    error_code: string | null
+    error_message: string | null
+    started_at: Date | null
+    finished_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type TopicProjectionJobCountAggregateOutputType = {
+    id: number
+    chat_space_type: number
+    chat_space_id: number
+    trigger_type: number
+    status: number
+    input_bundle_json: number
+    input_bundle_hash: number
+    base_version_ids: number
+    model_name: number
+    model_config_json: number
+    prompt_version: number
+    error_code: number
+    error_message: number
+    metadata: number
+    started_at: number
+    finished_at: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type TopicProjectionJobAvgAggregateInputType = {
+    id?: true
+    chat_space_id?: true
+  }
+
+  export type TopicProjectionJobSumAggregateInputType = {
+    id?: true
+    chat_space_id?: true
+  }
+
+  export type TopicProjectionJobMinAggregateInputType = {
+    id?: true
+    chat_space_type?: true
+    chat_space_id?: true
+    trigger_type?: true
+    status?: true
+    input_bundle_hash?: true
+    model_name?: true
+    prompt_version?: true
+    error_code?: true
+    error_message?: true
+    started_at?: true
+    finished_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type TopicProjectionJobMaxAggregateInputType = {
+    id?: true
+    chat_space_type?: true
+    chat_space_id?: true
+    trigger_type?: true
+    status?: true
+    input_bundle_hash?: true
+    model_name?: true
+    prompt_version?: true
+    error_code?: true
+    error_message?: true
+    started_at?: true
+    finished_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type TopicProjectionJobCountAggregateInputType = {
+    id?: true
+    chat_space_type?: true
+    chat_space_id?: true
+    trigger_type?: true
+    status?: true
+    input_bundle_json?: true
+    input_bundle_hash?: true
+    base_version_ids?: true
+    model_name?: true
+    model_config_json?: true
+    prompt_version?: true
+    error_code?: true
+    error_message?: true
+    metadata?: true
+    started_at?: true
+    finished_at?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type TopicProjectionJobAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TopicProjectionJob to aggregate.
+     */
+    where?: TopicProjectionJobWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicProjectionJobs to fetch.
+     */
+    orderBy?: TopicProjectionJobOrderByWithRelationInput | TopicProjectionJobOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: TopicProjectionJobWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicProjectionJobs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicProjectionJobs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned TopicProjectionJobs
+    **/
+    _count?: true | TopicProjectionJobCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: TopicProjectionJobAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: TopicProjectionJobSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: TopicProjectionJobMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: TopicProjectionJobMaxAggregateInputType
+  }
+
+  export type GetTopicProjectionJobAggregateType<T extends TopicProjectionJobAggregateArgs> = {
+        [P in keyof T & keyof AggregateTopicProjectionJob]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateTopicProjectionJob[P]>
+      : GetScalarType<T[P], AggregateTopicProjectionJob[P]>
+  }
+
+
+
+
+  export type TopicProjectionJobGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: TopicProjectionJobWhereInput
+    orderBy?: TopicProjectionJobOrderByWithAggregationInput | TopicProjectionJobOrderByWithAggregationInput[]
+    by: TopicProjectionJobScalarFieldEnum[] | TopicProjectionJobScalarFieldEnum
+    having?: TopicProjectionJobScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: TopicProjectionJobCountAggregateInputType | true
+    _avg?: TopicProjectionJobAvgAggregateInputType
+    _sum?: TopicProjectionJobSumAggregateInputType
+    _min?: TopicProjectionJobMinAggregateInputType
+    _max?: TopicProjectionJobMaxAggregateInputType
+  }
+
+  export type TopicProjectionJobGroupByOutputType = {
+    id: bigint
+    chat_space_type: string
+    chat_space_id: bigint
+    trigger_type: string
+    status: string
+    input_bundle_json: JsonValue
+    input_bundle_hash: string
+    base_version_ids: JsonValue
+    model_name: string | null
+    model_config_json: JsonValue | null
+    prompt_version: string | null
+    error_code: string | null
+    error_message: string | null
+    metadata: JsonValue | null
+    started_at: Date | null
+    finished_at: Date | null
+    created_at: Date
+    updated_at: Date
+    _count: TopicProjectionJobCountAggregateOutputType | null
+    _avg: TopicProjectionJobAvgAggregateOutputType | null
+    _sum: TopicProjectionJobSumAggregateOutputType | null
+    _min: TopicProjectionJobMinAggregateOutputType | null
+    _max: TopicProjectionJobMaxAggregateOutputType | null
+  }
+
+  type GetTopicProjectionJobGroupByPayload<T extends TopicProjectionJobGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<TopicProjectionJobGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof TopicProjectionJobGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], TopicProjectionJobGroupByOutputType[P]>
+            : GetScalarType<T[P], TopicProjectionJobGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type TopicProjectionJobSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    chat_space_type?: boolean
+    chat_space_id?: boolean
+    trigger_type?: boolean
+    status?: boolean
+    input_bundle_json?: boolean
+    input_bundle_hash?: boolean
+    base_version_ids?: boolean
+    model_name?: boolean
+    model_config_json?: boolean
+    prompt_version?: boolean
+    error_code?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    finished_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["topicProjectionJob"]>
+
+  export type TopicProjectionJobSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    chat_space_type?: boolean
+    chat_space_id?: boolean
+    trigger_type?: boolean
+    status?: boolean
+    input_bundle_json?: boolean
+    input_bundle_hash?: boolean
+    base_version_ids?: boolean
+    model_name?: boolean
+    model_config_json?: boolean
+    prompt_version?: boolean
+    error_code?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    finished_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["topicProjectionJob"]>
+
+  export type TopicProjectionJobSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    chat_space_type?: boolean
+    chat_space_id?: boolean
+    trigger_type?: boolean
+    status?: boolean
+    input_bundle_json?: boolean
+    input_bundle_hash?: boolean
+    base_version_ids?: boolean
+    model_name?: boolean
+    model_config_json?: boolean
+    prompt_version?: boolean
+    error_code?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    finished_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["topicProjectionJob"]>
+
+  export type TopicProjectionJobSelectScalar = {
+    id?: boolean
+    chat_space_type?: boolean
+    chat_space_id?: boolean
+    trigger_type?: boolean
+    status?: boolean
+    input_bundle_json?: boolean
+    input_bundle_hash?: boolean
+    base_version_ids?: boolean
+    model_name?: boolean
+    model_config_json?: boolean
+    prompt_version?: boolean
+    error_code?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    finished_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type TopicProjectionJobOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "chat_space_type" | "chat_space_id" | "trigger_type" | "status" | "input_bundle_json" | "input_bundle_hash" | "base_version_ids" | "model_name" | "model_config_json" | "prompt_version" | "error_code" | "error_message" | "metadata" | "started_at" | "finished_at" | "created_at" | "updated_at", ExtArgs["result"]["topicProjectionJob"]>
+
+  export type $TopicProjectionJobPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "TopicProjectionJob"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      chat_space_type: string
+      chat_space_id: bigint
+      trigger_type: string
+      status: string
+      input_bundle_json: Prisma.JsonValue
+      input_bundle_hash: string
+      base_version_ids: Prisma.JsonValue
+      model_name: string | null
+      model_config_json: Prisma.JsonValue | null
+      prompt_version: string | null
+      error_code: string | null
+      error_message: string | null
+      metadata: Prisma.JsonValue | null
+      started_at: Date | null
+      finished_at: Date | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["topicProjectionJob"]>
+    composites: {}
+  }
+
+  type TopicProjectionJobGetPayload<S extends boolean | null | undefined | TopicProjectionJobDefaultArgs> = $Result.GetResult<Prisma.$TopicProjectionJobPayload, S>
+
+  type TopicProjectionJobCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<TopicProjectionJobFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: TopicProjectionJobCountAggregateInputType | true
+    }
+
+  export interface TopicProjectionJobDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['TopicProjectionJob'], meta: { name: 'TopicProjectionJob' } }
+    /**
+     * Find zero or one TopicProjectionJob that matches the filter.
+     * @param {TopicProjectionJobFindUniqueArgs} args - Arguments to find a TopicProjectionJob
+     * @example
+     * // Get one TopicProjectionJob
+     * const topicProjectionJob = await prisma.topicProjectionJob.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends TopicProjectionJobFindUniqueArgs>(args: SelectSubset<T, TopicProjectionJobFindUniqueArgs<ExtArgs>>): Prisma__TopicProjectionJobClient<$Result.GetResult<Prisma.$TopicProjectionJobPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one TopicProjectionJob that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {TopicProjectionJobFindUniqueOrThrowArgs} args - Arguments to find a TopicProjectionJob
+     * @example
+     * // Get one TopicProjectionJob
+     * const topicProjectionJob = await prisma.topicProjectionJob.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends TopicProjectionJobFindUniqueOrThrowArgs>(args: SelectSubset<T, TopicProjectionJobFindUniqueOrThrowArgs<ExtArgs>>): Prisma__TopicProjectionJobClient<$Result.GetResult<Prisma.$TopicProjectionJobPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first TopicProjectionJob that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionJobFindFirstArgs} args - Arguments to find a TopicProjectionJob
+     * @example
+     * // Get one TopicProjectionJob
+     * const topicProjectionJob = await prisma.topicProjectionJob.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends TopicProjectionJobFindFirstArgs>(args?: SelectSubset<T, TopicProjectionJobFindFirstArgs<ExtArgs>>): Prisma__TopicProjectionJobClient<$Result.GetResult<Prisma.$TopicProjectionJobPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first TopicProjectionJob that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionJobFindFirstOrThrowArgs} args - Arguments to find a TopicProjectionJob
+     * @example
+     * // Get one TopicProjectionJob
+     * const topicProjectionJob = await prisma.topicProjectionJob.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends TopicProjectionJobFindFirstOrThrowArgs>(args?: SelectSubset<T, TopicProjectionJobFindFirstOrThrowArgs<ExtArgs>>): Prisma__TopicProjectionJobClient<$Result.GetResult<Prisma.$TopicProjectionJobPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more TopicProjectionJobs that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionJobFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all TopicProjectionJobs
+     * const topicProjectionJobs = await prisma.topicProjectionJob.findMany()
+     * 
+     * // Get first 10 TopicProjectionJobs
+     * const topicProjectionJobs = await prisma.topicProjectionJob.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const topicProjectionJobWithIdOnly = await prisma.topicProjectionJob.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends TopicProjectionJobFindManyArgs>(args?: SelectSubset<T, TopicProjectionJobFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicProjectionJobPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a TopicProjectionJob.
+     * @param {TopicProjectionJobCreateArgs} args - Arguments to create a TopicProjectionJob.
+     * @example
+     * // Create one TopicProjectionJob
+     * const TopicProjectionJob = await prisma.topicProjectionJob.create({
+     *   data: {
+     *     // ... data to create a TopicProjectionJob
+     *   }
+     * })
+     * 
+     */
+    create<T extends TopicProjectionJobCreateArgs>(args: SelectSubset<T, TopicProjectionJobCreateArgs<ExtArgs>>): Prisma__TopicProjectionJobClient<$Result.GetResult<Prisma.$TopicProjectionJobPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many TopicProjectionJobs.
+     * @param {TopicProjectionJobCreateManyArgs} args - Arguments to create many TopicProjectionJobs.
+     * @example
+     * // Create many TopicProjectionJobs
+     * const topicProjectionJob = await prisma.topicProjectionJob.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends TopicProjectionJobCreateManyArgs>(args?: SelectSubset<T, TopicProjectionJobCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many TopicProjectionJobs and returns the data saved in the database.
+     * @param {TopicProjectionJobCreateManyAndReturnArgs} args - Arguments to create many TopicProjectionJobs.
+     * @example
+     * // Create many TopicProjectionJobs
+     * const topicProjectionJob = await prisma.topicProjectionJob.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many TopicProjectionJobs and only return the `id`
+     * const topicProjectionJobWithIdOnly = await prisma.topicProjectionJob.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends TopicProjectionJobCreateManyAndReturnArgs>(args?: SelectSubset<T, TopicProjectionJobCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicProjectionJobPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a TopicProjectionJob.
+     * @param {TopicProjectionJobDeleteArgs} args - Arguments to delete one TopicProjectionJob.
+     * @example
+     * // Delete one TopicProjectionJob
+     * const TopicProjectionJob = await prisma.topicProjectionJob.delete({
+     *   where: {
+     *     // ... filter to delete one TopicProjectionJob
+     *   }
+     * })
+     * 
+     */
+    delete<T extends TopicProjectionJobDeleteArgs>(args: SelectSubset<T, TopicProjectionJobDeleteArgs<ExtArgs>>): Prisma__TopicProjectionJobClient<$Result.GetResult<Prisma.$TopicProjectionJobPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one TopicProjectionJob.
+     * @param {TopicProjectionJobUpdateArgs} args - Arguments to update one TopicProjectionJob.
+     * @example
+     * // Update one TopicProjectionJob
+     * const topicProjectionJob = await prisma.topicProjectionJob.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends TopicProjectionJobUpdateArgs>(args: SelectSubset<T, TopicProjectionJobUpdateArgs<ExtArgs>>): Prisma__TopicProjectionJobClient<$Result.GetResult<Prisma.$TopicProjectionJobPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more TopicProjectionJobs.
+     * @param {TopicProjectionJobDeleteManyArgs} args - Arguments to filter TopicProjectionJobs to delete.
+     * @example
+     * // Delete a few TopicProjectionJobs
+     * const { count } = await prisma.topicProjectionJob.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends TopicProjectionJobDeleteManyArgs>(args?: SelectSubset<T, TopicProjectionJobDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TopicProjectionJobs.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionJobUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many TopicProjectionJobs
+     * const topicProjectionJob = await prisma.topicProjectionJob.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends TopicProjectionJobUpdateManyArgs>(args: SelectSubset<T, TopicProjectionJobUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TopicProjectionJobs and returns the data updated in the database.
+     * @param {TopicProjectionJobUpdateManyAndReturnArgs} args - Arguments to update many TopicProjectionJobs.
+     * @example
+     * // Update many TopicProjectionJobs
+     * const topicProjectionJob = await prisma.topicProjectionJob.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more TopicProjectionJobs and only return the `id`
+     * const topicProjectionJobWithIdOnly = await prisma.topicProjectionJob.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends TopicProjectionJobUpdateManyAndReturnArgs>(args: SelectSubset<T, TopicProjectionJobUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicProjectionJobPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one TopicProjectionJob.
+     * @param {TopicProjectionJobUpsertArgs} args - Arguments to update or create a TopicProjectionJob.
+     * @example
+     * // Update or create a TopicProjectionJob
+     * const topicProjectionJob = await prisma.topicProjectionJob.upsert({
+     *   create: {
+     *     // ... data to create a TopicProjectionJob
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the TopicProjectionJob we want to update
+     *   }
+     * })
+     */
+    upsert<T extends TopicProjectionJobUpsertArgs>(args: SelectSubset<T, TopicProjectionJobUpsertArgs<ExtArgs>>): Prisma__TopicProjectionJobClient<$Result.GetResult<Prisma.$TopicProjectionJobPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of TopicProjectionJobs.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionJobCountArgs} args - Arguments to filter TopicProjectionJobs to count.
+     * @example
+     * // Count the number of TopicProjectionJobs
+     * const count = await prisma.topicProjectionJob.count({
+     *   where: {
+     *     // ... the filter for the TopicProjectionJobs we want to count
+     *   }
+     * })
+    **/
+    count<T extends TopicProjectionJobCountArgs>(
+      args?: Subset<T, TopicProjectionJobCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], TopicProjectionJobCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a TopicProjectionJob.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionJobAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends TopicProjectionJobAggregateArgs>(args: Subset<T, TopicProjectionJobAggregateArgs>): Prisma.PrismaPromise<GetTopicProjectionJobAggregateType<T>>
+
+    /**
+     * Group by TopicProjectionJob.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionJobGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends TopicProjectionJobGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: TopicProjectionJobGroupByArgs['orderBy'] }
+        : { orderBy?: TopicProjectionJobGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, TopicProjectionJobGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetTopicProjectionJobGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the TopicProjectionJob model
+   */
+  readonly fields: TopicProjectionJobFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for TopicProjectionJob.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__TopicProjectionJobClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the TopicProjectionJob model
+   */
+  interface TopicProjectionJobFieldRefs {
+    readonly id: FieldRef<"TopicProjectionJob", 'BigInt'>
+    readonly chat_space_type: FieldRef<"TopicProjectionJob", 'String'>
+    readonly chat_space_id: FieldRef<"TopicProjectionJob", 'BigInt'>
+    readonly trigger_type: FieldRef<"TopicProjectionJob", 'String'>
+    readonly status: FieldRef<"TopicProjectionJob", 'String'>
+    readonly input_bundle_json: FieldRef<"TopicProjectionJob", 'Json'>
+    readonly input_bundle_hash: FieldRef<"TopicProjectionJob", 'String'>
+    readonly base_version_ids: FieldRef<"TopicProjectionJob", 'Json'>
+    readonly model_name: FieldRef<"TopicProjectionJob", 'String'>
+    readonly model_config_json: FieldRef<"TopicProjectionJob", 'Json'>
+    readonly prompt_version: FieldRef<"TopicProjectionJob", 'String'>
+    readonly error_code: FieldRef<"TopicProjectionJob", 'String'>
+    readonly error_message: FieldRef<"TopicProjectionJob", 'String'>
+    readonly metadata: FieldRef<"TopicProjectionJob", 'Json'>
+    readonly started_at: FieldRef<"TopicProjectionJob", 'DateTime'>
+    readonly finished_at: FieldRef<"TopicProjectionJob", 'DateTime'>
+    readonly created_at: FieldRef<"TopicProjectionJob", 'DateTime'>
+    readonly updated_at: FieldRef<"TopicProjectionJob", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * TopicProjectionJob findUnique
+   */
+  export type TopicProjectionJobFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionJob
+     */
+    select?: TopicProjectionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionJob
+     */
+    omit?: TopicProjectionJobOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicProjectionJob to fetch.
+     */
+    where: TopicProjectionJobWhereUniqueInput
+  }
+
+  /**
+   * TopicProjectionJob findUniqueOrThrow
+   */
+  export type TopicProjectionJobFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionJob
+     */
+    select?: TopicProjectionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionJob
+     */
+    omit?: TopicProjectionJobOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicProjectionJob to fetch.
+     */
+    where: TopicProjectionJobWhereUniqueInput
+  }
+
+  /**
+   * TopicProjectionJob findFirst
+   */
+  export type TopicProjectionJobFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionJob
+     */
+    select?: TopicProjectionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionJob
+     */
+    omit?: TopicProjectionJobOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicProjectionJob to fetch.
+     */
+    where?: TopicProjectionJobWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicProjectionJobs to fetch.
+     */
+    orderBy?: TopicProjectionJobOrderByWithRelationInput | TopicProjectionJobOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TopicProjectionJobs.
+     */
+    cursor?: TopicProjectionJobWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicProjectionJobs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicProjectionJobs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TopicProjectionJobs.
+     */
+    distinct?: TopicProjectionJobScalarFieldEnum | TopicProjectionJobScalarFieldEnum[]
+  }
+
+  /**
+   * TopicProjectionJob findFirstOrThrow
+   */
+  export type TopicProjectionJobFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionJob
+     */
+    select?: TopicProjectionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionJob
+     */
+    omit?: TopicProjectionJobOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicProjectionJob to fetch.
+     */
+    where?: TopicProjectionJobWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicProjectionJobs to fetch.
+     */
+    orderBy?: TopicProjectionJobOrderByWithRelationInput | TopicProjectionJobOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TopicProjectionJobs.
+     */
+    cursor?: TopicProjectionJobWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicProjectionJobs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicProjectionJobs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TopicProjectionJobs.
+     */
+    distinct?: TopicProjectionJobScalarFieldEnum | TopicProjectionJobScalarFieldEnum[]
+  }
+
+  /**
+   * TopicProjectionJob findMany
+   */
+  export type TopicProjectionJobFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionJob
+     */
+    select?: TopicProjectionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionJob
+     */
+    omit?: TopicProjectionJobOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicProjectionJobs to fetch.
+     */
+    where?: TopicProjectionJobWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicProjectionJobs to fetch.
+     */
+    orderBy?: TopicProjectionJobOrderByWithRelationInput | TopicProjectionJobOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing TopicProjectionJobs.
+     */
+    cursor?: TopicProjectionJobWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicProjectionJobs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicProjectionJobs.
+     */
+    skip?: number
+    distinct?: TopicProjectionJobScalarFieldEnum | TopicProjectionJobScalarFieldEnum[]
+  }
+
+  /**
+   * TopicProjectionJob create
+   */
+  export type TopicProjectionJobCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionJob
+     */
+    select?: TopicProjectionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionJob
+     */
+    omit?: TopicProjectionJobOmit<ExtArgs> | null
+    /**
+     * The data needed to create a TopicProjectionJob.
+     */
+    data: XOR<TopicProjectionJobCreateInput, TopicProjectionJobUncheckedCreateInput>
+  }
+
+  /**
+   * TopicProjectionJob createMany
+   */
+  export type TopicProjectionJobCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many TopicProjectionJobs.
+     */
+    data: TopicProjectionJobCreateManyInput | TopicProjectionJobCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TopicProjectionJob createManyAndReturn
+   */
+  export type TopicProjectionJobCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionJob
+     */
+    select?: TopicProjectionJobSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionJob
+     */
+    omit?: TopicProjectionJobOmit<ExtArgs> | null
+    /**
+     * The data used to create many TopicProjectionJobs.
+     */
+    data: TopicProjectionJobCreateManyInput | TopicProjectionJobCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TopicProjectionJob update
+   */
+  export type TopicProjectionJobUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionJob
+     */
+    select?: TopicProjectionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionJob
+     */
+    omit?: TopicProjectionJobOmit<ExtArgs> | null
+    /**
+     * The data needed to update a TopicProjectionJob.
+     */
+    data: XOR<TopicProjectionJobUpdateInput, TopicProjectionJobUncheckedUpdateInput>
+    /**
+     * Choose, which TopicProjectionJob to update.
+     */
+    where: TopicProjectionJobWhereUniqueInput
+  }
+
+  /**
+   * TopicProjectionJob updateMany
+   */
+  export type TopicProjectionJobUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update TopicProjectionJobs.
+     */
+    data: XOR<TopicProjectionJobUpdateManyMutationInput, TopicProjectionJobUncheckedUpdateManyInput>
+    /**
+     * Filter which TopicProjectionJobs to update
+     */
+    where?: TopicProjectionJobWhereInput
+    /**
+     * Limit how many TopicProjectionJobs to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicProjectionJob updateManyAndReturn
+   */
+  export type TopicProjectionJobUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionJob
+     */
+    select?: TopicProjectionJobSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionJob
+     */
+    omit?: TopicProjectionJobOmit<ExtArgs> | null
+    /**
+     * The data used to update TopicProjectionJobs.
+     */
+    data: XOR<TopicProjectionJobUpdateManyMutationInput, TopicProjectionJobUncheckedUpdateManyInput>
+    /**
+     * Filter which TopicProjectionJobs to update
+     */
+    where?: TopicProjectionJobWhereInput
+    /**
+     * Limit how many TopicProjectionJobs to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicProjectionJob upsert
+   */
+  export type TopicProjectionJobUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionJob
+     */
+    select?: TopicProjectionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionJob
+     */
+    omit?: TopicProjectionJobOmit<ExtArgs> | null
+    /**
+     * The filter to search for the TopicProjectionJob to update in case it exists.
+     */
+    where: TopicProjectionJobWhereUniqueInput
+    /**
+     * In case the TopicProjectionJob found by the `where` argument doesn't exist, create a new TopicProjectionJob with this data.
+     */
+    create: XOR<TopicProjectionJobCreateInput, TopicProjectionJobUncheckedCreateInput>
+    /**
+     * In case the TopicProjectionJob was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<TopicProjectionJobUpdateInput, TopicProjectionJobUncheckedUpdateInput>
+  }
+
+  /**
+   * TopicProjectionJob delete
+   */
+  export type TopicProjectionJobDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionJob
+     */
+    select?: TopicProjectionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionJob
+     */
+    omit?: TopicProjectionJobOmit<ExtArgs> | null
+    /**
+     * Filter which TopicProjectionJob to delete.
+     */
+    where: TopicProjectionJobWhereUniqueInput
+  }
+
+  /**
+   * TopicProjectionJob deleteMany
+   */
+  export type TopicProjectionJobDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TopicProjectionJobs to delete
+     */
+    where?: TopicProjectionJobWhereInput
+    /**
+     * Limit how many TopicProjectionJobs to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicProjectionJob without action
+   */
+  export type TopicProjectionJobDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionJob
+     */
+    select?: TopicProjectionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionJob
+     */
+    omit?: TopicProjectionJobOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model TopicProjectionVersion
+   */
+
+  export type AggregateTopicProjectionVersion = {
+    _count: TopicProjectionVersionCountAggregateOutputType | null
+    _avg: TopicProjectionVersionAvgAggregateOutputType | null
+    _sum: TopicProjectionVersionSumAggregateOutputType | null
+    _min: TopicProjectionVersionMinAggregateOutputType | null
+    _max: TopicProjectionVersionMaxAggregateOutputType | null
+  }
+
+  export type TopicProjectionVersionAvgAggregateOutputType = {
+    id: number | null
+    topic_id: number | null
+    projection_job_id: number | null
+    version_number: number | null
+    review_priority_score: number | null
+    heat_score: number | null
+    evidence_count: number | null
+    relationship_count: number | null
+    runtime_hit_count: number | null
+  }
+
+  export type TopicProjectionVersionSumAggregateOutputType = {
+    id: bigint | null
+    topic_id: bigint | null
+    projection_job_id: bigint | null
+    version_number: number | null
+    review_priority_score: number | null
+    heat_score: number | null
+    evidence_count: number | null
+    relationship_count: number | null
+    runtime_hit_count: number | null
+  }
+
+  export type TopicProjectionVersionMinAggregateOutputType = {
+    id: bigint | null
+    topic_id: bigint | null
+    projection_job_id: bigint | null
+    version_number: number | null
+    status: string | null
+    lifecycle_state: string | null
+    title: string | null
+    summary_text: string | null
+    review_priority_score: number | null
+    heat_score: number | null
+    evidence_count: number | null
+    relationship_count: number | null
+    runtime_hit_count: number | null
+    last_runtime_hit_at: Date | null
+    input_bundle_hash: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type TopicProjectionVersionMaxAggregateOutputType = {
+    id: bigint | null
+    topic_id: bigint | null
+    projection_job_id: bigint | null
+    version_number: number | null
+    status: string | null
+    lifecycle_state: string | null
+    title: string | null
+    summary_text: string | null
+    review_priority_score: number | null
+    heat_score: number | null
+    evidence_count: number | null
+    relationship_count: number | null
+    runtime_hit_count: number | null
+    last_runtime_hit_at: Date | null
+    input_bundle_hash: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type TopicProjectionVersionCountAggregateOutputType = {
+    id: number
+    topic_id: number
+    projection_job_id: number
+    version_number: number
+    status: number
+    lifecycle_state: number
+    title: number
+    summary_text: number
+    review_priority_score: number
+    heat_score: number
+    participant_ids: number
+    topic_keywords: number
+    evidence_count: number
+    relationship_count: number
+    runtime_hit_count: number
+    last_runtime_hit_at: number
+    input_bundle_hash: number
+    snapshot_json: number
+    provenance_json: number
+    metadata: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type TopicProjectionVersionAvgAggregateInputType = {
+    id?: true
+    topic_id?: true
+    projection_job_id?: true
+    version_number?: true
+    review_priority_score?: true
+    heat_score?: true
+    evidence_count?: true
+    relationship_count?: true
+    runtime_hit_count?: true
+  }
+
+  export type TopicProjectionVersionSumAggregateInputType = {
+    id?: true
+    topic_id?: true
+    projection_job_id?: true
+    version_number?: true
+    review_priority_score?: true
+    heat_score?: true
+    evidence_count?: true
+    relationship_count?: true
+    runtime_hit_count?: true
+  }
+
+  export type TopicProjectionVersionMinAggregateInputType = {
+    id?: true
+    topic_id?: true
+    projection_job_id?: true
+    version_number?: true
+    status?: true
+    lifecycle_state?: true
+    title?: true
+    summary_text?: true
+    review_priority_score?: true
+    heat_score?: true
+    evidence_count?: true
+    relationship_count?: true
+    runtime_hit_count?: true
+    last_runtime_hit_at?: true
+    input_bundle_hash?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type TopicProjectionVersionMaxAggregateInputType = {
+    id?: true
+    topic_id?: true
+    projection_job_id?: true
+    version_number?: true
+    status?: true
+    lifecycle_state?: true
+    title?: true
+    summary_text?: true
+    review_priority_score?: true
+    heat_score?: true
+    evidence_count?: true
+    relationship_count?: true
+    runtime_hit_count?: true
+    last_runtime_hit_at?: true
+    input_bundle_hash?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type TopicProjectionVersionCountAggregateInputType = {
+    id?: true
+    topic_id?: true
+    projection_job_id?: true
+    version_number?: true
+    status?: true
+    lifecycle_state?: true
+    title?: true
+    summary_text?: true
+    review_priority_score?: true
+    heat_score?: true
+    participant_ids?: true
+    topic_keywords?: true
+    evidence_count?: true
+    relationship_count?: true
+    runtime_hit_count?: true
+    last_runtime_hit_at?: true
+    input_bundle_hash?: true
+    snapshot_json?: true
+    provenance_json?: true
+    metadata?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type TopicProjectionVersionAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TopicProjectionVersion to aggregate.
+     */
+    where?: TopicProjectionVersionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicProjectionVersions to fetch.
+     */
+    orderBy?: TopicProjectionVersionOrderByWithRelationInput | TopicProjectionVersionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: TopicProjectionVersionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicProjectionVersions from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicProjectionVersions.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned TopicProjectionVersions
+    **/
+    _count?: true | TopicProjectionVersionCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: TopicProjectionVersionAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: TopicProjectionVersionSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: TopicProjectionVersionMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: TopicProjectionVersionMaxAggregateInputType
+  }
+
+  export type GetTopicProjectionVersionAggregateType<T extends TopicProjectionVersionAggregateArgs> = {
+        [P in keyof T & keyof AggregateTopicProjectionVersion]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateTopicProjectionVersion[P]>
+      : GetScalarType<T[P], AggregateTopicProjectionVersion[P]>
+  }
+
+
+
+
+  export type TopicProjectionVersionGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: TopicProjectionVersionWhereInput
+    orderBy?: TopicProjectionVersionOrderByWithAggregationInput | TopicProjectionVersionOrderByWithAggregationInput[]
+    by: TopicProjectionVersionScalarFieldEnum[] | TopicProjectionVersionScalarFieldEnum
+    having?: TopicProjectionVersionScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: TopicProjectionVersionCountAggregateInputType | true
+    _avg?: TopicProjectionVersionAvgAggregateInputType
+    _sum?: TopicProjectionVersionSumAggregateInputType
+    _min?: TopicProjectionVersionMinAggregateInputType
+    _max?: TopicProjectionVersionMaxAggregateInputType
+  }
+
+  export type TopicProjectionVersionGroupByOutputType = {
+    id: bigint
+    topic_id: bigint
+    projection_job_id: bigint | null
+    version_number: number
+    status: string
+    lifecycle_state: string
+    title: string | null
+    summary_text: string
+    review_priority_score: number
+    heat_score: number
+    participant_ids: JsonValue
+    topic_keywords: JsonValue
+    evidence_count: number
+    relationship_count: number
+    runtime_hit_count: number
+    last_runtime_hit_at: Date | null
+    input_bundle_hash: string
+    snapshot_json: JsonValue
+    provenance_json: JsonValue
+    metadata: JsonValue | null
+    created_at: Date
+    updated_at: Date
+    _count: TopicProjectionVersionCountAggregateOutputType | null
+    _avg: TopicProjectionVersionAvgAggregateOutputType | null
+    _sum: TopicProjectionVersionSumAggregateOutputType | null
+    _min: TopicProjectionVersionMinAggregateOutputType | null
+    _max: TopicProjectionVersionMaxAggregateOutputType | null
+  }
+
+  type GetTopicProjectionVersionGroupByPayload<T extends TopicProjectionVersionGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<TopicProjectionVersionGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof TopicProjectionVersionGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], TopicProjectionVersionGroupByOutputType[P]>
+            : GetScalarType<T[P], TopicProjectionVersionGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type TopicProjectionVersionSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    topic_id?: boolean
+    projection_job_id?: boolean
+    version_number?: boolean
+    status?: boolean
+    lifecycle_state?: boolean
+    title?: boolean
+    summary_text?: boolean
+    review_priority_score?: boolean
+    heat_score?: boolean
+    participant_ids?: boolean
+    topic_keywords?: boolean
+    evidence_count?: boolean
+    relationship_count?: boolean
+    runtime_hit_count?: boolean
+    last_runtime_hit_at?: boolean
+    input_bundle_hash?: boolean
+    snapshot_json?: boolean
+    provenance_json?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["topicProjectionVersion"]>
+
+  export type TopicProjectionVersionSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    topic_id?: boolean
+    projection_job_id?: boolean
+    version_number?: boolean
+    status?: boolean
+    lifecycle_state?: boolean
+    title?: boolean
+    summary_text?: boolean
+    review_priority_score?: boolean
+    heat_score?: boolean
+    participant_ids?: boolean
+    topic_keywords?: boolean
+    evidence_count?: boolean
+    relationship_count?: boolean
+    runtime_hit_count?: boolean
+    last_runtime_hit_at?: boolean
+    input_bundle_hash?: boolean
+    snapshot_json?: boolean
+    provenance_json?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["topicProjectionVersion"]>
+
+  export type TopicProjectionVersionSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    topic_id?: boolean
+    projection_job_id?: boolean
+    version_number?: boolean
+    status?: boolean
+    lifecycle_state?: boolean
+    title?: boolean
+    summary_text?: boolean
+    review_priority_score?: boolean
+    heat_score?: boolean
+    participant_ids?: boolean
+    topic_keywords?: boolean
+    evidence_count?: boolean
+    relationship_count?: boolean
+    runtime_hit_count?: boolean
+    last_runtime_hit_at?: boolean
+    input_bundle_hash?: boolean
+    snapshot_json?: boolean
+    provenance_json?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["topicProjectionVersion"]>
+
+  export type TopicProjectionVersionSelectScalar = {
+    id?: boolean
+    topic_id?: boolean
+    projection_job_id?: boolean
+    version_number?: boolean
+    status?: boolean
+    lifecycle_state?: boolean
+    title?: boolean
+    summary_text?: boolean
+    review_priority_score?: boolean
+    heat_score?: boolean
+    participant_ids?: boolean
+    topic_keywords?: boolean
+    evidence_count?: boolean
+    relationship_count?: boolean
+    runtime_hit_count?: boolean
+    last_runtime_hit_at?: boolean
+    input_bundle_hash?: boolean
+    snapshot_json?: boolean
+    provenance_json?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type TopicProjectionVersionOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "topic_id" | "projection_job_id" | "version_number" | "status" | "lifecycle_state" | "title" | "summary_text" | "review_priority_score" | "heat_score" | "participant_ids" | "topic_keywords" | "evidence_count" | "relationship_count" | "runtime_hit_count" | "last_runtime_hit_at" | "input_bundle_hash" | "snapshot_json" | "provenance_json" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["topicProjectionVersion"]>
+
+  export type $TopicProjectionVersionPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "TopicProjectionVersion"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      topic_id: bigint
+      projection_job_id: bigint | null
+      version_number: number
+      status: string
+      lifecycle_state: string
+      title: string | null
+      summary_text: string
+      review_priority_score: number
+      heat_score: number
+      participant_ids: Prisma.JsonValue
+      topic_keywords: Prisma.JsonValue
+      evidence_count: number
+      relationship_count: number
+      runtime_hit_count: number
+      last_runtime_hit_at: Date | null
+      input_bundle_hash: string
+      snapshot_json: Prisma.JsonValue
+      provenance_json: Prisma.JsonValue
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["topicProjectionVersion"]>
+    composites: {}
+  }
+
+  type TopicProjectionVersionGetPayload<S extends boolean | null | undefined | TopicProjectionVersionDefaultArgs> = $Result.GetResult<Prisma.$TopicProjectionVersionPayload, S>
+
+  type TopicProjectionVersionCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<TopicProjectionVersionFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: TopicProjectionVersionCountAggregateInputType | true
+    }
+
+  export interface TopicProjectionVersionDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['TopicProjectionVersion'], meta: { name: 'TopicProjectionVersion' } }
+    /**
+     * Find zero or one TopicProjectionVersion that matches the filter.
+     * @param {TopicProjectionVersionFindUniqueArgs} args - Arguments to find a TopicProjectionVersion
+     * @example
+     * // Get one TopicProjectionVersion
+     * const topicProjectionVersion = await prisma.topicProjectionVersion.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends TopicProjectionVersionFindUniqueArgs>(args: SelectSubset<T, TopicProjectionVersionFindUniqueArgs<ExtArgs>>): Prisma__TopicProjectionVersionClient<$Result.GetResult<Prisma.$TopicProjectionVersionPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one TopicProjectionVersion that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {TopicProjectionVersionFindUniqueOrThrowArgs} args - Arguments to find a TopicProjectionVersion
+     * @example
+     * // Get one TopicProjectionVersion
+     * const topicProjectionVersion = await prisma.topicProjectionVersion.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends TopicProjectionVersionFindUniqueOrThrowArgs>(args: SelectSubset<T, TopicProjectionVersionFindUniqueOrThrowArgs<ExtArgs>>): Prisma__TopicProjectionVersionClient<$Result.GetResult<Prisma.$TopicProjectionVersionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first TopicProjectionVersion that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionVersionFindFirstArgs} args - Arguments to find a TopicProjectionVersion
+     * @example
+     * // Get one TopicProjectionVersion
+     * const topicProjectionVersion = await prisma.topicProjectionVersion.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends TopicProjectionVersionFindFirstArgs>(args?: SelectSubset<T, TopicProjectionVersionFindFirstArgs<ExtArgs>>): Prisma__TopicProjectionVersionClient<$Result.GetResult<Prisma.$TopicProjectionVersionPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first TopicProjectionVersion that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionVersionFindFirstOrThrowArgs} args - Arguments to find a TopicProjectionVersion
+     * @example
+     * // Get one TopicProjectionVersion
+     * const topicProjectionVersion = await prisma.topicProjectionVersion.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends TopicProjectionVersionFindFirstOrThrowArgs>(args?: SelectSubset<T, TopicProjectionVersionFindFirstOrThrowArgs<ExtArgs>>): Prisma__TopicProjectionVersionClient<$Result.GetResult<Prisma.$TopicProjectionVersionPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more TopicProjectionVersions that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionVersionFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all TopicProjectionVersions
+     * const topicProjectionVersions = await prisma.topicProjectionVersion.findMany()
+     * 
+     * // Get first 10 TopicProjectionVersions
+     * const topicProjectionVersions = await prisma.topicProjectionVersion.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const topicProjectionVersionWithIdOnly = await prisma.topicProjectionVersion.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends TopicProjectionVersionFindManyArgs>(args?: SelectSubset<T, TopicProjectionVersionFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicProjectionVersionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a TopicProjectionVersion.
+     * @param {TopicProjectionVersionCreateArgs} args - Arguments to create a TopicProjectionVersion.
+     * @example
+     * // Create one TopicProjectionVersion
+     * const TopicProjectionVersion = await prisma.topicProjectionVersion.create({
+     *   data: {
+     *     // ... data to create a TopicProjectionVersion
+     *   }
+     * })
+     * 
+     */
+    create<T extends TopicProjectionVersionCreateArgs>(args: SelectSubset<T, TopicProjectionVersionCreateArgs<ExtArgs>>): Prisma__TopicProjectionVersionClient<$Result.GetResult<Prisma.$TopicProjectionVersionPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many TopicProjectionVersions.
+     * @param {TopicProjectionVersionCreateManyArgs} args - Arguments to create many TopicProjectionVersions.
+     * @example
+     * // Create many TopicProjectionVersions
+     * const topicProjectionVersion = await prisma.topicProjectionVersion.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends TopicProjectionVersionCreateManyArgs>(args?: SelectSubset<T, TopicProjectionVersionCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many TopicProjectionVersions and returns the data saved in the database.
+     * @param {TopicProjectionVersionCreateManyAndReturnArgs} args - Arguments to create many TopicProjectionVersions.
+     * @example
+     * // Create many TopicProjectionVersions
+     * const topicProjectionVersion = await prisma.topicProjectionVersion.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many TopicProjectionVersions and only return the `id`
+     * const topicProjectionVersionWithIdOnly = await prisma.topicProjectionVersion.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends TopicProjectionVersionCreateManyAndReturnArgs>(args?: SelectSubset<T, TopicProjectionVersionCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicProjectionVersionPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a TopicProjectionVersion.
+     * @param {TopicProjectionVersionDeleteArgs} args - Arguments to delete one TopicProjectionVersion.
+     * @example
+     * // Delete one TopicProjectionVersion
+     * const TopicProjectionVersion = await prisma.topicProjectionVersion.delete({
+     *   where: {
+     *     // ... filter to delete one TopicProjectionVersion
+     *   }
+     * })
+     * 
+     */
+    delete<T extends TopicProjectionVersionDeleteArgs>(args: SelectSubset<T, TopicProjectionVersionDeleteArgs<ExtArgs>>): Prisma__TopicProjectionVersionClient<$Result.GetResult<Prisma.$TopicProjectionVersionPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one TopicProjectionVersion.
+     * @param {TopicProjectionVersionUpdateArgs} args - Arguments to update one TopicProjectionVersion.
+     * @example
+     * // Update one TopicProjectionVersion
+     * const topicProjectionVersion = await prisma.topicProjectionVersion.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends TopicProjectionVersionUpdateArgs>(args: SelectSubset<T, TopicProjectionVersionUpdateArgs<ExtArgs>>): Prisma__TopicProjectionVersionClient<$Result.GetResult<Prisma.$TopicProjectionVersionPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more TopicProjectionVersions.
+     * @param {TopicProjectionVersionDeleteManyArgs} args - Arguments to filter TopicProjectionVersions to delete.
+     * @example
+     * // Delete a few TopicProjectionVersions
+     * const { count } = await prisma.topicProjectionVersion.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends TopicProjectionVersionDeleteManyArgs>(args?: SelectSubset<T, TopicProjectionVersionDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TopicProjectionVersions.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionVersionUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many TopicProjectionVersions
+     * const topicProjectionVersion = await prisma.topicProjectionVersion.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends TopicProjectionVersionUpdateManyArgs>(args: SelectSubset<T, TopicProjectionVersionUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TopicProjectionVersions and returns the data updated in the database.
+     * @param {TopicProjectionVersionUpdateManyAndReturnArgs} args - Arguments to update many TopicProjectionVersions.
+     * @example
+     * // Update many TopicProjectionVersions
+     * const topicProjectionVersion = await prisma.topicProjectionVersion.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more TopicProjectionVersions and only return the `id`
+     * const topicProjectionVersionWithIdOnly = await prisma.topicProjectionVersion.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends TopicProjectionVersionUpdateManyAndReturnArgs>(args: SelectSubset<T, TopicProjectionVersionUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicProjectionVersionPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one TopicProjectionVersion.
+     * @param {TopicProjectionVersionUpsertArgs} args - Arguments to update or create a TopicProjectionVersion.
+     * @example
+     * // Update or create a TopicProjectionVersion
+     * const topicProjectionVersion = await prisma.topicProjectionVersion.upsert({
+     *   create: {
+     *     // ... data to create a TopicProjectionVersion
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the TopicProjectionVersion we want to update
+     *   }
+     * })
+     */
+    upsert<T extends TopicProjectionVersionUpsertArgs>(args: SelectSubset<T, TopicProjectionVersionUpsertArgs<ExtArgs>>): Prisma__TopicProjectionVersionClient<$Result.GetResult<Prisma.$TopicProjectionVersionPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of TopicProjectionVersions.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionVersionCountArgs} args - Arguments to filter TopicProjectionVersions to count.
+     * @example
+     * // Count the number of TopicProjectionVersions
+     * const count = await prisma.topicProjectionVersion.count({
+     *   where: {
+     *     // ... the filter for the TopicProjectionVersions we want to count
+     *   }
+     * })
+    **/
+    count<T extends TopicProjectionVersionCountArgs>(
+      args?: Subset<T, TopicProjectionVersionCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], TopicProjectionVersionCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a TopicProjectionVersion.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionVersionAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends TopicProjectionVersionAggregateArgs>(args: Subset<T, TopicProjectionVersionAggregateArgs>): Prisma.PrismaPromise<GetTopicProjectionVersionAggregateType<T>>
+
+    /**
+     * Group by TopicProjectionVersion.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicProjectionVersionGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends TopicProjectionVersionGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: TopicProjectionVersionGroupByArgs['orderBy'] }
+        : { orderBy?: TopicProjectionVersionGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, TopicProjectionVersionGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetTopicProjectionVersionGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the TopicProjectionVersion model
+   */
+  readonly fields: TopicProjectionVersionFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for TopicProjectionVersion.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__TopicProjectionVersionClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the TopicProjectionVersion model
+   */
+  interface TopicProjectionVersionFieldRefs {
+    readonly id: FieldRef<"TopicProjectionVersion", 'BigInt'>
+    readonly topic_id: FieldRef<"TopicProjectionVersion", 'BigInt'>
+    readonly projection_job_id: FieldRef<"TopicProjectionVersion", 'BigInt'>
+    readonly version_number: FieldRef<"TopicProjectionVersion", 'Int'>
+    readonly status: FieldRef<"TopicProjectionVersion", 'String'>
+    readonly lifecycle_state: FieldRef<"TopicProjectionVersion", 'String'>
+    readonly title: FieldRef<"TopicProjectionVersion", 'String'>
+    readonly summary_text: FieldRef<"TopicProjectionVersion", 'String'>
+    readonly review_priority_score: FieldRef<"TopicProjectionVersion", 'Float'>
+    readonly heat_score: FieldRef<"TopicProjectionVersion", 'Float'>
+    readonly participant_ids: FieldRef<"TopicProjectionVersion", 'Json'>
+    readonly topic_keywords: FieldRef<"TopicProjectionVersion", 'Json'>
+    readonly evidence_count: FieldRef<"TopicProjectionVersion", 'Int'>
+    readonly relationship_count: FieldRef<"TopicProjectionVersion", 'Int'>
+    readonly runtime_hit_count: FieldRef<"TopicProjectionVersion", 'Int'>
+    readonly last_runtime_hit_at: FieldRef<"TopicProjectionVersion", 'DateTime'>
+    readonly input_bundle_hash: FieldRef<"TopicProjectionVersion", 'String'>
+    readonly snapshot_json: FieldRef<"TopicProjectionVersion", 'Json'>
+    readonly provenance_json: FieldRef<"TopicProjectionVersion", 'Json'>
+    readonly metadata: FieldRef<"TopicProjectionVersion", 'Json'>
+    readonly created_at: FieldRef<"TopicProjectionVersion", 'DateTime'>
+    readonly updated_at: FieldRef<"TopicProjectionVersion", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * TopicProjectionVersion findUnique
+   */
+  export type TopicProjectionVersionFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionVersion
+     */
+    select?: TopicProjectionVersionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionVersion
+     */
+    omit?: TopicProjectionVersionOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicProjectionVersion to fetch.
+     */
+    where: TopicProjectionVersionWhereUniqueInput
+  }
+
+  /**
+   * TopicProjectionVersion findUniqueOrThrow
+   */
+  export type TopicProjectionVersionFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionVersion
+     */
+    select?: TopicProjectionVersionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionVersion
+     */
+    omit?: TopicProjectionVersionOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicProjectionVersion to fetch.
+     */
+    where: TopicProjectionVersionWhereUniqueInput
+  }
+
+  /**
+   * TopicProjectionVersion findFirst
+   */
+  export type TopicProjectionVersionFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionVersion
+     */
+    select?: TopicProjectionVersionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionVersion
+     */
+    omit?: TopicProjectionVersionOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicProjectionVersion to fetch.
+     */
+    where?: TopicProjectionVersionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicProjectionVersions to fetch.
+     */
+    orderBy?: TopicProjectionVersionOrderByWithRelationInput | TopicProjectionVersionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TopicProjectionVersions.
+     */
+    cursor?: TopicProjectionVersionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicProjectionVersions from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicProjectionVersions.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TopicProjectionVersions.
+     */
+    distinct?: TopicProjectionVersionScalarFieldEnum | TopicProjectionVersionScalarFieldEnum[]
+  }
+
+  /**
+   * TopicProjectionVersion findFirstOrThrow
+   */
+  export type TopicProjectionVersionFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionVersion
+     */
+    select?: TopicProjectionVersionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionVersion
+     */
+    omit?: TopicProjectionVersionOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicProjectionVersion to fetch.
+     */
+    where?: TopicProjectionVersionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicProjectionVersions to fetch.
+     */
+    orderBy?: TopicProjectionVersionOrderByWithRelationInput | TopicProjectionVersionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TopicProjectionVersions.
+     */
+    cursor?: TopicProjectionVersionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicProjectionVersions from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicProjectionVersions.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TopicProjectionVersions.
+     */
+    distinct?: TopicProjectionVersionScalarFieldEnum | TopicProjectionVersionScalarFieldEnum[]
+  }
+
+  /**
+   * TopicProjectionVersion findMany
+   */
+  export type TopicProjectionVersionFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionVersion
+     */
+    select?: TopicProjectionVersionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionVersion
+     */
+    omit?: TopicProjectionVersionOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicProjectionVersions to fetch.
+     */
+    where?: TopicProjectionVersionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicProjectionVersions to fetch.
+     */
+    orderBy?: TopicProjectionVersionOrderByWithRelationInput | TopicProjectionVersionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing TopicProjectionVersions.
+     */
+    cursor?: TopicProjectionVersionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicProjectionVersions from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicProjectionVersions.
+     */
+    skip?: number
+    distinct?: TopicProjectionVersionScalarFieldEnum | TopicProjectionVersionScalarFieldEnum[]
+  }
+
+  /**
+   * TopicProjectionVersion create
+   */
+  export type TopicProjectionVersionCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionVersion
+     */
+    select?: TopicProjectionVersionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionVersion
+     */
+    omit?: TopicProjectionVersionOmit<ExtArgs> | null
+    /**
+     * The data needed to create a TopicProjectionVersion.
+     */
+    data: XOR<TopicProjectionVersionCreateInput, TopicProjectionVersionUncheckedCreateInput>
+  }
+
+  /**
+   * TopicProjectionVersion createMany
+   */
+  export type TopicProjectionVersionCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many TopicProjectionVersions.
+     */
+    data: TopicProjectionVersionCreateManyInput | TopicProjectionVersionCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TopicProjectionVersion createManyAndReturn
+   */
+  export type TopicProjectionVersionCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionVersion
+     */
+    select?: TopicProjectionVersionSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionVersion
+     */
+    omit?: TopicProjectionVersionOmit<ExtArgs> | null
+    /**
+     * The data used to create many TopicProjectionVersions.
+     */
+    data: TopicProjectionVersionCreateManyInput | TopicProjectionVersionCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TopicProjectionVersion update
+   */
+  export type TopicProjectionVersionUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionVersion
+     */
+    select?: TopicProjectionVersionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionVersion
+     */
+    omit?: TopicProjectionVersionOmit<ExtArgs> | null
+    /**
+     * The data needed to update a TopicProjectionVersion.
+     */
+    data: XOR<TopicProjectionVersionUpdateInput, TopicProjectionVersionUncheckedUpdateInput>
+    /**
+     * Choose, which TopicProjectionVersion to update.
+     */
+    where: TopicProjectionVersionWhereUniqueInput
+  }
+
+  /**
+   * TopicProjectionVersion updateMany
+   */
+  export type TopicProjectionVersionUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update TopicProjectionVersions.
+     */
+    data: XOR<TopicProjectionVersionUpdateManyMutationInput, TopicProjectionVersionUncheckedUpdateManyInput>
+    /**
+     * Filter which TopicProjectionVersions to update
+     */
+    where?: TopicProjectionVersionWhereInput
+    /**
+     * Limit how many TopicProjectionVersions to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicProjectionVersion updateManyAndReturn
+   */
+  export type TopicProjectionVersionUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionVersion
+     */
+    select?: TopicProjectionVersionSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionVersion
+     */
+    omit?: TopicProjectionVersionOmit<ExtArgs> | null
+    /**
+     * The data used to update TopicProjectionVersions.
+     */
+    data: XOR<TopicProjectionVersionUpdateManyMutationInput, TopicProjectionVersionUncheckedUpdateManyInput>
+    /**
+     * Filter which TopicProjectionVersions to update
+     */
+    where?: TopicProjectionVersionWhereInput
+    /**
+     * Limit how many TopicProjectionVersions to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicProjectionVersion upsert
+   */
+  export type TopicProjectionVersionUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionVersion
+     */
+    select?: TopicProjectionVersionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionVersion
+     */
+    omit?: TopicProjectionVersionOmit<ExtArgs> | null
+    /**
+     * The filter to search for the TopicProjectionVersion to update in case it exists.
+     */
+    where: TopicProjectionVersionWhereUniqueInput
+    /**
+     * In case the TopicProjectionVersion found by the `where` argument doesn't exist, create a new TopicProjectionVersion with this data.
+     */
+    create: XOR<TopicProjectionVersionCreateInput, TopicProjectionVersionUncheckedCreateInput>
+    /**
+     * In case the TopicProjectionVersion was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<TopicProjectionVersionUpdateInput, TopicProjectionVersionUncheckedUpdateInput>
+  }
+
+  /**
+   * TopicProjectionVersion delete
+   */
+  export type TopicProjectionVersionDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionVersion
+     */
+    select?: TopicProjectionVersionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionVersion
+     */
+    omit?: TopicProjectionVersionOmit<ExtArgs> | null
+    /**
+     * Filter which TopicProjectionVersion to delete.
+     */
+    where: TopicProjectionVersionWhereUniqueInput
+  }
+
+  /**
+   * TopicProjectionVersion deleteMany
+   */
+  export type TopicProjectionVersionDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TopicProjectionVersions to delete
+     */
+    where?: TopicProjectionVersionWhereInput
+    /**
+     * Limit how many TopicProjectionVersions to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicProjectionVersion without action
+   */
+  export type TopicProjectionVersionDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicProjectionVersion
+     */
+    select?: TopicProjectionVersionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicProjectionVersion
+     */
+    omit?: TopicProjectionVersionOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model TopicVersionRelationship
+   */
+
+  export type AggregateTopicVersionRelationship = {
+    _count: TopicVersionRelationshipCountAggregateOutputType | null
+    _avg: TopicVersionRelationshipAvgAggregateOutputType | null
+    _sum: TopicVersionRelationshipSumAggregateOutputType | null
+    _min: TopicVersionRelationshipMinAggregateOutputType | null
+    _max: TopicVersionRelationshipMaxAggregateOutputType | null
+  }
+
+  export type TopicVersionRelationshipAvgAggregateOutputType = {
+    id: number | null
+    projection_version_id: number | null
+    target_user_id: number | null
+  }
+
+  export type TopicVersionRelationshipSumAggregateOutputType = {
+    id: bigint | null
+    projection_version_id: bigint | null
+    target_user_id: bigint | null
+  }
+
+  export type TopicVersionRelationshipMinAggregateOutputType = {
+    id: bigint | null
+    projection_version_id: bigint | null
+    target_user_id: bigint | null
+    relationship_kind: string | null
+    summary_text: string | null
+    created_at: Date | null
+  }
+
+  export type TopicVersionRelationshipMaxAggregateOutputType = {
+    id: bigint | null
+    projection_version_id: bigint | null
+    target_user_id: bigint | null
+    relationship_kind: string | null
+    summary_text: string | null
+    created_at: Date | null
+  }
+
+  export type TopicVersionRelationshipCountAggregateOutputType = {
+    id: number
+    projection_version_id: number
+    target_user_id: number
+    relationship_kind: number
+    summary_text: number
+    actors: number
+    source_event_ids: number
+    source_message_ids: number
+    metadata: number
+    created_at: number
+    _all: number
+  }
+
+
+  export type TopicVersionRelationshipAvgAggregateInputType = {
+    id?: true
+    projection_version_id?: true
+    target_user_id?: true
+  }
+
+  export type TopicVersionRelationshipSumAggregateInputType = {
+    id?: true
+    projection_version_id?: true
+    target_user_id?: true
+  }
+
+  export type TopicVersionRelationshipMinAggregateInputType = {
+    id?: true
+    projection_version_id?: true
+    target_user_id?: true
+    relationship_kind?: true
+    summary_text?: true
+    created_at?: true
+  }
+
+  export type TopicVersionRelationshipMaxAggregateInputType = {
+    id?: true
+    projection_version_id?: true
+    target_user_id?: true
+    relationship_kind?: true
+    summary_text?: true
+    created_at?: true
+  }
+
+  export type TopicVersionRelationshipCountAggregateInputType = {
+    id?: true
+    projection_version_id?: true
+    target_user_id?: true
+    relationship_kind?: true
+    summary_text?: true
+    actors?: true
+    source_event_ids?: true
+    source_message_ids?: true
+    metadata?: true
+    created_at?: true
+    _all?: true
+  }
+
+  export type TopicVersionRelationshipAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TopicVersionRelationship to aggregate.
+     */
+    where?: TopicVersionRelationshipWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicVersionRelationships to fetch.
+     */
+    orderBy?: TopicVersionRelationshipOrderByWithRelationInput | TopicVersionRelationshipOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: TopicVersionRelationshipWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicVersionRelationships from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicVersionRelationships.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned TopicVersionRelationships
+    **/
+    _count?: true | TopicVersionRelationshipCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: TopicVersionRelationshipAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: TopicVersionRelationshipSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: TopicVersionRelationshipMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: TopicVersionRelationshipMaxAggregateInputType
+  }
+
+  export type GetTopicVersionRelationshipAggregateType<T extends TopicVersionRelationshipAggregateArgs> = {
+        [P in keyof T & keyof AggregateTopicVersionRelationship]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateTopicVersionRelationship[P]>
+      : GetScalarType<T[P], AggregateTopicVersionRelationship[P]>
+  }
+
+
+
+
+  export type TopicVersionRelationshipGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: TopicVersionRelationshipWhereInput
+    orderBy?: TopicVersionRelationshipOrderByWithAggregationInput | TopicVersionRelationshipOrderByWithAggregationInput[]
+    by: TopicVersionRelationshipScalarFieldEnum[] | TopicVersionRelationshipScalarFieldEnum
+    having?: TopicVersionRelationshipScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: TopicVersionRelationshipCountAggregateInputType | true
+    _avg?: TopicVersionRelationshipAvgAggregateInputType
+    _sum?: TopicVersionRelationshipSumAggregateInputType
+    _min?: TopicVersionRelationshipMinAggregateInputType
+    _max?: TopicVersionRelationshipMaxAggregateInputType
+  }
+
+  export type TopicVersionRelationshipGroupByOutputType = {
+    id: bigint
+    projection_version_id: bigint
+    target_user_id: bigint
+    relationship_kind: string | null
+    summary_text: string
+    actors: JsonValue
+    source_event_ids: JsonValue
+    source_message_ids: JsonValue
+    metadata: JsonValue | null
+    created_at: Date
+    _count: TopicVersionRelationshipCountAggregateOutputType | null
+    _avg: TopicVersionRelationshipAvgAggregateOutputType | null
+    _sum: TopicVersionRelationshipSumAggregateOutputType | null
+    _min: TopicVersionRelationshipMinAggregateOutputType | null
+    _max: TopicVersionRelationshipMaxAggregateOutputType | null
+  }
+
+  type GetTopicVersionRelationshipGroupByPayload<T extends TopicVersionRelationshipGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<TopicVersionRelationshipGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof TopicVersionRelationshipGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], TopicVersionRelationshipGroupByOutputType[P]>
+            : GetScalarType<T[P], TopicVersionRelationshipGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type TopicVersionRelationshipSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    projection_version_id?: boolean
+    target_user_id?: boolean
+    relationship_kind?: boolean
+    summary_text?: boolean
+    actors?: boolean
+    source_event_ids?: boolean
+    source_message_ids?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["topicVersionRelationship"]>
+
+  export type TopicVersionRelationshipSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    projection_version_id?: boolean
+    target_user_id?: boolean
+    relationship_kind?: boolean
+    summary_text?: boolean
+    actors?: boolean
+    source_event_ids?: boolean
+    source_message_ids?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["topicVersionRelationship"]>
+
+  export type TopicVersionRelationshipSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    projection_version_id?: boolean
+    target_user_id?: boolean
+    relationship_kind?: boolean
+    summary_text?: boolean
+    actors?: boolean
+    source_event_ids?: boolean
+    source_message_ids?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["topicVersionRelationship"]>
+
+  export type TopicVersionRelationshipSelectScalar = {
+    id?: boolean
+    projection_version_id?: boolean
+    target_user_id?: boolean
+    relationship_kind?: boolean
+    summary_text?: boolean
+    actors?: boolean
+    source_event_ids?: boolean
+    source_message_ids?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }
+
+  export type TopicVersionRelationshipOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "projection_version_id" | "target_user_id" | "relationship_kind" | "summary_text" | "actors" | "source_event_ids" | "source_message_ids" | "metadata" | "created_at", ExtArgs["result"]["topicVersionRelationship"]>
+
+  export type $TopicVersionRelationshipPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "TopicVersionRelationship"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      projection_version_id: bigint
+      target_user_id: bigint
+      relationship_kind: string | null
+      summary_text: string
+      actors: Prisma.JsonValue
+      source_event_ids: Prisma.JsonValue
+      source_message_ids: Prisma.JsonValue
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+    }, ExtArgs["result"]["topicVersionRelationship"]>
+    composites: {}
+  }
+
+  type TopicVersionRelationshipGetPayload<S extends boolean | null | undefined | TopicVersionRelationshipDefaultArgs> = $Result.GetResult<Prisma.$TopicVersionRelationshipPayload, S>
+
+  type TopicVersionRelationshipCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<TopicVersionRelationshipFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: TopicVersionRelationshipCountAggregateInputType | true
+    }
+
+  export interface TopicVersionRelationshipDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['TopicVersionRelationship'], meta: { name: 'TopicVersionRelationship' } }
+    /**
+     * Find zero or one TopicVersionRelationship that matches the filter.
+     * @param {TopicVersionRelationshipFindUniqueArgs} args - Arguments to find a TopicVersionRelationship
+     * @example
+     * // Get one TopicVersionRelationship
+     * const topicVersionRelationship = await prisma.topicVersionRelationship.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends TopicVersionRelationshipFindUniqueArgs>(args: SelectSubset<T, TopicVersionRelationshipFindUniqueArgs<ExtArgs>>): Prisma__TopicVersionRelationshipClient<$Result.GetResult<Prisma.$TopicVersionRelationshipPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one TopicVersionRelationship that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {TopicVersionRelationshipFindUniqueOrThrowArgs} args - Arguments to find a TopicVersionRelationship
+     * @example
+     * // Get one TopicVersionRelationship
+     * const topicVersionRelationship = await prisma.topicVersionRelationship.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends TopicVersionRelationshipFindUniqueOrThrowArgs>(args: SelectSubset<T, TopicVersionRelationshipFindUniqueOrThrowArgs<ExtArgs>>): Prisma__TopicVersionRelationshipClient<$Result.GetResult<Prisma.$TopicVersionRelationshipPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first TopicVersionRelationship that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionRelationshipFindFirstArgs} args - Arguments to find a TopicVersionRelationship
+     * @example
+     * // Get one TopicVersionRelationship
+     * const topicVersionRelationship = await prisma.topicVersionRelationship.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends TopicVersionRelationshipFindFirstArgs>(args?: SelectSubset<T, TopicVersionRelationshipFindFirstArgs<ExtArgs>>): Prisma__TopicVersionRelationshipClient<$Result.GetResult<Prisma.$TopicVersionRelationshipPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first TopicVersionRelationship that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionRelationshipFindFirstOrThrowArgs} args - Arguments to find a TopicVersionRelationship
+     * @example
+     * // Get one TopicVersionRelationship
+     * const topicVersionRelationship = await prisma.topicVersionRelationship.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends TopicVersionRelationshipFindFirstOrThrowArgs>(args?: SelectSubset<T, TopicVersionRelationshipFindFirstOrThrowArgs<ExtArgs>>): Prisma__TopicVersionRelationshipClient<$Result.GetResult<Prisma.$TopicVersionRelationshipPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more TopicVersionRelationships that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionRelationshipFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all TopicVersionRelationships
+     * const topicVersionRelationships = await prisma.topicVersionRelationship.findMany()
+     * 
+     * // Get first 10 TopicVersionRelationships
+     * const topicVersionRelationships = await prisma.topicVersionRelationship.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const topicVersionRelationshipWithIdOnly = await prisma.topicVersionRelationship.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends TopicVersionRelationshipFindManyArgs>(args?: SelectSubset<T, TopicVersionRelationshipFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicVersionRelationshipPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a TopicVersionRelationship.
+     * @param {TopicVersionRelationshipCreateArgs} args - Arguments to create a TopicVersionRelationship.
+     * @example
+     * // Create one TopicVersionRelationship
+     * const TopicVersionRelationship = await prisma.topicVersionRelationship.create({
+     *   data: {
+     *     // ... data to create a TopicVersionRelationship
+     *   }
+     * })
+     * 
+     */
+    create<T extends TopicVersionRelationshipCreateArgs>(args: SelectSubset<T, TopicVersionRelationshipCreateArgs<ExtArgs>>): Prisma__TopicVersionRelationshipClient<$Result.GetResult<Prisma.$TopicVersionRelationshipPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many TopicVersionRelationships.
+     * @param {TopicVersionRelationshipCreateManyArgs} args - Arguments to create many TopicVersionRelationships.
+     * @example
+     * // Create many TopicVersionRelationships
+     * const topicVersionRelationship = await prisma.topicVersionRelationship.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends TopicVersionRelationshipCreateManyArgs>(args?: SelectSubset<T, TopicVersionRelationshipCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many TopicVersionRelationships and returns the data saved in the database.
+     * @param {TopicVersionRelationshipCreateManyAndReturnArgs} args - Arguments to create many TopicVersionRelationships.
+     * @example
+     * // Create many TopicVersionRelationships
+     * const topicVersionRelationship = await prisma.topicVersionRelationship.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many TopicVersionRelationships and only return the `id`
+     * const topicVersionRelationshipWithIdOnly = await prisma.topicVersionRelationship.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends TopicVersionRelationshipCreateManyAndReturnArgs>(args?: SelectSubset<T, TopicVersionRelationshipCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicVersionRelationshipPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a TopicVersionRelationship.
+     * @param {TopicVersionRelationshipDeleteArgs} args - Arguments to delete one TopicVersionRelationship.
+     * @example
+     * // Delete one TopicVersionRelationship
+     * const TopicVersionRelationship = await prisma.topicVersionRelationship.delete({
+     *   where: {
+     *     // ... filter to delete one TopicVersionRelationship
+     *   }
+     * })
+     * 
+     */
+    delete<T extends TopicVersionRelationshipDeleteArgs>(args: SelectSubset<T, TopicVersionRelationshipDeleteArgs<ExtArgs>>): Prisma__TopicVersionRelationshipClient<$Result.GetResult<Prisma.$TopicVersionRelationshipPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one TopicVersionRelationship.
+     * @param {TopicVersionRelationshipUpdateArgs} args - Arguments to update one TopicVersionRelationship.
+     * @example
+     * // Update one TopicVersionRelationship
+     * const topicVersionRelationship = await prisma.topicVersionRelationship.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends TopicVersionRelationshipUpdateArgs>(args: SelectSubset<T, TopicVersionRelationshipUpdateArgs<ExtArgs>>): Prisma__TopicVersionRelationshipClient<$Result.GetResult<Prisma.$TopicVersionRelationshipPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more TopicVersionRelationships.
+     * @param {TopicVersionRelationshipDeleteManyArgs} args - Arguments to filter TopicVersionRelationships to delete.
+     * @example
+     * // Delete a few TopicVersionRelationships
+     * const { count } = await prisma.topicVersionRelationship.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends TopicVersionRelationshipDeleteManyArgs>(args?: SelectSubset<T, TopicVersionRelationshipDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TopicVersionRelationships.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionRelationshipUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many TopicVersionRelationships
+     * const topicVersionRelationship = await prisma.topicVersionRelationship.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends TopicVersionRelationshipUpdateManyArgs>(args: SelectSubset<T, TopicVersionRelationshipUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TopicVersionRelationships and returns the data updated in the database.
+     * @param {TopicVersionRelationshipUpdateManyAndReturnArgs} args - Arguments to update many TopicVersionRelationships.
+     * @example
+     * // Update many TopicVersionRelationships
+     * const topicVersionRelationship = await prisma.topicVersionRelationship.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more TopicVersionRelationships and only return the `id`
+     * const topicVersionRelationshipWithIdOnly = await prisma.topicVersionRelationship.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends TopicVersionRelationshipUpdateManyAndReturnArgs>(args: SelectSubset<T, TopicVersionRelationshipUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicVersionRelationshipPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one TopicVersionRelationship.
+     * @param {TopicVersionRelationshipUpsertArgs} args - Arguments to update or create a TopicVersionRelationship.
+     * @example
+     * // Update or create a TopicVersionRelationship
+     * const topicVersionRelationship = await prisma.topicVersionRelationship.upsert({
+     *   create: {
+     *     // ... data to create a TopicVersionRelationship
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the TopicVersionRelationship we want to update
+     *   }
+     * })
+     */
+    upsert<T extends TopicVersionRelationshipUpsertArgs>(args: SelectSubset<T, TopicVersionRelationshipUpsertArgs<ExtArgs>>): Prisma__TopicVersionRelationshipClient<$Result.GetResult<Prisma.$TopicVersionRelationshipPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of TopicVersionRelationships.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionRelationshipCountArgs} args - Arguments to filter TopicVersionRelationships to count.
+     * @example
+     * // Count the number of TopicVersionRelationships
+     * const count = await prisma.topicVersionRelationship.count({
+     *   where: {
+     *     // ... the filter for the TopicVersionRelationships we want to count
+     *   }
+     * })
+    **/
+    count<T extends TopicVersionRelationshipCountArgs>(
+      args?: Subset<T, TopicVersionRelationshipCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], TopicVersionRelationshipCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a TopicVersionRelationship.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionRelationshipAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends TopicVersionRelationshipAggregateArgs>(args: Subset<T, TopicVersionRelationshipAggregateArgs>): Prisma.PrismaPromise<GetTopicVersionRelationshipAggregateType<T>>
+
+    /**
+     * Group by TopicVersionRelationship.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionRelationshipGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends TopicVersionRelationshipGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: TopicVersionRelationshipGroupByArgs['orderBy'] }
+        : { orderBy?: TopicVersionRelationshipGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, TopicVersionRelationshipGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetTopicVersionRelationshipGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the TopicVersionRelationship model
+   */
+  readonly fields: TopicVersionRelationshipFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for TopicVersionRelationship.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__TopicVersionRelationshipClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the TopicVersionRelationship model
+   */
+  interface TopicVersionRelationshipFieldRefs {
+    readonly id: FieldRef<"TopicVersionRelationship", 'BigInt'>
+    readonly projection_version_id: FieldRef<"TopicVersionRelationship", 'BigInt'>
+    readonly target_user_id: FieldRef<"TopicVersionRelationship", 'BigInt'>
+    readonly relationship_kind: FieldRef<"TopicVersionRelationship", 'String'>
+    readonly summary_text: FieldRef<"TopicVersionRelationship", 'String'>
+    readonly actors: FieldRef<"TopicVersionRelationship", 'Json'>
+    readonly source_event_ids: FieldRef<"TopicVersionRelationship", 'Json'>
+    readonly source_message_ids: FieldRef<"TopicVersionRelationship", 'Json'>
+    readonly metadata: FieldRef<"TopicVersionRelationship", 'Json'>
+    readonly created_at: FieldRef<"TopicVersionRelationship", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * TopicVersionRelationship findUnique
+   */
+  export type TopicVersionRelationshipFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionRelationship
+     */
+    select?: TopicVersionRelationshipSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionRelationship
+     */
+    omit?: TopicVersionRelationshipOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicVersionRelationship to fetch.
+     */
+    where: TopicVersionRelationshipWhereUniqueInput
+  }
+
+  /**
+   * TopicVersionRelationship findUniqueOrThrow
+   */
+  export type TopicVersionRelationshipFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionRelationship
+     */
+    select?: TopicVersionRelationshipSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionRelationship
+     */
+    omit?: TopicVersionRelationshipOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicVersionRelationship to fetch.
+     */
+    where: TopicVersionRelationshipWhereUniqueInput
+  }
+
+  /**
+   * TopicVersionRelationship findFirst
+   */
+  export type TopicVersionRelationshipFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionRelationship
+     */
+    select?: TopicVersionRelationshipSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionRelationship
+     */
+    omit?: TopicVersionRelationshipOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicVersionRelationship to fetch.
+     */
+    where?: TopicVersionRelationshipWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicVersionRelationships to fetch.
+     */
+    orderBy?: TopicVersionRelationshipOrderByWithRelationInput | TopicVersionRelationshipOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TopicVersionRelationships.
+     */
+    cursor?: TopicVersionRelationshipWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicVersionRelationships from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicVersionRelationships.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TopicVersionRelationships.
+     */
+    distinct?: TopicVersionRelationshipScalarFieldEnum | TopicVersionRelationshipScalarFieldEnum[]
+  }
+
+  /**
+   * TopicVersionRelationship findFirstOrThrow
+   */
+  export type TopicVersionRelationshipFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionRelationship
+     */
+    select?: TopicVersionRelationshipSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionRelationship
+     */
+    omit?: TopicVersionRelationshipOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicVersionRelationship to fetch.
+     */
+    where?: TopicVersionRelationshipWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicVersionRelationships to fetch.
+     */
+    orderBy?: TopicVersionRelationshipOrderByWithRelationInput | TopicVersionRelationshipOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TopicVersionRelationships.
+     */
+    cursor?: TopicVersionRelationshipWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicVersionRelationships from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicVersionRelationships.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TopicVersionRelationships.
+     */
+    distinct?: TopicVersionRelationshipScalarFieldEnum | TopicVersionRelationshipScalarFieldEnum[]
+  }
+
+  /**
+   * TopicVersionRelationship findMany
+   */
+  export type TopicVersionRelationshipFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionRelationship
+     */
+    select?: TopicVersionRelationshipSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionRelationship
+     */
+    omit?: TopicVersionRelationshipOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicVersionRelationships to fetch.
+     */
+    where?: TopicVersionRelationshipWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicVersionRelationships to fetch.
+     */
+    orderBy?: TopicVersionRelationshipOrderByWithRelationInput | TopicVersionRelationshipOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing TopicVersionRelationships.
+     */
+    cursor?: TopicVersionRelationshipWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicVersionRelationships from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicVersionRelationships.
+     */
+    skip?: number
+    distinct?: TopicVersionRelationshipScalarFieldEnum | TopicVersionRelationshipScalarFieldEnum[]
+  }
+
+  /**
+   * TopicVersionRelationship create
+   */
+  export type TopicVersionRelationshipCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionRelationship
+     */
+    select?: TopicVersionRelationshipSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionRelationship
+     */
+    omit?: TopicVersionRelationshipOmit<ExtArgs> | null
+    /**
+     * The data needed to create a TopicVersionRelationship.
+     */
+    data: XOR<TopicVersionRelationshipCreateInput, TopicVersionRelationshipUncheckedCreateInput>
+  }
+
+  /**
+   * TopicVersionRelationship createMany
+   */
+  export type TopicVersionRelationshipCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many TopicVersionRelationships.
+     */
+    data: TopicVersionRelationshipCreateManyInput | TopicVersionRelationshipCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TopicVersionRelationship createManyAndReturn
+   */
+  export type TopicVersionRelationshipCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionRelationship
+     */
+    select?: TopicVersionRelationshipSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionRelationship
+     */
+    omit?: TopicVersionRelationshipOmit<ExtArgs> | null
+    /**
+     * The data used to create many TopicVersionRelationships.
+     */
+    data: TopicVersionRelationshipCreateManyInput | TopicVersionRelationshipCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TopicVersionRelationship update
+   */
+  export type TopicVersionRelationshipUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionRelationship
+     */
+    select?: TopicVersionRelationshipSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionRelationship
+     */
+    omit?: TopicVersionRelationshipOmit<ExtArgs> | null
+    /**
+     * The data needed to update a TopicVersionRelationship.
+     */
+    data: XOR<TopicVersionRelationshipUpdateInput, TopicVersionRelationshipUncheckedUpdateInput>
+    /**
+     * Choose, which TopicVersionRelationship to update.
+     */
+    where: TopicVersionRelationshipWhereUniqueInput
+  }
+
+  /**
+   * TopicVersionRelationship updateMany
+   */
+  export type TopicVersionRelationshipUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update TopicVersionRelationships.
+     */
+    data: XOR<TopicVersionRelationshipUpdateManyMutationInput, TopicVersionRelationshipUncheckedUpdateManyInput>
+    /**
+     * Filter which TopicVersionRelationships to update
+     */
+    where?: TopicVersionRelationshipWhereInput
+    /**
+     * Limit how many TopicVersionRelationships to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicVersionRelationship updateManyAndReturn
+   */
+  export type TopicVersionRelationshipUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionRelationship
+     */
+    select?: TopicVersionRelationshipSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionRelationship
+     */
+    omit?: TopicVersionRelationshipOmit<ExtArgs> | null
+    /**
+     * The data used to update TopicVersionRelationships.
+     */
+    data: XOR<TopicVersionRelationshipUpdateManyMutationInput, TopicVersionRelationshipUncheckedUpdateManyInput>
+    /**
+     * Filter which TopicVersionRelationships to update
+     */
+    where?: TopicVersionRelationshipWhereInput
+    /**
+     * Limit how many TopicVersionRelationships to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicVersionRelationship upsert
+   */
+  export type TopicVersionRelationshipUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionRelationship
+     */
+    select?: TopicVersionRelationshipSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionRelationship
+     */
+    omit?: TopicVersionRelationshipOmit<ExtArgs> | null
+    /**
+     * The filter to search for the TopicVersionRelationship to update in case it exists.
+     */
+    where: TopicVersionRelationshipWhereUniqueInput
+    /**
+     * In case the TopicVersionRelationship found by the `where` argument doesn't exist, create a new TopicVersionRelationship with this data.
+     */
+    create: XOR<TopicVersionRelationshipCreateInput, TopicVersionRelationshipUncheckedCreateInput>
+    /**
+     * In case the TopicVersionRelationship was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<TopicVersionRelationshipUpdateInput, TopicVersionRelationshipUncheckedUpdateInput>
+  }
+
+  /**
+   * TopicVersionRelationship delete
+   */
+  export type TopicVersionRelationshipDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionRelationship
+     */
+    select?: TopicVersionRelationshipSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionRelationship
+     */
+    omit?: TopicVersionRelationshipOmit<ExtArgs> | null
+    /**
+     * Filter which TopicVersionRelationship to delete.
+     */
+    where: TopicVersionRelationshipWhereUniqueInput
+  }
+
+  /**
+   * TopicVersionRelationship deleteMany
+   */
+  export type TopicVersionRelationshipDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TopicVersionRelationships to delete
+     */
+    where?: TopicVersionRelationshipWhereInput
+    /**
+     * Limit how many TopicVersionRelationships to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicVersionRelationship without action
+   */
+  export type TopicVersionRelationshipDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionRelationship
+     */
+    select?: TopicVersionRelationshipSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionRelationship
+     */
+    omit?: TopicVersionRelationshipOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model TopicVersionEvidence
+   */
+
+  export type AggregateTopicVersionEvidence = {
+    _count: TopicVersionEvidenceCountAggregateOutputType | null
+    _avg: TopicVersionEvidenceAvgAggregateOutputType | null
+    _sum: TopicVersionEvidenceSumAggregateOutputType | null
+    _min: TopicVersionEvidenceMinAggregateOutputType | null
+    _max: TopicVersionEvidenceMaxAggregateOutputType | null
+  }
+
+  export type TopicVersionEvidenceAvgAggregateOutputType = {
+    id: number | null
+    projection_version_id: number | null
+    source_id: number | null
+    sort_order: number | null
+  }
+
+  export type TopicVersionEvidenceSumAggregateOutputType = {
+    id: bigint | null
+    projection_version_id: bigint | null
+    source_id: bigint | null
+    sort_order: number | null
+  }
+
+  export type TopicVersionEvidenceMinAggregateOutputType = {
+    id: bigint | null
+    projection_version_id: bigint | null
+    source_kind: string | null
+    source_id: bigint | null
+    sort_order: number | null
+    excerpt_text: string | null
+    speaker_id: string | null
+    speaker_name: string | null
+    occurred_at: Date | null
+    created_at: Date | null
+  }
+
+  export type TopicVersionEvidenceMaxAggregateOutputType = {
+    id: bigint | null
+    projection_version_id: bigint | null
+    source_kind: string | null
+    source_id: bigint | null
+    sort_order: number | null
+    excerpt_text: string | null
+    speaker_id: string | null
+    speaker_name: string | null
+    occurred_at: Date | null
+    created_at: Date | null
+  }
+
+  export type TopicVersionEvidenceCountAggregateOutputType = {
+    id: number
+    projection_version_id: number
+    source_kind: number
+    source_id: number
+    sort_order: number
+    excerpt_text: number
+    speaker_id: number
+    speaker_name: number
+    occurred_at: number
+    metadata: number
+    created_at: number
+    _all: number
+  }
+
+
+  export type TopicVersionEvidenceAvgAggregateInputType = {
+    id?: true
+    projection_version_id?: true
+    source_id?: true
+    sort_order?: true
+  }
+
+  export type TopicVersionEvidenceSumAggregateInputType = {
+    id?: true
+    projection_version_id?: true
+    source_id?: true
+    sort_order?: true
+  }
+
+  export type TopicVersionEvidenceMinAggregateInputType = {
+    id?: true
+    projection_version_id?: true
+    source_kind?: true
+    source_id?: true
+    sort_order?: true
+    excerpt_text?: true
+    speaker_id?: true
+    speaker_name?: true
+    occurred_at?: true
+    created_at?: true
+  }
+
+  export type TopicVersionEvidenceMaxAggregateInputType = {
+    id?: true
+    projection_version_id?: true
+    source_kind?: true
+    source_id?: true
+    sort_order?: true
+    excerpt_text?: true
+    speaker_id?: true
+    speaker_name?: true
+    occurred_at?: true
+    created_at?: true
+  }
+
+  export type TopicVersionEvidenceCountAggregateInputType = {
+    id?: true
+    projection_version_id?: true
+    source_kind?: true
+    source_id?: true
+    sort_order?: true
+    excerpt_text?: true
+    speaker_id?: true
+    speaker_name?: true
+    occurred_at?: true
+    metadata?: true
+    created_at?: true
+    _all?: true
+  }
+
+  export type TopicVersionEvidenceAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TopicVersionEvidence to aggregate.
+     */
+    where?: TopicVersionEvidenceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicVersionEvidences to fetch.
+     */
+    orderBy?: TopicVersionEvidenceOrderByWithRelationInput | TopicVersionEvidenceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: TopicVersionEvidenceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicVersionEvidences from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicVersionEvidences.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned TopicVersionEvidences
+    **/
+    _count?: true | TopicVersionEvidenceCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: TopicVersionEvidenceAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: TopicVersionEvidenceSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: TopicVersionEvidenceMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: TopicVersionEvidenceMaxAggregateInputType
+  }
+
+  export type GetTopicVersionEvidenceAggregateType<T extends TopicVersionEvidenceAggregateArgs> = {
+        [P in keyof T & keyof AggregateTopicVersionEvidence]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateTopicVersionEvidence[P]>
+      : GetScalarType<T[P], AggregateTopicVersionEvidence[P]>
+  }
+
+
+
+
+  export type TopicVersionEvidenceGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: TopicVersionEvidenceWhereInput
+    orderBy?: TopicVersionEvidenceOrderByWithAggregationInput | TopicVersionEvidenceOrderByWithAggregationInput[]
+    by: TopicVersionEvidenceScalarFieldEnum[] | TopicVersionEvidenceScalarFieldEnum
+    having?: TopicVersionEvidenceScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: TopicVersionEvidenceCountAggregateInputType | true
+    _avg?: TopicVersionEvidenceAvgAggregateInputType
+    _sum?: TopicVersionEvidenceSumAggregateInputType
+    _min?: TopicVersionEvidenceMinAggregateInputType
+    _max?: TopicVersionEvidenceMaxAggregateInputType
+  }
+
+  export type TopicVersionEvidenceGroupByOutputType = {
+    id: bigint
+    projection_version_id: bigint
+    source_kind: string
+    source_id: bigint
+    sort_order: number
+    excerpt_text: string | null
+    speaker_id: string | null
+    speaker_name: string | null
+    occurred_at: Date | null
+    metadata: JsonValue | null
+    created_at: Date
+    _count: TopicVersionEvidenceCountAggregateOutputType | null
+    _avg: TopicVersionEvidenceAvgAggregateOutputType | null
+    _sum: TopicVersionEvidenceSumAggregateOutputType | null
+    _min: TopicVersionEvidenceMinAggregateOutputType | null
+    _max: TopicVersionEvidenceMaxAggregateOutputType | null
+  }
+
+  type GetTopicVersionEvidenceGroupByPayload<T extends TopicVersionEvidenceGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<TopicVersionEvidenceGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof TopicVersionEvidenceGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], TopicVersionEvidenceGroupByOutputType[P]>
+            : GetScalarType<T[P], TopicVersionEvidenceGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type TopicVersionEvidenceSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    projection_version_id?: boolean
+    source_kind?: boolean
+    source_id?: boolean
+    sort_order?: boolean
+    excerpt_text?: boolean
+    speaker_id?: boolean
+    speaker_name?: boolean
+    occurred_at?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["topicVersionEvidence"]>
+
+  export type TopicVersionEvidenceSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    projection_version_id?: boolean
+    source_kind?: boolean
+    source_id?: boolean
+    sort_order?: boolean
+    excerpt_text?: boolean
+    speaker_id?: boolean
+    speaker_name?: boolean
+    occurred_at?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["topicVersionEvidence"]>
+
+  export type TopicVersionEvidenceSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    projection_version_id?: boolean
+    source_kind?: boolean
+    source_id?: boolean
+    sort_order?: boolean
+    excerpt_text?: boolean
+    speaker_id?: boolean
+    speaker_name?: boolean
+    occurred_at?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["topicVersionEvidence"]>
+
+  export type TopicVersionEvidenceSelectScalar = {
+    id?: boolean
+    projection_version_id?: boolean
+    source_kind?: boolean
+    source_id?: boolean
+    sort_order?: boolean
+    excerpt_text?: boolean
+    speaker_id?: boolean
+    speaker_name?: boolean
+    occurred_at?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }
+
+  export type TopicVersionEvidenceOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "projection_version_id" | "source_kind" | "source_id" | "sort_order" | "excerpt_text" | "speaker_id" | "speaker_name" | "occurred_at" | "metadata" | "created_at", ExtArgs["result"]["topicVersionEvidence"]>
+
+  export type $TopicVersionEvidencePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "TopicVersionEvidence"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      projection_version_id: bigint
+      source_kind: string
+      source_id: bigint
+      sort_order: number
+      excerpt_text: string | null
+      speaker_id: string | null
+      speaker_name: string | null
+      occurred_at: Date | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+    }, ExtArgs["result"]["topicVersionEvidence"]>
+    composites: {}
+  }
+
+  type TopicVersionEvidenceGetPayload<S extends boolean | null | undefined | TopicVersionEvidenceDefaultArgs> = $Result.GetResult<Prisma.$TopicVersionEvidencePayload, S>
+
+  type TopicVersionEvidenceCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<TopicVersionEvidenceFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: TopicVersionEvidenceCountAggregateInputType | true
+    }
+
+  export interface TopicVersionEvidenceDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['TopicVersionEvidence'], meta: { name: 'TopicVersionEvidence' } }
+    /**
+     * Find zero or one TopicVersionEvidence that matches the filter.
+     * @param {TopicVersionEvidenceFindUniqueArgs} args - Arguments to find a TopicVersionEvidence
+     * @example
+     * // Get one TopicVersionEvidence
+     * const topicVersionEvidence = await prisma.topicVersionEvidence.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends TopicVersionEvidenceFindUniqueArgs>(args: SelectSubset<T, TopicVersionEvidenceFindUniqueArgs<ExtArgs>>): Prisma__TopicVersionEvidenceClient<$Result.GetResult<Prisma.$TopicVersionEvidencePayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one TopicVersionEvidence that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {TopicVersionEvidenceFindUniqueOrThrowArgs} args - Arguments to find a TopicVersionEvidence
+     * @example
+     * // Get one TopicVersionEvidence
+     * const topicVersionEvidence = await prisma.topicVersionEvidence.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends TopicVersionEvidenceFindUniqueOrThrowArgs>(args: SelectSubset<T, TopicVersionEvidenceFindUniqueOrThrowArgs<ExtArgs>>): Prisma__TopicVersionEvidenceClient<$Result.GetResult<Prisma.$TopicVersionEvidencePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first TopicVersionEvidence that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionEvidenceFindFirstArgs} args - Arguments to find a TopicVersionEvidence
+     * @example
+     * // Get one TopicVersionEvidence
+     * const topicVersionEvidence = await prisma.topicVersionEvidence.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends TopicVersionEvidenceFindFirstArgs>(args?: SelectSubset<T, TopicVersionEvidenceFindFirstArgs<ExtArgs>>): Prisma__TopicVersionEvidenceClient<$Result.GetResult<Prisma.$TopicVersionEvidencePayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first TopicVersionEvidence that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionEvidenceFindFirstOrThrowArgs} args - Arguments to find a TopicVersionEvidence
+     * @example
+     * // Get one TopicVersionEvidence
+     * const topicVersionEvidence = await prisma.topicVersionEvidence.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends TopicVersionEvidenceFindFirstOrThrowArgs>(args?: SelectSubset<T, TopicVersionEvidenceFindFirstOrThrowArgs<ExtArgs>>): Prisma__TopicVersionEvidenceClient<$Result.GetResult<Prisma.$TopicVersionEvidencePayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more TopicVersionEvidences that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionEvidenceFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all TopicVersionEvidences
+     * const topicVersionEvidences = await prisma.topicVersionEvidence.findMany()
+     * 
+     * // Get first 10 TopicVersionEvidences
+     * const topicVersionEvidences = await prisma.topicVersionEvidence.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const topicVersionEvidenceWithIdOnly = await prisma.topicVersionEvidence.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends TopicVersionEvidenceFindManyArgs>(args?: SelectSubset<T, TopicVersionEvidenceFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicVersionEvidencePayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a TopicVersionEvidence.
+     * @param {TopicVersionEvidenceCreateArgs} args - Arguments to create a TopicVersionEvidence.
+     * @example
+     * // Create one TopicVersionEvidence
+     * const TopicVersionEvidence = await prisma.topicVersionEvidence.create({
+     *   data: {
+     *     // ... data to create a TopicVersionEvidence
+     *   }
+     * })
+     * 
+     */
+    create<T extends TopicVersionEvidenceCreateArgs>(args: SelectSubset<T, TopicVersionEvidenceCreateArgs<ExtArgs>>): Prisma__TopicVersionEvidenceClient<$Result.GetResult<Prisma.$TopicVersionEvidencePayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many TopicVersionEvidences.
+     * @param {TopicVersionEvidenceCreateManyArgs} args - Arguments to create many TopicVersionEvidences.
+     * @example
+     * // Create many TopicVersionEvidences
+     * const topicVersionEvidence = await prisma.topicVersionEvidence.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends TopicVersionEvidenceCreateManyArgs>(args?: SelectSubset<T, TopicVersionEvidenceCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many TopicVersionEvidences and returns the data saved in the database.
+     * @param {TopicVersionEvidenceCreateManyAndReturnArgs} args - Arguments to create many TopicVersionEvidences.
+     * @example
+     * // Create many TopicVersionEvidences
+     * const topicVersionEvidence = await prisma.topicVersionEvidence.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many TopicVersionEvidences and only return the `id`
+     * const topicVersionEvidenceWithIdOnly = await prisma.topicVersionEvidence.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends TopicVersionEvidenceCreateManyAndReturnArgs>(args?: SelectSubset<T, TopicVersionEvidenceCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicVersionEvidencePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a TopicVersionEvidence.
+     * @param {TopicVersionEvidenceDeleteArgs} args - Arguments to delete one TopicVersionEvidence.
+     * @example
+     * // Delete one TopicVersionEvidence
+     * const TopicVersionEvidence = await prisma.topicVersionEvidence.delete({
+     *   where: {
+     *     // ... filter to delete one TopicVersionEvidence
+     *   }
+     * })
+     * 
+     */
+    delete<T extends TopicVersionEvidenceDeleteArgs>(args: SelectSubset<T, TopicVersionEvidenceDeleteArgs<ExtArgs>>): Prisma__TopicVersionEvidenceClient<$Result.GetResult<Prisma.$TopicVersionEvidencePayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one TopicVersionEvidence.
+     * @param {TopicVersionEvidenceUpdateArgs} args - Arguments to update one TopicVersionEvidence.
+     * @example
+     * // Update one TopicVersionEvidence
+     * const topicVersionEvidence = await prisma.topicVersionEvidence.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends TopicVersionEvidenceUpdateArgs>(args: SelectSubset<T, TopicVersionEvidenceUpdateArgs<ExtArgs>>): Prisma__TopicVersionEvidenceClient<$Result.GetResult<Prisma.$TopicVersionEvidencePayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more TopicVersionEvidences.
+     * @param {TopicVersionEvidenceDeleteManyArgs} args - Arguments to filter TopicVersionEvidences to delete.
+     * @example
+     * // Delete a few TopicVersionEvidences
+     * const { count } = await prisma.topicVersionEvidence.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends TopicVersionEvidenceDeleteManyArgs>(args?: SelectSubset<T, TopicVersionEvidenceDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TopicVersionEvidences.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionEvidenceUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many TopicVersionEvidences
+     * const topicVersionEvidence = await prisma.topicVersionEvidence.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends TopicVersionEvidenceUpdateManyArgs>(args: SelectSubset<T, TopicVersionEvidenceUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TopicVersionEvidences and returns the data updated in the database.
+     * @param {TopicVersionEvidenceUpdateManyAndReturnArgs} args - Arguments to update many TopicVersionEvidences.
+     * @example
+     * // Update many TopicVersionEvidences
+     * const topicVersionEvidence = await prisma.topicVersionEvidence.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more TopicVersionEvidences and only return the `id`
+     * const topicVersionEvidenceWithIdOnly = await prisma.topicVersionEvidence.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends TopicVersionEvidenceUpdateManyAndReturnArgs>(args: SelectSubset<T, TopicVersionEvidenceUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicVersionEvidencePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one TopicVersionEvidence.
+     * @param {TopicVersionEvidenceUpsertArgs} args - Arguments to update or create a TopicVersionEvidence.
+     * @example
+     * // Update or create a TopicVersionEvidence
+     * const topicVersionEvidence = await prisma.topicVersionEvidence.upsert({
+     *   create: {
+     *     // ... data to create a TopicVersionEvidence
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the TopicVersionEvidence we want to update
+     *   }
+     * })
+     */
+    upsert<T extends TopicVersionEvidenceUpsertArgs>(args: SelectSubset<T, TopicVersionEvidenceUpsertArgs<ExtArgs>>): Prisma__TopicVersionEvidenceClient<$Result.GetResult<Prisma.$TopicVersionEvidencePayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of TopicVersionEvidences.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionEvidenceCountArgs} args - Arguments to filter TopicVersionEvidences to count.
+     * @example
+     * // Count the number of TopicVersionEvidences
+     * const count = await prisma.topicVersionEvidence.count({
+     *   where: {
+     *     // ... the filter for the TopicVersionEvidences we want to count
+     *   }
+     * })
+    **/
+    count<T extends TopicVersionEvidenceCountArgs>(
+      args?: Subset<T, TopicVersionEvidenceCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], TopicVersionEvidenceCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a TopicVersionEvidence.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionEvidenceAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends TopicVersionEvidenceAggregateArgs>(args: Subset<T, TopicVersionEvidenceAggregateArgs>): Prisma.PrismaPromise<GetTopicVersionEvidenceAggregateType<T>>
+
+    /**
+     * Group by TopicVersionEvidence.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicVersionEvidenceGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends TopicVersionEvidenceGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: TopicVersionEvidenceGroupByArgs['orderBy'] }
+        : { orderBy?: TopicVersionEvidenceGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, TopicVersionEvidenceGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetTopicVersionEvidenceGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the TopicVersionEvidence model
+   */
+  readonly fields: TopicVersionEvidenceFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for TopicVersionEvidence.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__TopicVersionEvidenceClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the TopicVersionEvidence model
+   */
+  interface TopicVersionEvidenceFieldRefs {
+    readonly id: FieldRef<"TopicVersionEvidence", 'BigInt'>
+    readonly projection_version_id: FieldRef<"TopicVersionEvidence", 'BigInt'>
+    readonly source_kind: FieldRef<"TopicVersionEvidence", 'String'>
+    readonly source_id: FieldRef<"TopicVersionEvidence", 'BigInt'>
+    readonly sort_order: FieldRef<"TopicVersionEvidence", 'Int'>
+    readonly excerpt_text: FieldRef<"TopicVersionEvidence", 'String'>
+    readonly speaker_id: FieldRef<"TopicVersionEvidence", 'String'>
+    readonly speaker_name: FieldRef<"TopicVersionEvidence", 'String'>
+    readonly occurred_at: FieldRef<"TopicVersionEvidence", 'DateTime'>
+    readonly metadata: FieldRef<"TopicVersionEvidence", 'Json'>
+    readonly created_at: FieldRef<"TopicVersionEvidence", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * TopicVersionEvidence findUnique
+   */
+  export type TopicVersionEvidenceFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionEvidence
+     */
+    select?: TopicVersionEvidenceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionEvidence
+     */
+    omit?: TopicVersionEvidenceOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicVersionEvidence to fetch.
+     */
+    where: TopicVersionEvidenceWhereUniqueInput
+  }
+
+  /**
+   * TopicVersionEvidence findUniqueOrThrow
+   */
+  export type TopicVersionEvidenceFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionEvidence
+     */
+    select?: TopicVersionEvidenceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionEvidence
+     */
+    omit?: TopicVersionEvidenceOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicVersionEvidence to fetch.
+     */
+    where: TopicVersionEvidenceWhereUniqueInput
+  }
+
+  /**
+   * TopicVersionEvidence findFirst
+   */
+  export type TopicVersionEvidenceFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionEvidence
+     */
+    select?: TopicVersionEvidenceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionEvidence
+     */
+    omit?: TopicVersionEvidenceOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicVersionEvidence to fetch.
+     */
+    where?: TopicVersionEvidenceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicVersionEvidences to fetch.
+     */
+    orderBy?: TopicVersionEvidenceOrderByWithRelationInput | TopicVersionEvidenceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TopicVersionEvidences.
+     */
+    cursor?: TopicVersionEvidenceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicVersionEvidences from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicVersionEvidences.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TopicVersionEvidences.
+     */
+    distinct?: TopicVersionEvidenceScalarFieldEnum | TopicVersionEvidenceScalarFieldEnum[]
+  }
+
+  /**
+   * TopicVersionEvidence findFirstOrThrow
+   */
+  export type TopicVersionEvidenceFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionEvidence
+     */
+    select?: TopicVersionEvidenceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionEvidence
+     */
+    omit?: TopicVersionEvidenceOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicVersionEvidence to fetch.
+     */
+    where?: TopicVersionEvidenceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicVersionEvidences to fetch.
+     */
+    orderBy?: TopicVersionEvidenceOrderByWithRelationInput | TopicVersionEvidenceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TopicVersionEvidences.
+     */
+    cursor?: TopicVersionEvidenceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicVersionEvidences from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicVersionEvidences.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TopicVersionEvidences.
+     */
+    distinct?: TopicVersionEvidenceScalarFieldEnum | TopicVersionEvidenceScalarFieldEnum[]
+  }
+
+  /**
+   * TopicVersionEvidence findMany
+   */
+  export type TopicVersionEvidenceFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionEvidence
+     */
+    select?: TopicVersionEvidenceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionEvidence
+     */
+    omit?: TopicVersionEvidenceOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicVersionEvidences to fetch.
+     */
+    where?: TopicVersionEvidenceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicVersionEvidences to fetch.
+     */
+    orderBy?: TopicVersionEvidenceOrderByWithRelationInput | TopicVersionEvidenceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing TopicVersionEvidences.
+     */
+    cursor?: TopicVersionEvidenceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicVersionEvidences from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicVersionEvidences.
+     */
+    skip?: number
+    distinct?: TopicVersionEvidenceScalarFieldEnum | TopicVersionEvidenceScalarFieldEnum[]
+  }
+
+  /**
+   * TopicVersionEvidence create
+   */
+  export type TopicVersionEvidenceCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionEvidence
+     */
+    select?: TopicVersionEvidenceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionEvidence
+     */
+    omit?: TopicVersionEvidenceOmit<ExtArgs> | null
+    /**
+     * The data needed to create a TopicVersionEvidence.
+     */
+    data: XOR<TopicVersionEvidenceCreateInput, TopicVersionEvidenceUncheckedCreateInput>
+  }
+
+  /**
+   * TopicVersionEvidence createMany
+   */
+  export type TopicVersionEvidenceCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many TopicVersionEvidences.
+     */
+    data: TopicVersionEvidenceCreateManyInput | TopicVersionEvidenceCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TopicVersionEvidence createManyAndReturn
+   */
+  export type TopicVersionEvidenceCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionEvidence
+     */
+    select?: TopicVersionEvidenceSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionEvidence
+     */
+    omit?: TopicVersionEvidenceOmit<ExtArgs> | null
+    /**
+     * The data used to create many TopicVersionEvidences.
+     */
+    data: TopicVersionEvidenceCreateManyInput | TopicVersionEvidenceCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TopicVersionEvidence update
+   */
+  export type TopicVersionEvidenceUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionEvidence
+     */
+    select?: TopicVersionEvidenceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionEvidence
+     */
+    omit?: TopicVersionEvidenceOmit<ExtArgs> | null
+    /**
+     * The data needed to update a TopicVersionEvidence.
+     */
+    data: XOR<TopicVersionEvidenceUpdateInput, TopicVersionEvidenceUncheckedUpdateInput>
+    /**
+     * Choose, which TopicVersionEvidence to update.
+     */
+    where: TopicVersionEvidenceWhereUniqueInput
+  }
+
+  /**
+   * TopicVersionEvidence updateMany
+   */
+  export type TopicVersionEvidenceUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update TopicVersionEvidences.
+     */
+    data: XOR<TopicVersionEvidenceUpdateManyMutationInput, TopicVersionEvidenceUncheckedUpdateManyInput>
+    /**
+     * Filter which TopicVersionEvidences to update
+     */
+    where?: TopicVersionEvidenceWhereInput
+    /**
+     * Limit how many TopicVersionEvidences to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicVersionEvidence updateManyAndReturn
+   */
+  export type TopicVersionEvidenceUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionEvidence
+     */
+    select?: TopicVersionEvidenceSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionEvidence
+     */
+    omit?: TopicVersionEvidenceOmit<ExtArgs> | null
+    /**
+     * The data used to update TopicVersionEvidences.
+     */
+    data: XOR<TopicVersionEvidenceUpdateManyMutationInput, TopicVersionEvidenceUncheckedUpdateManyInput>
+    /**
+     * Filter which TopicVersionEvidences to update
+     */
+    where?: TopicVersionEvidenceWhereInput
+    /**
+     * Limit how many TopicVersionEvidences to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicVersionEvidence upsert
+   */
+  export type TopicVersionEvidenceUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionEvidence
+     */
+    select?: TopicVersionEvidenceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionEvidence
+     */
+    omit?: TopicVersionEvidenceOmit<ExtArgs> | null
+    /**
+     * The filter to search for the TopicVersionEvidence to update in case it exists.
+     */
+    where: TopicVersionEvidenceWhereUniqueInput
+    /**
+     * In case the TopicVersionEvidence found by the `where` argument doesn't exist, create a new TopicVersionEvidence with this data.
+     */
+    create: XOR<TopicVersionEvidenceCreateInput, TopicVersionEvidenceUncheckedCreateInput>
+    /**
+     * In case the TopicVersionEvidence was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<TopicVersionEvidenceUpdateInput, TopicVersionEvidenceUncheckedUpdateInput>
+  }
+
+  /**
+   * TopicVersionEvidence delete
+   */
+  export type TopicVersionEvidenceDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionEvidence
+     */
+    select?: TopicVersionEvidenceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionEvidence
+     */
+    omit?: TopicVersionEvidenceOmit<ExtArgs> | null
+    /**
+     * Filter which TopicVersionEvidence to delete.
+     */
+    where: TopicVersionEvidenceWhereUniqueInput
+  }
+
+  /**
+   * TopicVersionEvidence deleteMany
+   */
+  export type TopicVersionEvidenceDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TopicVersionEvidences to delete
+     */
+    where?: TopicVersionEvidenceWhereInput
+    /**
+     * Limit how many TopicVersionEvidences to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicVersionEvidence without action
+   */
+  export type TopicVersionEvidenceDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicVersionEvidence
+     */
+    select?: TopicVersionEvidenceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicVersionEvidence
+     */
+    omit?: TopicVersionEvidenceOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model TopicReviewEvent
+   */
+
+  export type AggregateTopicReviewEvent = {
+    _count: TopicReviewEventCountAggregateOutputType | null
+    _avg: TopicReviewEventAvgAggregateOutputType | null
+    _sum: TopicReviewEventSumAggregateOutputType | null
+    _min: TopicReviewEventMinAggregateOutputType | null
+    _max: TopicReviewEventMaxAggregateOutputType | null
+  }
+
+  export type TopicReviewEventAvgAggregateOutputType = {
+    id: number | null
+    topic_id: number | null
+    base_projection_version_id: number | null
+    result_projection_version_id: number | null
+  }
+
+  export type TopicReviewEventSumAggregateOutputType = {
+    id: bigint | null
+    topic_id: bigint | null
+    base_projection_version_id: bigint | null
+    result_projection_version_id: bigint | null
+  }
+
+  export type TopicReviewEventMinAggregateOutputType = {
+    id: bigint | null
+    topic_id: bigint | null
+    base_projection_version_id: bigint | null
+    result_projection_version_id: bigint | null
+    action_type: string | null
+    status: string | null
+    created_by: string | null
+    manual_note: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type TopicReviewEventMaxAggregateOutputType = {
+    id: bigint | null
+    topic_id: bigint | null
+    base_projection_version_id: bigint | null
+    result_projection_version_id: bigint | null
+    action_type: string | null
+    status: string | null
+    created_by: string | null
+    manual_note: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type TopicReviewEventCountAggregateOutputType = {
+    id: number
+    topic_id: number
+    base_projection_version_id: number
+    result_projection_version_id: number
+    action_type: number
+    status: number
+    created_by: number
+    manual_note: number
+    patch_json: number
+    metadata: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type TopicReviewEventAvgAggregateInputType = {
+    id?: true
+    topic_id?: true
+    base_projection_version_id?: true
+    result_projection_version_id?: true
+  }
+
+  export type TopicReviewEventSumAggregateInputType = {
+    id?: true
+    topic_id?: true
+    base_projection_version_id?: true
+    result_projection_version_id?: true
+  }
+
+  export type TopicReviewEventMinAggregateInputType = {
+    id?: true
+    topic_id?: true
+    base_projection_version_id?: true
+    result_projection_version_id?: true
+    action_type?: true
+    status?: true
+    created_by?: true
+    manual_note?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type TopicReviewEventMaxAggregateInputType = {
+    id?: true
+    topic_id?: true
+    base_projection_version_id?: true
+    result_projection_version_id?: true
+    action_type?: true
+    status?: true
+    created_by?: true
+    manual_note?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type TopicReviewEventCountAggregateInputType = {
+    id?: true
+    topic_id?: true
+    base_projection_version_id?: true
+    result_projection_version_id?: true
+    action_type?: true
+    status?: true
+    created_by?: true
+    manual_note?: true
+    patch_json?: true
+    metadata?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type TopicReviewEventAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TopicReviewEvent to aggregate.
+     */
+    where?: TopicReviewEventWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicReviewEvents to fetch.
+     */
+    orderBy?: TopicReviewEventOrderByWithRelationInput | TopicReviewEventOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: TopicReviewEventWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicReviewEvents from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicReviewEvents.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned TopicReviewEvents
+    **/
+    _count?: true | TopicReviewEventCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: TopicReviewEventAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: TopicReviewEventSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: TopicReviewEventMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: TopicReviewEventMaxAggregateInputType
+  }
+
+  export type GetTopicReviewEventAggregateType<T extends TopicReviewEventAggregateArgs> = {
+        [P in keyof T & keyof AggregateTopicReviewEvent]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateTopicReviewEvent[P]>
+      : GetScalarType<T[P], AggregateTopicReviewEvent[P]>
+  }
+
+
+
+
+  export type TopicReviewEventGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: TopicReviewEventWhereInput
+    orderBy?: TopicReviewEventOrderByWithAggregationInput | TopicReviewEventOrderByWithAggregationInput[]
+    by: TopicReviewEventScalarFieldEnum[] | TopicReviewEventScalarFieldEnum
+    having?: TopicReviewEventScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: TopicReviewEventCountAggregateInputType | true
+    _avg?: TopicReviewEventAvgAggregateInputType
+    _sum?: TopicReviewEventSumAggregateInputType
+    _min?: TopicReviewEventMinAggregateInputType
+    _max?: TopicReviewEventMaxAggregateInputType
+  }
+
+  export type TopicReviewEventGroupByOutputType = {
+    id: bigint
+    topic_id: bigint
+    base_projection_version_id: bigint | null
+    result_projection_version_id: bigint | null
+    action_type: string
+    status: string
+    created_by: string | null
+    manual_note: string | null
+    patch_json: JsonValue | null
+    metadata: JsonValue | null
+    created_at: Date
+    updated_at: Date
+    _count: TopicReviewEventCountAggregateOutputType | null
+    _avg: TopicReviewEventAvgAggregateOutputType | null
+    _sum: TopicReviewEventSumAggregateOutputType | null
+    _min: TopicReviewEventMinAggregateOutputType | null
+    _max: TopicReviewEventMaxAggregateOutputType | null
+  }
+
+  type GetTopicReviewEventGroupByPayload<T extends TopicReviewEventGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<TopicReviewEventGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof TopicReviewEventGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], TopicReviewEventGroupByOutputType[P]>
+            : GetScalarType<T[P], TopicReviewEventGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type TopicReviewEventSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    topic_id?: boolean
+    base_projection_version_id?: boolean
+    result_projection_version_id?: boolean
+    action_type?: boolean
+    status?: boolean
+    created_by?: boolean
+    manual_note?: boolean
+    patch_json?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["topicReviewEvent"]>
+
+  export type TopicReviewEventSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    topic_id?: boolean
+    base_projection_version_id?: boolean
+    result_projection_version_id?: boolean
+    action_type?: boolean
+    status?: boolean
+    created_by?: boolean
+    manual_note?: boolean
+    patch_json?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["topicReviewEvent"]>
+
+  export type TopicReviewEventSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    topic_id?: boolean
+    base_projection_version_id?: boolean
+    result_projection_version_id?: boolean
+    action_type?: boolean
+    status?: boolean
+    created_by?: boolean
+    manual_note?: boolean
+    patch_json?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["topicReviewEvent"]>
+
+  export type TopicReviewEventSelectScalar = {
+    id?: boolean
+    topic_id?: boolean
+    base_projection_version_id?: boolean
+    result_projection_version_id?: boolean
+    action_type?: boolean
+    status?: boolean
+    created_by?: boolean
+    manual_note?: boolean
+    patch_json?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type TopicReviewEventOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "topic_id" | "base_projection_version_id" | "result_projection_version_id" | "action_type" | "status" | "created_by" | "manual_note" | "patch_json" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["topicReviewEvent"]>
+
+  export type $TopicReviewEventPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "TopicReviewEvent"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      topic_id: bigint
+      base_projection_version_id: bigint | null
+      result_projection_version_id: bigint | null
+      action_type: string
+      status: string
+      created_by: string | null
+      manual_note: string | null
+      patch_json: Prisma.JsonValue | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["topicReviewEvent"]>
+    composites: {}
+  }
+
+  type TopicReviewEventGetPayload<S extends boolean | null | undefined | TopicReviewEventDefaultArgs> = $Result.GetResult<Prisma.$TopicReviewEventPayload, S>
+
+  type TopicReviewEventCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<TopicReviewEventFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: TopicReviewEventCountAggregateInputType | true
+    }
+
+  export interface TopicReviewEventDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['TopicReviewEvent'], meta: { name: 'TopicReviewEvent' } }
+    /**
+     * Find zero or one TopicReviewEvent that matches the filter.
+     * @param {TopicReviewEventFindUniqueArgs} args - Arguments to find a TopicReviewEvent
+     * @example
+     * // Get one TopicReviewEvent
+     * const topicReviewEvent = await prisma.topicReviewEvent.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends TopicReviewEventFindUniqueArgs>(args: SelectSubset<T, TopicReviewEventFindUniqueArgs<ExtArgs>>): Prisma__TopicReviewEventClient<$Result.GetResult<Prisma.$TopicReviewEventPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one TopicReviewEvent that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {TopicReviewEventFindUniqueOrThrowArgs} args - Arguments to find a TopicReviewEvent
+     * @example
+     * // Get one TopicReviewEvent
+     * const topicReviewEvent = await prisma.topicReviewEvent.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends TopicReviewEventFindUniqueOrThrowArgs>(args: SelectSubset<T, TopicReviewEventFindUniqueOrThrowArgs<ExtArgs>>): Prisma__TopicReviewEventClient<$Result.GetResult<Prisma.$TopicReviewEventPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first TopicReviewEvent that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicReviewEventFindFirstArgs} args - Arguments to find a TopicReviewEvent
+     * @example
+     * // Get one TopicReviewEvent
+     * const topicReviewEvent = await prisma.topicReviewEvent.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends TopicReviewEventFindFirstArgs>(args?: SelectSubset<T, TopicReviewEventFindFirstArgs<ExtArgs>>): Prisma__TopicReviewEventClient<$Result.GetResult<Prisma.$TopicReviewEventPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first TopicReviewEvent that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicReviewEventFindFirstOrThrowArgs} args - Arguments to find a TopicReviewEvent
+     * @example
+     * // Get one TopicReviewEvent
+     * const topicReviewEvent = await prisma.topicReviewEvent.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends TopicReviewEventFindFirstOrThrowArgs>(args?: SelectSubset<T, TopicReviewEventFindFirstOrThrowArgs<ExtArgs>>): Prisma__TopicReviewEventClient<$Result.GetResult<Prisma.$TopicReviewEventPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more TopicReviewEvents that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicReviewEventFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all TopicReviewEvents
+     * const topicReviewEvents = await prisma.topicReviewEvent.findMany()
+     * 
+     * // Get first 10 TopicReviewEvents
+     * const topicReviewEvents = await prisma.topicReviewEvent.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const topicReviewEventWithIdOnly = await prisma.topicReviewEvent.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends TopicReviewEventFindManyArgs>(args?: SelectSubset<T, TopicReviewEventFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicReviewEventPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a TopicReviewEvent.
+     * @param {TopicReviewEventCreateArgs} args - Arguments to create a TopicReviewEvent.
+     * @example
+     * // Create one TopicReviewEvent
+     * const TopicReviewEvent = await prisma.topicReviewEvent.create({
+     *   data: {
+     *     // ... data to create a TopicReviewEvent
+     *   }
+     * })
+     * 
+     */
+    create<T extends TopicReviewEventCreateArgs>(args: SelectSubset<T, TopicReviewEventCreateArgs<ExtArgs>>): Prisma__TopicReviewEventClient<$Result.GetResult<Prisma.$TopicReviewEventPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many TopicReviewEvents.
+     * @param {TopicReviewEventCreateManyArgs} args - Arguments to create many TopicReviewEvents.
+     * @example
+     * // Create many TopicReviewEvents
+     * const topicReviewEvent = await prisma.topicReviewEvent.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends TopicReviewEventCreateManyArgs>(args?: SelectSubset<T, TopicReviewEventCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many TopicReviewEvents and returns the data saved in the database.
+     * @param {TopicReviewEventCreateManyAndReturnArgs} args - Arguments to create many TopicReviewEvents.
+     * @example
+     * // Create many TopicReviewEvents
+     * const topicReviewEvent = await prisma.topicReviewEvent.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many TopicReviewEvents and only return the `id`
+     * const topicReviewEventWithIdOnly = await prisma.topicReviewEvent.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends TopicReviewEventCreateManyAndReturnArgs>(args?: SelectSubset<T, TopicReviewEventCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicReviewEventPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a TopicReviewEvent.
+     * @param {TopicReviewEventDeleteArgs} args - Arguments to delete one TopicReviewEvent.
+     * @example
+     * // Delete one TopicReviewEvent
+     * const TopicReviewEvent = await prisma.topicReviewEvent.delete({
+     *   where: {
+     *     // ... filter to delete one TopicReviewEvent
+     *   }
+     * })
+     * 
+     */
+    delete<T extends TopicReviewEventDeleteArgs>(args: SelectSubset<T, TopicReviewEventDeleteArgs<ExtArgs>>): Prisma__TopicReviewEventClient<$Result.GetResult<Prisma.$TopicReviewEventPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one TopicReviewEvent.
+     * @param {TopicReviewEventUpdateArgs} args - Arguments to update one TopicReviewEvent.
+     * @example
+     * // Update one TopicReviewEvent
+     * const topicReviewEvent = await prisma.topicReviewEvent.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends TopicReviewEventUpdateArgs>(args: SelectSubset<T, TopicReviewEventUpdateArgs<ExtArgs>>): Prisma__TopicReviewEventClient<$Result.GetResult<Prisma.$TopicReviewEventPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more TopicReviewEvents.
+     * @param {TopicReviewEventDeleteManyArgs} args - Arguments to filter TopicReviewEvents to delete.
+     * @example
+     * // Delete a few TopicReviewEvents
+     * const { count } = await prisma.topicReviewEvent.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends TopicReviewEventDeleteManyArgs>(args?: SelectSubset<T, TopicReviewEventDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TopicReviewEvents.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicReviewEventUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many TopicReviewEvents
+     * const topicReviewEvent = await prisma.topicReviewEvent.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends TopicReviewEventUpdateManyArgs>(args: SelectSubset<T, TopicReviewEventUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TopicReviewEvents and returns the data updated in the database.
+     * @param {TopicReviewEventUpdateManyAndReturnArgs} args - Arguments to update many TopicReviewEvents.
+     * @example
+     * // Update many TopicReviewEvents
+     * const topicReviewEvent = await prisma.topicReviewEvent.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more TopicReviewEvents and only return the `id`
+     * const topicReviewEventWithIdOnly = await prisma.topicReviewEvent.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends TopicReviewEventUpdateManyAndReturnArgs>(args: SelectSubset<T, TopicReviewEventUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TopicReviewEventPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one TopicReviewEvent.
+     * @param {TopicReviewEventUpsertArgs} args - Arguments to update or create a TopicReviewEvent.
+     * @example
+     * // Update or create a TopicReviewEvent
+     * const topicReviewEvent = await prisma.topicReviewEvent.upsert({
+     *   create: {
+     *     // ... data to create a TopicReviewEvent
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the TopicReviewEvent we want to update
+     *   }
+     * })
+     */
+    upsert<T extends TopicReviewEventUpsertArgs>(args: SelectSubset<T, TopicReviewEventUpsertArgs<ExtArgs>>): Prisma__TopicReviewEventClient<$Result.GetResult<Prisma.$TopicReviewEventPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of TopicReviewEvents.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicReviewEventCountArgs} args - Arguments to filter TopicReviewEvents to count.
+     * @example
+     * // Count the number of TopicReviewEvents
+     * const count = await prisma.topicReviewEvent.count({
+     *   where: {
+     *     // ... the filter for the TopicReviewEvents we want to count
+     *   }
+     * })
+    **/
+    count<T extends TopicReviewEventCountArgs>(
+      args?: Subset<T, TopicReviewEventCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], TopicReviewEventCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a TopicReviewEvent.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicReviewEventAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends TopicReviewEventAggregateArgs>(args: Subset<T, TopicReviewEventAggregateArgs>): Prisma.PrismaPromise<GetTopicReviewEventAggregateType<T>>
+
+    /**
+     * Group by TopicReviewEvent.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TopicReviewEventGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends TopicReviewEventGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: TopicReviewEventGroupByArgs['orderBy'] }
+        : { orderBy?: TopicReviewEventGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, TopicReviewEventGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetTopicReviewEventGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the TopicReviewEvent model
+   */
+  readonly fields: TopicReviewEventFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for TopicReviewEvent.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__TopicReviewEventClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the TopicReviewEvent model
+   */
+  interface TopicReviewEventFieldRefs {
+    readonly id: FieldRef<"TopicReviewEvent", 'BigInt'>
+    readonly topic_id: FieldRef<"TopicReviewEvent", 'BigInt'>
+    readonly base_projection_version_id: FieldRef<"TopicReviewEvent", 'BigInt'>
+    readonly result_projection_version_id: FieldRef<"TopicReviewEvent", 'BigInt'>
+    readonly action_type: FieldRef<"TopicReviewEvent", 'String'>
+    readonly status: FieldRef<"TopicReviewEvent", 'String'>
+    readonly created_by: FieldRef<"TopicReviewEvent", 'String'>
+    readonly manual_note: FieldRef<"TopicReviewEvent", 'String'>
+    readonly patch_json: FieldRef<"TopicReviewEvent", 'Json'>
+    readonly metadata: FieldRef<"TopicReviewEvent", 'Json'>
+    readonly created_at: FieldRef<"TopicReviewEvent", 'DateTime'>
+    readonly updated_at: FieldRef<"TopicReviewEvent", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * TopicReviewEvent findUnique
+   */
+  export type TopicReviewEventFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicReviewEvent
+     */
+    select?: TopicReviewEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicReviewEvent
+     */
+    omit?: TopicReviewEventOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicReviewEvent to fetch.
+     */
+    where: TopicReviewEventWhereUniqueInput
+  }
+
+  /**
+   * TopicReviewEvent findUniqueOrThrow
+   */
+  export type TopicReviewEventFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicReviewEvent
+     */
+    select?: TopicReviewEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicReviewEvent
+     */
+    omit?: TopicReviewEventOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicReviewEvent to fetch.
+     */
+    where: TopicReviewEventWhereUniqueInput
+  }
+
+  /**
+   * TopicReviewEvent findFirst
+   */
+  export type TopicReviewEventFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicReviewEvent
+     */
+    select?: TopicReviewEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicReviewEvent
+     */
+    omit?: TopicReviewEventOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicReviewEvent to fetch.
+     */
+    where?: TopicReviewEventWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicReviewEvents to fetch.
+     */
+    orderBy?: TopicReviewEventOrderByWithRelationInput | TopicReviewEventOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TopicReviewEvents.
+     */
+    cursor?: TopicReviewEventWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicReviewEvents from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicReviewEvents.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TopicReviewEvents.
+     */
+    distinct?: TopicReviewEventScalarFieldEnum | TopicReviewEventScalarFieldEnum[]
+  }
+
+  /**
+   * TopicReviewEvent findFirstOrThrow
+   */
+  export type TopicReviewEventFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicReviewEvent
+     */
+    select?: TopicReviewEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicReviewEvent
+     */
+    omit?: TopicReviewEventOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicReviewEvent to fetch.
+     */
+    where?: TopicReviewEventWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicReviewEvents to fetch.
+     */
+    orderBy?: TopicReviewEventOrderByWithRelationInput | TopicReviewEventOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TopicReviewEvents.
+     */
+    cursor?: TopicReviewEventWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicReviewEvents from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicReviewEvents.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TopicReviewEvents.
+     */
+    distinct?: TopicReviewEventScalarFieldEnum | TopicReviewEventScalarFieldEnum[]
+  }
+
+  /**
+   * TopicReviewEvent findMany
+   */
+  export type TopicReviewEventFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicReviewEvent
+     */
+    select?: TopicReviewEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicReviewEvent
+     */
+    omit?: TopicReviewEventOmit<ExtArgs> | null
+    /**
+     * Filter, which TopicReviewEvents to fetch.
+     */
+    where?: TopicReviewEventWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TopicReviewEvents to fetch.
+     */
+    orderBy?: TopicReviewEventOrderByWithRelationInput | TopicReviewEventOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing TopicReviewEvents.
+     */
+    cursor?: TopicReviewEventWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TopicReviewEvents from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TopicReviewEvents.
+     */
+    skip?: number
+    distinct?: TopicReviewEventScalarFieldEnum | TopicReviewEventScalarFieldEnum[]
+  }
+
+  /**
+   * TopicReviewEvent create
+   */
+  export type TopicReviewEventCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicReviewEvent
+     */
+    select?: TopicReviewEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicReviewEvent
+     */
+    omit?: TopicReviewEventOmit<ExtArgs> | null
+    /**
+     * The data needed to create a TopicReviewEvent.
+     */
+    data: XOR<TopicReviewEventCreateInput, TopicReviewEventUncheckedCreateInput>
+  }
+
+  /**
+   * TopicReviewEvent createMany
+   */
+  export type TopicReviewEventCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many TopicReviewEvents.
+     */
+    data: TopicReviewEventCreateManyInput | TopicReviewEventCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TopicReviewEvent createManyAndReturn
+   */
+  export type TopicReviewEventCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicReviewEvent
+     */
+    select?: TopicReviewEventSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicReviewEvent
+     */
+    omit?: TopicReviewEventOmit<ExtArgs> | null
+    /**
+     * The data used to create many TopicReviewEvents.
+     */
+    data: TopicReviewEventCreateManyInput | TopicReviewEventCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TopicReviewEvent update
+   */
+  export type TopicReviewEventUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicReviewEvent
+     */
+    select?: TopicReviewEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicReviewEvent
+     */
+    omit?: TopicReviewEventOmit<ExtArgs> | null
+    /**
+     * The data needed to update a TopicReviewEvent.
+     */
+    data: XOR<TopicReviewEventUpdateInput, TopicReviewEventUncheckedUpdateInput>
+    /**
+     * Choose, which TopicReviewEvent to update.
+     */
+    where: TopicReviewEventWhereUniqueInput
+  }
+
+  /**
+   * TopicReviewEvent updateMany
+   */
+  export type TopicReviewEventUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update TopicReviewEvents.
+     */
+    data: XOR<TopicReviewEventUpdateManyMutationInput, TopicReviewEventUncheckedUpdateManyInput>
+    /**
+     * Filter which TopicReviewEvents to update
+     */
+    where?: TopicReviewEventWhereInput
+    /**
+     * Limit how many TopicReviewEvents to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicReviewEvent updateManyAndReturn
+   */
+  export type TopicReviewEventUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicReviewEvent
+     */
+    select?: TopicReviewEventSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicReviewEvent
+     */
+    omit?: TopicReviewEventOmit<ExtArgs> | null
+    /**
+     * The data used to update TopicReviewEvents.
+     */
+    data: XOR<TopicReviewEventUpdateManyMutationInput, TopicReviewEventUncheckedUpdateManyInput>
+    /**
+     * Filter which TopicReviewEvents to update
+     */
+    where?: TopicReviewEventWhereInput
+    /**
+     * Limit how many TopicReviewEvents to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicReviewEvent upsert
+   */
+  export type TopicReviewEventUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicReviewEvent
+     */
+    select?: TopicReviewEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicReviewEvent
+     */
+    omit?: TopicReviewEventOmit<ExtArgs> | null
+    /**
+     * The filter to search for the TopicReviewEvent to update in case it exists.
+     */
+    where: TopicReviewEventWhereUniqueInput
+    /**
+     * In case the TopicReviewEvent found by the `where` argument doesn't exist, create a new TopicReviewEvent with this data.
+     */
+    create: XOR<TopicReviewEventCreateInput, TopicReviewEventUncheckedCreateInput>
+    /**
+     * In case the TopicReviewEvent was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<TopicReviewEventUpdateInput, TopicReviewEventUncheckedUpdateInput>
+  }
+
+  /**
+   * TopicReviewEvent delete
+   */
+  export type TopicReviewEventDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicReviewEvent
+     */
+    select?: TopicReviewEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicReviewEvent
+     */
+    omit?: TopicReviewEventOmit<ExtArgs> | null
+    /**
+     * Filter which TopicReviewEvent to delete.
+     */
+    where: TopicReviewEventWhereUniqueInput
+  }
+
+  /**
+   * TopicReviewEvent deleteMany
+   */
+  export type TopicReviewEventDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TopicReviewEvents to delete
+     */
+    where?: TopicReviewEventWhereInput
+    /**
+     * Limit how many TopicReviewEvents to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * TopicReviewEvent without action
+   */
+  export type TopicReviewEventDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TopicReviewEvent
+     */
+    select?: TopicReviewEventSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the TopicReviewEvent
+     */
+    omit?: TopicReviewEventOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model GoldenChatCase
+   */
+
+  export type AggregateGoldenChatCase = {
+    _count: GoldenChatCaseCountAggregateOutputType | null
+    _avg: GoldenChatCaseAvgAggregateOutputType | null
+    _sum: GoldenChatCaseSumAggregateOutputType | null
+    _min: GoldenChatCaseMinAggregateOutputType | null
+    _max: GoldenChatCaseMaxAggregateOutputType | null
+  }
+
+  export type GoldenChatCaseAvgAggregateOutputType = {
+    id: number | null
+    chat_space_id: number | null
+    topic_id: number | null
+    source_projection_version_id: number | null
+  }
+
+  export type GoldenChatCaseSumAggregateOutputType = {
+    id: bigint | null
+    chat_space_id: bigint | null
+    topic_id: bigint | null
+    source_projection_version_id: bigint | null
+  }
+
+  export type GoldenChatCaseMinAggregateOutputType = {
+    id: bigint | null
+    chat_space_type: string | null
+    chat_space_id: bigint | null
+    topic_id: bigint | null
+    source_projection_version_id: bigint | null
+    label: string | null
+    status: string | null
+    input_bundle_hash: string | null
+    created_by: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type GoldenChatCaseMaxAggregateOutputType = {
+    id: bigint | null
+    chat_space_type: string | null
+    chat_space_id: bigint | null
+    topic_id: bigint | null
+    source_projection_version_id: bigint | null
+    label: string | null
+    status: string | null
+    input_bundle_hash: string | null
+    created_by: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type GoldenChatCaseCountAggregateOutputType = {
+    id: number
+    chat_space_type: number
+    chat_space_id: number
+    topic_id: number
+    source_projection_version_id: number
+    label: number
+    status: number
+    input_bundle_hash: number
+    expected_snapshot_json: number
+    fixture_bundle_json: number
+    created_by: number
+    metadata: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type GoldenChatCaseAvgAggregateInputType = {
+    id?: true
+    chat_space_id?: true
+    topic_id?: true
+    source_projection_version_id?: true
+  }
+
+  export type GoldenChatCaseSumAggregateInputType = {
+    id?: true
+    chat_space_id?: true
+    topic_id?: true
+    source_projection_version_id?: true
+  }
+
+  export type GoldenChatCaseMinAggregateInputType = {
+    id?: true
+    chat_space_type?: true
+    chat_space_id?: true
+    topic_id?: true
+    source_projection_version_id?: true
+    label?: true
+    status?: true
+    input_bundle_hash?: true
+    created_by?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type GoldenChatCaseMaxAggregateInputType = {
+    id?: true
+    chat_space_type?: true
+    chat_space_id?: true
+    topic_id?: true
+    source_projection_version_id?: true
+    label?: true
+    status?: true
+    input_bundle_hash?: true
+    created_by?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type GoldenChatCaseCountAggregateInputType = {
+    id?: true
+    chat_space_type?: true
+    chat_space_id?: true
+    topic_id?: true
+    source_projection_version_id?: true
+    label?: true
+    status?: true
+    input_bundle_hash?: true
+    expected_snapshot_json?: true
+    fixture_bundle_json?: true
+    created_by?: true
+    metadata?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type GoldenChatCaseAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which GoldenChatCase to aggregate.
+     */
+    where?: GoldenChatCaseWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of GoldenChatCases to fetch.
+     */
+    orderBy?: GoldenChatCaseOrderByWithRelationInput | GoldenChatCaseOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: GoldenChatCaseWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` GoldenChatCases from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` GoldenChatCases.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned GoldenChatCases
+    **/
+    _count?: true | GoldenChatCaseCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: GoldenChatCaseAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: GoldenChatCaseSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: GoldenChatCaseMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: GoldenChatCaseMaxAggregateInputType
+  }
+
+  export type GetGoldenChatCaseAggregateType<T extends GoldenChatCaseAggregateArgs> = {
+        [P in keyof T & keyof AggregateGoldenChatCase]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateGoldenChatCase[P]>
+      : GetScalarType<T[P], AggregateGoldenChatCase[P]>
+  }
+
+
+
+
+  export type GoldenChatCaseGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: GoldenChatCaseWhereInput
+    orderBy?: GoldenChatCaseOrderByWithAggregationInput | GoldenChatCaseOrderByWithAggregationInput[]
+    by: GoldenChatCaseScalarFieldEnum[] | GoldenChatCaseScalarFieldEnum
+    having?: GoldenChatCaseScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: GoldenChatCaseCountAggregateInputType | true
+    _avg?: GoldenChatCaseAvgAggregateInputType
+    _sum?: GoldenChatCaseSumAggregateInputType
+    _min?: GoldenChatCaseMinAggregateInputType
+    _max?: GoldenChatCaseMaxAggregateInputType
+  }
+
+  export type GoldenChatCaseGroupByOutputType = {
+    id: bigint
+    chat_space_type: string
+    chat_space_id: bigint
+    topic_id: bigint | null
+    source_projection_version_id: bigint
+    label: string | null
+    status: string
+    input_bundle_hash: string
+    expected_snapshot_json: JsonValue
+    fixture_bundle_json: JsonValue
+    created_by: string | null
+    metadata: JsonValue | null
+    created_at: Date
+    updated_at: Date
+    _count: GoldenChatCaseCountAggregateOutputType | null
+    _avg: GoldenChatCaseAvgAggregateOutputType | null
+    _sum: GoldenChatCaseSumAggregateOutputType | null
+    _min: GoldenChatCaseMinAggregateOutputType | null
+    _max: GoldenChatCaseMaxAggregateOutputType | null
+  }
+
+  type GetGoldenChatCaseGroupByPayload<T extends GoldenChatCaseGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<GoldenChatCaseGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof GoldenChatCaseGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], GoldenChatCaseGroupByOutputType[P]>
+            : GetScalarType<T[P], GoldenChatCaseGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type GoldenChatCaseSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    chat_space_type?: boolean
+    chat_space_id?: boolean
+    topic_id?: boolean
+    source_projection_version_id?: boolean
+    label?: boolean
+    status?: boolean
+    input_bundle_hash?: boolean
+    expected_snapshot_json?: boolean
+    fixture_bundle_json?: boolean
+    created_by?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["goldenChatCase"]>
+
+  export type GoldenChatCaseSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    chat_space_type?: boolean
+    chat_space_id?: boolean
+    topic_id?: boolean
+    source_projection_version_id?: boolean
+    label?: boolean
+    status?: boolean
+    input_bundle_hash?: boolean
+    expected_snapshot_json?: boolean
+    fixture_bundle_json?: boolean
+    created_by?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["goldenChatCase"]>
+
+  export type GoldenChatCaseSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    chat_space_type?: boolean
+    chat_space_id?: boolean
+    topic_id?: boolean
+    source_projection_version_id?: boolean
+    label?: boolean
+    status?: boolean
+    input_bundle_hash?: boolean
+    expected_snapshot_json?: boolean
+    fixture_bundle_json?: boolean
+    created_by?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["goldenChatCase"]>
+
+  export type GoldenChatCaseSelectScalar = {
+    id?: boolean
+    chat_space_type?: boolean
+    chat_space_id?: boolean
+    topic_id?: boolean
+    source_projection_version_id?: boolean
+    label?: boolean
+    status?: boolean
+    input_bundle_hash?: boolean
+    expected_snapshot_json?: boolean
+    fixture_bundle_json?: boolean
+    created_by?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type GoldenChatCaseOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "chat_space_type" | "chat_space_id" | "topic_id" | "source_projection_version_id" | "label" | "status" | "input_bundle_hash" | "expected_snapshot_json" | "fixture_bundle_json" | "created_by" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["goldenChatCase"]>
+
+  export type $GoldenChatCasePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "GoldenChatCase"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      chat_space_type: string
+      chat_space_id: bigint
+      topic_id: bigint | null
+      source_projection_version_id: bigint
+      label: string | null
+      status: string
+      input_bundle_hash: string
+      expected_snapshot_json: Prisma.JsonValue
+      fixture_bundle_json: Prisma.JsonValue
+      created_by: string | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["goldenChatCase"]>
+    composites: {}
+  }
+
+  type GoldenChatCaseGetPayload<S extends boolean | null | undefined | GoldenChatCaseDefaultArgs> = $Result.GetResult<Prisma.$GoldenChatCasePayload, S>
+
+  type GoldenChatCaseCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<GoldenChatCaseFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: GoldenChatCaseCountAggregateInputType | true
+    }
+
+  export interface GoldenChatCaseDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['GoldenChatCase'], meta: { name: 'GoldenChatCase' } }
+    /**
+     * Find zero or one GoldenChatCase that matches the filter.
+     * @param {GoldenChatCaseFindUniqueArgs} args - Arguments to find a GoldenChatCase
+     * @example
+     * // Get one GoldenChatCase
+     * const goldenChatCase = await prisma.goldenChatCase.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends GoldenChatCaseFindUniqueArgs>(args: SelectSubset<T, GoldenChatCaseFindUniqueArgs<ExtArgs>>): Prisma__GoldenChatCaseClient<$Result.GetResult<Prisma.$GoldenChatCasePayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one GoldenChatCase that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {GoldenChatCaseFindUniqueOrThrowArgs} args - Arguments to find a GoldenChatCase
+     * @example
+     * // Get one GoldenChatCase
+     * const goldenChatCase = await prisma.goldenChatCase.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends GoldenChatCaseFindUniqueOrThrowArgs>(args: SelectSubset<T, GoldenChatCaseFindUniqueOrThrowArgs<ExtArgs>>): Prisma__GoldenChatCaseClient<$Result.GetResult<Prisma.$GoldenChatCasePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first GoldenChatCase that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {GoldenChatCaseFindFirstArgs} args - Arguments to find a GoldenChatCase
+     * @example
+     * // Get one GoldenChatCase
+     * const goldenChatCase = await prisma.goldenChatCase.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends GoldenChatCaseFindFirstArgs>(args?: SelectSubset<T, GoldenChatCaseFindFirstArgs<ExtArgs>>): Prisma__GoldenChatCaseClient<$Result.GetResult<Prisma.$GoldenChatCasePayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first GoldenChatCase that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {GoldenChatCaseFindFirstOrThrowArgs} args - Arguments to find a GoldenChatCase
+     * @example
+     * // Get one GoldenChatCase
+     * const goldenChatCase = await prisma.goldenChatCase.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends GoldenChatCaseFindFirstOrThrowArgs>(args?: SelectSubset<T, GoldenChatCaseFindFirstOrThrowArgs<ExtArgs>>): Prisma__GoldenChatCaseClient<$Result.GetResult<Prisma.$GoldenChatCasePayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more GoldenChatCases that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {GoldenChatCaseFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all GoldenChatCases
+     * const goldenChatCases = await prisma.goldenChatCase.findMany()
+     * 
+     * // Get first 10 GoldenChatCases
+     * const goldenChatCases = await prisma.goldenChatCase.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const goldenChatCaseWithIdOnly = await prisma.goldenChatCase.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends GoldenChatCaseFindManyArgs>(args?: SelectSubset<T, GoldenChatCaseFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$GoldenChatCasePayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a GoldenChatCase.
+     * @param {GoldenChatCaseCreateArgs} args - Arguments to create a GoldenChatCase.
+     * @example
+     * // Create one GoldenChatCase
+     * const GoldenChatCase = await prisma.goldenChatCase.create({
+     *   data: {
+     *     // ... data to create a GoldenChatCase
+     *   }
+     * })
+     * 
+     */
+    create<T extends GoldenChatCaseCreateArgs>(args: SelectSubset<T, GoldenChatCaseCreateArgs<ExtArgs>>): Prisma__GoldenChatCaseClient<$Result.GetResult<Prisma.$GoldenChatCasePayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many GoldenChatCases.
+     * @param {GoldenChatCaseCreateManyArgs} args - Arguments to create many GoldenChatCases.
+     * @example
+     * // Create many GoldenChatCases
+     * const goldenChatCase = await prisma.goldenChatCase.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends GoldenChatCaseCreateManyArgs>(args?: SelectSubset<T, GoldenChatCaseCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many GoldenChatCases and returns the data saved in the database.
+     * @param {GoldenChatCaseCreateManyAndReturnArgs} args - Arguments to create many GoldenChatCases.
+     * @example
+     * // Create many GoldenChatCases
+     * const goldenChatCase = await prisma.goldenChatCase.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many GoldenChatCases and only return the `id`
+     * const goldenChatCaseWithIdOnly = await prisma.goldenChatCase.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends GoldenChatCaseCreateManyAndReturnArgs>(args?: SelectSubset<T, GoldenChatCaseCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$GoldenChatCasePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a GoldenChatCase.
+     * @param {GoldenChatCaseDeleteArgs} args - Arguments to delete one GoldenChatCase.
+     * @example
+     * // Delete one GoldenChatCase
+     * const GoldenChatCase = await prisma.goldenChatCase.delete({
+     *   where: {
+     *     // ... filter to delete one GoldenChatCase
+     *   }
+     * })
+     * 
+     */
+    delete<T extends GoldenChatCaseDeleteArgs>(args: SelectSubset<T, GoldenChatCaseDeleteArgs<ExtArgs>>): Prisma__GoldenChatCaseClient<$Result.GetResult<Prisma.$GoldenChatCasePayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one GoldenChatCase.
+     * @param {GoldenChatCaseUpdateArgs} args - Arguments to update one GoldenChatCase.
+     * @example
+     * // Update one GoldenChatCase
+     * const goldenChatCase = await prisma.goldenChatCase.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends GoldenChatCaseUpdateArgs>(args: SelectSubset<T, GoldenChatCaseUpdateArgs<ExtArgs>>): Prisma__GoldenChatCaseClient<$Result.GetResult<Prisma.$GoldenChatCasePayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more GoldenChatCases.
+     * @param {GoldenChatCaseDeleteManyArgs} args - Arguments to filter GoldenChatCases to delete.
+     * @example
+     * // Delete a few GoldenChatCases
+     * const { count } = await prisma.goldenChatCase.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends GoldenChatCaseDeleteManyArgs>(args?: SelectSubset<T, GoldenChatCaseDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more GoldenChatCases.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {GoldenChatCaseUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many GoldenChatCases
+     * const goldenChatCase = await prisma.goldenChatCase.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends GoldenChatCaseUpdateManyArgs>(args: SelectSubset<T, GoldenChatCaseUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more GoldenChatCases and returns the data updated in the database.
+     * @param {GoldenChatCaseUpdateManyAndReturnArgs} args - Arguments to update many GoldenChatCases.
+     * @example
+     * // Update many GoldenChatCases
+     * const goldenChatCase = await prisma.goldenChatCase.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more GoldenChatCases and only return the `id`
+     * const goldenChatCaseWithIdOnly = await prisma.goldenChatCase.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends GoldenChatCaseUpdateManyAndReturnArgs>(args: SelectSubset<T, GoldenChatCaseUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$GoldenChatCasePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one GoldenChatCase.
+     * @param {GoldenChatCaseUpsertArgs} args - Arguments to update or create a GoldenChatCase.
+     * @example
+     * // Update or create a GoldenChatCase
+     * const goldenChatCase = await prisma.goldenChatCase.upsert({
+     *   create: {
+     *     // ... data to create a GoldenChatCase
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the GoldenChatCase we want to update
+     *   }
+     * })
+     */
+    upsert<T extends GoldenChatCaseUpsertArgs>(args: SelectSubset<T, GoldenChatCaseUpsertArgs<ExtArgs>>): Prisma__GoldenChatCaseClient<$Result.GetResult<Prisma.$GoldenChatCasePayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of GoldenChatCases.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {GoldenChatCaseCountArgs} args - Arguments to filter GoldenChatCases to count.
+     * @example
+     * // Count the number of GoldenChatCases
+     * const count = await prisma.goldenChatCase.count({
+     *   where: {
+     *     // ... the filter for the GoldenChatCases we want to count
+     *   }
+     * })
+    **/
+    count<T extends GoldenChatCaseCountArgs>(
+      args?: Subset<T, GoldenChatCaseCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], GoldenChatCaseCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a GoldenChatCase.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {GoldenChatCaseAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends GoldenChatCaseAggregateArgs>(args: Subset<T, GoldenChatCaseAggregateArgs>): Prisma.PrismaPromise<GetGoldenChatCaseAggregateType<T>>
+
+    /**
+     * Group by GoldenChatCase.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {GoldenChatCaseGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends GoldenChatCaseGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: GoldenChatCaseGroupByArgs['orderBy'] }
+        : { orderBy?: GoldenChatCaseGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, GoldenChatCaseGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetGoldenChatCaseGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the GoldenChatCase model
+   */
+  readonly fields: GoldenChatCaseFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for GoldenChatCase.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__GoldenChatCaseClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the GoldenChatCase model
+   */
+  interface GoldenChatCaseFieldRefs {
+    readonly id: FieldRef<"GoldenChatCase", 'BigInt'>
+    readonly chat_space_type: FieldRef<"GoldenChatCase", 'String'>
+    readonly chat_space_id: FieldRef<"GoldenChatCase", 'BigInt'>
+    readonly topic_id: FieldRef<"GoldenChatCase", 'BigInt'>
+    readonly source_projection_version_id: FieldRef<"GoldenChatCase", 'BigInt'>
+    readonly label: FieldRef<"GoldenChatCase", 'String'>
+    readonly status: FieldRef<"GoldenChatCase", 'String'>
+    readonly input_bundle_hash: FieldRef<"GoldenChatCase", 'String'>
+    readonly expected_snapshot_json: FieldRef<"GoldenChatCase", 'Json'>
+    readonly fixture_bundle_json: FieldRef<"GoldenChatCase", 'Json'>
+    readonly created_by: FieldRef<"GoldenChatCase", 'String'>
+    readonly metadata: FieldRef<"GoldenChatCase", 'Json'>
+    readonly created_at: FieldRef<"GoldenChatCase", 'DateTime'>
+    readonly updated_at: FieldRef<"GoldenChatCase", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * GoldenChatCase findUnique
+   */
+  export type GoldenChatCaseFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the GoldenChatCase
+     */
+    select?: GoldenChatCaseSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the GoldenChatCase
+     */
+    omit?: GoldenChatCaseOmit<ExtArgs> | null
+    /**
+     * Filter, which GoldenChatCase to fetch.
+     */
+    where: GoldenChatCaseWhereUniqueInput
+  }
+
+  /**
+   * GoldenChatCase findUniqueOrThrow
+   */
+  export type GoldenChatCaseFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the GoldenChatCase
+     */
+    select?: GoldenChatCaseSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the GoldenChatCase
+     */
+    omit?: GoldenChatCaseOmit<ExtArgs> | null
+    /**
+     * Filter, which GoldenChatCase to fetch.
+     */
+    where: GoldenChatCaseWhereUniqueInput
+  }
+
+  /**
+   * GoldenChatCase findFirst
+   */
+  export type GoldenChatCaseFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the GoldenChatCase
+     */
+    select?: GoldenChatCaseSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the GoldenChatCase
+     */
+    omit?: GoldenChatCaseOmit<ExtArgs> | null
+    /**
+     * Filter, which GoldenChatCase to fetch.
+     */
+    where?: GoldenChatCaseWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of GoldenChatCases to fetch.
+     */
+    orderBy?: GoldenChatCaseOrderByWithRelationInput | GoldenChatCaseOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for GoldenChatCases.
+     */
+    cursor?: GoldenChatCaseWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` GoldenChatCases from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` GoldenChatCases.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of GoldenChatCases.
+     */
+    distinct?: GoldenChatCaseScalarFieldEnum | GoldenChatCaseScalarFieldEnum[]
+  }
+
+  /**
+   * GoldenChatCase findFirstOrThrow
+   */
+  export type GoldenChatCaseFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the GoldenChatCase
+     */
+    select?: GoldenChatCaseSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the GoldenChatCase
+     */
+    omit?: GoldenChatCaseOmit<ExtArgs> | null
+    /**
+     * Filter, which GoldenChatCase to fetch.
+     */
+    where?: GoldenChatCaseWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of GoldenChatCases to fetch.
+     */
+    orderBy?: GoldenChatCaseOrderByWithRelationInput | GoldenChatCaseOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for GoldenChatCases.
+     */
+    cursor?: GoldenChatCaseWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` GoldenChatCases from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` GoldenChatCases.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of GoldenChatCases.
+     */
+    distinct?: GoldenChatCaseScalarFieldEnum | GoldenChatCaseScalarFieldEnum[]
+  }
+
+  /**
+   * GoldenChatCase findMany
+   */
+  export type GoldenChatCaseFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the GoldenChatCase
+     */
+    select?: GoldenChatCaseSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the GoldenChatCase
+     */
+    omit?: GoldenChatCaseOmit<ExtArgs> | null
+    /**
+     * Filter, which GoldenChatCases to fetch.
+     */
+    where?: GoldenChatCaseWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of GoldenChatCases to fetch.
+     */
+    orderBy?: GoldenChatCaseOrderByWithRelationInput | GoldenChatCaseOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing GoldenChatCases.
+     */
+    cursor?: GoldenChatCaseWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` GoldenChatCases from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` GoldenChatCases.
+     */
+    skip?: number
+    distinct?: GoldenChatCaseScalarFieldEnum | GoldenChatCaseScalarFieldEnum[]
+  }
+
+  /**
+   * GoldenChatCase create
+   */
+  export type GoldenChatCaseCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the GoldenChatCase
+     */
+    select?: GoldenChatCaseSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the GoldenChatCase
+     */
+    omit?: GoldenChatCaseOmit<ExtArgs> | null
+    /**
+     * The data needed to create a GoldenChatCase.
+     */
+    data: XOR<GoldenChatCaseCreateInput, GoldenChatCaseUncheckedCreateInput>
+  }
+
+  /**
+   * GoldenChatCase createMany
+   */
+  export type GoldenChatCaseCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many GoldenChatCases.
+     */
+    data: GoldenChatCaseCreateManyInput | GoldenChatCaseCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * GoldenChatCase createManyAndReturn
+   */
+  export type GoldenChatCaseCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the GoldenChatCase
+     */
+    select?: GoldenChatCaseSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the GoldenChatCase
+     */
+    omit?: GoldenChatCaseOmit<ExtArgs> | null
+    /**
+     * The data used to create many GoldenChatCases.
+     */
+    data: GoldenChatCaseCreateManyInput | GoldenChatCaseCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * GoldenChatCase update
+   */
+  export type GoldenChatCaseUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the GoldenChatCase
+     */
+    select?: GoldenChatCaseSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the GoldenChatCase
+     */
+    omit?: GoldenChatCaseOmit<ExtArgs> | null
+    /**
+     * The data needed to update a GoldenChatCase.
+     */
+    data: XOR<GoldenChatCaseUpdateInput, GoldenChatCaseUncheckedUpdateInput>
+    /**
+     * Choose, which GoldenChatCase to update.
+     */
+    where: GoldenChatCaseWhereUniqueInput
+  }
+
+  /**
+   * GoldenChatCase updateMany
+   */
+  export type GoldenChatCaseUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update GoldenChatCases.
+     */
+    data: XOR<GoldenChatCaseUpdateManyMutationInput, GoldenChatCaseUncheckedUpdateManyInput>
+    /**
+     * Filter which GoldenChatCases to update
+     */
+    where?: GoldenChatCaseWhereInput
+    /**
+     * Limit how many GoldenChatCases to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * GoldenChatCase updateManyAndReturn
+   */
+  export type GoldenChatCaseUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the GoldenChatCase
+     */
+    select?: GoldenChatCaseSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the GoldenChatCase
+     */
+    omit?: GoldenChatCaseOmit<ExtArgs> | null
+    /**
+     * The data used to update GoldenChatCases.
+     */
+    data: XOR<GoldenChatCaseUpdateManyMutationInput, GoldenChatCaseUncheckedUpdateManyInput>
+    /**
+     * Filter which GoldenChatCases to update
+     */
+    where?: GoldenChatCaseWhereInput
+    /**
+     * Limit how many GoldenChatCases to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * GoldenChatCase upsert
+   */
+  export type GoldenChatCaseUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the GoldenChatCase
+     */
+    select?: GoldenChatCaseSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the GoldenChatCase
+     */
+    omit?: GoldenChatCaseOmit<ExtArgs> | null
+    /**
+     * The filter to search for the GoldenChatCase to update in case it exists.
+     */
+    where: GoldenChatCaseWhereUniqueInput
+    /**
+     * In case the GoldenChatCase found by the `where` argument doesn't exist, create a new GoldenChatCase with this data.
+     */
+    create: XOR<GoldenChatCaseCreateInput, GoldenChatCaseUncheckedCreateInput>
+    /**
+     * In case the GoldenChatCase was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<GoldenChatCaseUpdateInput, GoldenChatCaseUncheckedUpdateInput>
+  }
+
+  /**
+   * GoldenChatCase delete
+   */
+  export type GoldenChatCaseDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the GoldenChatCase
+     */
+    select?: GoldenChatCaseSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the GoldenChatCase
+     */
+    omit?: GoldenChatCaseOmit<ExtArgs> | null
+    /**
+     * Filter which GoldenChatCase to delete.
+     */
+    where: GoldenChatCaseWhereUniqueInput
+  }
+
+  /**
+   * GoldenChatCase deleteMany
+   */
+  export type GoldenChatCaseDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which GoldenChatCases to delete
+     */
+    where?: GoldenChatCaseWhereInput
+    /**
+     * Limit how many GoldenChatCases to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * GoldenChatCase without action
+   */
+  export type GoldenChatCaseDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the GoldenChatCase
+     */
+    select?: GoldenChatCaseSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the GoldenChatCase
+     */
+    omit?: GoldenChatCaseOmit<ExtArgs> | null
+  }
+
+
+  /**
    * Enums
    */
 
@@ -14162,6 +22876,149 @@ export namespace Prisma {
   };
 
   export type RelationshipMemoryOverrideScalarFieldEnum = (typeof RelationshipMemoryOverrideScalarFieldEnum)[keyof typeof RelationshipMemoryOverrideScalarFieldEnum]
+
+
+  export const ChatSpaceTopicScalarFieldEnum: {
+    id: 'id',
+    chat_space_type: 'chat_space_type',
+    chat_space_id: 'chat_space_id',
+    status: 'status',
+    canonical_title: 'canonical_title',
+    started_at: 'started_at',
+    last_activity_at: 'last_activity_at',
+    closed_at: 'closed_at',
+    current_accepted_version_id: 'current_accepted_version_id',
+    current_candidate_version_id: 'current_candidate_version_id',
+    last_projection_job_id: 'last_projection_job_id',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type ChatSpaceTopicScalarFieldEnum = (typeof ChatSpaceTopicScalarFieldEnum)[keyof typeof ChatSpaceTopicScalarFieldEnum]
+
+
+  export const TopicProjectionJobScalarFieldEnum: {
+    id: 'id',
+    chat_space_type: 'chat_space_type',
+    chat_space_id: 'chat_space_id',
+    trigger_type: 'trigger_type',
+    status: 'status',
+    input_bundle_json: 'input_bundle_json',
+    input_bundle_hash: 'input_bundle_hash',
+    base_version_ids: 'base_version_ids',
+    model_name: 'model_name',
+    model_config_json: 'model_config_json',
+    prompt_version: 'prompt_version',
+    error_code: 'error_code',
+    error_message: 'error_message',
+    metadata: 'metadata',
+    started_at: 'started_at',
+    finished_at: 'finished_at',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type TopicProjectionJobScalarFieldEnum = (typeof TopicProjectionJobScalarFieldEnum)[keyof typeof TopicProjectionJobScalarFieldEnum]
+
+
+  export const TopicProjectionVersionScalarFieldEnum: {
+    id: 'id',
+    topic_id: 'topic_id',
+    projection_job_id: 'projection_job_id',
+    version_number: 'version_number',
+    status: 'status',
+    lifecycle_state: 'lifecycle_state',
+    title: 'title',
+    summary_text: 'summary_text',
+    review_priority_score: 'review_priority_score',
+    heat_score: 'heat_score',
+    participant_ids: 'participant_ids',
+    topic_keywords: 'topic_keywords',
+    evidence_count: 'evidence_count',
+    relationship_count: 'relationship_count',
+    runtime_hit_count: 'runtime_hit_count',
+    last_runtime_hit_at: 'last_runtime_hit_at',
+    input_bundle_hash: 'input_bundle_hash',
+    snapshot_json: 'snapshot_json',
+    provenance_json: 'provenance_json',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type TopicProjectionVersionScalarFieldEnum = (typeof TopicProjectionVersionScalarFieldEnum)[keyof typeof TopicProjectionVersionScalarFieldEnum]
+
+
+  export const TopicVersionRelationshipScalarFieldEnum: {
+    id: 'id',
+    projection_version_id: 'projection_version_id',
+    target_user_id: 'target_user_id',
+    relationship_kind: 'relationship_kind',
+    summary_text: 'summary_text',
+    actors: 'actors',
+    source_event_ids: 'source_event_ids',
+    source_message_ids: 'source_message_ids',
+    metadata: 'metadata',
+    created_at: 'created_at'
+  };
+
+  export type TopicVersionRelationshipScalarFieldEnum = (typeof TopicVersionRelationshipScalarFieldEnum)[keyof typeof TopicVersionRelationshipScalarFieldEnum]
+
+
+  export const TopicVersionEvidenceScalarFieldEnum: {
+    id: 'id',
+    projection_version_id: 'projection_version_id',
+    source_kind: 'source_kind',
+    source_id: 'source_id',
+    sort_order: 'sort_order',
+    excerpt_text: 'excerpt_text',
+    speaker_id: 'speaker_id',
+    speaker_name: 'speaker_name',
+    occurred_at: 'occurred_at',
+    metadata: 'metadata',
+    created_at: 'created_at'
+  };
+
+  export type TopicVersionEvidenceScalarFieldEnum = (typeof TopicVersionEvidenceScalarFieldEnum)[keyof typeof TopicVersionEvidenceScalarFieldEnum]
+
+
+  export const TopicReviewEventScalarFieldEnum: {
+    id: 'id',
+    topic_id: 'topic_id',
+    base_projection_version_id: 'base_projection_version_id',
+    result_projection_version_id: 'result_projection_version_id',
+    action_type: 'action_type',
+    status: 'status',
+    created_by: 'created_by',
+    manual_note: 'manual_note',
+    patch_json: 'patch_json',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type TopicReviewEventScalarFieldEnum = (typeof TopicReviewEventScalarFieldEnum)[keyof typeof TopicReviewEventScalarFieldEnum]
+
+
+  export const GoldenChatCaseScalarFieldEnum: {
+    id: 'id',
+    chat_space_type: 'chat_space_type',
+    chat_space_id: 'chat_space_id',
+    topic_id: 'topic_id',
+    source_projection_version_id: 'source_projection_version_id',
+    label: 'label',
+    status: 'status',
+    input_bundle_hash: 'input_bundle_hash',
+    expected_snapshot_json: 'expected_snapshot_json',
+    fixture_bundle_json: 'fixture_bundle_json',
+    created_by: 'created_by',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type GoldenChatCaseScalarFieldEnum = (typeof GoldenChatCaseScalarFieldEnum)[keyof typeof GoldenChatCaseScalarFieldEnum]
 
 
   export const SortOrder: {
@@ -15554,6 +24411,715 @@ export namespace Prisma {
     created_by?: StringNullableWithAggregatesFilter<"RelationshipMemoryOverride"> | string | null
     metadata?: JsonNullableWithAggregatesFilter<"RelationshipMemoryOverride">
     created_at?: DateTimeWithAggregatesFilter<"RelationshipMemoryOverride"> | Date | string
+  }
+
+  export type ChatSpaceTopicWhereInput = {
+    AND?: ChatSpaceTopicWhereInput | ChatSpaceTopicWhereInput[]
+    OR?: ChatSpaceTopicWhereInput[]
+    NOT?: ChatSpaceTopicWhereInput | ChatSpaceTopicWhereInput[]
+    id?: BigIntFilter<"ChatSpaceTopic"> | bigint | number
+    chat_space_type?: StringFilter<"ChatSpaceTopic"> | string
+    chat_space_id?: BigIntFilter<"ChatSpaceTopic"> | bigint | number
+    status?: StringFilter<"ChatSpaceTopic"> | string
+    canonical_title?: StringNullableFilter<"ChatSpaceTopic"> | string | null
+    started_at?: DateTimeNullableFilter<"ChatSpaceTopic"> | Date | string | null
+    last_activity_at?: DateTimeNullableFilter<"ChatSpaceTopic"> | Date | string | null
+    closed_at?: DateTimeNullableFilter<"ChatSpaceTopic"> | Date | string | null
+    current_accepted_version_id?: BigIntNullableFilter<"ChatSpaceTopic"> | bigint | number | null
+    current_candidate_version_id?: BigIntNullableFilter<"ChatSpaceTopic"> | bigint | number | null
+    last_projection_job_id?: BigIntNullableFilter<"ChatSpaceTopic"> | bigint | number | null
+    metadata?: JsonNullableFilter<"ChatSpaceTopic">
+    created_at?: DateTimeFilter<"ChatSpaceTopic"> | Date | string
+    updated_at?: DateTimeFilter<"ChatSpaceTopic"> | Date | string
+  }
+
+  export type ChatSpaceTopicOrderByWithRelationInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    status?: SortOrder
+    canonical_title?: SortOrderInput | SortOrder
+    started_at?: SortOrderInput | SortOrder
+    last_activity_at?: SortOrderInput | SortOrder
+    closed_at?: SortOrderInput | SortOrder
+    current_accepted_version_id?: SortOrderInput | SortOrder
+    current_candidate_version_id?: SortOrderInput | SortOrder
+    last_projection_job_id?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type ChatSpaceTopicWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: ChatSpaceTopicWhereInput | ChatSpaceTopicWhereInput[]
+    OR?: ChatSpaceTopicWhereInput[]
+    NOT?: ChatSpaceTopicWhereInput | ChatSpaceTopicWhereInput[]
+    chat_space_type?: StringFilter<"ChatSpaceTopic"> | string
+    chat_space_id?: BigIntFilter<"ChatSpaceTopic"> | bigint | number
+    status?: StringFilter<"ChatSpaceTopic"> | string
+    canonical_title?: StringNullableFilter<"ChatSpaceTopic"> | string | null
+    started_at?: DateTimeNullableFilter<"ChatSpaceTopic"> | Date | string | null
+    last_activity_at?: DateTimeNullableFilter<"ChatSpaceTopic"> | Date | string | null
+    closed_at?: DateTimeNullableFilter<"ChatSpaceTopic"> | Date | string | null
+    current_accepted_version_id?: BigIntNullableFilter<"ChatSpaceTopic"> | bigint | number | null
+    current_candidate_version_id?: BigIntNullableFilter<"ChatSpaceTopic"> | bigint | number | null
+    last_projection_job_id?: BigIntNullableFilter<"ChatSpaceTopic"> | bigint | number | null
+    metadata?: JsonNullableFilter<"ChatSpaceTopic">
+    created_at?: DateTimeFilter<"ChatSpaceTopic"> | Date | string
+    updated_at?: DateTimeFilter<"ChatSpaceTopic"> | Date | string
+  }, "id">
+
+  export type ChatSpaceTopicOrderByWithAggregationInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    status?: SortOrder
+    canonical_title?: SortOrderInput | SortOrder
+    started_at?: SortOrderInput | SortOrder
+    last_activity_at?: SortOrderInput | SortOrder
+    closed_at?: SortOrderInput | SortOrder
+    current_accepted_version_id?: SortOrderInput | SortOrder
+    current_candidate_version_id?: SortOrderInput | SortOrder
+    last_projection_job_id?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: ChatSpaceTopicCountOrderByAggregateInput
+    _avg?: ChatSpaceTopicAvgOrderByAggregateInput
+    _max?: ChatSpaceTopicMaxOrderByAggregateInput
+    _min?: ChatSpaceTopicMinOrderByAggregateInput
+    _sum?: ChatSpaceTopicSumOrderByAggregateInput
+  }
+
+  export type ChatSpaceTopicScalarWhereWithAggregatesInput = {
+    AND?: ChatSpaceTopicScalarWhereWithAggregatesInput | ChatSpaceTopicScalarWhereWithAggregatesInput[]
+    OR?: ChatSpaceTopicScalarWhereWithAggregatesInput[]
+    NOT?: ChatSpaceTopicScalarWhereWithAggregatesInput | ChatSpaceTopicScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"ChatSpaceTopic"> | bigint | number
+    chat_space_type?: StringWithAggregatesFilter<"ChatSpaceTopic"> | string
+    chat_space_id?: BigIntWithAggregatesFilter<"ChatSpaceTopic"> | bigint | number
+    status?: StringWithAggregatesFilter<"ChatSpaceTopic"> | string
+    canonical_title?: StringNullableWithAggregatesFilter<"ChatSpaceTopic"> | string | null
+    started_at?: DateTimeNullableWithAggregatesFilter<"ChatSpaceTopic"> | Date | string | null
+    last_activity_at?: DateTimeNullableWithAggregatesFilter<"ChatSpaceTopic"> | Date | string | null
+    closed_at?: DateTimeNullableWithAggregatesFilter<"ChatSpaceTopic"> | Date | string | null
+    current_accepted_version_id?: BigIntNullableWithAggregatesFilter<"ChatSpaceTopic"> | bigint | number | null
+    current_candidate_version_id?: BigIntNullableWithAggregatesFilter<"ChatSpaceTopic"> | bigint | number | null
+    last_projection_job_id?: BigIntNullableWithAggregatesFilter<"ChatSpaceTopic"> | bigint | number | null
+    metadata?: JsonNullableWithAggregatesFilter<"ChatSpaceTopic">
+    created_at?: DateTimeWithAggregatesFilter<"ChatSpaceTopic"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"ChatSpaceTopic"> | Date | string
+  }
+
+  export type TopicProjectionJobWhereInput = {
+    AND?: TopicProjectionJobWhereInput | TopicProjectionJobWhereInput[]
+    OR?: TopicProjectionJobWhereInput[]
+    NOT?: TopicProjectionJobWhereInput | TopicProjectionJobWhereInput[]
+    id?: BigIntFilter<"TopicProjectionJob"> | bigint | number
+    chat_space_type?: StringFilter<"TopicProjectionJob"> | string
+    chat_space_id?: BigIntFilter<"TopicProjectionJob"> | bigint | number
+    trigger_type?: StringFilter<"TopicProjectionJob"> | string
+    status?: StringFilter<"TopicProjectionJob"> | string
+    input_bundle_json?: JsonFilter<"TopicProjectionJob">
+    input_bundle_hash?: StringFilter<"TopicProjectionJob"> | string
+    base_version_ids?: JsonFilter<"TopicProjectionJob">
+    model_name?: StringNullableFilter<"TopicProjectionJob"> | string | null
+    model_config_json?: JsonNullableFilter<"TopicProjectionJob">
+    prompt_version?: StringNullableFilter<"TopicProjectionJob"> | string | null
+    error_code?: StringNullableFilter<"TopicProjectionJob"> | string | null
+    error_message?: StringNullableFilter<"TopicProjectionJob"> | string | null
+    metadata?: JsonNullableFilter<"TopicProjectionJob">
+    started_at?: DateTimeNullableFilter<"TopicProjectionJob"> | Date | string | null
+    finished_at?: DateTimeNullableFilter<"TopicProjectionJob"> | Date | string | null
+    created_at?: DateTimeFilter<"TopicProjectionJob"> | Date | string
+    updated_at?: DateTimeFilter<"TopicProjectionJob"> | Date | string
+  }
+
+  export type TopicProjectionJobOrderByWithRelationInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    trigger_type?: SortOrder
+    status?: SortOrder
+    input_bundle_json?: SortOrder
+    input_bundle_hash?: SortOrder
+    base_version_ids?: SortOrder
+    model_name?: SortOrderInput | SortOrder
+    model_config_json?: SortOrderInput | SortOrder
+    prompt_version?: SortOrderInput | SortOrder
+    error_code?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    started_at?: SortOrderInput | SortOrder
+    finished_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type TopicProjectionJobWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: TopicProjectionJobWhereInput | TopicProjectionJobWhereInput[]
+    OR?: TopicProjectionJobWhereInput[]
+    NOT?: TopicProjectionJobWhereInput | TopicProjectionJobWhereInput[]
+    chat_space_type?: StringFilter<"TopicProjectionJob"> | string
+    chat_space_id?: BigIntFilter<"TopicProjectionJob"> | bigint | number
+    trigger_type?: StringFilter<"TopicProjectionJob"> | string
+    status?: StringFilter<"TopicProjectionJob"> | string
+    input_bundle_json?: JsonFilter<"TopicProjectionJob">
+    input_bundle_hash?: StringFilter<"TopicProjectionJob"> | string
+    base_version_ids?: JsonFilter<"TopicProjectionJob">
+    model_name?: StringNullableFilter<"TopicProjectionJob"> | string | null
+    model_config_json?: JsonNullableFilter<"TopicProjectionJob">
+    prompt_version?: StringNullableFilter<"TopicProjectionJob"> | string | null
+    error_code?: StringNullableFilter<"TopicProjectionJob"> | string | null
+    error_message?: StringNullableFilter<"TopicProjectionJob"> | string | null
+    metadata?: JsonNullableFilter<"TopicProjectionJob">
+    started_at?: DateTimeNullableFilter<"TopicProjectionJob"> | Date | string | null
+    finished_at?: DateTimeNullableFilter<"TopicProjectionJob"> | Date | string | null
+    created_at?: DateTimeFilter<"TopicProjectionJob"> | Date | string
+    updated_at?: DateTimeFilter<"TopicProjectionJob"> | Date | string
+  }, "id">
+
+  export type TopicProjectionJobOrderByWithAggregationInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    trigger_type?: SortOrder
+    status?: SortOrder
+    input_bundle_json?: SortOrder
+    input_bundle_hash?: SortOrder
+    base_version_ids?: SortOrder
+    model_name?: SortOrderInput | SortOrder
+    model_config_json?: SortOrderInput | SortOrder
+    prompt_version?: SortOrderInput | SortOrder
+    error_code?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    started_at?: SortOrderInput | SortOrder
+    finished_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: TopicProjectionJobCountOrderByAggregateInput
+    _avg?: TopicProjectionJobAvgOrderByAggregateInput
+    _max?: TopicProjectionJobMaxOrderByAggregateInput
+    _min?: TopicProjectionJobMinOrderByAggregateInput
+    _sum?: TopicProjectionJobSumOrderByAggregateInput
+  }
+
+  export type TopicProjectionJobScalarWhereWithAggregatesInput = {
+    AND?: TopicProjectionJobScalarWhereWithAggregatesInput | TopicProjectionJobScalarWhereWithAggregatesInput[]
+    OR?: TopicProjectionJobScalarWhereWithAggregatesInput[]
+    NOT?: TopicProjectionJobScalarWhereWithAggregatesInput | TopicProjectionJobScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"TopicProjectionJob"> | bigint | number
+    chat_space_type?: StringWithAggregatesFilter<"TopicProjectionJob"> | string
+    chat_space_id?: BigIntWithAggregatesFilter<"TopicProjectionJob"> | bigint | number
+    trigger_type?: StringWithAggregatesFilter<"TopicProjectionJob"> | string
+    status?: StringWithAggregatesFilter<"TopicProjectionJob"> | string
+    input_bundle_json?: JsonWithAggregatesFilter<"TopicProjectionJob">
+    input_bundle_hash?: StringWithAggregatesFilter<"TopicProjectionJob"> | string
+    base_version_ids?: JsonWithAggregatesFilter<"TopicProjectionJob">
+    model_name?: StringNullableWithAggregatesFilter<"TopicProjectionJob"> | string | null
+    model_config_json?: JsonNullableWithAggregatesFilter<"TopicProjectionJob">
+    prompt_version?: StringNullableWithAggregatesFilter<"TopicProjectionJob"> | string | null
+    error_code?: StringNullableWithAggregatesFilter<"TopicProjectionJob"> | string | null
+    error_message?: StringNullableWithAggregatesFilter<"TopicProjectionJob"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"TopicProjectionJob">
+    started_at?: DateTimeNullableWithAggregatesFilter<"TopicProjectionJob"> | Date | string | null
+    finished_at?: DateTimeNullableWithAggregatesFilter<"TopicProjectionJob"> | Date | string | null
+    created_at?: DateTimeWithAggregatesFilter<"TopicProjectionJob"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"TopicProjectionJob"> | Date | string
+  }
+
+  export type TopicProjectionVersionWhereInput = {
+    AND?: TopicProjectionVersionWhereInput | TopicProjectionVersionWhereInput[]
+    OR?: TopicProjectionVersionWhereInput[]
+    NOT?: TopicProjectionVersionWhereInput | TopicProjectionVersionWhereInput[]
+    id?: BigIntFilter<"TopicProjectionVersion"> | bigint | number
+    topic_id?: BigIntFilter<"TopicProjectionVersion"> | bigint | number
+    projection_job_id?: BigIntNullableFilter<"TopicProjectionVersion"> | bigint | number | null
+    version_number?: IntFilter<"TopicProjectionVersion"> | number
+    status?: StringFilter<"TopicProjectionVersion"> | string
+    lifecycle_state?: StringFilter<"TopicProjectionVersion"> | string
+    title?: StringNullableFilter<"TopicProjectionVersion"> | string | null
+    summary_text?: StringFilter<"TopicProjectionVersion"> | string
+    review_priority_score?: FloatFilter<"TopicProjectionVersion"> | number
+    heat_score?: FloatFilter<"TopicProjectionVersion"> | number
+    participant_ids?: JsonFilter<"TopicProjectionVersion">
+    topic_keywords?: JsonFilter<"TopicProjectionVersion">
+    evidence_count?: IntFilter<"TopicProjectionVersion"> | number
+    relationship_count?: IntFilter<"TopicProjectionVersion"> | number
+    runtime_hit_count?: IntFilter<"TopicProjectionVersion"> | number
+    last_runtime_hit_at?: DateTimeNullableFilter<"TopicProjectionVersion"> | Date | string | null
+    input_bundle_hash?: StringFilter<"TopicProjectionVersion"> | string
+    snapshot_json?: JsonFilter<"TopicProjectionVersion">
+    provenance_json?: JsonFilter<"TopicProjectionVersion">
+    metadata?: JsonNullableFilter<"TopicProjectionVersion">
+    created_at?: DateTimeFilter<"TopicProjectionVersion"> | Date | string
+    updated_at?: DateTimeFilter<"TopicProjectionVersion"> | Date | string
+  }
+
+  export type TopicProjectionVersionOrderByWithRelationInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    projection_job_id?: SortOrderInput | SortOrder
+    version_number?: SortOrder
+    status?: SortOrder
+    lifecycle_state?: SortOrder
+    title?: SortOrderInput | SortOrder
+    summary_text?: SortOrder
+    review_priority_score?: SortOrder
+    heat_score?: SortOrder
+    participant_ids?: SortOrder
+    topic_keywords?: SortOrder
+    evidence_count?: SortOrder
+    relationship_count?: SortOrder
+    runtime_hit_count?: SortOrder
+    last_runtime_hit_at?: SortOrderInput | SortOrder
+    input_bundle_hash?: SortOrder
+    snapshot_json?: SortOrder
+    provenance_json?: SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type TopicProjectionVersionWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    topic_id_version_number?: TopicProjectionVersionTopic_idVersion_numberCompoundUniqueInput
+    AND?: TopicProjectionVersionWhereInput | TopicProjectionVersionWhereInput[]
+    OR?: TopicProjectionVersionWhereInput[]
+    NOT?: TopicProjectionVersionWhereInput | TopicProjectionVersionWhereInput[]
+    topic_id?: BigIntFilter<"TopicProjectionVersion"> | bigint | number
+    projection_job_id?: BigIntNullableFilter<"TopicProjectionVersion"> | bigint | number | null
+    version_number?: IntFilter<"TopicProjectionVersion"> | number
+    status?: StringFilter<"TopicProjectionVersion"> | string
+    lifecycle_state?: StringFilter<"TopicProjectionVersion"> | string
+    title?: StringNullableFilter<"TopicProjectionVersion"> | string | null
+    summary_text?: StringFilter<"TopicProjectionVersion"> | string
+    review_priority_score?: FloatFilter<"TopicProjectionVersion"> | number
+    heat_score?: FloatFilter<"TopicProjectionVersion"> | number
+    participant_ids?: JsonFilter<"TopicProjectionVersion">
+    topic_keywords?: JsonFilter<"TopicProjectionVersion">
+    evidence_count?: IntFilter<"TopicProjectionVersion"> | number
+    relationship_count?: IntFilter<"TopicProjectionVersion"> | number
+    runtime_hit_count?: IntFilter<"TopicProjectionVersion"> | number
+    last_runtime_hit_at?: DateTimeNullableFilter<"TopicProjectionVersion"> | Date | string | null
+    input_bundle_hash?: StringFilter<"TopicProjectionVersion"> | string
+    snapshot_json?: JsonFilter<"TopicProjectionVersion">
+    provenance_json?: JsonFilter<"TopicProjectionVersion">
+    metadata?: JsonNullableFilter<"TopicProjectionVersion">
+    created_at?: DateTimeFilter<"TopicProjectionVersion"> | Date | string
+    updated_at?: DateTimeFilter<"TopicProjectionVersion"> | Date | string
+  }, "id" | "topic_id_version_number">
+
+  export type TopicProjectionVersionOrderByWithAggregationInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    projection_job_id?: SortOrderInput | SortOrder
+    version_number?: SortOrder
+    status?: SortOrder
+    lifecycle_state?: SortOrder
+    title?: SortOrderInput | SortOrder
+    summary_text?: SortOrder
+    review_priority_score?: SortOrder
+    heat_score?: SortOrder
+    participant_ids?: SortOrder
+    topic_keywords?: SortOrder
+    evidence_count?: SortOrder
+    relationship_count?: SortOrder
+    runtime_hit_count?: SortOrder
+    last_runtime_hit_at?: SortOrderInput | SortOrder
+    input_bundle_hash?: SortOrder
+    snapshot_json?: SortOrder
+    provenance_json?: SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: TopicProjectionVersionCountOrderByAggregateInput
+    _avg?: TopicProjectionVersionAvgOrderByAggregateInput
+    _max?: TopicProjectionVersionMaxOrderByAggregateInput
+    _min?: TopicProjectionVersionMinOrderByAggregateInput
+    _sum?: TopicProjectionVersionSumOrderByAggregateInput
+  }
+
+  export type TopicProjectionVersionScalarWhereWithAggregatesInput = {
+    AND?: TopicProjectionVersionScalarWhereWithAggregatesInput | TopicProjectionVersionScalarWhereWithAggregatesInput[]
+    OR?: TopicProjectionVersionScalarWhereWithAggregatesInput[]
+    NOT?: TopicProjectionVersionScalarWhereWithAggregatesInput | TopicProjectionVersionScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"TopicProjectionVersion"> | bigint | number
+    topic_id?: BigIntWithAggregatesFilter<"TopicProjectionVersion"> | bigint | number
+    projection_job_id?: BigIntNullableWithAggregatesFilter<"TopicProjectionVersion"> | bigint | number | null
+    version_number?: IntWithAggregatesFilter<"TopicProjectionVersion"> | number
+    status?: StringWithAggregatesFilter<"TopicProjectionVersion"> | string
+    lifecycle_state?: StringWithAggregatesFilter<"TopicProjectionVersion"> | string
+    title?: StringNullableWithAggregatesFilter<"TopicProjectionVersion"> | string | null
+    summary_text?: StringWithAggregatesFilter<"TopicProjectionVersion"> | string
+    review_priority_score?: FloatWithAggregatesFilter<"TopicProjectionVersion"> | number
+    heat_score?: FloatWithAggregatesFilter<"TopicProjectionVersion"> | number
+    participant_ids?: JsonWithAggregatesFilter<"TopicProjectionVersion">
+    topic_keywords?: JsonWithAggregatesFilter<"TopicProjectionVersion">
+    evidence_count?: IntWithAggregatesFilter<"TopicProjectionVersion"> | number
+    relationship_count?: IntWithAggregatesFilter<"TopicProjectionVersion"> | number
+    runtime_hit_count?: IntWithAggregatesFilter<"TopicProjectionVersion"> | number
+    last_runtime_hit_at?: DateTimeNullableWithAggregatesFilter<"TopicProjectionVersion"> | Date | string | null
+    input_bundle_hash?: StringWithAggregatesFilter<"TopicProjectionVersion"> | string
+    snapshot_json?: JsonWithAggregatesFilter<"TopicProjectionVersion">
+    provenance_json?: JsonWithAggregatesFilter<"TopicProjectionVersion">
+    metadata?: JsonNullableWithAggregatesFilter<"TopicProjectionVersion">
+    created_at?: DateTimeWithAggregatesFilter<"TopicProjectionVersion"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"TopicProjectionVersion"> | Date | string
+  }
+
+  export type TopicVersionRelationshipWhereInput = {
+    AND?: TopicVersionRelationshipWhereInput | TopicVersionRelationshipWhereInput[]
+    OR?: TopicVersionRelationshipWhereInput[]
+    NOT?: TopicVersionRelationshipWhereInput | TopicVersionRelationshipWhereInput[]
+    id?: BigIntFilter<"TopicVersionRelationship"> | bigint | number
+    projection_version_id?: BigIntFilter<"TopicVersionRelationship"> | bigint | number
+    target_user_id?: BigIntFilter<"TopicVersionRelationship"> | bigint | number
+    relationship_kind?: StringNullableFilter<"TopicVersionRelationship"> | string | null
+    summary_text?: StringFilter<"TopicVersionRelationship"> | string
+    actors?: JsonFilter<"TopicVersionRelationship">
+    source_event_ids?: JsonFilter<"TopicVersionRelationship">
+    source_message_ids?: JsonFilter<"TopicVersionRelationship">
+    metadata?: JsonNullableFilter<"TopicVersionRelationship">
+    created_at?: DateTimeFilter<"TopicVersionRelationship"> | Date | string
+  }
+
+  export type TopicVersionRelationshipOrderByWithRelationInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    target_user_id?: SortOrder
+    relationship_kind?: SortOrderInput | SortOrder
+    summary_text?: SortOrder
+    actors?: SortOrder
+    source_event_ids?: SortOrder
+    source_message_ids?: SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+  }
+
+  export type TopicVersionRelationshipWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: TopicVersionRelationshipWhereInput | TopicVersionRelationshipWhereInput[]
+    OR?: TopicVersionRelationshipWhereInput[]
+    NOT?: TopicVersionRelationshipWhereInput | TopicVersionRelationshipWhereInput[]
+    projection_version_id?: BigIntFilter<"TopicVersionRelationship"> | bigint | number
+    target_user_id?: BigIntFilter<"TopicVersionRelationship"> | bigint | number
+    relationship_kind?: StringNullableFilter<"TopicVersionRelationship"> | string | null
+    summary_text?: StringFilter<"TopicVersionRelationship"> | string
+    actors?: JsonFilter<"TopicVersionRelationship">
+    source_event_ids?: JsonFilter<"TopicVersionRelationship">
+    source_message_ids?: JsonFilter<"TopicVersionRelationship">
+    metadata?: JsonNullableFilter<"TopicVersionRelationship">
+    created_at?: DateTimeFilter<"TopicVersionRelationship"> | Date | string
+  }, "id">
+
+  export type TopicVersionRelationshipOrderByWithAggregationInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    target_user_id?: SortOrder
+    relationship_kind?: SortOrderInput | SortOrder
+    summary_text?: SortOrder
+    actors?: SortOrder
+    source_event_ids?: SortOrder
+    source_message_ids?: SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    _count?: TopicVersionRelationshipCountOrderByAggregateInput
+    _avg?: TopicVersionRelationshipAvgOrderByAggregateInput
+    _max?: TopicVersionRelationshipMaxOrderByAggregateInput
+    _min?: TopicVersionRelationshipMinOrderByAggregateInput
+    _sum?: TopicVersionRelationshipSumOrderByAggregateInput
+  }
+
+  export type TopicVersionRelationshipScalarWhereWithAggregatesInput = {
+    AND?: TopicVersionRelationshipScalarWhereWithAggregatesInput | TopicVersionRelationshipScalarWhereWithAggregatesInput[]
+    OR?: TopicVersionRelationshipScalarWhereWithAggregatesInput[]
+    NOT?: TopicVersionRelationshipScalarWhereWithAggregatesInput | TopicVersionRelationshipScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"TopicVersionRelationship"> | bigint | number
+    projection_version_id?: BigIntWithAggregatesFilter<"TopicVersionRelationship"> | bigint | number
+    target_user_id?: BigIntWithAggregatesFilter<"TopicVersionRelationship"> | bigint | number
+    relationship_kind?: StringNullableWithAggregatesFilter<"TopicVersionRelationship"> | string | null
+    summary_text?: StringWithAggregatesFilter<"TopicVersionRelationship"> | string
+    actors?: JsonWithAggregatesFilter<"TopicVersionRelationship">
+    source_event_ids?: JsonWithAggregatesFilter<"TopicVersionRelationship">
+    source_message_ids?: JsonWithAggregatesFilter<"TopicVersionRelationship">
+    metadata?: JsonNullableWithAggregatesFilter<"TopicVersionRelationship">
+    created_at?: DateTimeWithAggregatesFilter<"TopicVersionRelationship"> | Date | string
+  }
+
+  export type TopicVersionEvidenceWhereInput = {
+    AND?: TopicVersionEvidenceWhereInput | TopicVersionEvidenceWhereInput[]
+    OR?: TopicVersionEvidenceWhereInput[]
+    NOT?: TopicVersionEvidenceWhereInput | TopicVersionEvidenceWhereInput[]
+    id?: BigIntFilter<"TopicVersionEvidence"> | bigint | number
+    projection_version_id?: BigIntFilter<"TopicVersionEvidence"> | bigint | number
+    source_kind?: StringFilter<"TopicVersionEvidence"> | string
+    source_id?: BigIntFilter<"TopicVersionEvidence"> | bigint | number
+    sort_order?: IntFilter<"TopicVersionEvidence"> | number
+    excerpt_text?: StringNullableFilter<"TopicVersionEvidence"> | string | null
+    speaker_id?: StringNullableFilter<"TopicVersionEvidence"> | string | null
+    speaker_name?: StringNullableFilter<"TopicVersionEvidence"> | string | null
+    occurred_at?: DateTimeNullableFilter<"TopicVersionEvidence"> | Date | string | null
+    metadata?: JsonNullableFilter<"TopicVersionEvidence">
+    created_at?: DateTimeFilter<"TopicVersionEvidence"> | Date | string
+  }
+
+  export type TopicVersionEvidenceOrderByWithRelationInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    source_kind?: SortOrder
+    source_id?: SortOrder
+    sort_order?: SortOrder
+    excerpt_text?: SortOrderInput | SortOrder
+    speaker_id?: SortOrderInput | SortOrder
+    speaker_name?: SortOrderInput | SortOrder
+    occurred_at?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+  }
+
+  export type TopicVersionEvidenceWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: TopicVersionEvidenceWhereInput | TopicVersionEvidenceWhereInput[]
+    OR?: TopicVersionEvidenceWhereInput[]
+    NOT?: TopicVersionEvidenceWhereInput | TopicVersionEvidenceWhereInput[]
+    projection_version_id?: BigIntFilter<"TopicVersionEvidence"> | bigint | number
+    source_kind?: StringFilter<"TopicVersionEvidence"> | string
+    source_id?: BigIntFilter<"TopicVersionEvidence"> | bigint | number
+    sort_order?: IntFilter<"TopicVersionEvidence"> | number
+    excerpt_text?: StringNullableFilter<"TopicVersionEvidence"> | string | null
+    speaker_id?: StringNullableFilter<"TopicVersionEvidence"> | string | null
+    speaker_name?: StringNullableFilter<"TopicVersionEvidence"> | string | null
+    occurred_at?: DateTimeNullableFilter<"TopicVersionEvidence"> | Date | string | null
+    metadata?: JsonNullableFilter<"TopicVersionEvidence">
+    created_at?: DateTimeFilter<"TopicVersionEvidence"> | Date | string
+  }, "id">
+
+  export type TopicVersionEvidenceOrderByWithAggregationInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    source_kind?: SortOrder
+    source_id?: SortOrder
+    sort_order?: SortOrder
+    excerpt_text?: SortOrderInput | SortOrder
+    speaker_id?: SortOrderInput | SortOrder
+    speaker_name?: SortOrderInput | SortOrder
+    occurred_at?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    _count?: TopicVersionEvidenceCountOrderByAggregateInput
+    _avg?: TopicVersionEvidenceAvgOrderByAggregateInput
+    _max?: TopicVersionEvidenceMaxOrderByAggregateInput
+    _min?: TopicVersionEvidenceMinOrderByAggregateInput
+    _sum?: TopicVersionEvidenceSumOrderByAggregateInput
+  }
+
+  export type TopicVersionEvidenceScalarWhereWithAggregatesInput = {
+    AND?: TopicVersionEvidenceScalarWhereWithAggregatesInput | TopicVersionEvidenceScalarWhereWithAggregatesInput[]
+    OR?: TopicVersionEvidenceScalarWhereWithAggregatesInput[]
+    NOT?: TopicVersionEvidenceScalarWhereWithAggregatesInput | TopicVersionEvidenceScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"TopicVersionEvidence"> | bigint | number
+    projection_version_id?: BigIntWithAggregatesFilter<"TopicVersionEvidence"> | bigint | number
+    source_kind?: StringWithAggregatesFilter<"TopicVersionEvidence"> | string
+    source_id?: BigIntWithAggregatesFilter<"TopicVersionEvidence"> | bigint | number
+    sort_order?: IntWithAggregatesFilter<"TopicVersionEvidence"> | number
+    excerpt_text?: StringNullableWithAggregatesFilter<"TopicVersionEvidence"> | string | null
+    speaker_id?: StringNullableWithAggregatesFilter<"TopicVersionEvidence"> | string | null
+    speaker_name?: StringNullableWithAggregatesFilter<"TopicVersionEvidence"> | string | null
+    occurred_at?: DateTimeNullableWithAggregatesFilter<"TopicVersionEvidence"> | Date | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"TopicVersionEvidence">
+    created_at?: DateTimeWithAggregatesFilter<"TopicVersionEvidence"> | Date | string
+  }
+
+  export type TopicReviewEventWhereInput = {
+    AND?: TopicReviewEventWhereInput | TopicReviewEventWhereInput[]
+    OR?: TopicReviewEventWhereInput[]
+    NOT?: TopicReviewEventWhereInput | TopicReviewEventWhereInput[]
+    id?: BigIntFilter<"TopicReviewEvent"> | bigint | number
+    topic_id?: BigIntFilter<"TopicReviewEvent"> | bigint | number
+    base_projection_version_id?: BigIntNullableFilter<"TopicReviewEvent"> | bigint | number | null
+    result_projection_version_id?: BigIntNullableFilter<"TopicReviewEvent"> | bigint | number | null
+    action_type?: StringFilter<"TopicReviewEvent"> | string
+    status?: StringFilter<"TopicReviewEvent"> | string
+    created_by?: StringNullableFilter<"TopicReviewEvent"> | string | null
+    manual_note?: StringNullableFilter<"TopicReviewEvent"> | string | null
+    patch_json?: JsonNullableFilter<"TopicReviewEvent">
+    metadata?: JsonNullableFilter<"TopicReviewEvent">
+    created_at?: DateTimeFilter<"TopicReviewEvent"> | Date | string
+    updated_at?: DateTimeFilter<"TopicReviewEvent"> | Date | string
+  }
+
+  export type TopicReviewEventOrderByWithRelationInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    base_projection_version_id?: SortOrderInput | SortOrder
+    result_projection_version_id?: SortOrderInput | SortOrder
+    action_type?: SortOrder
+    status?: SortOrder
+    created_by?: SortOrderInput | SortOrder
+    manual_note?: SortOrderInput | SortOrder
+    patch_json?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type TopicReviewEventWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: TopicReviewEventWhereInput | TopicReviewEventWhereInput[]
+    OR?: TopicReviewEventWhereInput[]
+    NOT?: TopicReviewEventWhereInput | TopicReviewEventWhereInput[]
+    topic_id?: BigIntFilter<"TopicReviewEvent"> | bigint | number
+    base_projection_version_id?: BigIntNullableFilter<"TopicReviewEvent"> | bigint | number | null
+    result_projection_version_id?: BigIntNullableFilter<"TopicReviewEvent"> | bigint | number | null
+    action_type?: StringFilter<"TopicReviewEvent"> | string
+    status?: StringFilter<"TopicReviewEvent"> | string
+    created_by?: StringNullableFilter<"TopicReviewEvent"> | string | null
+    manual_note?: StringNullableFilter<"TopicReviewEvent"> | string | null
+    patch_json?: JsonNullableFilter<"TopicReviewEvent">
+    metadata?: JsonNullableFilter<"TopicReviewEvent">
+    created_at?: DateTimeFilter<"TopicReviewEvent"> | Date | string
+    updated_at?: DateTimeFilter<"TopicReviewEvent"> | Date | string
+  }, "id">
+
+  export type TopicReviewEventOrderByWithAggregationInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    base_projection_version_id?: SortOrderInput | SortOrder
+    result_projection_version_id?: SortOrderInput | SortOrder
+    action_type?: SortOrder
+    status?: SortOrder
+    created_by?: SortOrderInput | SortOrder
+    manual_note?: SortOrderInput | SortOrder
+    patch_json?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: TopicReviewEventCountOrderByAggregateInput
+    _avg?: TopicReviewEventAvgOrderByAggregateInput
+    _max?: TopicReviewEventMaxOrderByAggregateInput
+    _min?: TopicReviewEventMinOrderByAggregateInput
+    _sum?: TopicReviewEventSumOrderByAggregateInput
+  }
+
+  export type TopicReviewEventScalarWhereWithAggregatesInput = {
+    AND?: TopicReviewEventScalarWhereWithAggregatesInput | TopicReviewEventScalarWhereWithAggregatesInput[]
+    OR?: TopicReviewEventScalarWhereWithAggregatesInput[]
+    NOT?: TopicReviewEventScalarWhereWithAggregatesInput | TopicReviewEventScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"TopicReviewEvent"> | bigint | number
+    topic_id?: BigIntWithAggregatesFilter<"TopicReviewEvent"> | bigint | number
+    base_projection_version_id?: BigIntNullableWithAggregatesFilter<"TopicReviewEvent"> | bigint | number | null
+    result_projection_version_id?: BigIntNullableWithAggregatesFilter<"TopicReviewEvent"> | bigint | number | null
+    action_type?: StringWithAggregatesFilter<"TopicReviewEvent"> | string
+    status?: StringWithAggregatesFilter<"TopicReviewEvent"> | string
+    created_by?: StringNullableWithAggregatesFilter<"TopicReviewEvent"> | string | null
+    manual_note?: StringNullableWithAggregatesFilter<"TopicReviewEvent"> | string | null
+    patch_json?: JsonNullableWithAggregatesFilter<"TopicReviewEvent">
+    metadata?: JsonNullableWithAggregatesFilter<"TopicReviewEvent">
+    created_at?: DateTimeWithAggregatesFilter<"TopicReviewEvent"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"TopicReviewEvent"> | Date | string
+  }
+
+  export type GoldenChatCaseWhereInput = {
+    AND?: GoldenChatCaseWhereInput | GoldenChatCaseWhereInput[]
+    OR?: GoldenChatCaseWhereInput[]
+    NOT?: GoldenChatCaseWhereInput | GoldenChatCaseWhereInput[]
+    id?: BigIntFilter<"GoldenChatCase"> | bigint | number
+    chat_space_type?: StringFilter<"GoldenChatCase"> | string
+    chat_space_id?: BigIntFilter<"GoldenChatCase"> | bigint | number
+    topic_id?: BigIntNullableFilter<"GoldenChatCase"> | bigint | number | null
+    source_projection_version_id?: BigIntFilter<"GoldenChatCase"> | bigint | number
+    label?: StringNullableFilter<"GoldenChatCase"> | string | null
+    status?: StringFilter<"GoldenChatCase"> | string
+    input_bundle_hash?: StringFilter<"GoldenChatCase"> | string
+    expected_snapshot_json?: JsonFilter<"GoldenChatCase">
+    fixture_bundle_json?: JsonFilter<"GoldenChatCase">
+    created_by?: StringNullableFilter<"GoldenChatCase"> | string | null
+    metadata?: JsonNullableFilter<"GoldenChatCase">
+    created_at?: DateTimeFilter<"GoldenChatCase"> | Date | string
+    updated_at?: DateTimeFilter<"GoldenChatCase"> | Date | string
+  }
+
+  export type GoldenChatCaseOrderByWithRelationInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    topic_id?: SortOrderInput | SortOrder
+    source_projection_version_id?: SortOrder
+    label?: SortOrderInput | SortOrder
+    status?: SortOrder
+    input_bundle_hash?: SortOrder
+    expected_snapshot_json?: SortOrder
+    fixture_bundle_json?: SortOrder
+    created_by?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type GoldenChatCaseWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: GoldenChatCaseWhereInput | GoldenChatCaseWhereInput[]
+    OR?: GoldenChatCaseWhereInput[]
+    NOT?: GoldenChatCaseWhereInput | GoldenChatCaseWhereInput[]
+    chat_space_type?: StringFilter<"GoldenChatCase"> | string
+    chat_space_id?: BigIntFilter<"GoldenChatCase"> | bigint | number
+    topic_id?: BigIntNullableFilter<"GoldenChatCase"> | bigint | number | null
+    source_projection_version_id?: BigIntFilter<"GoldenChatCase"> | bigint | number
+    label?: StringNullableFilter<"GoldenChatCase"> | string | null
+    status?: StringFilter<"GoldenChatCase"> | string
+    input_bundle_hash?: StringFilter<"GoldenChatCase"> | string
+    expected_snapshot_json?: JsonFilter<"GoldenChatCase">
+    fixture_bundle_json?: JsonFilter<"GoldenChatCase">
+    created_by?: StringNullableFilter<"GoldenChatCase"> | string | null
+    metadata?: JsonNullableFilter<"GoldenChatCase">
+    created_at?: DateTimeFilter<"GoldenChatCase"> | Date | string
+    updated_at?: DateTimeFilter<"GoldenChatCase"> | Date | string
+  }, "id">
+
+  export type GoldenChatCaseOrderByWithAggregationInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    topic_id?: SortOrderInput | SortOrder
+    source_projection_version_id?: SortOrder
+    label?: SortOrderInput | SortOrder
+    status?: SortOrder
+    input_bundle_hash?: SortOrder
+    expected_snapshot_json?: SortOrder
+    fixture_bundle_json?: SortOrder
+    created_by?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: GoldenChatCaseCountOrderByAggregateInput
+    _avg?: GoldenChatCaseAvgOrderByAggregateInput
+    _max?: GoldenChatCaseMaxOrderByAggregateInput
+    _min?: GoldenChatCaseMinOrderByAggregateInput
+    _sum?: GoldenChatCaseSumOrderByAggregateInput
+  }
+
+  export type GoldenChatCaseScalarWhereWithAggregatesInput = {
+    AND?: GoldenChatCaseScalarWhereWithAggregatesInput | GoldenChatCaseScalarWhereWithAggregatesInput[]
+    OR?: GoldenChatCaseScalarWhereWithAggregatesInput[]
+    NOT?: GoldenChatCaseScalarWhereWithAggregatesInput | GoldenChatCaseScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"GoldenChatCase"> | bigint | number
+    chat_space_type?: StringWithAggregatesFilter<"GoldenChatCase"> | string
+    chat_space_id?: BigIntWithAggregatesFilter<"GoldenChatCase"> | bigint | number
+    topic_id?: BigIntNullableWithAggregatesFilter<"GoldenChatCase"> | bigint | number | null
+    source_projection_version_id?: BigIntWithAggregatesFilter<"GoldenChatCase"> | bigint | number
+    label?: StringNullableWithAggregatesFilter<"GoldenChatCase"> | string | null
+    status?: StringWithAggregatesFilter<"GoldenChatCase"> | string
+    input_bundle_hash?: StringWithAggregatesFilter<"GoldenChatCase"> | string
+    expected_snapshot_json?: JsonWithAggregatesFilter<"GoldenChatCase">
+    fixture_bundle_json?: JsonWithAggregatesFilter<"GoldenChatCase">
+    created_by?: StringNullableWithAggregatesFilter<"GoldenChatCase"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"GoldenChatCase">
+    created_at?: DateTimeWithAggregatesFilter<"GoldenChatCase"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"GoldenChatCase"> | Date | string
   }
 
   export type GroupChatSettingCreateInput = {
@@ -17103,6 +26669,860 @@ export namespace Prisma {
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
+  export type ChatSpaceTopicCreateInput = {
+    id?: bigint | number
+    chat_space_type: string
+    chat_space_id: bigint | number
+    status?: string
+    canonical_title?: string | null
+    started_at?: Date | string | null
+    last_activity_at?: Date | string | null
+    closed_at?: Date | string | null
+    current_accepted_version_id?: bigint | number | null
+    current_candidate_version_id?: bigint | number | null
+    last_projection_job_id?: bigint | number | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type ChatSpaceTopicUncheckedCreateInput = {
+    id?: bigint | number
+    chat_space_type: string
+    chat_space_id: bigint | number
+    status?: string
+    canonical_title?: string | null
+    started_at?: Date | string | null
+    last_activity_at?: Date | string | null
+    closed_at?: Date | string | null
+    current_accepted_version_id?: bigint | number | null
+    current_candidate_version_id?: bigint | number | null
+    last_projection_job_id?: bigint | number | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type ChatSpaceTopicUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    chat_space_type?: StringFieldUpdateOperationsInput | string
+    chat_space_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    status?: StringFieldUpdateOperationsInput | string
+    canonical_title?: NullableStringFieldUpdateOperationsInput | string | null
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    last_activity_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    closed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    current_accepted_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    current_candidate_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    last_projection_job_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ChatSpaceTopicUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    chat_space_type?: StringFieldUpdateOperationsInput | string
+    chat_space_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    status?: StringFieldUpdateOperationsInput | string
+    canonical_title?: NullableStringFieldUpdateOperationsInput | string | null
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    last_activity_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    closed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    current_accepted_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    current_candidate_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    last_projection_job_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ChatSpaceTopicCreateManyInput = {
+    id?: bigint | number
+    chat_space_type: string
+    chat_space_id: bigint | number
+    status?: string
+    canonical_title?: string | null
+    started_at?: Date | string | null
+    last_activity_at?: Date | string | null
+    closed_at?: Date | string | null
+    current_accepted_version_id?: bigint | number | null
+    current_candidate_version_id?: bigint | number | null
+    last_projection_job_id?: bigint | number | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type ChatSpaceTopicUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    chat_space_type?: StringFieldUpdateOperationsInput | string
+    chat_space_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    status?: StringFieldUpdateOperationsInput | string
+    canonical_title?: NullableStringFieldUpdateOperationsInput | string | null
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    last_activity_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    closed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    current_accepted_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    current_candidate_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    last_projection_job_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ChatSpaceTopicUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    chat_space_type?: StringFieldUpdateOperationsInput | string
+    chat_space_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    status?: StringFieldUpdateOperationsInput | string
+    canonical_title?: NullableStringFieldUpdateOperationsInput | string | null
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    last_activity_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    closed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    current_accepted_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    current_candidate_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    last_projection_job_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicProjectionJobCreateInput = {
+    id?: bigint | number
+    chat_space_type: string
+    chat_space_id: bigint | number
+    trigger_type: string
+    status: string
+    input_bundle_json: JsonNullValueInput | InputJsonValue
+    input_bundle_hash: string
+    base_version_ids: JsonNullValueInput | InputJsonValue
+    model_name?: string | null
+    model_config_json?: NullableJsonNullValueInput | InputJsonValue
+    prompt_version?: string | null
+    error_code?: string | null
+    error_message?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    finished_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type TopicProjectionJobUncheckedCreateInput = {
+    id?: bigint | number
+    chat_space_type: string
+    chat_space_id: bigint | number
+    trigger_type: string
+    status: string
+    input_bundle_json: JsonNullValueInput | InputJsonValue
+    input_bundle_hash: string
+    base_version_ids: JsonNullValueInput | InputJsonValue
+    model_name?: string | null
+    model_config_json?: NullableJsonNullValueInput | InputJsonValue
+    prompt_version?: string | null
+    error_code?: string | null
+    error_message?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    finished_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type TopicProjectionJobUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    chat_space_type?: StringFieldUpdateOperationsInput | string
+    chat_space_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    trigger_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    input_bundle_json?: JsonNullValueInput | InputJsonValue
+    input_bundle_hash?: StringFieldUpdateOperationsInput | string
+    base_version_ids?: JsonNullValueInput | InputJsonValue
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_config_json?: NullableJsonNullValueInput | InputJsonValue
+    prompt_version?: NullableStringFieldUpdateOperationsInput | string | null
+    error_code?: NullableStringFieldUpdateOperationsInput | string | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    finished_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicProjectionJobUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    chat_space_type?: StringFieldUpdateOperationsInput | string
+    chat_space_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    trigger_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    input_bundle_json?: JsonNullValueInput | InputJsonValue
+    input_bundle_hash?: StringFieldUpdateOperationsInput | string
+    base_version_ids?: JsonNullValueInput | InputJsonValue
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_config_json?: NullableJsonNullValueInput | InputJsonValue
+    prompt_version?: NullableStringFieldUpdateOperationsInput | string | null
+    error_code?: NullableStringFieldUpdateOperationsInput | string | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    finished_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicProjectionJobCreateManyInput = {
+    id?: bigint | number
+    chat_space_type: string
+    chat_space_id: bigint | number
+    trigger_type: string
+    status: string
+    input_bundle_json: JsonNullValueInput | InputJsonValue
+    input_bundle_hash: string
+    base_version_ids: JsonNullValueInput | InputJsonValue
+    model_name?: string | null
+    model_config_json?: NullableJsonNullValueInput | InputJsonValue
+    prompt_version?: string | null
+    error_code?: string | null
+    error_message?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    finished_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type TopicProjectionJobUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    chat_space_type?: StringFieldUpdateOperationsInput | string
+    chat_space_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    trigger_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    input_bundle_json?: JsonNullValueInput | InputJsonValue
+    input_bundle_hash?: StringFieldUpdateOperationsInput | string
+    base_version_ids?: JsonNullValueInput | InputJsonValue
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_config_json?: NullableJsonNullValueInput | InputJsonValue
+    prompt_version?: NullableStringFieldUpdateOperationsInput | string | null
+    error_code?: NullableStringFieldUpdateOperationsInput | string | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    finished_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicProjectionJobUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    chat_space_type?: StringFieldUpdateOperationsInput | string
+    chat_space_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    trigger_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    input_bundle_json?: JsonNullValueInput | InputJsonValue
+    input_bundle_hash?: StringFieldUpdateOperationsInput | string
+    base_version_ids?: JsonNullValueInput | InputJsonValue
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_config_json?: NullableJsonNullValueInput | InputJsonValue
+    prompt_version?: NullableStringFieldUpdateOperationsInput | string | null
+    error_code?: NullableStringFieldUpdateOperationsInput | string | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    finished_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicProjectionVersionCreateInput = {
+    id?: bigint | number
+    topic_id: bigint | number
+    projection_job_id?: bigint | number | null
+    version_number: number
+    status?: string
+    lifecycle_state?: string
+    title?: string | null
+    summary_text: string
+    review_priority_score?: number
+    heat_score?: number
+    participant_ids: JsonNullValueInput | InputJsonValue
+    topic_keywords: JsonNullValueInput | InputJsonValue
+    evidence_count?: number
+    relationship_count?: number
+    runtime_hit_count?: number
+    last_runtime_hit_at?: Date | string | null
+    input_bundle_hash: string
+    snapshot_json: JsonNullValueInput | InputJsonValue
+    provenance_json: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type TopicProjectionVersionUncheckedCreateInput = {
+    id?: bigint | number
+    topic_id: bigint | number
+    projection_job_id?: bigint | number | null
+    version_number: number
+    status?: string
+    lifecycle_state?: string
+    title?: string | null
+    summary_text: string
+    review_priority_score?: number
+    heat_score?: number
+    participant_ids: JsonNullValueInput | InputJsonValue
+    topic_keywords: JsonNullValueInput | InputJsonValue
+    evidence_count?: number
+    relationship_count?: number
+    runtime_hit_count?: number
+    last_runtime_hit_at?: Date | string | null
+    input_bundle_hash: string
+    snapshot_json: JsonNullValueInput | InputJsonValue
+    provenance_json: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type TopicProjectionVersionUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    topic_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    projection_job_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    version_number?: IntFieldUpdateOperationsInput | number
+    status?: StringFieldUpdateOperationsInput | string
+    lifecycle_state?: StringFieldUpdateOperationsInput | string
+    title?: NullableStringFieldUpdateOperationsInput | string | null
+    summary_text?: StringFieldUpdateOperationsInput | string
+    review_priority_score?: FloatFieldUpdateOperationsInput | number
+    heat_score?: FloatFieldUpdateOperationsInput | number
+    participant_ids?: JsonNullValueInput | InputJsonValue
+    topic_keywords?: JsonNullValueInput | InputJsonValue
+    evidence_count?: IntFieldUpdateOperationsInput | number
+    relationship_count?: IntFieldUpdateOperationsInput | number
+    runtime_hit_count?: IntFieldUpdateOperationsInput | number
+    last_runtime_hit_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    input_bundle_hash?: StringFieldUpdateOperationsInput | string
+    snapshot_json?: JsonNullValueInput | InputJsonValue
+    provenance_json?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicProjectionVersionUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    topic_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    projection_job_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    version_number?: IntFieldUpdateOperationsInput | number
+    status?: StringFieldUpdateOperationsInput | string
+    lifecycle_state?: StringFieldUpdateOperationsInput | string
+    title?: NullableStringFieldUpdateOperationsInput | string | null
+    summary_text?: StringFieldUpdateOperationsInput | string
+    review_priority_score?: FloatFieldUpdateOperationsInput | number
+    heat_score?: FloatFieldUpdateOperationsInput | number
+    participant_ids?: JsonNullValueInput | InputJsonValue
+    topic_keywords?: JsonNullValueInput | InputJsonValue
+    evidence_count?: IntFieldUpdateOperationsInput | number
+    relationship_count?: IntFieldUpdateOperationsInput | number
+    runtime_hit_count?: IntFieldUpdateOperationsInput | number
+    last_runtime_hit_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    input_bundle_hash?: StringFieldUpdateOperationsInput | string
+    snapshot_json?: JsonNullValueInput | InputJsonValue
+    provenance_json?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicProjectionVersionCreateManyInput = {
+    id?: bigint | number
+    topic_id: bigint | number
+    projection_job_id?: bigint | number | null
+    version_number: number
+    status?: string
+    lifecycle_state?: string
+    title?: string | null
+    summary_text: string
+    review_priority_score?: number
+    heat_score?: number
+    participant_ids: JsonNullValueInput | InputJsonValue
+    topic_keywords: JsonNullValueInput | InputJsonValue
+    evidence_count?: number
+    relationship_count?: number
+    runtime_hit_count?: number
+    last_runtime_hit_at?: Date | string | null
+    input_bundle_hash: string
+    snapshot_json: JsonNullValueInput | InputJsonValue
+    provenance_json: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type TopicProjectionVersionUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    topic_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    projection_job_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    version_number?: IntFieldUpdateOperationsInput | number
+    status?: StringFieldUpdateOperationsInput | string
+    lifecycle_state?: StringFieldUpdateOperationsInput | string
+    title?: NullableStringFieldUpdateOperationsInput | string | null
+    summary_text?: StringFieldUpdateOperationsInput | string
+    review_priority_score?: FloatFieldUpdateOperationsInput | number
+    heat_score?: FloatFieldUpdateOperationsInput | number
+    participant_ids?: JsonNullValueInput | InputJsonValue
+    topic_keywords?: JsonNullValueInput | InputJsonValue
+    evidence_count?: IntFieldUpdateOperationsInput | number
+    relationship_count?: IntFieldUpdateOperationsInput | number
+    runtime_hit_count?: IntFieldUpdateOperationsInput | number
+    last_runtime_hit_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    input_bundle_hash?: StringFieldUpdateOperationsInput | string
+    snapshot_json?: JsonNullValueInput | InputJsonValue
+    provenance_json?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicProjectionVersionUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    topic_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    projection_job_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    version_number?: IntFieldUpdateOperationsInput | number
+    status?: StringFieldUpdateOperationsInput | string
+    lifecycle_state?: StringFieldUpdateOperationsInput | string
+    title?: NullableStringFieldUpdateOperationsInput | string | null
+    summary_text?: StringFieldUpdateOperationsInput | string
+    review_priority_score?: FloatFieldUpdateOperationsInput | number
+    heat_score?: FloatFieldUpdateOperationsInput | number
+    participant_ids?: JsonNullValueInput | InputJsonValue
+    topic_keywords?: JsonNullValueInput | InputJsonValue
+    evidence_count?: IntFieldUpdateOperationsInput | number
+    relationship_count?: IntFieldUpdateOperationsInput | number
+    runtime_hit_count?: IntFieldUpdateOperationsInput | number
+    last_runtime_hit_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    input_bundle_hash?: StringFieldUpdateOperationsInput | string
+    snapshot_json?: JsonNullValueInput | InputJsonValue
+    provenance_json?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicVersionRelationshipCreateInput = {
+    id?: bigint | number
+    projection_version_id: bigint | number
+    target_user_id: bigint | number
+    relationship_kind?: string | null
+    summary_text: string
+    actors: JsonNullValueInput | InputJsonValue
+    source_event_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type TopicVersionRelationshipUncheckedCreateInput = {
+    id?: bigint | number
+    projection_version_id: bigint | number
+    target_user_id: bigint | number
+    relationship_kind?: string | null
+    summary_text: string
+    actors: JsonNullValueInput | InputJsonValue
+    source_event_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type TopicVersionRelationshipUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    projection_version_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    target_user_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    relationship_kind?: NullableStringFieldUpdateOperationsInput | string | null
+    summary_text?: StringFieldUpdateOperationsInput | string
+    actors?: JsonNullValueInput | InputJsonValue
+    source_event_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicVersionRelationshipUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    projection_version_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    target_user_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    relationship_kind?: NullableStringFieldUpdateOperationsInput | string | null
+    summary_text?: StringFieldUpdateOperationsInput | string
+    actors?: JsonNullValueInput | InputJsonValue
+    source_event_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicVersionRelationshipCreateManyInput = {
+    id?: bigint | number
+    projection_version_id: bigint | number
+    target_user_id: bigint | number
+    relationship_kind?: string | null
+    summary_text: string
+    actors: JsonNullValueInput | InputJsonValue
+    source_event_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type TopicVersionRelationshipUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    projection_version_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    target_user_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    relationship_kind?: NullableStringFieldUpdateOperationsInput | string | null
+    summary_text?: StringFieldUpdateOperationsInput | string
+    actors?: JsonNullValueInput | InputJsonValue
+    source_event_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicVersionRelationshipUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    projection_version_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    target_user_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    relationship_kind?: NullableStringFieldUpdateOperationsInput | string | null
+    summary_text?: StringFieldUpdateOperationsInput | string
+    actors?: JsonNullValueInput | InputJsonValue
+    source_event_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicVersionEvidenceCreateInput = {
+    id?: bigint | number
+    projection_version_id: bigint | number
+    source_kind: string
+    source_id: bigint | number
+    sort_order?: number
+    excerpt_text?: string | null
+    speaker_id?: string | null
+    speaker_name?: string | null
+    occurred_at?: Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type TopicVersionEvidenceUncheckedCreateInput = {
+    id?: bigint | number
+    projection_version_id: bigint | number
+    source_kind: string
+    source_id: bigint | number
+    sort_order?: number
+    excerpt_text?: string | null
+    speaker_id?: string | null
+    speaker_name?: string | null
+    occurred_at?: Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type TopicVersionEvidenceUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    projection_version_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    source_kind?: StringFieldUpdateOperationsInput | string
+    source_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    sort_order?: IntFieldUpdateOperationsInput | number
+    excerpt_text?: NullableStringFieldUpdateOperationsInput | string | null
+    speaker_id?: NullableStringFieldUpdateOperationsInput | string | null
+    speaker_name?: NullableStringFieldUpdateOperationsInput | string | null
+    occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicVersionEvidenceUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    projection_version_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    source_kind?: StringFieldUpdateOperationsInput | string
+    source_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    sort_order?: IntFieldUpdateOperationsInput | number
+    excerpt_text?: NullableStringFieldUpdateOperationsInput | string | null
+    speaker_id?: NullableStringFieldUpdateOperationsInput | string | null
+    speaker_name?: NullableStringFieldUpdateOperationsInput | string | null
+    occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicVersionEvidenceCreateManyInput = {
+    id?: bigint | number
+    projection_version_id: bigint | number
+    source_kind: string
+    source_id: bigint | number
+    sort_order?: number
+    excerpt_text?: string | null
+    speaker_id?: string | null
+    speaker_name?: string | null
+    occurred_at?: Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type TopicVersionEvidenceUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    projection_version_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    source_kind?: StringFieldUpdateOperationsInput | string
+    source_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    sort_order?: IntFieldUpdateOperationsInput | number
+    excerpt_text?: NullableStringFieldUpdateOperationsInput | string | null
+    speaker_id?: NullableStringFieldUpdateOperationsInput | string | null
+    speaker_name?: NullableStringFieldUpdateOperationsInput | string | null
+    occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicVersionEvidenceUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    projection_version_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    source_kind?: StringFieldUpdateOperationsInput | string
+    source_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    sort_order?: IntFieldUpdateOperationsInput | number
+    excerpt_text?: NullableStringFieldUpdateOperationsInput | string | null
+    speaker_id?: NullableStringFieldUpdateOperationsInput | string | null
+    speaker_name?: NullableStringFieldUpdateOperationsInput | string | null
+    occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicReviewEventCreateInput = {
+    id?: bigint | number
+    topic_id: bigint | number
+    base_projection_version_id?: bigint | number | null
+    result_projection_version_id?: bigint | number | null
+    action_type: string
+    status?: string
+    created_by?: string | null
+    manual_note?: string | null
+    patch_json?: NullableJsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type TopicReviewEventUncheckedCreateInput = {
+    id?: bigint | number
+    topic_id: bigint | number
+    base_projection_version_id?: bigint | number | null
+    result_projection_version_id?: bigint | number | null
+    action_type: string
+    status?: string
+    created_by?: string | null
+    manual_note?: string | null
+    patch_json?: NullableJsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type TopicReviewEventUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    topic_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    base_projection_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    result_projection_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    action_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    created_by?: NullableStringFieldUpdateOperationsInput | string | null
+    manual_note?: NullableStringFieldUpdateOperationsInput | string | null
+    patch_json?: NullableJsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicReviewEventUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    topic_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    base_projection_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    result_projection_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    action_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    created_by?: NullableStringFieldUpdateOperationsInput | string | null
+    manual_note?: NullableStringFieldUpdateOperationsInput | string | null
+    patch_json?: NullableJsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicReviewEventCreateManyInput = {
+    id?: bigint | number
+    topic_id: bigint | number
+    base_projection_version_id?: bigint | number | null
+    result_projection_version_id?: bigint | number | null
+    action_type: string
+    status?: string
+    created_by?: string | null
+    manual_note?: string | null
+    patch_json?: NullableJsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type TopicReviewEventUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    topic_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    base_projection_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    result_projection_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    action_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    created_by?: NullableStringFieldUpdateOperationsInput | string | null
+    manual_note?: NullableStringFieldUpdateOperationsInput | string | null
+    patch_json?: NullableJsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TopicReviewEventUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    topic_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    base_projection_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    result_projection_version_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    action_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    created_by?: NullableStringFieldUpdateOperationsInput | string | null
+    manual_note?: NullableStringFieldUpdateOperationsInput | string | null
+    patch_json?: NullableJsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type GoldenChatCaseCreateInput = {
+    id?: bigint | number
+    chat_space_type: string
+    chat_space_id: bigint | number
+    topic_id?: bigint | number | null
+    source_projection_version_id: bigint | number
+    label?: string | null
+    status?: string
+    input_bundle_hash: string
+    expected_snapshot_json: JsonNullValueInput | InputJsonValue
+    fixture_bundle_json: JsonNullValueInput | InputJsonValue
+    created_by?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type GoldenChatCaseUncheckedCreateInput = {
+    id?: bigint | number
+    chat_space_type: string
+    chat_space_id: bigint | number
+    topic_id?: bigint | number | null
+    source_projection_version_id: bigint | number
+    label?: string | null
+    status?: string
+    input_bundle_hash: string
+    expected_snapshot_json: JsonNullValueInput | InputJsonValue
+    fixture_bundle_json: JsonNullValueInput | InputJsonValue
+    created_by?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type GoldenChatCaseUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    chat_space_type?: StringFieldUpdateOperationsInput | string
+    chat_space_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    topic_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_projection_version_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    label?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    input_bundle_hash?: StringFieldUpdateOperationsInput | string
+    expected_snapshot_json?: JsonNullValueInput | InputJsonValue
+    fixture_bundle_json?: JsonNullValueInput | InputJsonValue
+    created_by?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type GoldenChatCaseUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    chat_space_type?: StringFieldUpdateOperationsInput | string
+    chat_space_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    topic_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_projection_version_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    label?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    input_bundle_hash?: StringFieldUpdateOperationsInput | string
+    expected_snapshot_json?: JsonNullValueInput | InputJsonValue
+    fixture_bundle_json?: JsonNullValueInput | InputJsonValue
+    created_by?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type GoldenChatCaseCreateManyInput = {
+    id?: bigint | number
+    chat_space_type: string
+    chat_space_id: bigint | number
+    topic_id?: bigint | number | null
+    source_projection_version_id: bigint | number
+    label?: string | null
+    status?: string
+    input_bundle_hash: string
+    expected_snapshot_json: JsonNullValueInput | InputJsonValue
+    fixture_bundle_json: JsonNullValueInput | InputJsonValue
+    created_by?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type GoldenChatCaseUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    chat_space_type?: StringFieldUpdateOperationsInput | string
+    chat_space_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    topic_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_projection_version_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    label?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    input_bundle_hash?: StringFieldUpdateOperationsInput | string
+    expected_snapshot_json?: JsonNullValueInput | InputJsonValue
+    fixture_bundle_json?: JsonNullValueInput | InputJsonValue
+    created_by?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type GoldenChatCaseUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    chat_space_type?: StringFieldUpdateOperationsInput | string
+    chat_space_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    topic_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_projection_version_id?: BigIntFieldUpdateOperationsInput | bigint | number
+    label?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    input_bundle_hash?: StringFieldUpdateOperationsInput | string
+    expected_snapshot_json?: JsonNullValueInput | InputJsonValue
+    fixture_bundle_json?: JsonNullValueInput | InputJsonValue
+    created_by?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
   export type BigIntFilter<$PrismaModel = never> = {
     equals?: bigint | number | BigIntFieldRefInput<$PrismaModel>
     in?: bigint[] | number[] | ListBigIntFieldRefInput<$PrismaModel>
@@ -18259,6 +28679,441 @@ export namespace Prisma {
   export type RelationshipMemoryOverrideSumOrderByAggregateInput = {
     id?: SortOrder
     card_id?: SortOrder
+  }
+
+  export type ChatSpaceTopicCountOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    status?: SortOrder
+    canonical_title?: SortOrder
+    started_at?: SortOrder
+    last_activity_at?: SortOrder
+    closed_at?: SortOrder
+    current_accepted_version_id?: SortOrder
+    current_candidate_version_id?: SortOrder
+    last_projection_job_id?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type ChatSpaceTopicAvgOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_id?: SortOrder
+    current_accepted_version_id?: SortOrder
+    current_candidate_version_id?: SortOrder
+    last_projection_job_id?: SortOrder
+  }
+
+  export type ChatSpaceTopicMaxOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    status?: SortOrder
+    canonical_title?: SortOrder
+    started_at?: SortOrder
+    last_activity_at?: SortOrder
+    closed_at?: SortOrder
+    current_accepted_version_id?: SortOrder
+    current_candidate_version_id?: SortOrder
+    last_projection_job_id?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type ChatSpaceTopicMinOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    status?: SortOrder
+    canonical_title?: SortOrder
+    started_at?: SortOrder
+    last_activity_at?: SortOrder
+    closed_at?: SortOrder
+    current_accepted_version_id?: SortOrder
+    current_candidate_version_id?: SortOrder
+    last_projection_job_id?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type ChatSpaceTopicSumOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_id?: SortOrder
+    current_accepted_version_id?: SortOrder
+    current_candidate_version_id?: SortOrder
+    last_projection_job_id?: SortOrder
+  }
+
+  export type TopicProjectionJobCountOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    trigger_type?: SortOrder
+    status?: SortOrder
+    input_bundle_json?: SortOrder
+    input_bundle_hash?: SortOrder
+    base_version_ids?: SortOrder
+    model_name?: SortOrder
+    model_config_json?: SortOrder
+    prompt_version?: SortOrder
+    error_code?: SortOrder
+    error_message?: SortOrder
+    metadata?: SortOrder
+    started_at?: SortOrder
+    finished_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type TopicProjectionJobAvgOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_id?: SortOrder
+  }
+
+  export type TopicProjectionJobMaxOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    trigger_type?: SortOrder
+    status?: SortOrder
+    input_bundle_hash?: SortOrder
+    model_name?: SortOrder
+    prompt_version?: SortOrder
+    error_code?: SortOrder
+    error_message?: SortOrder
+    started_at?: SortOrder
+    finished_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type TopicProjectionJobMinOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    trigger_type?: SortOrder
+    status?: SortOrder
+    input_bundle_hash?: SortOrder
+    model_name?: SortOrder
+    prompt_version?: SortOrder
+    error_code?: SortOrder
+    error_message?: SortOrder
+    started_at?: SortOrder
+    finished_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type TopicProjectionJobSumOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_id?: SortOrder
+  }
+
+  export type TopicProjectionVersionTopic_idVersion_numberCompoundUniqueInput = {
+    topic_id: bigint | number
+    version_number: number
+  }
+
+  export type TopicProjectionVersionCountOrderByAggregateInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    projection_job_id?: SortOrder
+    version_number?: SortOrder
+    status?: SortOrder
+    lifecycle_state?: SortOrder
+    title?: SortOrder
+    summary_text?: SortOrder
+    review_priority_score?: SortOrder
+    heat_score?: SortOrder
+    participant_ids?: SortOrder
+    topic_keywords?: SortOrder
+    evidence_count?: SortOrder
+    relationship_count?: SortOrder
+    runtime_hit_count?: SortOrder
+    last_runtime_hit_at?: SortOrder
+    input_bundle_hash?: SortOrder
+    snapshot_json?: SortOrder
+    provenance_json?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type TopicProjectionVersionAvgOrderByAggregateInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    projection_job_id?: SortOrder
+    version_number?: SortOrder
+    review_priority_score?: SortOrder
+    heat_score?: SortOrder
+    evidence_count?: SortOrder
+    relationship_count?: SortOrder
+    runtime_hit_count?: SortOrder
+  }
+
+  export type TopicProjectionVersionMaxOrderByAggregateInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    projection_job_id?: SortOrder
+    version_number?: SortOrder
+    status?: SortOrder
+    lifecycle_state?: SortOrder
+    title?: SortOrder
+    summary_text?: SortOrder
+    review_priority_score?: SortOrder
+    heat_score?: SortOrder
+    evidence_count?: SortOrder
+    relationship_count?: SortOrder
+    runtime_hit_count?: SortOrder
+    last_runtime_hit_at?: SortOrder
+    input_bundle_hash?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type TopicProjectionVersionMinOrderByAggregateInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    projection_job_id?: SortOrder
+    version_number?: SortOrder
+    status?: SortOrder
+    lifecycle_state?: SortOrder
+    title?: SortOrder
+    summary_text?: SortOrder
+    review_priority_score?: SortOrder
+    heat_score?: SortOrder
+    evidence_count?: SortOrder
+    relationship_count?: SortOrder
+    runtime_hit_count?: SortOrder
+    last_runtime_hit_at?: SortOrder
+    input_bundle_hash?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type TopicProjectionVersionSumOrderByAggregateInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    projection_job_id?: SortOrder
+    version_number?: SortOrder
+    review_priority_score?: SortOrder
+    heat_score?: SortOrder
+    evidence_count?: SortOrder
+    relationship_count?: SortOrder
+    runtime_hit_count?: SortOrder
+  }
+
+  export type TopicVersionRelationshipCountOrderByAggregateInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    target_user_id?: SortOrder
+    relationship_kind?: SortOrder
+    summary_text?: SortOrder
+    actors?: SortOrder
+    source_event_ids?: SortOrder
+    source_message_ids?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type TopicVersionRelationshipAvgOrderByAggregateInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    target_user_id?: SortOrder
+  }
+
+  export type TopicVersionRelationshipMaxOrderByAggregateInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    target_user_id?: SortOrder
+    relationship_kind?: SortOrder
+    summary_text?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type TopicVersionRelationshipMinOrderByAggregateInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    target_user_id?: SortOrder
+    relationship_kind?: SortOrder
+    summary_text?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type TopicVersionRelationshipSumOrderByAggregateInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    target_user_id?: SortOrder
+  }
+
+  export type TopicVersionEvidenceCountOrderByAggregateInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    source_kind?: SortOrder
+    source_id?: SortOrder
+    sort_order?: SortOrder
+    excerpt_text?: SortOrder
+    speaker_id?: SortOrder
+    speaker_name?: SortOrder
+    occurred_at?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type TopicVersionEvidenceAvgOrderByAggregateInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    source_id?: SortOrder
+    sort_order?: SortOrder
+  }
+
+  export type TopicVersionEvidenceMaxOrderByAggregateInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    source_kind?: SortOrder
+    source_id?: SortOrder
+    sort_order?: SortOrder
+    excerpt_text?: SortOrder
+    speaker_id?: SortOrder
+    speaker_name?: SortOrder
+    occurred_at?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type TopicVersionEvidenceMinOrderByAggregateInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    source_kind?: SortOrder
+    source_id?: SortOrder
+    sort_order?: SortOrder
+    excerpt_text?: SortOrder
+    speaker_id?: SortOrder
+    speaker_name?: SortOrder
+    occurred_at?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type TopicVersionEvidenceSumOrderByAggregateInput = {
+    id?: SortOrder
+    projection_version_id?: SortOrder
+    source_id?: SortOrder
+    sort_order?: SortOrder
+  }
+
+  export type TopicReviewEventCountOrderByAggregateInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    base_projection_version_id?: SortOrder
+    result_projection_version_id?: SortOrder
+    action_type?: SortOrder
+    status?: SortOrder
+    created_by?: SortOrder
+    manual_note?: SortOrder
+    patch_json?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type TopicReviewEventAvgOrderByAggregateInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    base_projection_version_id?: SortOrder
+    result_projection_version_id?: SortOrder
+  }
+
+  export type TopicReviewEventMaxOrderByAggregateInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    base_projection_version_id?: SortOrder
+    result_projection_version_id?: SortOrder
+    action_type?: SortOrder
+    status?: SortOrder
+    created_by?: SortOrder
+    manual_note?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type TopicReviewEventMinOrderByAggregateInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    base_projection_version_id?: SortOrder
+    result_projection_version_id?: SortOrder
+    action_type?: SortOrder
+    status?: SortOrder
+    created_by?: SortOrder
+    manual_note?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type TopicReviewEventSumOrderByAggregateInput = {
+    id?: SortOrder
+    topic_id?: SortOrder
+    base_projection_version_id?: SortOrder
+    result_projection_version_id?: SortOrder
+  }
+
+  export type GoldenChatCaseCountOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    topic_id?: SortOrder
+    source_projection_version_id?: SortOrder
+    label?: SortOrder
+    status?: SortOrder
+    input_bundle_hash?: SortOrder
+    expected_snapshot_json?: SortOrder
+    fixture_bundle_json?: SortOrder
+    created_by?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type GoldenChatCaseAvgOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_id?: SortOrder
+    topic_id?: SortOrder
+    source_projection_version_id?: SortOrder
+  }
+
+  export type GoldenChatCaseMaxOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    topic_id?: SortOrder
+    source_projection_version_id?: SortOrder
+    label?: SortOrder
+    status?: SortOrder
+    input_bundle_hash?: SortOrder
+    created_by?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type GoldenChatCaseMinOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_type?: SortOrder
+    chat_space_id?: SortOrder
+    topic_id?: SortOrder
+    source_projection_version_id?: SortOrder
+    label?: SortOrder
+    status?: SortOrder
+    input_bundle_hash?: SortOrder
+    created_by?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type GoldenChatCaseSumOrderByAggregateInput = {
+    id?: SortOrder
+    chat_space_id?: SortOrder
+    topic_id?: SortOrder
+    source_projection_version_id?: SortOrder
   }
 
   export type BigIntFieldUpdateOperationsInput = {

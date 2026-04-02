@@ -259,6 +259,50 @@ describe('run routes', () => {
     }]);
   });
 
+  it('returns direct-chat relationship cards when the session scope is private', async () => {
+    const database = createDatabaseMock();
+    const persistence = jest.requireMock('@qq-bot/persistence');
+    persistence.listRelationshipMemoryJobs.mockResolvedValueOnce([{
+      id: 21,
+      session_key: 'private:456',
+      status: 'succeeded',
+      ledger_event_count: 1,
+      updated_at: '2026-04-01T02:00:00.000Z',
+      created_at: '2026-04-01T01:59:00.000Z'
+    }]);
+    persistence.listRelationshipMemoryCards.mockResolvedValueOnce([{
+      id: 88,
+      card_type: 'person',
+      group_id: null,
+      target_user_id: 456,
+      version: 1,
+      summary_text: '她会延续上一次聊到一半的话题。',
+      actors: ['小腻', 'liahua'],
+      source_event_ids: [],
+      source_message_ids: [],
+      decayed_score: 0.64,
+      last_hit_at: null,
+      metadata: {}
+    }]);
+    persistence.listRelationshipMemoryOverrides.mockResolvedValueOnce([]);
+
+    const response = await request(createApp(database))
+      .get('/api/runs/sessions/qq%3Aprivate%3A456/relationship-memory');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(persistence.listRelationshipMemoryCards).toHaveBeenCalledWith({
+      groupId: null,
+      targetUserId: 456,
+      isActive: true,
+      limit: 100
+    });
+    expect(response.body.data.chat_type).toBe('direct');
+    expect(response.body.data.group_cards).toEqual([]);
+    expect(response.body.data.person_cards).toHaveLength(1);
+    expect(response.body.data.person_cards[0].target_user_id).toBe(456);
+  });
+
   it('deletes relationship memory overrides by id', async () => {
     const database = createDatabaseMock();
 

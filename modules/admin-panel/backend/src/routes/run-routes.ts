@@ -79,6 +79,7 @@ function parseRelationshipScopeFromSessionKey(sessionKey: string) {
     return {
       chatType: 'group' as const,
       groupId: Number(groupMatch[1]),
+      targetUserId: null,
       normalizedSessionKey: `group:${groupMatch[1]}`
     };
   }
@@ -88,6 +89,7 @@ function parseRelationshipScopeFromSessionKey(sessionKey: string) {
     return {
       chatType: 'direct' as const,
       groupId: null,
+      targetUserId: Number(privateMatch[1]),
       normalizedSessionKey: `private:${privateMatch[1]}`
     };
   }
@@ -95,6 +97,7 @@ function parseRelationshipScopeFromSessionKey(sessionKey: string) {
   return {
     chatType: null,
     groupId: null,
+    targetUserId: null,
     normalizedSessionKey: sessionKey
   };
 }
@@ -773,13 +776,13 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
         }, [])
         .sort((left, right) => new Date(right.updated_at || 0).getTime() - new Date(left.updated_at || 0).getTime());
 
-      if (scope.chatType !== 'group' || !scope.groupId) {
+      if (!scope.chatType) {
         return res.json({
           success: true,
           data: {
             session_key: sessionKey,
             normalized_session_key: scope.normalizedSessionKey,
-            chat_type: scope.chatType || 'direct',
+            chat_type: 'direct',
             jobs,
             group_cards: [],
             person_cards: []
@@ -789,7 +792,8 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
       }
 
       const activeCards = await listRelationshipMemoryCards({
-        groupId: scope.groupId,
+        groupId: scope.chatType === 'group' ? scope.groupId : null,
+        targetUserId: scope.chatType === 'direct' ? scope.targetUserId : undefined,
         isActive: true,
         limit: 100
       });

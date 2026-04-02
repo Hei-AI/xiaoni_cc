@@ -14,6 +14,8 @@ import {
 } from '../components/ui/table';
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { ChatSpaceTopicWorkspace } from '../components/ChatSpaceTopicWorkspace';
+import { ChatSpaceRelationshipMemoryWorkspace } from '../components/ChatSpaceRelationshipMemoryWorkspace';
 import { usePromptTemplates } from '../hooks/usePromptTemplates';
 import { applyChatSettingToggle, isChatSettingToggleDisabled, type ChatSettingsToggleField } from '@/lib/chat-settings';
 import { formatPromptBindingLabel } from '@/lib/contract-display';
@@ -466,6 +468,10 @@ export const PrivateChatDetailPage: React.FC = () => {
           </Card>
         </div>
       )}
+
+      <ChatSpaceTopicWorkspace chatSpaceType="direct" chatSpaceId={Number(userId)} />
+
+      <ChatSpaceRelationshipMemoryWorkspace sessionKey={userId ? `private:${userId}` : null} />
 
       {/* Search and Filters */}
       <Card>

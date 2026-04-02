@@ -1,6 +1,6 @@
 import express from 'express';
-import { ensureRelationshipMemorySchema } from '@qq-bot/persistence';
-import { aiConfig, relationshipMemoryConfig, serverConfig } from './config';
+import { ensureRelationshipMemorySchema, ensureTopicLabSchema } from '@qq-bot/persistence';
+import { aiConfig, relationshipMemoryConfig, serverConfig, topicProjectionConfig } from './config';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
 import { NapcatClient } from './services/napcat-client';
@@ -18,6 +18,9 @@ import { TranscriptSnapshotService } from './services/transcript-snapshot-servic
 import RelationshipLedgerService from './services/relationship-ledger-service';
 import RelationshipMemoryService from './services/relationship-memory-service';
 import RelationshipMemoryExecutorService from './services/relationship-memory-executor-service';
+import TopicProjectionService from './services/topic-projection-service';
+import TopicProjectionExecutorService from './services/topic-projection-executor-service';
+import TopicReviewMaterializationService from './services/topic-review-materialization-service';
 import { GroupParticipationService } from './services/group-participation-service';
 import {
   buildSimpleQueueSimulationContext,
@@ -69,6 +72,17 @@ const relationshipMemoryService = new RelationshipMemoryService({
   minNewLedgerEvents: relationshipMemoryConfig.minNewLedgerEvents
 });
 const relationshipMemoryExecutorService = new RelationshipMemoryExecutorService();
+const topicProjectionService = new TopicProjectionService({
+  enabled: topicProjectionConfig.enabled,
+  webhookUrl: topicProjectionConfig.webhookUrl,
+  minNewTurns: topicProjectionConfig.minNewTurns,
+  minNewLedgerEvents: topicProjectionConfig.minNewLedgerEvents,
+  modelName: aiConfig.model_name
+});
+const topicProjectionExecutorService = new TopicProjectionExecutorService({
+  modelName: aiConfig.model_name
+});
+const topicReviewMaterializationService = new TopicReviewMaterializationService();
 const transcriptService = new SessionTranscriptService({
   conversationStore: conversationStoreService,
   snapshotService: transcriptSnapshotService,
@@ -89,6 +103,7 @@ function scheduleCompactionSideEffects(inboundContext: FinalizedInboundContext) 
       }
       await transcriptService.maybeRequestSummary(state);
       await relationshipMemoryService.maybeRequestRefresh(state);
+      await topicProjectionService.maybeRequestRefresh(state);
     } catch (error) {
       moduleLogger.warn('Failed to schedule transcript or relationship compaction side effects', {
         error: error instanceof Error ? error.message : String(error),
@@ -1008,6 +1023,82 @@ app.post('/api/internal/relationship-memory/execute', async (req, res) => {
   }
 });
 
+app.post('/api/internal/topic-projection/execute', async (req, res) => {
+  const jobId = Number(req.body?.job_id);
+  if (!Number.isFinite(jobId) || jobId <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameter: job_id',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  try {
+    const execution = await topicProjectionExecutorService.executePersistedJob({
+      jobId
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        job_id: jobId,
+        status: 'ready',
+        model_name: execution.modelName,
+        topic_count: execution.topics.length,
+        created_version_ids: execution.createdVersionIds,
+        touched_topic_ids: execution.touchedTopicIds
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'topic_projection_execute_failed';
+    moduleLogger.error('Failed to execute topic projection job', {
+      error: message,
+      jobId
+    });
+    return res.status(500).json({
+      success: false,
+      error: message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/topic-reviews/apply', async (req, res) => {
+  const reviewEventId = Number(req.body?.review_event_id);
+  if (!Number.isFinite(reviewEventId) || reviewEventId <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameter: review_event_id',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  try {
+    const result = await topicReviewMaterializationService.applyReviewEvent(reviewEventId);
+    return res.json({
+      success: true,
+      data: {
+        review_event_id: reviewEventId,
+        status: 'applied',
+        ...result
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'topic_review_apply_failed';
+    moduleLogger.error('Failed to apply topic review event', {
+      error: message,
+      reviewEventId
+    });
+    return res.status(500).json({
+      success: false,
+      error: message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 app.post('/api/internal/config-cache/clear', (_req, res) => {
   res.json({
     success: true,
@@ -1448,6 +1539,7 @@ app.get('/api/internal/embedding/health', async (_req, res) => {
 
 async function startServer() {
   await ensureRelationshipMemorySchema();
+  await ensureTopicLabSchema();
   await inboxService.initialize();
   await conversationStoreService.initialize();
   await transcriptSnapshotService.initialize();
