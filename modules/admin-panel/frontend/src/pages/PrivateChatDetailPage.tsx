@@ -219,12 +219,21 @@ export const PrivateChatDetailPage: React.FC = () => {
     return chatPrompts.find(prompt => prompt.id === conversationData.data.user_settings.agent_prompt_id) || null;
   }, [conversationData, chatPrompts]);
 
+  const isPromptBindingResolving = Boolean(
+    conversationData?.data.user_settings.agent_prompt_id &&
+    promptLoading &&
+    !currentPrompt
+  );
+
   const currentPromptLabel = React.useMemo(() => {
+    if (isPromptBindingResolving) {
+      return '正在加载已绑定 Prompt...';
+    }
     return formatPromptBindingLabel({
       promptId: conversationData?.data.user_settings.agent_prompt_id,
       promptName: currentPrompt?.prompt_name ?? null
     });
-  }, [conversationData?.data.user_settings.agent_prompt_id, currentPrompt?.prompt_name]);
+  }, [conversationData?.data.user_settings.agent_prompt_id, currentPrompt?.prompt_name, isPromptBindingResolving]);
 
   React.useEffect(() => {
     if (!conversationData?.data.user_settings) {

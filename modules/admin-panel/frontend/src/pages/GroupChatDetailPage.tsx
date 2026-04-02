@@ -211,12 +211,21 @@ export const GroupChatDetailPage: React.FC = () => {
     return chatPrompts.find(prompt => prompt.id === groupData.data.group_settings.agent_prompt_id) || null;
   }, [groupData, chatPrompts]);
 
+  const isPromptBindingResolving = Boolean(
+    groupData?.data.group_settings.agent_prompt_id &&
+    promptLoading &&
+    !currentPrompt
+  );
+
   const currentPromptLabel = React.useMemo(() => {
+    if (isPromptBindingResolving) {
+      return '正在加载已绑定 Prompt...';
+    }
     return formatPromptBindingLabel({
       promptId: groupData?.data.group_settings.agent_prompt_id,
       promptName: currentPrompt?.prompt_name ?? null
     });
-  }, [currentPrompt?.prompt_name, groupData?.data.group_settings.agent_prompt_id]);
+  }, [currentPrompt?.prompt_name, groupData?.data.group_settings.agent_prompt_id, isPromptBindingResolving]);
 
   const handleSearch = (value: string) => {
     setSearch(value);
