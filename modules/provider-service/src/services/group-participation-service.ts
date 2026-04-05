@@ -4,7 +4,8 @@ import type { FinalizedInboundContext, UnifiedLLMConfig } from '../types';
 import EmbeddingService from './embedding-service';
 import { logger } from '../utils/logger';
 import { createProviderClient, resolveProviderId } from './llm-provider';
-import type { LLMProvider } from './llm-provider/types';
+import { extractNamedFunctionCallArgsFromOpenAIResponse } from './llm-provider/helpers';
+import type { LLMProvider, OpenResponseToolDefinition } from './llm-provider/types';
 
 type ParticipationDecision = 'reply' | 'ignore' | 'ambiguous';
 
@@ -83,6 +84,33 @@ type GroupParticipationServiceDeps = {
   botNameCues?: string[];
   interestPrototypeTexts?: string[];
   recentMessageProvider?: (params: { sessionKey: string; currentMessageSid?: string }) => Promise<RecentInboundMessage[]>;
+};
+
+const GROUP_PARTICIPATION_TOOL_NAME = 'emit_group_participation_decision';
+const GROUP_PARTICIPATION_TOOL: OpenResponseToolDefinition = {
+  type: 'function',
+  function: {
+    name: GROUP_PARTICIPATION_TOOL_NAME,
+    description: 'Return the structured decision for whether the bot should join the current group thread.',
+    parameters: {
+      type: 'object',
+      properties: {
+        decision: {
+          type: 'string',
+          enum: ['reply', 'ignore', 'ambiguous']
+        },
+        confidence: {
+          type: 'string',
+          enum: ['high', 'medium', 'low']
+        },
+        reason: {
+          type: 'string',
+          description: 'Short reason, up to 24 characters.'
+        }
+      },
+      required: ['decision', 'confidence']
+    }
+  }
 };
 
 const DEFAULT_COOLDOWN_MS = Number.parseInt(process.env.GROUP_PARTICIPATION_COOLDOWN_MS || '90000', 10);
@@ -594,10 +622,9 @@ export class GroupParticipationService {
     const instructions = [
       '你是群聊参与裁决器，只判断机器人这条消息是否值得进入主回复循环。',
       '目标是像真实群友一样克制。避免过度参与。',
-      '只输出 JSON，不要输出其他文字。',
-      'JSON schema: {"decision":"reply|ignore|ambiguous","confidence":"high|medium|low","reason":"<=24 chars"}',
       '当信号不足、时机不对、像硬插话时，优先 ignore。',
-      '只有在当前消息明显在接机器人、值得自然接一句、且不是冷却期刷屏时才 reply。'
+      '只有在当前消息明显在接机器人、值得自然接一句、且不是冷却期刷屏时才 reply。',
+      `必须通过 ${GROUP_PARTICIPATION_TOOL_NAME} 返回结构化结果，不要改用普通文本回复。`
     ].join('\n');
 
     const result = await provider.generateContent({
@@ -613,6 +640,9 @@ export class GroupParticipationService {
             content: JSON.stringify(payload, null, 2)
           }
         ],
+        tools: [GROUP_PARTICIPATION_TOOL],
+        tool_choice: 'required',
+        parallel_tool_calls: false,
         temperature: 0.1,
         top_p: 0.2,
         max_output_tokens: 160
@@ -624,7 +654,8 @@ export class GroupParticipationService {
       }
     });
 
-    const parsed = parseJsonObject(result.text);
+    const parsed = extractNamedFunctionCallArgsFromOpenAIResponse(result.response, GROUP_PARTICIPATION_TOOL_NAME)
+      || parseJsonObject(result.text);
     if (!parsed) {
       throw new Error('LLM judge returned non-JSON payload');
     }

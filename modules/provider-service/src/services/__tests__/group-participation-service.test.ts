@@ -241,3 +241,79 @@ test('falls back to ignore when llm judge errors on ambiguous cases', async () =
   assert.equal(result.usedLlmJudge, true);
   assert.equal(result.conservativeFallback, true);
 });
+
+test('default llm judge uses structured tool output instead of prompt-only json parsing', async () => {
+  const service = new GroupParticipationService({
+    llmProviderFactory: () => ({
+      id: 'codex',
+      generateText: async () => {
+        throw new Error('not used');
+      },
+      generateContent: async (input: any) => {
+        assert.equal(input.request.tool_choice, 'required');
+        assert.equal(input.request.parallel_tool_calls, false);
+        assert.equal(input.request.tools?.[0]?.function?.name, 'emit_group_participation_decision');
+        return {
+          provider: 'codex',
+          modelName: 'gpt-5.4',
+          text: '',
+          response: {
+            output: [
+              {
+                type: 'function_call',
+                name: 'emit_group_participation_decision',
+                arguments: JSON.stringify({
+                  decision: 'reply',
+                  confidence: 'medium',
+                  reason: 'natural_follow_up'
+                })
+              }
+            ]
+          } as any,
+          rawResponse: {},
+          canonicalRequest: input.request,
+          wireRequest: {},
+          canonicalResponse: {} as any,
+          wireResponse: {},
+          requestFormatVersion: 'test',
+          wireProviderFormat: 'test',
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 2,
+            processingTimeMs: 1
+          }
+        };
+      }
+    }) as any
+  });
+
+  const result = await (service as any).runDefaultLlmJudge({
+    inboundContext: buildContext({
+      Body: '那你还会再去吗？',
+      BodyForAgent: '那你还会再去吗？',
+      RawBody: '那你还会再去吗？'
+    }),
+    recentMessages: [],
+    scores: {
+      addressedness: 0.2,
+      continuity: 0.4,
+      socialPosition: 0.3,
+      interest: 0.5,
+      timing: 1,
+      valueAdd: 0.4,
+      final: 0.45
+    },
+    metadata: {
+      cooldownRemainingMs: 0,
+      recentReplyCount: 0,
+      recentInboundCount: 0
+    },
+    usedEmbeddings: false,
+    embeddingError: false
+  }, 'gpt-5.4');
+
+  assert.equal(result?.decision, 'reply');
+  assert.equal(result?.confidence, 'medium');
+  assert.equal(result?.reason, 'natural_follow_up');
+});

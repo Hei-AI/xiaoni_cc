@@ -4,6 +4,7 @@ const { PrismaClient, Prisma } = require('./generated/client');
 const { Pool, types } = require('pg');
 const { createTrafficPersistence } = require('./traffic');
 const { createRelationshipMemoryPersistence } = require('./relationship-memory');
+const { createSelfEvolutionPersistence } = require('./self-evolution');
 const { createTopicLabPersistence } = require('./topic-lab');
 const {
   STORAGE_TIMEZONE,
@@ -302,6 +303,11 @@ const relationshipMemoryPersistence = createRelationshipMemoryPersistence({
   createSqlAdapter
 });
 
+const selfEvolutionPersistence = createSelfEvolutionPersistence({
+  getPrismaClient,
+  createSqlAdapter
+});
+
 const topicLabPersistence = createTopicLabPersistence({
   getPrismaClient,
   createSqlAdapter
@@ -318,5 +324,6 @@ module.exports = {
   ...require('./time'),
   ...trafficPersistence,
   ...relationshipMemoryPersistence,
+  ...selfEvolutionPersistence,
   ...topicLabPersistence
 };

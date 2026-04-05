@@ -60,6 +60,9 @@ test('schedules relationship memory job when compact-adjacent thresholds are met
   assert.equal(fetchCalls.length, 1);
   assert.equal(createdJobs[0].sessionKey, 'qq:group:100');
   assert.equal(JSON.parse(fetchCalls[0].init.body).session_key, 'qq:group:100');
+  assert.equal(JSON.parse(fetchCalls[0].init.body).summary_text, null);
+  assert.equal(JSON.parse(fetchCalls[0].init.body).transcript_compact_offset, 6);
+  assert.equal(JSON.parse(fetchCalls[0].init.body).compact_role, 'bridge_material');
 });
 
 test('skips scheduling when there are not enough new ledger events', async () => {

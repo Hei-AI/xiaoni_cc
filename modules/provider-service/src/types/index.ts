@@ -3,6 +3,7 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 export interface AIConfig {
   gemini_api_keys: string[];
   model_name: string;
+  relationship_memory_model_name?: string;
   gemini_cli_access_token?: string;
   gemini_cli_refresh_token?: string;
   gemini_cli_project_id?: string;

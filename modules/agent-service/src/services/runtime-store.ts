@@ -1,5 +1,8 @@
 import {
   createSqlAdapter,
+  getTopicProjectionVersionById,
+  listSelfEvolutionStates,
+  listChatSpaceTopics,
   listRelationshipMemoryCards,
   markRelationshipMemoryCardsHit,
   listRelationshipMemoryOverrides,
@@ -105,6 +108,82 @@ export type RuntimeRelationshipMemoryCard = {
   metadata: Record<string, unknown>;
 };
 
+export type RuntimeSelfEvolutionState = {
+  id: number;
+  sessionKey: string;
+  groupId: number | null;
+  targetUserId: number | null;
+  scopeType: string;
+  version: number;
+  socialPresenceBaseline: string;
+  entryPreference: string;
+  warmthBias: string;
+  familiarityCeiling: string;
+  topicResonance: string[];
+  boundaryTendencies: Record<string, unknown>;
+  reinforcedModes: string[];
+  suppressedModes: string[];
+  summaryText: string;
+  sourceEventIds: number[];
+  sourceMessageIds: number[];
+  metadata: Record<string, unknown>;
+  updatedAt: string | null;
+};
+
+export type RuntimeTopicProjection = {
+  topicId: number;
+  versionId: number;
+  source: 'candidate' | 'accepted';
+  title: string;
+  summaryText: string;
+  lifecycleState: string;
+  topicKeywords: string[];
+  participantIds: number[];
+  relationshipSummaries: string[];
+  evidenceMessageIds: number[];
+  heatScore: number;
+  reviewPriorityScore: number;
+  updatedAt: string | null;
+};
+
+export type RuntimeMemoryRagContext = {
+  packSummary: string;
+  timeScope: {
+    oldestMessageAt: string | null;
+    newestMessageAt: string | null;
+  };
+  segments: Array<{
+    segmentId: string;
+    reason: string;
+    source: 'recent_turns' | 'summary_bridge';
+    messageIds: number[];
+    content: string;
+  }>;
+  bridgeNotes: Array<{
+    kind: 'compact_bridge';
+    summary: string;
+  }>;
+};
+
+export type RuntimeMemoryHints = {
+  relationshipCards: Array<{
+    cardId: number;
+    score: number;
+    summary: string;
+    trigger: string | null;
+    interactionHint: string | null;
+    avoidHint: string | null;
+    evidenceMessageIds: number[];
+  }>;
+  selfHints: Array<{
+    stateId: number;
+    summary: string;
+    entryPreference: string;
+    warmthBias: string;
+    familiarityCeiling: string;
+  }>;
+};
+
 type RelationshipRetrievalContext = {
   currentMessageText: string;
   replyToBody?: string | null;
@@ -171,6 +250,123 @@ function buildRelationshipRetrievalQuery(context: RelationshipRetrievalContext) 
     .map((item) => item.trim())
     .filter(Boolean)
     .join('\n');
+}
+
+function estimateBudgetLength(targetTokenBudget: number) {
+  const normalized = Number.isFinite(targetTokenBudget) ? Math.max(1024, Math.trunc(targetTokenBudget)) : 12000;
+  return normalized * 3;
+}
+
+function renderTranscriptItemForMemoryPack(turn: ConversationTurn) {
+  const transcriptItems = Array.isArray(turn.items) ? turn.items : [];
+  if (transcriptItems.length > 0) {
+    return transcriptItems
+      .map((item) => `${item.role}${item.phase ? `/${item.phase}` : ''}: ${item.content}`)
+      .join('\n');
+  }
+
+  return [
+    `user: ${turn.userMessage}`,
+    turn.aiResponse ? `assistant: ${turn.aiResponse}` : ''
+  ].filter(Boolean).join('\n');
+}
+
+function parseSelfEvolutionState(row: Record<string, unknown>): RuntimeSelfEvolutionState {
+  return {
+    id: Number(row.id),
+    sessionKey: typeof row.session_key === 'string' ? row.session_key : '',
+    groupId: row.group_id === null || typeof row.group_id === 'undefined' ? null : Number(row.group_id),
+    targetUserId: row.target_user_id === null || typeof row.target_user_id === 'undefined' ? null : Number(row.target_user_id),
+    scopeType: typeof row.scope_type === 'string' ? row.scope_type : 'group_self',
+    version: Number(row.version || 1),
+    socialPresenceBaseline: typeof row.social_presence_baseline === 'string' ? row.social_presence_baseline : 'light',
+    entryPreference: typeof row.entry_preference === 'string' ? row.entry_preference : 'cue_first',
+    warmthBias: typeof row.warmth_bias === 'string' ? row.warmth_bias : 'warm_light',
+    familiarityCeiling: typeof row.familiarity_ceiling === 'string' ? row.familiarity_ceiling : 'warm_not_performative',
+    topicResonance: normalizeStringArray(row.topic_resonance),
+    boundaryTendencies: row.boundary_tendencies && typeof row.boundary_tendencies === 'object' && !Array.isArray(row.boundary_tendencies)
+      ? row.boundary_tendencies as Record<string, unknown>
+      : {},
+    reinforcedModes: normalizeStringArray(row.reinforced_modes),
+    suppressedModes: normalizeStringArray(row.suppressed_modes),
+    summaryText: typeof row.summary_text === 'string' ? row.summary_text : '',
+    sourceEventIds: normalizeNumberArray(row.source_event_ids),
+    sourceMessageIds: normalizeNumberArray(row.source_message_ids),
+    metadata: row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+      ? row.metadata as Record<string, unknown>
+      : {},
+    updatedAt: toIso(row.updated_at as string | Date | null | undefined)
+  };
+}
+
+function parseRuntimeTopicProjection(params: {
+  topicRow: Record<string, unknown>;
+  versionRow: Record<string, unknown>;
+  source: 'candidate' | 'accepted';
+}): RuntimeTopicProjection | null {
+  const snapshot = params.versionRow.snapshot_json && typeof params.versionRow.snapshot_json === 'object' && !Array.isArray(params.versionRow.snapshot_json)
+    ? params.versionRow.snapshot_json as Record<string, unknown>
+    : {};
+  const title = typeof params.versionRow.title === 'string' && params.versionRow.title.trim()
+    ? params.versionRow.title.trim()
+    : typeof snapshot.title === 'string' && snapshot.title.trim()
+      ? snapshot.title.trim()
+      : typeof params.topicRow.canonical_title === 'string' && params.topicRow.canonical_title.trim()
+        ? params.topicRow.canonical_title.trim()
+        : '';
+  const summaryText = typeof params.versionRow.summary_text === 'string' && params.versionRow.summary_text.trim()
+    ? params.versionRow.summary_text.trim()
+    : typeof snapshot.summary_text === 'string' && snapshot.summary_text.trim()
+      ? snapshot.summary_text.trim()
+      : '';
+  if (!title || !summaryText) {
+    return null;
+  }
+
+  const relationships = Array.isArray(snapshot.relationships)
+    ? snapshot.relationships
+      .map((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          return '';
+        }
+        const summaryText = (item as Record<string, unknown>).summary_text;
+        return typeof summaryText === 'string' ? summaryText.trim() : '';
+      })
+      .filter(Boolean)
+      .slice(0, 4)
+    : [];
+
+  return {
+    topicId: Number(params.topicRow.id),
+    versionId: Number(params.versionRow.id),
+    source: params.source,
+    title,
+    summaryText,
+    lifecycleState: typeof params.versionRow.lifecycle_state === 'string' && params.versionRow.lifecycle_state.trim()
+      ? params.versionRow.lifecycle_state.trim()
+      : typeof snapshot.lifecycle_state === 'string' && snapshot.lifecycle_state.trim()
+        ? snapshot.lifecycle_state.trim()
+        : (typeof params.topicRow.status === 'string' && params.topicRow.status.trim() ? params.topicRow.status.trim() : 'active'),
+    topicKeywords: normalizeStringArray(
+      typeof params.versionRow.topic_keywords !== 'undefined'
+        ? params.versionRow.topic_keywords
+        : snapshot.topic_keywords
+    ).slice(0, 8),
+    participantIds: normalizeNumberArray(
+      typeof params.versionRow.participant_ids !== 'undefined'
+        ? params.versionRow.participant_ids
+        : snapshot.participant_ids
+    ),
+    relationshipSummaries: relationships,
+    evidenceMessageIds: normalizeNumberArray(
+      typeof snapshot.evidence_message_ids !== 'undefined'
+        ? snapshot.evidence_message_ids
+        : params.versionRow.evidence_message_ids
+    ),
+    heatScore: Number.isFinite(Number(params.versionRow.heat_score)) ? Number(params.versionRow.heat_score) : 0,
+    reviewPriorityScore: Number.isFinite(Number(params.versionRow.review_priority_score)) ? Number(params.versionRow.review_priority_score) : 0,
+    updatedAt: toIso(params.versionRow.updated_at as string | Date | null | undefined) || toIso(params.topicRow.updated_at as string | Date | null | undefined)
+  };
 }
 
 function computeBm25Scores(cards: RuntimeRelationshipMemoryCard[], queryText: string) {
@@ -1425,6 +1621,14 @@ export class RuntimeStore {
       currentUserCards: RuntimeRelationshipMemoryCard[];
       recentUserCards: RuntimeRelationshipMemoryCard[];
     };
+    selfEvolution: {
+      groupStates: RuntimeSelfEvolutionState[];
+      currentUserStates: RuntimeSelfEvolutionState[];
+      recentUserStates: RuntimeSelfEvolutionState[];
+    };
+    topicProjection: {
+      activeTopics: RuntimeTopicProjection[];
+    };
   }> {
     const snapshotSessionId = buildTranscriptSessionId(params.userId, params.groupId);
     const snapshotRows = await this.sql.query<{
@@ -1452,12 +1656,293 @@ export class RuntimeStore {
       recentUserIds: params.recentUserIds || [],
       retrievalContext: params.retrievalContext || null
     });
+    const selfEvolution = await this.loadSelfEvolutionStates({
+      groupId: params.groupId ?? null,
+      currentUserId: params.userId,
+      recentUserIds: params.recentUserIds || [],
+      sessionKey: snapshotSessionId
+    });
+    const topicProjection = await this.loadTopicProjectionState({
+      userId: params.userId,
+      groupId: params.groupId ?? null,
+      recentUserIds: params.recentUserIds || []
+    });
     return {
       summaryText: snapshot?.summary_text?.trim() || null,
       summarizedThroughConversationId: snapshot
         ? Number(snapshot.summarized_through_conversation_id)
         : null,
-      relationshipCards
+      relationshipCards,
+      selfEvolution,
+      topicProjection
+    };
+  }
+
+  private async loadTopicProjectionState(params: {
+    userId: number;
+    groupId?: number | null;
+    recentUserIds?: number[];
+  }): Promise<{
+    activeTopics: RuntimeTopicProjection[];
+  }> {
+    const chatSpaceType = params.groupId && Number.isFinite(params.groupId) ? 'group' : 'direct';
+    const chatSpaceId = chatSpaceType === 'group' ? Number(params.groupId) : Number(params.userId);
+    if (!Number.isFinite(chatSpaceId) || chatSpaceId <= 0) {
+      return { activeTopics: [] };
+    }
+
+    const topicRows = await listChatSpaceTopics({
+      chatSpaceType,
+      chatSpaceId,
+      limit: 12
+    }, databaseConfig);
+
+    const collected: RuntimeTopicProjection[] = [];
+    for (const topicRow of topicRows) {
+      if (!topicRow || typeof topicRow !== 'object') {
+        continue;
+      }
+      const status = typeof topicRow.status === 'string' ? topicRow.status.trim() : '';
+      if (status === 'archived') {
+        continue;
+      }
+
+      const candidateVersionId = Number((topicRow as Record<string, unknown>).current_candidate_version_id);
+      const acceptedVersionId = Number((topicRow as Record<string, unknown>).current_accepted_version_id);
+      const versionRef = Number.isFinite(candidateVersionId) && candidateVersionId > 0
+        ? { versionId: candidateVersionId, source: 'candidate' as const }
+        : Number.isFinite(acceptedVersionId) && acceptedVersionId > 0
+          ? { versionId: acceptedVersionId, source: 'accepted' as const }
+          : null;
+      if (!versionRef) {
+        continue;
+      }
+
+      const versionRow = await getTopicProjectionVersionById(versionRef.versionId, databaseConfig);
+      if (!versionRow || typeof versionRow !== 'object') {
+        continue;
+      }
+
+      const parsed = parseRuntimeTopicProjection({
+        topicRow: topicRow as Record<string, unknown>,
+        versionRow: versionRow as Record<string, unknown>,
+        source: versionRef.source
+      });
+      if (parsed) {
+        collected.push(parsed);
+      }
+    }
+
+    const recentUserIds = Array.isArray(params.recentUserIds) ? params.recentUserIds : [];
+    collected.sort((left, right) => {
+      const leftSenderHit = left.participantIds.includes(params.userId) ? 1 : 0;
+      const rightSenderHit = right.participantIds.includes(params.userId) ? 1 : 0;
+      if (leftSenderHit !== rightSenderHit) {
+        return rightSenderHit - leftSenderHit;
+      }
+
+      const leftRecentHit = recentUserIds.some((userId) => left.participantIds.includes(userId)) ? 1 : 0;
+      const rightRecentHit = recentUserIds.some((userId) => right.participantIds.includes(userId)) ? 1 : 0;
+      if (leftRecentHit !== rightRecentHit) {
+        return rightRecentHit - leftRecentHit;
+      }
+
+      if (left.heatScore !== right.heatScore) {
+        return right.heatScore - left.heatScore;
+      }
+
+      if (left.reviewPriorityScore !== right.reviewPriorityScore) {
+        return right.reviewPriorityScore - left.reviewPriorityScore;
+      }
+
+      return String(right.updatedAt || '').localeCompare(String(left.updatedAt || ''));
+    });
+
+    return {
+      activeTopics: collected.slice(0, 3)
+    };
+  }
+
+  async buildMemoryRagContext(params: {
+    userId: number;
+    groupId?: number | null;
+    currentMessageText: string;
+    recentUserIds?: number[];
+    targetTokenBudget?: number;
+  }): Promise<RuntimeMemoryRagContext> {
+    const replayState = await this.loadSessionReplayState({
+      userId: params.userId,
+      groupId: params.groupId ?? null,
+      recentUserIds: params.recentUserIds || [],
+      retrievalContext: {
+        currentMessageText: params.currentMessageText,
+        recentMessageTexts: []
+      }
+    });
+    const history = await this.listRecentTurns({
+      userId: params.userId,
+      groupId: params.groupId ?? null,
+      afterConversationId: replayState.summarizedThroughConversationId
+    });
+
+    const maxChars = estimateBudgetLength(params.targetTokenBudget || 12000);
+    const pickedTurns: ConversationTurn[] = [];
+    let usedChars = 0;
+
+    for (const turn of [...history].reverse()) {
+      const block = renderTranscriptItemForMemoryPack(turn);
+      if (!block.trim()) {
+        continue;
+      }
+      if (pickedTurns.length > 0 && usedChars + block.length > maxChars) {
+        break;
+      }
+      pickedTurns.unshift(turn);
+      usedChars += block.length;
+    }
+
+    const segments = pickedTurns.map((turn, index) => {
+      const transcriptItems = Array.isArray(turn.items) ? turn.items : [];
+      const messageIds = transcriptItems
+        .map((item) => Number(item.id))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      return {
+        segmentId: `recent-turn-${index + 1}`,
+        reason: index === 0 ? 'oldest retained recent turn' : index === pickedTurns.length - 1 ? 'latest retained recent turn' : 'recent thread continuation',
+        source: 'recent_turns' as const,
+        messageIds,
+        content: renderTranscriptItemForMemoryPack(turn)
+      };
+    });
+
+    const bridgeNotes = replayState.summaryText
+      ? [{
+          kind: 'compact_bridge' as const,
+          summary: replayState.summaryText
+        }]
+      : [];
+
+    return {
+      packSummary: segments.length > 0
+        ? 'Long-context memory pack stitched from recent transcript trajectory.'
+        : bridgeNotes.length > 0
+          ? 'No raw recent turns available, using compact bridge only.'
+          : 'No historical memory context available.',
+      timeScope: {
+        oldestMessageAt: null,
+        newestMessageAt: null
+      },
+      segments,
+      bridgeNotes
+    };
+  }
+
+  async retrieveMemoryHints(params: {
+    userId: number;
+    groupId?: number | null;
+    currentMessageText: string;
+    recentUserIds?: number[];
+    maxCards?: number;
+    maxStates?: number;
+  }): Promise<RuntimeMemoryHints> {
+    const replayState = await this.loadSessionReplayState({
+      userId: params.userId,
+      groupId: params.groupId ?? null,
+      recentUserIds: params.recentUserIds || [],
+      retrievalContext: {
+        currentMessageText: params.currentMessageText,
+        recentMessageTexts: []
+      }
+    });
+
+    const relationshipCards = [
+      ...replayState.relationshipCards.currentUserCards,
+      ...replayState.relationshipCards.groupCards,
+      ...replayState.relationshipCards.recentUserCards
+    ]
+      .slice(0, Math.max(1, params.maxCards || 3))
+      .map((card) => ({
+        cardId: card.id,
+        score: Number.isFinite(card.decayedScore) ? card.decayedScore : 0,
+        summary: card.summaryText,
+        trigger: card.trigger || null,
+        interactionHint: card.interaction || null,
+        avoidHint: card.outcome || null,
+        evidenceMessageIds: card.sourceMessageIds
+      }));
+
+    const selfHints = [
+      ...replayState.selfEvolution.currentUserStates,
+      ...replayState.selfEvolution.groupStates,
+      ...replayState.selfEvolution.recentUserStates
+    ]
+      .slice(0, Math.max(1, params.maxStates || 2))
+      .map((state) => ({
+        stateId: state.id,
+        summary: state.summaryText,
+        entryPreference: state.entryPreference,
+        warmthBias: state.warmthBias,
+        familiarityCeiling: state.familiarityCeiling
+      }));
+
+    return {
+      relationshipCards,
+      selfHints
+    };
+  }
+
+  private async loadSelfEvolutionStates(params: {
+    groupId: number | null;
+    currentUserId: number;
+    recentUserIds: number[];
+    sessionKey: string;
+  }): Promise<{
+    groupStates: RuntimeSelfEvolutionState[];
+    currentUserStates: RuntimeSelfEvolutionState[];
+    recentUserStates: RuntimeSelfEvolutionState[];
+  }> {
+    if (!params.groupId || !Number.isFinite(params.groupId)) {
+      return {
+        groupStates: [],
+        currentUserStates: [],
+        recentUserStates: []
+      };
+    }
+
+    const uniqueRecentUserIds = Array.from(new Set(
+      params.recentUserIds
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0 && value !== params.currentUserId)
+    )).slice(0, 2);
+
+    const [groupRows, currentUserRows, ...recentRowsList] = await Promise.all([
+      listSelfEvolutionStates({
+        sessionKey: params.sessionKey,
+        groupId: params.groupId,
+        targetUserId: null,
+        isActive: true,
+        limit: 6
+      }, databaseConfig),
+      listSelfEvolutionStates({
+        sessionKey: params.sessionKey,
+        groupId: params.groupId,
+        targetUserId: params.currentUserId,
+        isActive: true,
+        limit: 6
+      }, databaseConfig),
+      ...uniqueRecentUserIds.map((userId) => listSelfEvolutionStates({
+        sessionKey: params.sessionKey,
+        groupId: params.groupId as number,
+        targetUserId: userId,
+        isActive: true,
+        limit: 4
+      }, databaseConfig))
+    ]);
+
+    return {
+      groupStates: groupRows.map((row) => parseSelfEvolutionState(row as Record<string, unknown>)),
+      currentUserStates: currentUserRows.map((row) => parseSelfEvolutionState(row as Record<string, unknown>)),
+      recentUserStates: recentRowsList.flat().map((row) => parseSelfEvolutionState(row as Record<string, unknown>))
     };
   }
 

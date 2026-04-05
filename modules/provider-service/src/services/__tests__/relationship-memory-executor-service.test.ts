@@ -9,6 +9,9 @@ function buildPayload() {
     group_id: 100,
     version: 2,
     trigger_reason: 'compact_checkpoint',
+    summary_text: '前面几轮一直围绕奶茶圣经这个梗在来回接。',
+    transcript_compact_offset: 6,
+    compact_role: 'bridge_material',
     turns: [
       {
         id: 101,
@@ -109,22 +112,30 @@ test('execute delegates to llm provider and validates JSON response', async () =
         return {
           provider: 'google-gemini-cli',
           modelName: 'gemini-2.5-flash',
-          text: JSON.stringify({
-            group_cards: [],
-            person_cards: [
+          text: '',
+          response: {
+            output: [
               {
-                target_user_id: 20002,
-                actors: ['小腻', '20002'],
-                context_before: '已经有连续两次接梗',
-                trigger: '这次再次主动提旧梗',
-                interaction: '群里顺着这个话头续上了',
-                outcome: '关系卡被强化',
-                evidence_message_ids: [1001, 1002],
-                summary_text: '和 20002 的旧梗继续被强化'
+                type: 'function_call',
+                name: 'emit_relationship_memory_cards',
+                arguments: JSON.stringify({
+                  group_cards: [],
+                  person_cards: [
+                    {
+                      target_user_id: 20002,
+                      actors: ['小腻', '20002'],
+                      context_before: '已经有连续两次接梗',
+                      trigger: '这次再次主动提旧梗',
+                      interaction: '群里顺着这个话头续上了',
+                      outcome: '关系卡被强化',
+                      evidence_message_ids: [1001, 1002],
+                      summary_text: '和 20002 的旧梗继续被强化'
+                    }
+                  ]
+                })
               }
             ]
-          }),
-          response: {} as any,
+          } as any,
           rawResponse: {},
           canonicalRequest: input.request,
           wireRequest: {},
@@ -148,7 +159,17 @@ test('execute delegates to llm provider and validates JSON response', async () =
   assert.equal(calls.length, 1);
   assert.equal(result.cards.length, 1);
   assert.equal(result.cards[0]?.target_user_id, 20002);
-  assert.match(String(calls[0]?.request?.instructions), /只输出 JSON/);
+  assert.equal(calls[0]?.request?.tool_choice, 'required');
+  assert.equal(calls[0]?.request?.parallel_tool_calls, false);
+  assert.equal(calls[0]?.request?.tools?.[0]?.function?.name, 'emit_relationship_memory_cards');
+  assert.match(String(calls[0]?.request?.instructions), /回复时能直接消费的 cue/);
+  assert.match(String(calls[0]?.request?.instructions), /不要写成长篇人物小传、人物简介或抽象总结/);
+  assert.match(String(calls[0]?.request?.instructions), /thread digest/);
+  assert.match(String(calls[0]?.request?.instructions), /reply-time person cue/);
+  assert.match(String(calls[0]?.request?.instructions), /reply-coach 风格/);
+  assert.match(String(calls[0]?.request?.instructions), /compact 生成的桥接材料/);
+  assert.match(String(calls[0]?.request?.instructions), /emit_relationship_memory_cards/);
+  assert.match(String(calls[0]?.request?.input?.[0]?.content || ''), /"compact_role": "bridge_material"/);
 });
 
 test('execute filters placeholder-only ledger events before prompting the model', async () => {

@@ -64,6 +64,16 @@ export type RelationshipMemoryCard = $Result.DefaultSelection<Prisma.$Relationsh
  */
 export type RelationshipMemoryOverride = $Result.DefaultSelection<Prisma.$RelationshipMemoryOverridePayload>
 /**
+ * Model SelfEvolutionJob
+ * 
+ */
+export type SelfEvolutionJob = $Result.DefaultSelection<Prisma.$SelfEvolutionJobPayload>
+/**
+ * Model SelfEvolutionState
+ * 
+ */
+export type SelfEvolutionState = $Result.DefaultSelection<Prisma.$SelfEvolutionStatePayload>
+/**
  * Model ChatSpaceTopic
  * 
  */
@@ -316,6 +326,26 @@ export class PrismaClient<
     * ```
     */
   get relationshipMemoryOverride(): Prisma.RelationshipMemoryOverrideDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.selfEvolutionJob`: Exposes CRUD operations for the **SelfEvolutionJob** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more SelfEvolutionJobs
+    * const selfEvolutionJobs = await prisma.selfEvolutionJob.findMany()
+    * ```
+    */
+  get selfEvolutionJob(): Prisma.SelfEvolutionJobDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.selfEvolutionState`: Exposes CRUD operations for the **SelfEvolutionState** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more SelfEvolutionStates
+    * const selfEvolutionStates = await prisma.selfEvolutionState.findMany()
+    * ```
+    */
+  get selfEvolutionState(): Prisma.SelfEvolutionStateDelegate<ExtArgs, ClientOptions>;
 
   /**
    * `prisma.chatSpaceTopic`: Exposes CRUD operations for the **ChatSpaceTopic** model.
@@ -837,6 +867,8 @@ export namespace Prisma {
     RelationshipMemoryJob: 'RelationshipMemoryJob',
     RelationshipMemoryCard: 'RelationshipMemoryCard',
     RelationshipMemoryOverride: 'RelationshipMemoryOverride',
+    SelfEvolutionJob: 'SelfEvolutionJob',
+    SelfEvolutionState: 'SelfEvolutionState',
     ChatSpaceTopic: 'ChatSpaceTopic',
     TopicProjectionJob: 'TopicProjectionJob',
     TopicProjectionVersion: 'TopicProjectionVersion',
@@ -862,7 +894,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "relationshipLedgerEvent" | "relationshipMemoryJob" | "relationshipMemoryCard" | "relationshipMemoryOverride" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
+      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "relationshipLedgerEvent" | "relationshipMemoryJob" | "relationshipMemoryCard" | "relationshipMemoryOverride" | "selfEvolutionJob" | "selfEvolutionState" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -1606,6 +1638,154 @@ export namespace Prisma {
           }
         }
       }
+      SelfEvolutionJob: {
+        payload: Prisma.$SelfEvolutionJobPayload<ExtArgs>
+        fields: Prisma.SelfEvolutionJobFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.SelfEvolutionJobFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionJobPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.SelfEvolutionJobFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionJobPayload>
+          }
+          findFirst: {
+            args: Prisma.SelfEvolutionJobFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionJobPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.SelfEvolutionJobFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionJobPayload>
+          }
+          findMany: {
+            args: Prisma.SelfEvolutionJobFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionJobPayload>[]
+          }
+          create: {
+            args: Prisma.SelfEvolutionJobCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionJobPayload>
+          }
+          createMany: {
+            args: Prisma.SelfEvolutionJobCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.SelfEvolutionJobCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionJobPayload>[]
+          }
+          delete: {
+            args: Prisma.SelfEvolutionJobDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionJobPayload>
+          }
+          update: {
+            args: Prisma.SelfEvolutionJobUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionJobPayload>
+          }
+          deleteMany: {
+            args: Prisma.SelfEvolutionJobDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.SelfEvolutionJobUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.SelfEvolutionJobUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionJobPayload>[]
+          }
+          upsert: {
+            args: Prisma.SelfEvolutionJobUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionJobPayload>
+          }
+          aggregate: {
+            args: Prisma.SelfEvolutionJobAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateSelfEvolutionJob>
+          }
+          groupBy: {
+            args: Prisma.SelfEvolutionJobGroupByArgs<ExtArgs>
+            result: $Utils.Optional<SelfEvolutionJobGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.SelfEvolutionJobCountArgs<ExtArgs>
+            result: $Utils.Optional<SelfEvolutionJobCountAggregateOutputType> | number
+          }
+        }
+      }
+      SelfEvolutionState: {
+        payload: Prisma.$SelfEvolutionStatePayload<ExtArgs>
+        fields: Prisma.SelfEvolutionStateFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.SelfEvolutionStateFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionStatePayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.SelfEvolutionStateFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionStatePayload>
+          }
+          findFirst: {
+            args: Prisma.SelfEvolutionStateFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionStatePayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.SelfEvolutionStateFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionStatePayload>
+          }
+          findMany: {
+            args: Prisma.SelfEvolutionStateFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionStatePayload>[]
+          }
+          create: {
+            args: Prisma.SelfEvolutionStateCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionStatePayload>
+          }
+          createMany: {
+            args: Prisma.SelfEvolutionStateCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.SelfEvolutionStateCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionStatePayload>[]
+          }
+          delete: {
+            args: Prisma.SelfEvolutionStateDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionStatePayload>
+          }
+          update: {
+            args: Prisma.SelfEvolutionStateUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionStatePayload>
+          }
+          deleteMany: {
+            args: Prisma.SelfEvolutionStateDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.SelfEvolutionStateUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.SelfEvolutionStateUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionStatePayload>[]
+          }
+          upsert: {
+            args: Prisma.SelfEvolutionStateUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$SelfEvolutionStatePayload>
+          }
+          aggregate: {
+            args: Prisma.SelfEvolutionStateAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateSelfEvolutionState>
+          }
+          groupBy: {
+            args: Prisma.SelfEvolutionStateGroupByArgs<ExtArgs>
+            result: $Utils.Optional<SelfEvolutionStateGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.SelfEvolutionStateCountArgs<ExtArgs>
+            result: $Utils.Optional<SelfEvolutionStateCountAggregateOutputType> | number
+          }
+        }
+      }
       ChatSpaceTopic: {
         payload: Prisma.$ChatSpaceTopicPayload<ExtArgs>
         fields: Prisma.ChatSpaceTopicFieldRefs
@@ -2230,6 +2410,8 @@ export namespace Prisma {
     relationshipMemoryJob?: RelationshipMemoryJobOmit
     relationshipMemoryCard?: RelationshipMemoryCardOmit
     relationshipMemoryOverride?: RelationshipMemoryOverrideOmit
+    selfEvolutionJob?: SelfEvolutionJobOmit
+    selfEvolutionState?: SelfEvolutionStateOmit
     chatSpaceTopic?: ChatSpaceTopicOmit
     topicProjectionJob?: TopicProjectionJobOmit
     topicProjectionVersion?: TopicProjectionVersionOmit
@@ -14537,6 +14719,2428 @@ export namespace Prisma {
 
 
   /**
+   * Model SelfEvolutionJob
+   */
+
+  export type AggregateSelfEvolutionJob = {
+    _count: SelfEvolutionJobCountAggregateOutputType | null
+    _avg: SelfEvolutionJobAvgAggregateOutputType | null
+    _sum: SelfEvolutionJobSumAggregateOutputType | null
+    _min: SelfEvolutionJobMinAggregateOutputType | null
+    _max: SelfEvolutionJobMaxAggregateOutputType | null
+  }
+
+  export type SelfEvolutionJobAvgAggregateOutputType = {
+    id: number | null
+    group_id: number | null
+    target_user_id: number | null
+    turn_range_start: number | null
+    turn_range_end: number | null
+    source_event_count: number | null
+    output_state_version: number | null
+  }
+
+  export type SelfEvolutionJobSumAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    target_user_id: bigint | null
+    turn_range_start: bigint | null
+    turn_range_end: bigint | null
+    source_event_count: number | null
+    output_state_version: number | null
+  }
+
+  export type SelfEvolutionJobMinAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    target_user_id: bigint | null
+    session_key: string | null
+    status: string | null
+    trigger_reason: string | null
+    turn_range_start: bigint | null
+    turn_range_end: bigint | null
+    source_event_count: number | null
+    output_state_version: number | null
+    error_message: string | null
+    started_at: Date | null
+    finished_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type SelfEvolutionJobMaxAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    target_user_id: bigint | null
+    session_key: string | null
+    status: string | null
+    trigger_reason: string | null
+    turn_range_start: bigint | null
+    turn_range_end: bigint | null
+    source_event_count: number | null
+    output_state_version: number | null
+    error_message: string | null
+    started_at: Date | null
+    finished_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type SelfEvolutionJobCountAggregateOutputType = {
+    id: number
+    group_id: number
+    target_user_id: number
+    session_key: number
+    status: number
+    trigger_reason: number
+    turn_range_start: number
+    turn_range_end: number
+    source_event_count: number
+    input_message_ids: number
+    output_state_version: number
+    error_message: number
+    metadata: number
+    started_at: number
+    finished_at: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type SelfEvolutionJobAvgAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    turn_range_start?: true
+    turn_range_end?: true
+    source_event_count?: true
+    output_state_version?: true
+  }
+
+  export type SelfEvolutionJobSumAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    turn_range_start?: true
+    turn_range_end?: true
+    source_event_count?: true
+    output_state_version?: true
+  }
+
+  export type SelfEvolutionJobMinAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    session_key?: true
+    status?: true
+    trigger_reason?: true
+    turn_range_start?: true
+    turn_range_end?: true
+    source_event_count?: true
+    output_state_version?: true
+    error_message?: true
+    started_at?: true
+    finished_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type SelfEvolutionJobMaxAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    session_key?: true
+    status?: true
+    trigger_reason?: true
+    turn_range_start?: true
+    turn_range_end?: true
+    source_event_count?: true
+    output_state_version?: true
+    error_message?: true
+    started_at?: true
+    finished_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type SelfEvolutionJobCountAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    session_key?: true
+    status?: true
+    trigger_reason?: true
+    turn_range_start?: true
+    turn_range_end?: true
+    source_event_count?: true
+    input_message_ids?: true
+    output_state_version?: true
+    error_message?: true
+    metadata?: true
+    started_at?: true
+    finished_at?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type SelfEvolutionJobAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which SelfEvolutionJob to aggregate.
+     */
+    where?: SelfEvolutionJobWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of SelfEvolutionJobs to fetch.
+     */
+    orderBy?: SelfEvolutionJobOrderByWithRelationInput | SelfEvolutionJobOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: SelfEvolutionJobWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` SelfEvolutionJobs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` SelfEvolutionJobs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned SelfEvolutionJobs
+    **/
+    _count?: true | SelfEvolutionJobCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: SelfEvolutionJobAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: SelfEvolutionJobSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: SelfEvolutionJobMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: SelfEvolutionJobMaxAggregateInputType
+  }
+
+  export type GetSelfEvolutionJobAggregateType<T extends SelfEvolutionJobAggregateArgs> = {
+        [P in keyof T & keyof AggregateSelfEvolutionJob]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateSelfEvolutionJob[P]>
+      : GetScalarType<T[P], AggregateSelfEvolutionJob[P]>
+  }
+
+
+
+
+  export type SelfEvolutionJobGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: SelfEvolutionJobWhereInput
+    orderBy?: SelfEvolutionJobOrderByWithAggregationInput | SelfEvolutionJobOrderByWithAggregationInput[]
+    by: SelfEvolutionJobScalarFieldEnum[] | SelfEvolutionJobScalarFieldEnum
+    having?: SelfEvolutionJobScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: SelfEvolutionJobCountAggregateInputType | true
+    _avg?: SelfEvolutionJobAvgAggregateInputType
+    _sum?: SelfEvolutionJobSumAggregateInputType
+    _min?: SelfEvolutionJobMinAggregateInputType
+    _max?: SelfEvolutionJobMaxAggregateInputType
+  }
+
+  export type SelfEvolutionJobGroupByOutputType = {
+    id: bigint
+    group_id: bigint | null
+    target_user_id: bigint | null
+    session_key: string
+    status: string
+    trigger_reason: string
+    turn_range_start: bigint | null
+    turn_range_end: bigint | null
+    source_event_count: number
+    input_message_ids: JsonValue
+    output_state_version: number | null
+    error_message: string | null
+    metadata: JsonValue | null
+    started_at: Date | null
+    finished_at: Date | null
+    created_at: Date
+    updated_at: Date
+    _count: SelfEvolutionJobCountAggregateOutputType | null
+    _avg: SelfEvolutionJobAvgAggregateOutputType | null
+    _sum: SelfEvolutionJobSumAggregateOutputType | null
+    _min: SelfEvolutionJobMinAggregateOutputType | null
+    _max: SelfEvolutionJobMaxAggregateOutputType | null
+  }
+
+  type GetSelfEvolutionJobGroupByPayload<T extends SelfEvolutionJobGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<SelfEvolutionJobGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof SelfEvolutionJobGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], SelfEvolutionJobGroupByOutputType[P]>
+            : GetScalarType<T[P], SelfEvolutionJobGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type SelfEvolutionJobSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    session_key?: boolean
+    status?: boolean
+    trigger_reason?: boolean
+    turn_range_start?: boolean
+    turn_range_end?: boolean
+    source_event_count?: boolean
+    input_message_ids?: boolean
+    output_state_version?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    finished_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["selfEvolutionJob"]>
+
+  export type SelfEvolutionJobSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    session_key?: boolean
+    status?: boolean
+    trigger_reason?: boolean
+    turn_range_start?: boolean
+    turn_range_end?: boolean
+    source_event_count?: boolean
+    input_message_ids?: boolean
+    output_state_version?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    finished_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["selfEvolutionJob"]>
+
+  export type SelfEvolutionJobSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    session_key?: boolean
+    status?: boolean
+    trigger_reason?: boolean
+    turn_range_start?: boolean
+    turn_range_end?: boolean
+    source_event_count?: boolean
+    input_message_ids?: boolean
+    output_state_version?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    finished_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["selfEvolutionJob"]>
+
+  export type SelfEvolutionJobSelectScalar = {
+    id?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    session_key?: boolean
+    status?: boolean
+    trigger_reason?: boolean
+    turn_range_start?: boolean
+    turn_range_end?: boolean
+    source_event_count?: boolean
+    input_message_ids?: boolean
+    output_state_version?: boolean
+    error_message?: boolean
+    metadata?: boolean
+    started_at?: boolean
+    finished_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type SelfEvolutionJobOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "group_id" | "target_user_id" | "session_key" | "status" | "trigger_reason" | "turn_range_start" | "turn_range_end" | "source_event_count" | "input_message_ids" | "output_state_version" | "error_message" | "metadata" | "started_at" | "finished_at" | "created_at" | "updated_at", ExtArgs["result"]["selfEvolutionJob"]>
+
+  export type $SelfEvolutionJobPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "SelfEvolutionJob"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      group_id: bigint | null
+      target_user_id: bigint | null
+      session_key: string
+      status: string
+      trigger_reason: string
+      turn_range_start: bigint | null
+      turn_range_end: bigint | null
+      source_event_count: number
+      input_message_ids: Prisma.JsonValue
+      output_state_version: number | null
+      error_message: string | null
+      metadata: Prisma.JsonValue | null
+      started_at: Date | null
+      finished_at: Date | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["selfEvolutionJob"]>
+    composites: {}
+  }
+
+  type SelfEvolutionJobGetPayload<S extends boolean | null | undefined | SelfEvolutionJobDefaultArgs> = $Result.GetResult<Prisma.$SelfEvolutionJobPayload, S>
+
+  type SelfEvolutionJobCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<SelfEvolutionJobFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: SelfEvolutionJobCountAggregateInputType | true
+    }
+
+  export interface SelfEvolutionJobDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['SelfEvolutionJob'], meta: { name: 'SelfEvolutionJob' } }
+    /**
+     * Find zero or one SelfEvolutionJob that matches the filter.
+     * @param {SelfEvolutionJobFindUniqueArgs} args - Arguments to find a SelfEvolutionJob
+     * @example
+     * // Get one SelfEvolutionJob
+     * const selfEvolutionJob = await prisma.selfEvolutionJob.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends SelfEvolutionJobFindUniqueArgs>(args: SelectSubset<T, SelfEvolutionJobFindUniqueArgs<ExtArgs>>): Prisma__SelfEvolutionJobClient<$Result.GetResult<Prisma.$SelfEvolutionJobPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one SelfEvolutionJob that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {SelfEvolutionJobFindUniqueOrThrowArgs} args - Arguments to find a SelfEvolutionJob
+     * @example
+     * // Get one SelfEvolutionJob
+     * const selfEvolutionJob = await prisma.selfEvolutionJob.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends SelfEvolutionJobFindUniqueOrThrowArgs>(args: SelectSubset<T, SelfEvolutionJobFindUniqueOrThrowArgs<ExtArgs>>): Prisma__SelfEvolutionJobClient<$Result.GetResult<Prisma.$SelfEvolutionJobPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first SelfEvolutionJob that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionJobFindFirstArgs} args - Arguments to find a SelfEvolutionJob
+     * @example
+     * // Get one SelfEvolutionJob
+     * const selfEvolutionJob = await prisma.selfEvolutionJob.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends SelfEvolutionJobFindFirstArgs>(args?: SelectSubset<T, SelfEvolutionJobFindFirstArgs<ExtArgs>>): Prisma__SelfEvolutionJobClient<$Result.GetResult<Prisma.$SelfEvolutionJobPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first SelfEvolutionJob that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionJobFindFirstOrThrowArgs} args - Arguments to find a SelfEvolutionJob
+     * @example
+     * // Get one SelfEvolutionJob
+     * const selfEvolutionJob = await prisma.selfEvolutionJob.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends SelfEvolutionJobFindFirstOrThrowArgs>(args?: SelectSubset<T, SelfEvolutionJobFindFirstOrThrowArgs<ExtArgs>>): Prisma__SelfEvolutionJobClient<$Result.GetResult<Prisma.$SelfEvolutionJobPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more SelfEvolutionJobs that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionJobFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all SelfEvolutionJobs
+     * const selfEvolutionJobs = await prisma.selfEvolutionJob.findMany()
+     * 
+     * // Get first 10 SelfEvolutionJobs
+     * const selfEvolutionJobs = await prisma.selfEvolutionJob.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const selfEvolutionJobWithIdOnly = await prisma.selfEvolutionJob.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends SelfEvolutionJobFindManyArgs>(args?: SelectSubset<T, SelfEvolutionJobFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$SelfEvolutionJobPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a SelfEvolutionJob.
+     * @param {SelfEvolutionJobCreateArgs} args - Arguments to create a SelfEvolutionJob.
+     * @example
+     * // Create one SelfEvolutionJob
+     * const SelfEvolutionJob = await prisma.selfEvolutionJob.create({
+     *   data: {
+     *     // ... data to create a SelfEvolutionJob
+     *   }
+     * })
+     * 
+     */
+    create<T extends SelfEvolutionJobCreateArgs>(args: SelectSubset<T, SelfEvolutionJobCreateArgs<ExtArgs>>): Prisma__SelfEvolutionJobClient<$Result.GetResult<Prisma.$SelfEvolutionJobPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many SelfEvolutionJobs.
+     * @param {SelfEvolutionJobCreateManyArgs} args - Arguments to create many SelfEvolutionJobs.
+     * @example
+     * // Create many SelfEvolutionJobs
+     * const selfEvolutionJob = await prisma.selfEvolutionJob.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends SelfEvolutionJobCreateManyArgs>(args?: SelectSubset<T, SelfEvolutionJobCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many SelfEvolutionJobs and returns the data saved in the database.
+     * @param {SelfEvolutionJobCreateManyAndReturnArgs} args - Arguments to create many SelfEvolutionJobs.
+     * @example
+     * // Create many SelfEvolutionJobs
+     * const selfEvolutionJob = await prisma.selfEvolutionJob.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many SelfEvolutionJobs and only return the `id`
+     * const selfEvolutionJobWithIdOnly = await prisma.selfEvolutionJob.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends SelfEvolutionJobCreateManyAndReturnArgs>(args?: SelectSubset<T, SelfEvolutionJobCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$SelfEvolutionJobPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a SelfEvolutionJob.
+     * @param {SelfEvolutionJobDeleteArgs} args - Arguments to delete one SelfEvolutionJob.
+     * @example
+     * // Delete one SelfEvolutionJob
+     * const SelfEvolutionJob = await prisma.selfEvolutionJob.delete({
+     *   where: {
+     *     // ... filter to delete one SelfEvolutionJob
+     *   }
+     * })
+     * 
+     */
+    delete<T extends SelfEvolutionJobDeleteArgs>(args: SelectSubset<T, SelfEvolutionJobDeleteArgs<ExtArgs>>): Prisma__SelfEvolutionJobClient<$Result.GetResult<Prisma.$SelfEvolutionJobPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one SelfEvolutionJob.
+     * @param {SelfEvolutionJobUpdateArgs} args - Arguments to update one SelfEvolutionJob.
+     * @example
+     * // Update one SelfEvolutionJob
+     * const selfEvolutionJob = await prisma.selfEvolutionJob.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends SelfEvolutionJobUpdateArgs>(args: SelectSubset<T, SelfEvolutionJobUpdateArgs<ExtArgs>>): Prisma__SelfEvolutionJobClient<$Result.GetResult<Prisma.$SelfEvolutionJobPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more SelfEvolutionJobs.
+     * @param {SelfEvolutionJobDeleteManyArgs} args - Arguments to filter SelfEvolutionJobs to delete.
+     * @example
+     * // Delete a few SelfEvolutionJobs
+     * const { count } = await prisma.selfEvolutionJob.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends SelfEvolutionJobDeleteManyArgs>(args?: SelectSubset<T, SelfEvolutionJobDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more SelfEvolutionJobs.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionJobUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many SelfEvolutionJobs
+     * const selfEvolutionJob = await prisma.selfEvolutionJob.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends SelfEvolutionJobUpdateManyArgs>(args: SelectSubset<T, SelfEvolutionJobUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more SelfEvolutionJobs and returns the data updated in the database.
+     * @param {SelfEvolutionJobUpdateManyAndReturnArgs} args - Arguments to update many SelfEvolutionJobs.
+     * @example
+     * // Update many SelfEvolutionJobs
+     * const selfEvolutionJob = await prisma.selfEvolutionJob.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more SelfEvolutionJobs and only return the `id`
+     * const selfEvolutionJobWithIdOnly = await prisma.selfEvolutionJob.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends SelfEvolutionJobUpdateManyAndReturnArgs>(args: SelectSubset<T, SelfEvolutionJobUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$SelfEvolutionJobPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one SelfEvolutionJob.
+     * @param {SelfEvolutionJobUpsertArgs} args - Arguments to update or create a SelfEvolutionJob.
+     * @example
+     * // Update or create a SelfEvolutionJob
+     * const selfEvolutionJob = await prisma.selfEvolutionJob.upsert({
+     *   create: {
+     *     // ... data to create a SelfEvolutionJob
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the SelfEvolutionJob we want to update
+     *   }
+     * })
+     */
+    upsert<T extends SelfEvolutionJobUpsertArgs>(args: SelectSubset<T, SelfEvolutionJobUpsertArgs<ExtArgs>>): Prisma__SelfEvolutionJobClient<$Result.GetResult<Prisma.$SelfEvolutionJobPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of SelfEvolutionJobs.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionJobCountArgs} args - Arguments to filter SelfEvolutionJobs to count.
+     * @example
+     * // Count the number of SelfEvolutionJobs
+     * const count = await prisma.selfEvolutionJob.count({
+     *   where: {
+     *     // ... the filter for the SelfEvolutionJobs we want to count
+     *   }
+     * })
+    **/
+    count<T extends SelfEvolutionJobCountArgs>(
+      args?: Subset<T, SelfEvolutionJobCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], SelfEvolutionJobCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a SelfEvolutionJob.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionJobAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends SelfEvolutionJobAggregateArgs>(args: Subset<T, SelfEvolutionJobAggregateArgs>): Prisma.PrismaPromise<GetSelfEvolutionJobAggregateType<T>>
+
+    /**
+     * Group by SelfEvolutionJob.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionJobGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends SelfEvolutionJobGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: SelfEvolutionJobGroupByArgs['orderBy'] }
+        : { orderBy?: SelfEvolutionJobGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, SelfEvolutionJobGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetSelfEvolutionJobGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the SelfEvolutionJob model
+   */
+  readonly fields: SelfEvolutionJobFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for SelfEvolutionJob.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__SelfEvolutionJobClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the SelfEvolutionJob model
+   */
+  interface SelfEvolutionJobFieldRefs {
+    readonly id: FieldRef<"SelfEvolutionJob", 'BigInt'>
+    readonly group_id: FieldRef<"SelfEvolutionJob", 'BigInt'>
+    readonly target_user_id: FieldRef<"SelfEvolutionJob", 'BigInt'>
+    readonly session_key: FieldRef<"SelfEvolutionJob", 'String'>
+    readonly status: FieldRef<"SelfEvolutionJob", 'String'>
+    readonly trigger_reason: FieldRef<"SelfEvolutionJob", 'String'>
+    readonly turn_range_start: FieldRef<"SelfEvolutionJob", 'BigInt'>
+    readonly turn_range_end: FieldRef<"SelfEvolutionJob", 'BigInt'>
+    readonly source_event_count: FieldRef<"SelfEvolutionJob", 'Int'>
+    readonly input_message_ids: FieldRef<"SelfEvolutionJob", 'Json'>
+    readonly output_state_version: FieldRef<"SelfEvolutionJob", 'Int'>
+    readonly error_message: FieldRef<"SelfEvolutionJob", 'String'>
+    readonly metadata: FieldRef<"SelfEvolutionJob", 'Json'>
+    readonly started_at: FieldRef<"SelfEvolutionJob", 'DateTime'>
+    readonly finished_at: FieldRef<"SelfEvolutionJob", 'DateTime'>
+    readonly created_at: FieldRef<"SelfEvolutionJob", 'DateTime'>
+    readonly updated_at: FieldRef<"SelfEvolutionJob", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * SelfEvolutionJob findUnique
+   */
+  export type SelfEvolutionJobFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionJob
+     */
+    select?: SelfEvolutionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionJob
+     */
+    omit?: SelfEvolutionJobOmit<ExtArgs> | null
+    /**
+     * Filter, which SelfEvolutionJob to fetch.
+     */
+    where: SelfEvolutionJobWhereUniqueInput
+  }
+
+  /**
+   * SelfEvolutionJob findUniqueOrThrow
+   */
+  export type SelfEvolutionJobFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionJob
+     */
+    select?: SelfEvolutionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionJob
+     */
+    omit?: SelfEvolutionJobOmit<ExtArgs> | null
+    /**
+     * Filter, which SelfEvolutionJob to fetch.
+     */
+    where: SelfEvolutionJobWhereUniqueInput
+  }
+
+  /**
+   * SelfEvolutionJob findFirst
+   */
+  export type SelfEvolutionJobFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionJob
+     */
+    select?: SelfEvolutionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionJob
+     */
+    omit?: SelfEvolutionJobOmit<ExtArgs> | null
+    /**
+     * Filter, which SelfEvolutionJob to fetch.
+     */
+    where?: SelfEvolutionJobWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of SelfEvolutionJobs to fetch.
+     */
+    orderBy?: SelfEvolutionJobOrderByWithRelationInput | SelfEvolutionJobOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for SelfEvolutionJobs.
+     */
+    cursor?: SelfEvolutionJobWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` SelfEvolutionJobs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` SelfEvolutionJobs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of SelfEvolutionJobs.
+     */
+    distinct?: SelfEvolutionJobScalarFieldEnum | SelfEvolutionJobScalarFieldEnum[]
+  }
+
+  /**
+   * SelfEvolutionJob findFirstOrThrow
+   */
+  export type SelfEvolutionJobFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionJob
+     */
+    select?: SelfEvolutionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionJob
+     */
+    omit?: SelfEvolutionJobOmit<ExtArgs> | null
+    /**
+     * Filter, which SelfEvolutionJob to fetch.
+     */
+    where?: SelfEvolutionJobWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of SelfEvolutionJobs to fetch.
+     */
+    orderBy?: SelfEvolutionJobOrderByWithRelationInput | SelfEvolutionJobOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for SelfEvolutionJobs.
+     */
+    cursor?: SelfEvolutionJobWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` SelfEvolutionJobs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` SelfEvolutionJobs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of SelfEvolutionJobs.
+     */
+    distinct?: SelfEvolutionJobScalarFieldEnum | SelfEvolutionJobScalarFieldEnum[]
+  }
+
+  /**
+   * SelfEvolutionJob findMany
+   */
+  export type SelfEvolutionJobFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionJob
+     */
+    select?: SelfEvolutionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionJob
+     */
+    omit?: SelfEvolutionJobOmit<ExtArgs> | null
+    /**
+     * Filter, which SelfEvolutionJobs to fetch.
+     */
+    where?: SelfEvolutionJobWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of SelfEvolutionJobs to fetch.
+     */
+    orderBy?: SelfEvolutionJobOrderByWithRelationInput | SelfEvolutionJobOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing SelfEvolutionJobs.
+     */
+    cursor?: SelfEvolutionJobWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` SelfEvolutionJobs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` SelfEvolutionJobs.
+     */
+    skip?: number
+    distinct?: SelfEvolutionJobScalarFieldEnum | SelfEvolutionJobScalarFieldEnum[]
+  }
+
+  /**
+   * SelfEvolutionJob create
+   */
+  export type SelfEvolutionJobCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionJob
+     */
+    select?: SelfEvolutionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionJob
+     */
+    omit?: SelfEvolutionJobOmit<ExtArgs> | null
+    /**
+     * The data needed to create a SelfEvolutionJob.
+     */
+    data: XOR<SelfEvolutionJobCreateInput, SelfEvolutionJobUncheckedCreateInput>
+  }
+
+  /**
+   * SelfEvolutionJob createMany
+   */
+  export type SelfEvolutionJobCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many SelfEvolutionJobs.
+     */
+    data: SelfEvolutionJobCreateManyInput | SelfEvolutionJobCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * SelfEvolutionJob createManyAndReturn
+   */
+  export type SelfEvolutionJobCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionJob
+     */
+    select?: SelfEvolutionJobSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionJob
+     */
+    omit?: SelfEvolutionJobOmit<ExtArgs> | null
+    /**
+     * The data used to create many SelfEvolutionJobs.
+     */
+    data: SelfEvolutionJobCreateManyInput | SelfEvolutionJobCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * SelfEvolutionJob update
+   */
+  export type SelfEvolutionJobUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionJob
+     */
+    select?: SelfEvolutionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionJob
+     */
+    omit?: SelfEvolutionJobOmit<ExtArgs> | null
+    /**
+     * The data needed to update a SelfEvolutionJob.
+     */
+    data: XOR<SelfEvolutionJobUpdateInput, SelfEvolutionJobUncheckedUpdateInput>
+    /**
+     * Choose, which SelfEvolutionJob to update.
+     */
+    where: SelfEvolutionJobWhereUniqueInput
+  }
+
+  /**
+   * SelfEvolutionJob updateMany
+   */
+  export type SelfEvolutionJobUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update SelfEvolutionJobs.
+     */
+    data: XOR<SelfEvolutionJobUpdateManyMutationInput, SelfEvolutionJobUncheckedUpdateManyInput>
+    /**
+     * Filter which SelfEvolutionJobs to update
+     */
+    where?: SelfEvolutionJobWhereInput
+    /**
+     * Limit how many SelfEvolutionJobs to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * SelfEvolutionJob updateManyAndReturn
+   */
+  export type SelfEvolutionJobUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionJob
+     */
+    select?: SelfEvolutionJobSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionJob
+     */
+    omit?: SelfEvolutionJobOmit<ExtArgs> | null
+    /**
+     * The data used to update SelfEvolutionJobs.
+     */
+    data: XOR<SelfEvolutionJobUpdateManyMutationInput, SelfEvolutionJobUncheckedUpdateManyInput>
+    /**
+     * Filter which SelfEvolutionJobs to update
+     */
+    where?: SelfEvolutionJobWhereInput
+    /**
+     * Limit how many SelfEvolutionJobs to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * SelfEvolutionJob upsert
+   */
+  export type SelfEvolutionJobUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionJob
+     */
+    select?: SelfEvolutionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionJob
+     */
+    omit?: SelfEvolutionJobOmit<ExtArgs> | null
+    /**
+     * The filter to search for the SelfEvolutionJob to update in case it exists.
+     */
+    where: SelfEvolutionJobWhereUniqueInput
+    /**
+     * In case the SelfEvolutionJob found by the `where` argument doesn't exist, create a new SelfEvolutionJob with this data.
+     */
+    create: XOR<SelfEvolutionJobCreateInput, SelfEvolutionJobUncheckedCreateInput>
+    /**
+     * In case the SelfEvolutionJob was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<SelfEvolutionJobUpdateInput, SelfEvolutionJobUncheckedUpdateInput>
+  }
+
+  /**
+   * SelfEvolutionJob delete
+   */
+  export type SelfEvolutionJobDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionJob
+     */
+    select?: SelfEvolutionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionJob
+     */
+    omit?: SelfEvolutionJobOmit<ExtArgs> | null
+    /**
+     * Filter which SelfEvolutionJob to delete.
+     */
+    where: SelfEvolutionJobWhereUniqueInput
+  }
+
+  /**
+   * SelfEvolutionJob deleteMany
+   */
+  export type SelfEvolutionJobDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which SelfEvolutionJobs to delete
+     */
+    where?: SelfEvolutionJobWhereInput
+    /**
+     * Limit how many SelfEvolutionJobs to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * SelfEvolutionJob without action
+   */
+  export type SelfEvolutionJobDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionJob
+     */
+    select?: SelfEvolutionJobSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionJob
+     */
+    omit?: SelfEvolutionJobOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model SelfEvolutionState
+   */
+
+  export type AggregateSelfEvolutionState = {
+    _count: SelfEvolutionStateCountAggregateOutputType | null
+    _avg: SelfEvolutionStateAvgAggregateOutputType | null
+    _sum: SelfEvolutionStateSumAggregateOutputType | null
+    _min: SelfEvolutionStateMinAggregateOutputType | null
+    _max: SelfEvolutionStateMaxAggregateOutputType | null
+  }
+
+  export type SelfEvolutionStateAvgAggregateOutputType = {
+    id: number | null
+    group_id: number | null
+    target_user_id: number | null
+    version: number | null
+  }
+
+  export type SelfEvolutionStateSumAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    target_user_id: bigint | null
+    version: number | null
+  }
+
+  export type SelfEvolutionStateMinAggregateOutputType = {
+    id: bigint | null
+    session_key: string | null
+    group_id: bigint | null
+    target_user_id: bigint | null
+    scope_type: string | null
+    version: number | null
+    is_active: boolean | null
+    social_presence_baseline: string | null
+    entry_preference: string | null
+    warmth_bias: string | null
+    familiarity_ceiling: string | null
+    summary_text: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type SelfEvolutionStateMaxAggregateOutputType = {
+    id: bigint | null
+    session_key: string | null
+    group_id: bigint | null
+    target_user_id: bigint | null
+    scope_type: string | null
+    version: number | null
+    is_active: boolean | null
+    social_presence_baseline: string | null
+    entry_preference: string | null
+    warmth_bias: string | null
+    familiarity_ceiling: string | null
+    summary_text: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type SelfEvolutionStateCountAggregateOutputType = {
+    id: number
+    session_key: number
+    group_id: number
+    target_user_id: number
+    scope_type: number
+    version: number
+    is_active: number
+    social_presence_baseline: number
+    entry_preference: number
+    warmth_bias: number
+    familiarity_ceiling: number
+    topic_resonance: number
+    boundary_tendencies: number
+    reinforced_modes: number
+    suppressed_modes: number
+    summary_text: number
+    source_event_ids: number
+    source_message_ids: number
+    metadata: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type SelfEvolutionStateAvgAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    version?: true
+  }
+
+  export type SelfEvolutionStateSumAggregateInputType = {
+    id?: true
+    group_id?: true
+    target_user_id?: true
+    version?: true
+  }
+
+  export type SelfEvolutionStateMinAggregateInputType = {
+    id?: true
+    session_key?: true
+    group_id?: true
+    target_user_id?: true
+    scope_type?: true
+    version?: true
+    is_active?: true
+    social_presence_baseline?: true
+    entry_preference?: true
+    warmth_bias?: true
+    familiarity_ceiling?: true
+    summary_text?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type SelfEvolutionStateMaxAggregateInputType = {
+    id?: true
+    session_key?: true
+    group_id?: true
+    target_user_id?: true
+    scope_type?: true
+    version?: true
+    is_active?: true
+    social_presence_baseline?: true
+    entry_preference?: true
+    warmth_bias?: true
+    familiarity_ceiling?: true
+    summary_text?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type SelfEvolutionStateCountAggregateInputType = {
+    id?: true
+    session_key?: true
+    group_id?: true
+    target_user_id?: true
+    scope_type?: true
+    version?: true
+    is_active?: true
+    social_presence_baseline?: true
+    entry_preference?: true
+    warmth_bias?: true
+    familiarity_ceiling?: true
+    topic_resonance?: true
+    boundary_tendencies?: true
+    reinforced_modes?: true
+    suppressed_modes?: true
+    summary_text?: true
+    source_event_ids?: true
+    source_message_ids?: true
+    metadata?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type SelfEvolutionStateAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which SelfEvolutionState to aggregate.
+     */
+    where?: SelfEvolutionStateWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of SelfEvolutionStates to fetch.
+     */
+    orderBy?: SelfEvolutionStateOrderByWithRelationInput | SelfEvolutionStateOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: SelfEvolutionStateWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` SelfEvolutionStates from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` SelfEvolutionStates.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned SelfEvolutionStates
+    **/
+    _count?: true | SelfEvolutionStateCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: SelfEvolutionStateAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: SelfEvolutionStateSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: SelfEvolutionStateMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: SelfEvolutionStateMaxAggregateInputType
+  }
+
+  export type GetSelfEvolutionStateAggregateType<T extends SelfEvolutionStateAggregateArgs> = {
+        [P in keyof T & keyof AggregateSelfEvolutionState]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateSelfEvolutionState[P]>
+      : GetScalarType<T[P], AggregateSelfEvolutionState[P]>
+  }
+
+
+
+
+  export type SelfEvolutionStateGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: SelfEvolutionStateWhereInput
+    orderBy?: SelfEvolutionStateOrderByWithAggregationInput | SelfEvolutionStateOrderByWithAggregationInput[]
+    by: SelfEvolutionStateScalarFieldEnum[] | SelfEvolutionStateScalarFieldEnum
+    having?: SelfEvolutionStateScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: SelfEvolutionStateCountAggregateInputType | true
+    _avg?: SelfEvolutionStateAvgAggregateInputType
+    _sum?: SelfEvolutionStateSumAggregateInputType
+    _min?: SelfEvolutionStateMinAggregateInputType
+    _max?: SelfEvolutionStateMaxAggregateInputType
+  }
+
+  export type SelfEvolutionStateGroupByOutputType = {
+    id: bigint
+    session_key: string
+    group_id: bigint | null
+    target_user_id: bigint | null
+    scope_type: string
+    version: number
+    is_active: boolean
+    social_presence_baseline: string
+    entry_preference: string
+    warmth_bias: string
+    familiarity_ceiling: string
+    topic_resonance: JsonValue
+    boundary_tendencies: JsonValue
+    reinforced_modes: JsonValue
+    suppressed_modes: JsonValue
+    summary_text: string
+    source_event_ids: JsonValue
+    source_message_ids: JsonValue
+    metadata: JsonValue | null
+    created_at: Date
+    updated_at: Date
+    _count: SelfEvolutionStateCountAggregateOutputType | null
+    _avg: SelfEvolutionStateAvgAggregateOutputType | null
+    _sum: SelfEvolutionStateSumAggregateOutputType | null
+    _min: SelfEvolutionStateMinAggregateOutputType | null
+    _max: SelfEvolutionStateMaxAggregateOutputType | null
+  }
+
+  type GetSelfEvolutionStateGroupByPayload<T extends SelfEvolutionStateGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<SelfEvolutionStateGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof SelfEvolutionStateGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], SelfEvolutionStateGroupByOutputType[P]>
+            : GetScalarType<T[P], SelfEvolutionStateGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type SelfEvolutionStateSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    scope_type?: boolean
+    version?: boolean
+    is_active?: boolean
+    social_presence_baseline?: boolean
+    entry_preference?: boolean
+    warmth_bias?: boolean
+    familiarity_ceiling?: boolean
+    topic_resonance?: boolean
+    boundary_tendencies?: boolean
+    reinforced_modes?: boolean
+    suppressed_modes?: boolean
+    summary_text?: boolean
+    source_event_ids?: boolean
+    source_message_ids?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["selfEvolutionState"]>
+
+  export type SelfEvolutionStateSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    scope_type?: boolean
+    version?: boolean
+    is_active?: boolean
+    social_presence_baseline?: boolean
+    entry_preference?: boolean
+    warmth_bias?: boolean
+    familiarity_ceiling?: boolean
+    topic_resonance?: boolean
+    boundary_tendencies?: boolean
+    reinforced_modes?: boolean
+    suppressed_modes?: boolean
+    summary_text?: boolean
+    source_event_ids?: boolean
+    source_message_ids?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["selfEvolutionState"]>
+
+  export type SelfEvolutionStateSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    scope_type?: boolean
+    version?: boolean
+    is_active?: boolean
+    social_presence_baseline?: boolean
+    entry_preference?: boolean
+    warmth_bias?: boolean
+    familiarity_ceiling?: boolean
+    topic_resonance?: boolean
+    boundary_tendencies?: boolean
+    reinforced_modes?: boolean
+    suppressed_modes?: boolean
+    summary_text?: boolean
+    source_event_ids?: boolean
+    source_message_ids?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["selfEvolutionState"]>
+
+  export type SelfEvolutionStateSelectScalar = {
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    target_user_id?: boolean
+    scope_type?: boolean
+    version?: boolean
+    is_active?: boolean
+    social_presence_baseline?: boolean
+    entry_preference?: boolean
+    warmth_bias?: boolean
+    familiarity_ceiling?: boolean
+    topic_resonance?: boolean
+    boundary_tendencies?: boolean
+    reinforced_modes?: boolean
+    suppressed_modes?: boolean
+    summary_text?: boolean
+    source_event_ids?: boolean
+    source_message_ids?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type SelfEvolutionStateOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "session_key" | "group_id" | "target_user_id" | "scope_type" | "version" | "is_active" | "social_presence_baseline" | "entry_preference" | "warmth_bias" | "familiarity_ceiling" | "topic_resonance" | "boundary_tendencies" | "reinforced_modes" | "suppressed_modes" | "summary_text" | "source_event_ids" | "source_message_ids" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["selfEvolutionState"]>
+
+  export type $SelfEvolutionStatePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "SelfEvolutionState"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      session_key: string
+      group_id: bigint | null
+      target_user_id: bigint | null
+      scope_type: string
+      version: number
+      is_active: boolean
+      social_presence_baseline: string
+      entry_preference: string
+      warmth_bias: string
+      familiarity_ceiling: string
+      topic_resonance: Prisma.JsonValue
+      boundary_tendencies: Prisma.JsonValue
+      reinforced_modes: Prisma.JsonValue
+      suppressed_modes: Prisma.JsonValue
+      summary_text: string
+      source_event_ids: Prisma.JsonValue
+      source_message_ids: Prisma.JsonValue
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["selfEvolutionState"]>
+    composites: {}
+  }
+
+  type SelfEvolutionStateGetPayload<S extends boolean | null | undefined | SelfEvolutionStateDefaultArgs> = $Result.GetResult<Prisma.$SelfEvolutionStatePayload, S>
+
+  type SelfEvolutionStateCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<SelfEvolutionStateFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: SelfEvolutionStateCountAggregateInputType | true
+    }
+
+  export interface SelfEvolutionStateDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['SelfEvolutionState'], meta: { name: 'SelfEvolutionState' } }
+    /**
+     * Find zero or one SelfEvolutionState that matches the filter.
+     * @param {SelfEvolutionStateFindUniqueArgs} args - Arguments to find a SelfEvolutionState
+     * @example
+     * // Get one SelfEvolutionState
+     * const selfEvolutionState = await prisma.selfEvolutionState.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends SelfEvolutionStateFindUniqueArgs>(args: SelectSubset<T, SelfEvolutionStateFindUniqueArgs<ExtArgs>>): Prisma__SelfEvolutionStateClient<$Result.GetResult<Prisma.$SelfEvolutionStatePayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one SelfEvolutionState that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {SelfEvolutionStateFindUniqueOrThrowArgs} args - Arguments to find a SelfEvolutionState
+     * @example
+     * // Get one SelfEvolutionState
+     * const selfEvolutionState = await prisma.selfEvolutionState.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends SelfEvolutionStateFindUniqueOrThrowArgs>(args: SelectSubset<T, SelfEvolutionStateFindUniqueOrThrowArgs<ExtArgs>>): Prisma__SelfEvolutionStateClient<$Result.GetResult<Prisma.$SelfEvolutionStatePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first SelfEvolutionState that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionStateFindFirstArgs} args - Arguments to find a SelfEvolutionState
+     * @example
+     * // Get one SelfEvolutionState
+     * const selfEvolutionState = await prisma.selfEvolutionState.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends SelfEvolutionStateFindFirstArgs>(args?: SelectSubset<T, SelfEvolutionStateFindFirstArgs<ExtArgs>>): Prisma__SelfEvolutionStateClient<$Result.GetResult<Prisma.$SelfEvolutionStatePayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first SelfEvolutionState that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionStateFindFirstOrThrowArgs} args - Arguments to find a SelfEvolutionState
+     * @example
+     * // Get one SelfEvolutionState
+     * const selfEvolutionState = await prisma.selfEvolutionState.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends SelfEvolutionStateFindFirstOrThrowArgs>(args?: SelectSubset<T, SelfEvolutionStateFindFirstOrThrowArgs<ExtArgs>>): Prisma__SelfEvolutionStateClient<$Result.GetResult<Prisma.$SelfEvolutionStatePayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more SelfEvolutionStates that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionStateFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all SelfEvolutionStates
+     * const selfEvolutionStates = await prisma.selfEvolutionState.findMany()
+     * 
+     * // Get first 10 SelfEvolutionStates
+     * const selfEvolutionStates = await prisma.selfEvolutionState.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const selfEvolutionStateWithIdOnly = await prisma.selfEvolutionState.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends SelfEvolutionStateFindManyArgs>(args?: SelectSubset<T, SelfEvolutionStateFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$SelfEvolutionStatePayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a SelfEvolutionState.
+     * @param {SelfEvolutionStateCreateArgs} args - Arguments to create a SelfEvolutionState.
+     * @example
+     * // Create one SelfEvolutionState
+     * const SelfEvolutionState = await prisma.selfEvolutionState.create({
+     *   data: {
+     *     // ... data to create a SelfEvolutionState
+     *   }
+     * })
+     * 
+     */
+    create<T extends SelfEvolutionStateCreateArgs>(args: SelectSubset<T, SelfEvolutionStateCreateArgs<ExtArgs>>): Prisma__SelfEvolutionStateClient<$Result.GetResult<Prisma.$SelfEvolutionStatePayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many SelfEvolutionStates.
+     * @param {SelfEvolutionStateCreateManyArgs} args - Arguments to create many SelfEvolutionStates.
+     * @example
+     * // Create many SelfEvolutionStates
+     * const selfEvolutionState = await prisma.selfEvolutionState.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends SelfEvolutionStateCreateManyArgs>(args?: SelectSubset<T, SelfEvolutionStateCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many SelfEvolutionStates and returns the data saved in the database.
+     * @param {SelfEvolutionStateCreateManyAndReturnArgs} args - Arguments to create many SelfEvolutionStates.
+     * @example
+     * // Create many SelfEvolutionStates
+     * const selfEvolutionState = await prisma.selfEvolutionState.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many SelfEvolutionStates and only return the `id`
+     * const selfEvolutionStateWithIdOnly = await prisma.selfEvolutionState.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends SelfEvolutionStateCreateManyAndReturnArgs>(args?: SelectSubset<T, SelfEvolutionStateCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$SelfEvolutionStatePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a SelfEvolutionState.
+     * @param {SelfEvolutionStateDeleteArgs} args - Arguments to delete one SelfEvolutionState.
+     * @example
+     * // Delete one SelfEvolutionState
+     * const SelfEvolutionState = await prisma.selfEvolutionState.delete({
+     *   where: {
+     *     // ... filter to delete one SelfEvolutionState
+     *   }
+     * })
+     * 
+     */
+    delete<T extends SelfEvolutionStateDeleteArgs>(args: SelectSubset<T, SelfEvolutionStateDeleteArgs<ExtArgs>>): Prisma__SelfEvolutionStateClient<$Result.GetResult<Prisma.$SelfEvolutionStatePayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one SelfEvolutionState.
+     * @param {SelfEvolutionStateUpdateArgs} args - Arguments to update one SelfEvolutionState.
+     * @example
+     * // Update one SelfEvolutionState
+     * const selfEvolutionState = await prisma.selfEvolutionState.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends SelfEvolutionStateUpdateArgs>(args: SelectSubset<T, SelfEvolutionStateUpdateArgs<ExtArgs>>): Prisma__SelfEvolutionStateClient<$Result.GetResult<Prisma.$SelfEvolutionStatePayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more SelfEvolutionStates.
+     * @param {SelfEvolutionStateDeleteManyArgs} args - Arguments to filter SelfEvolutionStates to delete.
+     * @example
+     * // Delete a few SelfEvolutionStates
+     * const { count } = await prisma.selfEvolutionState.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends SelfEvolutionStateDeleteManyArgs>(args?: SelectSubset<T, SelfEvolutionStateDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more SelfEvolutionStates.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionStateUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many SelfEvolutionStates
+     * const selfEvolutionState = await prisma.selfEvolutionState.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends SelfEvolutionStateUpdateManyArgs>(args: SelectSubset<T, SelfEvolutionStateUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more SelfEvolutionStates and returns the data updated in the database.
+     * @param {SelfEvolutionStateUpdateManyAndReturnArgs} args - Arguments to update many SelfEvolutionStates.
+     * @example
+     * // Update many SelfEvolutionStates
+     * const selfEvolutionState = await prisma.selfEvolutionState.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more SelfEvolutionStates and only return the `id`
+     * const selfEvolutionStateWithIdOnly = await prisma.selfEvolutionState.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends SelfEvolutionStateUpdateManyAndReturnArgs>(args: SelectSubset<T, SelfEvolutionStateUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$SelfEvolutionStatePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one SelfEvolutionState.
+     * @param {SelfEvolutionStateUpsertArgs} args - Arguments to update or create a SelfEvolutionState.
+     * @example
+     * // Update or create a SelfEvolutionState
+     * const selfEvolutionState = await prisma.selfEvolutionState.upsert({
+     *   create: {
+     *     // ... data to create a SelfEvolutionState
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the SelfEvolutionState we want to update
+     *   }
+     * })
+     */
+    upsert<T extends SelfEvolutionStateUpsertArgs>(args: SelectSubset<T, SelfEvolutionStateUpsertArgs<ExtArgs>>): Prisma__SelfEvolutionStateClient<$Result.GetResult<Prisma.$SelfEvolutionStatePayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of SelfEvolutionStates.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionStateCountArgs} args - Arguments to filter SelfEvolutionStates to count.
+     * @example
+     * // Count the number of SelfEvolutionStates
+     * const count = await prisma.selfEvolutionState.count({
+     *   where: {
+     *     // ... the filter for the SelfEvolutionStates we want to count
+     *   }
+     * })
+    **/
+    count<T extends SelfEvolutionStateCountArgs>(
+      args?: Subset<T, SelfEvolutionStateCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], SelfEvolutionStateCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a SelfEvolutionState.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionStateAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends SelfEvolutionStateAggregateArgs>(args: Subset<T, SelfEvolutionStateAggregateArgs>): Prisma.PrismaPromise<GetSelfEvolutionStateAggregateType<T>>
+
+    /**
+     * Group by SelfEvolutionState.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {SelfEvolutionStateGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends SelfEvolutionStateGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: SelfEvolutionStateGroupByArgs['orderBy'] }
+        : { orderBy?: SelfEvolutionStateGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, SelfEvolutionStateGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetSelfEvolutionStateGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the SelfEvolutionState model
+   */
+  readonly fields: SelfEvolutionStateFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for SelfEvolutionState.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__SelfEvolutionStateClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the SelfEvolutionState model
+   */
+  interface SelfEvolutionStateFieldRefs {
+    readonly id: FieldRef<"SelfEvolutionState", 'BigInt'>
+    readonly session_key: FieldRef<"SelfEvolutionState", 'String'>
+    readonly group_id: FieldRef<"SelfEvolutionState", 'BigInt'>
+    readonly target_user_id: FieldRef<"SelfEvolutionState", 'BigInt'>
+    readonly scope_type: FieldRef<"SelfEvolutionState", 'String'>
+    readonly version: FieldRef<"SelfEvolutionState", 'Int'>
+    readonly is_active: FieldRef<"SelfEvolutionState", 'Boolean'>
+    readonly social_presence_baseline: FieldRef<"SelfEvolutionState", 'String'>
+    readonly entry_preference: FieldRef<"SelfEvolutionState", 'String'>
+    readonly warmth_bias: FieldRef<"SelfEvolutionState", 'String'>
+    readonly familiarity_ceiling: FieldRef<"SelfEvolutionState", 'String'>
+    readonly topic_resonance: FieldRef<"SelfEvolutionState", 'Json'>
+    readonly boundary_tendencies: FieldRef<"SelfEvolutionState", 'Json'>
+    readonly reinforced_modes: FieldRef<"SelfEvolutionState", 'Json'>
+    readonly suppressed_modes: FieldRef<"SelfEvolutionState", 'Json'>
+    readonly summary_text: FieldRef<"SelfEvolutionState", 'String'>
+    readonly source_event_ids: FieldRef<"SelfEvolutionState", 'Json'>
+    readonly source_message_ids: FieldRef<"SelfEvolutionState", 'Json'>
+    readonly metadata: FieldRef<"SelfEvolutionState", 'Json'>
+    readonly created_at: FieldRef<"SelfEvolutionState", 'DateTime'>
+    readonly updated_at: FieldRef<"SelfEvolutionState", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * SelfEvolutionState findUnique
+   */
+  export type SelfEvolutionStateFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionState
+     */
+    select?: SelfEvolutionStateSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionState
+     */
+    omit?: SelfEvolutionStateOmit<ExtArgs> | null
+    /**
+     * Filter, which SelfEvolutionState to fetch.
+     */
+    where: SelfEvolutionStateWhereUniqueInput
+  }
+
+  /**
+   * SelfEvolutionState findUniqueOrThrow
+   */
+  export type SelfEvolutionStateFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionState
+     */
+    select?: SelfEvolutionStateSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionState
+     */
+    omit?: SelfEvolutionStateOmit<ExtArgs> | null
+    /**
+     * Filter, which SelfEvolutionState to fetch.
+     */
+    where: SelfEvolutionStateWhereUniqueInput
+  }
+
+  /**
+   * SelfEvolutionState findFirst
+   */
+  export type SelfEvolutionStateFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionState
+     */
+    select?: SelfEvolutionStateSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionState
+     */
+    omit?: SelfEvolutionStateOmit<ExtArgs> | null
+    /**
+     * Filter, which SelfEvolutionState to fetch.
+     */
+    where?: SelfEvolutionStateWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of SelfEvolutionStates to fetch.
+     */
+    orderBy?: SelfEvolutionStateOrderByWithRelationInput | SelfEvolutionStateOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for SelfEvolutionStates.
+     */
+    cursor?: SelfEvolutionStateWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` SelfEvolutionStates from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` SelfEvolutionStates.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of SelfEvolutionStates.
+     */
+    distinct?: SelfEvolutionStateScalarFieldEnum | SelfEvolutionStateScalarFieldEnum[]
+  }
+
+  /**
+   * SelfEvolutionState findFirstOrThrow
+   */
+  export type SelfEvolutionStateFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionState
+     */
+    select?: SelfEvolutionStateSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionState
+     */
+    omit?: SelfEvolutionStateOmit<ExtArgs> | null
+    /**
+     * Filter, which SelfEvolutionState to fetch.
+     */
+    where?: SelfEvolutionStateWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of SelfEvolutionStates to fetch.
+     */
+    orderBy?: SelfEvolutionStateOrderByWithRelationInput | SelfEvolutionStateOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for SelfEvolutionStates.
+     */
+    cursor?: SelfEvolutionStateWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` SelfEvolutionStates from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` SelfEvolutionStates.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of SelfEvolutionStates.
+     */
+    distinct?: SelfEvolutionStateScalarFieldEnum | SelfEvolutionStateScalarFieldEnum[]
+  }
+
+  /**
+   * SelfEvolutionState findMany
+   */
+  export type SelfEvolutionStateFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionState
+     */
+    select?: SelfEvolutionStateSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionState
+     */
+    omit?: SelfEvolutionStateOmit<ExtArgs> | null
+    /**
+     * Filter, which SelfEvolutionStates to fetch.
+     */
+    where?: SelfEvolutionStateWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of SelfEvolutionStates to fetch.
+     */
+    orderBy?: SelfEvolutionStateOrderByWithRelationInput | SelfEvolutionStateOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing SelfEvolutionStates.
+     */
+    cursor?: SelfEvolutionStateWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` SelfEvolutionStates from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` SelfEvolutionStates.
+     */
+    skip?: number
+    distinct?: SelfEvolutionStateScalarFieldEnum | SelfEvolutionStateScalarFieldEnum[]
+  }
+
+  /**
+   * SelfEvolutionState create
+   */
+  export type SelfEvolutionStateCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionState
+     */
+    select?: SelfEvolutionStateSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionState
+     */
+    omit?: SelfEvolutionStateOmit<ExtArgs> | null
+    /**
+     * The data needed to create a SelfEvolutionState.
+     */
+    data: XOR<SelfEvolutionStateCreateInput, SelfEvolutionStateUncheckedCreateInput>
+  }
+
+  /**
+   * SelfEvolutionState createMany
+   */
+  export type SelfEvolutionStateCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many SelfEvolutionStates.
+     */
+    data: SelfEvolutionStateCreateManyInput | SelfEvolutionStateCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * SelfEvolutionState createManyAndReturn
+   */
+  export type SelfEvolutionStateCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionState
+     */
+    select?: SelfEvolutionStateSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionState
+     */
+    omit?: SelfEvolutionStateOmit<ExtArgs> | null
+    /**
+     * The data used to create many SelfEvolutionStates.
+     */
+    data: SelfEvolutionStateCreateManyInput | SelfEvolutionStateCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * SelfEvolutionState update
+   */
+  export type SelfEvolutionStateUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionState
+     */
+    select?: SelfEvolutionStateSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionState
+     */
+    omit?: SelfEvolutionStateOmit<ExtArgs> | null
+    /**
+     * The data needed to update a SelfEvolutionState.
+     */
+    data: XOR<SelfEvolutionStateUpdateInput, SelfEvolutionStateUncheckedUpdateInput>
+    /**
+     * Choose, which SelfEvolutionState to update.
+     */
+    where: SelfEvolutionStateWhereUniqueInput
+  }
+
+  /**
+   * SelfEvolutionState updateMany
+   */
+  export type SelfEvolutionStateUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update SelfEvolutionStates.
+     */
+    data: XOR<SelfEvolutionStateUpdateManyMutationInput, SelfEvolutionStateUncheckedUpdateManyInput>
+    /**
+     * Filter which SelfEvolutionStates to update
+     */
+    where?: SelfEvolutionStateWhereInput
+    /**
+     * Limit how many SelfEvolutionStates to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * SelfEvolutionState updateManyAndReturn
+   */
+  export type SelfEvolutionStateUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionState
+     */
+    select?: SelfEvolutionStateSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionState
+     */
+    omit?: SelfEvolutionStateOmit<ExtArgs> | null
+    /**
+     * The data used to update SelfEvolutionStates.
+     */
+    data: XOR<SelfEvolutionStateUpdateManyMutationInput, SelfEvolutionStateUncheckedUpdateManyInput>
+    /**
+     * Filter which SelfEvolutionStates to update
+     */
+    where?: SelfEvolutionStateWhereInput
+    /**
+     * Limit how many SelfEvolutionStates to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * SelfEvolutionState upsert
+   */
+  export type SelfEvolutionStateUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionState
+     */
+    select?: SelfEvolutionStateSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionState
+     */
+    omit?: SelfEvolutionStateOmit<ExtArgs> | null
+    /**
+     * The filter to search for the SelfEvolutionState to update in case it exists.
+     */
+    where: SelfEvolutionStateWhereUniqueInput
+    /**
+     * In case the SelfEvolutionState found by the `where` argument doesn't exist, create a new SelfEvolutionState with this data.
+     */
+    create: XOR<SelfEvolutionStateCreateInput, SelfEvolutionStateUncheckedCreateInput>
+    /**
+     * In case the SelfEvolutionState was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<SelfEvolutionStateUpdateInput, SelfEvolutionStateUncheckedUpdateInput>
+  }
+
+  /**
+   * SelfEvolutionState delete
+   */
+  export type SelfEvolutionStateDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionState
+     */
+    select?: SelfEvolutionStateSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionState
+     */
+    omit?: SelfEvolutionStateOmit<ExtArgs> | null
+    /**
+     * Filter which SelfEvolutionState to delete.
+     */
+    where: SelfEvolutionStateWhereUniqueInput
+  }
+
+  /**
+   * SelfEvolutionState deleteMany
+   */
+  export type SelfEvolutionStateDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which SelfEvolutionStates to delete
+     */
+    where?: SelfEvolutionStateWhereInput
+    /**
+     * Limit how many SelfEvolutionStates to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * SelfEvolutionState without action
+   */
+  export type SelfEvolutionStateDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the SelfEvolutionState
+     */
+    select?: SelfEvolutionStateSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the SelfEvolutionState
+     */
+    omit?: SelfEvolutionStateOmit<ExtArgs> | null
+  }
+
+
+  /**
    * Model ChatSpaceTopic
    */
 
@@ -22878,6 +25482,56 @@ export namespace Prisma {
   export type RelationshipMemoryOverrideScalarFieldEnum = (typeof RelationshipMemoryOverrideScalarFieldEnum)[keyof typeof RelationshipMemoryOverrideScalarFieldEnum]
 
 
+  export const SelfEvolutionJobScalarFieldEnum: {
+    id: 'id',
+    group_id: 'group_id',
+    target_user_id: 'target_user_id',
+    session_key: 'session_key',
+    status: 'status',
+    trigger_reason: 'trigger_reason',
+    turn_range_start: 'turn_range_start',
+    turn_range_end: 'turn_range_end',
+    source_event_count: 'source_event_count',
+    input_message_ids: 'input_message_ids',
+    output_state_version: 'output_state_version',
+    error_message: 'error_message',
+    metadata: 'metadata',
+    started_at: 'started_at',
+    finished_at: 'finished_at',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type SelfEvolutionJobScalarFieldEnum = (typeof SelfEvolutionJobScalarFieldEnum)[keyof typeof SelfEvolutionJobScalarFieldEnum]
+
+
+  export const SelfEvolutionStateScalarFieldEnum: {
+    id: 'id',
+    session_key: 'session_key',
+    group_id: 'group_id',
+    target_user_id: 'target_user_id',
+    scope_type: 'scope_type',
+    version: 'version',
+    is_active: 'is_active',
+    social_presence_baseline: 'social_presence_baseline',
+    entry_preference: 'entry_preference',
+    warmth_bias: 'warmth_bias',
+    familiarity_ceiling: 'familiarity_ceiling',
+    topic_resonance: 'topic_resonance',
+    boundary_tendencies: 'boundary_tendencies',
+    reinforced_modes: 'reinforced_modes',
+    suppressed_modes: 'suppressed_modes',
+    summary_text: 'summary_text',
+    source_event_ids: 'source_event_ids',
+    source_message_ids: 'source_message_ids',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type SelfEvolutionStateScalarFieldEnum = (typeof SelfEvolutionStateScalarFieldEnum)[keyof typeof SelfEvolutionStateScalarFieldEnum]
+
+
   export const ChatSpaceTopicScalarFieldEnum: {
     id: 'id',
     chat_space_type: 'chat_space_type',
@@ -24411,6 +27065,254 @@ export namespace Prisma {
     created_by?: StringNullableWithAggregatesFilter<"RelationshipMemoryOverride"> | string | null
     metadata?: JsonNullableWithAggregatesFilter<"RelationshipMemoryOverride">
     created_at?: DateTimeWithAggregatesFilter<"RelationshipMemoryOverride"> | Date | string
+  }
+
+  export type SelfEvolutionJobWhereInput = {
+    AND?: SelfEvolutionJobWhereInput | SelfEvolutionJobWhereInput[]
+    OR?: SelfEvolutionJobWhereInput[]
+    NOT?: SelfEvolutionJobWhereInput | SelfEvolutionJobWhereInput[]
+    id?: BigIntFilter<"SelfEvolutionJob"> | bigint | number
+    group_id?: BigIntNullableFilter<"SelfEvolutionJob"> | bigint | number | null
+    target_user_id?: BigIntNullableFilter<"SelfEvolutionJob"> | bigint | number | null
+    session_key?: StringFilter<"SelfEvolutionJob"> | string
+    status?: StringFilter<"SelfEvolutionJob"> | string
+    trigger_reason?: StringFilter<"SelfEvolutionJob"> | string
+    turn_range_start?: BigIntNullableFilter<"SelfEvolutionJob"> | bigint | number | null
+    turn_range_end?: BigIntNullableFilter<"SelfEvolutionJob"> | bigint | number | null
+    source_event_count?: IntFilter<"SelfEvolutionJob"> | number
+    input_message_ids?: JsonFilter<"SelfEvolutionJob">
+    output_state_version?: IntNullableFilter<"SelfEvolutionJob"> | number | null
+    error_message?: StringNullableFilter<"SelfEvolutionJob"> | string | null
+    metadata?: JsonNullableFilter<"SelfEvolutionJob">
+    started_at?: DateTimeNullableFilter<"SelfEvolutionJob"> | Date | string | null
+    finished_at?: DateTimeNullableFilter<"SelfEvolutionJob"> | Date | string | null
+    created_at?: DateTimeFilter<"SelfEvolutionJob"> | Date | string
+    updated_at?: DateTimeFilter<"SelfEvolutionJob"> | Date | string
+  }
+
+  export type SelfEvolutionJobOrderByWithRelationInput = {
+    id?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    target_user_id?: SortOrderInput | SortOrder
+    session_key?: SortOrder
+    status?: SortOrder
+    trigger_reason?: SortOrder
+    turn_range_start?: SortOrderInput | SortOrder
+    turn_range_end?: SortOrderInput | SortOrder
+    source_event_count?: SortOrder
+    input_message_ids?: SortOrder
+    output_state_version?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    started_at?: SortOrderInput | SortOrder
+    finished_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type SelfEvolutionJobWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: SelfEvolutionJobWhereInput | SelfEvolutionJobWhereInput[]
+    OR?: SelfEvolutionJobWhereInput[]
+    NOT?: SelfEvolutionJobWhereInput | SelfEvolutionJobWhereInput[]
+    group_id?: BigIntNullableFilter<"SelfEvolutionJob"> | bigint | number | null
+    target_user_id?: BigIntNullableFilter<"SelfEvolutionJob"> | bigint | number | null
+    session_key?: StringFilter<"SelfEvolutionJob"> | string
+    status?: StringFilter<"SelfEvolutionJob"> | string
+    trigger_reason?: StringFilter<"SelfEvolutionJob"> | string
+    turn_range_start?: BigIntNullableFilter<"SelfEvolutionJob"> | bigint | number | null
+    turn_range_end?: BigIntNullableFilter<"SelfEvolutionJob"> | bigint | number | null
+    source_event_count?: IntFilter<"SelfEvolutionJob"> | number
+    input_message_ids?: JsonFilter<"SelfEvolutionJob">
+    output_state_version?: IntNullableFilter<"SelfEvolutionJob"> | number | null
+    error_message?: StringNullableFilter<"SelfEvolutionJob"> | string | null
+    metadata?: JsonNullableFilter<"SelfEvolutionJob">
+    started_at?: DateTimeNullableFilter<"SelfEvolutionJob"> | Date | string | null
+    finished_at?: DateTimeNullableFilter<"SelfEvolutionJob"> | Date | string | null
+    created_at?: DateTimeFilter<"SelfEvolutionJob"> | Date | string
+    updated_at?: DateTimeFilter<"SelfEvolutionJob"> | Date | string
+  }, "id">
+
+  export type SelfEvolutionJobOrderByWithAggregationInput = {
+    id?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    target_user_id?: SortOrderInput | SortOrder
+    session_key?: SortOrder
+    status?: SortOrder
+    trigger_reason?: SortOrder
+    turn_range_start?: SortOrderInput | SortOrder
+    turn_range_end?: SortOrderInput | SortOrder
+    source_event_count?: SortOrder
+    input_message_ids?: SortOrder
+    output_state_version?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    started_at?: SortOrderInput | SortOrder
+    finished_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: SelfEvolutionJobCountOrderByAggregateInput
+    _avg?: SelfEvolutionJobAvgOrderByAggregateInput
+    _max?: SelfEvolutionJobMaxOrderByAggregateInput
+    _min?: SelfEvolutionJobMinOrderByAggregateInput
+    _sum?: SelfEvolutionJobSumOrderByAggregateInput
+  }
+
+  export type SelfEvolutionJobScalarWhereWithAggregatesInput = {
+    AND?: SelfEvolutionJobScalarWhereWithAggregatesInput | SelfEvolutionJobScalarWhereWithAggregatesInput[]
+    OR?: SelfEvolutionJobScalarWhereWithAggregatesInput[]
+    NOT?: SelfEvolutionJobScalarWhereWithAggregatesInput | SelfEvolutionJobScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"SelfEvolutionJob"> | bigint | number
+    group_id?: BigIntNullableWithAggregatesFilter<"SelfEvolutionJob"> | bigint | number | null
+    target_user_id?: BigIntNullableWithAggregatesFilter<"SelfEvolutionJob"> | bigint | number | null
+    session_key?: StringWithAggregatesFilter<"SelfEvolutionJob"> | string
+    status?: StringWithAggregatesFilter<"SelfEvolutionJob"> | string
+    trigger_reason?: StringWithAggregatesFilter<"SelfEvolutionJob"> | string
+    turn_range_start?: BigIntNullableWithAggregatesFilter<"SelfEvolutionJob"> | bigint | number | null
+    turn_range_end?: BigIntNullableWithAggregatesFilter<"SelfEvolutionJob"> | bigint | number | null
+    source_event_count?: IntWithAggregatesFilter<"SelfEvolutionJob"> | number
+    input_message_ids?: JsonWithAggregatesFilter<"SelfEvolutionJob">
+    output_state_version?: IntNullableWithAggregatesFilter<"SelfEvolutionJob"> | number | null
+    error_message?: StringNullableWithAggregatesFilter<"SelfEvolutionJob"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"SelfEvolutionJob">
+    started_at?: DateTimeNullableWithAggregatesFilter<"SelfEvolutionJob"> | Date | string | null
+    finished_at?: DateTimeNullableWithAggregatesFilter<"SelfEvolutionJob"> | Date | string | null
+    created_at?: DateTimeWithAggregatesFilter<"SelfEvolutionJob"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"SelfEvolutionJob"> | Date | string
+  }
+
+  export type SelfEvolutionStateWhereInput = {
+    AND?: SelfEvolutionStateWhereInput | SelfEvolutionStateWhereInput[]
+    OR?: SelfEvolutionStateWhereInput[]
+    NOT?: SelfEvolutionStateWhereInput | SelfEvolutionStateWhereInput[]
+    id?: BigIntFilter<"SelfEvolutionState"> | bigint | number
+    session_key?: StringFilter<"SelfEvolutionState"> | string
+    group_id?: BigIntNullableFilter<"SelfEvolutionState"> | bigint | number | null
+    target_user_id?: BigIntNullableFilter<"SelfEvolutionState"> | bigint | number | null
+    scope_type?: StringFilter<"SelfEvolutionState"> | string
+    version?: IntFilter<"SelfEvolutionState"> | number
+    is_active?: BoolFilter<"SelfEvolutionState"> | boolean
+    social_presence_baseline?: StringFilter<"SelfEvolutionState"> | string
+    entry_preference?: StringFilter<"SelfEvolutionState"> | string
+    warmth_bias?: StringFilter<"SelfEvolutionState"> | string
+    familiarity_ceiling?: StringFilter<"SelfEvolutionState"> | string
+    topic_resonance?: JsonFilter<"SelfEvolutionState">
+    boundary_tendencies?: JsonFilter<"SelfEvolutionState">
+    reinforced_modes?: JsonFilter<"SelfEvolutionState">
+    suppressed_modes?: JsonFilter<"SelfEvolutionState">
+    summary_text?: StringFilter<"SelfEvolutionState"> | string
+    source_event_ids?: JsonFilter<"SelfEvolutionState">
+    source_message_ids?: JsonFilter<"SelfEvolutionState">
+    metadata?: JsonNullableFilter<"SelfEvolutionState">
+    created_at?: DateTimeFilter<"SelfEvolutionState"> | Date | string
+    updated_at?: DateTimeFilter<"SelfEvolutionState"> | Date | string
+  }
+
+  export type SelfEvolutionStateOrderByWithRelationInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    target_user_id?: SortOrderInput | SortOrder
+    scope_type?: SortOrder
+    version?: SortOrder
+    is_active?: SortOrder
+    social_presence_baseline?: SortOrder
+    entry_preference?: SortOrder
+    warmth_bias?: SortOrder
+    familiarity_ceiling?: SortOrder
+    topic_resonance?: SortOrder
+    boundary_tendencies?: SortOrder
+    reinforced_modes?: SortOrder
+    suppressed_modes?: SortOrder
+    summary_text?: SortOrder
+    source_event_ids?: SortOrder
+    source_message_ids?: SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type SelfEvolutionStateWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: SelfEvolutionStateWhereInput | SelfEvolutionStateWhereInput[]
+    OR?: SelfEvolutionStateWhereInput[]
+    NOT?: SelfEvolutionStateWhereInput | SelfEvolutionStateWhereInput[]
+    session_key?: StringFilter<"SelfEvolutionState"> | string
+    group_id?: BigIntNullableFilter<"SelfEvolutionState"> | bigint | number | null
+    target_user_id?: BigIntNullableFilter<"SelfEvolutionState"> | bigint | number | null
+    scope_type?: StringFilter<"SelfEvolutionState"> | string
+    version?: IntFilter<"SelfEvolutionState"> | number
+    is_active?: BoolFilter<"SelfEvolutionState"> | boolean
+    social_presence_baseline?: StringFilter<"SelfEvolutionState"> | string
+    entry_preference?: StringFilter<"SelfEvolutionState"> | string
+    warmth_bias?: StringFilter<"SelfEvolutionState"> | string
+    familiarity_ceiling?: StringFilter<"SelfEvolutionState"> | string
+    topic_resonance?: JsonFilter<"SelfEvolutionState">
+    boundary_tendencies?: JsonFilter<"SelfEvolutionState">
+    reinforced_modes?: JsonFilter<"SelfEvolutionState">
+    suppressed_modes?: JsonFilter<"SelfEvolutionState">
+    summary_text?: StringFilter<"SelfEvolutionState"> | string
+    source_event_ids?: JsonFilter<"SelfEvolutionState">
+    source_message_ids?: JsonFilter<"SelfEvolutionState">
+    metadata?: JsonNullableFilter<"SelfEvolutionState">
+    created_at?: DateTimeFilter<"SelfEvolutionState"> | Date | string
+    updated_at?: DateTimeFilter<"SelfEvolutionState"> | Date | string
+  }, "id">
+
+  export type SelfEvolutionStateOrderByWithAggregationInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    target_user_id?: SortOrderInput | SortOrder
+    scope_type?: SortOrder
+    version?: SortOrder
+    is_active?: SortOrder
+    social_presence_baseline?: SortOrder
+    entry_preference?: SortOrder
+    warmth_bias?: SortOrder
+    familiarity_ceiling?: SortOrder
+    topic_resonance?: SortOrder
+    boundary_tendencies?: SortOrder
+    reinforced_modes?: SortOrder
+    suppressed_modes?: SortOrder
+    summary_text?: SortOrder
+    source_event_ids?: SortOrder
+    source_message_ids?: SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: SelfEvolutionStateCountOrderByAggregateInput
+    _avg?: SelfEvolutionStateAvgOrderByAggregateInput
+    _max?: SelfEvolutionStateMaxOrderByAggregateInput
+    _min?: SelfEvolutionStateMinOrderByAggregateInput
+    _sum?: SelfEvolutionStateSumOrderByAggregateInput
+  }
+
+  export type SelfEvolutionStateScalarWhereWithAggregatesInput = {
+    AND?: SelfEvolutionStateScalarWhereWithAggregatesInput | SelfEvolutionStateScalarWhereWithAggregatesInput[]
+    OR?: SelfEvolutionStateScalarWhereWithAggregatesInput[]
+    NOT?: SelfEvolutionStateScalarWhereWithAggregatesInput | SelfEvolutionStateScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"SelfEvolutionState"> | bigint | number
+    session_key?: StringWithAggregatesFilter<"SelfEvolutionState"> | string
+    group_id?: BigIntNullableWithAggregatesFilter<"SelfEvolutionState"> | bigint | number | null
+    target_user_id?: BigIntNullableWithAggregatesFilter<"SelfEvolutionState"> | bigint | number | null
+    scope_type?: StringWithAggregatesFilter<"SelfEvolutionState"> | string
+    version?: IntWithAggregatesFilter<"SelfEvolutionState"> | number
+    is_active?: BoolWithAggregatesFilter<"SelfEvolutionState"> | boolean
+    social_presence_baseline?: StringWithAggregatesFilter<"SelfEvolutionState"> | string
+    entry_preference?: StringWithAggregatesFilter<"SelfEvolutionState"> | string
+    warmth_bias?: StringWithAggregatesFilter<"SelfEvolutionState"> | string
+    familiarity_ceiling?: StringWithAggregatesFilter<"SelfEvolutionState"> | string
+    topic_resonance?: JsonWithAggregatesFilter<"SelfEvolutionState">
+    boundary_tendencies?: JsonWithAggregatesFilter<"SelfEvolutionState">
+    reinforced_modes?: JsonWithAggregatesFilter<"SelfEvolutionState">
+    suppressed_modes?: JsonWithAggregatesFilter<"SelfEvolutionState">
+    summary_text?: StringWithAggregatesFilter<"SelfEvolutionState"> | string
+    source_event_ids?: JsonWithAggregatesFilter<"SelfEvolutionState">
+    source_message_ids?: JsonWithAggregatesFilter<"SelfEvolutionState">
+    metadata?: JsonNullableWithAggregatesFilter<"SelfEvolutionState">
+    created_at?: DateTimeWithAggregatesFilter<"SelfEvolutionState"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"SelfEvolutionState"> | Date | string
   }
 
   export type ChatSpaceTopicWhereInput = {
@@ -26669,6 +29571,314 @@ export namespace Prisma {
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
+  export type SelfEvolutionJobCreateInput = {
+    id?: bigint | number
+    group_id?: bigint | number | null
+    target_user_id?: bigint | number | null
+    session_key: string
+    status: string
+    trigger_reason: string
+    turn_range_start?: bigint | number | null
+    turn_range_end?: bigint | number | null
+    source_event_count?: number
+    input_message_ids: JsonNullValueInput | InputJsonValue
+    output_state_version?: number | null
+    error_message?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    finished_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type SelfEvolutionJobUncheckedCreateInput = {
+    id?: bigint | number
+    group_id?: bigint | number | null
+    target_user_id?: bigint | number | null
+    session_key: string
+    status: string
+    trigger_reason: string
+    turn_range_start?: bigint | number | null
+    turn_range_end?: bigint | number | null
+    source_event_count?: number
+    input_message_ids: JsonNullValueInput | InputJsonValue
+    output_state_version?: number | null
+    error_message?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    finished_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type SelfEvolutionJobUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    trigger_reason?: StringFieldUpdateOperationsInput | string
+    turn_range_start?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    turn_range_end?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_event_count?: IntFieldUpdateOperationsInput | number
+    input_message_ids?: JsonNullValueInput | InputJsonValue
+    output_state_version?: NullableIntFieldUpdateOperationsInput | number | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    finished_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type SelfEvolutionJobUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    trigger_reason?: StringFieldUpdateOperationsInput | string
+    turn_range_start?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    turn_range_end?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_event_count?: IntFieldUpdateOperationsInput | number
+    input_message_ids?: JsonNullValueInput | InputJsonValue
+    output_state_version?: NullableIntFieldUpdateOperationsInput | number | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    finished_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type SelfEvolutionJobCreateManyInput = {
+    id?: bigint | number
+    group_id?: bigint | number | null
+    target_user_id?: bigint | number | null
+    session_key: string
+    status: string
+    trigger_reason: string
+    turn_range_start?: bigint | number | null
+    turn_range_end?: bigint | number | null
+    source_event_count?: number
+    input_message_ids: JsonNullValueInput | InputJsonValue
+    output_state_version?: number | null
+    error_message?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    finished_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type SelfEvolutionJobUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    trigger_reason?: StringFieldUpdateOperationsInput | string
+    turn_range_start?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    turn_range_end?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_event_count?: IntFieldUpdateOperationsInput | number
+    input_message_ids?: JsonNullValueInput | InputJsonValue
+    output_state_version?: NullableIntFieldUpdateOperationsInput | number | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    finished_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type SelfEvolutionJobUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    trigger_reason?: StringFieldUpdateOperationsInput | string
+    turn_range_start?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    turn_range_end?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_event_count?: IntFieldUpdateOperationsInput | number
+    input_message_ids?: JsonNullValueInput | InputJsonValue
+    output_state_version?: NullableIntFieldUpdateOperationsInput | number | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    finished_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type SelfEvolutionStateCreateInput = {
+    id?: bigint | number
+    session_key: string
+    group_id?: bigint | number | null
+    target_user_id?: bigint | number | null
+    scope_type: string
+    version?: number
+    is_active?: boolean
+    social_presence_baseline: string
+    entry_preference: string
+    warmth_bias: string
+    familiarity_ceiling: string
+    topic_resonance: JsonNullValueInput | InputJsonValue
+    boundary_tendencies: JsonNullValueInput | InputJsonValue
+    reinforced_modes: JsonNullValueInput | InputJsonValue
+    suppressed_modes: JsonNullValueInput | InputJsonValue
+    summary_text: string
+    source_event_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type SelfEvolutionStateUncheckedCreateInput = {
+    id?: bigint | number
+    session_key: string
+    group_id?: bigint | number | null
+    target_user_id?: bigint | number | null
+    scope_type: string
+    version?: number
+    is_active?: boolean
+    social_presence_baseline: string
+    entry_preference: string
+    warmth_bias: string
+    familiarity_ceiling: string
+    topic_resonance: JsonNullValueInput | InputJsonValue
+    boundary_tendencies: JsonNullValueInput | InputJsonValue
+    reinforced_modes: JsonNullValueInput | InputJsonValue
+    suppressed_modes: JsonNullValueInput | InputJsonValue
+    summary_text: string
+    source_event_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type SelfEvolutionStateUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    scope_type?: StringFieldUpdateOperationsInput | string
+    version?: IntFieldUpdateOperationsInput | number
+    is_active?: BoolFieldUpdateOperationsInput | boolean
+    social_presence_baseline?: StringFieldUpdateOperationsInput | string
+    entry_preference?: StringFieldUpdateOperationsInput | string
+    warmth_bias?: StringFieldUpdateOperationsInput | string
+    familiarity_ceiling?: StringFieldUpdateOperationsInput | string
+    topic_resonance?: JsonNullValueInput | InputJsonValue
+    boundary_tendencies?: JsonNullValueInput | InputJsonValue
+    reinforced_modes?: JsonNullValueInput | InputJsonValue
+    suppressed_modes?: JsonNullValueInput | InputJsonValue
+    summary_text?: StringFieldUpdateOperationsInput | string
+    source_event_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type SelfEvolutionStateUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    scope_type?: StringFieldUpdateOperationsInput | string
+    version?: IntFieldUpdateOperationsInput | number
+    is_active?: BoolFieldUpdateOperationsInput | boolean
+    social_presence_baseline?: StringFieldUpdateOperationsInput | string
+    entry_preference?: StringFieldUpdateOperationsInput | string
+    warmth_bias?: StringFieldUpdateOperationsInput | string
+    familiarity_ceiling?: StringFieldUpdateOperationsInput | string
+    topic_resonance?: JsonNullValueInput | InputJsonValue
+    boundary_tendencies?: JsonNullValueInput | InputJsonValue
+    reinforced_modes?: JsonNullValueInput | InputJsonValue
+    suppressed_modes?: JsonNullValueInput | InputJsonValue
+    summary_text?: StringFieldUpdateOperationsInput | string
+    source_event_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type SelfEvolutionStateCreateManyInput = {
+    id?: bigint | number
+    session_key: string
+    group_id?: bigint | number | null
+    target_user_id?: bigint | number | null
+    scope_type: string
+    version?: number
+    is_active?: boolean
+    social_presence_baseline: string
+    entry_preference: string
+    warmth_bias: string
+    familiarity_ceiling: string
+    topic_resonance: JsonNullValueInput | InputJsonValue
+    boundary_tendencies: JsonNullValueInput | InputJsonValue
+    reinforced_modes: JsonNullValueInput | InputJsonValue
+    suppressed_modes: JsonNullValueInput | InputJsonValue
+    summary_text: string
+    source_event_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type SelfEvolutionStateUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    scope_type?: StringFieldUpdateOperationsInput | string
+    version?: IntFieldUpdateOperationsInput | number
+    is_active?: BoolFieldUpdateOperationsInput | boolean
+    social_presence_baseline?: StringFieldUpdateOperationsInput | string
+    entry_preference?: StringFieldUpdateOperationsInput | string
+    warmth_bias?: StringFieldUpdateOperationsInput | string
+    familiarity_ceiling?: StringFieldUpdateOperationsInput | string
+    topic_resonance?: JsonNullValueInput | InputJsonValue
+    boundary_tendencies?: JsonNullValueInput | InputJsonValue
+    reinforced_modes?: JsonNullValueInput | InputJsonValue
+    suppressed_modes?: JsonNullValueInput | InputJsonValue
+    summary_text?: StringFieldUpdateOperationsInput | string
+    source_event_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type SelfEvolutionStateUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    target_user_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    scope_type?: StringFieldUpdateOperationsInput | string
+    version?: IntFieldUpdateOperationsInput | number
+    is_active?: BoolFieldUpdateOperationsInput | boolean
+    social_presence_baseline?: StringFieldUpdateOperationsInput | string
+    entry_preference?: StringFieldUpdateOperationsInput | string
+    warmth_bias?: StringFieldUpdateOperationsInput | string
+    familiarity_ceiling?: StringFieldUpdateOperationsInput | string
+    topic_resonance?: JsonNullValueInput | InputJsonValue
+    boundary_tendencies?: JsonNullValueInput | InputJsonValue
+    reinforced_modes?: JsonNullValueInput | InputJsonValue
+    suppressed_modes?: JsonNullValueInput | InputJsonValue
+    summary_text?: StringFieldUpdateOperationsInput | string
+    source_event_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
   export type ChatSpaceTopicCreateInput = {
     id?: bigint | number
     chat_space_type: string
@@ -28679,6 +31889,154 @@ export namespace Prisma {
   export type RelationshipMemoryOverrideSumOrderByAggregateInput = {
     id?: SortOrder
     card_id?: SortOrder
+  }
+
+  export type SelfEvolutionJobCountOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    session_key?: SortOrder
+    status?: SortOrder
+    trigger_reason?: SortOrder
+    turn_range_start?: SortOrder
+    turn_range_end?: SortOrder
+    source_event_count?: SortOrder
+    input_message_ids?: SortOrder
+    output_state_version?: SortOrder
+    error_message?: SortOrder
+    metadata?: SortOrder
+    started_at?: SortOrder
+    finished_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type SelfEvolutionJobAvgOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    turn_range_start?: SortOrder
+    turn_range_end?: SortOrder
+    source_event_count?: SortOrder
+    output_state_version?: SortOrder
+  }
+
+  export type SelfEvolutionJobMaxOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    session_key?: SortOrder
+    status?: SortOrder
+    trigger_reason?: SortOrder
+    turn_range_start?: SortOrder
+    turn_range_end?: SortOrder
+    source_event_count?: SortOrder
+    output_state_version?: SortOrder
+    error_message?: SortOrder
+    started_at?: SortOrder
+    finished_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type SelfEvolutionJobMinOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    session_key?: SortOrder
+    status?: SortOrder
+    trigger_reason?: SortOrder
+    turn_range_start?: SortOrder
+    turn_range_end?: SortOrder
+    source_event_count?: SortOrder
+    output_state_version?: SortOrder
+    error_message?: SortOrder
+    started_at?: SortOrder
+    finished_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type SelfEvolutionJobSumOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    turn_range_start?: SortOrder
+    turn_range_end?: SortOrder
+    source_event_count?: SortOrder
+    output_state_version?: SortOrder
+  }
+
+  export type SelfEvolutionStateCountOrderByAggregateInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    scope_type?: SortOrder
+    version?: SortOrder
+    is_active?: SortOrder
+    social_presence_baseline?: SortOrder
+    entry_preference?: SortOrder
+    warmth_bias?: SortOrder
+    familiarity_ceiling?: SortOrder
+    topic_resonance?: SortOrder
+    boundary_tendencies?: SortOrder
+    reinforced_modes?: SortOrder
+    suppressed_modes?: SortOrder
+    summary_text?: SortOrder
+    source_event_ids?: SortOrder
+    source_message_ids?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type SelfEvolutionStateAvgOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    version?: SortOrder
+  }
+
+  export type SelfEvolutionStateMaxOrderByAggregateInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    scope_type?: SortOrder
+    version?: SortOrder
+    is_active?: SortOrder
+    social_presence_baseline?: SortOrder
+    entry_preference?: SortOrder
+    warmth_bias?: SortOrder
+    familiarity_ceiling?: SortOrder
+    summary_text?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type SelfEvolutionStateMinOrderByAggregateInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    scope_type?: SortOrder
+    version?: SortOrder
+    is_active?: SortOrder
+    social_presence_baseline?: SortOrder
+    entry_preference?: SortOrder
+    warmth_bias?: SortOrder
+    familiarity_ceiling?: SortOrder
+    summary_text?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type SelfEvolutionStateSumOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    target_user_id?: SortOrder
+    version?: SortOrder
   }
 
   export type ChatSpaceTopicCountOrderByAggregateInput = {

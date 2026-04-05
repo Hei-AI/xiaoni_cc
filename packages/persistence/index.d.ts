@@ -196,6 +196,37 @@ export type RelationshipMemoryOverrideInput = {
 export type RelationshipMemoryHitInput = {
   hitAt?: string | Date | null;
 };
+export type SelfEvolutionJobInput = {
+  groupId?: number | bigint | string | null;
+  targetUserId?: number | bigint | string | null;
+  sessionKey: string;
+  status?: string;
+  triggerReason?: string;
+  turnRangeStart?: number | bigint | string | null;
+  turnRangeEnd?: number | bigint | string | null;
+  sourceEventCount?: number;
+  inputMessageIds?: unknown[];
+  outputStateVersion?: number | null;
+  errorMessage?: string | null;
+  metadata?: Record<string, unknown>;
+  startedAt?: string | Date | null;
+  finishedAt?: string | Date | null;
+};
+export type SelfEvolutionStateInput = {
+  isActive?: boolean;
+  socialPresenceBaseline: string;
+  entryPreference: string;
+  warmthBias: string;
+  familiarityCeiling: string;
+  topicResonance?: unknown[];
+  boundaryTendencies?: Record<string, unknown>;
+  reinforcedModes?: unknown[];
+  suppressedModes?: unknown[];
+  summaryText: string;
+  sourceEventIds?: unknown[];
+  sourceMessageIds?: unknown[];
+  metadata?: Record<string, unknown>;
+};
 
 export type ChatSpaceTopicInput = {
   chatSpaceType: 'group' | 'direct' | string;
@@ -354,6 +385,7 @@ export function createTrafficReplayHistory(data: TrafficReplayHistoryInput): Pro
 export function listAiTrafficSamples(params?: { search?: string; limit?: number }): Promise<any[]>;
 export function createTrafficLogBatch(records: TrafficLogBatchInput[]): Promise<{ count: number }>;
 export function ensureRelationshipMemorySchema(config?: DatabaseUrlConfig): Promise<void>;
+export function ensureSelfEvolutionSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function ensureTopicLabSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function appendRelationshipLedgerEvent(input: RelationshipLedgerEventInput, config?: DatabaseUrlConfig): Promise<any>;
 export function reinforceRelationshipLedgerEvent(
@@ -422,6 +454,31 @@ export function markRelationshipMemoryCardsHit(
   params?: RelationshipMemoryHitInput,
   config?: DatabaseUrlConfig
 ): Promise<{ count: number; hit_at: Date | null }>;
+export function createSelfEvolutionJob(input: SelfEvolutionJobInput, config?: DatabaseUrlConfig): Promise<any>;
+export function updateSelfEvolutionJob(
+  id: number | bigint | string,
+  updates?: Partial<SelfEvolutionJobInput>,
+  config?: DatabaseUrlConfig
+): Promise<any>;
+export function listSelfEvolutionJobs(
+  filters?: { groupId?: number | bigint | string | null; targetUserId?: number | bigint | string | null; sessionKey?: string; status?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function replaceSelfEvolutionStates(
+  input: {
+    sessionKey: string;
+    groupId?: number | bigint | string | null;
+    targetUserId?: number | bigint | string | null;
+    scopeType: string;
+    version: number;
+    states: SelfEvolutionStateInput[];
+  },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function listSelfEvolutionStates(
+  filters?: { sessionKey?: string; groupId?: number | bigint | string | null; targetUserId?: number | bigint | string | null; scopeType?: string; isActive?: boolean; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
 export function createChatSpaceTopic(input: ChatSpaceTopicInput, config?: DatabaseUrlConfig): Promise<any>;
 export function updateChatSpaceTopic(
   id: number | bigint | string,

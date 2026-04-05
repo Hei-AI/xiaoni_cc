@@ -98,35 +98,47 @@ test('executePersistedJob materializes candidate topic versions from persisted b
   const topicUpdates: any[] = [];
   const jobUpdates: any[] = [];
   const provider = {
-    async generateContent() {
+    async generateContent(input: any) {
+      assert.equal(input.request.tool_choice, 'required');
+      assert.equal(input.request.parallel_tool_calls, false);
+      assert.equal(input.request.tools?.[0]?.function?.name, 'emit_topic_projection');
       return {
         modelName: 'gemini-test',
         provider: 'gemini',
-        text: JSON.stringify({
-          topics: [
+        text: '',
+        response: {
+          output: [
             {
-              title: '奶茶梗续上了',
-              summary_text: '群里继续复用奶茶梗，小腻和 20002 接话顺畅。',
-              lifecycle_state: 'active',
-              review_priority_score: 0.9,
-              heat_score: 0.7,
-              participant_ids: [20001, 20002],
-              topic_keywords: ['奶茶', '接话'],
-              evidence_message_ids: [1001, 1002],
-              source_event_ids: [501],
-              relationships: [
-                {
-                  target_user_id: 20002,
-                  relationship_kind: 'inside_joke',
-                  summary_text: '小腻和 20002 在奶茶梗上形成稳定接话。',
-                  actors: ['小腻', '20002'],
-                  source_event_ids: [501],
-                  source_message_ids: [1001, 1002]
-                }
-              ]
+              type: 'function_call',
+              name: 'emit_topic_projection',
+              arguments: JSON.stringify({
+                topics: [
+                  {
+                    title: '奶茶梗续上了',
+                    summary_text: '群里继续复用奶茶梗，小腻和 20002 接话顺畅。',
+                    lifecycle_state: 'active',
+                    review_priority_score: 0.9,
+                    heat_score: 0.7,
+                    participant_ids: [20001, 20002],
+                    topic_keywords: ['奶茶', '接话'],
+                    evidence_message_ids: [1001, 1002],
+                    source_event_ids: [501],
+                    relationships: [
+                      {
+                        target_user_id: 20002,
+                        relationship_kind: 'inside_joke',
+                        summary_text: '小腻和 20002 在奶茶梗上形成稳定接话。',
+                        actors: ['小腻', '20002'],
+                        source_event_ids: [501],
+                        source_message_ids: [1001, 1002]
+                      }
+                    ]
+                  }
+                ]
+              })
             }
           ]
-        })
+        }
       };
     }
   };

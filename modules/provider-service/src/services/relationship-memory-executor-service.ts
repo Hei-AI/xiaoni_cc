@@ -3,7 +3,8 @@ import type { StoredConversationTurn } from './conversation-store-service';
 import { aiConfig } from '../config';
 import { buildUnifiedConfig } from './provider-debug-service';
 import { createProviderClient, resolveProviderId } from './llm-provider';
-import type { LLMProvider, OpenResponseCreateRequest } from './llm-provider/types';
+import { extractNamedFunctionCallArgsFromOpenAIResponse } from './llm-provider/helpers';
+import type { LLMProvider, OpenResponseCreateRequest, OpenResponseToolDefinition } from './llm-provider/types';
 import { logger } from '../utils/logger';
 
 type LedgerEventRecord = {
@@ -25,6 +26,9 @@ export type RelationshipMemoryExecutionPayload = {
   group_id: number | null;
   version: number;
   trigger_reason: string;
+  summary_text?: string | null;
+  transcript_compact_offset?: number;
+  compact_role?: 'bridge_material' | string | null;
   turns: StoredConversationTurn[];
   ledger_events: LedgerEventRecord[];
 };
@@ -69,6 +73,54 @@ type RelationshipMemoryExecutorDeps = {
   llmProviderFactory?: (providerId: ReturnType<typeof resolveProviderId>) => LLMProvider;
   now?: () => number;
   modelName?: string;
+};
+
+const RELATIONSHIP_MEMORY_TOOL_NAME = 'emit_relationship_memory_cards';
+const RELATIONSHIP_MEMORY_TOOL: OpenResponseToolDefinition = {
+  type: 'function',
+  function: {
+    name: RELATIONSHIP_MEMORY_TOOL_NAME,
+    description: 'Return the structured relationship memory cards extracted from the provided group turns and ledger events.',
+    parameters: {
+      type: 'object',
+      properties: {
+        group_cards: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              actors: { type: 'array', items: { type: 'string' } },
+              context_before: { type: 'string' },
+              trigger: { type: 'string' },
+              interaction: { type: 'string' },
+              outcome: { type: 'string' },
+              evidence_message_ids: { type: 'array', items: { type: 'number' } },
+              summary_text: { type: 'string' }
+            },
+            required: ['summary_text', 'evidence_message_ids']
+          }
+        },
+        person_cards: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              target_user_id: { type: 'number' },
+              actors: { type: 'array', items: { type: 'string' } },
+              context_before: { type: 'string' },
+              trigger: { type: 'string' },
+              interaction: { type: 'string' },
+              outcome: { type: 'string' },
+              evidence_message_ids: { type: 'array', items: { type: 'number' } },
+              summary_text: { type: 'string' }
+            },
+            required: ['target_user_id', 'summary_text', 'evidence_message_ids']
+          }
+        }
+      },
+      required: ['group_cards', 'person_cards']
+    }
+  }
 };
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -250,6 +302,13 @@ function buildPromptPayload(payload: RelationshipMemoryExecutionPayload) {
     group_id: payload.group_id,
     version: payload.version,
     trigger_reason: payload.trigger_reason,
+    summary_text: typeof payload.summary_text === 'string' && payload.summary_text.trim()
+      ? truncateText(payload.summary_text, 320)
+      : null,
+    transcript_compact_offset: Number.isFinite(Number(payload.transcript_compact_offset))
+      ? Number(payload.transcript_compact_offset)
+      : null,
+    compact_role: payload.compact_role || 'bridge_material',
     turns: payload.turns.map((turn) => ({
       id: turn.id,
       source_message_ids: Array.isArray(turn.source_message_ids) && turn.source_message_ids.length > 0
@@ -317,17 +376,30 @@ export class RelationshipMemoryExecutorService {
     const config = buildRelationshipMemoryConfig(this.modelName, providerId);
     const requestPayload = buildPromptPayload(filteredPayload);
     const instructions = [
-      '你是群聊关系记忆整理器。你的任务是把最近群聊和结构化 ledger 事件整理成可追溯的关系卡片。',
+      '你是群聊关系记忆整理器。你的任务是把最近群聊和结构化 ledger 事件整理成可追溯、可在回复时直接使用的关系卡片。',
       '必须严格依据输入，不要编造不存在的关系、梗、情绪或结论。',
-      '只输出 JSON，不要输出解释、Markdown 或代码块外文字。',
+      '不要追加解释、Markdown 或工具外文本。',
       '如果证据不足，返回空数组，不要硬写。',
-      '优先抽取：共享梗、成功接话、旧话题再激活。',
+      '如果输入里提供了 summary_text / compact_role，它只是 compact 生成的桥接材料，不是主叙事，也不是比原始 turns 更高优先级的真相。',
+      '原始 turns 和 ledger_events 优先。只有当它们无法单独说明线程延续时，才把 compact bridge 当辅助背景。',
+      '优先抽取：共享梗、成功接话、旧话题再激活、明确的社交边界或说话风格。',
       '每张卡片都必须保留 evidence_message_ids，且这些 id 必须来自 turns[*].source_message_ids。',
-      'group_cards 表示群公共记忆，不带 target_user_id。',
-      'person_cards 表示和具体人的关系记忆，必须填写 target_user_id。',
+      '默认采用 reply-coach 风格：优先写“这时怎么自然接一句 / 什么时候别接”，不是“这个人平时是什么样”。',
+      '排序优先级是：reply-time utility > boundary clarity > anti-persona > thread awareness。',
+      'group_cards 更像群聊总结里的 thread digest: 总结最近哪条共同话题还活着、哪些人正在参与、什么 cue 说明这条线值得接。',
+      'person_cards 更像 reply-time person cue: 只保留对某个具体人最有用的接话提示和边界，必须填写 target_user_id。',
+      '把字段写成“回复时能直接消费的 cue”，不要写成长篇人物小传、人物简介或抽象总结。',
+      'person_cards 禁止写成“TA很会接梗/TA很爱这样说”的泛化人物判断，除非输入里有重复证据；优先改写成“当 TA 这样说时，最自然的回应动作是什么”。',
+      '如果证据只支持一次性参与，就把卡写窄：描述这一次该怎么接，不要上升成长期偏好。',
+      'summary_text: 一句短的核心提示，最好能直接指导回复。像“如果他又拿 X 开玩笑，可以轻轻接一下；第三人称提及时别主动插话”。',
+      'context_before: 适用场景。对 group_cards，写这条群线程/群话题的上下文窗口；对 person_cards，写和这个人的具体社交场景。',
+      'trigger: 当前什么 cue 才该触发这张卡。优先写可观察到的说话方式、称呼、旧梗、@、半句接梗、边界信号。',
+      'interaction: 如果要接，最自然的动作是什么。写“先简短接住 / 顺着问回去 / 轻轻接梗 / 不要抢答 / 继续围观”这种可执行动作。',
+      'outcome: 避免事项或使用边界。优先写“不必每次都提 / 不要硬装很熟 / 第三人称提及时先别插话 / 只在对方明确 cue 时再接”这种限制。',
+      '尽量复用外部通用设计里的思路：先像群聊总结一样抓住 thread、参与者、关键信号，再把它压缩成 reply-time cue。',
       '每个 card 只保留 7 个核心字段：actors, context_before, trigger, interaction, outcome, evidence_message_ids, summary_text。',
       '最多输出 2 张 group_cards，最多输出 3 张 person_cards。',
-      'JSON schema: {"group_cards":[{"actors":["string"],"context_before":"string","trigger":"string","interaction":"string","outcome":"string","evidence_message_ids":[1],"summary_text":"string"}],"person_cards":[{"target_user_id":123,"actors":["string"],"context_before":"string","trigger":"string","interaction":"string","outcome":"string","evidence_message_ids":[1],"summary_text":"string"}]}'
+      `必须通过 ${RELATIONSHIP_MEMORY_TOOL_NAME} 返回结构化结果，不要改用普通文本回复。`
     ].join('\n');
 
     const request: OpenResponseCreateRequest = {
@@ -340,6 +412,9 @@ export class RelationshipMemoryExecutorService {
           content: JSON.stringify(requestPayload, null, 2)
         }
       ],
+      tools: [RELATIONSHIP_MEMORY_TOOL],
+      tool_choice: 'required',
+      parallel_tool_calls: false,
       temperature: 0.1,
       top_p: 0.2,
       max_output_tokens: 1200
@@ -356,11 +431,15 @@ export class RelationshipMemoryExecutorService {
       }
     });
 
-    const cards = this.parseCards(result.text, filteredPayload);
+    const toolPayload = extractNamedFunctionCallArgsFromOpenAIResponse(result.response, RELATIONSHIP_MEMORY_TOOL_NAME);
+    const structuredCards = toolPayload ? this.parseCardsPayload(toolPayload, filteredPayload) : [];
+    const cards = structuredCards.length > 0
+      ? structuredCards
+      : this.parseCards(result.text, filteredPayload);
     return {
       modelName: result.modelName,
       cards,
-      rawText: result.text
+      rawText: toolPayload ? JSON.stringify(toolPayload) : result.text
     };
   }
 
@@ -369,9 +448,16 @@ export class RelationshipMemoryExecutorService {
     if (!parsed) {
       throw new Error('relationship_memory_executor_non_json');
     }
+    return this.parseCardsPayload(parsed, payload);
+  }
+
+  parseCardsPayload(structuredPayload: Record<string, unknown> | null | undefined, payload: RelationshipMemoryExecutionPayload): GeneratedRelationshipMemoryCard[] {
+    if (!structuredPayload) {
+      return [];
+    }
 
     const drafts: Array<{ cardType: string; draft: GeneratedCardDraft }> = [];
-    const rawGroupCards = Array.isArray(parsed.group_cards) ? parsed.group_cards : [];
+    const rawGroupCards = Array.isArray(structuredPayload.group_cards) ? structuredPayload.group_cards : [];
     for (const rawCard of rawGroupCards.slice(0, 2)) {
       const draft = normalizeCardDraft(rawCard, null);
       if (draft) {
@@ -379,7 +465,7 @@ export class RelationshipMemoryExecutorService {
       }
     }
 
-    const rawPersonCards = Array.isArray(parsed.person_cards) ? parsed.person_cards : [];
+    const rawPersonCards = Array.isArray(structuredPayload.person_cards) ? structuredPayload.person_cards : [];
     for (const rawCard of rawPersonCards.slice(0, 3)) {
       const targetUserId = Number((rawCard as Record<string, unknown>)?.target_user_id);
       const draft = normalizeCardDraft(rawCard, Number.isFinite(targetUserId) && targetUserId > 0 ? Math.trunc(targetUserId) : null);

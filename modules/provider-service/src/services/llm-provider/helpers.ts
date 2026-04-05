@@ -629,6 +629,17 @@ export function extractFunctionCallsFromOpenAIResponse(response: any): Array<{ n
   return calls;
 }
 
+export function extractNamedFunctionCallArgsFromOpenAIResponse(
+  response: any,
+  functionName: string
+): Record<string, any> | null {
+  const calls = extractFunctionCallsFromOpenAIResponse(response);
+  const match = calls.find((call) => call.name === functionName);
+  return match?.args && typeof match.args === 'object' && !Array.isArray(match.args)
+    ? match.args
+    : null;
+}
+
 export function extractTextFromOpenAIResponse(response: any): string {
   if (typeof response?.output_text === 'string' && response.output_text.length > 0) {
     return response.output_text;

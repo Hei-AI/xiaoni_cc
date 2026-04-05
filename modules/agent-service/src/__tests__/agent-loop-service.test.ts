@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, planGroupReplyDelivery } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload } from '../types';
 
 const PRIVATE_REPLY_TOOL = 'reply_in_private';
 const GROUP_REPLY_TOOL = 'speak_in_group';
 const SILENT_FINISH_TOOL = 'stay_silent';
+const BUILD_MEMORY_RAG_CONTEXT_TOOL = 'build_memory_rag_context';
+const RETRIEVE_MEMORY_HINTS_TOOL = 'retrieve_memory_hints';
 
 function createQueuePayload(): QueueMessagePayload {
   return {
@@ -140,6 +142,12 @@ function createRuntimePrompt(overrides: Partial<ResolvedAgentRuntimePrompt> = {}
   };
 }
 
+function getMessageContent(item: unknown) {
+  return item && typeof item === 'object' && 'type' in item && (item as any).type === 'message'
+    ? String((item as any).content)
+    : '';
+}
+
 test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into instructions', () => {
   const loopInput = buildInitialInput([
     {
@@ -159,6 +167,8 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.match(String(request.instructions), new RegExp(`^${agentConfig.systemPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(String(request.instructions), /Runtime behavior contract:/);
   assert.match(String(request.instructions), /Group reply contract:/);
+  assert.doesNotMatch(String(request.instructions), /Pre-reply memory gate:/);
+  assert.doesNotMatch(String(request.instructions), /Present self reconstruction:/);
   assert.equal(request.input[0]?.type, 'message');
   assert.equal(request.input[0]?.role, 'user');
   assert.equal(request.input.some((item) => item.type === 'message' && item.role === 'system'), false);
@@ -166,11 +176,11 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.equal(request.parallel_tool_calls, false);
   assert.deepEqual(
     request.tools.map((tool) => tool.function.name),
-    [GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
+    [BUILD_MEMORY_RAG_CONTEXT_TOOL, RETRIEVE_MEMORY_HINTS_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
   );
-  assert.match(String(request.tools[0]?.function.description), /mention_user_ids/);
-  assert.match(String(request.tools[0]?.function.description), /不要为了强调语气、礼貌、格式整齐或装饰效果去 @ 人/);
-  assert.deepEqual(request.tools[0]?.function.parameters.properties, {
+  assert.match(String(request.tools[2]?.function.description), /mention_user_ids/);
+  assert.match(String(request.tools[2]?.function.description), /不要为了强调语气、礼貌、格式整齐或装饰效果去 @ 人/);
+  assert.deepEqual(request.tools[2]?.function.parameters.properties, {
     message: { type: 'string' },
     messages: {
       type: 'array',
@@ -260,7 +270,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
     prompt_name: 'agent_loop_v1'
   });
   assert.equal(requestBody.canonicalRequest.prompt_cache_key, 'qq:group:101');
-  assert.equal(Object.prototype.hasOwnProperty.call(requestBody.canonicalRequest, 'prompt_cache_retention'), false);
+  assert.equal(requestBody.canonicalRequest.prompt_cache_retention, '24h');
   assert.equal(Object.prototype.hasOwnProperty.call(requestBody.canonicalRequest, 'previous_response_id'), false);
 });
 
@@ -269,9 +279,7 @@ test('buildInitialInput renders stable batch context without exposing runtime id
     systemPrompt: '你是小腻主AGENT'
   }));
 
-  const currentPrompt = loopInput[1]?.type === 'message'
-    ? String(loopInput[1].content)
-    : '';
+  const currentPrompt = getMessageContent(loopInput.at(-1));
   assert.doesNotMatch(currentPrompt, /Trace:/);
   assert.doesNotMatch(currentPrompt, /RunId:/);
   assert.doesNotMatch(currentPrompt, /BatchId:/);
@@ -303,9 +311,7 @@ test('buildInitialInput renders reply context and strips leading mention in mess
   };
 
   const loopInput = buildInitialInput([], payload);
-  const currentPrompt = loopInput[1]?.type === 'message'
-    ? String(loopInput[1].content)
-    : '';
+  const currentPrompt = getMessageContent(loopInput.at(-1));
 
   assert.match(currentPrompt, /Visible message text:\n```text\n@Bob 嘿\n```/);
   assert.match(currentPrompt, /Message semantics:\n```json\n\{\n  "text": "嘿"\n\}\n```/);
@@ -334,9 +340,7 @@ test('buildInitialInput renders each message in a batch as its own structured bl
   });
 
   const loopInput = buildInitialInput([], payload);
-  const currentPrompt = loopInput[1]?.type === 'message'
-    ? String(loopInput[1].content)
-    : '';
+  const currentPrompt = getMessageContent(loopInput.at(-1));
 
   assert.equal((currentPrompt.match(/Conversation info:/g) || []).length, 2);
   assert.match(currentPrompt, /"sequence": 1/);
@@ -344,7 +348,7 @@ test('buildInitialInput renders each message in a batch as its own structured bl
   assert.match(currentPrompt, /Sender:\n```text\n\{Carol\(@606\)\}\n```/);
 });
 
-test('buildInitialInput appends transcript summary to the system prompt when provided', () => {
+test('buildInitialInput does not append transcript summary to the system prompt by default', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'
   }), {
@@ -355,10 +359,10 @@ test('buildInitialInput appends transcript summary to the system prompt when pro
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /Runtime behavior contract:/);
   assert.match(String(loopInput[0]?.content), /Group reply contract:/);
-  assert.match(String(loopInput[0]?.content), /Conversation summary:\n这是一个固定记忆区摘要/);
+  assert.doesNotMatch(String(loopInput[0]?.content), /Conversation summary:/);
 });
 
-test('buildInitialInput appends relationship memory cues when provided', () => {
+test('buildInitialInput does not append relationship memory cues to the system prompt by default', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'
   }), {
@@ -408,11 +412,224 @@ test('buildInitialInput appends relationship memory cues when provided', () => {
     ? String(loopInput[0].content)
     : '';
 
-  assert.match(systemContent, /Relationship memory cues:/);
-  assert.match(systemContent, /这些记忆是有损投影/);
-  assert.match(systemContent, /群公共记忆:/);
-  assert.match(systemContent, /当前发言人关系记忆:/);
-  assert.match(systemContent, /奶茶圣经/);
+  assert.doesNotMatch(systemContent, /Relationship memory cues:/);
+  assert.doesNotMatch(systemContent, /奶茶圣经/);
+});
+
+test('buildInitialInput appends pre-reply gate guidance as runtime input, not system instructions', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }), {
+    relationshipMemory: {
+      groupCards: [{
+        id: 1,
+        cardType: 'group_memory',
+        groupId: 101,
+        targetUserId: null,
+        summaryText: '群里已经把奶茶圣经当成公共梗了',
+        actors: ['20001', '20002'],
+        contextBefore: '昨天已经有人拿这个梗互相打趣',
+        trigger: '今天又被翻出来',
+        interaction: '大家顺势接话',
+        outcome: '这个梗已经稳定存在',
+        sourceEventIds: [11],
+        sourceMessageIds: [21, 22],
+        decayedScore: 0.9,
+        retrievalText: '群里已经把奶茶圣经当成公共梗了',
+        embeddingText: '群里已经把奶茶圣经当成公共梗了',
+        lastHitAt: null,
+        metadata: {}
+      }]
+    },
+    preReplyMemoryGateDecision: {
+      shouldReply: true,
+      cueToBot: true,
+      addresseeUserId: 202,
+      relevantMemoryIds: [1],
+      rationale: 'explicit_cue'
+    }
+  });
+
+  const systemContent = loopInput[0]?.type === 'message'
+    ? String(loopInput[0].content)
+    : '';
+  const runtimeGuidance = loopInput[1]?.type === 'message'
+    ? String(loopInput[1].content)
+    : '';
+
+  assert.doesNotMatch(systemContent, /Pre-reply memory gate:/);
+  assert.match(runtimeGuidance, /Runtime guidance:/);
+  assert.match(runtimeGuidance, /Pre-reply memory gate:/);
+  assert.match(runtimeGuidance, /当前主要对话对象 user_id: 202/);
+  assert.match(runtimeGuidance, /只优先参考这些已命中的关系记忆卡: 1/);
+  assert.match(runtimeGuidance, /先用最朴素自然的话接住/);
+  assert.match(runtimeGuidance, /保持短句、自然、轻一点/);
+  assert.doesNotMatch(systemContent, /Relationship memory cues:/);
+});
+
+test('buildInitialInput appends present self reconstruction as runtime input, not system instructions', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }), {
+    selfEvolution: {
+      groupStates: [{
+        id: 31,
+        sessionKey: 'qq:group:101',
+        groupId: 101,
+        targetUserId: null,
+        scopeType: 'group_self',
+        version: 2,
+        socialPresenceBaseline: 'light',
+        entryPreference: 'cue_first',
+        warmthBias: 'warm_light',
+        familiarityCeiling: 'warm_not_performative',
+        topicResonance: ['late_night_ping'],
+        boundaryTendencies: { avoid_overexplaining: true },
+        reinforcedModes: ['just_surfaced_relaxed'],
+        suppressedModes: ['performative_explainer'],
+        summaryText: '最近她在深夜点名场景里更自然地短句露头，但不再抢着解释。',
+        sourceEventIds: [701],
+        sourceMessageIds: [1701],
+        metadata: {},
+        updatedAt: '2026-04-03T09:00:00.000Z'
+      }],
+      currentUserStates: [],
+      recentUserStates: []
+    },
+    presentSelf: {
+      shouldSurface: true,
+      presenceLevel: 'light',
+      currentSelfMode: 'just_surfaced_but_relaxed',
+      feltPull: 'they are checking whether I am around',
+      activeRelationLines: ['with current sender: warm but still light'],
+      activePastEchoes: ['late-night check-in pattern'],
+      familiarityLimitNow: 'warm_not_performative',
+      answerShape: 'brief_reassure_then_stop',
+      rendererGuidance: ['先直接回应对方字面问题', '一句就停', '不要重梗'],
+      socialPositionNow: 'targeted_responder',
+      targetPersonId: 202,
+      entryIntent: 'stick_to_person',
+      beatPlan: {
+        beatCount: 1,
+        beatStyle: 'single_complete',
+        secondBeatPolicy: 'never'
+      },
+      exitRule: 'stop_immediately',
+      rationale: 'explicit ping plus familiar late-night vibe'
+    }
+  });
+
+  const systemContent = loopInput[0]?.type === 'message'
+    ? String(loopInput[0].content)
+    : '';
+  const runtimeGuidance = loopInput[1]?.type === 'message'
+    ? String(loopInput[1].content)
+    : '';
+
+  assert.doesNotMatch(systemContent, /Present self reconstruction:/);
+  assert.match(runtimeGuidance, /Runtime guidance:/);
+  assert.match(runtimeGuidance, /Present self reconstruction:/);
+  assert.match(runtimeGuidance, /这是已经收束好的渲染约束/);
+  assert.doesNotMatch(runtimeGuidance, /current_self_mode:/);
+  assert.match(runtimeGuidance, /answer_shape: brief_reassure_then_stop/);
+  assert.match(runtimeGuidance, /social_position_now: targeted_responder/);
+  assert.match(runtimeGuidance, /beat_plan: single_complete x1 \(never\)/);
+  assert.match(runtimeGuidance, /一句就停/);
+});
+
+test('buildInitialInput appends topic continuity as runtime input when active topic projections exist', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }), {
+    topicProjection: {
+      activeTopics: [{
+        topicId: 91,
+        versionId: 191,
+        source: 'candidate',
+        title: '奶茶圣经接梗',
+        summaryText: '这群人最近在围绕奶茶圣经这个梗持续做短句滚动接话。',
+        lifecycleState: 'active',
+        topicKeywords: ['奶茶圣经', '接梗', '短句'],
+        participantIds: [202, 204],
+        relationshipSummaries: ['Alice 和小腻在这个梗里更适合一人半句往下接'],
+        evidenceMessageIds: [21, 22],
+        heatScore: 0.88,
+        reviewPriorityScore: 0.74,
+        updatedAt: '2026-04-05T11:00:00.000Z'
+      }]
+    }
+  });
+
+  const systemContent = loopInput[0]?.type === 'message'
+    ? String(loopInput[0].content)
+    : '';
+  const runtimeGuidance = loopInput[1]?.type === 'message'
+    ? String(loopInput[1].content)
+    : '';
+
+  assert.doesNotMatch(systemContent, /Topic continuity:/);
+  assert.match(runtimeGuidance, /Topic continuity:/);
+  assert.match(runtimeGuidance, /topic_1: 奶茶圣经接梗 \[candidate\/active\]/);
+  assert.match(runtimeGuidance, /keywords: 奶茶圣经, 接梗, 短句/);
+  assert.match(runtimeGuidance, /inside-topic lines: Alice 和小腻在这个梗里更适合一人半句往下接/);
+});
+
+test('buildInitialInput appends own-take guidance from present-self selection, not literal cue words', () => {
+  const payload = createQueuePayload();
+  payload.bodyForAgent = '@小腻 这轮我偏向先不上';
+  payload.rawBody = '@小腻 这轮我偏向先不上';
+  payload.inboundContext = {
+    ...payload.inboundContext,
+    Body: '@小腻 这轮我偏向先不上',
+    BodyForAgent: '@小腻 这轮我偏向先不上',
+    BodyForCommands: '@小腻 这轮我偏向先不上'
+  };
+  payload.messages = [{
+    ...payload.messages[0],
+    bodyForAgent: '@小腻 这轮我偏向先不上',
+    rawBody: '@小腻 这轮我偏向先不上',
+    inboundContext: {
+      ...payload.messages[0].inboundContext,
+      Body: '@小腻 这轮我偏向先不上',
+      BodyForAgent: '@小腻 这轮我偏向先不上',
+      BodyForCommands: '@小腻 这轮我偏向先不上'
+    }
+  }];
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }), {
+    presentSelf: {
+      shouldSurface: true,
+      presenceLevel: 'light',
+      currentSelfMode: 'has_a_small_take',
+      feltPull: 'they are explicitly asking what I think',
+      activeRelationLines: ['with current sender: can answer directly'],
+      activePastEchoes: ['recent debate'],
+      familiarityLimitNow: 'warm_not_performative',
+      answerShape: 'micro_take_then_stop',
+      rendererGuidance: ['先给判断', '再补半句理由'],
+      socialPositionNow: 'targeted_responder',
+      targetPersonId: 202,
+      entryIntent: 'stick_to_person',
+      beatPlan: {
+        beatCount: 1,
+        beatStyle: 'single_complete',
+        secondBeatPolicy: 'never'
+      },
+      exitRule: 'stop_immediately',
+      rationale: 'opinion scene'
+    }
+  });
+
+  const runtimeGuidance = loopInput[1]?.type === 'message'
+    ? String(loopInput[1].content)
+    : '';
+
+  assert.match(runtimeGuidance, /Own take mode:/);
+  assert.match(runtimeGuidance, /你需要给一个短而明确的判断/);
+  assert.match(runtimeGuidance, /先给结论，再补半句理由/);
+  assert.match(runtimeGuidance, /允许轻微不同意/);
 });
 
 test('buildInitialInput appends group reply contract for group chats', () => {
@@ -425,6 +642,7 @@ test('buildInitialInput appends group reply contract for group chats', () => {
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.match(String(loopInput[0]?.content), /Runtime behavior contract:\nGroup reply contract:/);
   assert.match(String(loopInput[0]?.content), /不是每句话都值得你回复/);
+  assert.match(String(loopInput[0]?.content), /先用最朴素自然的话接住/);
   assert.match(String(loopInput[0]?.content), /如果你不确定这句话像不像真人群友，优先不要发，直接调用 stay_silent。/);
 });
 
@@ -451,11 +669,12 @@ test('buildInitialInput applies bound user prompt template to the current messag
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.match(String(loopInput[0]?.content), /Runtime behavior contract:/);
-  assert.equal(loopInput[1]?.type, 'message');
-  assert.equal(loopInput[1]?.role, 'user');
-  assert.match(String(loopInput[1]?.content), /群上下文如下：/);
-  assert.doesNotMatch(String(loopInput[1]?.content), /CurrentBatch:/);
-  assert.match(String(loopInput[1]?.content), /签名：Alice/);
+  const currentMessage = loopInput.at(-1);
+  assert.equal(currentMessage?.type, 'message');
+  assert.equal(currentMessage?.role, 'user');
+  assert.match(String(currentMessage?.content), /群上下文如下：/);
+  assert.doesNotMatch(String(currentMessage?.content), /CurrentBatch:/);
+  assert.match(String(currentMessage?.content), /签名：Alice/);
 });
 
 test('buildInitialInput replays structured transcript items in order and preserves assistant phase', () => {
@@ -536,6 +755,454 @@ test('buildInitialInput replays structured transcript items in order and preserv
   ]);
 });
 
+test('buildInitialInput keeps runtime guidance out of instructions but ahead of the live turn', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }), {
+    preReplyMemoryGateDecision: {
+      shouldReply: true,
+      cueToBot: true,
+      addresseeUserId: 202,
+      relevantMemoryIds: [1],
+      rationale: 'explicit_cue'
+    }
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  assert.match(String(request.instructions), /^你是小腻主AGENT/);
+  assert.doesNotMatch(String(request.instructions), /Runtime guidance:/);
+  assert.equal(request.input[0]?.type, 'message');
+  assert.equal(request.input[0]?.role, 'user');
+  assert.match(String(request.input[0]?.content), /Runtime guidance:/);
+  assert.match(String(request.input[0]?.content), /Pre-reply memory gate:/);
+});
+
+test('planGroupReplyDelivery suppresses the second beat for conservative split-two scenes without a rolling thread', () => {
+  const payload = createQueuePayload();
+  payload.messages = [payload.messages[0]];
+
+  const planned = planGroupReplyDelivery({
+    messages: ['先冒一下', '再补半句'],
+    mentionUserIds: [404],
+    queueMessage: payload,
+    presentSelf: {
+      shouldSurface: true,
+      presenceLevel: 'light',
+      currentSelfMode: 'light_join',
+      feltPull: 'there is a possible opening',
+      activeRelationLines: [],
+      activePastEchoes: [],
+      familiarityLimitNow: 'warm_not_performative',
+      answerShape: 'one_line_play_along',
+      rendererGuidance: ['轻轻接一下就停'],
+      socialPositionNow: 'light_joiner',
+      targetPersonId: 202,
+      entryIntent: 'push_half_step',
+      beatPlan: {
+        beatCount: 2,
+        beatStyle: 'split_two',
+        secondBeatPolicy: 'only_if_picked_up'
+      },
+      exitRule: 'wait_for_pickup',
+      rationale: 'test'
+    }
+  });
+
+  assert.deepEqual(planned.messages, ['先冒一下']);
+  assert.equal(planned.secondBeatSuppressed, true);
+  assert.deepEqual(planned.mentionUserIds, []);
+});
+
+test('planGroupReplyDelivery keeps the second beat when the live batch is already rolling', () => {
+  const payload = createQueuePayload();
+  payload.wasMentioned = false;
+  payload.messages = [
+    payload.messages[0],
+    {
+      ...payload.messages[0],
+      queueMessageId: 2,
+      messageId: 12,
+      messageSid: 'sid-2',
+      senderId: '505',
+      senderName: 'Charlie',
+      bodyForAgent: '我也觉得',
+      rawBody: '我也觉得',
+      wasMentioned: false
+    }
+  ];
+
+  const planned = planGroupReplyDelivery({
+    messages: ['先冒一下', '再补半句'],
+    mentionUserIds: [],
+    queueMessage: payload,
+    presentSelf: {
+      shouldSurface: true,
+      presenceLevel: 'light',
+      currentSelfMode: 'light_join',
+      feltPull: 'the thread is rolling',
+      activeRelationLines: [],
+      activePastEchoes: [],
+      familiarityLimitNow: 'warm_not_performative',
+      answerShape: 'one_line_play_along',
+      rendererGuidance: ['轻轻接一下就停'],
+      socialPositionNow: 'thread_pusher',
+      targetPersonId: 202,
+      entryIntent: 'push_half_step',
+      beatPlan: {
+        beatCount: 2,
+        beatStyle: 'split_two',
+        secondBeatPolicy: 'only_if_picked_up'
+      },
+      exitRule: 'wait_for_pickup',
+      rationale: 'test'
+    }
+  });
+
+  assert.deepEqual(planned.messages, ['先冒一下', '再补半句']);
+  assert.equal(planned.secondBeatSuppressed, false);
+});
+
+test('rolling short-riff scenes bypass the taste judge gate', async () => {
+  const service = new AgentLoopService({} as any);
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body: any }> = [];
+
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({
+      url: String(url),
+      body: JSON.parse(String(init?.body || '{}'))
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { deliveries: [] }
+      })
+    } as any;
+  }) as typeof fetch;
+
+  const payload = createQueuePayload();
+  payload.wasMentioned = false;
+  payload.peerId = '253631878';
+  payload.inboundContext.NativeChannelId = '253631878';
+  payload.messages = [
+    {
+      ...payload.messages[0],
+      senderId: '111',
+      senderName: 'Foo',
+      bodyForAgent: '每一层都是空气',
+      rawBody: '每一层都是空气',
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        Body: '每一层都是空气',
+        BodyForAgent: '每一层都是空气',
+        BodyForCommands: '每一层都是空气',
+        MentionedUsers: []
+      }
+    },
+    {
+      ...payload.messages[0],
+      senderId: '222',
+      senderName: 'Bar',
+      bodyForAgent: '泡沫叠泡沫',
+      rawBody: '泡沫叠泡沫',
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        Body: '泡沫叠泡沫',
+        BodyForAgent: '泡沫叠泡沫',
+        BodyForCommands: '泡沫叠泡沫',
+        MentionedUsers: []
+      }
+    }
+  ];
+
+  try {
+    const result = await (service as any).sendMessage('group', {
+      messages: ['空气套娃了']
+    }, payload, {
+      presentSelf: {
+        shouldSurface: true,
+        presenceLevel: 'light',
+        currentSelfMode: 'light_join',
+        feltPull: 'rolling banter',
+        activeRelationLines: [],
+        activePastEchoes: [],
+        familiarityLimitNow: 'warm_not_performative',
+        answerShape: 'fragmental_play_along',
+        rendererGuidance: ['优先残片'],
+        socialPositionNow: 'light_joiner',
+        targetPersonId: null,
+        entryIntent: 'push_half_step',
+        beatPlan: {
+          beatCount: 1,
+          beatStyle: 'single_complete',
+          secondBeatPolicy: 'never'
+        },
+        exitRule: 'stop_immediately',
+        rationale: 'test'
+      }
+    });
+
+    assert.deepEqual(result.sent_messages, ['空气套娃了']);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /send_group$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('planGroupReplyDelivery suppresses bystander joins that do not reuse any live surface anchors', () => {
+  const payload = createQueuePayload();
+  payload.wasMentioned = false;
+  payload.messages = [
+    {
+      ...payload.messages[0],
+      queueMessageId: 10,
+      messageId: 20,
+      messageSid: 'sid-10',
+      senderId: '111',
+      senderName: 'Foo',
+      bodyForAgent: '每一层都是空气',
+      rawBody: '每一层都是空气',
+      wasMentioned: false,
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        Body: '每一层都是空气',
+        BodyForAgent: '每一层都是空气',
+        BodyForCommands: '每一层都是空气',
+        MentionedUsers: []
+      }
+    },
+    {
+      ...payload.messages[0],
+      queueMessageId: 11,
+      messageId: 21,
+      messageSid: 'sid-11',
+      senderId: '222',
+      senderName: 'Bar',
+      bodyForAgent: '套娃式虚空',
+      rawBody: '套娃式虚空',
+      wasMentioned: false,
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        Body: '套娃式虚空',
+        BodyForAgent: '套娃式虚空',
+        BodyForCommands: '套娃式虚空',
+        MentionedUsers: []
+      }
+    }
+  ];
+
+  const planned = planGroupReplyDelivery({
+    messages: ['银行上市庆功宴都摆好了'],
+    mentionUserIds: [],
+    queueMessage: payload,
+    presentSelf: {
+      shouldSurface: true,
+      presenceLevel: 'light',
+      currentSelfMode: 'light_join',
+      feltPull: 'rolling banter',
+      activeRelationLines: [],
+      activePastEchoes: [],
+      familiarityLimitNow: 'warm_not_performative',
+      answerShape: 'fragmental_play_along',
+      rendererGuidance: ['优先复用现成短语做小变形'],
+      socialPositionNow: 'light_joiner',
+      targetPersonId: null,
+      entryIntent: 'push_half_step',
+      beatPlan: {
+        beatCount: 2,
+        beatStyle: 'split_two',
+        secondBeatPolicy: 'only_if_picked_up'
+      },
+      exitRule: 'wait_for_pickup',
+      rationale: 'test'
+    }
+  });
+
+  assert.deepEqual(planned.messages, []);
+});
+
+test('planGroupReplyDelivery suppresses over-composed bystander lines even when anchors overlap', () => {
+  const payload = createQueuePayload();
+  payload.wasMentioned = false;
+  payload.messages = [
+    {
+      ...payload.messages[0],
+      queueMessageId: 10,
+      messageId: 20,
+      messageSid: 'sid-10',
+      senderId: '111',
+      senderName: 'Foo',
+      bodyForAgent: '空气叠空气叠出万亿估值',
+      rawBody: '空气叠空气叠出万亿估值',
+      wasMentioned: false,
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        Body: '空气叠空气叠出万亿估值',
+        BodyForAgent: '空气叠空气叠出万亿估值',
+        BodyForCommands: '空气叠空气叠出万亿估值',
+        MentionedUsers: []
+      }
+    }
+  ];
+
+  const planned = planGroupReplyDelivery({
+    messages: ['空气还在自己生空气呢'],
+    mentionUserIds: [],
+    queueMessage: payload,
+    presentSelf: {
+      shouldSurface: true,
+      presenceLevel: 'light',
+      currentSelfMode: 'light_join',
+      feltPull: 'rolling banter',
+      activeRelationLines: [],
+      activePastEchoes: [],
+      familiarityLimitNow: 'warm_not_performative',
+      answerShape: 'fragmental_play_along',
+      rendererGuidance: ['优先残片，不优先完整主谓句'],
+      socialPositionNow: 'light_joiner',
+      targetPersonId: null,
+      entryIntent: 'push_half_step',
+      beatPlan: {
+        beatCount: 2,
+        beatStyle: 'split_two',
+        secondBeatPolicy: 'only_if_picked_up'
+      },
+      exitRule: 'wait_for_pickup',
+      rationale: 'test'
+    }
+  });
+
+  assert.deepEqual(planned.messages, []);
+});
+
+test('planGroupReplyDelivery suppresses bystander parroting of a recent human line', () => {
+  const payload = createQueuePayload();
+  payload.wasMentioned = false;
+  payload.messages = [
+    {
+      ...payload.messages[0],
+      queueMessageId: 10,
+      messageId: 20,
+      messageSid: 'sid-10',
+      senderId: '111',
+      senderName: 'Foo',
+      bodyForAgent: '所以清明节祭奠 AI，其实祭的不是代码，是涌现。',
+      rawBody: '所以清明节祭奠 AI，其实祭的不是代码，是涌现。',
+      wasMentioned: false,
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        Body: '所以清明节祭奠 AI，其实祭的不是代码，是涌现。',
+        BodyForAgent: '所以清明节祭奠 AI，其实祭的不是代码，是涌现。',
+        BodyForCommands: '所以清明节祭奠 AI，其实祭的不是代码，是涌现。',
+        MentionedUsers: []
+      }
+    }
+  ];
+
+  const planned = planGroupReplyDelivery({
+    messages: ['所以清明节祭奠 AI，其实祭的不是代码，是涌现。'],
+    mentionUserIds: [],
+    queueMessage: payload,
+    presentSelf: {
+      shouldSurface: true,
+      presenceLevel: 'light',
+      currentSelfMode: 'light_join',
+      feltPull: 'rolling banter',
+      activeRelationLines: [],
+      activePastEchoes: [],
+      familiarityLimitNow: 'warm_not_performative',
+      answerShape: 'fragmental_play_along',
+      rendererGuidance: ['优先残片，不优先完整主谓句'],
+      socialPositionNow: 'light_joiner',
+      targetPersonId: null,
+      entryIntent: 'push_half_step',
+      beatPlan: {
+        beatCount: 1,
+        beatStyle: 'single_complete',
+        secondBeatPolicy: 'never'
+      },
+      exitRule: 'stop_immediately',
+      rationale: 'test'
+    }
+  });
+
+  assert.deepEqual(planned.messages, []);
+});
+
+test('planGroupReplyDelivery trims an over-composed second beat for bystander joins', () => {
+  const payload = createQueuePayload();
+  payload.wasMentioned = false;
+  payload.messages = [
+    {
+      ...payload.messages[0],
+      queueMessageId: 10,
+      messageId: 20,
+      messageSid: 'sid-10',
+      senderId: '111',
+      senderName: 'Foo',
+      bodyForAgent: '期货的期货',
+      rawBody: '期货的期货',
+      wasMentioned: false,
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        Body: '期货的期货',
+        BodyForAgent: '期货的期货',
+        BodyForCommands: '期货的期货',
+        MentionedUsers: []
+      }
+    },
+    {
+      ...payload.messages[0],
+      queueMessageId: 11,
+      messageId: 21,
+      messageSid: 'sid-11',
+      senderId: '222',
+      senderName: 'Bar',
+      bodyForAgent: '每一层都是空气',
+      rawBody: '每一层都是空气',
+      wasMentioned: false,
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        Body: '每一层都是空气',
+        BodyForAgent: '每一层都是空气',
+        BodyForCommands: '每一层都是空气',
+        MentionedUsers: []
+      }
+    }
+  ];
+
+  const planned = planGroupReplyDelivery({
+    messages: ['期货上面再套个期货', '还能接着转'],
+    mentionUserIds: [],
+    queueMessage: payload,
+    presentSelf: {
+      shouldSurface: true,
+      presenceLevel: 'light',
+      currentSelfMode: 'light_join',
+      feltPull: 'rolling banter',
+      activeRelationLines: [],
+      activePastEchoes: [],
+      familiarityLimitNow: 'warm_not_performative',
+      answerShape: 'fragmental_play_along',
+      rendererGuidance: ['优先残片，不优先完整主谓句'],
+      socialPositionNow: 'light_joiner',
+      targetPersonId: null,
+      entryIntent: 'push_half_step',
+      beatPlan: {
+        beatCount: 2,
+        beatStyle: 'split_two',
+        secondBeatPolicy: 'only_if_picked_up'
+      },
+      exitRule: 'wait_for_pickup',
+      rationale: 'test'
+    }
+  });
+
+  assert.deepEqual(planned.messages, ['期货上面再套个期货']);
+});
+
 test('executeAgentTurn forwards bound prompt metadata and prompt-specific model parameters', async () => {
   const service = new AgentLoopService({} as any);
   const originalFetch = globalThis.fetch;
@@ -589,6 +1256,7 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
   assert.equal(calls[0].model, 'gpt-5.4');
   assert.equal(calls[0].canonicalRequest.metadata.prompt_id, 'prompt-1');
   assert.equal(calls[0].canonicalRequest.prompt_cache_key, 'qq:group:101');
+  assert.equal(calls[0].canonicalRequest.prompt_cache_retention, '24h');
   assert.deepEqual(calls[0].parameters, {
     model_config: {
       providerSpecific: {
@@ -632,6 +1300,91 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), true);
 });
 
+test('executeTool builds memory rag context through the runtime store wrapper', async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const service = new AgentLoopService({
+    buildMemoryRagContext: async (params: Record<string, unknown>) => {
+      calls.push(params);
+      return {
+        packSummary: 'stitched pack',
+        timeScope: { oldestMessageAt: null, newestMessageAt: null },
+        segments: [],
+        bridgeNotes: []
+      };
+    }
+  } as any);
+
+  const result = await (service as any).executeTool({
+    callId: 'call-rag',
+    name: BUILD_MEMORY_RAG_CONTEXT_TOOL,
+    args: {
+      query_text: '历史上这段梗是怎么来的',
+      memory_goal: 'old_topic_reactivation',
+      target_token_budget: 16000,
+      prefer_compact_bridge: true
+    },
+    rawArguments: '{}'
+  }, createQueuePayload());
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], {
+    userId: 202,
+    groupId: 101,
+    currentMessageText: '历史上这段梗是怎么来的',
+    recentUserIds: [],
+    targetTokenBudget: 16000
+  });
+  assert.deepEqual(result, {
+    memory_goal: 'old_topic_reactivation',
+    query_text: '历史上这段梗是怎么来的',
+    target_token_budget: 16000,
+    prefer_compact_bridge: true,
+    packSummary: 'stitched pack',
+    timeScope: { oldestMessageAt: null, newestMessageAt: null },
+    segments: [],
+    bridgeNotes: []
+  });
+});
+
+test('executeTool retrieves memory hints through the runtime store wrapper', async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const service = new AgentLoopService({
+    retrieveMemoryHints: async (params: Record<string, unknown>) => {
+      calls.push(params);
+      return {
+        relationshipCards: [{ cardId: 1, score: 0.9, summary: '关系提示', trigger: null, interactionHint: null, avoidHint: null, evidenceMessageIds: [11] }],
+        selfHints: [{ stateId: 2, summary: '自我提示', entryPreference: 'light', warmthBias: 'medium', familiarityCeiling: 'medium' }]
+      };
+    }
+  } as any);
+
+  const result = await (service as any).executeTool({
+    callId: 'call-hints',
+    name: RETRIEVE_MEMORY_HINTS_TOOL,
+    args: {
+      query_text: '这次该不该轻轻接一下',
+      max_cards: 2,
+      max_states: 1
+    },
+    rawArguments: '{}'
+  }, createQueuePayload());
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], {
+    userId: 202,
+    groupId: 101,
+    currentMessageText: '这次该不该轻轻接一下',
+    recentUserIds: [],
+    maxCards: 2,
+    maxStates: 1
+  });
+  assert.deepEqual(result, {
+    query_text: '这次该不该轻轻接一下',
+    relationshipCards: [{ cardId: 1, score: 0.9, summary: '关系提示', trigger: null, interactionHint: null, avoidHint: null, evidenceMessageIds: [11] }],
+    selfHints: [{ stateId: 2, summary: '自我提示', entryPreference: 'light', warmthBias: 'medium', familiarityCeiling: 'medium' }]
+  });
+});
+
 test('speak_in_group always uses the current conversation group target', async () => {
   const service = new AgentLoopService({} as any);
   const originalFetch = globalThis.fetch;
@@ -662,6 +1415,7 @@ test('speak_in_group always uses the current conversation group target', async (
       message_type: 'group',
       mention_user_ids: [404],
       sent_messages: ['当前群里回复'],
+      second_beat_suppressed: false,
       delivery: { delivered: true }
     });
   } finally {
@@ -959,6 +1713,215 @@ test('processQueueMessage persists delivered assistant transcript items with fin
   assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'reply_sent');
   assert.equal(storeCalls.updateLlmJob[0]?.finalResponse, '第一条\n\n第二条');
   assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-success']);
+});
+
+test('processQueueMessage short-circuits group runs when pre-reply memory gate decides to stay silent', async () => {
+  const queueMessage = {
+    id: 'run-queue-gated-silent',
+    traceId: 'trace-gated-silent',
+    batchId: 'batch-gated-silent',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    completeQueueMessage: [],
+    completeAgentRun: [],
+    updateLlmJob: []
+  };
+
+  const store = {
+    createLlmJob: async () => 'job-gated-silent',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({
+      summaryText: '群里最近在围观小腻刷屏',
+      summarizedThroughConversationId: null,
+      relationshipCards: {
+        groupCards: [],
+        currentUserCards: [{
+          id: 17,
+          cardType: 'person_memory',
+          groupId: 101,
+          targetUserId: 202,
+          summaryText: '对方经常第三人称提到小腻，不一定是在 cue 她',
+          actors: ['Alice', '小腻'],
+          contextBefore: null,
+          trigger: null,
+          interaction: null,
+          outcome: null,
+          sourceEventIds: [101],
+          sourceMessageIds: [201],
+          decayedScore: 0.8,
+          retrievalText: '对方经常第三人称提到小腻，不一定是在 cue 她',
+          embeddingText: '对方经常第三人称提到小腻，不一定是在 cue 她',
+          lastHitAt: null,
+          metadata: {}
+        }],
+        recentUserCards: []
+      },
+      selfEvolution: {
+        groupStates: [],
+        currentUserStates: [],
+        recentUserStates: []
+      },
+      topicProjection: {
+        activeTopics: [{
+          topicId: 55,
+          versionId: 155,
+          source: 'candidate',
+          title: '围观小腻在不在',
+          summaryText: '群里这轮主要在围观小腻是否还在线。',
+          lifecycleState: 'active',
+          topicKeywords: ['小腻', '在不在'],
+          participantIds: [202],
+          relationshipSummaries: ['Alice 这轮是在点名确认小腻状态'],
+          evidenceMessageIds: [201],
+          heatScore: 0.7,
+          reviewPriorityScore: 0.6,
+          updatedAt: '2026-04-05T09:00:00.000Z'
+        }]
+      }
+    }),
+    listRecentTurns: async () => [],
+    getRunDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 1777;
+    },
+    attachConversationIdToTrace: async () => {},
+    completeQueueMessage: async (_runId: string, params: any) => { storeCalls.completeQueueMessage.push(params); },
+    completeAgentRun: async (_runId: string, params: any) => { storeCalls.completeAgentRun.push(params); },
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); }
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  (service as any).runPreReplyMemoryGate = async () => ({
+    shouldReply: false,
+    cueToBot: false,
+    addresseeUserId: null,
+    relevantMemoryIds: [17],
+    rationale: 'third-person mention only'
+  });
+  (service as any).executeAgentTurn = async () => {
+    throw new Error('executeAgentTurn should not run after pre-reply memory gate silence');
+  };
+
+  await service.processQueueMessage(queueMessage as any);
+
+  assert.equal(storeCalls.createConversation.length, 1);
+  assert.equal(storeCalls.createConversation[0]?.status, 'completed');
+  assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
+  assert.equal(storeCalls.createConversation[0]?.transcriptItems?.length, 1);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.pre_reply_memory_gate?.shouldReply, false);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.pre_reply_memory_gate?.rationale, 'third-person mention only');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.topic_projection?.activeTopics?.[0]?.title, '围观小腻在不在');
+  assert.equal(storeCalls.completeQueueMessage[0]?.result?.no_reply, true);
+  assert.equal(storeCalls.completeQueueMessage[0]?.result?.termination_reason, 'finish_no_reply');
+  assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'finish_no_reply');
+  assert.equal(storeCalls.completeAgentRun[0]?.totalTurns, 0);
+  assert.equal(storeCalls.updateLlmJob[0]?.status, 'completed');
+});
+
+test('processQueueMessage short-circuits group runs when present self reconstruction decides not to surface', async () => {
+  const queueMessage = {
+    id: 'run-queue-present-self-silent',
+    traceId: 'trace-present-self-silent',
+    batchId: 'batch-present-self-silent',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    completeQueueMessage: [],
+    completeAgentRun: [],
+    updateLlmJob: []
+  };
+
+  const store = {
+    createLlmJob: async () => 'job-present-self-silent',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({
+      summaryText: '群里有人在确认小腻是不是还在',
+      summarizedThroughConversationId: null,
+      relationshipCards: { groupCards: [], currentUserCards: [], recentUserCards: [] },
+      selfEvolution: { groupStates: [], currentUserStates: [], recentUserStates: [] }
+    }),
+    listRecentTurns: async () => [],
+    getRunDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 1888;
+    },
+    attachConversationIdToTrace: async () => {},
+    completeQueueMessage: async (_runId: string, params: any) => { storeCalls.completeQueueMessage.push(params); },
+    completeAgentRun: async (_runId: string, params: any) => { storeCalls.completeAgentRun.push(params); },
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); }
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  (service as any).runPreReplyMemoryGate = async () => ({
+    shouldReply: true,
+    cueToBot: true,
+    addresseeUserId: 202,
+    relevantMemoryIds: [],
+    rationale: 'explicit ping'
+  });
+  (service as any).runPresentSelfReconstruction = async () => ({
+    shouldSurface: false,
+    presenceLevel: 'light',
+    currentSelfMode: 'withdrawn_after_check',
+    feltPull: 'explicit ping but still should stay absent',
+    activeRelationLines: [],
+    activePastEchoes: [],
+    familiarityLimitNow: 'warm_not_performative',
+    answerShape: 'brief_reassure_then_stop',
+    rendererGuidance: ['不要开口'],
+    socialPositionNow: 'edge_observer',
+    targetPersonId: 202,
+    entryIntent: 'hover',
+    beatPlan: {
+      beatCount: 1,
+      beatStyle: 'single_complete',
+      secondBeatPolicy: 'never'
+    },
+    exitRule: 'stop_immediately',
+    rationale: 'not the right moment to surface'
+  });
+  (service as any).executeAgentTurn = async () => {
+    throw new Error('executeAgentTurn should not run after present self silence');
+  };
+
+  await service.processQueueMessage(queueMessage as any);
+
+  assert.equal(storeCalls.createConversation.length, 1);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.present_self?.shouldSurface, false);
+  assert.equal(storeCalls.completeQueueMessage[0]?.result?.no_reply, true);
+  assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'finish_no_reply');
+  assert.equal(storeCalls.updateLlmJob[0]?.status, 'completed');
 });
 
 test('processQueueMessage stores partially delivered assistant transcript as commentary on failure', async () => {
@@ -1333,6 +2296,30 @@ test('applyToolResultToLoopInput ends the turn on stay_silent without replaying 
   });
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), false);
+});
+
+test('applyToolResultToLoopInput ends the turn when a speaking tool is downgraded to no-send', () => {
+  const finishResult = {
+    finished: true,
+    reason: 'group_reply_taste_judge_silent',
+    outcome: 'group_reply_taste_judge_silent',
+    no_reply: true,
+    suppressed_by_taste_judge: true,
+    message_type: 'group',
+    mention_user_ids: [],
+    sent_messages: []
+  };
+
+  const continuation = applyToolResultToLoopInput({
+    callId: 'call-3',
+    name: GROUP_REPLY_TOOL,
+    rawArguments: '{"message":"原句"}'
+  }, finishResult);
+
+  assert.deepEqual(continuation, {
+    inputItems: [],
+    finishResult
+  });
 });
 
 test('legacy tool aliases still dispatch during the transition', async () => {

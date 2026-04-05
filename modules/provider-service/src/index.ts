@@ -1,6 +1,6 @@
 import express from 'express';
-import { ensureRelationshipMemorySchema, ensureTopicLabSchema } from '@qq-bot/persistence';
-import { aiConfig, relationshipMemoryConfig, serverConfig, topicProjectionConfig } from './config';
+import { ensureRelationshipMemorySchema, ensureSelfEvolutionSchema, ensureTopicLabSchema } from '@qq-bot/persistence';
+import { aiConfig, relationshipMemoryConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
 import { NapcatClient } from './services/napcat-client';
@@ -18,6 +18,8 @@ import { TranscriptSnapshotService } from './services/transcript-snapshot-servic
 import RelationshipLedgerService from './services/relationship-ledger-service';
 import RelationshipMemoryService from './services/relationship-memory-service';
 import RelationshipMemoryExecutorService from './services/relationship-memory-executor-service';
+import SelfEvolutionExecutorService from './services/self-evolution-executor-service';
+import { SelfEvolutionService } from './services/self-evolution-service';
 import TopicProjectionService from './services/topic-projection-service';
 import TopicProjectionExecutorService from './services/topic-projection-executor-service';
 import TopicReviewMaterializationService from './services/topic-review-materialization-service';
@@ -71,7 +73,18 @@ const relationshipMemoryService = new RelationshipMemoryService({
   minNewTurns: relationshipMemoryConfig.minNewTurns,
   minNewLedgerEvents: relationshipMemoryConfig.minNewLedgerEvents
 });
-const relationshipMemoryExecutorService = new RelationshipMemoryExecutorService();
+const relationshipMemoryExecutorService = new RelationshipMemoryExecutorService({
+  modelName: aiConfig.relationship_memory_model_name
+});
+const selfEvolutionService = new SelfEvolutionService({
+  enabled: selfEvolutionConfig.enabled,
+  webhookUrl: selfEvolutionConfig.webhookUrl,
+  minNewTurns: selfEvolutionConfig.minNewTurns,
+  minNewLedgerEvents: selfEvolutionConfig.minNewLedgerEvents
+});
+const selfEvolutionExecutorService = new SelfEvolutionExecutorService({
+  modelName: selfEvolutionConfig.modelName
+});
 const topicProjectionService = new TopicProjectionService({
   enabled: topicProjectionConfig.enabled,
   webhookUrl: topicProjectionConfig.webhookUrl,
@@ -103,6 +116,7 @@ function scheduleCompactionSideEffects(inboundContext: FinalizedInboundContext) 
       }
       await transcriptService.maybeRequestSummary(state);
       await relationshipMemoryService.maybeRequestRefresh(state);
+      await selfEvolutionService.maybeRequestRefresh(state);
       await topicProjectionService.maybeRequestRefresh(state);
     } catch (error) {
       moduleLogger.warn('Failed to schedule transcript or relationship compaction side effects', {
@@ -1023,6 +1037,93 @@ app.post('/api/internal/relationship-memory/execute', async (req, res) => {
   }
 });
 
+app.post('/api/internal/self-evolution/execute', async (req, res) => {
+  const jobId = Number(req.body?.job_id);
+  const sessionKey = typeof req.body?.session_key === 'string' ? req.body.session_key.trim() : '';
+  const groupId = Number(req.body?.group_id);
+  const version = Number(req.body?.version);
+  const triggerReason = typeof req.body?.trigger_reason === 'string' ? req.body.trigger_reason.trim() : 'compact_checkpoint';
+  const targetUserId = Number.isFinite(Number(req.body?.target_user_id)) ? Number(req.body.target_user_id) : null;
+  const turns = Array.isArray(req.body?.turns) ? req.body.turns : [];
+  const ledgerEvents = Array.isArray(req.body?.ledger_events) ? req.body.ledger_events : [];
+
+  if (!Number.isFinite(jobId) || jobId <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameter: job_id',
+      timestamp: new Date().toISOString()
+    });
+  }
+  if (!sessionKey) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameter: session_key',
+      timestamp: new Date().toISOString()
+    });
+  }
+  if (!Number.isFinite(groupId) || groupId <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameter: group_id',
+      timestamp: new Date().toISOString()
+    });
+  }
+  if (!Number.isFinite(version) || version <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameter: version',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  try {
+    await selfEvolutionService.markRunning(jobId);
+    const execution = await selfEvolutionExecutorService.execute({
+      job_id: jobId,
+      session_key: sessionKey,
+      group_id: groupId,
+      target_user_id: targetUserId,
+      version,
+      trigger_reason: triggerReason,
+      turns,
+      ledger_events: ledgerEvents
+    });
+
+    await selfEvolutionService.applyResult({
+      jobId,
+      sessionKey,
+      groupId,
+      version,
+      states: execution.states
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        job_id: jobId,
+        status: 'ready',
+        version,
+        model_name: execution.modelName,
+        state_count: execution.states.length
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'self_evolution_execute_failed';
+    await selfEvolutionService.markFailed(jobId, message).catch(() => undefined);
+    moduleLogger.error('Failed to execute self evolution job', {
+      error: message,
+      jobId,
+      sessionKey
+    });
+    return res.status(500).json({
+      success: false,
+      error: message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 app.post('/api/internal/topic-projection/execute', async (req, res) => {
   const jobId = Number(req.body?.job_id);
   if (!Number.isFinite(jobId) || jobId <= 0) {
@@ -1539,6 +1640,7 @@ app.get('/api/internal/embedding/health', async (_req, res) => {
 
 async function startServer() {
   await ensureRelationshipMemorySchema();
+  await ensureSelfEvolutionSchema();
   await ensureTopicLabSchema();
   await inboxService.initialize();
   await conversationStoreService.initialize();

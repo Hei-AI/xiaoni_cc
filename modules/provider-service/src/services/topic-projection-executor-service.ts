@@ -11,7 +11,8 @@ import { aiConfig, databaseConfig } from '../config';
 import type { UnifiedLLMConfig } from '../types';
 import { buildUnifiedConfig } from './provider-debug-service';
 import { createProviderClient, resolveProviderId } from './llm-provider';
-import type { LLMProvider, OpenResponseCreateRequest } from './llm-provider/types';
+import { extractNamedFunctionCallArgsFromOpenAIResponse } from './llm-provider/helpers';
+import type { LLMProvider, OpenResponseCreateRequest, OpenResponseToolDefinition } from './llm-provider/types';
 import { logger } from '../utils/logger';
 import type { TopicProjectionInputBundle } from './topic-projection-service';
 
@@ -61,6 +62,75 @@ type TopicProjectionExecutorDeps = {
   updateTopic?: typeof updateChatSpaceTopic;
   listVersions?: typeof listTopicProjectionVersions;
   createVersionSnapshot?: typeof createTopicProjectionVersionSnapshot;
+};
+
+const TOPIC_PROJECTION_TOOL_NAME = 'emit_topic_projection';
+const TOPIC_PROJECTION_TOOL: OpenResponseToolDefinition = {
+  type: 'function',
+  function: {
+    name: TOPIC_PROJECTION_TOOL_NAME,
+    description: 'Return the structured topic projection result for the current chat-space bundle.',
+    parameters: {
+      type: 'object',
+      properties: {
+        topics: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              summary_text: { type: 'string' },
+              lifecycle_state: { type: 'string' },
+              review_priority_score: { type: 'number' },
+              heat_score: { type: 'number' },
+              participant_ids: {
+                type: 'array',
+                items: { type: 'number' }
+              },
+              topic_keywords: {
+                type: 'array',
+                items: { type: 'string' }
+              },
+              evidence_message_ids: {
+                type: 'array',
+                items: { type: 'number' }
+              },
+              source_event_ids: {
+                type: 'array',
+                items: { type: 'number' }
+              },
+              relationships: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    target_user_id: { type: 'number' },
+                    relationship_kind: { type: ['string', 'null'] },
+                    summary_text: { type: 'string' },
+                    actors: {
+                      type: 'array',
+                      items: { type: 'string' }
+                    },
+                    source_event_ids: {
+                      type: 'array',
+                      items: { type: 'number' }
+                    },
+                    source_message_ids: {
+                      type: 'array',
+                      items: { type: 'number' }
+                    }
+                  },
+                  required: ['target_user_id', 'summary_text']
+                }
+              }
+            },
+            required: ['title', 'summary_text']
+          }
+        }
+      },
+      required: ['topics']
+    }
+  }
 };
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -413,13 +483,13 @@ export class TopicProjectionExecutorService {
     const instructions = [
       '你是聊天空间主题投影器。你的任务是把一个聊天空间最近的对话 turns 和 ledger 事件，整理成 1 到 3 个可追溯的话题快照。',
       '必须严格依据输入，不要编造不存在的主题、人物关系或证据。',
-      '只输出 JSON，不要输出解释、Markdown 或代码块外文字。',
+      '不要追加解释、Markdown 或工具外文本。',
       '每个 topic 必须包含：title, summary_text, lifecycle_state, review_priority_score, heat_score, participant_ids, topic_keywords, evidence_message_ids, source_event_ids, relationships。',
       'evidence_message_ids 必须来自 turns[*].source_message_ids。',
       'relationships 是 topic 内的人物关系投影数组。每项必须包含 target_user_id, relationship_kind, summary_text, actors, source_event_ids, source_message_ids。',
       '如果证据不足，返回空数组，不要硬写。',
       'lifecycle_state 只能是 active、cooling、archived、reopened、candidate。',
-      'JSON schema: {"topics":[{"title":"string","summary_text":"string","lifecycle_state":"active","review_priority_score":0.8,"heat_score":0.7,"participant_ids":[123],"topic_keywords":["梗"],"evidence_message_ids":[1],"source_event_ids":[10],"relationships":[{"target_user_id":123,"relationship_kind":"inside_joke","summary_text":"string","actors":["小腻","对方"],"source_event_ids":[10],"source_message_ids":[1]}]}]}'
+      `必须通过 ${TOPIC_PROJECTION_TOOL_NAME} 返回结构化结果，不要改用普通文本回复。`
     ].join('\n');
 
     const request: OpenResponseCreateRequest = {
@@ -432,6 +502,9 @@ export class TopicProjectionExecutorService {
           content: JSON.stringify(requestPayload, null, 2)
         }
       ],
+      tools: [TOPIC_PROJECTION_TOOL],
+      tool_choice: 'required',
+      parallel_tool_calls: false,
       temperature: 0.1,
       top_p: 0.2,
       max_output_tokens: 2200
@@ -448,10 +521,13 @@ export class TopicProjectionExecutorService {
       }
     });
 
+    const toolPayload = extractNamedFunctionCallArgsFromOpenAIResponse(result.response, TOPIC_PROJECTION_TOOL_NAME);
+    const structuredTopics = toolPayload ? this.parseTopicsPayload(toolPayload, bundle) : [];
+
     return {
       modelName: result.modelName,
-      rawText: result.text,
-      topics: this.parseTopics(result.text, bundle)
+      rawText: toolPayload ? JSON.stringify(toolPayload) : result.text,
+      topics: structuredTopics.length > 0 ? structuredTopics : this.parseTopics(result.text, bundle)
     };
   }
 
@@ -460,8 +536,15 @@ export class TopicProjectionExecutorService {
     if (!parsed) {
       throw new Error('topic_projection_non_json');
     }
+    return this.parseTopicsPayload(parsed, bundle);
+  }
 
-    const rawTopics = Array.isArray(parsed.topics) ? parsed.topics : [];
+  parseTopicsPayload(payload: Record<string, unknown> | null | undefined, bundle: TopicProjectionInputBundle): TopicProjectionDraft[] {
+    if (!payload) {
+      return [];
+    }
+
+    const rawTopics = Array.isArray(payload.topics) ? payload.topics : [];
     const drafts = rawTopics
       .slice(0, 3)
       .map((topic) => normalizeTopicDraft(topic, bundle))

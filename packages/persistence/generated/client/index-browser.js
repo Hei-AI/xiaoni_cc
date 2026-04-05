@@ -342,6 +342,50 @@ exports.Prisma.RelationshipMemoryOverrideScalarFieldEnum = {
   created_at: 'created_at'
 };
 
+exports.Prisma.SelfEvolutionJobScalarFieldEnum = {
+  id: 'id',
+  group_id: 'group_id',
+  target_user_id: 'target_user_id',
+  session_key: 'session_key',
+  status: 'status',
+  trigger_reason: 'trigger_reason',
+  turn_range_start: 'turn_range_start',
+  turn_range_end: 'turn_range_end',
+  source_event_count: 'source_event_count',
+  input_message_ids: 'input_message_ids',
+  output_state_version: 'output_state_version',
+  error_message: 'error_message',
+  metadata: 'metadata',
+  started_at: 'started_at',
+  finished_at: 'finished_at',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.SelfEvolutionStateScalarFieldEnum = {
+  id: 'id',
+  session_key: 'session_key',
+  group_id: 'group_id',
+  target_user_id: 'target_user_id',
+  scope_type: 'scope_type',
+  version: 'version',
+  is_active: 'is_active',
+  social_presence_baseline: 'social_presence_baseline',
+  entry_preference: 'entry_preference',
+  warmth_bias: 'warmth_bias',
+  familiarity_ceiling: 'familiarity_ceiling',
+  topic_resonance: 'topic_resonance',
+  boundary_tendencies: 'boundary_tendencies',
+  reinforced_modes: 'reinforced_modes',
+  suppressed_modes: 'suppressed_modes',
+  summary_text: 'summary_text',
+  source_event_ids: 'source_event_ids',
+  source_message_ids: 'source_message_ids',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
 exports.Prisma.ChatSpaceTopicScalarFieldEnum = {
   id: 'id',
   chat_space_type: 'chat_space_type',
@@ -506,6 +550,8 @@ exports.Prisma.ModelName = {
   RelationshipMemoryJob: 'RelationshipMemoryJob',
   RelationshipMemoryCard: 'RelationshipMemoryCard',
   RelationshipMemoryOverride: 'RelationshipMemoryOverride',
+  SelfEvolutionJob: 'SelfEvolutionJob',
+  SelfEvolutionState: 'SelfEvolutionState',
   ChatSpaceTopic: 'ChatSpaceTopic',
   TopicProjectionJob: 'TopicProjectionJob',
   TopicProjectionVersion: 'TopicProjectionVersion',
