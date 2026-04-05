@@ -68,6 +68,14 @@ interface PrivateChatResponse {
   };
 }
 
+export const normalizePrivateChatUser = (user: PrivateChatUser): PrivateChatUser => ({
+  ...user,
+  total_conversations: Number(user.total_conversations ?? 0),
+  successful_replies: Number(user.successful_replies ?? 0),
+  failed_replies: Number(user.failed_replies ?? 0),
+  success_rate: Number(user.success_rate ?? 0),
+});
+
 type PrivateChatToggleField = ChatSettingsToggleField;
 
 const fetchPrivateChats = async (params: {
@@ -90,7 +98,11 @@ const fetchPrivateChats = async (params: {
   if (!response.ok) {
     throw new Error('Failed to fetch private chats');
   }
-  return response.json();
+  const result = await response.json() as PrivateChatResponse;
+  return {
+    ...result,
+    data: Array.isArray(result.data) ? result.data.map((user) => normalizePrivateChatUser(user)) : [],
+  };
 };
 
 const updatePrivateChat = async (userId: number, data: { is_enabled?: number; continuous_learning_enabled?: number; auto_reply_enabled?: number }) => {

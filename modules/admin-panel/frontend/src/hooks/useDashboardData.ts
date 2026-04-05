@@ -34,6 +34,35 @@ interface DashboardStats {
   timestamp: string;
 }
 
+interface DashboardStatsApiPayload {
+  success: boolean;
+  data?: {
+    total_conversations?: number | string;
+    active_sessions?: number | string;
+    llm_calls_today?: number | string;
+  };
+  timestamp?: string;
+}
+
+interface RuntimeStatusApiPayload {
+  success: boolean;
+  data?: {
+    status?: string;
+  };
+}
+
+export const mapDashboardStatsPayload = (
+  statsPayload: DashboardStatsApiPayload,
+  runtimePayload?: RuntimeStatusApiPayload | null
+): DashboardStats => ({
+  totalMessages: Number(statsPayload.data?.total_conversations ?? 0),
+  activeGroups: Number(statsPayload.data?.active_sessions ?? 0),
+  aiResponses: Number(statsPayload.data?.llm_calls_today ?? 0),
+  systemHealth: runtimePayload?.data?.status || 'unknown',
+  uptime: 'online',
+  timestamp: statsPayload.timestamp || new Date().toISOString(),
+});
+
 interface ConversationsParams {
   limit?: number;
   page?: number;
@@ -48,12 +77,21 @@ export const useDashboardStats = () => {
   return useQuery<DashboardStats>({
     queryKey: ['dashboardStats'],
     queryFn: async (): Promise<DashboardStats> => {
-      const response = await fetch('/api/dashboard/stats');
-      if (!response.ok) {
+      const [statsResponse, runtimeResponse] = await Promise.all([
+        fetch('/api/dashboard/stats'),
+        fetch('/api/runtime/status'),
+      ]);
+
+      if (!statsResponse.ok) {
         throw new Error('Failed to fetch dashboard stats');
       }
-      const data = await response.json();
-      return data;
+
+      const statsPayload = await statsResponse.json() as DashboardStatsApiPayload;
+      const runtimePayload = runtimeResponse.ok
+        ? await runtimeResponse.json() as RuntimeStatusApiPayload
+        : null;
+
+      return mapDashboardStatsPayload(statsPayload, runtimePayload);
     },
     staleTime: 30000, // 30 seconds
     refetchInterval: 60000, // Refetch every 1 minute
