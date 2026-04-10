@@ -72,6 +72,24 @@ type StructuredReplayQueueRow = {
   created_at: string | Date;
 };
 
+type StructuredReplayInboundRow = {
+  id: number;
+  trace_id: string;
+  source: string;
+  message_sid: string;
+  chat_type: string;
+  session_key: string;
+  peer_id: string;
+  peer_name: string | null;
+  sender_id: string;
+  sender_name: string | null;
+  account_id: string;
+  body_for_agent: string;
+  raw_payload: string | Record<string, unknown>;
+  inbound_context: string | Record<string, unknown>;
+  created_at: string | Date;
+};
+
 export type AgentRunDeliveryPhase = 'reasoning_open' | 'delivery_committed' | 'finished';
 
 type AgentRunDeliveryStateRow = {
@@ -530,7 +548,12 @@ export function parseRelationshipRagSelection(params: {
   limits: Record<RelationshipRagScope, number>;
 }) {
   const parsed = parseJsonObjectFromText(params.text);
-  if (!parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+  const hasStructuredSelection = ['group_card_ids', 'current_user_card_ids', 'recent_user_card_ids']
+    .some((key) => Object.prototype.hasOwnProperty.call(parsed, key));
+  if (!hasStructuredSelection) {
     return null;
   }
 
@@ -549,10 +572,6 @@ export function parseRelationshipRagSelection(params: {
     new Set(params.candidateIdsByScope.recent_users),
     params.limits.recent_users
   );
-
-  if (groupIds.length === 0 && currentUserIds.length === 0 && recentUserIds.length === 0) {
-    return null;
-  }
 
   return {
     groupCardIds: groupIds,
@@ -672,14 +691,18 @@ export function rankRelationshipCardsForPrompt(params: {
     .slice(0, params.limit);
 }
 
-function selectCardsInRankOrder(rankedCards: RelationshipCardScore[], selectedIds: number[], limit: number) {
+export function selectCardsInRankOrder(rankedCards: RelationshipCardScore[], selectedIds: number[] | null, limit: number) {
   if (rankedCards.length === 0) {
     return [] as RuntimeRelationshipMemoryCard[];
   }
 
+  if (selectedIds === null) {
+    return rankedCards.slice(0, limit).map((item) => item.card);
+  }
+
   const selectedSet = new Set(selectedIds);
   if (selectedSet.size === 0) {
-    return rankedCards.slice(0, limit).map((item) => item.card);
+    return [];
   }
 
   const selected = rankedCards
@@ -687,9 +710,7 @@ function selectCardsInRankOrder(rankedCards: RelationshipCardScore[], selectedId
     .map((item) => item.card)
     .slice(0, limit);
 
-  return selected.length > 0
-    ? selected
-    : rankedCards.slice(0, limit).map((item) => item.card);
+  return selected;
 }
 
 function parseJson<T>(value: unknown, fallback: T): T {
@@ -904,21 +925,58 @@ function buildQueueBatchMessageFromStructuredRow(row: StructuredReplayQueueRow):
   };
 }
 
+function buildQueueBatchMessageFromInboundRow(row: StructuredReplayInboundRow): QueueBatchMessage {
+  const inboundContext = parseJson<FinalizedInboundContext>(row.inbound_context, {
+    Body: row.body_for_agent,
+    BodyForAgent: row.body_for_agent,
+    BodyForCommands: row.body_for_agent,
+    CommandAuthorized: false
+  });
+
+  return {
+    queueMessageId: Number(row.id),
+    traceId: row.trace_id,
+    source: row.source,
+    messageId: Number(row.id),
+    messageSid: row.message_sid,
+    chatType: row.chat_type === 'group' ? 'group' : 'direct',
+    sessionKey: row.session_key,
+    peerId: row.peer_id,
+    peerName: row.peer_name || undefined,
+    senderId: row.sender_id,
+    senderName: row.sender_name || undefined,
+    accountId: row.account_id,
+    bodyForAgent: row.body_for_agent,
+    rawBody: inboundContext.RawBody || inboundContext.Body || inboundContext.BodyForAgent || row.body_for_agent,
+    commandBody: inboundContext.CommandBody || inboundContext.BodyForCommands || row.body_for_agent,
+    wasMentioned: Boolean(inboundContext.WasMentioned),
+    receivedAt: toIso(row.created_at) || new Date().toISOString(),
+    messageTimestamp: typeof inboundContext.Timestamp === 'number'
+      ? new Date(inboundContext.Timestamp * 1000).toISOString()
+      : null,
+    rawPayload: parseJson<Record<string, unknown>>(row.raw_payload, {}),
+    inboundContext
+  };
+}
+
 function buildStructuredReplayConversationItems(params: {
-  rows: StructuredReplayQueueRow[];
+  rows: Array<StructuredReplayQueueRow | StructuredReplayInboundRow>;
   traceToConversationId: Map<string, number>;
 }): Map<number, ConversationTranscriptItem[]> {
   const itemsByConversationId = new Map<number, ConversationTranscriptItem[]>();
 
   for (const row of params.rows) {
     const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
-    const conversationId = Number(row.conversation_id) || params.traceToConversationId.get(traceId);
+    const conversationId = ('conversation_id' in row ? Number(row.conversation_id) : 0) || params.traceToConversationId.get(traceId);
     if (!conversationId) {
       continue;
     }
 
     const items = itemsByConversationId.get(conversationId) || [];
-    const message = buildQueueBatchMessageFromStructuredRow(row);
+    const isQueueReplayRow = 'payload' in row;
+    const message = isQueueReplayRow
+      ? buildQueueBatchMessageFromStructuredRow(row)
+      : buildQueueBatchMessageFromInboundRow(row);
     items.push({
       id: null,
       conversationId,
@@ -930,7 +988,7 @@ function buildStructuredReplayConversationItems(params: {
       itemIndex: items.length,
       source: 'inbound_batch',
       deliveryMessageId: null,
-      runId: row.run_id,
+      runId: isQueueReplayRow ? row.run_id : null,
       traceId: traceId || null
     });
     itemsByConversationId.set(conversationId, items);
@@ -1459,9 +1517,10 @@ export class RuntimeStore {
       group_id: number | null;
       user_message: string;
       ai_response: string | null;
+      raw_response: unknown;
     }>(
       `
-        SELECT id, batch_id, trace_id, user_id, group_id, user_message, ai_response
+        SELECT id, batch_id, trace_id, user_id, group_id, user_message, ai_response, raw_response
         FROM conversations
         WHERE ${conditions.join(' AND ')}
         ORDER BY id DESC
@@ -1544,6 +1603,35 @@ export class RuntimeStore {
           Array.from(traceToConversationId.keys())
         )
       : [];
+    const missingStructuredTraceIds = Array.from(traceToConversationId.keys()).filter((traceId) => (
+      !structuredReplayRows.some((row) => row.trace_id === traceId)
+    ));
+    const structuredReplayInboundRows = missingStructuredTraceIds.length > 0
+      ? await this.sql.query<StructuredReplayInboundRow>(
+          `
+            SELECT
+              m.id,
+              m.trace_id,
+              m.source,
+              m.message_sid,
+              m.chat_type,
+              m.session_key,
+              m.peer_id,
+              m.peer_name,
+              m.sender_id,
+              m.sender_name,
+              m.account_id,
+              m.body_for_agent,
+              m.raw_payload,
+              m.inbound_context,
+              m.received_at AS created_at
+            FROM agent_inbound_messages m
+            WHERE m.trace_id IN (${missingStructuredTraceIds.map(() => '?').join(', ')})
+            ORDER BY m.trace_id ASC, m.received_at ASC, m.id ASC
+          `,
+          missingStructuredTraceIds
+        )
+      : [];
 
     const itemsByConversationId = new Map<number, ConversationTranscriptItem[]>();
     for (const row of itemRows) {
@@ -1570,7 +1658,7 @@ export class RuntimeStore {
       itemsByConversationId.set(conversationId, items);
     }
     const reconstructedUserItemsByConversationId = buildStructuredReplayConversationItems({
-      rows: structuredReplayRows,
+      rows: [...structuredReplayRows, ...structuredReplayInboundRows],
       traceToConversationId
     });
 
@@ -1603,7 +1691,8 @@ export class RuntimeStore {
         sessionKey,
         userMessage: row.user_message,
         aiResponse: row.ai_response,
-        items
+        items,
+        rawResponse: parseJson<Record<string, unknown>>(row.raw_response, {})
       };
     });
   }
@@ -2040,17 +2129,17 @@ export class RuntimeStore {
       : null;
     const selectedGroupCards = selectCardsInRankOrder(
       groupRankedCards,
-      ragSelection?.groupCardIds || [],
+      ragSelection ? ragSelection.groupCardIds : null,
       limits.group
     );
     const selectedCurrentUserCards = selectCardsInRankOrder(
       currentUserRankedCards,
-      ragSelection?.currentUserCardIds || [],
+      ragSelection ? ragSelection.currentUserCardIds : null,
       limits.current_user
     );
     const selectedRecentUserCards = selectCardsInRankOrder(
       recentUserRankedCards,
-      ragSelection?.recentUserCardIds || [],
+      ragSelection ? ragSelection.recentUserCardIds : null,
       limits.recent_users
     );
     const selectedCardIds = Array.from(new Set(

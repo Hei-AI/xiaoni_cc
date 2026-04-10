@@ -36,12 +36,6 @@ function getMentionPatterns(mentionedUser: InboundMentionedUser) {
     .sort((left, right) => right.length - left.length);
 }
 
-function renderMentionList(mentionedUsers: FinalizedInboundContext['MentionedUsers']) {
-  const rendered = (Array.isArray(mentionedUsers) ? mentionedUsers : [])
-    .map((mentionedUser) => formatIdentity(mentionedUser?.label, mentionedUser?.userId));
-  return rendered.length > 0 ? `[${rendered.join(', ')}]` : '[]';
-}
-
 function extractVisibleMessageText(message: QueueBatchMessage) {
   const rawBody = typeof message.rawBody === 'string' ? message.rawBody.trim() : '';
   if (rawBody) {
@@ -72,68 +66,37 @@ function stripLeadingMentionToken(
   return text;
 }
 
-function extractSemanticText(
-  text: string,
-  mentionedUsers: FinalizedInboundContext['MentionedUsers']
-) {
-  const source = typeof text === 'string' ? text.trim() : '';
-  if (!source) {
+function toDisplayTimestamp(message: QueueBatchMessage) {
+  const value = message.messageTimestamp || message.receivedAt;
+  if (!value) {
     return '';
   }
 
-  let remaining = source;
-  let didStripLeadingMention = false;
-
-  while (true) {
-    const next = stripLeadingMentionToken(remaining, mentionedUsers).trim();
-    if (next === remaining) {
-      break;
-    }
-    remaining = next;
-    didStripLeadingMention = true;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
   }
 
-  return didStripLeadingMention ? remaining : source;
-}
-
-function buildConversationInfo(message: QueueBatchMessage, index: number) {
-  return JSON.stringify({
-    sequence: index + 1,
-    chat_type: message.chatType
-  }, null, 2);
-}
-
-function buildMessageSemantics(message: QueueBatchMessage) {
-  return JSON.stringify({
-    text: extractSemanticText(message.bodyForAgent, message.inboundContext.MentionedUsers)
-  }, null, 2);
-}
-
-function buildReplyInfo(inboundContext: FinalizedInboundContext) {
-  return JSON.stringify({
-    sender: formatReplyTarget(inboundContext),
-    text: inboundContext.ReplyToBody
-  }, null, 2);
-}
-
-function wrapBlock(label: string, fenceType: 'json' | 'text', content: string) {
-  return `${label}:\n\`\`\`${fenceType}\n${content}\n\`\`\``;
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')} ${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
 }
 
 export function renderRuntimeBatchMessage(message: QueueBatchMessage, index: number) {
-  const blocks = [
-    wrapBlock('Conversation info', 'json', buildConversationInfo(message, index)),
-    wrapBlock('Sender', 'text', formatIdentity(message.senderName, message.senderId)),
-    wrapBlock('Mentions in current message', 'text', renderMentionList(message.inboundContext.MentionedUsers)),
-    wrapBlock('Visible message text', 'text', extractVisibleMessageText(message)),
-    wrapBlock('Message semantics', 'json', buildMessageSemantics(message))
+  const lines = [
+    `${toDisplayTimestamp(message) || `第${index + 1}条`} ${formatIdentity(message.senderName, message.senderId)}`
   ];
 
   if (message.inboundContext.ReplyToBody) {
-    blocks.push(wrapBlock('Reply to', 'json', buildReplyInfo(message.inboundContext)));
+    const prefix = message.inboundContext.ReplyToIsQuote ? '引用' : '回复给';
+    lines.push(`[${prefix} ${formatReplyTarget(message.inboundContext)}：${message.inboundContext.ReplyToBody}]`);
   }
 
-  return blocks.join('\n\n');
+  const body = normalizeTranscriptMessageText(
+    extractVisibleMessageText(message),
+    message.inboundContext.MentionedUsers
+  );
+  lines.push(body || '(空消息)');
+
+  return lines.join('\n');
 }
 
 export function renderRuntimeBatchInput(queueMessage: QueueMessagePayload) {
@@ -157,7 +120,7 @@ export function normalizeTranscriptMessageText(
       const nextRendered = rendered.replace(new RegExp(escapeRegExp(pattern), 'g'), token);
       if (nextRendered !== rendered) {
         rendered = nextRendered;
-        placeholders.push({ token, value: canonical });
+        placeholders.push({ token, value: `@${canonical}` });
       }
     }
   }

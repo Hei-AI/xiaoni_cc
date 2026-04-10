@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   parseRelationshipRagSelection,
   rankRelationshipCardsForPrompt,
+  selectCardsInRankOrder,
   RuntimeStore
 } from '../services/runtime-store';
 
@@ -94,6 +95,10 @@ test('listRecentTurns rebuilds historical user items from structured queue paylo
       }];
     }
 
+    if (sql.includes('FROM agent_inbound_messages m')) {
+      return [];
+    }
+
     throw new Error(`Unexpected query: ${sql}`);
   });
 
@@ -104,10 +109,8 @@ test('listRecentTurns rebuilds historical user items from structured queue paylo
 
   assert.equal(turns.length, 1);
   assert.equal(turns[0]?.items.length, 2);
-  assert.match(String(turns[0]?.items[0]?.content), /Conversation info:/);
-  assert.match(String(turns[0]?.items[0]?.content), /Sender:\n```text\n\{Alice\(@202\)\}\n```/);
-  assert.match(String(turns[0]?.items[0]?.content), /Visible message text:\n```text\n@Bob 嘿\n```/);
-  assert.match(String(turns[0]?.items[0]?.content), /"text": "嘿"/);
+  assert.match(String(turns[0]?.items[0]?.content), /2026-03-28 08:00 \{Alice\(@202\)\}/);
+  assert.match(String(turns[0]?.items[0]?.content), /@\{Bob\(@404\)\} 嘿/);
   assert.equal(turns[0]?.items[1]?.content, '历史助手回复');
 });
 
@@ -146,6 +149,10 @@ test('listRecentTurns falls back to stored transcript content when structured qu
       return [];
     }
 
+    if (sql.includes('FROM agent_inbound_messages m')) {
+      return [];
+    }
+
     throw new Error(`Unexpected query: ${sql}`);
   });
 
@@ -157,6 +164,87 @@ test('listRecentTurns falls back to stored transcript content when structured qu
   assert.equal(turns.length, 1);
   assert.equal(turns[0]?.items.length, 1);
   assert.equal(turns[0]?.items[0]?.content, '#1 {Alice(@202)}: 旧格式');
+});
+
+test('listRecentTurns rebuilds historical user items from inbound messages when queue replay rows are unavailable', async () => {
+  const store = createStoreWithQuery(async (sql) => {
+    if (sql.includes('FROM conversations')) {
+      return [{
+        id: 1,
+        batch_id: null,
+        trace_id: 'trace-1',
+        user_id: 202,
+        group_id: 101,
+        user_message: '旧裸文本',
+        ai_response: '历史助手回复'
+      }];
+    }
+
+    if (sql.includes('FROM conversation_items')) {
+      return [{
+        id: 11,
+        conversation_id: 1,
+        session_key: 'qq:group:101',
+        role: 'assistant',
+        phase: 'final_answer',
+        content: '历史助手回复',
+        group_index: 1,
+        item_index: 0,
+        source: 'delivery',
+        delivery_message_id: 9001,
+        run_id: 'run-1',
+        trace_id: 'trace-1'
+      }];
+    }
+
+    if (sql.includes('FROM agent_queue_messages q')) {
+      return [];
+    }
+
+    if (sql.includes('FROM agent_inbound_messages m')) {
+      return [{
+        id: 31,
+        trace_id: 'trace-1',
+        source: 'napcat',
+        message_sid: 'sid-legacy-1',
+        chat_type: 'group',
+        session_key: 'qq:group:101',
+        peer_id: '101',
+        peer_name: 'Test Group',
+        sender_id: '202',
+        sender_name: 'Alice',
+        account_id: '303',
+        body_for_agent: '@Bob 嘿',
+        raw_payload: '{}',
+        inbound_context: JSON.stringify({
+          Body: '@Bob 嘿',
+          BodyForAgent: '@Bob 嘿',
+          BodyForCommands: '@Bob 嘿',
+          SenderName: 'Alice',
+          SenderId: '202',
+          MentionedUsers: [{
+            userId: '404',
+            label: 'Bob'
+          }],
+          CommandAuthorized: false
+        }),
+        created_at: '2026-03-28T08:00:00.000Z'
+      }];
+    }
+
+    throw new Error(`Unexpected query: ${sql}`);
+  });
+
+  const turns = await store.listRecentTurns({
+    userId: 202,
+    groupId: 101
+  });
+
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0]?.items.length, 2);
+  assert.match(String(turns[0]?.items[0]?.content), /2026-03-28 08:00 \{Alice\(@202\)\}/);
+  assert.match(String(turns[0]?.items[0]?.content), /@\{Bob\(@404\)\} 嘿/);
+  assert.equal(turns[0]?.items[1]?.content, '历史助手回复');
 });
 
 test('getRunDeliveryState returns normalized persisted delivery state', async () => {
@@ -338,7 +426,7 @@ test('parseRelationshipRagSelection keeps only allowed card ids per scope', () =
 
 test('parseRelationshipRagSelection returns null for unusable payloads', () => {
   const selection = parseRelationshipRagSelection({
-    text: '{"group_card_ids":[999]}',
+    text: '{"summary":"not a selector payload"}',
     candidateIdsByScope: {
       group: [11],
       current_user: [21],
@@ -352,4 +440,55 @@ test('parseRelationshipRagSelection returns null for unusable payloads', () => {
   });
 
   assert.equal(selection, null);
+});
+
+test('parseRelationshipRagSelection preserves an explicit empty selection', () => {
+  const selection = parseRelationshipRagSelection({
+    text: '{"group_card_ids":[],"current_user_card_ids":[],"recent_user_card_ids":[]}',
+    candidateIdsByScope: {
+      group: [11],
+      current_user: [21],
+      recent_users: [31]
+    },
+    limits: {
+      group: 2,
+      current_user: 3,
+      recent_users: 2
+    }
+  });
+
+  assert.deepEqual(selection, {
+    groupCardIds: [],
+    currentUserCardIds: [],
+    recentUserCardIds: []
+  });
+});
+
+test('selectCardsInRankOrder respects an explicit empty model selection', () => {
+  const ranked = rankRelationshipCardsForPrompt({
+    cards: [{
+      id: 7,
+      cardType: 'group',
+      groupId: 101,
+      targetUserId: null,
+      summaryText: '旧高权重卡片',
+      actors: [],
+      contextBefore: null,
+      trigger: null,
+      interaction: null,
+      outcome: null,
+      sourceEventIds: [],
+      sourceMessageIds: [],
+      decayedScore: 0.9,
+      retrievalText: '旧高权重卡片',
+      embeddingText: '旧高权重卡片',
+      lastHitAt: null,
+      metadata: {}
+    }],
+    queryText: '完全无关的话题',
+    limit: 1
+  });
+
+  assert.deepEqual(selectCardsInRankOrder(ranked, [], 1), []);
+  assert.equal(selectCardsInRankOrder(ranked, null, 1).length, 1);
 });

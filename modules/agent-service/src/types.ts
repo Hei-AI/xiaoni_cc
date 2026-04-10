@@ -21,6 +21,7 @@ export type FinalizedInboundContext = {
   ReplyToSender?: string;
   ReplyToSenderId?: string;
   ReplyToSenderName?: string;
+  ReplyToIsQuote?: boolean;
   ChatType?: ChatType | string;
   ConversationLabel?: string;
   GroupSubject?: string;
@@ -128,6 +129,7 @@ export type ConversationTurn = {
   userMessage: string;
   aiResponse: string | null;
   items: ConversationTranscriptItem[];
+  rawResponse?: Record<string, unknown>;
 };
 
 export type AgentToolCall = {

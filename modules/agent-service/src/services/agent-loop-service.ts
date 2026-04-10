@@ -33,7 +33,7 @@ type OpenResponseInputItem =
   | {
       type: 'message';
       role: 'system' | 'user' | 'assistant';
-      content: string;
+      content: string | OpenResponseInputContentPart[];
       phase?: ConversationTranscriptPhase;
     }
   | {
@@ -54,6 +54,16 @@ type OpenResponseInputItem =
       summary?: string;
     };
 
+type OpenResponseInputContentPart =
+  | {
+      type: 'input_text';
+      text: string;
+    }
+  | {
+      type: 'input_image';
+      image_url: string;
+    };
+
 type OpenResponseToolDefinition = {
   type: 'function';
   function: {
@@ -65,6 +75,9 @@ type OpenResponseToolDefinition = {
       additionalProperties: false;
     };
   };
+} | {
+  type: 'web_search';
+  search_context_size?: 'low' | 'medium' | 'high';
 };
 
 type ToolContinuationAction = {
@@ -129,6 +142,16 @@ type ProviderAgentResponse = {
   error?: string;
 };
 
+type SocialTurnPlan = {
+  actionType: 'stay_silent' | 'reply_to_person' | 'join_thread';
+  addresseeUserId: number | null;
+  answerShape: 'brief_reassure' | 'direct_answer' | 'light_join' | 'micro_take' | 'joke_along';
+  beatCount: 1 | 2 | 3;
+  beatStyle: 'single_complete' | 'split_two' | 'reaction_fragment';
+  stopRule: 'stop_immediately' | 'wait_for_pickup';
+  reason: string;
+};
+
 type PreReplyMemoryGateDecision = {
   shouldReply: boolean;
   cueToBot: boolean | null;
@@ -162,11 +185,13 @@ type PresentSelfReconstruction = {
 const moduleLogger = logger.createModuleLogger('agent-loop-service');
 
 const TOOL_NAMES = {
+  planSocialTurn: 'emit_social_turn_plan',
   privateReply: 'reply_in_private',
   groupReply: 'speak_in_group',
   silentFinish: 'stay_silent',
   buildMemoryRagContext: 'build_memory_rag_context',
-  retrieveMemoryHints: 'retrieve_memory_hints'
+  retrieveMemoryHints: 'retrieve_memory_hints',
+  webSearch: 'web_search'
 } as const;
 
 const LEGACY_TOOL_ALIASES = {
@@ -224,8 +249,13 @@ const PRIVATE_MESSAGE_TOOL = {
         messages: {
           type: 'array',
           items: { type: 'string' }
+        },
+        xiaoni_os: {
+          type: 'string',
+          description: 'A short hidden OS note about why 小腻 replied this way. Not sent to the user.'
         }
       },
+      required: ['xiaoni_os'],
       additionalProperties: false
     }
   }
@@ -251,8 +281,13 @@ const GROUP_MESSAGE_TOOL = {
         mention_user_ids: {
           type: 'array',
           items: { type: 'integer' }
+        },
+        xiaoni_os: {
+          type: 'string',
+          description: 'A short hidden OS note about why 小腻 replied this way. Not sent to the group.'
         }
       },
+      required: ['xiaoni_os'],
       additionalProperties: false
     }
   }
@@ -272,19 +307,59 @@ const FINISH_TOOL = {
         reason: { type: 'string' },
         outcome: { type: 'string' }
       },
+      required: ['reason', 'outcome'],
       additionalProperties: false
     }
   }
 } as const;
 
-const GROUP_REPLY_BEHAVIOR_CONTRACT = [
-  'Group reply contract:',
-  '- 你在群里首先要像一个真实群友，其次才是一个会思考的 AI。',
-  ...HUMAN_REPLY_RULES.map((rule) => `- ${rule}`),
-  '- 被明确 cue 时，优先事实回执、朴素回应、低解释欲；不要借机表演。',
-  '- 没有被明确 cue 但现场正在滚动时，优先低占位参与；不要把自己写成总结者或裁判。',
-  '- 避免看起来像模板化的回应起手和过度完整句。',
-  '- 如果你不确定这句话像不像真人群友，优先不要发，直接调用 stay_silent。'
+const RUNTIME_INPUT_READING_CONTRACT = [
+  '你必须通过工具完成这一轮，不能直接输出普通文本。',
+  '你现在看到的 user input，就是当前真实的聊天现场。',
+  '你看到的不是说明文，而是一段正在发生的 IM 对话。',
+  '',
+  '你要这样理解这些输入：',
+  '',
+  '1. 聊天记录本身就是现场。',
+  '每一段 user input part 都是一段真实聊天内容。',
+  '里面可能是别人说的话，也可能是你自己之前说过的话。',
+  '',
+  '2. 如果一段内容里出现多条文字片段，那表示它们属于同一轮同一侧的连续内容。',
+  '尤其当一段里先出现你自己的多段发言，最后再跟着 `<小腻的OS>`，这表示：',
+  '那几段话都是你上一轮真实发出去的内容；',
+  '最后那段 `<小腻的OS>` 是你当时留下来的内在延续。',
+  '',
+  '3. `<小腻的OS>` 不是系统说明，不是任务提示，也不是要复述给别人听的内容。',
+  '它是你上一轮留下来的想法延续，是你当前连续自我的一部分。',
+  'OS 可以包含你当时真实留下来的任何想法，比如你对某个人、某个话题、某个方向的印象，兴趣，判断，迟疑，节奏感，或者你为什么说、为什么没说。',
+  '',
+  '4. 聊天记录里的“回复”“引用”“艾特”都属于现场结构的一部分。',
+  '如果一条消息写着：',
+  '[回复给 某人：...]',
+  '表示这句话是在接那个人刚才的那句话。',
+  '如果一条消息写着：',
+  '[引用 某人：...]',
+  '表示这句话把那段内容带进了当前语境。',
+  '如果正文里出现 @某人，表示说话人明确把注意力拉向了那个人。',
+  '这些结构会改变这句话的社交方向、节奏和落点。',
+  '',
+  '5. 你要把整个输入看成一个正在流动的聊天现场，而不是独立句子列表。',
+  '重要的不是只看最后一句字面意思，',
+  '而是看：',
+  '这轮节奏是快还是慢，',
+  '现场是在两个人互接、多人滚动，还是有人明确在问你，',
+  '你自己刚刚是否已经说过话，',
+  '以及你这次自然该不该继续留在这个流里。',
+  '',
+  '6. 你会看到 `[已读消息]` 和 `[未读消息]` 两个分界。',
+  '`[已读消息]` 后面的内容，是已经进入你连续认知里的聊天背景；',
+  '`[未读消息]` 后面的内容，是这次新到的消息列表，也是当前最直接把你拉进来的现场。',
+  '下一轮到来时，上一轮的未读消息、你上一轮发出的消息、以及你上一轮留下的 `<小腻的OS>`，都会进入新的已读部分。',
+  '',
+  '这次由你自己判断：',
+  '你是否要参与，',
+  '如果参与，要怎么参与，',
+  '如果不参与，为什么不参与。'
 ].join('\n');
 
 function isPrivateReplyToolName(name: string) {
@@ -303,60 +378,37 @@ function isSpeakingToolName(name: string) {
   return isPrivateReplyToolName(name) || isGroupReplyToolName(name);
 }
 
-function isReadToolName(name: string) {
-  return name === TOOL_NAMES.buildMemoryRagContext || name === TOOL_NAMES.retrieveMemoryHints;
+const WEB_SEARCH_TOOL = {
+  type: 'web_search',
+  search_context_size: 'medium'
+} as const satisfies OpenResponseToolDefinition;
+
+function modelSupportsHostedWebSearch(modelName: string) {
+  const normalized = modelName.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (normalized === 'gpt-4.1-nano') {
+    return false;
+  }
+
+  if (normalized.startsWith('gpt-') || normalized.startsWith('o1') || normalized.startsWith('o3') || normalized.startsWith('o4')) {
+    return true;
+  }
+
+  return normalized.includes('codex');
 }
 
-const BUILD_MEMORY_RAG_CONTEXT_TOOL = {
-  type: 'function',
-  function: {
-    name: TOOL_NAMES.buildMemoryRagContext,
-    description: [
-      'Build a long-context historical memory pack for the current conversation.',
-      'Use this when the current live thread is not enough and you need more historical trajectory before deciding how or whether to reply.',
-      'Prefer this before retrieve_memory_hints.'
-    ].join(' '),
-    parameters: {
-      type: 'object',
-      properties: {
-        query_text: { type: 'string' },
-        memory_goal: { type: 'string' },
-        target_token_budget: { type: 'integer' },
-        prefer_compact_bridge: { type: 'boolean' }
-      },
-      additionalProperties: false
-    }
-  }
-} as const;
+function selectActorToolDefinitions(chatType: 'group' | 'direct', modelName: string): OpenResponseToolDefinition[] {
+  const tools: OpenResponseToolDefinition[] = modelSupportsHostedWebSearch(modelName)
+    ? [WEB_SEARCH_TOOL]
+    : [];
 
-const RETRIEVE_MEMORY_HINTS_TOOL = {
-  type: 'function',
-  function: {
-    name: TOOL_NAMES.retrieveMemoryHints,
-    description: [
-      'Fetch relationship and self-state hints for the current conversation.',
-      'Use this only after build_memory_rag_context when you still need tighter social or tone guidance.',
-      'These hints shape the reply. They are not a replacement for long-context history.'
-    ].join(' '),
-    parameters: {
-      type: 'object',
-      properties: {
-        query_text: { type: 'string' },
-        need_relationship_hints: { type: 'boolean' },
-        need_self_hints: { type: 'boolean' },
-        max_cards: { type: 'integer' },
-        max_states: { type: 'integer' }
-      },
-      additionalProperties: false
-    }
-  }
-} as const;
-
-function selectToolDefinitions(chatType: 'group' | 'direct'): OpenResponseToolDefinition[] {
   if (chatType === 'group') {
-    return [BUILD_MEMORY_RAG_CONTEXT_TOOL, RETRIEVE_MEMORY_HINTS_TOOL, GROUP_MESSAGE_TOOL, FINISH_TOOL];
+    return [...tools, GROUP_MESSAGE_TOOL, FINISH_TOOL];
   }
-  return [BUILD_MEMORY_RAG_CONTEXT_TOOL, RETRIEVE_MEMORY_HINTS_TOOL, PRIVATE_MESSAGE_TOOL, FINISH_TOOL];
+  return [...tools, PRIVATE_MESSAGE_TOOL, FINISH_TOOL];
 }
 
 export function buildCanonicalAgentTurnRequest(
@@ -365,15 +417,18 @@ export function buildCanonicalAgentTurnRequest(
   chatType: 'group' | 'direct'
 ): CanonicalAgentTurnRequest {
   const [firstItem, ...remainingItems] = loopInput;
-  const instructions = firstItem?.type === 'message' && firstItem.role === 'system'
+  const baseInstructions = firstItem?.type === 'message'
+    && firstItem.role === 'system'
+    && typeof firstItem.content === 'string'
     ? firstItem.content
     : undefined;
+  const instructions = baseInstructions;
 
   return {
     model: modelName,
     input: instructions ? remainingItems : loopInput,
     ...(instructions ? { instructions } : {}),
-    tools: selectToolDefinitions(chatType),
+    tools: selectActorToolDefinitions(chatType, modelName),
     tool_choice: 'required',
     parallel_tool_calls: false
   };
@@ -394,15 +449,15 @@ function renderTranscriptBatchMessage(
   message: QueueMessageRecord['payload']['messages'][number],
   index: number
 ) {
-  const speaker = formatMessageSender(message);
-  const body = normalizeTranscriptMessageText(message.bodyForAgent, message.inboundContext.MentionedUsers);
-  const firstLine = `#${index + 1} ${speaker}${message.wasMentioned ? ' [mentioned bot]' : ''}: ${body}`;
-  const lines = [firstLine];
+  const timestamp = message.messageTimestamp || message.receivedAt || `第${index + 1}条`;
+  const lines = [`${timestamp} ${formatIdentity(message.senderName, message.senderId)}`];
 
   if (message.inboundContext.ReplyToBody) {
-    lines.push(`ReplyTo=${formatReplyTarget(message.inboundContext)}: ${message.inboundContext.ReplyToBody}`);
+    const prefix = message.inboundContext.ReplyToIsQuote ? '引用' : '回复给';
+    lines.push(`[${prefix} ${formatReplyTarget(message.inboundContext)}：${message.inboundContext.ReplyToBody}]`);
   }
 
+  lines.push(normalizeTranscriptMessageText(message.bodyForAgent, message.inboundContext.MentionedUsers));
   return lines.join('\n');
 }
 
@@ -619,19 +674,104 @@ function appendRuntimePromptSection(basePrompt: string, sectionTitle: string, se
   return `${normalizedBase}\n\n${sectionTitle}\n${normalizedBody}`;
 }
 
+function buildTextPart(text: string): OpenResponseInputContentPart {
+  return {
+    type: 'input_text',
+    text
+  };
+}
+
+function buildUserSceneInputItem(parts: string[]): OpenResponseInputItem {
+  return {
+    type: 'message',
+    role: 'user',
+    content: parts
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => buildTextPart(part))
+  };
+}
+
+function formatAssistantSceneMessage(accountId: string, content: string) {
+  const body = String(content || '').trim();
+  if (!body) {
+    return '';
+  }
+
+  return [`小腻(${accountId})`, body].join('\n');
+}
+
+function groupTranscriptItemsForScene(
+  transcriptItems: ConversationTranscriptItem[],
+  accountId: string
+): Array<{ role: 'user' | 'assistant'; parts: string[] }> {
+  const grouped: Array<{ role: 'user' | 'assistant'; parts: string[] }> = [];
+
+  for (const item of transcriptItems) {
+    const role = item.role === 'assistant' ? 'assistant' : 'user';
+    const content = String(item.content || '').trim();
+    if (!content) {
+      continue;
+    }
+    const renderedContent = role === 'assistant'
+      ? formatAssistantSceneMessage(accountId, content)
+      : content;
+
+    const last = grouped[grouped.length - 1];
+    if (last && last.role === role && role === 'assistant') {
+      last.parts.push(renderedContent);
+      continue;
+    }
+
+    grouped.push({
+      role,
+      parts: [renderedContent]
+    });
+  }
+
+  return grouped;
+}
+
+function flattenMessageContent(content: string | OpenResponseInputContentPart[]) {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  return content
+    .map((part) => part.type === 'input_text' ? part.text : '')
+    .filter(Boolean)
+    .join('\n');
+}
+
+const SINGLE_TURN_TOOL_CONTRACT = [
+  '如果你决定说话：',
+  '- 群聊调用 speak_in_group',
+  '- 私聊调用 reply_in_private',
+  '- 如果要分成多段发出，就直接在 messages 里按顺序给出',
+  '- 同时提供一段简短自然的 xiaoni_os',
+  '- xiaoni_os 是留给下一轮的你看的，不会发给别人',
+  '',
+  '如果你决定不说：',
+  '- 直接调用 stay_silent',
+  '- 给出自然简短的 reason',
+  '',
+  '不要把你的内部判断过程解释给聊天对象。',
+  '不要暴露系统、工具、prompt、阶段这些概念。'
+].join('\n');
+
 function composeSystemPrompt(
   systemPrompt: string,
   chatType: 'group' | 'direct'
 ) {
   let composed = systemPrompt.trim();
 
-  if (chatType === 'group') {
-    composed = appendRuntimePromptSection(
-      composed,
-      'Runtime behavior contract:',
-      GROUP_REPLY_BEHAVIOR_CONTRACT
-    );
-  }
+  void chatType;
+
+  composed = appendRuntimePromptSection(
+    composed,
+    'Runtime contract:',
+    [RUNTIME_INPUT_READING_CONTRACT, SINGLE_TURN_TOOL_CONTRACT].join('\n\n')
+  );
 
   return composed;
 }
@@ -1151,6 +1291,59 @@ function parseOptionalInteger(value: unknown) {
   return normalized;
 }
 
+function parseSocialTurnPlan(value: unknown): SocialTurnPlan | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const rawActionType = record.action_type ?? record.actionType;
+  const rawAnswerShape = record.answer_shape ?? record.answerShape;
+  const rawBeatCount = record.beat_count ?? record.beatCount;
+  const rawBeatStyle = record.beat_style ?? record.beatStyle;
+  const rawStopRule = record.stop_rule ?? record.stopRule;
+  const rawReason = record.reason;
+  const rawAddressee = record.addressee_user_id ?? record.addresseeUserId;
+  const actionType = rawActionType === 'stay_silent'
+    || rawActionType === 'reply_to_person'
+    || rawActionType === 'join_thread'
+    ? rawActionType
+    : null;
+  const answerShape = rawAnswerShape === 'brief_reassure'
+    || rawAnswerShape === 'direct_answer'
+    || rawAnswerShape === 'light_join'
+    || rawAnswerShape === 'micro_take'
+    || rawAnswerShape === 'joke_along'
+    ? rawAnswerShape
+    : null;
+  const beatCount = rawBeatCount === 1 || rawBeatCount === 2 || rawBeatCount === 3
+    ? rawBeatCount
+    : null;
+  const beatStyle = rawBeatStyle === 'single_complete'
+    || rawBeatStyle === 'split_two'
+    || rawBeatStyle === 'reaction_fragment'
+    ? rawBeatStyle
+    : null;
+  const stopRule = rawStopRule === 'stop_immediately' || rawStopRule === 'wait_for_pickup'
+    ? rawStopRule
+    : null;
+  const reason = typeof rawReason === 'string' ? rawReason.trim() : '';
+
+  if (!actionType || !answerShape || !beatCount || !beatStyle || !stopRule || !reason) {
+    return null;
+  }
+
+    return {
+      actionType,
+    addresseeUserId: parseOptionalInteger(rawAddressee),
+      answerShape,
+    beatCount,
+    beatStyle,
+    stopRule,
+    reason
+  };
+}
+
 function parsePreReplyMemoryGateDecision(
   text: string,
   validCardIds: Set<number>
@@ -1510,6 +1703,16 @@ function deriveHeuristicPreReplyMemoryGate(params: {
   };
 }
 
+function buildUnavailablePreReplyMemoryGateDecision(reason: string): PreReplyMemoryGateDecision {
+  return {
+    shouldReply: false,
+    cueToBot: null,
+    addresseeUserId: null,
+    relevantMemoryIds: [],
+    rationale: reason
+  };
+}
+
 function deriveHeuristicPresentSelf(params: {
   queueMessage: QueueMessageRecord['payload'];
   preReplyMemoryGateDecision: PreReplyMemoryGateDecision;
@@ -1641,6 +1844,30 @@ function deriveHeuristicPresentSelf(params: {
     beatPlan,
     exitRule,
     rationale: 'heuristic_present_self_fallback'
+  };
+}
+
+function buildUnavailablePresentSelf(reason: string): PresentSelfReconstruction {
+  return {
+    shouldSurface: false,
+    presenceLevel: 'light',
+    currentSelfMode: 'unavailable',
+    feltPull: null,
+    activeRelationLines: [],
+    activePastEchoes: [],
+    familiarityLimitNow: 'warm_not_performative',
+    answerShape: 'light_acknowledge',
+    rendererGuidance: ['present self reconstruction unavailable'],
+    socialPositionNow: 'edge_observer',
+    targetPersonId: null,
+    entryIntent: 'hover',
+    beatPlan: {
+      beatCount: 1,
+      beatStyle: 'single_complete',
+      secondBeatPolicy: 'never'
+    },
+    exitRule: 'stop_immediately',
+    rationale: reason
   };
 }
 
@@ -2000,9 +2227,6 @@ export class AgentLoopService {
     const deliveredFingerprints = new Set<string>();
     let historyCount = 0;
     let runtimePrompt: ResolvedAgentRuntimePrompt | null = null;
-    let preReplyMemoryGateDecision: PreReplyMemoryGateDecision | null = null;
-    let presentSelf: PresentSelfReconstruction | null = null;
-    let replayState: Awaited<ReturnType<RuntimeStore['loadSessionReplayState']>> | null = null;
 
     await this.store.logTimelineEvent({
       traceId: payload.traceId,
@@ -2027,87 +2251,18 @@ export class AgentLoopService {
     });
 
     try {
-      replayState = await this.store.loadSessionReplayState({
-        userId: sessionIds.userId,
-        groupId: sessionIds.groupId,
-        recentUserIds: resolveRecentRelatedUserIds(payload),
-        retrievalContext: {
-          currentMessageText: payload.bodyForAgent,
-          replyToBody: payload.inboundContext.ReplyToBody || null,
-          currentSenderName: payload.senderName || null,
-          recentMessageTexts: payload.messages
-            .map((message) => message.bodyForAgent)
-            .filter((message) => message && message !== payload.bodyForAgent)
-            .slice(-3)
-        }
-      });
       const history = await this.store.listRecentTurns({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
-        afterConversationId: replayState.summarizedThroughConversationId
+        afterConversationId: null
       });
       historyCount = history.length;
 
       runtimePrompt = await this.promptResolver.resolveForQueueMessage(payload);
-      preReplyMemoryGateDecision = await this.runPreReplyMemoryGate({
-        queueMessage: payload,
-        traceId: payload.traceId,
-        runtimePrompt,
-        history,
-        summaryText: replayState.summaryText,
-        relationshipMemory: replayState.relationshipCards,
-        topicProjection: replayState.topicProjection
-      });
-      const relationshipMemoryForPrompt = filterRelationshipMemoryByIds(
-        replayState.relationshipCards,
-        preReplyMemoryGateDecision?.relevantMemoryIds || []
-      );
-      presentSelf = await this.runPresentSelfReconstruction({
-        queueMessage: payload,
-        traceId: payload.traceId,
-        runtimePrompt,
-        history,
-        summaryText: replayState.summaryText,
-        preReplyMemoryGateDecision,
-        relationshipMemory: relationshipMemoryForPrompt,
-        selfEvolution: replayState.selfEvolution,
-        topicProjection: replayState.topicProjection
-      });
-      let cumulativeInput = buildInitialInput(history, payload, runtimePrompt, {
-        summaryText: replayState.summaryText,
-        relationshipMemory: relationshipMemoryForPrompt,
-        preReplyMemoryGateDecision,
-        selfEvolution: replayState.selfEvolution,
-        presentSelf,
-        topicProjection: replayState.topicProjection
-      });
+      let cumulativeInput = buildInitialInput(history, payload, runtimePrompt);
       let requestInput = cumulativeInput;
       let finishResult: Record<string, unknown> | null = null;
       let deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
-
-      if (preReplyMemoryGateDecision && !preReplyMemoryGateDecision.shouldReply) {
-        finishResult = {
-          finished: true,
-          reason: preReplyMemoryGateDecision.rationale || 'pre_reply_memory_gate',
-          outcome: 'pre_reply_memory_gate_silent',
-          no_reply: true,
-          cue_to_bot: preReplyMemoryGateDecision.cueToBot,
-          addressee_user_id: preReplyMemoryGateDecision.addresseeUserId,
-          relevant_memory_ids: preReplyMemoryGateDecision.relevantMemoryIds
-        };
-      }
-
-      if (!finishResult && presentSelf && !presentSelf.shouldSurface) {
-        finishResult = {
-          finished: true,
-          reason: presentSelf.rationale || 'present_self_silent',
-          outcome: 'present_self_silent',
-          no_reply: true,
-          cue_to_bot: preReplyMemoryGateDecision?.cueToBot ?? null,
-          addressee_user_id: preReplyMemoryGateDecision?.addresseeUserId ?? null,
-          relevant_memory_ids: preReplyMemoryGateDecision?.relevantMemoryIds || []
-        };
-      }
 
       for (let turn = 1; !finishResult && turn <= agentConfig.maxTurns; turn += 1) {
         turnsExecuted = turn;
@@ -2189,9 +2344,7 @@ export class AgentLoopService {
               break;
             }
 
-            const rawToolResult = await this.executeTool(toolCall, payload, {
-              presentSelf
-            });
+            const rawToolResult = await this.executeTool(toolCall, payload);
             const toolResult = isSilentFinishToolName(toolCall.name)
               ? {
                   ...rawToolResult,
@@ -2305,21 +2458,16 @@ export class AgentLoopService {
             prompt_id: runtimePrompt.promptId,
             prompt_name: runtimePrompt.promptName,
             model_name: runtimePrompt.modelName
-          },
-          pre_reply_memory_gate: preReplyMemoryGateDecision,
-          present_self: presentSelf,
-          topic_projection: replayState?.topicProjection || { activeTopics: [] }
+          }
         },
         rawResponse: {
           sent_messages: sentMessages,
+          xiaoni_os: typeof finishResult?.xiaoni_os === 'string' ? finishResult.xiaoni_os : null,
           total_turns: turnsExecuted,
           termination_reason: termination.terminationReason,
           finish_reason: termination.finishReason,
           finish_outcome: termination.finishOutcome,
-          no_reply: termination.noReply,
-          pre_reply_memory_gate: preReplyMemoryGateDecision,
-          present_self: presentSelf,
-          topic_projection: replayState?.topicProjection || { activeTopics: [] }
+          no_reply: termination.noReply
         }
       });
 
@@ -2422,19 +2570,14 @@ export class AgentLoopService {
             prompt_id: runtimePrompt?.promptId || null,
             prompt_name: runtimePrompt?.promptName || null,
             model_name: runtimePrompt?.modelName || null
-          },
-          pre_reply_memory_gate: preReplyMemoryGateDecision,
-          present_self: presentSelf,
-          topic_projection: replayState?.topicProjection || { activeTopics: [] }
+          }
         },
         rawResponse: {
           sent_messages: sentMessages,
+          xiaoni_os: null,
           total_turns: turnsExecuted,
           termination_reason: termination.terminationReason,
-          no_reply: termination.noReply,
-          pre_reply_memory_gate: preReplyMemoryGateDecision,
-          present_self: presentSelf,
-          topic_projection: replayState?.topicProjection || { activeTopics: [] }
+          no_reply: termination.noReply
         }
       });
       await this.store.attachConversationIdToTrace(payload.traceId, conversationId);
@@ -2563,12 +2706,7 @@ export class AgentLoopService {
         ({ response, payload } = await executeGateRequest(agentConfig.modelName));
       }
       if (!response.ok || !payload.success || typeof payload.response !== 'string') {
-        return deriveHeuristicPreReplyMemoryGate({
-          queueMessage: params.queueMessage,
-          history: params.history,
-          relationshipMemory: params.relationshipMemory,
-          topicProjection: params.topicProjection
-        });
+        return buildUnavailablePreReplyMemoryGateDecision('pre_reply_memory_gate_unavailable');
       }
 
       const decision = parsePreReplyMemoryGateDecision(
@@ -2576,12 +2714,7 @@ export class AgentLoopService {
         new Set(memoryCards.map((card) => card.id))
       );
       if (!decision) {
-        return deriveHeuristicPreReplyMemoryGate({
-          queueMessage: params.queueMessage,
-          history: params.history,
-          relationshipMemory: params.relationshipMemory,
-          topicProjection: params.topicProjection
-        });
+        return buildUnavailablePreReplyMemoryGateDecision('pre_reply_memory_gate_invalid_output');
       }
 
       await this.store.logTimelineEvent({
@@ -2599,12 +2732,7 @@ export class AgentLoopService {
       });
       return decision;
     } catch {
-      return deriveHeuristicPreReplyMemoryGate({
-        queueMessage: params.queueMessage,
-        history: params.history,
-        relationshipMemory: params.relationshipMemory,
-        topicProjection: params.topicProjection
-      });
+      return buildUnavailablePreReplyMemoryGateDecision('pre_reply_memory_gate_error');
     }
   }
 
@@ -2704,22 +2832,12 @@ export class AgentLoopService {
         ({ response, payload } = await executePresentSelfRequest(agentConfig.modelName));
       }
       if (!response.ok || !payload.success || typeof payload.response !== 'string') {
-        return deriveHeuristicPresentSelf({
-          queueMessage: params.queueMessage,
-          preReplyMemoryGateDecision: params.preReplyMemoryGateDecision,
-          selfEvolution: params.selfEvolution,
-          topicProjection: params.topicProjection
-        });
+        return buildUnavailablePresentSelf('present_self_reconstruction_unavailable');
       }
 
       const presentSelf = parsePresentSelfReconstruction(payload.response);
       if (!presentSelf) {
-        return deriveHeuristicPresentSelf({
-          queueMessage: params.queueMessage,
-          preReplyMemoryGateDecision: params.preReplyMemoryGateDecision,
-          selfEvolution: params.selfEvolution,
-          topicProjection: params.topicProjection
-        });
+        return buildUnavailablePresentSelf('present_self_reconstruction_invalid_output');
       }
 
       await this.store.logTimelineEvent({
@@ -2747,12 +2865,7 @@ export class AgentLoopService {
       });
       return presentSelf;
     } catch {
-      return deriveHeuristicPresentSelf({
-        queueMessage: params.queueMessage,
-        preReplyMemoryGateDecision: params.preReplyMemoryGateDecision,
-        selfEvolution: params.selfEvolution,
-        topicProjection: params.topicProjection
-      });
+      return buildUnavailablePresentSelf('present_self_reconstruction_error');
     }
   }
 
@@ -2764,7 +2877,11 @@ export class AgentLoopService {
     runtimePrompt: ResolvedAgentRuntimePrompt
   ) {
     const canonicalRequest: CanonicalAgentTurnRequest = {
-      ...buildCanonicalAgentTurnRequest(runtimePrompt.modelName, turnInput, queueMessage.chatType),
+      ...buildCanonicalAgentTurnRequest(
+        runtimePrompt.modelName,
+        turnInput,
+        queueMessage.chatType
+      ),
       metadata: buildAgentTurnMetadata(queueMessage, runtimePrompt),
       prompt_cache_key: buildPromptCacheKey(queueMessage, runtimePrompt),
       ...(agentConfig.promptCacheRetention && agentConfig.promptCacheRetention.trim()
@@ -2798,52 +2915,9 @@ export class AgentLoopService {
   private async executeTool(
     toolCall: AgentToolCall,
     queueMessage: QueueMessageRecord['payload'],
-    options: {
-      presentSelf?: PresentSelfReconstruction | null;
-    } = {}
+    options: Record<string, never> = {}
   ): Promise<Record<string, unknown>> {
     switch (toolCall.name) {
-      case TOOL_NAMES.buildMemoryRagContext: {
-        const sessionTargets = resolveSessionTargets(queueMessage);
-        const queryText = typeof toolCall.args.query_text === 'string' && toolCall.args.query_text.trim()
-          ? toolCall.args.query_text.trim()
-          : queueMessage.bodyForAgent;
-        const targetTokenBudget = Number.isFinite(Number(toolCall.args.target_token_budget))
-          ? Number(toolCall.args.target_token_budget)
-          : 12000;
-        const context = await this.store.buildMemoryRagContext({
-          userId: sessionTargets.userId,
-          groupId: sessionTargets.groupId,
-          currentMessageText: queryText,
-          recentUserIds: resolveRecentRelatedUserIds(queueMessage),
-          targetTokenBudget
-        });
-        return {
-          memory_goal: typeof toolCall.args.memory_goal === 'string' ? toolCall.args.memory_goal : null,
-          query_text: queryText,
-          target_token_budget: targetTokenBudget,
-          prefer_compact_bridge: toolCall.args.prefer_compact_bridge === true,
-          ...context
-        };
-      }
-      case TOOL_NAMES.retrieveMemoryHints: {
-        const sessionTargets = resolveSessionTargets(queueMessage);
-        const queryText = typeof toolCall.args.query_text === 'string' && toolCall.args.query_text.trim()
-          ? toolCall.args.query_text.trim()
-          : queueMessage.bodyForAgent;
-        const hints = await this.store.retrieveMemoryHints({
-          userId: sessionTargets.userId,
-          groupId: sessionTargets.groupId,
-          currentMessageText: queryText,
-          recentUserIds: resolveRecentRelatedUserIds(queueMessage),
-          maxCards: Number.isFinite(Number(toolCall.args.max_cards)) ? Number(toolCall.args.max_cards) : 3,
-          maxStates: Number.isFinite(Number(toolCall.args.max_states)) ? Number(toolCall.args.max_states) : 2
-        });
-        return {
-          query_text: queryText,
-          ...hints
-        };
-      }
       case TOOL_NAMES.privateReply:
       case 'send_private_message':
         return this.sendMessage('private', toolCall.args, queueMessage, options);
@@ -2919,11 +2993,12 @@ export class AgentLoopService {
     messageType: 'private' | 'group',
     args: Record<string, unknown>,
     queueMessage: QueueMessageRecord['payload'],
-    options: {
-      presentSelf?: PresentSelfReconstruction | null;
-    } = {}
+    options: Record<string, never> = {}
   ) {
     const sanitizedArgs = omitTargetOverrideArgs(args, messageType, queueMessage.traceId);
+    const xiaoniOs = typeof sanitizedArgs.xiaoni_os === 'string' && sanitizedArgs.xiaoni_os.trim()
+      ? sanitizedArgs.xiaoni_os.trim()
+      : null;
 
     if (messageType === 'private') {
       const userId = resolvePrivateTargetUserId(queueMessage);
@@ -2949,60 +3024,24 @@ export class AgentLoopService {
       return {
         message_type: 'private',
         sent_messages: messages,
+        xiaoni_os: xiaoniOs,
         delivery: payload.data || null
       };
     }
 
     const groupId = resolveGroupTargetId(queueMessage);
-    const plannedDelivery = planGroupReplyDelivery({
-      messages: normalizeMessages(sanitizedArgs),
+    const normalizedMessages = normalizeMessages(sanitizedArgs);
+    const plannedDelivery = {
+      messages: normalizedMessages,
       mentionUserIds: normalizeOptionalIntegerList(sanitizedArgs.mention_user_ids),
-      queueMessage,
-      presentSelf: options.presentSelf
-    });
+      secondBeatSuppressed: false
+    };
     if (!Number.isFinite(groupId) || plannedDelivery.messages.length === 0) {
       throw new Error(`${TOOL_NAMES.groupReply} requires a valid current group target plus message or messages`);
     }
 
     let selectedMessages = plannedDelivery.messages;
     let selectedMentionUserIds = plannedDelivery.mentionUserIds;
-
-    if (options.presentSelf && shouldUseGroupReplyTasteJudge(queueMessage, options.presentSelf)) {
-      const candidates = buildGroupReplyCandidates(plannedDelivery.messages);
-      if (candidates.length > 0) {
-        try {
-          const decision = await this.selectGroupReplyCandidate({
-            queueMessage,
-            presentSelf: options.presentSelf,
-            candidates
-          });
-          if (decision) {
-            if (decision.choiceIndex === 0) {
-              return {
-                finished: true,
-                reason: decision.rationale || 'group_reply_taste_judge_silent',
-                outcome: 'group_reply_taste_judge_silent',
-                no_reply: true,
-                suppressed_by_taste_judge: true,
-                message_type: 'group',
-                mention_user_ids: [],
-                sent_messages: []
-              };
-            }
-
-            const selected = candidates[decision.choiceIndex - 1];
-            if (selected) {
-              selectedMessages = selected.messages;
-              selectedMentionUserIds = selectedMessages.length === plannedDelivery.messages.length
-                ? plannedDelivery.mentionUserIds
-                : [];
-            }
-          }
-        } catch {
-          // Fall back to the planned delivery if the taste judge is unavailable.
-        }
-      }
-    }
 
     const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/send_group`, {
       method: 'POST',
@@ -3024,6 +3063,7 @@ export class AgentLoopService {
       message_type: 'group',
       mention_user_ids: selectedMentionUserIds,
       sent_messages: selectedMessages,
+      xiaoni_os: xiaoniOs,
       second_beat_suppressed: plannedDelivery.secondBeatSuppressed,
       delivery: payload.data || null
     };
@@ -3038,25 +3078,7 @@ export function buildInitialInput(
     userPromptTemplate: null,
     contextVariables: {},
     runtimeVariables: {}
-  },
-  options: {
-    summaryText?: string | null;
-    relationshipMemory?: {
-      groupCards?: RuntimeRelationshipMemoryCard[];
-      currentUserCards?: RuntimeRelationshipMemoryCard[];
-      recentUserCards?: RuntimeRelationshipMemoryCard[];
-    } | null;
-    preReplyMemoryGateDecision?: PreReplyMemoryGateDecision | null;
-    selfEvolution?: {
-      groupStates?: RuntimeSelfEvolutionState[];
-      currentUserStates?: RuntimeSelfEvolutionState[];
-      recentUserStates?: RuntimeSelfEvolutionState[];
-    } | null;
-    presentSelf?: PresentSelfReconstruction | null;
-    topicProjection?: {
-      activeTopics?: RuntimeTopicProjection[];
-    } | null;
-  } = {}
+  }
 ): OpenResponseInputItem[] {
   const items: OpenResponseInputItem[] = [
     {
@@ -3069,83 +3091,110 @@ export function buildInitialInput(
     }
   ];
 
-  const runtimeGuidance = buildRuntimeGuidanceContent({
-    currentMessageText: queueMessage.bodyForAgent,
-    preReplyMemoryGateDecision: options.preReplyMemoryGateDecision,
-    presentSelf: options.presentSelf,
-    surfaceAnchors: extractLiveSurfaceAnchors(queueMessage),
-    topicProjection: options.topicProjection
-  });
-  if (runtimeGuidance) {
-    items.push({
-      type: 'message',
-      role: 'user',
-      content: runtimeGuidance
-    });
-  }
+  items.push(buildUserSceneInputItem(['[已读消息]']));
 
   for (const turn of history) {
     const transcriptItems = Array.isArray(turn.items) && turn.items.length > 0
       ? turn.items
       : [];
+    const osText = buildLatestTurnOs(history, turn);
+    let osAttached = false;
 
     if (transcriptItems.length === 0) {
-      items.push({
-        type: 'message',
-        role: 'user',
-        content: turn.userMessage
-      });
+      items.push(buildUserSceneInputItem([turn.userMessage]));
       if (turn.aiResponse) {
-        items.push({
-          type: 'message',
-          role: 'assistant',
-          content: turn.aiResponse
-        });
+        const renderedAiResponse = formatAssistantSceneMessage(queueMessage.accountId, turn.aiResponse);
+        items.push(buildUserSceneInputItem(osText ? [renderedAiResponse, osText] : [renderedAiResponse]));
+        osAttached = Boolean(osText);
+      }
+      if (osText && !osAttached) {
+        items.push(buildUserSceneInputItem([osText]));
       }
       continue;
     }
 
-    for (const transcriptItem of transcriptItems) {
-      if (transcriptItem.role === 'assistant') {
-        items.push({
-          type: 'message',
-          role: 'assistant',
-          content: transcriptItem.content,
-          ...(transcriptItem.phase ? { phase: transcriptItem.phase } : {})
-        });
-        continue;
+    const groupedItems = groupTranscriptItemsForScene(transcriptItems, queueMessage.accountId);
+    for (let index = 0; index < groupedItems.length; index += 1) {
+      const groupedItem = groupedItems[index];
+      const isLastAssistantGroup = groupedItem.role === 'assistant'
+        && groupedItems.slice(index + 1).every((item) => item.role !== 'assistant');
+      items.push(buildUserSceneInputItem(
+        osText && isLastAssistantGroup
+          ? [...groupedItem.parts, osText]
+          : groupedItem.parts
+      ));
+      if (osText && isLastAssistantGroup) {
+        osAttached = true;
       }
+    }
 
-      items.push({
-        type: 'message',
-        role: 'user',
-        content: transcriptItem.content
-      });
+    if (osText && !osAttached) {
+      items.push(buildUserSceneInputItem([osText]));
     }
   }
 
-  items.push(buildCurrentTurnInputItem(queueMessage, runtimePrompt));
+  items.push(buildUserSceneInputItem(['[未读消息]']));
+  items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
 
   return items;
 }
 
-function buildCurrentTurnInputItem(
+function buildLatestTurnOs(history: ConversationTurn[], turn: ConversationTurn) {
+  if (history.length === 0 || history[history.length - 1]?.id !== turn.id) {
+    return '';
+  }
+
+  const rawResponse = turn.rawResponse && typeof turn.rawResponse === 'object'
+    ? turn.rawResponse
+    : {};
+  const xiaoniOs = typeof (rawResponse as Record<string, unknown>).xiaoni_os === 'string'
+    ? String((rawResponse as Record<string, unknown>).xiaoni_os).trim()
+    : '';
+  const finishReason = typeof (rawResponse as Record<string, unknown>).finish_reason === 'string'
+    ? String((rawResponse as Record<string, unknown>).finish_reason).trim()
+    : '';
+  const sentMessages = Array.isArray((rawResponse as Record<string, unknown>).sent_messages)
+    ? ((rawResponse as Record<string, unknown>).sent_messages as unknown[])
+        .map((item) => typeof item === 'string' ? item.trim() : '')
+        .filter(Boolean)
+    : [];
+
+  if (xiaoniOs) {
+    return [
+      '<小腻的OS>',
+      xiaoniOs,
+      '</小腻的OS>'
+    ].join('\n');
+  }
+
+  if (finishReason && !turn.aiResponse && sentMessages.length === 0) {
+    return [
+      '<小腻的OS>',
+      `刚才我没有接。${finishReason}`,
+      '</小腻的OS>'
+    ].join('\n');
+  }
+
+  return '';
+}
+
+function buildCurrentTurnInputItems(
   queueMessage: QueueMessageRecord['payload'],
   runtimePrompt: Pick<ResolvedAgentRuntimePrompt, 'userPromptTemplate' | 'contextVariables' | 'runtimeVariables'>
-): OpenResponseInputItem {
-  const currentMessage = buildCurrentTurnMessage(queueMessage);
-  const renderedCurrentMessage = runtimePrompt.userPromptTemplate
-    ? applyPromptTemplate(runtimePrompt.userPromptTemplate, runtimePrompt.contextVariables, {
+): OpenResponseInputItem[] {
+  const currentMessages = queueMessage.messages.map((message, index) => renderTranscriptBatchMessage(message, index));
+  let userPromptTemplate: string | null = null;
+  if (typeof runtimePrompt.userPromptTemplate === 'string' && runtimePrompt.userPromptTemplate.trim()) {
+    userPromptTemplate = runtimePrompt.userPromptTemplate;
+  }
+  const renderedMessages = userPromptTemplate
+    ? currentMessages.map((message) => applyPromptTemplate(userPromptTemplate, runtimePrompt.contextVariables, {
         ...runtimePrompt.runtimeVariables,
-        user_input: currentMessage
-      })
-    : currentMessage;
+        user_input: message
+      }))
+    : currentMessages;
 
-  return {
-    type: 'message',
-    role: 'user',
-    content: renderedCurrentMessage
-  };
+  return renderedMessages.map((message) => buildUserSceneInputItem([message]));
 }
 
 function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
