@@ -49,12 +49,33 @@ RUN --mount=type=cache,target=/root/.npm \
   && npm config delete registry
 
 FROM node:18-alpine AS runtime
-RUN apk add --no-cache tzdata
+RUN apk add --no-cache tzdata python3 py3-pip ca-certificates
 WORKDIR /app/modules/agent-service
 ENV TZ=Asia/Shanghai
+ENV VIRTUAL_ENV=/opt/agent-tokenizer-venv
+ENV PATH="/opt/agent-tokenizer-venv/bin:$PATH"
+ENV AGENT_TOKENIZER_PYTHON=/opt/agent-tokenizer-venv/bin/python
+ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache
 RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 RUN mkdir -p /app/logs
+RUN python3 -m venv "$VIRTUAL_ENV" \
+  && "$VIRTUAL_ENV/bin/pip" install --no-cache-dir tiktoken
+RUN python3 - <<'PY'
+import hashlib
+import os
+import ssl
+import urllib.request
+
+url = "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken"
+cache_dir = "/opt/tiktoken-cache"
+os.makedirs(cache_dir, exist_ok=True)
+cache_path = os.path.join(cache_dir, hashlib.sha1(url.encode()).hexdigest())
+context = ssl._create_unverified_context()
+with urllib.request.urlopen(url, context=context) as response, open(cache_path, "wb") as output:
+    output.write(response.read())
+PY
 COPY modules/agent-service/package.json ./
+COPY modules/agent-service/scripts ./scripts
 COPY --from=prod-deps /app/packages/persistence /app/packages/persistence
 COPY --from=prod-deps /app/modules/agent-service/node_modules ./node_modules
 COPY --from=build /app/modules/agent-service/dist ./dist

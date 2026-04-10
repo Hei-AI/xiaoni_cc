@@ -14,8 +14,6 @@ import {
 } from '../components/ui/table';
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { ChatSpaceTopicWorkspace } from '../components/ChatSpaceTopicWorkspace';
-import { ChatSpaceRelationshipMemoryWorkspace } from '../components/ChatSpaceRelationshipMemoryWorkspace';
 import { usePromptTemplates } from '../hooks/usePromptTemplates';
 import { applyChatSettingToggle, isChatSettingToggleDisabled, type ChatSettingsToggleField } from '@/lib/chat-settings';
 import { formatPromptBindingLabel } from '@/lib/contract-display';
@@ -148,7 +146,6 @@ export const PrivateChatDetailPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [timeRange, setTimeRange] = useState('all');
-  const [offsetDraft, setOffsetDraft] = useState('6');
   const queryClient = useQueryClient();
   const limit = 20;
 
@@ -235,13 +232,6 @@ export const PrivateChatDetailPage: React.FC = () => {
     });
   }, [conversationData?.data.user_settings.agent_prompt_id, currentPrompt?.prompt_name, isPromptBindingResolving]);
 
-  React.useEffect(() => {
-    if (!conversationData?.data.user_settings) {
-      return;
-    }
-    setOffsetDraft(String(conversationData.data.user_settings.transcript_compact_offset ?? 6));
-  }, [conversationData?.data.user_settings]);
-
   const formatDate = (dateString: string) => {
     return formatTimestamp(dateString);
   };
@@ -274,17 +264,6 @@ export const PrivateChatDetailPage: React.FC = () => {
       field,
       !currentValue
     ));
-  };
-
-  const handleOffsetSave = () => {
-    const numericValue = Number(offsetDraft);
-    if (!Number.isInteger(numericValue) || numericValue < 0 || numericValue > 500) {
-      window.alert('Compact offset 必须是 0 到 500 的整数');
-      return;
-    }
-    updateSettingsMutation.mutate({
-      transcript_compact_offset: numericValue
-    });
   };
 
   return (
@@ -417,29 +396,8 @@ export const PrivateChatDetailPage: React.FC = () => {
                   这里只展示私聊级显式绑定。未绑定表示后端当前没有私聊级 Prompt 契约。
                 </p>
               </div>
-              <div className="space-y-2">
-                <span className="text-sm font-medium">Compact Offset:</span>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min={0}
-                    max={500}
-                    value={offsetDraft}
-                    onChange={(e) => setOffsetDraft(e.target.value)}
-                    className="w-32"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleOffsetSave}
-                    disabled={updateSettingsMutation.isPending}
-                  >
-                    保存
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  compact 时保留在摘要外、继续原样重放的尾部对话数量。当前值 {conversationData.data.user_settings.transcript_compact_offset}。
-                </p>
+              <div className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
+                transcript summary / memory / topic 相关后台能力当前已屏蔽，管理端不再开放这些调优项。
               </div>
             </CardContent>
           </Card>
@@ -477,10 +435,6 @@ export const PrivateChatDetailPage: React.FC = () => {
           </Card>
         </div>
       )}
-
-      <ChatSpaceTopicWorkspace chatSpaceType="direct" chatSpaceId={Number(userId)} />
-
-      <ChatSpaceRelationshipMemoryWorkspace sessionKey={userId ? `private:${userId}` : null} />
 
       {/* Search and Filters */}
       <Card>

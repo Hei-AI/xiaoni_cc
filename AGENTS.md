@@ -18,8 +18,8 @@
 - 已经移除的旧服务、旧接口和旧页面不要再作为当前契约参考；排障与开发都只围绕上面的活跃模块展开
 
 ## Project Map
-- `modules/provider-service`：OneBot / NapCat 入站、provider debug、消息模拟、simple queue、embeddings、transcript / relationship / self / topic side effect 调度
-- `modules/admin-panel/backend`：管理端 API，承接 runs、conversations、queue、prompt、playground、traffic replay、runtime status、relationship memory、topic lab
+- `modules/provider-service`：OneBot / NapCat 入站、provider debug、消息模拟、simple queue、embeddings、queue / timeline 主链
+- `modules/admin-panel/backend`：管理端 API，承接 runs、conversations、queue、prompt、playground、traffic replay、runtime status
 - `modules/admin-panel/frontend`：React + Vite 管理端 UI，默认走 `admin-panel/backend`
 - `modules/agent-service`：后台 agent loop / runtime worker，消费 queue、执行主 agent run、维护 delivery state
 - `packages/persistence`：共享 PostgreSQL 持久化层；所有共享表和业务持久化读写都必须收口到这里
@@ -28,7 +28,7 @@
 ## Where To Debug
 - 页面展示错、交互异常、浏览器请求失败：先分清生产前端还是本地联调，再看 `modules/admin-panel/frontend`；对应 `docs/AGENTS_FRONTEND.md`
 - API 500、数据不一致、队列/Prompt/会话问题：先看 `modules/admin-panel/backend`；涉及共享表和持久化再看 `packages/persistence`；对应 `docs/AGENTS_BACKEND_DATA.md`
-- provider debug、NapCat 发消息、embeddings、simple queue、inbound queue 写入、transcript / memory side effect 问题：先看 `modules/provider-service`，不要先在前端或历史模块绕圈
+- provider debug、NapCat 发消息、embeddings、simple queue、inbound queue 写入、timeline / queue 主链问题：先看 `modules/provider-service`，不要先在前端或历史模块绕圈
 - agent run、后台任务执行问题：看 `modules/agent-service`
 - 部署、认证、token、本机访问问题：先看 `docs/AGENTS_SECRETS_LOCAL_STATE.md`，再看 `scripts/deploy-admin-public.sh`、`scripts/start_modules.py`
 - 默认规则：只修真实生效的层，不要围绕错误契约继续堆适配层

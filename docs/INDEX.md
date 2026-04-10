@@ -13,7 +13,7 @@
   - `docs/AGENTS_SECRETS_LOCAL_STATE.md`
 - embeddings：
   - `docs/AGENTS_EMBEDDINGS.md`
-- memory / relationship / topic 评测与回放：
+- 已屏蔽的 memory / relationship / topic 历史资料：
   - `docs/AGENTS_MEMORY_EVAL.md`
 - Git 提交、推送、PR：
   - `docs/AGENTS_GIT_PR.md`

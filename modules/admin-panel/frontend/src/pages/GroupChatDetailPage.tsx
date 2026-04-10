@@ -17,8 +17,6 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Switch } from '../components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { ChatSpaceTopicWorkspace } from '../components/ChatSpaceTopicWorkspace';
-import { ChatSpaceRelationshipMemoryWorkspace } from '../components/ChatSpaceRelationshipMemoryWorkspace';
 import { usePromptTemplates } from '../hooks/usePromptTemplates';
 import { applyChatSettingToggle, isChatSettingToggleDisabled } from '@/lib/chat-settings';
 import { formatPromptBindingLabel } from '@/lib/contract-display';
@@ -381,17 +379,8 @@ export const GroupChatDetailPage: React.FC = () => {
                     />
                   </div>
 
-                  <div>
-                    <Label htmlFor="transcript_compact_offset">Compact Offset</Label>
-                    <Input
-                      id="transcript_compact_offset"
-                      type="number"
-                      min={0}
-                      max={500}
-                      value={settingsForm.transcript_compact_offset ?? 6}
-                      onChange={(e) => handleSettingsChange('transcript_compact_offset', Number(e.target.value) || 0)}
-                      placeholder="compact 时保留在摘要外的尾部对话数量"
-                    />
+                  <div className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
+                    transcript summary / memory / topic 相关后台能力当前已屏蔽，这一版只保留最简单的对话运行链路。
                   </div>
                   
                   <div className="flex items-center space-x-6 flex-wrap gap-y-4">
@@ -472,10 +461,6 @@ export const GroupChatDetailPage: React.FC = () => {
                         : '无'}
                     </p>
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Compact Offset</p>
-                    <p className="font-medium">{groupData.data.group_settings.transcript_compact_offset}</p>
-                  </div>
                 </div>
               )}
             </CardContent>
@@ -522,10 +507,6 @@ export const GroupChatDetailPage: React.FC = () => {
               </p>
             </CardContent>
           </Card>
-
-          <ChatSpaceTopicWorkspace chatSpaceType="group" chatSpaceId={Number(groupId)} />
-
-          <ChatSpaceRelationshipMemoryWorkspace sessionKey={groupId ? `group:${groupId}` : null} />
 
           {/* 今日统计卡片 */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

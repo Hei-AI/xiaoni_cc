@@ -22,12 +22,15 @@ import {
 } from './runtime-input-renderer';
 import {
   RuntimeStore,
+  type SessionReadCutoffState,
   type RuntimeMemoryHints,
   type RuntimeMemoryRagContext,
   type RuntimeRelationshipMemoryCard,
   type RuntimeSelfEvolutionState,
   type RuntimeTopicProjection
 } from './runtime-store';
+import { resolveModelContextPolicy } from './model-context-policy';
+import { estimateTextTokens } from './token-estimator';
 
 type OpenResponseInputItem =
   | {
@@ -136,10 +139,43 @@ type ProviderAgentResponse = {
   wire_response?: Record<string, unknown>;
   raw_response?: Record<string, unknown>;
   usage?: Record<string, unknown>;
+  usage_details?: Record<string, unknown>;
   performance?: {
     processing_time_ms?: number;
   };
   error?: string;
+};
+
+type ContextBudgetTurnRecord = {
+  turn: number;
+  estimatedInputTokens: number;
+  actualInputTokens: number | null;
+  actualOutputTokens: number | null;
+  actualTotalTokens: number | null;
+  cachedInputTokens: number | null;
+  reasoningTokens: number | null;
+  processingTimeMs: number | null;
+  readHistoryCount: number;
+  readCutoffAfterConversationId: number | null;
+  contextWindowTokens: number | null;
+  targetBudgetTokens: number | null;
+  hardBudgetTokens: number | null;
+  tokenizerEncoding: string | null;
+  tokenizerSource: 'tiktoken' | 'heuristic' | null;
+  cutoffRecomputed: boolean;
+};
+
+type ContextBudgetPlan = {
+  requestInput: OpenResponseInputItem[];
+  retainedHistory: ConversationTurn[];
+  readCutoffAfterConversationId: number | null;
+  estimatedInputTokens: number;
+  contextWindowTokens: number | null;
+  targetBudgetTokens: number | null;
+  hardBudgetTokens: number | null;
+  tokenizerEncoding: string | null;
+  tokenizerSource: 'tiktoken' | 'heuristic' | null;
+  cutoffRecomputed: boolean;
 };
 
 type SocialTurnPlan = {
@@ -183,6 +219,8 @@ type PresentSelfReconstruction = {
 };
 
 const moduleLogger = logger.createModuleLogger('agent-loop-service');
+const READ_HISTORY_TARGET_RATIO = 0.7;
+const READ_HISTORY_HARD_RATIO = 0.95;
 
 const TOOL_NAMES = {
   planSocialTurn: 'emit_social_turn_plan',
@@ -2227,6 +2265,19 @@ export class AgentLoopService {
     const deliveredFingerprints = new Set<string>();
     let historyCount = 0;
     let runtimePrompt: ResolvedAgentRuntimePrompt | null = null;
+    const contextBudgetTurns: ContextBudgetTurnRecord[] = [];
+    let budgetPlan: ContextBudgetPlan = {
+      requestInput: [],
+      retainedHistory: [],
+      readCutoffAfterConversationId: null,
+      estimatedInputTokens: 0,
+      contextWindowTokens: null,
+      targetBudgetTokens: null,
+      hardBudgetTokens: null,
+      tokenizerEncoding: null,
+      tokenizerSource: null,
+      cutoffRecomputed: false
+    };
 
     await this.store.logTimelineEvent({
       traceId: payload.traceId,
@@ -2259,13 +2310,47 @@ export class AgentLoopService {
       historyCount = history.length;
 
       runtimePrompt = await this.promptResolver.resolveForQueueMessage(payload);
-      let cumulativeInput = buildInitialInput(history, payload, runtimePrompt);
-      let requestInput = cumulativeInput;
+      let loopContinuation: OpenResponseInputItem[] = [];
+      budgetPlan = await this.buildContextBudgetPlan({
+        history,
+        queueMessage: payload,
+        runtimePrompt,
+        loopContinuation
+      });
+      let requestInput = budgetPlan.requestInput;
       let finishResult: Record<string, unknown> | null = null;
       let deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
 
       for (let turn = 1; !finishResult && turn <= agentConfig.maxTurns; turn += 1) {
         turnsExecuted = turn;
+        if (turn > 1) {
+          budgetPlan = await this.buildContextBudgetPlan({
+            history,
+            queueMessage: payload,
+            runtimePrompt,
+            loopContinuation
+          });
+          requestInput = budgetPlan.requestInput;
+        }
+        const turnBudgetRecord: ContextBudgetTurnRecord = {
+          turn,
+          estimatedInputTokens: budgetPlan.estimatedInputTokens,
+          actualInputTokens: null,
+          actualOutputTokens: null,
+          actualTotalTokens: null,
+          cachedInputTokens: null,
+          reasoningTokens: null,
+          processingTimeMs: null,
+          readHistoryCount: budgetPlan.retainedHistory.length,
+          readCutoffAfterConversationId: budgetPlan.readCutoffAfterConversationId,
+          contextWindowTokens: budgetPlan.contextWindowTokens,
+          targetBudgetTokens: budgetPlan.targetBudgetTokens,
+          hardBudgetTokens: budgetPlan.hardBudgetTokens,
+          tokenizerEncoding: budgetPlan.tokenizerEncoding,
+          tokenizerSource: budgetPlan.tokenizerSource,
+          cutoffRecomputed: budgetPlan.cutoffRecomputed
+        };
+        contextBudgetTurns.push(turnBudgetRecord);
         const modelResult = await this.executeAgentTurn(
           requestInput,
           payload,
@@ -2273,6 +2358,7 @@ export class AgentLoopService {
           turn,
           runtimePrompt
         );
+        attachActualUsageToTurnBudget(turnBudgetRecord, modelResult);
         const replayableOutputs = extractReplayableModelOutputs(modelResult.canonical_response);
         const hasToolCall = replayableOutputs.some((item) => item.type === 'tool_call');
 
@@ -2281,7 +2367,7 @@ export class AgentLoopService {
         }
 
         for (const replayItem of replayableOutputs) {
-          cumulativeInput.push(replayItem.inputItem);
+          loopContinuation.push(replayItem.inputItem);
           const toolCall = replayItem.toolCall;
           const logId = await this.store.createToolExecutionLog({
             traceId: payload.traceId,
@@ -2381,9 +2467,14 @@ export class AgentLoopService {
               break;
             }
             if (continuation.inputItems.length > 0) {
-              cumulativeInput.push(...continuation.inputItems);
+              loopContinuation.push(...continuation.inputItems);
             }
-            requestInput = cumulativeInput;
+            requestInput = buildLoopRequestInput({
+              history: budgetPlan.retainedHistory,
+              queueMessage: payload,
+              runtimePrompt,
+              loopContinuation
+            });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             await this.store.completeToolExecutionLog(logId, {
@@ -2453,6 +2544,17 @@ export class AgentLoopService {
           queue_message_ids: queueMessage.queueMessageIds,
           batch_messages: payload.messages,
           history_count: historyCount,
+          retained_history_count: budgetPlan.retainedHistory.length,
+          context_budget: {
+            context_window_tokens: budgetPlan.contextWindowTokens,
+            target_budget_tokens: budgetPlan.targetBudgetTokens,
+            hard_budget_tokens: budgetPlan.hardBudgetTokens,
+            estimated_input_tokens: budgetPlan.estimatedInputTokens,
+            tokenizer_encoding: budgetPlan.tokenizerEncoding,
+            tokenizer_source: budgetPlan.tokenizerSource,
+            read_cutoff_after_conversation_id: budgetPlan.readCutoffAfterConversationId,
+            cutoff_recomputed: budgetPlan.cutoffRecomputed
+          },
           prompt: {
             source: runtimePrompt.source,
             prompt_id: runtimePrompt.promptId,
@@ -2463,6 +2565,7 @@ export class AgentLoopService {
         rawResponse: {
           sent_messages: sentMessages,
           xiaoni_os: typeof finishResult?.xiaoni_os === 'string' ? finishResult.xiaoni_os : null,
+          context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
           total_turns: turnsExecuted,
           termination_reason: termination.terminationReason,
           finish_reason: termination.finishReason,
@@ -2565,6 +2668,17 @@ export class AgentLoopService {
           queue_message_ids: queueMessage.queueMessageIds,
           batch_messages: payload.messages,
           history_count: historyCount,
+          retained_history_count: budgetPlan.retainedHistory.length,
+          context_budget: {
+            context_window_tokens: budgetPlan.contextWindowTokens,
+            target_budget_tokens: budgetPlan.targetBudgetTokens,
+            hard_budget_tokens: budgetPlan.hardBudgetTokens,
+            estimated_input_tokens: budgetPlan.estimatedInputTokens,
+            tokenizer_encoding: budgetPlan.tokenizerEncoding,
+            tokenizer_source: budgetPlan.tokenizerSource,
+            read_cutoff_after_conversation_id: budgetPlan.readCutoffAfterConversationId,
+            cutoff_recomputed: budgetPlan.cutoffRecomputed
+          },
           prompt: {
             source: runtimePrompt?.source || null,
             prompt_id: runtimePrompt?.promptId || null,
@@ -2575,6 +2689,7 @@ export class AgentLoopService {
         rawResponse: {
           sent_messages: sentMessages,
           xiaoni_os: null,
+          context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
           total_turns: turnsExecuted,
           termination_reason: termination.terminationReason,
           no_reply: termination.noReply
@@ -2620,6 +2735,78 @@ export class AgentLoopService {
         error: message
       });
     }
+  }
+
+  private async buildContextBudgetPlan(params: {
+    history: ConversationTurn[];
+    queueMessage: QueueMessageRecord['payload'];
+    runtimePrompt: ResolvedAgentRuntimePrompt;
+    loopContinuation: OpenResponseInputItem[];
+  }): Promise<ContextBudgetPlan> {
+    const policy = resolveModelContextPolicy(
+      params.runtimePrompt.modelName,
+      params.runtimePrompt.parameters as Record<string, unknown> | undefined
+    );
+    const contextWindowTokens = policy?.contextWindowTokens ?? null;
+    const targetBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_TARGET_RATIO)) : null;
+    const hardBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_HARD_RATIO)) : null;
+    const cutoffState = await this.store.getSessionReadCutoffState(params.queueMessage.sessionKey);
+    const initialRetainedHistory = applyReadCutoff(params.history, cutoffState);
+    const initialRequestInput = buildLoopRequestInput({
+      history: initialRetainedHistory,
+      queueMessage: params.queueMessage,
+      runtimePrompt: params.runtimePrompt,
+      loopContinuation: params.loopContinuation
+    });
+    const initialEstimate = await estimateLoopInputTokens({
+      modelName: params.runtimePrompt.modelName,
+      queueMessage: params.queueMessage,
+      loopInput: initialRequestInput
+    });
+
+    if (!contextWindowTokens || !targetBudgetTokens || !hardBudgetTokens || initialEstimate.inputTokens <= hardBudgetTokens) {
+      return {
+        requestInput: initialRequestInput,
+        retainedHistory: initialRetainedHistory,
+        readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        estimatedInputTokens: initialEstimate.inputTokens,
+        contextWindowTokens,
+        targetBudgetTokens,
+        hardBudgetTokens,
+        tokenizerEncoding: initialEstimate.encoding,
+        tokenizerSource: initialEstimate.source,
+        cutoffRecomputed: false
+      };
+    }
+
+    const recomputed = await recomputeReadCutoffToTarget({
+      history: params.history,
+      queueMessage: params.queueMessage,
+      runtimePrompt: params.runtimePrompt,
+      loopContinuation: params.loopContinuation,
+      targetBudgetTokens
+    });
+
+    await this.store.upsertSessionReadCutoffState({
+      sessionKey: params.queueMessage.sessionKey,
+      readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
+      lastContextWindowTokens: contextWindowTokens,
+      lastTargetBudgetTokens: targetBudgetTokens,
+      lastHardBudgetTokens: hardBudgetTokens
+    });
+
+    return {
+      requestInput: recomputed.requestInput,
+      retainedHistory: recomputed.retainedHistory,
+      readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
+      estimatedInputTokens: recomputed.estimatedInputTokens,
+      contextWindowTokens,
+      targetBudgetTokens,
+      hardBudgetTokens,
+      tokenizerEncoding: recomputed.tokenizerEncoding,
+      tokenizerSource: recomputed.tokenizerSource,
+      cutoffRecomputed: true
+    };
   }
 
   private async runPreReplyMemoryGate(params: {
@@ -3068,6 +3255,137 @@ export class AgentLoopService {
       delivery: payload.data || null
     };
   }
+}
+
+function applyReadCutoff(history: ConversationTurn[], cutoffState: SessionReadCutoffState | null) {
+  const readCutoffAfterConversationId = cutoffState?.readCutoffAfterConversationId;
+  if (typeof readCutoffAfterConversationId !== 'number' || !Number.isFinite(readCutoffAfterConversationId)) {
+    return history.slice();
+  }
+  return history.filter((turn) => turn.id > readCutoffAfterConversationId);
+}
+
+function buildLoopRequestInput(params: {
+  history: ConversationTurn[];
+  queueMessage: QueueMessageRecord['payload'];
+  runtimePrompt: ResolvedAgentRuntimePrompt;
+  loopContinuation: OpenResponseInputItem[];
+}) {
+  return [
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt),
+    ...params.loopContinuation
+  ];
+}
+
+async function estimateLoopInputTokens(params: {
+  modelName: string;
+  queueMessage: QueueMessageRecord['payload'];
+  loopInput: OpenResponseInputItem[];
+}) {
+  const canonicalRequest = buildCanonicalAgentTurnRequest(
+    params.modelName,
+    params.loopInput,
+    params.queueMessage.chatType
+  );
+  return estimateTextTokens({
+    model: params.modelName,
+    text: JSON.stringify(canonicalRequest)
+  });
+}
+
+async function recomputeReadCutoffToTarget(params: {
+  history: ConversationTurn[];
+  queueMessage: QueueMessageRecord['payload'];
+  runtimePrompt: ResolvedAgentRuntimePrompt;
+  loopContinuation: OpenResponseInputItem[];
+  targetBudgetTokens: number;
+}) {
+  let retainedHistory: ConversationTurn[] = [];
+  let readCutoffAfterConversationId: number | null = params.history.length > 0
+    ? params.history[params.history.length - 1]!.id
+    : null;
+  let lastEstimate = await estimateLoopInputTokens({
+    modelName: params.runtimePrompt.modelName,
+    queueMessage: params.queueMessage,
+    loopInput: buildLoopRequestInput({
+      history: retainedHistory,
+      queueMessage: params.queueMessage,
+      runtimePrompt: params.runtimePrompt,
+      loopContinuation: params.loopContinuation
+    })
+  });
+
+  for (let index = params.history.length - 1; index >= 0; index -= 1) {
+    const candidateHistory = params.history.slice(index);
+    const candidateEstimate = await estimateLoopInputTokens({
+      modelName: params.runtimePrompt.modelName,
+      queueMessage: params.queueMessage,
+      loopInput: buildLoopRequestInput({
+        history: candidateHistory,
+        queueMessage: params.queueMessage,
+        runtimePrompt: params.runtimePrompt,
+        loopContinuation: params.loopContinuation
+      })
+    });
+    if (candidateEstimate.inputTokens > params.targetBudgetTokens) {
+      break;
+    }
+    retainedHistory = candidateHistory;
+    lastEstimate = candidateEstimate;
+    readCutoffAfterConversationId = index > 0 ? params.history[index - 1]!.id : null;
+  }
+
+  return {
+    requestInput: buildLoopRequestInput({
+      history: retainedHistory,
+      queueMessage: params.queueMessage,
+      runtimePrompt: params.runtimePrompt,
+      loopContinuation: params.loopContinuation
+    }),
+    retainedHistory,
+    readCutoffAfterConversationId,
+    estimatedInputTokens: lastEstimate.inputTokens,
+    tokenizerEncoding: lastEstimate.encoding,
+    tokenizerSource: lastEstimate.source
+  };
+}
+
+function readOptionalNumber(value: unknown) {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function attachActualUsageToTurnBudget(
+  record: ContextBudgetTurnRecord,
+  modelResult: ProviderAgentResponse
+) {
+  record.actualInputTokens = readOptionalNumber(modelResult.usage?.input_tokens);
+  record.actualOutputTokens = readOptionalNumber(modelResult.usage?.output_tokens);
+  record.actualTotalTokens = readOptionalNumber(modelResult.usage?.total_tokens);
+  record.cachedInputTokens = readOptionalNumber(modelResult.usage_details?.cached_input_tokens);
+  record.reasoningTokens = readOptionalNumber(modelResult.usage_details?.reasoning_tokens);
+  record.processingTimeMs = readOptionalNumber(modelResult.performance?.processing_time_ms);
+}
+
+function serializeContextBudgetTurnRecord(record: ContextBudgetTurnRecord) {
+  return {
+    turn: record.turn,
+    estimated_input_tokens: record.estimatedInputTokens,
+    actual_input_tokens: record.actualInputTokens,
+    actual_output_tokens: record.actualOutputTokens,
+    actual_total_tokens: record.actualTotalTokens,
+    cached_input_tokens: record.cachedInputTokens,
+    reasoning_tokens: record.reasoningTokens,
+    processing_time_ms: record.processingTimeMs,
+    read_history_count: record.readHistoryCount,
+    read_cutoff_after_conversation_id: record.readCutoffAfterConversationId,
+    context_window_tokens: record.contextWindowTokens,
+    target_budget_tokens: record.targetBudgetTokens,
+    hard_budget_tokens: record.hardBudgetTokens,
+    tokenizer_encoding: record.tokenizerEncoding,
+    tokenizer_source: record.tokenizerSource,
+    cutoff_recomputed: record.cutoffRecomputed
+  };
 }
 
 export function buildInitialInput(

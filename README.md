@@ -4,9 +4,9 @@
 
 当前主仓保留运行底座和管理端：
 
-- `provider-service`: NapCat / OneBot 入口、LLM provider 执行、消息模拟、embeddings、queue 入口、transcript / relationship / self / topic side effect 调度
+- `provider-service`: NapCat / OneBot 入口、LLM provider 执行、消息模拟、embeddings、queue 入口
 - `agent-service`: 主 agent loop runtime，消费 queue batch、重建上下文、执行 agent run，并控制 delivery state
-- `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、run workspace、流量查看/回放、relationship memory / topic lab 观测
+- `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、run workspace、流量查看/回放、runtime status
 - `admin-panel/frontend`: 管理界面
 - `postgres`: 数据存储
 - `docker-compose.napcat.yml`: NapCat 独立部署入口
@@ -46,9 +46,10 @@ NapCat -> provider-service
 
 - NapCat 独立部署，不包含在主业务 compose 中。
 - 管理端默认链路是前端 -> `admin-panel/backend`。
-- `provider-service` 当前不仅负责 provider debug，也负责 OneBot 入站、queue 写入、timeline 记录，以及 transcript snapshot、relationship memory、self evolution、topic projection 等 side effect 调度。
+- `provider-service` 当前负责 provider debug、OneBot 入站、queue 写入和 timeline 记录。
 - `agent-service` 负责消费消息批次、执行 loop agent，并把 run / trace / transcript / delivery state 写回 PostgreSQL。
 - provider 侧的 participation 现在保留为硬安全边界和观测事件，主行为判断逐步收口到 `agent-service` runtime。
+- 当前版本主张先把最简单的 runtime 跑稳，transcript summary、relationship memory、self evolution、topic projection 等后台能力已屏蔽，不参与当前对话交互。
 - HTTP 流量监控/回放属于管理端运维工具链。
 
 ## 快速开始
@@ -84,8 +85,8 @@ docker compose ps
 
 保留的调试面：
 
-- `provider-service` 健康检查、消息模拟、LLM 调试、简单队列接口、embeddings、transcript / memory side effect 调试入口
-- Admin agent run workspace、会话明细、participation events、relationship memory、topic lab、runtime status
+- `provider-service` 健康检查、消息模拟、LLM 调试、简单队列接口、embeddings
+- Admin agent run workspace、会话明细、participation events、runtime status
 - Admin Queue Management
 - Prompt 管理 / 编辑 / 调试
 - Playground case library、Trace / Conversation 导入、Provider 请求 payload 查看

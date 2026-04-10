@@ -7,7 +7,6 @@ import { SectionPanel } from '@/components/console/SectionPanel';
 import { ErrorState } from '@/components/console/ErrorState';
 import { EmptyState } from '@/components/console/EmptyState';
 import { StatusPill } from '@/components/console/StatusPill';
-import { ChatSpaceRelationshipMemoryWorkspace } from '@/components/ChatSpaceRelationshipMemoryWorkspace';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -41,21 +40,6 @@ function formatDurationMs(value: number | null | undefined): string {
     return `${numeric} ms`;
   }
   return `${(numeric / 1000).toFixed(1)} s`;
-}
-
-function buildChatDetailHref(sessionKey: string | null): string | null {
-  if (!sessionKey) {
-    return null;
-  }
-  const groupMatch = sessionKey.match(/(?:^|:)group:(\d+)$/);
-  if (groupMatch) {
-    return `/groups/${groupMatch[1]}`;
-  }
-  const directMatch = sessionKey.match(/(?:^|:)private:(\d+)$/);
-  if (directMatch) {
-    return `/private-chats/${directMatch[1]}`;
-  }
-  return null;
 }
 
 export const ConversationsPage: React.FC = () => {
@@ -102,8 +86,6 @@ export const ConversationsPage: React.FC = () => {
   const sessionsLoading = sessionsQuery.isLoading || sessionsQuery.isFetching;
   const runsLoading = sessionsLoading || sessionRunsQuery.isLoading || (Boolean(selectedSessionKey) && sessionRunsQuery.isFetching);
   const participationLoading = sessionsLoading || participationEventsQuery.isLoading || (Boolean(selectedSessionKey) && participationEventsQuery.isFetching);
-  const selectedChatDetailHref = buildChatDetailHref(selectedSessionKey);
-
   return (
     <PageShell>
       <PageHeader
@@ -415,13 +397,9 @@ export const ConversationsPage: React.FC = () => {
                 </div>
               </div>
 
-              {selectedSessionKey ? (
-                <ChatSpaceRelationshipMemoryWorkspace
-                  sessionKey={selectedSessionKey}
-                  mode="run-reference"
-                  chatDetailHref={selectedChatDetailHref || undefined}
-                />
-              ) : null}
+              <div className="rounded-2xl border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
+                当前版本已屏蔽 relationship memory / topic 等后台观察面，这里只保留 run、输入批次和最终回复。
+              </div>
             </div>
           )}
         </SectionPanel>

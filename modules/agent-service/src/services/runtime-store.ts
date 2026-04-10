@@ -106,6 +106,15 @@ export type AgentRunDeliveryState = {
   lastBlockedDeliveryReason: string | null;
 };
 
+export type SessionReadCutoffState = {
+  sessionKey: string;
+  readCutoffAfterConversationId: number | null;
+  lastContextWindowTokens: number | null;
+  lastTargetBudgetTokens: number | null;
+  lastHardBudgetTokens: number | null;
+  updatedAt: string | null;
+};
+
 export type RuntimeRelationshipMemoryCard = {
   id: number;
   cardType: string;
@@ -1697,6 +1706,81 @@ export class RuntimeStore {
     });
   }
 
+  async getSessionReadCutoffState(sessionKey: string): Promise<SessionReadCutoffState | null> {
+    const rows = await this.sql.query<{
+      session_key: string;
+      read_cutoff_after_conversation_id: number | null;
+      last_context_window_tokens: number | null;
+      last_target_budget_tokens: number | null;
+      last_hard_budget_tokens: number | null;
+      updated_at: string | Date | null;
+    }>(
+      `
+        SELECT
+          session_key,
+          read_cutoff_after_conversation_id,
+          last_context_window_tokens,
+          last_target_budget_tokens,
+          last_hard_budget_tokens,
+          updated_at
+        FROM agent_session_context_windows
+        WHERE session_key = ?
+        LIMIT 1
+      `,
+      [sessionKey]
+    );
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+    return {
+      sessionKey: row.session_key,
+      readCutoffAfterConversationId: row.read_cutoff_after_conversation_id === null
+        ? null
+        : Number(row.read_cutoff_after_conversation_id),
+      lastContextWindowTokens: row.last_context_window_tokens === null ? null : Number(row.last_context_window_tokens),
+      lastTargetBudgetTokens: row.last_target_budget_tokens === null ? null : Number(row.last_target_budget_tokens),
+      lastHardBudgetTokens: row.last_hard_budget_tokens === null ? null : Number(row.last_hard_budget_tokens),
+      updatedAt: toIso(row.updated_at)
+    };
+  }
+
+  async upsertSessionReadCutoffState(params: {
+    sessionKey: string;
+    readCutoffAfterConversationId: number | null;
+    lastContextWindowTokens: number;
+    lastTargetBudgetTokens: number;
+    lastHardBudgetTokens: number;
+  }) {
+    await this.sql.execute(
+      `
+        INSERT INTO agent_session_context_windows (
+          session_key,
+          read_cutoff_after_conversation_id,
+          last_context_window_tokens,
+          last_target_budget_tokens,
+          last_hard_budget_tokens,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT (session_key)
+        DO UPDATE SET
+          read_cutoff_after_conversation_id = EXCLUDED.read_cutoff_after_conversation_id,
+          last_context_window_tokens = EXCLUDED.last_context_window_tokens,
+          last_target_budget_tokens = EXCLUDED.last_target_budget_tokens,
+          last_hard_budget_tokens = EXCLUDED.last_hard_budget_tokens,
+          updated_at = CURRENT_TIMESTAMP
+      `,
+      [
+        params.sessionKey,
+        params.readCutoffAfterConversationId,
+        params.lastContextWindowTokens,
+        params.lastTargetBudgetTokens,
+        params.lastHardBudgetTokens
+      ]
+    );
+  }
+
   async loadSessionReplayState(params: {
     userId: number;
     groupId?: number | null;
@@ -2597,6 +2681,16 @@ export class RuntimeStore {
           created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `,
+      `
+        CREATE TABLE IF NOT EXISTS agent_session_context_windows (
+          session_key VARCHAR(191) PRIMARY KEY,
+          read_cutoff_after_conversation_id BIGINT,
+          last_context_window_tokens INTEGER,
+          last_target_budget_tokens INTEGER,
+          last_hard_budget_tokens INTEGER,
+          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `,
       'CREATE INDEX IF NOT EXISTS idx_chat_transcript_snapshots_private_user ON chat_transcript_snapshots (private_user_id, updated_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_chat_transcript_snapshots_group ON chat_transcript_snapshots (group_id, updated_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_chat_transcript_snapshots_status ON chat_transcript_snapshots (summary_status, updated_at DESC)',
@@ -2696,6 +2790,7 @@ export class RuntimeStore {
       'CREATE INDEX IF NOT EXISTS idx_agent_batch_items_batch_position ON agent_message_batch_items (batch_id, position)',
       'CREATE INDEX IF NOT EXISTS idx_conversation_items_conversation_group_item ON conversation_items (conversation_id, group_index, item_index, id)',
       'CREATE INDEX IF NOT EXISTS idx_conversation_items_session_created ON conversation_items (session_key, created_at, id)',
+      'CREATE INDEX IF NOT EXISTS idx_agent_session_context_windows_updated ON agent_session_context_windows (updated_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_llm_jobs_trace_created ON llm_jobs (trace_id, created_at, id)',
       'CREATE INDEX IF NOT EXISTS idx_tool_execution_logs_trace_started ON tool_execution_logs (trace_id, started_at, completed_at, id)',
       'CREATE INDEX IF NOT EXISTS idx_conversations_trace_id ON conversations (trace_id)'

@@ -108,23 +108,21 @@ const transcriptService = new SessionTranscriptService({
 });
 
 function scheduleCompactionSideEffects(inboundContext: FinalizedInboundContext) {
-  void (async () => {
-    try {
-      const state = await transcriptService.loadSessionState(inboundContext, aiConfig.model_name);
-      if (!state) {
-        return;
-      }
-      await transcriptService.maybeRequestSummary(state);
-      await relationshipMemoryService.maybeRequestRefresh(state);
-      await selfEvolutionService.maybeRequestRefresh(state);
-      await topicProjectionService.maybeRequestRefresh(state);
-    } catch (error) {
-      moduleLogger.warn('Failed to schedule transcript or relationship compaction side effects', {
-        error: error instanceof Error ? error.message : String(error),
-        sessionKey: inboundContext.SessionKey
-      });
-    }
-  })();
+  moduleLogger.debug('Skipped transcript/memory side effects for simplified runtime', {
+    sessionKey: inboundContext.SessionKey,
+    chatType: inboundContext.ChatType
+  });
+}
+
+function respondRuntimeFeatureDisabled(
+  res: express.Response,
+  feature: 'transcript_summary' | 'relationship_memory' | 'self_evolution' | 'topic_projection'
+) {
+  return res.status(410).json({
+    success: false,
+    error: `${feature} is disabled in the simplified runtime`,
+    timestamp: new Date().toISOString()
+  });
 }
 
 function normalizeOutboundMessages(body: Record<string, unknown>) {
@@ -174,14 +172,10 @@ function markIncomingActivityAsync(params: { messageType: ProviderMessageType; u
 }
 
 function recordRelationshipLedgerAsync(inboundContext: FinalizedInboundContext, currentMessageId?: number | null) {
-  void relationshipLedgerService.recordFromInboundContext(inboundContext, {
-    currentMessageId
-  }).catch((error) => {
-    moduleLogger.warn('Failed to record relationship ledger events', {
-      error: error instanceof Error ? error.message : String(error),
-      sessionKey: inboundContext.SessionKey,
-      messageSid: inboundContext.MessageSid
-    });
+  moduleLogger.debug('Skipped relationship ledger recording for simplified runtime', {
+    sessionKey: inboundContext.SessionKey,
+    messageSid: inboundContext.MessageSid,
+    currentMessageId: currentMessageId ?? null
   });
 }
 
@@ -769,438 +763,27 @@ app.post('/api/internal/agent/execute', async (req, res) => {
 });
 
 app.post('/api/internal/transcript-summary/result', async (req, res) => {
-  try {
-    const status = req.body?.status === 'failed' ? 'failed' : 'ready';
-    const sessionId = typeof req.body?.session_id === 'string' ? req.body.session_id.trim() : '';
-    const summaryJobId = typeof req.body?.job_id === 'string' ? req.body.job_id.trim() : null;
-
-    if (!sessionId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required parameter: session_id',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    if (status === 'failed') {
-      await transcriptSnapshotService.markFailed({
-        sessionId,
-        summaryJobId,
-        summaryFormatVersion: typeof req.body?.summary_format_version === 'string'
-          ? req.body.summary_format_version
-          : 'failed'
-      });
-
-      return res.json({
-        success: true,
-        data: {
-          session_id: sessionId,
-          status: 'failed'
-        },
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    const chatType = req.body?.chat_type === 'group'
-      ? 'group'
-      : req.body?.chat_type === 'direct'
-        ? 'direct'
-        : null;
-    const summaryText = typeof req.body?.summary_text === 'string' ? req.body.summary_text.trim() : '';
-    const summaryFormatVersion = typeof req.body?.summary_format_version === 'string'
-      ? req.body.summary_format_version.trim()
-      : 'v1';
-    const summarizedThroughConversationId = Number(req.body?.summarized_through_conversation_id);
-    const privateUserId = req.body?.private_user_id !== undefined ? Number(req.body.private_user_id) : null;
-    const groupId = req.body?.group_id !== undefined ? Number(req.body.group_id) : null;
-
-    if (!chatType) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required parameter: chat_type',
-        timestamp: new Date().toISOString()
-      });
-    }
-    if (!summaryText) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required parameter: summary_text',
-        timestamp: new Date().toISOString()
-      });
-    }
-    if (!Number.isFinite(summarizedThroughConversationId) || summarizedThroughConversationId <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required parameter: summarized_through_conversation_id',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    await transcriptSnapshotService.applySummaryResult({
-      sessionId,
-      chatType,
-      privateUserId: Number.isFinite(privateUserId) ? privateUserId : null,
-      groupId: Number.isFinite(groupId) ? groupId : null,
-      summaryText,
-      summaryFormatVersion,
-      summarizedThroughConversationId,
-      summaryJobId
-    });
-
-    return res.json({
-      success: true,
-      data: {
-        session_id: sessionId,
-        status: 'ready',
-        summarized_through_conversation_id: summarizedThroughConversationId
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    moduleLogger.error('Failed to apply transcript summary result', {
-      error: error instanceof Error ? error.message : String(error)
-    });
-    return res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to apply transcript summary result',
-      timestamp: new Date().toISOString()
-    });
-  }
+  return respondRuntimeFeatureDisabled(res, 'transcript_summary');
 });
 
 app.post('/api/internal/relationship-memory/result', async (req, res) => {
-  try {
-    const jobId = Number(req.body?.job_id);
-    const sessionKey = typeof req.body?.session_key === 'string' ? req.body.session_key.trim() : '';
-    const groupId = Number(req.body?.group_id);
-    const version = Number(req.body?.version);
-    const status = req.body?.status === 'failed' ? 'failed' : 'ready';
-
-    if (!Number.isFinite(jobId) || jobId <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required parameter: job_id',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    if (status === 'failed') {
-      await relationshipMemoryService.markFailed(
-        jobId,
-        typeof req.body?.error_message === 'string' && req.body.error_message.trim()
-          ? req.body.error_message.trim()
-          : 'relationship_memory_failed'
-      );
-
-      return res.json({
-        success: true,
-        data: {
-          job_id: jobId,
-          status: 'failed'
-        },
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    const cards = Array.isArray(req.body?.cards) ? req.body.cards : [];
-    if (!sessionKey) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required parameter: session_key',
-        timestamp: new Date().toISOString()
-      });
-    }
-    if (!Number.isFinite(groupId) || groupId <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required parameter: group_id',
-        timestamp: new Date().toISOString()
-      });
-    }
-    if (!Number.isFinite(version) || version <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required parameter: version',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    await relationshipMemoryService.applyResult({
-      jobId,
-      sessionKey,
-      groupId,
-      version,
-      cards
-    });
-
-    return res.json({
-      success: true,
-      data: {
-        job_id: jobId,
-        status: 'ready',
-        version,
-        card_count: cards.length
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    moduleLogger.error('Failed to apply relationship memory result', {
-      error: error instanceof Error ? error.message : String(error)
-    });
-    return res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to apply relationship memory result',
-      timestamp: new Date().toISOString()
-    });
-  }
+  return respondRuntimeFeatureDisabled(res, 'relationship_memory');
 });
 
 app.post('/api/internal/relationship-memory/execute', async (req, res) => {
-  const jobId = Number(req.body?.job_id);
-  const sessionKey = typeof req.body?.session_key === 'string' ? req.body.session_key.trim() : '';
-  const groupId = Number(req.body?.group_id);
-  const version = Number(req.body?.version);
-  const triggerReason = typeof req.body?.trigger_reason === 'string' ? req.body.trigger_reason.trim() : 'compact_checkpoint';
-  const turns = Array.isArray(req.body?.turns) ? req.body.turns : [];
-  const ledgerEvents = Array.isArray(req.body?.ledger_events) ? req.body.ledger_events : [];
-
-  if (!Number.isFinite(jobId) || jobId <= 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameter: job_id',
-      timestamp: new Date().toISOString()
-    });
-  }
-  if (!sessionKey) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameter: session_key',
-      timestamp: new Date().toISOString()
-    });
-  }
-  if (!Number.isFinite(groupId) || groupId <= 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameter: group_id',
-      timestamp: new Date().toISOString()
-    });
-  }
-  if (!Number.isFinite(version) || version <= 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameter: version',
-      timestamp: new Date().toISOString()
-    });
-  }
-
-  try {
-    await relationshipMemoryService.markRunning(jobId);
-    const execution = await relationshipMemoryExecutorService.execute({
-      job_id: jobId,
-      session_key: sessionKey,
-      group_id: groupId,
-      version,
-      trigger_reason: triggerReason,
-      turns,
-      ledger_events: ledgerEvents
-    });
-
-    await relationshipMemoryService.applyResult({
-      jobId,
-      sessionKey,
-      groupId,
-      version,
-      cards: execution.cards
-    });
-
-    return res.json({
-      success: true,
-      data: {
-        job_id: jobId,
-        status: 'ready',
-        version,
-        model_name: execution.modelName,
-        card_count: execution.cards.length
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'relationship_memory_execute_failed';
-    await relationshipMemoryService.markFailed(jobId, message).catch(() => undefined);
-    moduleLogger.error('Failed to execute relationship memory job', {
-      error: message,
-      jobId,
-      sessionKey
-    });
-    return res.status(500).json({
-      success: false,
-      error: message,
-      timestamp: new Date().toISOString()
-    });
-  }
+  return respondRuntimeFeatureDisabled(res, 'relationship_memory');
 });
 
 app.post('/api/internal/self-evolution/execute', async (req, res) => {
-  const jobId = Number(req.body?.job_id);
-  const sessionKey = typeof req.body?.session_key === 'string' ? req.body.session_key.trim() : '';
-  const groupId = Number(req.body?.group_id);
-  const version = Number(req.body?.version);
-  const triggerReason = typeof req.body?.trigger_reason === 'string' ? req.body.trigger_reason.trim() : 'compact_checkpoint';
-  const targetUserId = Number.isFinite(Number(req.body?.target_user_id)) ? Number(req.body.target_user_id) : null;
-  const turns = Array.isArray(req.body?.turns) ? req.body.turns : [];
-  const ledgerEvents = Array.isArray(req.body?.ledger_events) ? req.body.ledger_events : [];
-
-  if (!Number.isFinite(jobId) || jobId <= 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameter: job_id',
-      timestamp: new Date().toISOString()
-    });
-  }
-  if (!sessionKey) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameter: session_key',
-      timestamp: new Date().toISOString()
-    });
-  }
-  if (!Number.isFinite(groupId) || groupId <= 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameter: group_id',
-      timestamp: new Date().toISOString()
-    });
-  }
-  if (!Number.isFinite(version) || version <= 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameter: version',
-      timestamp: new Date().toISOString()
-    });
-  }
-
-  try {
-    await selfEvolutionService.markRunning(jobId);
-    const execution = await selfEvolutionExecutorService.execute({
-      job_id: jobId,
-      session_key: sessionKey,
-      group_id: groupId,
-      target_user_id: targetUserId,
-      version,
-      trigger_reason: triggerReason,
-      turns,
-      ledger_events: ledgerEvents
-    });
-
-    await selfEvolutionService.applyResult({
-      jobId,
-      sessionKey,
-      groupId,
-      version,
-      states: execution.states
-    });
-
-    return res.json({
-      success: true,
-      data: {
-        job_id: jobId,
-        status: 'ready',
-        version,
-        model_name: execution.modelName,
-        state_count: execution.states.length
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'self_evolution_execute_failed';
-    await selfEvolutionService.markFailed(jobId, message).catch(() => undefined);
-    moduleLogger.error('Failed to execute self evolution job', {
-      error: message,
-      jobId,
-      sessionKey
-    });
-    return res.status(500).json({
-      success: false,
-      error: message,
-      timestamp: new Date().toISOString()
-    });
-  }
+  return respondRuntimeFeatureDisabled(res, 'self_evolution');
 });
 
 app.post('/api/internal/topic-projection/execute', async (req, res) => {
-  const jobId = Number(req.body?.job_id);
-  if (!Number.isFinite(jobId) || jobId <= 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameter: job_id',
-      timestamp: new Date().toISOString()
-    });
-  }
-
-  try {
-    const execution = await topicProjectionExecutorService.executePersistedJob({
-      jobId
-    });
-
-    return res.json({
-      success: true,
-      data: {
-        job_id: jobId,
-        status: 'ready',
-        model_name: execution.modelName,
-        topic_count: execution.topics.length,
-        created_version_ids: execution.createdVersionIds,
-        touched_topic_ids: execution.touchedTopicIds
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'topic_projection_execute_failed';
-    moduleLogger.error('Failed to execute topic projection job', {
-      error: message,
-      jobId
-    });
-    return res.status(500).json({
-      success: false,
-      error: message,
-      timestamp: new Date().toISOString()
-    });
-  }
+  return respondRuntimeFeatureDisabled(res, 'topic_projection');
 });
 
 app.post('/api/internal/topic-reviews/apply', async (req, res) => {
-  const reviewEventId = Number(req.body?.review_event_id);
-  if (!Number.isFinite(reviewEventId) || reviewEventId <= 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameter: review_event_id',
-      timestamp: new Date().toISOString()
-    });
-  }
-
-  try {
-    const result = await topicReviewMaterializationService.applyReviewEvent(reviewEventId);
-    return res.json({
-      success: true,
-      data: {
-        review_event_id: reviewEventId,
-        status: 'applied',
-        ...result
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'topic_review_apply_failed';
-    moduleLogger.error('Failed to apply topic review event', {
-      error: message,
-      reviewEventId
-    });
-    return res.status(500).json({
-      success: false,
-      error: message,
-      timestamp: new Date().toISOString()
-    });
-  }
+  return respondRuntimeFeatureDisabled(res, 'topic_projection');
 });
 
 app.post('/api/internal/config-cache/clear', (_req, res) => {

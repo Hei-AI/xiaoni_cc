@@ -1313,6 +1313,8 @@ test('processQueueMessage fails without a bound prompt and does not call the pro
     logTimelineEvent: async (params: any) => { storeCalls.logTimelineEvent.push(params); },
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
     listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
     createConversation: async (params: any) => {
       storeCalls.createConversation.push(params);
       return 987;
@@ -1397,6 +1399,8 @@ test('processQueueMessage persists delivered assistant transcript items with fin
     logTimelineEvent: async () => {},
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
     listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
     getRunDeliveryState: async () => ({
       deliveryPhase,
       deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
@@ -1583,6 +1587,8 @@ test('processQueueMessage completes with no reply when the model directly calls 
       topicProjection: { activeTopics: [] }
     }),
     listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
     getRunDeliveryState: async () => ({
       deliveryPhase: 'reasoning_open',
       deliveryCommitCount: 0,
@@ -1658,6 +1664,8 @@ test('processQueueMessage stores partially delivered assistant transcript as com
     logTimelineEvent: async () => {},
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
     listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
     getRunDeliveryState: async () => ({
       deliveryPhase,
       deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
@@ -1795,6 +1803,8 @@ test('processQueueMessage suppresses duplicate outbound reply attempts within th
     logTimelineEvent: async (params: any) => { storeCalls.logTimelineEvent.push(params); },
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
     listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
     getRunDeliveryState: async () => ({
       deliveryPhase,
       deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
@@ -1925,6 +1935,8 @@ test('processQueueMessage blocks near-duplicate second outbound reply after deli
     logTimelineEvent: async () => {},
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
     listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
     getRunDeliveryState: async () => ({
       deliveryPhase,
       deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
