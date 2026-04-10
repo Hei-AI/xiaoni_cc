@@ -12,6 +12,8 @@
   - `docs/AGENTS_SECRETS_LOCAL_STATE.md`
 - embeddings：
   - `docs/AGENTS_EMBEDDINGS.md`
+- memory / relationship / topic 评测与回放：
+  - `docs/AGENTS_MEMORY_EVAL.md`
 - Git 提交、推送、PR：
   - `docs/AGENTS_GIT_PR.md`
 - `AGENTS.md`、`docs/` 结构、gstack 使用约定、文档治理：

@@ -2,11 +2,11 @@
 
 ## 当前目标
 
-- 稳定当前主仓最小运行栈：`postgres + provider-service + admin-panel`
+- 稳定当前主仓最小运行栈：`postgres + provider-service + agent-service + admin-panel`
 - 稳定已经落地的 `agent-service` loop runtime、agent run workspace 与 transcript replay
 - 继续清理历史兼容代码、陈旧脚本和误导性文档
 - 把管理端保留能力收口到当前真实后端能力，避免再出现无效入口
-- 让 provider-service 成为唯一外部能力接入层，统一承接调试、模拟、NapCat 发送和 embeddings
+- 让 provider-service 成为唯一外部能力接入层，统一承接调试、模拟、NapCat 发送、queue ingress、embeddings 和 memory side effect 调度
 
 ## 近期计划
 
@@ -22,7 +22,7 @@
 - 完成新的业务流程服务落地，并与 `provider-service` 通过稳定契约集成
 - 将 provider debug、trace、traffic replay 的语义对齐，减少导入/重跑链路中的语义损失
 - 继续优化 Admin 的对象选择、细节查看和排障工作流
-- 设计并验证带 memory / topic continuity / addressee inference 的群聊 pre-agent relevance gate
+- 设计并验证带 memory / topic continuity / addressee inference 的群聊 pre-agent relevance gate；当前 provider 侧只保留硬边界和 observability，不把它再当完整社交判断层
 - 逐步清理只服务于旧认知架构的数据库表、脚本和文档
 
 ## 长期方向
