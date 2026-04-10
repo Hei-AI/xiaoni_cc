@@ -183,12 +183,7 @@ export class OpenAIProvider implements LLMProvider {
     }
 
     if (Array.isArray(request.tools) && request.tools.length > 0) {
-      payload.tools = request.tools.map((tool) => ({
-        type: 'function',
-        name: tool.function.name,
-        description: tool.function.description,
-        parameters: tool.function.parameters || { type: 'object', properties: {} }
-      }));
+      payload.tools = request.tools.map((tool) => this.serializeToolDefinition(tool));
       payload.tool_choice = request.tool_choice;
     }
 
@@ -252,5 +247,24 @@ export class OpenAIProvider implements LLMProvider {
       throw new Error(`Missing API credentials for provider ${this.id}`);
     }
     return this.apiKey;
+  }
+
+  protected serializeToolDefinition(tool: NonNullable<OpenResponseCreateRequest['tools']>[number]): Record<string, any> {
+    if (tool.type === 'function') {
+      return {
+        type: 'function',
+        name: tool.function.name,
+        description: tool.function.description,
+        parameters: tool.function.parameters || { type: 'object', properties: {} }
+      };
+    }
+
+    return {
+      type: tool.type,
+      ...(tool.user_location ? { user_location: tool.user_location } : {}),
+      ...(tool.filters ? { filters: tool.filters } : {}),
+      ...(tool.search_context_size ? { search_context_size: tool.search_context_size } : {}),
+      ...(typeof tool.external_web_access === 'boolean' ? { external_web_access: tool.external_web_access } : {})
+    };
   }
 }

@@ -1,6 +1,7 @@
 import type { UnifiedLLMConfig } from '../types';
 import type { StoredConversationTurn } from './conversation-store-service';
-import { aiConfig, selfEvolutionConfig } from '../config';
+import { listSelfEvolutionStates } from '@qq-bot/persistence';
+import { aiConfig, databaseConfig, selfEvolutionConfig } from '../config';
 import { buildUnifiedConfig } from './provider-debug-service';
 import { createProviderClient, resolveProviderId } from './llm-provider';
 import { extractNamedFunctionCallArgsFromOpenAIResponse } from './llm-provider/helpers';
@@ -60,6 +61,7 @@ type SelfEvolutionExecutorDeps = {
   modelName?: string;
   fallbackModelName?: string;
   timeoutMs?: number;
+  listStates?: typeof listSelfEvolutionStates;
 };
 
 const SELF_EVOLUTION_TOOL_NAME = 'emit_self_evolution_states';
@@ -410,6 +412,7 @@ export default class SelfEvolutionExecutorService {
   private readonly modelName: string;
   private readonly fallbackModelName: string | null;
   private readonly timeoutMs: number;
+  private readonly listStates: typeof listSelfEvolutionStates;
 
   constructor(deps: SelfEvolutionExecutorDeps = {}) {
     this.llmProviderFactory = deps.llmProviderFactory || ((providerId) => createProviderClient(providerId));
@@ -417,6 +420,7 @@ export default class SelfEvolutionExecutorService {
     this.modelName = deps.modelName || aiConfig.relationship_memory_model_name || aiConfig.model_name;
     this.fallbackModelName = deps.fallbackModelName || (this.modelName === 'gpt-5.4' ? 'gpt-5.4-mini' : null);
     this.timeoutMs = Math.max(1000, deps.timeoutMs || selfEvolutionConfig.timeoutMs || 90000);
+    this.listStates = deps.listStates || ((filters) => listSelfEvolutionStates(filters, databaseConfig));
   }
 
   parseStates(text: string) {
@@ -442,6 +446,39 @@ export default class SelfEvolutionExecutorService {
       }));
   }
 
+  private async loadPersistedFallbackStates(payload: SelfEvolutionExecutionPayload) {
+    const persistedStates = await this.listStates({
+      sessionKey: payload.session_key,
+      groupId: payload.group_id ?? undefined,
+      targetUserId: payload.target_user_id ?? undefined,
+      isActive: true,
+      limit: 20
+    });
+
+    return persistedStates
+      .map((state) => normalizeState({
+        scope_type: state.scope_type,
+        target_user_id: state.target_user_id,
+        social_presence_baseline: state.social_presence_baseline,
+        entry_preference: state.entry_preference,
+        warmth_bias: state.warmth_bias,
+        familiarity_ceiling: state.familiarity_ceiling,
+        topic_resonance: state.topic_resonance,
+        boundary_tendencies: state.boundary_tendencies,
+        reinforced_modes: state.reinforced_modes,
+        suppressed_modes: state.suppressed_modes,
+        source_event_ids: state.source_event_ids,
+        source_message_ids: state.source_message_ids,
+        summary_text: state.summary_text,
+        metadata: {
+          ...(state.metadata && typeof state.metadata === 'object' ? state.metadata : {}),
+          fallback_source: 'persisted_active_state',
+          loaded_at_ms: this.now()
+        }
+      }))
+      .filter((state): state is GeneratedSelfEvolutionState => Boolean(state));
+  }
+
   async execute(payload: SelfEvolutionExecutionPayload): Promise<ExecutionResult> {
     const attempt = async (modelName: string): Promise<ExecutionResult> => {
       const providerId = resolveProviderId(null, modelName);
@@ -463,13 +500,22 @@ export default class SelfEvolutionExecutorService {
       const states = this.parseStatesPayload(toolPayload) || this.parseStates(result.text);
       return {
         modelName: result.modelName,
-        states: states.length > 0 ? states : deriveHeuristicStates(payload),
+        states,
         rawText: toolPayload ? JSON.stringify(toolPayload) : result.text
       };
     };
 
     try {
-      return await attempt(this.modelName);
+      const primary = await attempt(this.modelName);
+      if (primary.states.length > 0) {
+        return primary;
+      }
+      const persistedStates = await this.loadPersistedFallbackStates(payload);
+      return {
+        modelName: persistedStates.length > 0 ? 'persisted-fallback' : 'heuristic-fallback',
+        states: persistedStates.length > 0 ? persistedStates : deriveHeuristicStates(payload),
+        rawText: primary.rawText
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!/usage_limit_reached|429|Too Many Requests/i.test(message)) {
@@ -478,13 +524,25 @@ export default class SelfEvolutionExecutorService {
 
       if (this.fallbackModelName) {
         try {
-          return await attempt(this.fallbackModelName);
+          const secondary = await attempt(this.fallbackModelName);
+          if (secondary.states.length > 0) {
+            return secondary;
+          }
         } catch (fallbackError) {
           const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
           if (!/usage_limit_reached|429|Too Many Requests/i.test(fallbackMessage)) {
             throw fallbackError;
           }
         }
+      }
+
+      const persistedStates = await this.loadPersistedFallbackStates(payload);
+      if (persistedStates.length > 0) {
+        return {
+          modelName: 'persisted-fallback',
+          states: persistedStates,
+          rawText: JSON.stringify({ persisted_fallback: true })
+        };
       }
 
       return {

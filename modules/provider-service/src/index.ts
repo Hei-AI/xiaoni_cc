@@ -488,7 +488,19 @@ async function processAutoReply(params: {
       chat_type: params.inboxEvent.chatType
     }
   });
-  const participationDecision = await groupParticipationService.decide(params.inboundContext);
+  const participationDecision = {
+    decision: 'reply' as const,
+    reason: 'delegated_to_agent_service_unified_planner',
+    confidence: 'high' as const,
+    conservativeFallback: false,
+    usedEmbeddings: false,
+    usedLlmJudge: false,
+    scores: null,
+    metadata: {
+      source_of_truth: 'agent_service_unified_planner',
+      provider_boundary_mode: 'hard_safety_only'
+    }
+  };
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
     eventType: 'participation',
@@ -506,15 +518,6 @@ async function processAutoReply(params: {
       ...participationDecision.metadata
     }
   });
-  if (participationDecision.decision !== 'reply') {
-    return {
-      attempted: true,
-      queued: false,
-      reason: participationDecision.reason,
-      traceId: params.traceId,
-      participationDecision
-    };
-  }
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
     eventType: 'queue',

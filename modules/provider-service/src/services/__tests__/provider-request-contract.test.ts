@@ -31,6 +31,11 @@ const TOOL_DEFINITIONS: OpenResponseToolDefinition[] = [
         }
       }
     }
+  },
+  {
+    type: 'web_search',
+    search_context_size: 'medium',
+    external_web_access: true
   }
 ];
 
@@ -67,6 +72,9 @@ test('OpenAI provider keeps canonical instructions top-level and preserves paral
   assert.equal(payload.previous_response_id, 'resp_prev_789');
   assert.equal(payload.prompt_cache_key, 'qq:group:101');
   assert.equal(payload.prompt_cache_retention, '24h');
+  assert.equal(payload.tools[1]?.type, 'web_search');
+  assert.equal(payload.tools[1]?.search_context_size, 'medium');
+  assert.equal(payload.tools[1]?.external_web_access, true);
 });
 
 test('Codex provider keeps canonical instructions top-level and preserves parallel_tool_calls', () => {
@@ -82,6 +90,9 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'previous_response_id'), false);
   assert.equal(payload.prompt_cache_key, 'qq:group:101');
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
+  assert.equal(payload.tools[1]?.type, 'web_search');
+  assert.equal(payload.tools[1]?.search_context_size, 'medium');
+  assert.equal(payload.tools[1]?.external_web_access, true);
 });
 
 test('Codex provider preserves reasoning items from SSE output', () => {
@@ -104,6 +115,31 @@ test('Codex provider preserves reasoning items from SSE output', () => {
   });
   assert.equal(parsed.output[1]?.type, 'message');
   assert.equal(parsed.output_text, 'hello');
+});
+
+test('Codex provider preserves web search items from SSE output', () => {
+  const provider = new TestCodexProvider({} as any);
+  const parsed = (provider as any).parseCodexSsePayload([
+    'event: response.output_item.done',
+    'data: {"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","queries":["qq bot latest"]}}}',
+    '',
+    'event: response.output_item.done',
+    'data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}}',
+    '',
+    'event: response.completed',
+    'data: {"type":"response.completed","response":{"status":"completed"}}'
+  ].join('\n'));
+
+  assert.deepEqual(parsed.output[0], {
+    type: 'web_search_call',
+    id: 'ws_1',
+    status: 'completed',
+    action: {
+      type: 'search',
+      queries: ['qq bot latest']
+    }
+  });
+  assert.equal(parsed.output[1]?.type, 'message');
 });
 
 test('buildTraceHeaders emits Codex-compatible session metadata headers', () => {

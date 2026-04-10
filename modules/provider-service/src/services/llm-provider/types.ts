@@ -50,6 +50,20 @@ export type OpenResponseToolDefinition = {
     description?: string;
     parameters?: Record<string, any>;
   };
+} | {
+  type: 'web_search' | 'web_search_preview';
+  user_location?: {
+    type?: 'approximate';
+    city?: string;
+    region?: string;
+    country?: string;
+    timezone?: string;
+  };
+  filters?: {
+    allowed_domains?: string[];
+  };
+  search_context_size?: 'low' | 'medium' | 'high';
+  external_web_access?: boolean;
 };
 
 export type OpenResponseToolChoice =
@@ -86,6 +100,18 @@ export type OpenResponseOutputItem =
       content?: string;
       encrypted_content?: string;
       summary?: string;
+    }
+  | {
+      type: 'web_search_call';
+      id?: string;
+      status?: 'in_progress' | 'completed';
+      action?: {
+        type?: 'search' | 'open_page' | 'find_in_page';
+        query?: string;
+        queries?: string[];
+        url?: string;
+        pattern?: string;
+      };
     };
 
 export interface OpenResponseUsage {

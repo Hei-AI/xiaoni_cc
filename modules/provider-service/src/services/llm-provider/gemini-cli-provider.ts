@@ -183,13 +183,16 @@ export class GeminiCliProvider implements LLMProvider {
       };
     }
     if (input.request.tools) {
-      requestPayload.tools = input.request.tools.map((tool) => ({
+      const functionTools = input.request.tools.filter((tool) => tool.type === 'function');
+      if (functionTools.length > 0) {
+        requestPayload.tools = functionTools.map((tool) => ({
         functionDeclarations: [{
           name: tool.function.name,
           description: tool.function.description,
           parameters: tool.function.parameters || { type: 'object', properties: {} }
         }]
-      }));
+        }));
+      }
     }
     if (input.request.tool_choice) {
       requestPayload.toolConfig = {

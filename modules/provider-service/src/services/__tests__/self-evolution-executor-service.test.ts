@@ -151,8 +151,61 @@ test('execute delegates to llm provider and validates self-evolution prompt', as
   assert.equal(calls[0]?.providerConfig?.performance?.timeout, 90000);
 });
 
-test('execute falls back to heuristic states when model returns empty json payload', async () => {
+test('execute falls back to persisted states when model returns empty json payload', async () => {
   const service = new SelfEvolutionExecutorService({
+    listStates: async () => [{
+      scope_type: 'relation_self',
+      target_user_id: 714457117,
+      social_presence_baseline: 'light',
+      entry_preference: 'cue_first',
+      warmth_bias: 'warm_light',
+      familiarity_ceiling: 'warm_not_performative',
+      topic_resonance: ['late_night_ping'],
+      boundary_tendencies: { avoid_overexplaining: true },
+      reinforced_modes: ['persisted_relaxed'],
+      suppressed_modes: ['performative_explainer'],
+      source_event_ids: [501],
+      source_message_ids: [1001],
+      summary_text: '持久化状态说她最近更像被 cue 后短句露头。',
+      metadata: { persisted: true }
+    }] as any,
+    llmProviderFactory: () => ({
+      id: 'codex',
+      generateText: async () => {
+        throw new Error('not used');
+      },
+      generateContent: async () => ({
+        provider: 'codex',
+        modelName: 'gpt-5.4',
+        text: JSON.stringify({ states: [] }),
+        response: {} as any,
+        rawResponse: {},
+        canonicalRequest: {},
+        wireRequest: {},
+        canonicalResponse: {} as any,
+        wireResponse: {},
+        requestFormatVersion: 'test',
+        wireProviderFormat: 'test',
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          processingTimeMs: 1
+        }
+      })
+    }) as any
+  });
+
+  const result = await service.execute(buildPayload() as any);
+
+  assert.equal(result.modelName, 'persisted-fallback');
+  assert.equal(result.states.length, 1);
+  assert.equal(result.states[0]?.summary_text, '持久化状态说她最近更像被 cue 后短句露头。');
+});
+
+test('execute falls back to heuristic states when model returns empty json payload and no persisted state exists', async () => {
+  const service = new SelfEvolutionExecutorService({
+    listStates: async () => [] as any,
     llmProviderFactory: () => ({
       id: 'codex',
       generateText: async () => {

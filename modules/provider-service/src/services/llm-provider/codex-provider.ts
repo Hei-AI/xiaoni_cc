@@ -80,13 +80,15 @@ export class CodexProvider extends OpenAIProvider {
     }
 
     if (Array.isArray(request.tools) && request.tools.length > 0) {
-      payload.tools = request.tools.map((tool: any) => ({
-        type: 'function',
-        name: tool.function.name,
-        description: tool.function.description,
-        parameters: tool.function.parameters || { type: 'object', properties: {} },
-        strict: null
-      }));
+      payload.tools = request.tools.map((tool: any) => {
+        const serialized = this.serializeToolDefinition(tool);
+        return serialized.type === 'function'
+          ? {
+              ...serialized,
+              strict: null
+            }
+          : serialized;
+      });
       payload.tool_choice = request.tool_choice || 'auto';
     }
 
@@ -391,6 +393,15 @@ export class CodexProvider extends OpenAIProvider {
         call_id: item.call_id,
         name: item.name,
         arguments: item.arguments || '{}'
+      };
+    }
+
+    if (item.type === 'web_search_call') {
+      return {
+        type: 'web_search_call',
+        ...(typeof item.id === 'string' ? { id: item.id } : {}),
+        ...(typeof item.status === 'string' ? { status: item.status } : {}),
+        ...(item.action && typeof item.action === 'object' ? { action: item.action } : {})
       };
     }
 
