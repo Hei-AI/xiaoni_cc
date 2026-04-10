@@ -666,6 +666,12 @@ export interface TraceInspectorSection {
   emptyLabel?: string;
 }
 
+export interface TraceSpanDetailData {
+  input: any;
+  output: any;
+  evidence: any;
+}
+
 export interface TraceWaterfallMeta {
   label: string;
   value: string;

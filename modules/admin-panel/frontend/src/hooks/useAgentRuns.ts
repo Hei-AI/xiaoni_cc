@@ -4,6 +4,7 @@ import {
   AgentRunListItem,
   AgentRunSessionSummary,
   ConversationTraceData,
+  TraceSpanDetailData,
   SessionParticipationEvent,
   SessionConversationItemRecord,
   SessionRelationshipMemoryData
@@ -87,6 +88,15 @@ export function useRunTrace(runId: string, autoRefreshEnabled = true) {
     queryFn: () => fetchJson<ConversationTraceData>(`/api/runs/${runId}/trace`),
     enabled: Boolean(runId),
     refetchInterval: autoRefreshEnabled ? 30000 : false,
+  });
+}
+
+export function useRunTraceSpanDetail(runId: string | null, spanId: string | null) {
+  return useQuery<TraceSpanDetailData>({
+    queryKey: ['run-trace-span-detail', runId, spanId],
+    queryFn: () => fetchJson<TraceSpanDetailData>(`/api/runs/${runId}/trace/spans/${encodeURIComponent(spanId || '')}/detail`),
+    enabled: Boolean(runId && spanId),
+    staleTime: 30000,
   });
 }
 

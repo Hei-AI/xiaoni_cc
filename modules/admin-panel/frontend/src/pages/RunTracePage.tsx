@@ -251,6 +251,7 @@ export const RunTracePage: React.FC = () => {
                   contentClassName="flex min-h-0 flex-1 flex-col pt-3"
                 >
                   <TraceInspectorPanel
+                    runId={runId}
                     node={selectedSpan}
                     metadataBadges={viewModel.metadataBadges}
                     onImportToPlayground={canImportSelectedSpan ? handleImportSelectedSpan : undefined}
@@ -277,6 +278,7 @@ export const RunTracePage: React.FC = () => {
 
           {!isDesktop ? (
             <TraceInspectorSheet
+              runId={runId}
               open={isMobileInspectorOpen}
               onOpenChange={setIsMobileInspectorOpen}
               node={selectedSpan}

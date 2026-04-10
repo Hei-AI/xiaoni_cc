@@ -434,4 +434,86 @@ describe('buildConversationTracePayload', () => {
     });
     expect(String(blockedSpan?.summary)).toMatch(/already committed/i);
   });
+
+  it('trims oversized provider payloads from the initial trace response', async () => {
+    const db = createDatabase({
+      llmCallRows: [
+        {
+          id: 21,
+          llm_call_id: 'llm-call-big',
+          trace_id: 'trace-1',
+          conversation_id: 'conversation-1',
+          agent_turn: 1,
+          call_sequence: 1,
+          started_at: '2026-03-28T10:00:01.000Z',
+          completed_at: '2026-03-28T10:00:03.000Z',
+          status: 'completed',
+          model_name: 'gpt-5.4-mini',
+          model_provider: 'openai',
+          agent_type: 'chat_bot',
+          prompt_template: 'agent_loop_v1',
+          canonical_request: JSON.stringify({ prompt: 'x'.repeat(40000) }),
+          wire_request: JSON.stringify({ prompt: 'x'.repeat(40000) }),
+          canonical_response: JSON.stringify({ output_text: 'y'.repeat(40000) }),
+          wire_response: JSON.stringify({ output_text: 'y'.repeat(40000) }),
+          effective_unified_config: JSON.stringify({ model: { provider: 'openai', name: 'gpt-5.4-mini' } }),
+          processed_response: 'ok',
+          input_tokens: 10,
+          output_tokens: 20,
+          token_usage: JSON.stringify({ input_tokens: 10, output_tokens: 20 }),
+          processing_time_ms: 2000,
+        },
+      ],
+    });
+
+    (listTraceTrafficLogs as jest.Mock).mockResolvedValue([
+      {
+        id: 501,
+        request_id: 'req-501',
+        trace_id: 'trace-1',
+        conversation_id: 'conversation-1',
+        agent_turn: 1,
+        llm_call_id: 'llm-call-big',
+        method: 'POST',
+        url: 'https://api.openai.com/v1/responses',
+        host: 'api.openai.com',
+        path: '/v1/responses',
+        request_headers: JSON.stringify({ 'content-type': 'application/json' }),
+        request_body: 'x'.repeat(50000),
+        response_status: 200,
+        response_headers: JSON.stringify({ 'content-type': 'application/json' }),
+        response_body: JSON.stringify({ output_text: 'z'.repeat(50000) }),
+        duration_ms: 321,
+        request_timestamp: '2026-03-28T10:00:01.200Z',
+        response_timestamp: '2026-03-28T10:00:01.521Z',
+        is_ai_request: true,
+        api_type: 'openai',
+        error_message: null,
+      },
+    ]);
+
+    const payload = await buildConversationTracePayload(db as never, createLogger(), 'conversation-1');
+    const generationSpan = payload!.spans.find((span) => span.span_id === 'llm-call:llm-call-big');
+    const providerSpan = payload!.spans.find((span) => span.span_id === 'provider-request:501');
+    const generationInput = generationSpan?.input as any;
+    const providerInput = providerSpan?.input as any;
+    const rawEvidence = payload!.raw_evidence as any;
+
+    expect(generationInput?.canonical_request).toMatchObject({
+      __trace_payload_truncated: true,
+      label: 'canonical_request',
+    });
+    expect(providerInput?.body).toMatchObject({
+      __trace_payload_truncated: true,
+      label: 'request_body',
+    });
+    expect(rawEvidence.llm_calls[0].canonical_request).toMatchObject({
+      __trace_payload_truncated: true,
+      label: 'canonical_request',
+    });
+    expect(rawEvidence.http_logs[0].response_body).toMatchObject({
+      __trace_payload_truncated: true,
+      label: 'response_body',
+    });
+  });
 });

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useRunTraceSpanDetail } from '@/hooks/useAgentRuns';
 import { cn, formatTimestamp } from '@/lib/utils';
 import { TraceInspectorSection, TraceWaterfallRow } from '@/types';
 
@@ -87,7 +88,43 @@ function isProviderRequestNode(node: TraceWaterfallRow | null): node is TraceWat
   return Boolean(node && node.semanticRole === 'provider_request');
 }
 
+function hasDeferredTracePayload(value: unknown): boolean {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const queue: unknown[] = [value];
+  const visited = new Set<unknown>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object' || visited.has(current)) {
+      continue;
+    }
+
+    visited.add(current);
+
+    if (!Array.isArray(current) && (current as Record<string, unknown>).__trace_payload_truncated) {
+      return true;
+    }
+
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+
+    queue.push(...Object.values(current as Record<string, unknown>));
+  }
+
+  return false;
+}
+
+function canLazyLoadSpanDetail(spanId: string): boolean {
+  return spanId.startsWith('llm-call:') || spanId.startsWith('provider-request:') || spanId.startsWith('http:');
+}
+
 interface TraceInspectorSurfaceProps {
+  runId?: string;
   node: TraceWaterfallRow | null;
   metadataBadges: string[];
   activeTab: InspectorTab;
@@ -105,6 +142,7 @@ interface TraceInspectorSurfaceProps {
 }
 
 function TraceInspectorSurface({
+  runId,
   node,
   metadataBadges,
   activeTab,
@@ -133,9 +171,16 @@ function TraceInspectorSurface({
   const activeSection = getSection(node, activeTab);
   const inputSection = getSection(node, 'input');
   const outputSection = getSection(node, 'output');
-  const inputPayload = readHttpPayload(inputSection?.value);
-  const outputPayload = readHttpPayload(outputSection?.value);
-  const outputPayloadMeta = readHttpPayloadMeta(outputSection?.value);
+  const evidenceSection = getSection(node, 'evidence');
+  const hasDeferredSection = [inputSection?.value, outputSection?.value, evidenceSection?.value].some(hasDeferredTracePayload);
+  const needsDeferredDetail = hasDeferredSection && canLazyLoadSpanDetail(node.spanId);
+  const spanDetailQuery = useRunTraceSpanDetail(runId || null, needsDeferredDetail ? node.spanId : null);
+  const resolvedInputValue = spanDetailQuery.data?.input ?? inputSection?.value;
+  const resolvedOutputValue = spanDetailQuery.data?.output ?? outputSection?.value;
+  const resolvedEvidenceValue = spanDetailQuery.data?.evidence ?? evidenceSection?.value;
+  const inputPayload = readHttpPayload(resolvedInputValue);
+  const outputPayload = readHttpPayload(resolvedOutputValue);
+  const outputPayloadMeta = readHttpPayloadMeta(resolvedOutputValue);
 
   return (
     <Card className={cn('h-full min-h-[420px] rounded-[22px] bg-[linear-gradient(180deg,#fff,#faf8f5)]', className)}>
@@ -208,6 +253,18 @@ function TraceInspectorSurface({
           {node.summary}
         </div>
 
+        {hasDeferredSection ? (
+          <div className="mt-3 text-xs text-muted-foreground">
+            {!canLazyLoadSpanDetail(node.spanId)
+              ? '该节点包含裁剪预览；请切到具体 LLM 或 provider span 查看完整 payload。'
+              : spanDetailQuery.isLoading
+              ? '正在按需加载完整 payload...'
+              : spanDetailQuery.error
+                ? '完整 payload 加载失败，当前展示的是裁剪预览。'
+                : '已按需加载完整 payload。'}
+          </div>
+        ) : null}
+
         {node.meta.length > 0 ? (
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {node.meta.map((item) => (
@@ -239,7 +296,7 @@ function TraceInspectorSurface({
             ) : (
               <StructuredDataViewer
                 title="Input"
-                value={inputSection?.value}
+                value={resolvedInputValue}
                 emptyLabel={inputSection?.emptyLabel}
                 heightClassName="h-[28rem] xl:h-[min(60vh,36rem)]"
               />
@@ -272,7 +329,7 @@ function TraceInspectorSurface({
             ) : (
               <StructuredDataViewer
                 title="Output"
-                value={outputSection?.value}
+                value={resolvedOutputValue}
                 emptyLabel={outputSection?.emptyLabel}
                 heightClassName="h-[28rem] xl:h-[min(60vh,36rem)]"
               />
@@ -281,7 +338,7 @@ function TraceInspectorSurface({
           <TabsContent value="evidence" className="mt-3 flex-1">
             <StructuredDataViewer
               title="Evidence"
-              value={activeSection?.value}
+              value={activeTab === 'evidence' ? resolvedEvidenceValue : activeSection?.value}
               emptyLabel={activeSection?.emptyLabel}
               heightClassName="h-[28rem] xl:h-[min(60vh,36rem)]"
             />
@@ -293,6 +350,7 @@ function TraceInspectorSurface({
 }
 
 interface TraceInspectorPanelProps {
+  runId?: string;
   node: TraceWaterfallRow | null;
   metadataBadges: string[];
   className?: string;
@@ -305,6 +363,7 @@ interface TraceInspectorPanelProps {
 }
 
 export function TraceInspectorPanel({
+  runId,
   node,
   metadataBadges,
   className,
@@ -408,6 +467,7 @@ export function TraceInspectorPanel({
         </Card>
       ) : (
         <TraceInspectorSurface
+          runId={runId}
           node={node}
           metadataBadges={metadataBadges}
           activeTab={activeTab}
@@ -428,6 +488,7 @@ export function TraceInspectorPanel({
         ? createPortal(
             <div data-floating-inspector="true" className="fixed z-[80]" style={floatingStyle}>
               <TraceInspectorSurface
+                runId={runId}
                 node={node}
                 metadataBadges={metadataBadges}
                 activeTab={activeTab}
@@ -452,6 +513,7 @@ export function TraceInspectorPanel({
 }
 
 interface TraceInspectorSheetProps {
+  runId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   node: TraceWaterfallRow | null;
@@ -464,6 +526,7 @@ interface TraceInspectorSheetProps {
 }
 
 export function TraceInspectorSheet({
+  runId,
   open,
   onOpenChange,
   node,
@@ -483,6 +546,7 @@ export function TraceInspectorSheet({
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-hidden px-4 pb-4">
           <TraceInspectorPanel
+            runId={runId}
             node={node}
             metadataBadges={metadataBadges}
             allowFloating={false}

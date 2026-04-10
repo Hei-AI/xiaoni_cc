@@ -12,7 +12,7 @@ import {
 } from '@qq-bot/persistence';
 import winston from 'winston';
 import { DatabaseManager } from '../services/database';
-import { buildConversationTracePayload } from '../services/trace-span-builder';
+import { buildConversationTracePayload, buildConversationTraceSpanDetail } from '../services/trace-span-builder';
 
 function decodeSessionKey(raw: string) {
   try {
@@ -1186,6 +1186,49 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
       res.status(500).json({
         success: false,
         error: 'Failed to fetch run trace',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/runs/:runId/trace/spans/:spanId/detail', async (req, res) => {
+    try {
+      const runId = req.params.runId;
+      const runs = await database.executeQuery<{ conversation_id: number | null }>(
+        'SELECT conversation_id FROM agent_runs WHERE id = ? LIMIT 1',
+        [runId]
+      );
+
+      const conversationId = runs[0]?.conversation_id ? String(runs[0].conversation_id) : runId;
+      const detail = await buildConversationTraceSpanDetail(
+        database,
+        logger,
+        conversationId,
+        decodeURIComponent(req.params.spanId)
+      );
+
+      if (!detail) {
+        return res.status(404).json({
+          success: false,
+          error: 'Trace span detail not found',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      res.json({
+        success: true,
+        data: detail,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to fetch run trace span detail', {
+        error,
+        runId: req.params.runId,
+        spanId: req.params.spanId
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch run trace span detail',
         timestamp: new Date().toISOString()
       });
     }

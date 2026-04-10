@@ -1,5 +1,5 @@
 import winston from 'winston';
-import { listTraceTrafficLogs, parseInstantValue, serializeTimestampForApi } from '@qq-bot/persistence';
+import { getTrafficLogById, listTraceTrafficLogs, parseInstantValue, serializeTimestampForApi } from '@qq-bot/persistence';
 import { DatabaseManager } from './database';
 
 type TraceConfidence = 'observed' | 'derived' | 'missing';
@@ -41,6 +41,50 @@ interface TraceSpanDto {
   links: TraceSpanLinkDto[];
   confidence: TraceConfidence;
   source_ref: string | number | null;
+}
+
+interface TracePayloadTrimOptions {
+  truncateLargeFields?: boolean;
+}
+
+interface TraceSpanDetailDto {
+  input: unknown;
+  output: unknown;
+  evidence: unknown;
+}
+
+const TRACE_PAYLOAD_MAX_INLINE_BYTES = 16 * 1024;
+
+function estimateJsonBytes(value: unknown): number {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  if (typeof value === 'string') {
+    return Buffer.byteLength(value, 'utf8');
+  }
+  try {
+    return Buffer.byteLength(JSON.stringify(value), 'utf8');
+  } catch (_error) {
+    return Buffer.byteLength(String(value), 'utf8');
+  }
+}
+
+function buildDeferredPayload(value: unknown, label: string) {
+  return {
+    __trace_payload_truncated: true,
+    label,
+    bytes: estimateJsonBytes(value),
+    preview: safePreview(value, 640)
+  };
+}
+
+function maybeTrimLargeField(value: unknown, label: string, options?: TracePayloadTrimOptions) {
+  if (!options?.truncateLargeFields) {
+    return value;
+  }
+  return estimateJsonBytes(value) > TRACE_PAYLOAD_MAX_INLINE_BYTES
+    ? buildDeferredPayload(value, label)
+    : value;
 }
 
 function parseJsonField<T>(value: any, fallback: T): T {
@@ -254,10 +298,13 @@ function normalizeStatusCode(value: any): 'unset' | 'ok' | 'error' {
   return 'unset';
 }
 
-function normalizeLlmCall(call: any) {
+function normalizeLlmCall(call: any, options?: TracePayloadTrimOptions) {
   const tokenUsage = parseJsonField<any>(call.token_usage, {});
   const effectiveUnifiedConfig = parseJsonField<any>(call.effective_unified_config, null);
   const canonicalRequest = enrichCanonicalRequest(parseJsonField<any>(call.canonical_request, null));
+  const wireRequest = parseJsonField<any>(call.wire_request, null);
+  const canonicalResponse = parseJsonField<any>(call.canonical_response, null);
+  const wireResponse = parseJsonField<any>(call.wire_response, null);
   return {
     id: call.id,
     llm_call_id: call.llm_call_id || null,
@@ -275,12 +322,12 @@ function normalizeLlmCall(call: any) {
     model_provider: call.model_provider,
     agent_type: call.agent_type,
     prompt_template: call.prompt_template,
-    canonical_request: canonicalRequest,
-    wire_request: parseJsonField<any>(call.wire_request, null),
-    canonical_response: parseJsonField<any>(call.canonical_response, null),
-    wire_response: parseJsonField<any>(call.wire_response, null),
-    effective_unified_config: effectiveUnifiedConfig,
-    processed_response: call.processed_response || null,
+    canonical_request: maybeTrimLargeField(canonicalRequest, 'canonical_request', options),
+    wire_request: maybeTrimLargeField(wireRequest, 'wire_request', options),
+    canonical_response: maybeTrimLargeField(canonicalResponse, 'canonical_response', options),
+    wire_response: maybeTrimLargeField(wireResponse, 'wire_response', options),
+    effective_unified_config: maybeTrimLargeField(effectiveUnifiedConfig, 'effective_unified_config', options),
+    processed_response: maybeTrimLargeField(call.processed_response || null, 'processed_response', options),
     input_tokens: toNumber(call.input_tokens),
     output_tokens: toNumber(call.output_tokens),
     token_usage: tokenUsage,
@@ -347,7 +394,7 @@ function normalizeToolCall(call: any) {
   };
 }
 
-function normalizeHttpLog(log: any) {
+function normalizeHttpLog(log: any, options?: TracePayloadTrimOptions) {
   const statusCode = toNumber(log.response_status);
   const normalizedResponse = extractSseFinalResponse(log.response_body || null);
   return {
@@ -369,12 +416,12 @@ function normalizeHttpLog(log: any) {
     request_timestamp: toIsoString(log.request_timestamp),
     response_timestamp: toIsoString(log.response_timestamp || log.request_timestamp),
     duration_ms: getDurationMs(log.request_timestamp, log.response_timestamp, log.duration_ms),
-    request_headers: parseJsonField<any>(log.request_headers, {}),
-    response_headers: parseJsonField<any>(log.response_headers, {}),
-    request_body: log.request_body || null,
-    response_body: log.response_body || null,
-    normalized_response_body: normalizedResponse.body,
-    normalized_response_raw_body: normalizedResponse.raw_body,
+    request_headers: maybeTrimLargeField(parseJsonField<any>(log.request_headers, {}), 'request_headers', options),
+    response_headers: maybeTrimLargeField(parseJsonField<any>(log.response_headers, {}), 'response_headers', options),
+    request_body: maybeTrimLargeField(log.request_body || null, 'request_body', options),
+    response_body: maybeTrimLargeField(log.response_body || null, 'response_body', options),
+    normalized_response_body: maybeTrimLargeField(normalizedResponse.body, 'normalized_response_body', options),
+    normalized_response_raw_body: maybeTrimLargeField(normalizedResponse.raw_body, 'normalized_response_raw_body', options),
     normalized_response_body_format: normalizedResponse.body_format,
     normalized_response_body_source: normalizedResponse.body_source,
     is_ai_request: Boolean(log.is_ai_request),
@@ -834,7 +881,7 @@ export async function buildConversationTracePayload(
   ]);
 
   const llmCalls = (llmCallRows as any[])
-    .map(normalizeLlmCall)
+    .map((row) => normalizeLlmCall(row, { truncateLargeFields: true }))
     .sort((left, right) => {
       const timeComparison = compareTimes(
         left.started_at || left.completed_at,
@@ -849,7 +896,7 @@ export async function buildConversationTracePayload(
       return left.id - right.id;
     });
   const toolCalls = (toolCallRows as any[]).map(normalizeToolCall);
-  const httpLogs = (httpRows as any[]).map(normalizeHttpLog);
+  const httpLogs = (httpRows as any[]).map((row) => normalizeHttpLog(row, { truncateLargeFields: true }));
   const queueMessages = (queueRows as any[]).map(normalizeQueueMessage);
   const unattributedHttp = attachHttpLogs(toolCalls, llmCalls, httpLogs);
   const lifecycleSpans = pairTimelineEvents(timelineRows as any[]);
@@ -1442,15 +1489,152 @@ export async function buildConversationTracePayload(
       conversation,
       websocket_logs: websocketRows,
       timeline_events: timelineRows,
-      llm_calls: llmCallRows,
-      tool_calls: toolCallRows,
-      http_logs: httpRows,
+      llm_calls: llmCalls,
+      tool_calls: toolCalls,
+      http_logs: httpLogs,
       llm_jobs: llmJobRows,
-      queue_messages: queueRows
+      queue_messages: queueMessages
     },
     data_quality: {
       ...dataQuality,
       overall: Object.values(dataQuality).every((value) => value === 'complete') ? 'complete' : 'partial'
     }
   };
+}
+
+export async function buildConversationTraceSpanDetail(
+  database: DatabaseManager,
+  logger: winston.Logger,
+  conversationId: string,
+  spanId: string
+): Promise<TraceSpanDetailDto | null> {
+  const conversations = await database.executeQuery(
+    `SELECT id, trace_id, batch_id, user_id, group_id, user_message, ai_response, status,
+            error_reason, response_time, model_name, raw_request, timestamp
+     FROM conversations
+     WHERE id = ?`,
+    [conversationId]
+  );
+
+  if (!conversations || conversations.length === 0) {
+    return null;
+  }
+
+  const conversation = conversations[0] as any;
+  const traceId = conversation.trace_id || `conversation-${conversationId}`;
+
+  if (spanId.startsWith('llm-call:')) {
+    const llmCallId = spanId.slice('llm-call:'.length);
+    const rows = await database.executeQuery(
+      `SELECT * FROM llm_call_logs WHERE llm_call_id = ? LIMIT 1`,
+      [llmCallId]
+    );
+    const row = rows[0] as any;
+    if (!row) {
+      return null;
+    }
+    const call = normalizeLlmCall(row);
+    const traceTraffic = await listTraceTrafficLogs({ traceId, conversationId });
+    call.provider_requests = (traceTraffic as any[])
+      .map((log) => normalizeHttpLog(log))
+      .filter((log) => log.llm_call_id === llmCallId && log.is_ai_request);
+
+    const playgroundCapability = buildPlaygroundCapability(call);
+    const playgroundSnapshot = buildPlaygroundSnapshot(call, spanId);
+
+    return {
+      input: {
+        prompt_template: call.prompt_template,
+        canonical_request: call.canonical_request,
+        wire_request: call.wire_request,
+        effective_unified_config: call.effective_unified_config
+      },
+      output: {
+        processed_response: call.processed_response,
+        canonical_response: call.canonical_response,
+        wire_response: call.wire_response,
+        token_usage: call.token_usage,
+        error_message: call.error_message,
+        error_code: call.error_code
+      },
+      evidence: {
+        ...call,
+        provider_requests: call.provider_requests.map((log: any) => ({
+          traffic_log_id: log.id,
+          request_id: log.request_id,
+          method: log.method,
+          host: log.host,
+          path: log.path,
+          response_status: log.response_status,
+          duration_ms: log.duration_ms,
+          api_type: log.api_type
+        })),
+        playground_capability: playgroundCapability,
+        playground_source_snapshot: playgroundSnapshot
+      }
+    };
+  }
+
+  if (spanId.startsWith('provider-request:') || spanId.startsWith('http:')) {
+    const rawId = spanId.includes(':') ? spanId.split(':').slice(1).join(':') : spanId;
+    const log = await getTrafficLogById(rawId);
+    if (!log) {
+      return null;
+    }
+    const normalizedLog = normalizeHttpLog(log);
+    const responseBody = spanId.startsWith('provider-request:')
+      ? normalizedLog.normalized_response_body
+      : normalizedLog.response_body;
+    const responseRawBody = spanId.startsWith('provider-request:')
+      ? normalizedLog.normalized_response_raw_body
+      : null;
+
+    return {
+      input: {
+        headers: normalizedLog.request_headers,
+        body: normalizedLog.request_body
+      },
+      output: spanId.startsWith('provider-request:')
+        ? {
+            status_code: normalizedLog.response_status,
+            headers: normalizedLog.response_headers,
+            body: responseBody,
+            raw_body: responseRawBody,
+            body_format: normalizedLog.normalized_response_body_format,
+            body_source: normalizedLog.normalized_response_body_source,
+            error_message: normalizedLog.error_message
+          }
+        : {
+            status_code: normalizedLog.response_status,
+            headers: normalizedLog.response_headers,
+            body: normalizedLog.response_body,
+            error_message: normalizedLog.error_message
+          },
+      evidence: spanId.startsWith('provider-request:')
+        ? {
+            traffic_log_id: normalizedLog.id,
+            request_id: normalizedLog.request_id,
+            llm_call_id: normalizedLog.llm_call_id,
+            method: normalizedLog.method,
+            host: normalizedLog.host,
+            path: normalizedLog.path,
+            url: normalizedLog.url,
+            request_headers: normalizedLog.request_headers,
+            request_body: normalizedLog.request_body,
+            response_status: normalizedLog.response_status,
+            response_headers: normalizedLog.response_headers,
+            response_body: normalizedLog.response_body,
+            normalized_response_body: normalizedLog.normalized_response_body,
+            normalized_response_body_source: normalizedLog.normalized_response_body_source,
+            duration_ms: normalizedLog.duration_ms,
+            request_timestamp: normalizedLog.request_timestamp,
+            response_timestamp: normalizedLog.response_timestamp,
+            api_type: normalizedLog.api_type
+          }
+        : normalizedLog
+    };
+  }
+
+  logger.debug('Trace span detail not required for span', { conversationId, traceId, spanId });
+  return null;
 }
