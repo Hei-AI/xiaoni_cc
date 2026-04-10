@@ -651,6 +651,70 @@ test('buildInitialInput appends standalone 小腻的OS when the latest turn was 
   assert.equal(getMessageContent(loopInput[4]), '[未读消息]');
 });
 
+test('buildInitialInput preserves xiaoni_os from non-latest history turns', () => {
+  const loopInput = buildInitialInput([
+    {
+      id: 1,
+      userId: 202,
+      groupId: 101,
+      batchId: null,
+      sessionKey: 'qq:group:101',
+      userMessage: '上一轮用户消息',
+      aiResponse: '上一轮回复',
+      rawResponse: {
+        xiaoni_os: '上一轮留下的内在延续。'
+      },
+      items: [
+        {
+          id: 11,
+          conversationId: 1,
+          sessionKey: 'qq:group:101',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: '上一轮回复',
+          groupIndex: 1,
+          itemIndex: 0,
+          source: 'delivery',
+          deliveryMessageId: 901,
+          runId: 'run-legacy',
+          traceId: 'trace-legacy'
+        }
+      ]
+    },
+    {
+      id: 2,
+      userId: 202,
+      groupId: 101,
+      batchId: null,
+      sessionKey: 'qq:group:101',
+      userMessage: '最新一轮用户消息',
+      aiResponse: '最新一轮回复',
+      rawResponse: {},
+      items: [
+        {
+          id: 21,
+          conversationId: 2,
+          sessionKey: 'qq:group:101',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: '最新一轮回复',
+          groupIndex: 1,
+          itemIndex: 0,
+          source: 'delivery',
+          deliveryMessageId: 902,
+          runId: 'run-latest',
+          traceId: 'trace-latest'
+        }
+      ]
+    }
+  ], createQueuePayload());
+
+  const priorTurnItem = loopInput[2];
+  assert.match(getMessageContent(priorTurnItem), /上一轮回复/);
+  assert.match(getMessageContent(priorTurnItem), /<小腻的OS>/);
+  assert.match(getMessageContent(priorTurnItem), /上一轮留下的内在延续/);
+});
+
 test('buildInitialInput keeps user input as pure scene without synthetic current-task text', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'
@@ -1881,6 +1945,7 @@ test('processQueueMessage suppresses duplicate outbound reply attempts within th
     return {
       message_type: 'group',
       sent_messages: ['同一句话'],
+      xiaoni_os: '第一轮留下的OS',
       delivery: [{ message_id: 7001 }]
     };
   };
@@ -1890,6 +1955,7 @@ test('processQueueMessage suppresses duplicate outbound reply attempts within th
   assert.equal(executeToolCalls, 1);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, '同一句话');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '第一轮留下的OS');
   assert.deepEqual(
     storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => item.content),
     [

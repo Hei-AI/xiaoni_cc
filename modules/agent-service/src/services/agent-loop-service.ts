@@ -2263,6 +2263,7 @@ export class AgentLoopService {
     let turnsExecuted = 0;
     let deliveredMessages: DeliveredAssistantMessage[] = [];
     const deliveredFingerprints = new Set<string>();
+    let persistedXiaoniOs: string | null = null;
     let historyCount = 0;
     let runtimePrompt: ResolvedAgentRuntimePrompt | null = null;
     const contextBudgetTurns: ContextBudgetTurnRecord[] = [];
@@ -2437,6 +2438,9 @@ export class AgentLoopService {
                   no_reply: deliveredMessages.length === 0
                 }
               : rawToolResult;
+            if (typeof toolResult?.xiaoni_os === 'string' && toolResult.xiaoni_os.trim().length > 0) {
+              persistedXiaoniOs = toolResult.xiaoni_os.trim();
+            }
             await this.store.completeToolExecutionLog(logId, {
               status: 'completed',
               result: toolResult
@@ -2564,7 +2568,7 @@ export class AgentLoopService {
         },
         rawResponse: {
           sent_messages: sentMessages,
-          xiaoni_os: typeof finishResult?.xiaoni_os === 'string' ? finishResult.xiaoni_os : null,
+          xiaoni_os: persistedXiaoniOs,
           context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
           total_turns: turnsExecuted,
           termination_reason: termination.terminationReason,
@@ -3415,7 +3419,7 @@ export function buildInitialInput(
     const transcriptItems = Array.isArray(turn.items) && turn.items.length > 0
       ? turn.items
       : [];
-    const osText = buildLatestTurnOs(history, turn);
+    const osText = buildTurnOs(turn);
     let osAttached = false;
 
     if (transcriptItems.length === 0) {
@@ -3457,11 +3461,7 @@ export function buildInitialInput(
   return items;
 }
 
-function buildLatestTurnOs(history: ConversationTurn[], turn: ConversationTurn) {
-  if (history.length === 0 || history[history.length - 1]?.id !== turn.id) {
-    return '';
-  }
-
+function buildTurnOs(turn: ConversationTurn) {
   const rawResponse = turn.rawResponse && typeof turn.rawResponse === 'object'
     ? turn.rawResponse
     : {};
