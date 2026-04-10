@@ -58,21 +58,51 @@ function enrichCanonicalRequest(request: any) {
 
 function buildMessageInput(conversation: any) {
   const rawRequest = parseJsonField<any>(conversation.raw_request, {});
+  const firstBatchMessage = Array.isArray(rawRequest?.batch_messages) ? rawRequest.batch_messages[0] ?? null : null;
+  const inboundContext = firstBatchMessage?.inboundContext && typeof firstBatchMessage.inboundContext === 'object'
+    ? firstBatchMessage.inboundContext
+    : null;
   const timestampFromConversation = conversation.timestamp ? new Date(conversation.timestamp).toISOString() : undefined;
   const timestampFromRequest = rawRequest?.time ? new Date(rawRequest.time * 1000).toISOString() : undefined;
   const queuedAt = timestampFromRequest || timestampFromConversation || new Date().toISOString();
   const processedAt = timestampFromConversation || timestampFromRequest || queuedAt;
+  const inboundTo = typeof inboundContext?.To === 'string' ? inboundContext.To.trim() : '';
+  const inboundGroupId = inboundTo.startsWith('group:') ? inboundTo.slice('group:'.length) : null;
+  const groupId = conversation.group_id
+    ?? rawRequest.group_id
+    ?? firstBatchMessage?.groupId
+    ?? firstBatchMessage?.rawPayload?.payload?.group_id
+    ?? firstBatchMessage?.rawPayload?.group_id
+    ?? inboundContext?.NativeChannelId
+    ?? inboundGroupId;
+  const normalizedGroupId = groupId !== null && groupId !== undefined && String(groupId).trim().length > 0
+    ? String(groupId)
+    : null;
+  const inferredMessageType = rawRequest.message_type
+    ?? firstBatchMessage?.messageType
+    ?? firstBatchMessage?.chatType
+    ?? inboundContext?.ChatType
+    ?? (normalizedGroupId ? 'group' : 'private');
+  const sessionKey = firstBatchMessage?.sessionKey
+    ?? inboundContext?.SessionKey
+    ?? rawRequest?.session_key
+    ?? (normalizedGroupId
+      ? `qq:group:${normalizedGroupId}`
+      : `qq:private:${String(conversation.user_id ?? rawRequest.user_id ?? firstBatchMessage?.senderId ?? 0)}`);
+  const source = rawRequest?.source
+    ?? firstBatchMessage?.source
+    ?? (firstBatchMessage?.rawPayload?.simulated ? 'api_simulation' : 'conversation_record');
 
   return {
-    user_id: conversation.user_id ?? rawRequest.user_id ?? 0,
+    user_id: conversation.user_id ?? rawRequest.user_id ?? firstBatchMessage?.senderId ?? 0,
     message: conversation.user_message ?? rawRequest.message ?? rawRequest.raw_message ?? '',
-    message_type: rawRequest.message_type ?? 'private',
-    group_id: rawRequest.group_id,
-    message_id: rawRequest.message_id,
-    source: 'api_simulation' as const,
+    message_type: inferredMessageType,
+    group_id: normalizedGroupId,
+    message_id: rawRequest.message_id ?? firstBatchMessage?.messageId,
+    source,
     queued_at: queuedAt,
     processed_at: processedAt,
-    partition_key: String(conversation.user_id ?? rawRequest.user_id ?? conversation.id),
+    partition_key: sessionKey,
     priority: 'MEDIUM' as const
   };
 }
@@ -569,7 +599,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
 
       // 获取对话基本信息
       const conversationQuery = `
-        SELECT id, user_id, user_message, ai_response, timestamp, response_time,
+        SELECT id, user_id, group_id, user_message, ai_response, timestamp, response_time,
                model_name, raw_request, status, trace_id
         FROM conversations
         WHERE id = ?
