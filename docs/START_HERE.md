@@ -1,58 +1,25 @@
 # Start Here
 
-如果你是第一次接触这个仓库，按下面顺序阅读。
+如果你是第一次接触这个仓库，先读这份入口。
 目标不是一次读完全部文档，而是在 30 到 60 分钟内建立可工作的心智模型。
 
-## 5 分钟版本
-先理解三件事：
-
-1. 这是一个什么仓库
+## First 5 Minutes
 - 这是 QQ Bot 的主仓，但当前保留的是“运行底座 + 管理端”，不是完整旧业务全集。
+- 默认先记住主链路：`NapCat -> provider-service -> admin-backend -> admin-frontend`
+- 先信这些入口：`README.md`、`docs/INDEX.md`、`AGENTS.md`
 
-2. 主链路是什么
-- 默认先记住这条链路：
-  - `NapCat -> provider-service -> admin-backend -> admin-frontend`
+## First 15 Minutes
+- 主入口只看四处：`modules/provider-service`、`modules/admin-panel/backend`、`modules/admin-panel/frontend`、`packages/persistence`
+- 次级入口：`modules/agent-service`、`modules/http-traffic-monitor`、`modules/embedding-server`
+- 当前运行数据库是 PostgreSQL
+- 接任务前，先在 `docs/INDEX.md` 找对应专项文档，不要直接全仓漫游
 
-3. 哪些目录值得信任
-- 先看这些：
-  - `README.md`
-  - `docs/INDEX.md`
+## First 30 Minutes
+- 看 `README.md`：确认部署方式、主栈服务、基本命令
+- 看 `docs/INDEX.md`：按任务类型进入最少的专项文档
+- 回到 `AGENTS.md`：确认仓库级约束和 `Done Means`
 
-## 15 分钟版本
-接着理解“什么是主入口，什么是辅助组件”。
-
-### 主入口
-- `modules/provider-service`
-  - 外部能力接入层 + runtime gateway
-  - 承接 provider debug、embeddings、NapCat 发消息、消息模拟、简单队列，以及 transcript / relationship / self / topic side effect 调度
-- `modules/admin-panel/backend`
-  - 运营 API
-  - 为前端提供 runs、queue、prompt、playground、traffic replay、runtime status、relationship memory、topic lab 等能力
-- `modules/admin-panel/frontend`
-  - 管理端 UI
-  - 默认只调用 `admin-panel/backend`
-
-### 辅助组件
-- `postgres`
-  - 当前运行数据库
-- `modules/agent-service`
-  - 队列 worker / agent loop runtime
-  - 它在 compose 中运行，但不是新人理解系统时的第一个入口
-- `modules/http-traffic-monitor`
-  - 运维观测工具链，不是独立产品服务
-- `modules/embedding-server`
-  - `provider-service` 背后的 embedding 运行时实现细节，不是公共 API 面
-
-## 30 分钟版本
-读完这些后，你应该能开始接任务：
-
-1. `README.md`
-- 看部署方式、主栈服务、基本命令
-
-2. `docs/INDEX.md`
-- 根据任务类型进入对应专项文档
-
-## 新人最容易踩的坑
+## Common Mistakes
 - 不要因为 `agent-service` 在 compose 里，就误以为它是管理端主链路入口。
 - 不要把 provider 侧 participation 继续理解成完整“是否说话”的总决策器；当前它更像硬边界和观测层，主行为判断在 `agent-service` runtime。
 - 不要再把旧的 conversation timeline 当成当前调试主入口；现在看的是 agent run workspace。

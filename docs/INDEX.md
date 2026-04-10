@@ -2,6 +2,7 @@
 
 本目录是仓库内知识的 system of record。
 先看这份索引，再按任务打开最少的相关文档。
+- 全仓文档默认遵循渐进式披露：入口页只负责分流和给下一跳，细节只维护在被指向的主文档里。
 
 ## Agent Working Set
 - 前端页面、交互、生产前端问题：
@@ -28,18 +29,21 @@
 
 ## GStack Workflows
 - 长任务自动评审：
-  - `/autoplan`
+  - `$autoplan`
 - 架构与执行评审：
-  - `/plan-eng-review`
+  - `$plan-eng-review`
 - Bug / 异常根因调查：
-  - `/investigate`
+  - `$investigate`
+- OpenAI 产品/API 官方文档查询：
+  - `$openai-docs`
 - 站点或功能 QA：
-  - `/qa`
+  - `$qa`
 - 提交、PR、发版：
-  - `/ship`
+  - `$ship`
 
 ## Maintenance Rules
 - 修改代码时，如果对应文档已不再真实，顺手修正文档。
 - 新文档优先放在 `docs/`，不要把关键知识只留在聊天记录里。
 - 不要复制一份“差不多”的规则到多个地方；优先维护一个主文档，再由索引指向它。
+- skill 名统一写成 `$skill-name` 格式，不混用 `/skill-name`。
 - 仓库级交付规则统一看 `AGENTS.md`；这里不重复写一份。
