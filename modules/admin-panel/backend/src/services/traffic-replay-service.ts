@@ -110,9 +110,77 @@ interface ReplayHistory {
 
 export class TrafficReplayService {
   private comparator: ResponseComparator;
+  private readonly providerServiceUrl: string;
 
   constructor(_db: DatabaseManager) {
-    this.comparator = new ResponseComparator();
+    this.providerServiceUrl = process.env.PROVIDER_SERVICE_URL || 'http://qqbot-provider-service:8090';
+    this.comparator = new ResponseComparator({
+      semanticJudge: async ({ original, replayed, comparison }) => {
+        const response = await fetch(`${this.providerServiceUrl}/api/internal/llm/debug`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            systemPrompt: [
+              'You judge whether two HTTP responses are semantically equivalent for operators debugging LLM traffic.',
+              'Focus on user-visible meaning and operator-visible behavior, not byte-for-byte formatting.',
+              'Return strict JSON only with keys: semantic_match, summary.'
+            ].join('\n'),
+            messages: [{
+              role: 'user',
+              content: JSON.stringify({
+                original: {
+                  status: original.response_status || 0,
+                  body: original.response_body || '',
+                  headers: original.response_headers || {}
+                },
+                replayed: {
+                  status: replayed.status,
+                  body: replayed.body,
+                  headers: replayed.headers
+                },
+                structural_comparison: {
+                  status_match: comparison.statusMatch,
+                  body_match: comparison.bodyMatch,
+                  diff_count: comparison.bodyDiff.length,
+                  header_diff_count: comparison.headersDiff.length
+                }
+              })
+            }],
+            model: 'gpt-5.4-mini',
+            conversation_id: `traffic-replay:${original.id}`
+          })
+        });
+
+        const payload = await response.json() as Record<string, unknown>;
+        if (!response.ok || payload.success !== true || typeof payload.response !== 'string') {
+          return {
+            semanticMatch: null,
+            semanticSummary: null,
+            semanticJudgeModel: null,
+            semanticJudgeReason: typeof payload.error === 'string' ? payload.error : `HTTP ${response.status}`
+          };
+        }
+
+        try {
+          const parsed = JSON.parse(payload.response) as Record<string, unknown>;
+          return {
+            semanticMatch: typeof parsed.semantic_match === 'boolean' ? parsed.semantic_match : null,
+            semanticSummary: typeof parsed.summary === 'string' ? parsed.summary : null,
+            semanticJudgeModel: typeof payload.model === 'string' ? payload.model : 'gpt-5.4-mini',
+            semanticJudgeReason: null
+          };
+        } catch {
+          return {
+            semanticMatch: null,
+            semanticSummary: null,
+            semanticJudgeModel: typeof payload.model === 'string' ? payload.model : 'gpt-5.4-mini',
+            semanticJudgeReason: 'semantic_judge_invalid_json'
+          };
+        }
+      }
+    });
   }
 
   /**
@@ -176,7 +244,7 @@ export class TrafficReplayService {
       }
 
       // 4. 对比结果
-      const comparison = this.comparator.compare(originalLog, replayResponse);
+      const comparison = await this.comparator.compareWithSemanticJudge(originalLog, replayResponse);
 
       // 5. 保存重放历史
       const historyId = await this.saveReplayHistory({

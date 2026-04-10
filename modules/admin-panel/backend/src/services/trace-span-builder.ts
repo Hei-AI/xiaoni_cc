@@ -123,6 +123,38 @@ function safePreview(value: unknown, maxLength = 140): string {
   return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
 }
 
+function extractRuntimeGuidanceFromCanonicalRequest(request: any): string | null {
+  const inputItems = Array.isArray(request?.input) ? request.input : [];
+  for (const item of inputItems) {
+    if (item?.type !== 'message' || typeof item.content !== 'string') {
+      continue;
+    }
+    const content = item.content.trim();
+    if (content.startsWith('Runtime guidance:')) {
+      return content;
+    }
+  }
+  return null;
+}
+
+function enrichCanonicalRequest(request: any) {
+  if (!request || typeof request !== 'object' || Array.isArray(request)) {
+    return request;
+  }
+
+  const runtimeGuidance = extractRuntimeGuidanceFromCanonicalRequest(request);
+  const instructions = typeof request.instructions === 'string' ? request.instructions.trim() : '';
+  const effectiveInstructions = runtimeGuidance
+    ? [instructions, runtimeGuidance].filter(Boolean).join('\n\n')
+    : instructions || null;
+
+  return {
+    ...request,
+    runtime_guidance: runtimeGuidance,
+    effective_instructions: effectiveInstructions
+  };
+}
+
 function tryParseJson(value: string): unknown {
   try {
     return JSON.parse(value);
@@ -225,6 +257,7 @@ function normalizeStatusCode(value: any): 'unset' | 'ok' | 'error' {
 function normalizeLlmCall(call: any) {
   const tokenUsage = parseJsonField<any>(call.token_usage, {});
   const effectiveUnifiedConfig = parseJsonField<any>(call.effective_unified_config, null);
+  const canonicalRequest = enrichCanonicalRequest(parseJsonField<any>(call.canonical_request, null));
   return {
     id: call.id,
     llm_call_id: call.llm_call_id || null,
@@ -242,7 +275,7 @@ function normalizeLlmCall(call: any) {
     model_provider: call.model_provider,
     agent_type: call.agent_type,
     prompt_template: call.prompt_template,
-    canonical_request: parseJsonField<any>(call.canonical_request, null),
+    canonical_request: canonicalRequest,
     wire_request: parseJsonField<any>(call.wire_request, null),
     canonical_response: parseJsonField<any>(call.canonical_response, null),
     wire_response: parseJsonField<any>(call.wire_response, null),

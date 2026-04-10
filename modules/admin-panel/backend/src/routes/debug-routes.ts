@@ -24,6 +24,38 @@ function parseJsonField<T>(value: any, fallback: T): T {
   return fallback;
 }
 
+function extractRuntimeGuidanceFromCanonicalRequest(request: any): string | null {
+  const inputItems = Array.isArray(request?.input) ? request.input : [];
+  for (const item of inputItems) {
+    if (item?.type !== 'message' || typeof item.content !== 'string') {
+      continue;
+    }
+    const content = item.content.trim();
+    if (content.startsWith('Runtime guidance:')) {
+      return content;
+    }
+  }
+  return null;
+}
+
+function enrichCanonicalRequest(request: any) {
+  if (!request || typeof request !== 'object' || Array.isArray(request)) {
+    return request;
+  }
+
+  const runtimeGuidance = extractRuntimeGuidanceFromCanonicalRequest(request);
+  const instructions = typeof request.instructions === 'string' ? request.instructions.trim() : '';
+  const effectiveInstructions = runtimeGuidance
+    ? [instructions, runtimeGuidance].filter(Boolean).join('\n\n')
+    : instructions || null;
+
+  return {
+    ...request,
+    runtime_guidance: runtimeGuidance,
+    effective_instructions: effectiveInstructions
+  };
+}
+
 function buildMessageInput(conversation: any) {
   const rawRequest = parseJsonField<any>(conversation.raw_request, {});
   const timestampFromConversation = conversation.timestamp ? new Date(conversation.timestamp).toISOString() : undefined;
@@ -358,6 +390,7 @@ function pairTimelineEvents(events: any[]) {
 
 function normalizeLlmCall(call: any) {
   const tokenUsage = parseJsonField<any>(call.token_usage, {});
+  const canonicalRequest = enrichCanonicalRequest(parseJsonField<any>(call.canonical_request, null));
   return {
     id: call.id,
     llm_call_id: call.llm_call_id || null,
@@ -373,7 +406,7 @@ function normalizeLlmCall(call: any) {
     model_provider: call.model_provider,
     agent_type: call.agent_type,
     prompt_template: call.prompt_template,
-    canonical_request: parseJsonField<any>(call.canonical_request, null),
+    canonical_request: canonicalRequest,
     wire_request: parseJsonField<any>(call.wire_request, null),
     canonical_response: parseJsonField<any>(call.canonical_response, null),
     wire_response: parseJsonField<any>(call.wire_response, null),
@@ -649,7 +682,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
             model_name: call.model_name || null,
             model_provider: call.model_provider || null,
             prompt_template: call.prompt_template || null,
-            canonical_request: parseJsonField<any>(call.canonical_request, null),
+            canonical_request: enrichCanonicalRequest(parseJsonField<any>(call.canonical_request, null)),
             wire_request: parseJsonField<any>(call.wire_request, null),
             request_format_version: call.request_format_version || undefined,
             wire_provider_format: call.wire_provider_format || undefined,

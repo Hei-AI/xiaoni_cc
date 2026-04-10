@@ -26,6 +26,10 @@ interface ComparisonResult {
   durationDiffPercent: number;
 
   overallSimilarity: number;   // 0-100，相似度评分
+  semanticMatch?: boolean | null;
+  semanticSummary?: string | null;
+  semanticJudgeModel?: string | null;
+  semanticJudgeReason?: string | null;
 }
 
 interface DiffNode {
@@ -61,9 +65,25 @@ interface ReplayResponse {
   size?: number;
 }
 
+type SemanticJudgeResult = {
+  semanticMatch: boolean | null;
+  semanticSummary: string | null;
+  semanticJudgeModel?: string | null;
+  semanticJudgeReason?: string | null;
+};
+
+type ResponseComparatorDeps = {
+  semanticJudge?: (params: {
+    original: TrafficLog;
+    replayed: ReplayResponse;
+    comparison: ComparisonResult;
+  }) => Promise<SemanticJudgeResult>;
+};
+
 // ==================== ResponseComparator类 ====================
 
 export class ResponseComparator {
+  constructor(private readonly deps: ResponseComparatorDeps = {}) {}
 
   /**
    * 对比两个响应
@@ -121,8 +141,44 @@ export class ResponseComparator {
       durationReplayed,
       durationDiff,
       durationDiffPercent,
-      overallSimilarity
+      overallSimilarity,
+      semanticMatch: null,
+      semanticSummary: null,
+      semanticJudgeModel: null,
+      semanticJudgeReason: null
     };
+  }
+
+  async compareWithSemanticJudge(
+    original: TrafficLog,
+    replayed: ReplayResponse
+  ): Promise<ComparisonResult> {
+    const comparison = this.compare(original, replayed);
+    if (!this.deps.semanticJudge) {
+      return comparison;
+    }
+    if (comparison.statusMatch && comparison.bodyMatch) {
+      return comparison;
+    }
+
+    try {
+      const semantic = await this.deps.semanticJudge({ original, replayed, comparison });
+      return {
+        ...comparison,
+        semanticMatch: semantic.semanticMatch ?? null,
+        semanticSummary: semantic.semanticSummary ?? null,
+        semanticJudgeModel: semantic.semanticJudgeModel ?? null,
+        semanticJudgeReason: semantic.semanticJudgeReason ?? null
+      };
+    } catch (error) {
+      return {
+        ...comparison,
+        semanticMatch: null,
+        semanticSummary: null,
+        semanticJudgeModel: null,
+        semanticJudgeReason: error instanceof Error ? error.message : 'semantic_judge_failed'
+      };
+    }
   }
 
   /**
@@ -409,6 +465,10 @@ export class ResponseComparator {
       durationDiffPercent: comparison.durationDiffPercent,
       bodySizeDiff: comparison.bodySizeDiff,
       similarity: comparison.overallSimilarity,
+      semanticMatch: comparison.semanticMatch ?? null,
+      semanticSummary: comparison.semanticSummary ?? null,
+      semanticJudgeModel: comparison.semanticJudgeModel ?? null,
+      semanticJudgeReason: comparison.semanticJudgeReason ?? null,
       topDifferences: comparison.bodyDiff.slice(0, 5).map(d => ({
         kind: d.kind,
         path: d.path.join('.'),
