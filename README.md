@@ -50,6 +50,7 @@ NapCat -> provider-service
 - `agent-service` 负责消费消息批次、执行 loop agent，并把 run / trace / transcript / delivery state 写回 PostgreSQL。
 - provider 侧的 participation 现在保留为硬安全边界和观测事件，主行为判断逐步收口到 `agent-service` runtime。
 - 当前版本主张先把最简单的 runtime 跑稳，transcript summary、relationship memory、self evolution、topic projection 等后台能力已屏蔽，不参与当前对话交互。
+- 当前对话历史里的 `<小腻的OS>` 视为小腻跨轮延续下来的内部状态与成长轨迹，按历史真相保留，并随已读历史一起参与上下文窗口管理。
 - HTTP 流量监控/回放属于管理端运维工具链。
 
 ## 快速开始
