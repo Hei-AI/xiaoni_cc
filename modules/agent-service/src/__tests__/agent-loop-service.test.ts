@@ -534,7 +534,7 @@ test('buildInitialInput replays structured transcript items as scene messages', 
   ]);
 });
 
-test('buildInitialInput groups same-turn 小腻 multi-part replies into one user part and appends OS last', () => {
+test('buildInitialInput does not replay tactical xiaoni_os for spoken multi-part replies', () => {
   const loopInput = buildInitialInput([
     {
       id: 1,
@@ -587,14 +587,13 @@ test('buildInitialInput groups same-turn 小腻 multi-part replies into one user
     groupedXiaoniItem && groupedXiaoniItem.type === 'message' ? groupedXiaoniItem.content : null,
     [
       { type: 'input_text', text: '小腻(303)\n第一段' },
-      { type: 'input_text', text: '小腻(303)\n第二段' },
-      { type: 'input_text', text: '<小腻的OS>\n这轮先接一句，再补半句就够了。\n</小腻的OS>' }
+      { type: 'input_text', text: '小腻(303)\n第二段' }
     ]
   );
   assert.equal(getMessageContent(loopInput[3]), '[未读消息]');
 });
 
-test('buildInitialInput attaches 小腻的OS to the latest spoken turn in the same content list', () => {
+test('buildInitialInput omits tactical xiaoni_os from the latest spoken turn', () => {
   const loopInput = buildInitialInput([
     {
       id: 1,
@@ -629,9 +628,47 @@ test('buildInitialInput attaches 小腻的OS to the latest spoken turn in the sa
   assert.equal(getMessageContent(loopInput[1]), '[已读消息]');
   const priorXiaoniItem = loopInput[2];
   assert.match(getMessageContent(priorXiaoniItem), /小腻\(303\)\n我刚看群文件还没更新/);
-  assert.match(getMessageContent(priorXiaoniItem), /<小腻的OS>/);
-  assert.match(getMessageContent(priorXiaoniItem), /这句明显是在顺着问我/);
+  assert.doesNotMatch(getMessageContent(priorXiaoniItem), /<小腻的OS>/);
+  assert.doesNotMatch(getMessageContent(priorXiaoniItem), /这句明显是在顺着问我/);
   assert.equal(getMessageContent(loopInput[3]), '[未读消息]');
+});
+
+test('buildInitialInput preserves residue-like xiaoni_os on spoken turns', () => {
+  const loopInput = buildInitialInput([
+    {
+      id: 1,
+      userId: 202,
+      groupId: 101,
+      batchId: null,
+      sessionKey: 'qq:group:101',
+      userMessage: 'legacy user',
+      aiResponse: '这句我记下了',
+      rawResponse: {
+        xiaoni_os: '她这次没有拆我，反而把那点顾虑轻轻接住了，我对她会更放松一点。'
+      },
+      items: [
+        {
+          id: 11,
+          conversationId: 1,
+          sessionKey: 'qq:group:101',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: '这句我记下了',
+          groupIndex: 1,
+          itemIndex: 0,
+          source: 'delivery',
+          deliveryMessageId: 901,
+          runId: 'run-legacy',
+          traceId: 'trace-legacy'
+        }
+      ]
+    }
+  ], createQueuePayload());
+
+  const priorXiaoniItem = loopInput[2];
+  assert.match(getMessageContent(priorXiaoniItem), /小腻\(303\)\n这句我记下了/);
+  assert.match(getMessageContent(priorXiaoniItem), /<小腻的OS>/);
+  assert.match(getMessageContent(priorXiaoniItem), /我对她会更放松一点/);
 });
 
 test('buildInitialInput appends standalone 小腻的OS when the latest turn was silent', () => {

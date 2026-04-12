@@ -947,6 +947,46 @@ function stripJsonCodeFence(text: string) {
     .trim();
 }
 
+function isTacticalReplyResidue(text: string) {
+  const normalized = text.replace(/\s+/g, '');
+  const tacticalMarkers = [
+    /这(?:一)?轮/,
+    /最自然的是/,
+    /顺着/,
+    /轻轻(?:接一句|接一下|补一句|应一句|回一句|顺一句)/,
+    /接一句/,
+    /接一下/,
+    /补一句/,
+    /不展开/,
+    /短一点/,
+    /就够(?:了)?/,
+    /不抢答/,
+    /不把话说满/,
+    /把球(?:递回去|留给)/,
+    /先(?:轻轻|简短|朴素)?(?:回|接|应)一句/,
+    /别(?:再)?(?:拉长|展开|抢话|说重)/
+  ];
+  return tacticalMarkers.some((pattern) => pattern.test(normalized));
+}
+
+function sanitizeXiaoniOsForReplay(params: {
+  xiaoniOs: string;
+  aiResponse: string | null;
+  sentMessages: string[];
+}) {
+  const trimmed = params.xiaoniOs.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const spokeThisTurn = Boolean(params.aiResponse) || params.sentMessages.length > 0;
+  if (spokeThisTurn && isTacticalReplyResidue(trimmed)) {
+    return '';
+  }
+
+  return trimmed;
+}
+
 function parseOptionalBoolean(value: unknown) {
   return typeof value === 'boolean' ? value : null;
 }
@@ -2015,8 +2055,8 @@ function buildTurnOs(turn: ConversationTurn) {
   const rawResponse = turn.rawResponse && typeof turn.rawResponse === 'object'
     ? turn.rawResponse
     : {};
-  const xiaoniOs = typeof (rawResponse as Record<string, unknown>).xiaoni_os === 'string'
-    ? String((rawResponse as Record<string, unknown>).xiaoni_os).trim()
+  const rawXiaoniOs = typeof (rawResponse as Record<string, unknown>).xiaoni_os === 'string'
+    ? String((rawResponse as Record<string, unknown>).xiaoni_os)
     : '';
   const finishReason = typeof (rawResponse as Record<string, unknown>).finish_reason === 'string'
     ? String((rawResponse as Record<string, unknown>).finish_reason).trim()
@@ -2026,6 +2066,11 @@ function buildTurnOs(turn: ConversationTurn) {
         .map((item) => typeof item === 'string' ? item.trim() : '')
         .filter(Boolean)
     : [];
+  const xiaoniOs = sanitizeXiaoniOsForReplay({
+    xiaoniOs: rawXiaoniOs,
+    aiResponse: turn.aiResponse || null,
+    sentMessages
+  });
 
   if (xiaoniOs) {
     return [
