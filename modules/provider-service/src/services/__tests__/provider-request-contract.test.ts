@@ -124,7 +124,7 @@ test('Codex provider preserves web search items from SSE output', () => {
     'data: {"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","queries":["qq bot latest"]}}}',
     '',
     'event: response.output_item.done',
-    'data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}}',
+    'data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done","annotations":[{"type":"url_citation","url":"https://example.com","title":"Example"}]}]}}',
     '',
     'event: response.completed',
     'data: {"type":"response.completed","response":{"status":"completed"}}'
@@ -140,6 +140,11 @@ test('Codex provider preserves web search items from SSE output', () => {
     }
   });
   assert.equal(parsed.output[1]?.type, 'message');
+  assert.deepEqual(parsed.output[1]?.content?.[0]?.annotations, [{
+    type: 'url_citation',
+    url: 'https://example.com',
+    title: 'Example'
+  }]);
 });
 
 test('buildTraceHeaders emits Codex-compatible session metadata headers', () => {

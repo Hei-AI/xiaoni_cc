@@ -14,7 +14,7 @@ function getToolName(tool: { type: string; function?: { name?: string } }) {
   return tool.type === 'function' ? tool.function?.name : tool.type;
 }
 
-function getFunctionTool(tool: { type: string; function?: { description?: string; parameters?: { properties?: unknown } } }) {
+function getFunctionTool(tool: { type: string; function?: { description?: string; parameters?: { properties?: unknown; required?: unknown } } }) {
   return tool.type === 'function' ? tool.function : null;
 }
 
@@ -200,7 +200,18 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
     request.tools.map((tool) => getToolName(tool)),
     [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
   );
+  const webSearchTool = request.tools[0];
   const groupReplyFunction = getFunctionTool(request.tools[1]);
+  const silentFinishFunction = getFunctionTool(request.tools[2]);
+  assert.equal(webSearchTool.type, WEB_SEARCH_TOOL);
+  assert.equal(webSearchTool.search_context_size, 'low');
+  assert.equal(webSearchTool.external_web_access, true);
+  assert.match(String(request.instructions), /Available tools are .*web_search/);
+  assert.match(String(request.instructions), /使用 web_search/);
+  assert.match(String(request.instructions), /web_search 是补证据，不是默认步骤/);
+  assert.match(String(request.instructions), /重新判断这一轮该不该参与/);
+  assert.match(String(request.instructions), /仍然必须调用 reply_in_private、speak_in_group 或 stay_silent/);
+  assert.match(String(groupReplyFunction?.description), /speaking now belongs in the scene/);
   assert.match(String(groupReplyFunction?.description), /mention_user_ids/);
   assert.match(String(groupReplyFunction?.description), /不要为了强调语气、礼貌、格式整齐或装饰效果去 @ 人/);
   assert.deepEqual(groupReplyFunction?.parameters?.properties, {
@@ -215,9 +226,11 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
     },
     xiaoni_os: {
       type: 'string',
-      description: 'A short hidden OS note about why 小腻 replied this way. Not sent to the group.'
+      description: "A hidden natural-language OS note for 小腻's next turn. Write what the scene taught her, what feedback or boundary she noticed, and why speaking now was right. It is not sent to the group."
     }
   });
+  assert.deepEqual(silentFinishFunction?.parameters?.required, ['reason', 'outcome', 'xiaoni_os']);
+  assert.match(String(silentFinishFunction?.description), /Silence can still leave an internal OS note/);
 });
 
 test('buildCanonicalAgentTurnRequest does not include previous_response_id', () => {
@@ -285,6 +298,10 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
   );
   assert.equal(requestBody.canonicalRequest.tool_choice, 'required');
   assert.equal(requestBody.canonicalRequest.parallel_tool_calls, false);
+  assert.deepEqual(
+    requestBody.canonicalRequest.tools.map((tool: any) => getToolName(tool)),
+    [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
+  );
   assert.deepEqual(requestBody.canonicalRequest.metadata, {
     trace_id: 'trace-1',
     run_id: 'run-1',
@@ -1509,12 +1526,23 @@ test('processQueueMessage persists delivered assistant transcript items with fin
         success: true,
         llm_call_id: 'llm-success-1',
         canonical_response: {
-          output: [{
-            type: 'function_call',
-            call_id: 'call-send-success',
-            name: GROUP_REPLY_TOOL,
-            arguments: JSON.stringify({ messages: ['第一条', '第二条'] })
-          }]
+          output: [
+            {
+              type: 'web_search_call',
+              id: 'ws-success',
+              status: 'completed',
+              action: {
+                type: 'open_page',
+                url: 'https://example.com/context'
+              }
+            },
+            {
+              type: 'function_call',
+              call_id: 'call-send-success',
+              name: GROUP_REPLY_TOOL,
+              arguments: JSON.stringify({ messages: ['第一条', '第二条'] })
+            }
+          ]
         }
       };
     }
@@ -1684,7 +1712,11 @@ test('processQueueMessage completes with no reply when the model directly calls 
         type: 'function_call',
         call_id: 'call-stay-silent',
         name: SILENT_FINISH_TOOL,
-        arguments: JSON.stringify({ reason: '第三人称围观，不自然。', outcome: 'complete' })
+        arguments: JSON.stringify({
+          reason: '第三人称围观，不自然。',
+          outcome: 'complete',
+          xiaoni_os: '这次只是第三人称围观我，不是在叫我加入。先不说，把这个边界留给下一轮。'
+        })
       }]
     }
   });
@@ -1696,7 +1728,15 @@ test('processQueueMessage completes with no reply when the model directly calls 
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
   assert.equal(storeCalls.createConversation[0]?.transcriptItems?.length, 1);
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.finish_reason, '第三人称围观，不自然。');
+  assert.equal(
+    storeCalls.createConversation[0]?.rawResponse?.xiaoni_os,
+    '这次只是第三人称围观我，不是在叫我加入。先不说，把这个边界留给下一轮。'
+  );
   assert.equal(storeCalls.completeQueueMessage[0]?.result?.no_reply, true);
+  assert.equal(
+    storeCalls.completeQueueMessage[0]?.result?.xiaoni_os,
+    '这次只是第三人称围观我，不是在叫我加入。先不说，把这个边界留给下一轮。'
+  );
   assert.equal(storeCalls.completeQueueMessage[0]?.result?.termination_reason, 'finish_no_reply');
   assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'finish_no_reply');
   assert.equal(storeCalls.completeAgentRun[0]?.totalTurns, 1);
@@ -2096,13 +2136,14 @@ test('applyToolResultToLoopInput ends the turn on stay_silent without replaying 
   const finishResult = {
     finished: true,
     reason: 'done',
-    outcome: 'complete'
+    outcome: 'complete',
+    xiaoni_os: '这轮不接，留给下一轮。'
   };
 
   const continuation = applyToolResultToLoopInput({
     callId: 'call-2',
     name: SILENT_FINISH_TOOL,
-    rawArguments: '{"reason":"done","outcome":"complete"}'
+    rawArguments: '{"reason":"done","outcome":"complete","xiaoni_os":"这轮不接，留给下一轮。"}'
   }, finishResult);
 
   assert.deepEqual(continuation, {
@@ -2181,7 +2222,8 @@ test('legacy tool aliases still dispatch during the transition', async () => {
     assert.deepEqual(finishResult, {
       finished: true,
       reason: 'legacy',
-      outcome: 'noop'
+      outcome: 'noop',
+      xiaoni_os: null
     });
   } finally {
     globalThis.fetch = originalFetch;

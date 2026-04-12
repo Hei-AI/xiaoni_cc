@@ -376,7 +376,11 @@ export class CodexProvider extends OpenAIProvider {
       const content = Array.isArray(item.content)
         ? item.content
             .filter((part: any) => part?.type === 'output_text' && typeof part?.text === 'string')
-            .map((part: any) => ({ type: 'output_text', text: part.text }))
+            .map((part: any) => ({
+              type: 'output_text',
+              text: part.text,
+              ...(Array.isArray(part.annotations) ? { annotations: part.annotations } : {})
+            }))
         : [];
       return {
         type: 'message',

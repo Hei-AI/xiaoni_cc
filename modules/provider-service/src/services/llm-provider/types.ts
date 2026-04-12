@@ -10,7 +10,7 @@ export type OpenResponseInputContentPart =
   | { type: 'input_file'; source: Record<string, any>; [key: string]: any };
 
 export type OpenResponseOutputContentPart =
-  | { type: 'output_text'; text: string }
+  | { type: 'output_text'; text: string; annotations?: Array<Record<string, any>>; [key: string]: any }
   | { type: 'refusal'; refusal: string; [key: string]: any };
 
 export type OpenResponseInputItem =
