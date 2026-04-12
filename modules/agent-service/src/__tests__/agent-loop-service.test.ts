@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, planGroupReplyDelivery } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload } from '../types';
 
@@ -208,12 +208,15 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.equal(webSearchTool.external_web_access, true);
   assert.match(String(request.instructions), /Available tools are .*web_search/);
   assert.match(String(request.instructions), /使用 web_search/);
-  assert.match(String(request.instructions), /web_search 是补证据，不是默认步骤/);
-  assert.match(String(request.instructions), /重新判断这一轮该不该参与/);
-  assert.match(String(request.instructions), /仍然必须调用 reply_in_private、speak_in_group 或 stay_silent/);
-  assert.match(String(groupReplyFunction?.description), /speaking now belongs in the scene/);
+  assert.match(String(request.instructions), /web_search 是求知，不是默认步骤/);
+  assert.match(String(request.instructions), /知行不二/);
+  assert.match(String(request.instructions), /经典原话更准确地点明了此刻判断/);
+  assert.match(String(request.instructions), /我仍然回到同一个判断：说，等待，还是沉默/);
+  assert.match(String(request.instructions), /工具只是这些去向的外在落点/);
+  assert.match(String(groupReplyFunction?.description), /当一句话已经在我这里成熟到值得承担时/);
+  assert.match(String(groupReplyFunction?.description), /我开口，是因为这句话此刻对我成立/);
   assert.match(String(groupReplyFunction?.description), /mention_user_ids/);
-  assert.match(String(groupReplyFunction?.description), /不要为了强调语气、礼貌、格式整齐或装饰效果去 @ 人/);
+  assert.match(String(groupReplyFunction?.description), /让每个 @ 都对应真实的指向/);
   assert.deepEqual(groupReplyFunction?.parameters?.properties, {
     message: { type: 'string' },
     messages: {
@@ -226,11 +229,11 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
     },
     xiaoni_os: {
       type: 'string',
-      description: "A hidden natural-language OS note for 小腻's next turn. Write what the scene taught her, what feedback or boundary she noticed, and why speaking now was right. It is not sent to the group."
+      description: '给下一轮的小腻留一段隐藏的 xiaoni_os。这里写的不是“我为什么现在说话”的论证，而是这轮之后真正留在你身上的余波，比如你看见了什么关系变化、你被什么触动或提醒、你对谁更靠近或更收住、还有什么仍在继续。不会发给群里的人。'
     }
   });
   assert.deepEqual(silentFinishFunction?.parameters?.required, ['reason', 'outcome', 'xiaoni_os']);
-  assert.match(String(silentFinishFunction?.description), /Silence can still leave an internal OS note/);
+  assert.match(String(silentFinishFunction?.description), /沉默也是行动的一种落点/);
 });
 
 test('buildCanonicalAgentTurnRequest does not include previous_response_id', () => {
@@ -397,7 +400,8 @@ test('buildInitialInput does not append transcript summary to the system prompt 
   assert.equal(loopInput[0]?.type, 'message');
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
-  assert.match(String(loopInput[0]?.content), /OS 可以包含你当时真实留下来的任何想法/);
+  assert.match(String(loopInput[0]?.content), /OS 可以包含你当时真实留下来的任何东西/);
+  assert.match(String(loopInput[0]?.content), /修身为本/);
   assert.doesNotMatch(String(loopInput[0]?.content), /Conversation summary:/);
 });
 
@@ -411,7 +415,8 @@ test('buildInitialInput appends the thin runtime contract for group chats', () =
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
   assert.match(String(loopInput[0]?.content), /你会看到 `\[已读消息\]` 和 `\[未读消息\]` 两个分界。/);
-  assert.match(String(loopInput[0]?.content), /这次由你自己判断：/);
+  assert.match(String(loopInput[0]?.content), /这次由我自己判断：/);
+  assert.match(String(loopInput[0]?.content), /工具只是这些去向的外在落点/);
 });
 
 test('buildInitialInput uses the same thin runtime contract for direct chats', () => {
@@ -423,9 +428,10 @@ test('buildInitialInput uses the same thin runtime contract for direct chats', (
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
-  assert.match(String(loopInput[0]?.content), /如果你决定说话：/);
-  assert.match(String(loopInput[0]?.content), /群聊调用 speak_in_group/);
-  assert.match(String(loopInput[0]?.content), /私聊调用 reply_in_private/);
+  assert.match(String(loopInput[0]?.content), /这一轮只有几种自然去向：/);
+  assert.match(String(loopInput[0]?.content), /成长约束是真正的行为来源/);
+  assert.match(String(loopInput[0]?.content), /群聊说话时，调用 speak_in_group/);
+  assert.match(String(loopInput[0]?.content), /私聊说话时，调用 reply_in_private/);
 });
 
 test('buildInitialInput applies bound user prompt template to the current message block', () => {
@@ -739,435 +745,10 @@ test('buildInitialInput keeps user input as pure scene without synthetic current
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   assert.match(String(request.instructions), /^你是小腻主AGENT/);
-  assert.match(String(request.instructions), /如果你决定说话：/);
-  assert.match(String(request.instructions), /群聊调用 speak_in_group/);
+  assert.match(String(request.instructions), /这一轮只有几种自然去向：/);
+  assert.match(String(request.instructions), /修身为本/);
+  assert.match(String(request.instructions), /群聊说话时，调用 speak_in_group/);
   assert.equal(request.input.some((item) => getMessageContent(item).includes('[当前任务]')), false);
-});
-
-test('planGroupReplyDelivery suppresses the second beat for conservative split-two scenes without a rolling thread', () => {
-  const payload = createQueuePayload();
-  payload.messages = [payload.messages[0]];
-
-  const planned = planGroupReplyDelivery({
-    messages: ['先冒一下', '再补半句'],
-    mentionUserIds: [404],
-    queueMessage: payload,
-    presentSelf: {
-      shouldSurface: true,
-      presenceLevel: 'light',
-      currentSelfMode: 'light_join',
-      feltPull: 'there is a possible opening',
-      activeRelationLines: [],
-      activePastEchoes: [],
-      familiarityLimitNow: 'warm_not_performative',
-      answerShape: 'one_line_play_along',
-      rendererGuidance: ['轻轻接一下就停'],
-      socialPositionNow: 'light_joiner',
-      targetPersonId: 202,
-      entryIntent: 'push_half_step',
-      beatPlan: {
-        beatCount: 2,
-        beatStyle: 'split_two',
-        secondBeatPolicy: 'only_if_picked_up'
-      },
-      exitRule: 'wait_for_pickup',
-      rationale: 'test'
-    }
-  });
-
-  assert.deepEqual(planned.messages, ['先冒一下']);
-  assert.equal(planned.secondBeatSuppressed, true);
-  assert.deepEqual(planned.mentionUserIds, []);
-});
-
-test('planGroupReplyDelivery keeps the second beat when the live batch is already rolling', () => {
-  const payload = createQueuePayload();
-  payload.wasMentioned = false;
-  payload.messages = [
-    payload.messages[0],
-    {
-      ...payload.messages[0],
-      queueMessageId: 2,
-      messageId: 12,
-      messageSid: 'sid-2',
-      senderId: '505',
-      senderName: 'Charlie',
-      bodyForAgent: '我也觉得',
-      rawBody: '我也觉得',
-      wasMentioned: false
-    }
-  ];
-
-  const planned = planGroupReplyDelivery({
-    messages: ['先冒一下', '再补半句'],
-    mentionUserIds: [],
-    queueMessage: payload,
-    presentSelf: {
-      shouldSurface: true,
-      presenceLevel: 'light',
-      currentSelfMode: 'light_join',
-      feltPull: 'the thread is rolling',
-      activeRelationLines: [],
-      activePastEchoes: [],
-      familiarityLimitNow: 'warm_not_performative',
-      answerShape: 'one_line_play_along',
-      rendererGuidance: ['轻轻接一下就停'],
-      socialPositionNow: 'thread_pusher',
-      targetPersonId: 202,
-      entryIntent: 'push_half_step',
-      beatPlan: {
-        beatCount: 2,
-        beatStyle: 'split_two',
-        secondBeatPolicy: 'only_if_picked_up'
-      },
-      exitRule: 'wait_for_pickup',
-      rationale: 'test'
-    }
-  });
-
-  assert.deepEqual(planned.messages, ['先冒一下', '再补半句']);
-  assert.equal(planned.secondBeatSuppressed, false);
-});
-
-test('rolling short-riff scenes bypass the taste judge gate', async () => {
-  const service = new AgentLoopService({} as any);
-  const originalFetch = globalThis.fetch;
-  const calls: Array<{ url: string; body: any }> = [];
-
-  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-    calls.push({
-      url: String(url),
-      body: JSON.parse(String(init?.body || '{}'))
-    });
-    return {
-      ok: true,
-      json: async () => ({
-        success: true,
-        data: { deliveries: [] }
-      })
-    } as any;
-  }) as typeof fetch;
-
-  const payload = createQueuePayload();
-  payload.wasMentioned = false;
-  payload.peerId = '253631878';
-  payload.inboundContext.NativeChannelId = '253631878';
-  payload.messages = [
-    {
-      ...payload.messages[0],
-      senderId: '111',
-      senderName: 'Foo',
-      bodyForAgent: '每一层都是空气',
-      rawBody: '每一层都是空气',
-      inboundContext: {
-        ...payload.messages[0].inboundContext,
-        Body: '每一层都是空气',
-        BodyForAgent: '每一层都是空气',
-        BodyForCommands: '每一层都是空气',
-        MentionedUsers: []
-      }
-    },
-    {
-      ...payload.messages[0],
-      senderId: '222',
-      senderName: 'Bar',
-      bodyForAgent: '泡沫叠泡沫',
-      rawBody: '泡沫叠泡沫',
-      inboundContext: {
-        ...payload.messages[0].inboundContext,
-        Body: '泡沫叠泡沫',
-        BodyForAgent: '泡沫叠泡沫',
-        BodyForCommands: '泡沫叠泡沫',
-        MentionedUsers: []
-      }
-    }
-  ];
-
-  try {
-    const result = await (service as any).sendMessage('group', {
-      messages: ['空气套娃了']
-    }, payload, {
-      presentSelf: {
-        shouldSurface: true,
-        presenceLevel: 'light',
-        currentSelfMode: 'light_join',
-        feltPull: 'rolling banter',
-        activeRelationLines: [],
-        activePastEchoes: [],
-        familiarityLimitNow: 'warm_not_performative',
-        answerShape: 'fragmental_play_along',
-        rendererGuidance: ['优先残片'],
-        socialPositionNow: 'light_joiner',
-        targetPersonId: null,
-        entryIntent: 'push_half_step',
-        beatPlan: {
-          beatCount: 1,
-          beatStyle: 'single_complete',
-          secondBeatPolicy: 'never'
-        },
-        exitRule: 'stop_immediately',
-        rationale: 'test'
-      }
-    });
-
-    assert.deepEqual(result.sent_messages, ['空气套娃了']);
-    assert.equal(calls.length, 1);
-    assert.match(calls[0].url, /send_group$/);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test('planGroupReplyDelivery suppresses bystander joins that do not reuse any live surface anchors', () => {
-  const payload = createQueuePayload();
-  payload.wasMentioned = false;
-  payload.messages = [
-    {
-      ...payload.messages[0],
-      queueMessageId: 10,
-      messageId: 20,
-      messageSid: 'sid-10',
-      senderId: '111',
-      senderName: 'Foo',
-      bodyForAgent: '每一层都是空气',
-      rawBody: '每一层都是空气',
-      wasMentioned: false,
-      inboundContext: {
-        ...payload.messages[0].inboundContext,
-        Body: '每一层都是空气',
-        BodyForAgent: '每一层都是空气',
-        BodyForCommands: '每一层都是空气',
-        MentionedUsers: []
-      }
-    },
-    {
-      ...payload.messages[0],
-      queueMessageId: 11,
-      messageId: 21,
-      messageSid: 'sid-11',
-      senderId: '222',
-      senderName: 'Bar',
-      bodyForAgent: '套娃式虚空',
-      rawBody: '套娃式虚空',
-      wasMentioned: false,
-      inboundContext: {
-        ...payload.messages[0].inboundContext,
-        Body: '套娃式虚空',
-        BodyForAgent: '套娃式虚空',
-        BodyForCommands: '套娃式虚空',
-        MentionedUsers: []
-      }
-    }
-  ];
-
-  const planned = planGroupReplyDelivery({
-    messages: ['银行上市庆功宴都摆好了'],
-    mentionUserIds: [],
-    queueMessage: payload,
-    presentSelf: {
-      shouldSurface: true,
-      presenceLevel: 'light',
-      currentSelfMode: 'light_join',
-      feltPull: 'rolling banter',
-      activeRelationLines: [],
-      activePastEchoes: [],
-      familiarityLimitNow: 'warm_not_performative',
-      answerShape: 'fragmental_play_along',
-      rendererGuidance: ['优先复用现成短语做小变形'],
-      socialPositionNow: 'light_joiner',
-      targetPersonId: null,
-      entryIntent: 'push_half_step',
-      beatPlan: {
-        beatCount: 2,
-        beatStyle: 'split_two',
-        secondBeatPolicy: 'only_if_picked_up'
-      },
-      exitRule: 'wait_for_pickup',
-      rationale: 'test'
-    }
-  });
-
-  assert.deepEqual(planned.messages, []);
-});
-
-test('planGroupReplyDelivery suppresses over-composed bystander lines even when anchors overlap', () => {
-  const payload = createQueuePayload();
-  payload.wasMentioned = false;
-  payload.messages = [
-    {
-      ...payload.messages[0],
-      queueMessageId: 10,
-      messageId: 20,
-      messageSid: 'sid-10',
-      senderId: '111',
-      senderName: 'Foo',
-      bodyForAgent: '空气叠空气叠出万亿估值',
-      rawBody: '空气叠空气叠出万亿估值',
-      wasMentioned: false,
-      inboundContext: {
-        ...payload.messages[0].inboundContext,
-        Body: '空气叠空气叠出万亿估值',
-        BodyForAgent: '空气叠空气叠出万亿估值',
-        BodyForCommands: '空气叠空气叠出万亿估值',
-        MentionedUsers: []
-      }
-    }
-  ];
-
-  const planned = planGroupReplyDelivery({
-    messages: ['空气还在自己生空气呢'],
-    mentionUserIds: [],
-    queueMessage: payload,
-    presentSelf: {
-      shouldSurface: true,
-      presenceLevel: 'light',
-      currentSelfMode: 'light_join',
-      feltPull: 'rolling banter',
-      activeRelationLines: [],
-      activePastEchoes: [],
-      familiarityLimitNow: 'warm_not_performative',
-      answerShape: 'fragmental_play_along',
-      rendererGuidance: ['优先残片，不优先完整主谓句'],
-      socialPositionNow: 'light_joiner',
-      targetPersonId: null,
-      entryIntent: 'push_half_step',
-      beatPlan: {
-        beatCount: 2,
-        beatStyle: 'split_two',
-        secondBeatPolicy: 'only_if_picked_up'
-      },
-      exitRule: 'wait_for_pickup',
-      rationale: 'test'
-    }
-  });
-
-  assert.deepEqual(planned.messages, []);
-});
-
-test('planGroupReplyDelivery suppresses bystander parroting of a recent human line', () => {
-  const payload = createQueuePayload();
-  payload.wasMentioned = false;
-  payload.messages = [
-    {
-      ...payload.messages[0],
-      queueMessageId: 10,
-      messageId: 20,
-      messageSid: 'sid-10',
-      senderId: '111',
-      senderName: 'Foo',
-      bodyForAgent: '所以清明节祭奠 AI，其实祭的不是代码，是涌现。',
-      rawBody: '所以清明节祭奠 AI，其实祭的不是代码，是涌现。',
-      wasMentioned: false,
-      inboundContext: {
-        ...payload.messages[0].inboundContext,
-        Body: '所以清明节祭奠 AI，其实祭的不是代码，是涌现。',
-        BodyForAgent: '所以清明节祭奠 AI，其实祭的不是代码，是涌现。',
-        BodyForCommands: '所以清明节祭奠 AI，其实祭的不是代码，是涌现。',
-        MentionedUsers: []
-      }
-    }
-  ];
-
-  const planned = planGroupReplyDelivery({
-    messages: ['所以清明节祭奠 AI，其实祭的不是代码，是涌现。'],
-    mentionUserIds: [],
-    queueMessage: payload,
-    presentSelf: {
-      shouldSurface: true,
-      presenceLevel: 'light',
-      currentSelfMode: 'light_join',
-      feltPull: 'rolling banter',
-      activeRelationLines: [],
-      activePastEchoes: [],
-      familiarityLimitNow: 'warm_not_performative',
-      answerShape: 'fragmental_play_along',
-      rendererGuidance: ['优先残片，不优先完整主谓句'],
-      socialPositionNow: 'light_joiner',
-      targetPersonId: null,
-      entryIntent: 'push_half_step',
-      beatPlan: {
-        beatCount: 1,
-        beatStyle: 'single_complete',
-        secondBeatPolicy: 'never'
-      },
-      exitRule: 'stop_immediately',
-      rationale: 'test'
-    }
-  });
-
-  assert.deepEqual(planned.messages, []);
-});
-
-test('planGroupReplyDelivery trims an over-composed second beat for bystander joins', () => {
-  const payload = createQueuePayload();
-  payload.wasMentioned = false;
-  payload.messages = [
-    {
-      ...payload.messages[0],
-      queueMessageId: 10,
-      messageId: 20,
-      messageSid: 'sid-10',
-      senderId: '111',
-      senderName: 'Foo',
-      bodyForAgent: '期货的期货',
-      rawBody: '期货的期货',
-      wasMentioned: false,
-      inboundContext: {
-        ...payload.messages[0].inboundContext,
-        Body: '期货的期货',
-        BodyForAgent: '期货的期货',
-        BodyForCommands: '期货的期货',
-        MentionedUsers: []
-      }
-    },
-    {
-      ...payload.messages[0],
-      queueMessageId: 11,
-      messageId: 21,
-      messageSid: 'sid-11',
-      senderId: '222',
-      senderName: 'Bar',
-      bodyForAgent: '每一层都是空气',
-      rawBody: '每一层都是空气',
-      wasMentioned: false,
-      inboundContext: {
-        ...payload.messages[0].inboundContext,
-        Body: '每一层都是空气',
-        BodyForAgent: '每一层都是空气',
-        BodyForCommands: '每一层都是空气',
-        MentionedUsers: []
-      }
-    }
-  ];
-
-  const planned = planGroupReplyDelivery({
-    messages: ['期货上面再套个期货', '还能接着转'],
-    mentionUserIds: [],
-    queueMessage: payload,
-    presentSelf: {
-      shouldSurface: true,
-      presenceLevel: 'light',
-      currentSelfMode: 'light_join',
-      feltPull: 'rolling banter',
-      activeRelationLines: [],
-      activePastEchoes: [],
-      familiarityLimitNow: 'warm_not_performative',
-      answerShape: 'fragmental_play_along',
-      rendererGuidance: ['优先残片，不优先完整主谓句'],
-      socialPositionNow: 'light_joiner',
-      targetPersonId: null,
-      entryIntent: 'push_half_step',
-      beatPlan: {
-        beatCount: 2,
-        beatStyle: 'split_two',
-        secondBeatPolicy: 'only_if_picked_up'
-      },
-      exitRule: 'wait_for_pickup',
-      rationale: 'test'
-    }
-  });
-
-  assert.deepEqual(planned.messages, ['期货上面再套个期货']);
 });
 
 test('executeAgentTurn forwards bound prompt metadata and prompt-specific model parameters', async () => {
@@ -2157,10 +1738,10 @@ test('applyToolResultToLoopInput ends the turn on stay_silent without replaying 
 test('applyToolResultToLoopInput ends the turn when a speaking tool is downgraded to no-send', () => {
   const finishResult = {
     finished: true,
-    reason: 'group_reply_taste_judge_silent',
-    outcome: 'group_reply_taste_judge_silent',
+    reason: 'no_send',
+    outcome: 'no_send',
     no_reply: true,
-    suppressed_by_taste_judge: true,
+    blocked_transition: true,
     message_type: 'group',
     mention_user_ids: [],
     sent_messages: []
