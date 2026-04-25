@@ -1,5 +1,37 @@
 # TODOs
 
+## Clean up Xiaoni group-reply style pollution after the silent-gate hotfix
+
+What:
+After the `preferred_action=silent` hotfix, follow up on the remaining style-pollution problem in group `253631878`: recent replay still contains many Xiaoni outputs that start with `哈哈` / `确实`, and those examples can keep biasing future turns even though silent inner reactions can no longer speak.
+
+Why:
+The hotfix only makes the inner-reaction decision authoritative when it says silence. It does not remove polluted recent history, and it does not stop valid `preferred_action=speak` turns from choosing low-value affirmative openers. Without follow-up, 小腻 may become quieter but still sound patterned when she does speak.
+
+Pros:
+- Keeps the emergency fix small while preserving the deeper cleanup trail.
+- Separates hard action gating from style/history hygiene.
+- Gives us a concrete next pass for replay rendering, cutoff handling, and trace observability.
+
+Cons:
+- History cleanup needs care because raw chat history should remain truth; do not rewrite historical messages just to make prompts look cleaner.
+- Over-aggressive filtering can erase useful shared context or make 小腻 under-participate.
+- If implemented as prompt-only wording, this may regress back into advisory text instead of an enforceable runtime contract.
+
+Context:
+On 2026-04-25, group `253631878` had a high ratio of Xiaoni replies opening with `哈哈` / `确实`. The active DB prompt did not contain those phrases, so "DB prompt 写错" was ruled out as the cause. The immediate root cause was that `emit_inner_reaction` could return `preferred_action: "silent"` while the next tool-choice step still allowed `speak_in_group`. A hotfix made silent inner reactions allow only `stay_silent`.
+
+Follow-up work:
+- Run a targeted replay/live QA pass for the latest `哈哈` / `确实` cluster and verify the hotfix does not over-silence normal group participation.
+- Decide whether to advance `agent_session_context_windows.read_cutoff_after_conversation_id` or add runtime-only style-pollution filtering in the replay renderer. Prefer renderer/projection changes over rewriting stored chat history.
+- Add trace-detail observability that shows when inner reaction narrowed the allowed tool set, especially `silent -> stay_silent only`.
+- Add tests for the `preferred_action=search` path and decide whether search should force another inner reaction before speech.
+- Decide whether repeated negative feedback about formulaic openings should become an active runtime cue instead of optional long-term recall.
+
+Depends on / blocked by:
+- The silent-gate hotfix must stay deployed and healthy in `agent-service`.
+- We need fresh post-hotfix examples from group `253631878` before deciding whether the next issue is still replay pollution, style selection during valid speech, or over-silencing.
+
 ## Design a memory-aware pre-agent gate for group chat
 
 What:
