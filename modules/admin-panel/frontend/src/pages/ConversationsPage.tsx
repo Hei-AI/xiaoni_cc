@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { formatTimestamp } from '@/lib/utils';
-import { useRunDetail, useRunSessions, useSessionParticipationEvents, useSessionRuns } from '@/hooks/useAgentRuns';
+import { useRunDetail, useRunSessions, useSessionRuns } from '@/hooks/useAgentRuns';
 
 function toneForRun(status: string, noReply?: boolean): 'danger' | 'warning' | 'success' | 'info' {
   if (status === 'failed') return 'danger';
@@ -57,9 +57,7 @@ export const ConversationsPage: React.FC = () => {
   const sessionsQuery = useRunSessions(debouncedSearch);
   const sessions = sessionsQuery.data?.data || [];
   const sessionRunsQuery = useSessionRuns(selectedSessionKey);
-  const participationEventsQuery = useSessionParticipationEvents(selectedSessionKey);
   const runs = sessionRunsQuery.data || [];
-  const participationEvents = participationEventsQuery.data || [];
   const runDetailQuery = useRunDetail(selectedRunId);
   const selectedRun = runDetailQuery.data;
 
@@ -85,7 +83,6 @@ export const ConversationsPage: React.FC = () => {
 
   const sessionsLoading = sessionsQuery.isLoading || sessionsQuery.isFetching;
   const runsLoading = sessionsLoading || sessionRunsQuery.isLoading || (Boolean(selectedSessionKey) && sessionRunsQuery.isFetching);
-  const participationLoading = sessionsLoading || participationEventsQuery.isLoading || (Boolean(selectedSessionKey) && participationEventsQuery.isFetching);
   return (
     <PageShell>
       <PageHeader
@@ -173,47 +170,8 @@ export const ConversationsPage: React.FC = () => {
               <EmptyState icon={<Bot className="h-10 w-10" />} title="选择会话" description="先在左侧选择一个会话，再查看对应 runs。" />
             ) : (
               <>
-                {participationLoading ? (
-                  <div className="h-32 animate-pulse rounded-2xl border border-border bg-muted/40" />
-                ) : participationEvents.length > 0 ? (
-                  <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/60 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-foreground">Pre-Run Decisions</div>
-                        <div className="mt-1 text-xs text-muted-foreground">这些消息在进入主循环前就被 Stage 2 挡掉了。</div>
-                      </div>
-                      <Badge variant="secondary">{participationEvents.length} 条</Badge>
-                    </div>
-                    <div className="mt-4 space-y-3">
-                      {participationEvents.map((event) => (
-                        <div key={event.event_id} className="rounded-2xl border border-amber-200 bg-white/80 p-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-semibold text-foreground">{formatTimestamp(event.event_time || '')}</div>
-                              <div className="mt-1 text-xs text-muted-foreground">{event.inbound?.sender_name || event.inbound?.sender_id || 'unknown sender'}</div>
-                            </div>
-                            <div className="flex flex-wrap justify-end gap-2">
-                              <Badge variant="secondary">{event.decision || 'unknown'}</Badge>
-                              {event.reason ? <Badge variant="outline">{event.reason}</Badge> : null}
-                              {event.confidence ? <Badge variant="outline">{event.confidence}</Badge> : null}
-                            </div>
-                          </div>
-                          <div className="mt-3 text-sm text-foreground/85">{event.inbound?.raw_body || event.inbound?.body_for_agent || '无消息预览'}</div>
-                          <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                            <span>Final {formatPercent(event.scores?.final)}</span>
-                            <span>Continuity {formatPercent(event.continuity_similarity)}</span>
-                            <span>Interest {formatPercent(event.interest_similarity)}</span>
-                            <span>{event.used_embeddings ? 'embedding on' : 'embedding off'}</span>
-                            <span>{event.used_llm_judge ? 'llm judge on' : 'llm judge off'}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
                 {runs.length === 0 ? (
-                  <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无 runs" description="这个会话最近只有 pre-run decision，或还没有 agent run。" />
+                  <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无 runs" description="这个会话还没有 agent run。" />
                 ) : (
                   runs.map((run) => (
                     <div

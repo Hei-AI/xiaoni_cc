@@ -5,7 +5,6 @@ import {
   AgentRunSessionSummary,
   ConversationTraceData,
   TraceSpanDetailData,
-  SessionParticipationEvent,
   SessionConversationItemRecord,
   SessionRelationshipMemoryData
 } from '@/types';
@@ -50,15 +49,6 @@ export function useSessionRuns(sessionKey: string | null) {
   return useQuery<AgentRunListItem[]>({
     queryKey: ['session-runs', sessionKey],
     queryFn: () => fetchJson<AgentRunListItem[]>(`/api/runs/sessions/${encodeURIComponent(sessionKey || '')}`),
-    enabled: Boolean(sessionKey),
-    staleTime: 10000,
-  });
-}
-
-export function useSessionParticipationEvents(sessionKey: string | null) {
-  return useQuery<SessionParticipationEvent[]>({
-    queryKey: ['session-participation-events', sessionKey],
-    queryFn: () => fetchJson<SessionParticipationEvent[]>(`/api/runs/sessions/${encodeURIComponent(sessionKey || '')}/participation-events`),
     enabled: Boolean(sessionKey),
     staleTime: 10000,
   });
