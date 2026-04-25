@@ -1,5 +1,5 @@
 import express from 'express';
-import { ensureRelationshipMemorySchema, ensureSelfEvolutionSchema, ensureTopicLabSchema } from '@qq-bot/persistence';
+import { ensureIdentityLineageSchema, ensureRelationshipMemorySchema, ensureSelfEvolutionSchema, ensureTopicLabSchema } from '@qq-bot/persistence';
 import { aiConfig, relationshipMemoryConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
@@ -1227,6 +1227,7 @@ app.get('/api/internal/embedding/health', async (_req, res) => {
 async function startServer() {
   await ensureRelationshipMemorySchema();
   await ensureSelfEvolutionSchema();
+  await ensureIdentityLineageSchema();
   await ensureTopicLabSchema();
   await inboxService.initialize();
   await conversationStoreService.initialize();

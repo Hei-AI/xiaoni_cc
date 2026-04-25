@@ -5,6 +5,8 @@ const { Pool, types } = require('pg');
 const { createTrafficPersistence } = require('./traffic');
 const { createRelationshipMemoryPersistence } = require('./relationship-memory');
 const { createSelfEvolutionPersistence } = require('./self-evolution');
+const { createFeedbackReflectionPersistence } = require('./feedback-reflection');
+const { createIdentityLineagePersistence } = require('./identity-lineage');
 const { createTopicLabPersistence } = require('./topic-lab');
 const {
   STORAGE_TIMEZONE,
@@ -308,6 +310,16 @@ const selfEvolutionPersistence = createSelfEvolutionPersistence({
   createSqlAdapter
 });
 
+const feedbackReflectionPersistence = createFeedbackReflectionPersistence({
+  getPrismaClient,
+  createSqlAdapter
+});
+
+const identityLineagePersistence = createIdentityLineagePersistence({
+  getPrismaClient,
+  createSqlAdapter
+});
+
 const topicLabPersistence = createTopicLabPersistence({
   getPrismaClient,
   createSqlAdapter
@@ -325,5 +337,7 @@ module.exports = {
   ...trafficPersistence,
   ...relationshipMemoryPersistence,
   ...selfEvolutionPersistence,
+  ...feedbackReflectionPersistence,
+  ...identityLineagePersistence,
   ...topicLabPersistence
 };

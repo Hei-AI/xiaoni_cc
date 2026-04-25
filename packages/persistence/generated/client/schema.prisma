@@ -315,6 +315,189 @@ model SelfEvolutionState {
   @@map("self_evolution_states")
 }
 
+model AgentFeedbackEpisode {
+  id                     BigInt   @id @default(autoincrement()) @db.BigInt
+  session_key            String   @db.VarChar(191)
+  group_id               BigInt?  @db.BigInt
+  source_user_id         BigInt?  @db.BigInt
+  source_user_name       String?  @db.VarChar(255)
+  scope_type             String   @db.VarChar(32)
+  event_kind             String   @db.VarChar(32)
+  excerpt_text           String?
+  source_message_ids     Json
+  source_conversation_id BigInt?  @db.BigInt
+  event_importance       Float    @default(0)
+  source_salience        Float    @default(0)
+  metadata               Json?
+  created_at             DateTime @default(now()) @db.Timestamp(3)
+  updated_at             DateTime @updatedAt @db.Timestamp(3)
+
+  @@index([group_id, source_user_id, scope_type, updated_at], map: "idx_agent_feedback_episodes_scope_updated")
+  @@index([session_key, updated_at], map: "idx_agent_feedback_episodes_session_updated")
+  @@map("agent_feedback_episodes")
+}
+
+model AgentFeedbackReflection {
+  id                       BigInt    @id @default(autoincrement()) @db.BigInt
+  session_key              String    @db.VarChar(191)
+  group_id                 BigInt?   @db.BigInt
+  source_user_id           BigInt?   @db.BigInt
+  source_user_name         String?   @db.VarChar(255)
+  scope_type               String    @db.VarChar(32)
+  learning_key             String    @db.VarChar(191)
+  learning_scope           String    @db.VarChar(191)
+  reflection_type          String    @default("social_lesson") @db.VarChar(32)
+  feedback_kind            String    @db.VarChar(32)
+  confidence               String    @default("medium") @db.VarChar(16)
+  importance_score         Float     @default(0)
+  evidence_weight          Float     @default(0)
+  stability_score          Float     @default(0)
+  is_active                Boolean   @default(true)
+  summary_text             String
+  retrieval_text           String?
+  embedding_text           String?
+  source_message_ids       Json
+  source_episode_ids       Json
+  source_conversation_id   BigInt?   @db.BigInt
+  supersedes_reflection_id BigInt?   @db.BigInt
+  conflict_group_key       String?   @db.VarChar(191)
+  metadata                 Json?
+  last_hit_at              DateTime? @db.Timestamp(3)
+  hit_count                Int       @default(0)
+  created_at               DateTime  @default(now()) @db.Timestamp(3)
+  updated_at               DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([group_id, learning_key, learning_scope, is_active, updated_at], map: "idx_agent_feedback_reflections_learning_active_updated")
+  @@index([session_key, is_active, updated_at], map: "idx_agent_feedback_reflections_session_active_updated")
+  @@map("agent_feedback_reflections")
+}
+
+model AgentFeedbackLearningState {
+  id                   BigInt   @id @default(autoincrement()) @db.BigInt
+  session_key          String   @db.VarChar(191)
+  group_id             BigInt?  @db.BigInt
+  scope_type           String   @db.VarChar(32)
+  learning_key         String   @db.VarChar(191)
+  learning_scope       String   @db.VarChar(191)
+  scope_hash           String   @unique @db.VarChar(191)
+  state_type           String   @db.VarChar(32)
+  active_reflection_id BigInt?  @db.BigInt
+  latest_reflection_id BigInt?  @db.BigInt
+  activation_weight    Float    @default(0)
+  recency_weight       Float    @default(0)
+  importance_weight    Float    @default(0)
+  source_weight        Float    @default(0)
+  conflict_penalty     Float    @default(0)
+  metadata             Json?
+  created_at           DateTime @default(now()) @db.Timestamp(3)
+  updated_at           DateTime @updatedAt @db.Timestamp(3)
+
+  @@index([group_id, scope_type, updated_at], map: "idx_agent_feedback_learning_states_scope_updated")
+  @@index([session_key, updated_at], map: "idx_agent_feedback_learning_states_session_updated")
+  @@map("agent_feedback_learning_states")
+}
+
+model XiaoniIdentityRoot {
+  id                          BigInt   @id @default(autoincrement()) @db.BigInt
+  identity_key                String   @db.VarChar(191)
+  source_prompt_id            String?  @db.VarChar(191)
+  system_instruction_hash     String   @db.VarChar(128)
+  system_instruction_snapshot String
+  status                      String   @default("active") @db.VarChar(32)
+  created_by                  String?  @db.VarChar(191)
+  metadata                    Json?
+  created_at                  DateTime @default(now()) @db.Timestamp(3)
+  updated_at                  DateTime @updatedAt @db.Timestamp(3)
+
+  @@index([identity_key, status, created_at], map: "idx_xiaoni_identity_roots_key_status_created")
+  @@map("xiaoni_identity_roots")
+}
+
+model IdentityLineageEvent {
+  id                       BigInt    @id @default(autoincrement()) @db.BigInt
+  identity_key             String    @db.VarChar(191)
+  event_type               String    @db.VarChar(64)
+  source_type              String    @db.VarChar(64)
+  source_id                String?   @db.VarChar(191)
+  summary_text             String
+  previous_event_id        BigInt?   @db.BigInt
+  parent_event_id          BigInt?   @db.BigInt
+  forked_from_identity_key String?   @db.VarChar(191)
+  fork_point_event_id      BigInt?   @db.BigInt
+  change_journal_id        BigInt?   @db.BigInt
+  integrity_status         String    @default("accepted") @db.VarChar(32)
+  metadata                 Json?
+  occurred_at              DateTime? @db.Timestamp(3)
+  created_at               DateTime  @default(now()) @db.Timestamp(3)
+
+  @@index([identity_key, created_at, id], map: "idx_identity_lineage_events_key_created")
+  @@index([event_type, created_at], map: "idx_identity_lineage_events_type_created")
+  @@index([change_journal_id], map: "idx_identity_lineage_events_change")
+  @@map("identity_lineage_events")
+}
+
+model IdentityChangeJournal {
+  id               BigInt   @id @default(autoincrement()) @db.BigInt
+  identity_key     String   @db.VarChar(191)
+  change_type      String   @db.VarChar(64)
+  proposed_by      String?  @db.VarChar(191)
+  proposed_from    String?  @db.VarChar(191)
+  before_summary   String?
+  after_summary    String
+  integrity_status String   @default("needs_review") @db.VarChar(32)
+  reason           String?
+  metadata         Json?
+  created_at       DateTime @default(now()) @db.Timestamp(3)
+  updated_at       DateTime @updatedAt @db.Timestamp(3)
+
+  @@index([identity_key, integrity_status, created_at], map: "idx_identity_change_journal_key_status_created")
+  @@index([change_type, created_at], map: "idx_identity_change_journal_type_created")
+  @@map("identity_change_journal")
+}
+
+model IdentityEvidenceRef {
+  id                BigInt   @id @default(autoincrement()) @db.BigInt
+  identity_key      String   @db.VarChar(191)
+  identity_event_id BigInt?  @db.BigInt
+  change_journal_id BigInt?  @db.BigInt
+  source_type       String   @db.VarChar(64)
+  source_id         String   @db.VarChar(191)
+  trace_id          String?  @db.VarChar(128)
+  run_id            String?  @db.VarChar(128)
+  conversation_id   BigInt?  @db.BigInt
+  redaction_status  String   @default("visible") @db.VarChar(32)
+  confidence        String   @default("medium") @db.VarChar(16)
+  metadata          Json?
+  created_at        DateTime @default(now()) @db.Timestamp(3)
+
+  @@index([identity_key, source_type, source_id], map: "idx_identity_evidence_refs_key_source")
+  @@index([identity_event_id], map: "idx_identity_evidence_refs_event")
+  @@index([change_journal_id], map: "idx_identity_evidence_refs_change")
+  @@index([trace_id], map: "idx_identity_evidence_refs_trace")
+  @@index([run_id], map: "idx_identity_evidence_refs_run")
+  @@map("identity_evidence_refs")
+}
+
+model IdentityActivationTrace {
+  id                 BigInt   @id @default(autoincrement()) @db.BigInt
+  identity_key       String   @db.VarChar(191)
+  run_id             String?  @db.VarChar(128)
+  trace_id           String?  @db.VarChar(128)
+  conversation_id    BigInt?  @db.BigInt
+  scene_fingerprint  String?  @db.VarChar(191)
+  cue_summary        String?
+  activated_refs     Json
+  suppressed_refs    Json
+  selected_skill_ref String?  @db.VarChar(191)
+  activation_reason  String?
+  metadata           Json?
+  created_at         DateTime @default(now()) @db.Timestamp(3)
+
+  @@index([trace_id, run_id], map: "idx_identity_activation_traces_trace_run")
+  @@index([identity_key, created_at], map: "idx_identity_activation_traces_key_created")
+  @@map("identity_activation_traces")
+}
+
 model ChatSpaceTopic {
   id                           BigInt    @id @default(autoincrement()) @db.BigInt
   chat_space_type              String    @db.VarChar(16)

@@ -386,6 +386,154 @@ exports.Prisma.SelfEvolutionStateScalarFieldEnum = {
   updated_at: 'updated_at'
 };
 
+exports.Prisma.AgentFeedbackEpisodeScalarFieldEnum = {
+  id: 'id',
+  session_key: 'session_key',
+  group_id: 'group_id',
+  source_user_id: 'source_user_id',
+  source_user_name: 'source_user_name',
+  scope_type: 'scope_type',
+  event_kind: 'event_kind',
+  excerpt_text: 'excerpt_text',
+  source_message_ids: 'source_message_ids',
+  source_conversation_id: 'source_conversation_id',
+  event_importance: 'event_importance',
+  source_salience: 'source_salience',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentFeedbackReflectionScalarFieldEnum = {
+  id: 'id',
+  session_key: 'session_key',
+  group_id: 'group_id',
+  source_user_id: 'source_user_id',
+  source_user_name: 'source_user_name',
+  scope_type: 'scope_type',
+  learning_key: 'learning_key',
+  learning_scope: 'learning_scope',
+  reflection_type: 'reflection_type',
+  feedback_kind: 'feedback_kind',
+  confidence: 'confidence',
+  importance_score: 'importance_score',
+  evidence_weight: 'evidence_weight',
+  stability_score: 'stability_score',
+  is_active: 'is_active',
+  summary_text: 'summary_text',
+  retrieval_text: 'retrieval_text',
+  embedding_text: 'embedding_text',
+  source_message_ids: 'source_message_ids',
+  source_episode_ids: 'source_episode_ids',
+  source_conversation_id: 'source_conversation_id',
+  supersedes_reflection_id: 'supersedes_reflection_id',
+  conflict_group_key: 'conflict_group_key',
+  metadata: 'metadata',
+  last_hit_at: 'last_hit_at',
+  hit_count: 'hit_count',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentFeedbackLearningStateScalarFieldEnum = {
+  id: 'id',
+  session_key: 'session_key',
+  group_id: 'group_id',
+  scope_type: 'scope_type',
+  learning_key: 'learning_key',
+  learning_scope: 'learning_scope',
+  scope_hash: 'scope_hash',
+  state_type: 'state_type',
+  active_reflection_id: 'active_reflection_id',
+  latest_reflection_id: 'latest_reflection_id',
+  activation_weight: 'activation_weight',
+  recency_weight: 'recency_weight',
+  importance_weight: 'importance_weight',
+  source_weight: 'source_weight',
+  conflict_penalty: 'conflict_penalty',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.XiaoniIdentityRootScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  source_prompt_id: 'source_prompt_id',
+  system_instruction_hash: 'system_instruction_hash',
+  system_instruction_snapshot: 'system_instruction_snapshot',
+  status: 'status',
+  created_by: 'created_by',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.IdentityLineageEventScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  event_type: 'event_type',
+  source_type: 'source_type',
+  source_id: 'source_id',
+  summary_text: 'summary_text',
+  previous_event_id: 'previous_event_id',
+  parent_event_id: 'parent_event_id',
+  forked_from_identity_key: 'forked_from_identity_key',
+  fork_point_event_id: 'fork_point_event_id',
+  change_journal_id: 'change_journal_id',
+  integrity_status: 'integrity_status',
+  metadata: 'metadata',
+  occurred_at: 'occurred_at',
+  created_at: 'created_at'
+};
+
+exports.Prisma.IdentityChangeJournalScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  change_type: 'change_type',
+  proposed_by: 'proposed_by',
+  proposed_from: 'proposed_from',
+  before_summary: 'before_summary',
+  after_summary: 'after_summary',
+  integrity_status: 'integrity_status',
+  reason: 'reason',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.IdentityEvidenceRefScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  identity_event_id: 'identity_event_id',
+  change_journal_id: 'change_journal_id',
+  source_type: 'source_type',
+  source_id: 'source_id',
+  trace_id: 'trace_id',
+  run_id: 'run_id',
+  conversation_id: 'conversation_id',
+  redaction_status: 'redaction_status',
+  confidence: 'confidence',
+  metadata: 'metadata',
+  created_at: 'created_at'
+};
+
+exports.Prisma.IdentityActivationTraceScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  run_id: 'run_id',
+  trace_id: 'trace_id',
+  conversation_id: 'conversation_id',
+  scene_fingerprint: 'scene_fingerprint',
+  cue_summary: 'cue_summary',
+  activated_refs: 'activated_refs',
+  suppressed_refs: 'suppressed_refs',
+  selected_skill_ref: 'selected_skill_ref',
+  activation_reason: 'activation_reason',
+  metadata: 'metadata',
+  created_at: 'created_at'
+};
+
 exports.Prisma.ChatSpaceTopicScalarFieldEnum = {
   id: 'id',
   chat_space_type: 'chat_space_type',
@@ -552,6 +700,14 @@ exports.Prisma.ModelName = {
   RelationshipMemoryOverride: 'RelationshipMemoryOverride',
   SelfEvolutionJob: 'SelfEvolutionJob',
   SelfEvolutionState: 'SelfEvolutionState',
+  AgentFeedbackEpisode: 'AgentFeedbackEpisode',
+  AgentFeedbackReflection: 'AgentFeedbackReflection',
+  AgentFeedbackLearningState: 'AgentFeedbackLearningState',
+  XiaoniIdentityRoot: 'XiaoniIdentityRoot',
+  IdentityLineageEvent: 'IdentityLineageEvent',
+  IdentityChangeJournal: 'IdentityChangeJournal',
+  IdentityEvidenceRef: 'IdentityEvidenceRef',
+  IdentityActivationTrace: 'IdentityActivationTrace',
   ChatSpaceTopic: 'ChatSpaceTopic',
   TopicProjectionJob: 'TopicProjectionJob',
   TopicProjectionVersion: 'TopicProjectionVersion',

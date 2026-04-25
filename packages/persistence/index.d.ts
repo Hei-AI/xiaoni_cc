@@ -196,6 +196,137 @@ export type RelationshipMemoryOverrideInput = {
 export type RelationshipMemoryHitInput = {
   hitAt?: string | Date | null;
 };
+export type FeedbackEpisodeInput = {
+  sessionKey: string;
+  groupId?: number | bigint | string | null;
+  sourceUserId?: number | bigint | string | null;
+  sourceUserName?: string | null;
+  scopeType?: 'group_self' | 'from_user' | string;
+  eventKind?: 'feedback' | 'praise' | 'critique' | 'correction' | 'interaction_outcome' | string;
+  excerptText?: string | null;
+  sourceMessageIds?: Array<number | bigint | string> | Array<string>;
+  sourceConversationId?: number | bigint | string | null;
+  eventImportance?: number;
+  sourceSalience?: number;
+  metadata?: Record<string, unknown> | null;
+};
+export type FeedbackReflectionInput = {
+  sessionKey: string;
+  groupId?: number | bigint | string | null;
+  sourceUserId?: number | bigint | string | null;
+  sourceUserName?: string | null;
+  scopeType?: 'group_self' | 'from_user' | string;
+  learningKey?: string;
+  learningScope?: string;
+  reflectionType?: 'semantic_lesson' | 'social_lesson' | 'self_model_update' | string;
+  feedbackKind?: 'positive' | 'negative' | 'mixed' | string;
+  confidence?: 'high' | 'medium' | 'low' | string;
+  importanceScore?: number;
+  evidenceWeight?: number;
+  stabilityScore?: number;
+  isActive?: boolean;
+  summaryText: string;
+  retrievalText?: string | null;
+  embeddingText?: string | null;
+  sourceMessageIds?: Array<number | bigint | string> | Array<string>;
+  sourceEpisodeIds?: Array<number | bigint | string> | Array<string>;
+  sourceConversationId?: number | bigint | string | null;
+  supersedesReflectionId?: number | bigint | string | null;
+  conflictGroupKey?: string | null;
+  metadata?: Record<string, unknown> | null;
+  lastHitAt?: string | Date | null;
+  hitCount?: number;
+};
+export type FeedbackReflectionHitInput = {
+  hitAt?: string | Date | null;
+};
+export type FeedbackLearningStateInput = {
+  sessionKey: string;
+  groupId?: number | bigint | string | null;
+  scopeType?: 'group_self' | 'from_user' | string;
+  learningKey: string;
+  learningScope: string;
+  stateType?: 'reinforced' | 'tentative' | 'conflicted' | 'revised' | string;
+  activeReflectionId?: number | bigint | string | null;
+  latestReflectionId?: number | bigint | string | null;
+  activationWeight?: number;
+  recencyWeight?: number;
+  importanceWeight?: number;
+  sourceWeight?: number;
+  conflictPenalty?: number;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type IdentityEvidenceRefInput = {
+  identityKey?: string;
+  identityEventId?: number | bigint | string | null;
+  changeJournalId?: number | bigint | string | null;
+  sourceType: string;
+  sourceId: string | number | bigint;
+  traceId?: string | null;
+  runId?: string | null;
+  conversationId?: number | bigint | string | null;
+  redactionStatus?: 'visible' | 'redacted' | 'tombstoned' | string;
+  confidence?: 'high' | 'medium' | 'low' | string;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type XiaoniIdentityRootInput = {
+  identityKey: string;
+  sourcePromptId?: string | null;
+  systemInstructionHash?: string | null;
+  systemInstructionSnapshot: string;
+  status?: 'active' | 'retired' | string;
+  createdBy?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type IdentityLineageEventInput = {
+  identityKey: string;
+  eventType?: 'genesis' | 'natural_growth' | 'guided_growth' | 'external_intervention' | 'identity_retcon' | 'corruption' | 'fork' | 'forgetting' | 'death_or_reset' | 'continuity_trial' | 'activation_trace' | string;
+  sourceType?: string;
+  sourceId?: string | number | bigint | null;
+  summaryText: string;
+  previousEventId?: number | bigint | string | null;
+  parentEventId?: number | bigint | string | null;
+  forkedFromIdentityKey?: string | null;
+  forkPointEventId?: number | bigint | string | null;
+  changeJournalId?: number | bigint | string | null;
+  integrityStatus?: 'accepted' | 'needs_review' | 'quarantined' | 'rejected' | string;
+  metadata?: Record<string, unknown> | null;
+  occurredAt?: string | Date | null;
+  evidenceRefs?: IdentityEvidenceRefInput[];
+};
+
+export type IdentityChangeInput = {
+  identityKey: string;
+  changeType?: 'natural_growth' | 'guided_growth' | 'external_intervention' | 'identity_retcon' | 'corruption' | 'fork' | 'forgetting' | 'death_or_reset' | string;
+  proposedBy?: string | null;
+  proposedFrom?: string | null;
+  beforeSummary?: string | null;
+  afterSummary: string;
+  integrityStatus?: 'accepted' | 'needs_review' | 'quarantined' | 'rejected' | string;
+  reason?: string | null;
+  metadata?: Record<string, unknown> | null;
+  lineageMetadata?: Record<string, unknown> | null;
+  recordLineageEvent?: boolean;
+  evidenceRefs?: IdentityEvidenceRefInput[];
+};
+
+export type IdentityActivationTraceInput = {
+  identityKey: string;
+  runId?: string | null;
+  traceId?: string | null;
+  conversationId?: number | bigint | string | null;
+  sceneFingerprint?: string | null;
+  cueSummary?: string | null;
+  activatedRefs?: unknown[];
+  suppressedRefs?: unknown[];
+  selectedSkillRef?: string | null;
+  activationReason?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
 export type SelfEvolutionJobInput = {
   groupId?: number | bigint | string | null;
   targetUserId?: number | bigint | string | null;
@@ -386,6 +517,8 @@ export function listAiTrafficSamples(params?: { search?: string; limit?: number 
 export function createTrafficLogBatch(records: TrafficLogBatchInput[]): Promise<{ count: number }>;
 export function ensureRelationshipMemorySchema(config?: DatabaseUrlConfig): Promise<void>;
 export function ensureSelfEvolutionSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function ensureFeedbackReflectionSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function ensureIdentityLineageSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function ensureTopicLabSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function appendRelationshipLedgerEvent(input: RelationshipLedgerEventInput, config?: DatabaseUrlConfig): Promise<any>;
 export function reinforceRelationshipLedgerEvent(
@@ -454,6 +587,108 @@ export function markRelationshipMemoryCardsHit(
   params?: RelationshipMemoryHitInput,
   config?: DatabaseUrlConfig
 ): Promise<{ count: number; hit_at: Date | null }>;
+export function createFeedbackEpisode(input: FeedbackEpisodeInput, config?: DatabaseUrlConfig): Promise<any>;
+export function listFeedbackEpisodes(
+  filters?: {
+    sessionKey?: string;
+    groupId?: number | bigint | string | null;
+    sourceUserId?: number | bigint | string | null;
+    scopeType?: string;
+    eventKind?: string;
+    limit?: number;
+  },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function createFeedbackReflection(input: FeedbackReflectionInput, config?: DatabaseUrlConfig): Promise<any>;
+export function listFeedbackReflections(
+  filters?: {
+    sessionKey?: string;
+    groupId?: number | bigint | string | null;
+    sourceUserId?: number | bigint | string | null;
+    scopeType?: string;
+    learningKey?: string;
+    learningScope?: string;
+    feedbackKind?: string;
+    isActive?: boolean;
+    limit?: number;
+  },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function markFeedbackReflectionsHit(
+  ids: Array<number | bigint | string>,
+  params?: FeedbackReflectionHitInput,
+  config?: DatabaseUrlConfig
+): Promise<{ count: number; hit_at: Date | null }>;
+export function getFeedbackLearningState(
+  filters: {
+    sessionKey?: string;
+    groupId?: number | bigint | string | null;
+    scopeType?: string;
+    learningKey?: string;
+    learningScope?: string;
+    scopeHash?: string;
+  },
+  config?: DatabaseUrlConfig
+): Promise<any | null>;
+export function listFeedbackLearningStates(
+  filters?: {
+    sessionKey?: string;
+    groupId?: number | bigint | string | null;
+    scopeType?: string;
+    learningKey?: string;
+    learningScope?: string;
+    limit?: number;
+  },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function upsertFeedbackLearningState(input: FeedbackLearningStateInput, config?: DatabaseUrlConfig): Promise<any>;
+export const IdentityLineageValidationError: {
+  new(message: string, code?: string): Error & { code?: string };
+};
+export function createXiaoniIdentityRoot(input: XiaoniIdentityRootInput, config?: DatabaseUrlConfig): Promise<any>;
+export function getActiveXiaoniIdentityRoot(identityKey: string, config?: DatabaseUrlConfig): Promise<any | null>;
+export function appendIdentityLineageEvent(
+  input: IdentityLineageEventInput,
+  config?: DatabaseUrlConfig
+): Promise<{ event: any; evidenceRefs: any[] }>;
+export function appendIdentityChange(
+  input: IdentityChangeInput,
+  config?: DatabaseUrlConfig
+): Promise<{ change: any; event: any | null; evidenceRefs: any[] }>;
+export function recordIdentityFork(
+  input: IdentityLineageEventInput & { forkedFromIdentityKey: string; forkPointEventId: number | bigint | string },
+  config?: DatabaseUrlConfig
+): Promise<{ event: any; evidenceRefs: any[] }>;
+export function recordForgettingTombstone(
+  input: IdentityLineageEventInput,
+  config?: DatabaseUrlConfig
+): Promise<{ event: any; evidenceRefs: any[] }>;
+export function recordContinuityTrial(
+  input: IdentityLineageEventInput,
+  config?: DatabaseUrlConfig
+): Promise<{ event: any; evidenceRefs: any[] }>;
+export function recordIdentityActivationTrace(input: IdentityActivationTraceInput, config?: DatabaseUrlConfig): Promise<any>;
+export function listIdentityLineageEvents(
+  filters?: { identityKey?: string; eventType?: string; integrityStatus?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function listIdentityEvidenceRefs(
+  filters?: {
+    identityKey?: string;
+    identityEventId?: number | bigint | string;
+    changeJournalId?: number | bigint | string;
+    sourceType?: string;
+    traceId?: string;
+    runId?: string;
+    redactionStatus?: string;
+    limit?: number;
+  },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function listIdentityActivationTraces(
+  filters?: { identityKey?: string; traceId?: string; runId?: string; conversationId?: number | bigint | string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
 export function createSelfEvolutionJob(input: SelfEvolutionJobInput, config?: DatabaseUrlConfig): Promise<any>;
 export function updateSelfEvolutionJob(
   id: number | bigint | string,
