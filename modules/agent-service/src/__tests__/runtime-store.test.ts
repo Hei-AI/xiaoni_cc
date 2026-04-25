@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseRelationshipRagSelection,
+  rankFeedbackReflectionsForRecall,
   rankRelationshipCardsForPrompt,
   selectCardsInRankOrder,
   RuntimeStore
@@ -396,6 +397,147 @@ test('rankRelationshipCardsForPrompt falls back to decayed score when retrieval 
   });
 
   assert.deepEqual(ranked.map((item) => item.card.id), [7, 8]);
+});
+
+test('rankFeedbackReflectionsForRecall does not recall unrelated memories just because the sender matches', () => {
+  const ranked = rankFeedbackReflectionsForRecall({
+    reflections: [{
+      id: 1,
+      sessionKey: 'qq:group:101',
+      groupId: 101,
+      sourceUserId: 202,
+      sourceUserName: 'Alice',
+      scopeType: 'group_self',
+      learningKey: 'topic.cooking',
+      learningScope: 'group_self',
+      reflectionType: 'social_lesson',
+      feedbackKind: 'mixed',
+      confidence: 'high',
+      importanceScore: 0.9,
+      evidenceWeight: 0.9,
+      stabilityScore: 0.9,
+      summaryText: 'Alice 喜欢聊做饭',
+      retrievalText: '做饭 菜谱 厨房',
+      embeddingText: '做饭 菜谱 厨房',
+      sourceMessageIds: [],
+      sourceEpisodeIds: [],
+      sourceConversationId: null,
+      supersedesReflectionId: null,
+      conflictGroupKey: null,
+      metadata: {},
+      lastHitAt: null,
+      hitCount: 0,
+      updatedAt: '2026-03-31T08:00:00.000Z'
+    }, {
+      id: 2,
+      sessionKey: 'qq:group:101',
+      groupId: 101,
+      sourceUserId: 303,
+      sourceUserName: 'Bob',
+      scopeType: 'group_self',
+      learningKey: 'feedback.low_value_reply',
+      learningScope: 'group_self',
+      reflectionType: 'social_lesson',
+      feedbackKind: 'negative',
+      confidence: 'high',
+      importanceScore: 0.7,
+      evidenceWeight: 0.8,
+      stabilityScore: 0.6,
+      summaryText: '不要发没有营养的话，要先有真实思考',
+      retrievalText: '不要发没有营养的话 真实思考 小腻',
+      embeddingText: '没有营养 真实思考 先思考再说',
+      sourceMessageIds: [],
+      sourceEpisodeIds: [],
+      sourceConversationId: null,
+      supersedesReflectionId: null,
+      conflictGroupKey: null,
+      metadata: {},
+      lastHitAt: null,
+      hitCount: 0,
+      updatedAt: '2026-03-31T08:00:00.000Z'
+    }],
+    learningStates: [],
+    queryText: '小腻不要发没有营养的话，要先思考',
+    currentUserId: 202,
+    recentUserIds: [],
+    embeddingScores: new Map(),
+    limit: 3
+  });
+
+  assert.deepEqual(ranked.map((item) => item.reflection.id), [2]);
+});
+
+test('rankFeedbackReflectionsForRecall dedupes the same learning key and scope', () => {
+  const base = {
+    sessionKey: 'qq:group:101',
+    groupId: 101,
+    sourceUserId: 202,
+    sourceUserName: 'Alice',
+    scopeType: 'group_self',
+    reflectionType: 'social_lesson',
+    feedbackKind: 'negative',
+    confidence: 'high',
+    importanceScore: 0.6,
+    evidenceWeight: 0.6,
+    stabilityScore: 0.6,
+    sourceMessageIds: [],
+    sourceEpisodeIds: [],
+    sourceConversationId: null,
+    supersedesReflectionId: null,
+    conflictGroupKey: null,
+    metadata: {},
+    lastHitAt: null,
+    hitCount: 0,
+    updatedAt: '2026-03-31T08:00:00.000Z'
+  };
+  const ranked = rankFeedbackReflectionsForRecall({
+    reflections: [{
+      ...base,
+      id: 11,
+      learningKey: 'feedback.low_value_reply',
+      learningScope: 'group_self',
+      summaryText: '旧结论：少接空话',
+      retrievalText: '没有营养 先思考',
+      embeddingText: '没有营养 先思考'
+    }, {
+      ...base,
+      id: 12,
+      learningKey: 'feedback.low_value_reply',
+      learningScope: 'group_self',
+      summaryText: '新结论：必须先有真实思考再决定说不说',
+      retrievalText: '没有营养 真实思考 先思考再说',
+      embeddingText: '真实思考 先思考再说'
+    }],
+    learningStates: [{
+      id: 1,
+      sessionKey: 'qq:group:101',
+      groupId: 101,
+      scopeType: 'group_self',
+      learningKey: 'feedback.low_value_reply',
+      learningScope: 'group_self',
+      scopeHash: 'hash',
+      stateType: 'reinforced',
+      activeReflectionId: 12,
+      latestReflectionId: 12,
+      activationWeight: 1,
+      recencyWeight: 1,
+      importanceWeight: 1,
+      sourceWeight: 1,
+      conflictPenalty: 0,
+      metadata: {},
+      updatedAt: '2026-03-31T08:00:00.000Z'
+    }],
+    queryText: '没有营养 真实思考',
+    currentUserId: 202,
+    recentUserIds: [],
+    embeddingScores: new Map([
+      [11, 0.8],
+      [12, 0.95]
+    ]),
+    limit: 3
+  });
+
+  assert.deepEqual(ranked.map((item) => item.reflection.id), [12]);
 });
 
 test('parseRelationshipRagSelection keeps only allowed card ids per scope', () => {

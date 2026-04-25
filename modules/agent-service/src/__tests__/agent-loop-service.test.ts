@@ -6,6 +6,9 @@ import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from 
 import type { QueueMessagePayload } from '../types';
 
 const PRIVATE_REPLY_TOOL = 'reply_in_private';
+const UNREAD_MEANING_TOOL = 'emit_unread_meaning';
+const INNER_REACTION_TOOL = 'emit_inner_reaction';
+const LONG_TERM_RECALL_TOOL = 'recall_long_term_learning';
 const GROUP_REPLY_TOOL = 'speak_in_group';
 const SILENT_FINISH_TOOL = 'stay_silent';
 const WEB_SEARCH_TOOL = 'web_search';
@@ -14,8 +17,18 @@ function getToolName(tool: { type: string; function?: { name?: string } }) {
   return tool.type === 'function' ? tool.function?.name : tool.type;
 }
 
-function getFunctionTool(tool: { type: string; function?: { description?: string; parameters?: { properties?: unknown; required?: unknown } } }) {
+function getFunctionTool(tool: { type: string; function?: { name?: string; description?: string; parameters?: { properties?: unknown; required?: unknown } } }) {
   return tool.type === 'function' ? tool.function : null;
+}
+
+function getAllowedToolNames(toolChoice: unknown) {
+  if (!toolChoice || typeof toolChoice !== 'object' || (toolChoice as any).type !== 'allowed_tools') {
+    return [];
+  }
+
+  return Array.isArray((toolChoice as any).tools)
+    ? (toolChoice as any).tools.map((tool: any) => tool.type === 'function' ? tool.name : tool.type)
+    : [];
 }
 
 function createQueuePayload(): QueueMessagePayload {
@@ -194,18 +207,14 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.equal(request.input[0]?.type, 'message');
   assert.equal(request.input[0]?.role, 'user');
   assert.equal(request.input.some((item) => item.type === 'message' && item.role === 'system'), false);
-  assert.equal(request.tool_choice, 'required');
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [UNREAD_MEANING_TOOL]);
   assert.equal(request.parallel_tool_calls, false);
   assert.deepEqual(
     request.tools.map((tool) => getToolName(tool)),
-    [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
+    [UNREAD_MEANING_TOOL, INNER_REACTION_TOOL, LONG_TERM_RECALL_TOOL, WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
   );
-  const webSearchTool = request.tools[0];
-  const groupReplyFunction = getFunctionTool(request.tools[1]);
-  const silentFinishFunction = getFunctionTool(request.tools[2]);
-  assert.equal(webSearchTool.type, WEB_SEARCH_TOOL);
-  assert.equal(webSearchTool.search_context_size, 'low');
-  assert.equal(webSearchTool.external_web_access, true);
+  const planFunction = getFunctionTool(request.tools[0]);
+  assert.equal(planFunction?.name, UNREAD_MEANING_TOOL);
   assert.match(String(request.instructions), /Available tools are .*web_search/);
   assert.match(String(request.instructions), /使用 web_search/);
   assert.match(String(request.instructions), /web_search 是求知，不是默认步骤/);
@@ -213,27 +222,8 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.match(String(request.instructions), /经典原话更准确地点明了此刻判断/);
   assert.match(String(request.instructions), /我仍然回到同一个判断：说，等待，还是沉默/);
   assert.match(String(request.instructions), /工具只是这些去向的外在落点/);
-  assert.match(String(groupReplyFunction?.description), /当一句话已经在我这里成熟到值得承担时/);
-  assert.match(String(groupReplyFunction?.description), /我开口，是因为这句话此刻对我成立/);
-  assert.match(String(groupReplyFunction?.description), /mention_user_ids/);
-  assert.match(String(groupReplyFunction?.description), /让每个 @ 都对应真实的指向/);
-  assert.deepEqual(groupReplyFunction?.parameters?.properties, {
-    message: { type: 'string' },
-    messages: {
-      type: 'array',
-      items: { type: 'string' }
-    },
-    mention_user_ids: {
-      type: 'array',
-      items: { type: 'integer' }
-    },
-    xiaoni_os: {
-      type: 'string',
-      description: '给下一轮的小腻留一段隐藏的 xiaoni_os。这里写的不是“我为什么现在说话”的论证，而是这轮之后真正留在你身上的余波，比如你看见了什么关系变化、你被什么触动或提醒、你对谁更靠近或更收住、还有什么仍在继续。不会发给群里的人。'
-    }
-  });
-  assert.deepEqual(silentFinishFunction?.parameters?.required, ['reason', 'outcome', 'xiaoni_os']);
-  assert.match(String(silentFinishFunction?.description), /沉默也是行动的一种落点/);
+  assert.match(String(planFunction?.description), /先只理解最新未读到底在讲什么/);
+  assert.deepEqual(planFunction?.parameters?.required, ['latest_unread_focus', 'message_act', 'social_target', 'addressed_to_me', 'has_real_novelty', 'confidence', 'reason']);
 });
 
 test('buildCanonicalAgentTurnRequest does not include previous_response_id', () => {
@@ -243,18 +233,122 @@ test('buildCanonicalAgentTurnRequest does not include previous_response_id', () 
   assert.equal(Object.prototype.hasOwnProperty.call(request, 'previous_response_id'), false);
 });
 
+test('buildCanonicalAgentTurnRequest keeps the same group loop tools on the first group turn', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+
+  assert.deepEqual(
+    request.tools.map((tool: any) => getToolName(tool)),
+    [UNREAD_MEANING_TOOL, INNER_REACTION_TOOL, LONG_TERM_RECALL_TOOL, WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
+  );
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [UNREAD_MEANING_TOOL]);
+  assert.match(String(request.instructions), /这一轮在我体内自然按这个顺序展开/);
+  assert.match(String(request.instructions), /如果我还没看清最新未读到底在讲什么，就先调用 emit_unread_meaning/);
+  assert.match(String(request.instructions), /只有当当前反应让我意识到这件事可能和以前学到的东西有关时，我才调用 recall_long_term_learning/);
+  assert.match(String(request.instructions), /只有当前两步都已经形成，我才调用 speak_in_group、stay_silent 或 web_search/);
+});
+
+test('buildCanonicalAgentTurnRequest only unlocks inner reaction and recall after unread meaning replay', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"对小腻的提醒","message_act":"feedback","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"这是直接反馈"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"对小腻的提醒","message_act":"feedback","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"这是直接反馈"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [INNER_REACTION_TOOL, LONG_TERM_RECALL_TOOL]);
+});
+
+test('buildCanonicalAgentTurnRequest only allows stay_silent after inner reaction prefers silence', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"重复轻回声","message_act":"reaction","social_target":"group","addressed_to_me":false,"has_real_novelty":false,"confidence":"high","reason":"重复轻回声"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"重复轻回声","message_act":"reaction","social_target":"group","addressed_to_me":false,"has_real_novelty":false,"confidence":"high","reason":"重复轻回声"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"low","wants_to_know_more":false,"recalled_prior_pattern":"刚刚已经是同义回声","felt_direction":"没有新的拉力","reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"silent","reason":"只是顺手可接"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"low","wants_to_know_more":false,"recalled_prior_pattern":"刚刚已经是同义回声","felt_direction":"没有新的拉力","reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"silent","reason":"只是顺手可接"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL]);
+});
+
+test('buildCanonicalAgentTurnRequest allows speech only when inner reaction prefers speak', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"明确问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接提问"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"明确问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接提问"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"high","wants_to_know_more":false,"recalled_prior_pattern":"这是直接递话","felt_direction":"可以承担一句回应","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实回应"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"high","wants_to_know_more":false,"recalled_prior_pattern":"这是直接递话","felt_direction":"可以承担一句回应","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实回应"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]);
+});
+
 test('executeAgentTurn sends the standard canonical request shape to provider-service', async () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({
     type: 'function_call',
-    call_id: 'call-1',
-    name: GROUP_REPLY_TOOL,
-    arguments: '{"message":"hi"}'
+    call_id: 'call-plan',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"重复轻回声","message_act":"reaction","social_target":"group","addressed_to_me":false,"has_real_novelty":false,"confidence":"high","reason":"重复轻回声"}'
   });
   loopInput.push({
     type: 'function_call_output',
-    call_id: 'call-1',
-    output: '{"ok":true}'
+    call_id: 'call-plan',
+    output: '{"latest_unread_focus":"重复轻回声","message_act":"reaction","social_target":"group","addressed_to_me":false,"has_real_novelty":false,"confidence":"high","reason":"重复轻回声"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"low","wants_to_know_more":false,"recalled_prior_pattern":"类似回声之前已经落地","felt_direction":"没有新的拉力","reaction_authenticity":"empty_but_convenient","should_search":false,"preferred_action":"silent","reason":"只是顺手可接"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"low","wants_to_know_more":false,"recalled_prior_pattern":"类似回声之前已经落地","felt_direction":"没有新的拉力","reaction_authenticity":"empty_but_convenient","should_search":false,"preferred_action":"silent","reason":"只是顺手可接"}'
   });
 
   const service = new AgentLoopService({} as any);
@@ -296,14 +390,15 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
     false
   );
   assert.deepEqual(
-    requestBody.canonicalRequest.input.slice(-2).map((item: any) => item.type),
-    ['function_call', 'function_call_output']
+    requestBody.canonicalRequest.input.slice(-4).map((item: any) => item.type),
+    ['function_call', 'function_call_output', 'function_call', 'function_call_output']
   );
-  assert.equal(requestBody.canonicalRequest.tool_choice, 'required');
+  assert.match(String(requestBody.canonicalRequest.instructions), /这一轮在我体内自然按这个顺序展开/);
+  assert.deepEqual(getAllowedToolNames(requestBody.canonicalRequest.tool_choice), [SILENT_FINISH_TOOL]);
   assert.equal(requestBody.canonicalRequest.parallel_tool_calls, false);
   assert.deepEqual(
     requestBody.canonicalRequest.tools.map((tool: any) => getToolName(tool)),
-    [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
+    [UNREAD_MEANING_TOOL, INNER_REACTION_TOOL, LONG_TERM_RECALL_TOOL, WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
   );
   assert.deepEqual(requestBody.canonicalRequest.metadata, {
     trace_id: 'trace-1',
@@ -855,6 +950,82 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
     }
   });
   assert.equal(calls[0].canonicalRequest.model, 'gpt-5.4');
+});
+
+test('feedback memory subagent uses a subagent trace and cache key without changing its tools per turn', async () => {
+  const calls: Array<any> = [];
+  const timelineEvents: Array<any> = [];
+  const store = {
+    logTimelineEvent: async (event: any) => { timelineEvents.push(event); },
+    createFeedbackEpisode: async () => ({ id: 1 }),
+    createFeedbackReflection: async () => ({ id: 2 }),
+    upsertFeedbackLearningState: async () => ({ id: 3 })
+  };
+  const service = new AgentLoopService(store as any);
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    calls.push(JSON.parse(String(init?.body || '{}')));
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        llm_call_id: 'llm-feedback-subagent',
+        canonical_response: {
+          output: []
+        }
+      })
+    } as any;
+  }) as typeof fetch;
+
+  try {
+    await (service as any).runFeedbackMemorySubagent({
+      queueMessage: createQueuePayload(),
+      conversationId: 1001,
+      history: [],
+      runtimePrompt: createRuntimePrompt({
+        promptName: '小腻主AGENT',
+        promptId: 'prompt-1'
+      }),
+      xiaoniOs: '这轮之后我意识到不能为了接话而接话。',
+      deliveredMessages: ['我先想想。'],
+      unreadMeaningArtifact: { message_act: 'feedback' },
+      innerReactionArtifact: { preferred_action: 'speak' }
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].trace_id, 'trace-1:subagent:feedback_memory_writer');
+  assert.equal(calls[0].agent_type, 'feedback_memory_writer');
+  assert.equal(calls[0].prompt_name, '小腻主AGENT:feedback_memory_writer');
+  assert.equal(calls[0].canonicalRequest.prompt_cache_key, 'qq:group:101:subagent:feedback_memory_writer');
+  assert.equal(calls[0].canonicalRequest.prompt_cache_retention, '24h');
+  assert.deepEqual(calls[0].canonicalRequest.metadata, {
+    trace_id: 'trace-1:subagent:feedback_memory_writer',
+    parent_trace_id: 'trace-1',
+    parent_run_id: 'run-1',
+    parent_conversation_id: '1001',
+    batch_id: 'batch-1',
+    session_key: 'qq:group:101',
+    session_id: 'qq:group:101',
+    turn_id: 'run-1:feedback_memory:1',
+    sandbox: 'none',
+    chat_type: 'group',
+    prompt_name: '小腻主AGENT',
+    subagent_type: 'feedback_memory_writer',
+    parent_agent_type: 'chat_bot',
+    prompt_id: 'prompt-1'
+  });
+  assert.deepEqual(
+    calls[0].canonicalRequest.tools.map((tool: any) => getToolName(tool)),
+    ['extract_feedback_episode', 'synthesize_feedback_reflection', 'update_learning_state']
+  );
+  assert.deepEqual(getAllowedToolNames(calls[0].canonicalRequest.tool_choice), ['extract_feedback_episode']);
+  assert.equal(timelineEvents[0]?.eventType, 'subagent');
+  assert.equal(timelineEvents[0]?.eventPhase, 'start');
+  assert.equal(timelineEvents.at(-1)?.metadata?.termination_reason, 'no_tool_call');
 });
 
 test('applyToolResultToLoopInput replays send tool payload as function_call_output state', () => {

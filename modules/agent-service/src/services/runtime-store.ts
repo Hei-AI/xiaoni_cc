@@ -1,11 +1,19 @@
 import {
+  createFeedbackEpisode,
   createSqlAdapter,
+  createFeedbackReflection,
+  ensureFeedbackReflectionSchema,
+  getFeedbackLearningState,
   getTopicProjectionVersionById,
+  listFeedbackLearningStates,
+  listFeedbackReflections,
   listSelfEvolutionStates,
   listChatSpaceTopics,
   listRelationshipMemoryCards,
   markRelationshipMemoryCardsHit,
+  markFeedbackReflectionsHit,
   listRelationshipMemoryOverrides,
+  upsertFeedbackLearningState,
   serializeTimestampForApi,
   type SqlAdapter
 } from '@qq-bot/persistence';
@@ -157,6 +165,72 @@ export type RuntimeSelfEvolutionState = {
   updatedAt: string | null;
 };
 
+export type RuntimeFeedbackReflection = {
+  id: number;
+  sessionKey: string;
+  groupId: number | null;
+  sourceUserId: number | null;
+  sourceUserName: string | null;
+  scopeType: string;
+  learningKey: string;
+  learningScope: string;
+  reflectionType: string;
+  feedbackKind: string;
+  confidence: string;
+  importanceScore: number;
+  evidenceWeight: number;
+  stabilityScore: number;
+  summaryText: string;
+  retrievalText: string | null;
+  embeddingText: string | null;
+  sourceMessageIds: number[];
+  sourceEpisodeIds: number[];
+  sourceConversationId: number | null;
+  supersedesReflectionId: number | null;
+  conflictGroupKey: string | null;
+  metadata: Record<string, unknown>;
+  lastHitAt: string | null;
+  hitCount: number;
+  updatedAt: string | null;
+};
+
+export type RuntimeFeedbackEpisode = {
+  id: number;
+  sessionKey: string;
+  groupId: number | null;
+  sourceUserId: number | null;
+  sourceUserName: string | null;
+  scopeType: string;
+  eventKind: string;
+  excerptText: string | null;
+  sourceMessageIds: number[];
+  sourceConversationId: number | null;
+  eventImportance: number;
+  sourceSalience: number;
+  metadata: Record<string, unknown>;
+  updatedAt: string | null;
+};
+
+export type RuntimeFeedbackLearningState = {
+  id: number;
+  sessionKey: string;
+  groupId: number | null;
+  scopeType: string;
+  learningKey: string;
+  learningScope: string;
+  scopeHash: string;
+  stateType: string;
+  activeReflectionId: number | null;
+  latestReflectionId: number | null;
+  activationWeight: number;
+  recencyWeight: number;
+  importanceWeight: number;
+  sourceWeight: number;
+  conflictPenalty: number;
+  metadata: Record<string, unknown>;
+  updatedAt: string | null;
+};
+
 export type RuntimeTopicProjection = {
   topicId: number;
   versionId: number;
@@ -192,25 +266,6 @@ export type RuntimeMemoryRagContext = {
   }>;
 };
 
-export type RuntimeMemoryHints = {
-  relationshipCards: Array<{
-    cardId: number;
-    score: number;
-    summary: string;
-    trigger: string | null;
-    interactionHint: string | null;
-    avoidHint: string | null;
-    evidenceMessageIds: number[];
-  }>;
-  selfHints: Array<{
-    stateId: number;
-    summary: string;
-    entryPreference: string;
-    warmthBias: string;
-    familiarityCeiling: string;
-  }>;
-};
-
 type RelationshipRetrievalContext = {
   currentMessageText: string;
   replyToBody?: string | null;
@@ -222,6 +277,16 @@ type RelationshipCardScore = {
   card: RuntimeRelationshipMemoryCard;
   bm25Score: number;
   embeddingScore: number;
+  combinedScore: number;
+};
+
+type FeedbackReflectionScore = {
+  reflection: RuntimeFeedbackReflection;
+  learningState: RuntimeFeedbackLearningState | null;
+  bm25Score: number;
+  embeddingScore: number;
+  learningStateScore: number;
+  evidenceScore: number;
   combinedScore: number;
 };
 
@@ -319,6 +384,94 @@ function parseSelfEvolutionState(row: Record<string, unknown>): RuntimeSelfEvolu
     summaryText: typeof row.summary_text === 'string' ? row.summary_text : '',
     sourceEventIds: normalizeNumberArray(row.source_event_ids),
     sourceMessageIds: normalizeNumberArray(row.source_message_ids),
+    metadata: row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+      ? row.metadata as Record<string, unknown>
+      : {},
+    updatedAt: toIso(row.updated_at as string | Date | null | undefined)
+  };
+}
+
+function parseFeedbackReflection(row: Record<string, unknown>): RuntimeFeedbackReflection {
+  return {
+    id: Number(row.id),
+    sessionKey: typeof row.session_key === 'string' ? row.session_key : '',
+    groupId: row.group_id === null || typeof row.group_id === 'undefined' ? null : Number(row.group_id),
+    sourceUserId: row.source_user_id === null || typeof row.source_user_id === 'undefined' ? null : Number(row.source_user_id),
+    sourceUserName: typeof row.source_user_name === 'string' && row.source_user_name.trim() ? row.source_user_name.trim() : null,
+    scopeType: typeof row.scope_type === 'string' ? row.scope_type : 'group_self',
+    learningKey: typeof row.learning_key === 'string' && row.learning_key.trim() ? row.learning_key.trim() : 'feedback.general',
+    learningScope: typeof row.learning_scope === 'string' && row.learning_scope.trim() ? row.learning_scope.trim() : 'group_self',
+    reflectionType: typeof row.reflection_type === 'string' && row.reflection_type.trim() ? row.reflection_type.trim() : 'social_lesson',
+    feedbackKind: typeof row.feedback_kind === 'string' ? row.feedback_kind : 'mixed',
+    confidence: typeof row.confidence === 'string' ? row.confidence : 'medium',
+    importanceScore: Number.isFinite(Number(row.importance_score)) ? Number(row.importance_score) : 0,
+    evidenceWeight: Number.isFinite(Number(row.evidence_weight)) ? Number(row.evidence_weight) : 0,
+    stabilityScore: Number.isFinite(Number(row.stability_score)) ? Number(row.stability_score) : 0,
+    summaryText: typeof row.summary_text === 'string' ? row.summary_text.trim() : '',
+    retrievalText: typeof row.retrieval_text === 'string' && row.retrieval_text.trim() ? row.retrieval_text.trim() : null,
+    embeddingText: typeof row.embedding_text === 'string' && row.embedding_text.trim() ? row.embedding_text.trim() : null,
+    sourceMessageIds: normalizeNumberArray(row.source_message_ids),
+    sourceEpisodeIds: normalizeNumberArray(row.source_episode_ids),
+    sourceConversationId: row.source_conversation_id === null || typeof row.source_conversation_id === 'undefined'
+      ? null
+      : Number(row.source_conversation_id),
+    supersedesReflectionId: row.supersedes_reflection_id === null || typeof row.supersedes_reflection_id === 'undefined'
+      ? null
+      : Number(row.supersedes_reflection_id),
+    conflictGroupKey: typeof row.conflict_group_key === 'string' && row.conflict_group_key.trim() ? row.conflict_group_key.trim() : null,
+    metadata: row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+      ? row.metadata as Record<string, unknown>
+      : {},
+    lastHitAt: toIso(row.last_hit_at as string | Date | null | undefined),
+    hitCount: Number.isFinite(Number(row.hit_count)) ? Number(row.hit_count) : 0,
+    updatedAt: toIso(row.updated_at as string | Date | null | undefined)
+  };
+}
+
+function parseFeedbackEpisode(row: Record<string, unknown>): RuntimeFeedbackEpisode {
+  return {
+    id: Number(row.id),
+    sessionKey: typeof row.session_key === 'string' ? row.session_key : '',
+    groupId: row.group_id === null || typeof row.group_id === 'undefined' ? null : Number(row.group_id),
+    sourceUserId: row.source_user_id === null || typeof row.source_user_id === 'undefined' ? null : Number(row.source_user_id),
+    sourceUserName: typeof row.source_user_name === 'string' && row.source_user_name.trim() ? row.source_user_name.trim() : null,
+    scopeType: typeof row.scope_type === 'string' ? row.scope_type : 'group_self',
+    eventKind: typeof row.event_kind === 'string' ? row.event_kind : 'feedback',
+    excerptText: typeof row.excerpt_text === 'string' && row.excerpt_text.trim() ? row.excerpt_text.trim() : null,
+    sourceMessageIds: normalizeNumberArray(row.source_message_ids),
+    sourceConversationId: row.source_conversation_id === null || typeof row.source_conversation_id === 'undefined'
+      ? null
+      : Number(row.source_conversation_id),
+    eventImportance: Number.isFinite(Number(row.event_importance)) ? Number(row.event_importance) : 0,
+    sourceSalience: Number.isFinite(Number(row.source_salience)) ? Number(row.source_salience) : 0,
+    metadata: row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+      ? row.metadata as Record<string, unknown>
+      : {},
+    updatedAt: toIso(row.updated_at as string | Date | null | undefined)
+  };
+}
+
+function parseFeedbackLearningState(row: Record<string, unknown>): RuntimeFeedbackLearningState {
+  return {
+    id: Number(row.id),
+    sessionKey: typeof row.session_key === 'string' ? row.session_key : '',
+    groupId: row.group_id === null || typeof row.group_id === 'undefined' ? null : Number(row.group_id),
+    scopeType: typeof row.scope_type === 'string' ? row.scope_type : 'group_self',
+    learningKey: typeof row.learning_key === 'string' ? row.learning_key : '',
+    learningScope: typeof row.learning_scope === 'string' ? row.learning_scope : '',
+    scopeHash: typeof row.scope_hash === 'string' ? row.scope_hash : '',
+    stateType: typeof row.state_type === 'string' ? row.state_type : 'reinforced',
+    activeReflectionId: row.active_reflection_id === null || typeof row.active_reflection_id === 'undefined'
+      ? null
+      : Number(row.active_reflection_id),
+    latestReflectionId: row.latest_reflection_id === null || typeof row.latest_reflection_id === 'undefined'
+      ? null
+      : Number(row.latest_reflection_id),
+    activationWeight: Number.isFinite(Number(row.activation_weight)) ? Number(row.activation_weight) : 0,
+    recencyWeight: Number.isFinite(Number(row.recency_weight)) ? Number(row.recency_weight) : 0,
+    importanceWeight: Number.isFinite(Number(row.importance_weight)) ? Number(row.importance_weight) : 0,
+    sourceWeight: Number.isFinite(Number(row.source_weight)) ? Number(row.source_weight) : 0,
+    conflictPenalty: Number.isFinite(Number(row.conflict_penalty)) ? Number(row.conflict_penalty) : 0,
     metadata: row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
       ? row.metadata as Record<string, unknown>
       : {},
@@ -722,6 +875,190 @@ export function selectCardsInRankOrder(rankedCards: RelationshipCardScore[], sel
   return selected;
 }
 
+function clamp01(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(value, 1));
+}
+
+function buildFeedbackReflectionSearchText(reflection: RuntimeFeedbackReflection) {
+  return [
+    reflection.learningKey,
+    reflection.learningScope,
+    reflection.reflectionType,
+    reflection.feedbackKind,
+    reflection.summaryText,
+    reflection.retrievalText || '',
+    reflection.embeddingText || ''
+  ]
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+function computeFeedbackBm25Scores(reflections: RuntimeFeedbackReflection[], queryText: string) {
+  const queryTokens = buildSearchTokens(queryText);
+  if (queryTokens.length === 0 || reflections.length === 0) {
+    return new Map<number, number>();
+  }
+
+  const documents = reflections.map((reflection) => {
+    const tokens = buildSearchTokens(buildFeedbackReflectionSearchText(reflection));
+    const frequencies = new Map<string, number>();
+    for (const token of tokens) {
+      frequencies.set(token, (frequencies.get(token) || 0) + 1);
+    }
+    return {
+      reflectionId: reflection.id,
+      length: Math.max(tokens.length, 1),
+      frequencies
+    };
+  });
+  const avgDocLength = documents.reduce((sum, document) => sum + document.length, 0) / documents.length;
+  const docFrequency = new Map<string, number>();
+  for (const token of queryTokens) {
+    const count = documents.reduce((sum, document) => sum + (document.frequencies.has(token) ? 1 : 0), 0);
+    docFrequency.set(token, count);
+  }
+
+  const scores = new Map<number, number>();
+  const k1 = 1.2;
+  const b = 0.75;
+  for (const document of documents) {
+    let score = 0;
+    for (const token of queryTokens) {
+      const termFrequency = document.frequencies.get(token) || 0;
+      if (!termFrequency) {
+        continue;
+      }
+      const df = docFrequency.get(token) || 0;
+      const idf = Math.log(1 + ((documents.length - df + 0.5) / (df + 0.5)));
+      const numerator = termFrequency * (k1 + 1);
+      const denominator = termFrequency + k1 * (1 - b + b * (document.length / Math.max(avgDocLength, 1)));
+      score += idf * (numerator / denominator);
+    }
+    scores.set(document.reflectionId, score);
+  }
+  return scores;
+}
+
+function computeFeedbackLearningStateScore(state: RuntimeFeedbackLearningState | null) {
+  if (!state) {
+    return 0;
+  }
+  return clamp01(
+    state.activationWeight * 0.3
+    + state.recencyWeight * 0.25
+    + state.importanceWeight * 0.25
+    + state.sourceWeight * 0.15
+    - state.conflictPenalty * 0.2
+  );
+}
+
+function computeFeedbackEvidenceScore(reflection: RuntimeFeedbackReflection) {
+  return clamp01(
+    reflection.importanceScore * 0.35
+    + reflection.evidenceWeight * 0.35
+    + reflection.stabilityScore * 0.2
+    + (reflection.confidence === 'high' ? 0.1 : reflection.confidence === 'medium' ? 0.05 : 0)
+  );
+}
+
+export function rankFeedbackReflectionsForRecall(params: {
+  reflections: RuntimeFeedbackReflection[];
+  learningStates: RuntimeFeedbackLearningState[];
+  queryText: string;
+  currentUserId: number;
+  recentUserIds: number[];
+  embeddingScores?: Map<number, number>;
+  limit: number;
+}) {
+  const reflectionById = new Map(params.reflections.map((reflection) => [reflection.id, reflection]));
+  const supersededIds = new Set(
+    params.reflections
+      .map((reflection) => reflection.supersedesReflectionId)
+      .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && reflectionById.has(id))
+  );
+  const stateByReflectionId = new Map<number, RuntimeFeedbackLearningState>();
+  for (const state of params.learningStates) {
+    if (typeof state.activeReflectionId === 'number' && reflectionById.has(state.activeReflectionId)) {
+      stateByReflectionId.set(state.activeReflectionId, state);
+    }
+  }
+
+  const activeReflectionIds = new Set(stateByReflectionId.keys());
+  const baseReflections = params.reflections
+    .filter((reflection) => !supersededIds.has(reflection.id) || activeReflectionIds.has(reflection.id));
+  const bm25Scores = normalizeScoreMap(computeFeedbackBm25Scores(baseReflections, params.queryText));
+  const embeddingScores = normalizeScoreMap(params.embeddingScores || new Map<number, number>());
+  const recentUserIds = new Set(params.recentUserIds);
+
+  const ranked = baseReflections
+    .map((reflection) => {
+      const learningState = stateByReflectionId.get(reflection.id) || null;
+      const bm25Score = bm25Scores.get(reflection.id) || 0;
+      const embeddingScore = embeddingScores.get(reflection.id) || 0;
+      const learningStateScore = computeFeedbackLearningStateScore(learningState);
+      const evidenceScore = computeFeedbackEvidenceScore(reflection);
+      const sourceScore = reflection.sourceUserId === params.currentUserId
+        ? 0.25
+        : reflection.sourceUserId && recentUserIds.has(reflection.sourceUserId)
+          ? 0.15
+          : 0;
+      const freshnessScore = reflection.updatedAt ? computeLastHitBoost(reflection.updatedAt) * 0.08 : 0;
+      const hitPenalty = Math.min(reflection.hitCount * 0.03, 0.24);
+      const conflictPenalty = learningState?.stateType === 'conflicted' ? 0.08 : 0;
+      return {
+        reflection,
+        learningState,
+        bm25Score,
+        embeddingScore,
+        learningStateScore,
+        evidenceScore,
+        combinedScore: bm25Score * 0.36
+          + embeddingScore * 0.32
+          + learningStateScore * 0.16
+          + evidenceScore * 0.1
+          + sourceScore
+          + freshnessScore
+          - hitPenalty
+          - conflictPenalty
+      } satisfies FeedbackReflectionScore;
+    })
+    .filter((item) => item.bm25Score > 0 || item.embeddingScore >= 0.2)
+    .sort((left, right) => (
+      right.combinedScore - left.combinedScore
+      || right.learningStateScore - left.learningStateScore
+      || right.evidenceScore - left.evidenceScore
+      || right.reflection.id - left.reflection.id
+    ));
+
+  const selected: FeedbackReflectionScore[] = [];
+  const selectedKeys = new Set<string>();
+  const selectedConflictGroups = new Set<string>();
+  for (const item of ranked) {
+    const learningKey = `${item.reflection.learningKey}\u0000${item.reflection.learningScope}`;
+    if (selectedKeys.has(learningKey)) {
+      continue;
+    }
+    const conflictGroupKey = item.reflection.conflictGroupKey;
+    if (conflictGroupKey && selectedConflictGroups.has(conflictGroupKey)) {
+      continue;
+    }
+    selected.push(item);
+    selectedKeys.add(learningKey);
+    if (conflictGroupKey) {
+      selectedConflictGroups.add(conflictGroupKey);
+    }
+    if (selected.length >= Math.max(1, Math.min(params.limit, 3))) {
+      break;
+    }
+  }
+
+  return selected;
+}
+
 function parseJson<T>(value: unknown, fallback: T): T {
   if (value === null || value === undefined) {
     return fallback;
@@ -1024,6 +1361,7 @@ export class RuntimeStore {
 
   async initialize() {
     await this.ensureSchema();
+    await ensureFeedbackReflectionSchema(databaseConfig);
   }
 
   async close() {
@@ -1784,24 +2122,9 @@ export class RuntimeStore {
   async loadSessionReplayState(params: {
     userId: number;
     groupId?: number | null;
-    recentUserIds?: number[];
-    retrievalContext?: RelationshipRetrievalContext;
   }): Promise<{
     summaryText: string | null;
     summarizedThroughConversationId: number | null;
-    relationshipCards: {
-      groupCards: RuntimeRelationshipMemoryCard[];
-      currentUserCards: RuntimeRelationshipMemoryCard[];
-      recentUserCards: RuntimeRelationshipMemoryCard[];
-    };
-    selfEvolution: {
-      groupStates: RuntimeSelfEvolutionState[];
-      currentUserStates: RuntimeSelfEvolutionState[];
-      recentUserStates: RuntimeSelfEvolutionState[];
-    };
-    topicProjection: {
-      activeTopics: RuntimeTopicProjection[];
-    };
   }> {
     const snapshotSessionId = buildTranscriptSessionId(params.userId, params.groupId);
     const snapshotRows = await this.sql.query<{
@@ -1823,32 +2146,267 @@ export class RuntimeStore {
     );
 
     const snapshot = snapshotRows[0];
-    const relationshipCards = await this.loadRelationshipMemoryCards({
-      groupId: params.groupId ?? null,
-      currentUserId: params.userId,
-      recentUserIds: params.recentUserIds || [],
-      retrievalContext: params.retrievalContext || null
-    });
-    const selfEvolution = await this.loadSelfEvolutionStates({
-      groupId: params.groupId ?? null,
-      currentUserId: params.userId,
-      recentUserIds: params.recentUserIds || [],
-      sessionKey: snapshotSessionId
-    });
-    const topicProjection = await this.loadTopicProjectionState({
-      userId: params.userId,
-      groupId: params.groupId ?? null,
-      recentUserIds: params.recentUserIds || []
-    });
     return {
       summaryText: snapshot?.summary_text?.trim() || null,
       summarizedThroughConversationId: snapshot
         ? Number(snapshot.summarized_through_conversation_id)
-        : null,
-      relationshipCards,
-      selfEvolution,
-      topicProjection
+        : null
     };
+  }
+
+  async listRelevantFeedbackReflections(params: {
+    sessionKey: string;
+    groupId?: number | null;
+    currentUserId: number;
+    recentUserIds?: number[];
+    queryText: string;
+    limit?: number;
+  }): Promise<RuntimeFeedbackReflection[]> {
+    const [reflectionRows, learningStateRows] = await Promise.all([
+      listFeedbackReflections({
+        sessionKey: params.sessionKey,
+        groupId: params.groupId ?? null,
+        isActive: true,
+        limit: 96
+      }, databaseConfig),
+      listFeedbackLearningStates({
+        sessionKey: params.sessionKey,
+        groupId: params.groupId ?? null,
+        scopeType: 'group_self',
+        limit: 64
+      }, databaseConfig)
+    ]);
+    const reflections = reflectionRows.map((row) => parseFeedbackReflection(row as Record<string, unknown>));
+    if (reflections.length === 0) {
+      return [];
+    }
+    const learningStates = learningStateRows.map((row) => parseFeedbackLearningState(row as Record<string, unknown>));
+    const recentUserIds = (Array.isArray(params.recentUserIds) ? params.recentUserIds : [])
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const embeddingScores = await this.computeFeedbackEmbeddingScores(reflections, params.queryText);
+    const ranked = rankFeedbackReflectionsForRecall({
+      reflections,
+      learningStates,
+      queryText: params.queryText,
+      currentUserId: params.currentUserId,
+      recentUserIds,
+      embeddingScores,
+      limit: Math.max(1, Math.min(params.limit ?? 3, 3))
+    });
+    const selected = ranked.map((item) => item.reflection);
+
+    if (selected.length > 0) {
+      await markFeedbackReflectionsHit(selected.map((item) => item.id), { hitAt: new Date() }, databaseConfig).catch(() => undefined);
+    }
+
+    return selected;
+  }
+
+  private async computeFeedbackEmbeddingScores(reflections: RuntimeFeedbackReflection[], queryText: string) {
+    const normalizedQuery = queryText.trim();
+    if (!normalizedQuery || reflections.length === 0) {
+      return new Map<number, number>();
+    }
+
+    const indexedTexts = reflections
+      .map((reflection) => ({
+        reflectionId: reflection.id,
+        text: reflection.embeddingText || reflection.retrievalText || reflection.summaryText
+      }))
+      .filter((item) => item.text.trim());
+    if (indexedTexts.length === 0) {
+      return new Map<number, number>();
+    }
+
+    try {
+      const response = await fetch(`${agentConfig.providerServiceUrl}/v1/embeddings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          input: [normalizedQuery, ...indexedTexts.map((item) => item.text)]
+        })
+      });
+      if (!response.ok) {
+        return new Map<number, number>();
+      }
+      const payload = await response.json() as {
+        data?: Array<{ embedding?: number[] }>;
+      };
+      const embeddings = Array.isArray(payload.data)
+        ? payload.data.map((item) => Array.isArray(item.embedding) ? item.embedding : [])
+        : [];
+      if (embeddings.length !== indexedTexts.length + 1 || embeddings[0].length === 0) {
+        return new Map<number, number>();
+      }
+
+      const queryEmbedding = embeddings[0];
+      const scores = new Map<number, number>();
+      for (let index = 0; index < indexedTexts.length; index += 1) {
+        const vector = embeddings[index + 1];
+        if (!Array.isArray(vector) || vector.length === 0 || vector.length !== queryEmbedding.length) {
+          continue;
+        }
+        scores.set(indexedTexts[index]!.reflectionId, cosineSimilarity(queryEmbedding, vector));
+      }
+      return scores;
+    } catch {
+      return new Map<number, number>();
+    }
+  }
+
+  async createFeedbackReflection(params: {
+    sessionKey: string;
+    groupId?: number | null;
+    sourceUserId?: number | null;
+    sourceUserName?: string | null;
+    scopeType?: string;
+    learningKey?: string;
+    learningScope?: string;
+    reflectionType?: string;
+    feedbackKind?: string;
+    confidence?: string;
+    importanceScore?: number;
+    evidenceWeight?: number;
+    stabilityScore?: number;
+    summaryText: string;
+    retrievalText?: string | null;
+    embeddingText?: string | null;
+    sourceMessageIds?: number[];
+    sourceEpisodeIds?: number[];
+    sourceConversationId?: number | null;
+    supersedesReflectionId?: number | null;
+    conflictGroupKey?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return createFeedbackReflection({
+      sessionKey: params.sessionKey,
+      groupId: params.groupId ?? null,
+      sourceUserId: params.sourceUserId ?? null,
+      sourceUserName: params.sourceUserName ?? null,
+      scopeType: params.scopeType || 'group_self',
+      learningKey: params.learningKey || 'feedback.general',
+      learningScope: params.learningScope || params.scopeType || 'group_self',
+      reflectionType: params.reflectionType || 'social_lesson',
+      feedbackKind: params.feedbackKind || 'mixed',
+      confidence: params.confidence || 'medium',
+      importanceScore: params.importanceScore ?? 0,
+      evidenceWeight: params.evidenceWeight ?? 0,
+      stabilityScore: params.stabilityScore ?? 0,
+      summaryText: params.summaryText,
+      retrievalText: params.retrievalText ?? null,
+      embeddingText: params.embeddingText ?? null,
+      sourceMessageIds: params.sourceMessageIds || [],
+      sourceEpisodeIds: params.sourceEpisodeIds || [],
+      sourceConversationId: params.sourceConversationId ?? null,
+      supersedesReflectionId: params.supersedesReflectionId ?? null,
+      conflictGroupKey: params.conflictGroupKey ?? null,
+      metadata: params.metadata || {}
+    }, databaseConfig);
+  }
+
+  async createFeedbackEpisode(params: {
+    sessionKey: string;
+    groupId?: number | null;
+    sourceUserId?: number | null;
+    sourceUserName?: string | null;
+    scopeType?: string;
+    eventKind?: string;
+    excerptText?: string | null;
+    sourceMessageIds?: number[];
+    sourceConversationId?: number | null;
+    eventImportance?: number;
+    sourceSalience?: number;
+    metadata?: Record<string, unknown>;
+  }) {
+    const row = await createFeedbackEpisode({
+      sessionKey: params.sessionKey,
+      groupId: params.groupId ?? null,
+      sourceUserId: params.sourceUserId ?? null,
+      sourceUserName: params.sourceUserName ?? null,
+      scopeType: params.scopeType || 'group_self',
+      eventKind: params.eventKind || 'feedback',
+      excerptText: params.excerptText ?? null,
+      sourceMessageIds: params.sourceMessageIds || [],
+      sourceConversationId: params.sourceConversationId ?? null,
+      eventImportance: params.eventImportance ?? 0,
+      sourceSalience: params.sourceSalience ?? 0,
+      metadata: params.metadata || {}
+    }, databaseConfig);
+    return parseFeedbackEpisode(row as Record<string, unknown>);
+  }
+
+  async getFeedbackLearningState(params: {
+    sessionKey: string;
+    groupId?: number | null;
+    scopeType?: string;
+    learningKey: string;
+    learningScope: string;
+  }) {
+    const row = await getFeedbackLearningState({
+      sessionKey: params.sessionKey,
+      groupId: params.groupId ?? null,
+      scopeType: params.scopeType || 'group_self',
+      learningKey: params.learningKey,
+      learningScope: params.learningScope
+    }, databaseConfig);
+    return row ? parseFeedbackLearningState(row as Record<string, unknown>) : null;
+  }
+
+  async listFeedbackLearningStates(params: {
+    sessionKey: string;
+    groupId?: number | null;
+    scopeType?: string;
+    learningKey?: string;
+    learningScope?: string;
+    limit?: number;
+  }) {
+    const rows = await listFeedbackLearningStates({
+      sessionKey: params.sessionKey,
+      groupId: params.groupId ?? null,
+      scopeType: params.scopeType,
+      learningKey: params.learningKey,
+      learningScope: params.learningScope,
+      limit: params.limit
+    }, databaseConfig);
+    return rows.map((row) => parseFeedbackLearningState(row as Record<string, unknown>));
+  }
+
+  async upsertFeedbackLearningState(params: {
+    sessionKey: string;
+    groupId?: number | null;
+    scopeType?: string;
+    learningKey: string;
+    learningScope: string;
+    stateType?: string;
+    activeReflectionId?: number | null;
+    latestReflectionId?: number | null;
+    activationWeight?: number;
+    recencyWeight?: number;
+    importanceWeight?: number;
+    sourceWeight?: number;
+    conflictPenalty?: number;
+    metadata?: Record<string, unknown>;
+  }) {
+    const row = await upsertFeedbackLearningState({
+      sessionKey: params.sessionKey,
+      groupId: params.groupId ?? null,
+      scopeType: params.scopeType || 'group_self',
+      learningKey: params.learningKey,
+      learningScope: params.learningScope,
+      stateType: params.stateType || 'reinforced',
+      activeReflectionId: params.activeReflectionId ?? null,
+      latestReflectionId: params.latestReflectionId ?? null,
+      activationWeight: params.activationWeight ?? 0,
+      recencyWeight: params.recencyWeight ?? 0,
+      importanceWeight: params.importanceWeight ?? 0,
+      sourceWeight: params.sourceWeight ?? 0,
+      conflictPenalty: params.conflictPenalty ?? 0,
+      metadata: params.metadata || {}
+    }, databaseConfig);
+    return parseFeedbackLearningState(row as Record<string, unknown>);
   }
 
   private async loadTopicProjectionState(params: {
@@ -1945,12 +2503,7 @@ export class RuntimeStore {
   }): Promise<RuntimeMemoryRagContext> {
     const replayState = await this.loadSessionReplayState({
       userId: params.userId,
-      groupId: params.groupId ?? null,
-      recentUserIds: params.recentUserIds || [],
-      retrievalContext: {
-        currentMessageText: params.currentMessageText,
-        recentMessageTexts: []
-      }
+      groupId: params.groupId ?? null
     });
     const history = await this.listRecentTurns({
       userId: params.userId,
@@ -2007,60 +2560,6 @@ export class RuntimeStore {
       },
       segments,
       bridgeNotes
-    };
-  }
-
-  async retrieveMemoryHints(params: {
-    userId: number;
-    groupId?: number | null;
-    currentMessageText: string;
-    recentUserIds?: number[];
-    maxCards?: number;
-    maxStates?: number;
-  }): Promise<RuntimeMemoryHints> {
-    const replayState = await this.loadSessionReplayState({
-      userId: params.userId,
-      groupId: params.groupId ?? null,
-      recentUserIds: params.recentUserIds || [],
-      retrievalContext: {
-        currentMessageText: params.currentMessageText,
-        recentMessageTexts: []
-      }
-    });
-
-    const relationshipCards = [
-      ...replayState.relationshipCards.currentUserCards,
-      ...replayState.relationshipCards.groupCards,
-      ...replayState.relationshipCards.recentUserCards
-    ]
-      .slice(0, Math.max(1, params.maxCards || 3))
-      .map((card) => ({
-        cardId: card.id,
-        score: Number.isFinite(card.decayedScore) ? card.decayedScore : 0,
-        summary: card.summaryText,
-        trigger: card.trigger || null,
-        interactionHint: card.interaction || null,
-        avoidHint: card.outcome || null,
-        evidenceMessageIds: card.sourceMessageIds
-      }));
-
-    const selfHints = [
-      ...replayState.selfEvolution.currentUserStates,
-      ...replayState.selfEvolution.groupStates,
-      ...replayState.selfEvolution.recentUserStates
-    ]
-      .slice(0, Math.max(1, params.maxStates || 2))
-      .map((state) => ({
-        stateId: state.id,
-        summary: state.summaryText,
-        entryPreference: state.entryPreference,
-        warmthBias: state.warmthBias,
-        familiarityCeiling: state.familiarityCeiling
-      }));
-
-    return {
-      relationshipCards,
-      selfHints
     };
   }
 
