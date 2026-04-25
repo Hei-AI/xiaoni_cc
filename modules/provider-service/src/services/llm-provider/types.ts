@@ -75,6 +75,19 @@ export type OpenResponseToolChoice =
       function: {
         name: string;
       };
+    }
+  | {
+      type: 'allowed_tools';
+      mode?: 'auto' | 'required';
+      tools: Array<
+        | {
+            type: 'function';
+            name: string;
+          }
+        | {
+            type: 'web_search' | 'web_search_preview';
+          }
+      >;
     };
 
 export type OpenResponseOutputItem =

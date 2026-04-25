@@ -195,6 +195,9 @@ export class GeminiCliProvider implements LLMProvider {
       }
     }
     if (input.request.tool_choice) {
+      if (typeof input.request.tool_choice === 'object') {
+        throw new Error(`Gemini CLI provider does not support structured tool_choice objects (${input.request.tool_choice.type}).`);
+      }
       requestPayload.toolConfig = {
         functionCallingConfig: {
           mode: input.request.tool_choice === 'required'

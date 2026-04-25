@@ -184,7 +184,7 @@ export class OpenAIProvider implements LLMProvider {
 
     if (Array.isArray(request.tools) && request.tools.length > 0) {
       payload.tools = request.tools.map((tool) => this.serializeToolDefinition(tool));
-      payload.tool_choice = request.tool_choice;
+      payload.tool_choice = this.serializeToolChoice(request.tool_choice);
     }
 
     if (typeof request.parallel_tool_calls === 'boolean') {
@@ -266,5 +266,25 @@ export class OpenAIProvider implements LLMProvider {
       ...(tool.search_context_size ? { search_context_size: tool.search_context_size } : {}),
       ...(typeof tool.external_web_access === 'boolean' ? { external_web_access: tool.external_web_access } : {})
     };
+  }
+
+  protected serializeToolChoice(toolChoice: OpenResponseCreateRequest['tool_choice']) {
+    if (!toolChoice || typeof toolChoice === 'string') {
+      return toolChoice;
+    }
+
+    if (toolChoice.type === 'allowed_tools') {
+      return {
+        type: 'allowed_tools',
+        mode: toolChoice.mode || 'required',
+        tools: toolChoice.tools.map((tool) => (
+          tool.type === 'function'
+            ? { type: 'function', name: tool.name }
+            : { type: tool.type }
+        ))
+      };
+    }
+
+    return toolChoice;
   }
 }

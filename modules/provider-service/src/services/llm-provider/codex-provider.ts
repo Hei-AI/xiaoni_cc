@@ -89,7 +89,7 @@ export class CodexProvider extends OpenAIProvider {
             }
           : serialized;
       });
-      payload.tool_choice = request.tool_choice || 'auto';
+      payload.tool_choice = this.serializeToolChoice(request.tool_choice || 'auto');
     }
 
     const providerSpecific = providerConfig?.model?.providerSpecific || {};

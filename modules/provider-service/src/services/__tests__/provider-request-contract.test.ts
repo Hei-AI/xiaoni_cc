@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CodexProvider } from '../llm-provider/codex-provider';
+import { GeminiCliProvider } from '../llm-provider/gemini-cli-provider';
 import { OpenAIProvider } from '../llm-provider/openai-provider';
 import type { OpenResponseCreateRequest, OpenResponseToolDefinition } from '../llm-provider/types';
 import { buildRequestFromMessages, buildUnifiedConfig } from '../provider-debug-service';
@@ -59,6 +60,19 @@ function createCanonicalRequest(): OpenResponseCreateRequest {
   };
 }
 
+function createAllowedToolsRequest(): OpenResponseCreateRequest {
+  return {
+    ...createCanonicalRequest(),
+    tool_choice: {
+      type: 'allowed_tools',
+      mode: 'required',
+      tools: [
+        { type: 'function', name: 'finish' }
+      ]
+    }
+  };
+}
+
 test('OpenAI provider keeps canonical instructions top-level and preserves parallel_tool_calls', () => {
   const provider = new TestOpenAIProvider({} as any);
   const payload = provider.buildPayload(createCanonicalRequest());
@@ -77,6 +91,20 @@ test('OpenAI provider keeps canonical instructions top-level and preserves paral
   assert.equal(payload.tools[1]?.external_web_access, true);
 });
 
+test('OpenAI provider serializes allowed_tools without changing the tool list', () => {
+  const provider = new TestOpenAIProvider({} as any);
+  const payload = provider.buildPayload(createAllowedToolsRequest());
+
+  assert.deepEqual(payload.tool_choice, {
+    type: 'allowed_tools',
+    mode: 'required',
+    tools: [
+      { type: 'function', name: 'finish' }
+    ]
+  });
+  assert.equal(payload.tools.length, TOOL_DEFINITIONS.length);
+});
+
 test('Codex provider keeps canonical instructions top-level and preserves parallel_tool_calls', () => {
   const provider = new TestCodexProvider({} as any);
   const payload = provider.buildPayload(createCanonicalRequest());
@@ -93,6 +121,32 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.equal(payload.tools[1]?.type, 'web_search');
   assert.equal(payload.tools[1]?.search_context_size, 'medium');
   assert.equal(payload.tools[1]?.external_web_access, true);
+});
+
+test('Codex provider serializes allowed_tools without changing the tool list', () => {
+  const provider = new TestCodexProvider({} as any);
+  const payload = provider.buildPayload(createAllowedToolsRequest());
+
+  assert.deepEqual(payload.tool_choice, {
+    type: 'allowed_tools',
+    mode: 'required',
+    tools: [
+      { type: 'function', name: 'finish' }
+    ]
+  });
+});
+
+test('Gemini CLI provider rejects structured allowed_tools tool_choice', () => {
+  const provider = new GeminiCliProvider({} as any);
+
+  assert.throws(
+    () => (provider as any).buildRequestPayload({
+      modelName: 'gemini-2.5-flash',
+      providerConfig: undefined,
+      request: createAllowedToolsRequest()
+    }, 'test-project'),
+    /does not support structured tool_choice objects/
+  );
 });
 
 test('Codex provider preserves reasoning items from SSE output', () => {
