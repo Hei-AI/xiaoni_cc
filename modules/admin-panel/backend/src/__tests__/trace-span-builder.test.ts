@@ -1,8 +1,10 @@
 import winston from 'winston';
-import { listTraceTrafficLogs } from '@qq-bot/persistence';
+import { listIdentityActivationTraces, listIdentityEvidenceRefs, listTraceTrafficLogs } from '@qq-bot/persistence';
 import { buildConversationTracePayload } from '../services/trace-span-builder';
 
 jest.mock('@qq-bot/persistence', () => ({
+  listIdentityActivationTraces: jest.fn(),
+  listIdentityEvidenceRefs: jest.fn(),
   listTraceTrafficLogs: jest.fn(),
   parseInstantValue: jest.fn((value: unknown) => {
     if (!value) {
@@ -86,6 +88,8 @@ function createDatabase(overrides?: {
 describe('buildConversationTracePayload', () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    (listIdentityActivationTraces as jest.Mock).mockResolvedValue([]);
+    (listIdentityEvidenceRefs as jest.Mock).mockResolvedValue([]);
   });
 
   it('attaches provider.request spans directly under generation for exact AI traffic matches', async () => {
@@ -433,6 +437,83 @@ describe('buildConversationTracePayload', () => {
       })
     });
     expect(String(blockedSpan?.summary)).toMatch(/already committed/i);
+  });
+
+  it('surfaces identity trace-lite activation and typed evidence spans', async () => {
+    const db = createDatabase();
+    (listTraceTrafficLogs as jest.Mock).mockResolvedValue([]);
+    (listIdentityActivationTraces as jest.Mock).mockResolvedValue([
+      {
+        id: 601,
+        identity_key: 'xiaoni.main',
+        run_id: 'run-identity',
+        trace_id: 'trace-1',
+        conversation_id: 'conversation-1',
+        scene_fingerprint: 'group:253631878',
+        cue_summary: 'conversation touched identity history',
+        activated_refs: JSON.stringify([{ sourceType: 'identity_evidence_ref', sourceId: '701' }]),
+        suppressed_refs: [],
+        selected_skill_ref: 'social-boundary',
+        activation_reason: 'identity-relevant cue',
+        metadata: JSON.stringify({ phase: 'continuity_trial' }),
+        created_at: '2026-03-28T10:00:02.000Z',
+      },
+    ]);
+    (listIdentityEvidenceRefs as jest.Mock).mockResolvedValue([
+      {
+        id: 701,
+        identity_key: 'xiaoni.main',
+        identity_event_id: 31,
+        change_journal_id: 41,
+        source_type: 'conversation_item',
+        source_id: '123',
+        trace_id: 'trace-1',
+        run_id: 'run-identity',
+        conversation_id: 'conversation-1',
+        redaction_status: 'visible',
+        confidence: 'high',
+        metadata: JSON.stringify({ quote: 'source excerpt' }),
+        created_at: '2026-03-28T10:00:02.100Z',
+      },
+    ]);
+
+    const payload = await buildConversationTracePayload(db as never, createLogger(), 'conversation-1');
+    const activationSpan = payload!.spans.find((span) => span.span_id === 'identity-activation:601');
+    const evidenceSpan = payload!.spans.find((span) => span.span_id === 'identity-evidence:701');
+
+    expect(listIdentityActivationTraces).toHaveBeenCalledWith({
+      traceId: 'trace-1',
+      conversationId: 'conversation-1',
+      limit: 100,
+    });
+    expect(listIdentityEvidenceRefs).toHaveBeenCalledWith({
+      traceId: 'trace-1',
+      limit: 200,
+    });
+    expect(activationSpan).toMatchObject({
+      name: 'identity.activation_trace',
+      attributes: expect.objectContaining({
+        'identity.key': 'xiaoni.main',
+        'identity.activated_ref_count': 1,
+        'identity.selected_skill_ref': 'social-boundary',
+      }),
+      output: expect.objectContaining({
+        selected_skill_ref: 'social-boundary',
+        activation_reason: 'identity-relevant cue',
+      }),
+    });
+    expect(evidenceSpan).toMatchObject({
+      name: 'identity.evidence_ref',
+      attributes: expect.objectContaining({
+        'identity.key': 'xiaoni.main',
+        'identity.source_type': 'conversation_item',
+        'identity.source_id': '123',
+        'identity.confidence': 'high',
+      }),
+    });
+    expect((payload!.raw_evidence as any).identity_activation_traces).toHaveLength(1);
+    expect((payload!.raw_evidence as any).identity_evidence_refs).toHaveLength(1);
+    expect(payload!.data_quality.identity_trace_lite).toBe('complete');
   });
 
   it('trims oversized provider payloads from the initial trace response', async () => {

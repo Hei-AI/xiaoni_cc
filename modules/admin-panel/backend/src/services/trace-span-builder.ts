@@ -1,5 +1,12 @@
 import winston from 'winston';
-import { getTrafficLogById, listTraceTrafficLogs, parseInstantValue, serializeTimestampForApi } from '@qq-bot/persistence';
+import {
+  getTrafficLogById,
+  listIdentityActivationTraces,
+  listIdentityEvidenceRefs,
+  listTraceTrafficLogs,
+  parseInstantValue,
+  serializeTimestampForApi
+} from '@qq-bot/persistence';
 import { DatabaseManager } from './database';
 
 type TraceConfidence = 'observed' | 'derived' | 'missing';
@@ -102,6 +109,30 @@ function parseJsonField<T>(value: any, fallback: T): T {
     return value as T;
   }
   return fallback;
+}
+
+function normalizeIdentityEvidenceRef(row: any) {
+  return {
+    ...row,
+    id: toNumber(row?.id) ?? row?.id,
+    identity_event_id: toNumber(row?.identity_event_id) ?? row?.identity_event_id ?? null,
+    change_journal_id: toNumber(row?.change_journal_id) ?? row?.change_journal_id ?? null,
+    conversation_id: toNumber(row?.conversation_id) ?? row?.conversation_id ?? null,
+    metadata: parseJsonField<Record<string, unknown> | null>(row?.metadata, null),
+    created_at: toIsoString(row?.created_at)
+  };
+}
+
+function normalizeIdentityActivationTrace(row: any) {
+  return {
+    ...row,
+    id: toNumber(row?.id) ?? row?.id,
+    conversation_id: toNumber(row?.conversation_id) ?? row?.conversation_id ?? null,
+    activated_refs: parseJsonField<unknown[]>(row?.activated_refs, []),
+    suppressed_refs: parseJsonField<unknown[]>(row?.suppressed_refs, []),
+    metadata: parseJsonField<Record<string, unknown> | null>(row?.metadata, null),
+    created_at: toIsoString(row?.created_at)
+  };
 }
 
 function toNumber(value: any): number | null {
@@ -840,7 +871,50 @@ export async function buildConversationTracePayload(
     }
   };
 
-  const [llmCallRows, toolCallRows, httpRows, websocketRows, timelineRows, llmJobRows, queueRows] = await Promise.all([
+  const safeIdentityActivationTraceQuery = async () => {
+    try {
+      return await listIdentityActivationTraces({
+        traceId,
+        conversationId,
+        limit: 100
+      });
+    } catch (error) {
+      logger.warn('Trace query failed: identity activation traces', {
+        error: error instanceof Error ? error.message : String(error),
+        conversationId,
+        traceId
+      });
+      return [];
+    }
+  };
+
+  const safeIdentityEvidenceRefQuery = async () => {
+    try {
+      return await listIdentityEvidenceRefs({
+        traceId,
+        limit: 200
+      });
+    } catch (error) {
+      logger.warn('Trace query failed: identity evidence refs', {
+        error: error instanceof Error ? error.message : String(error),
+        conversationId,
+        traceId
+      });
+      return [];
+    }
+  };
+
+  const [
+    llmCallRows,
+    toolCallRows,
+    httpRows,
+    websocketRows,
+    timelineRows,
+    llmJobRows,
+    queueRows,
+    identityActivationTraceRows,
+    identityEvidenceRefRows
+  ] = await Promise.all([
     safeQuery(
       llmCallQuery,
       [traceId, conversationId],
@@ -877,7 +951,9 @@ export async function buildConversationTracePayload(
       queueQuery,
       [traceId, conversationId],
       'agent_queue_messages'
-    )
+    ),
+    safeIdentityActivationTraceQuery(),
+    safeIdentityEvidenceRefQuery()
   ]);
 
   const llmCalls = (llmCallRows as any[])
@@ -898,6 +974,12 @@ export async function buildConversationTracePayload(
   const toolCalls = (toolCallRows as any[]).map(normalizeToolCall);
   const httpLogs = (httpRows as any[]).map((row) => normalizeHttpLog(row, { truncateLargeFields: true }));
   const queueMessages = (queueRows as any[]).map(normalizeQueueMessage);
+  const identityActivationTraces = Array.isArray(identityActivationTraceRows)
+    ? (identityActivationTraceRows as any[]).map(normalizeIdentityActivationTrace)
+    : [];
+  const identityEvidenceRefs = Array.isArray(identityEvidenceRefRows)
+    ? (identityEvidenceRefRows as any[]).map(normalizeIdentityEvidenceRef)
+    : [];
   const unattributedHttp = attachHttpLogs(toolCalls, llmCalls, httpLogs);
   const lifecycleSpans = pairTimelineEvents(timelineRows as any[]);
   const latestJob = (llmJobRows as any[]).length > 0 ? (llmJobRows as any[])[(llmJobRows as any[]).length - 1] : null;
@@ -912,6 +994,8 @@ export async function buildConversationTracePayload(
     ...toolCalls.map((call) => call.started_at),
     ...httpLogs.map((log) => log.request_timestamp),
     ...queueMessages.map((message) => message.created_at),
+    ...identityActivationTraces.map((row) => row.created_at),
+    ...identityEvidenceRefs.map((row) => row.created_at),
     ...(websocketRows as any[]).map((row) => toIsoString(row.timestamp)),
     toIsoString(conversation.timestamp)
   ].filter(Boolean).sort()[0] || null;
@@ -922,6 +1006,8 @@ export async function buildConversationTracePayload(
     ...toolCalls.map((call) => call.completed_at),
     ...httpLogs.map((log) => log.response_timestamp),
     ...queueMessages.map((message) => message.completed_at || message.processing_started_at || message.created_at),
+    ...identityActivationTraces.map((row) => row.created_at),
+    ...identityEvidenceRefs.map((row) => row.created_at),
     ...(websocketRows as any[]).map((row) => toIsoString(row.timestamp)),
     latestJob?.completed_at,
     toIsoString(conversation.timestamp)
@@ -1023,6 +1109,91 @@ export async function buildConversationTracePayload(
       source_ref: firstQueuedMessage.id
     }));
   }
+
+  identityActivationTraces.forEach((row, index) => {
+    const spanId = `identity-activation:${row.id ?? index}`;
+    spanRecords.push(createSpan({
+      span_id: spanId,
+      parent_span_id: rootSpanId,
+      trace_id: traceId,
+      conversation_id: row.conversation_id || conversationId,
+      name: 'identity.activation_trace',
+      kind: 'internal',
+      status_code: 'ok',
+      status_message: null,
+      started_at: row.created_at,
+      ended_at: row.created_at,
+      duration_ms: null,
+      summary: safePreview(row.cue_summary || row.activation_reason || row.selected_skill_ref || row.identity_key),
+      attributes: {
+        'semantic.role': 'identity_activation',
+        'semantic.display_name': 'identity.activation_trace',
+        'identity.key': row.identity_key,
+        'identity.scene_fingerprint': row.scene_fingerprint || null,
+        'identity.selected_skill_ref': row.selected_skill_ref || null,
+        'identity.activated_ref_count': Array.isArray(row.activated_refs) ? row.activated_refs.length : 0,
+        'identity.suppressed_ref_count': Array.isArray(row.suppressed_refs) ? row.suppressed_refs.length : 0,
+        'trace.run_id': row.run_id || null
+      },
+      input: {
+        cue_summary: row.cue_summary || null,
+        scene_fingerprint: row.scene_fingerprint || null
+      },
+      output: {
+        activated_refs: row.activated_refs,
+        suppressed_refs: row.suppressed_refs,
+        selected_skill_ref: row.selected_skill_ref || null,
+        activation_reason: row.activation_reason || null
+      },
+      evidence: row,
+      events: [],
+      links: [],
+      confidence: 'observed',
+      source_ref: row.id ?? index
+    }));
+  });
+
+  identityEvidenceRefs.forEach((row, index) => {
+    spanRecords.push(createSpan({
+      span_id: `identity-evidence:${row.id ?? index}`,
+      parent_span_id: rootSpanId,
+      trace_id: traceId,
+      conversation_id: row.conversation_id || conversationId,
+      name: 'identity.evidence_ref',
+      kind: 'internal',
+      status_code: row.redaction_status === 'visible' ? 'ok' : 'unset',
+      status_message: row.redaction_status === 'visible' ? null : row.redaction_status,
+      started_at: row.created_at,
+      ended_at: row.created_at,
+      duration_ms: null,
+      summary: safePreview(`${row.source_type}:${row.source_id}`),
+      attributes: {
+        'semantic.role': 'identity_evidence',
+        'semantic.display_name': 'identity.evidence_ref',
+        'identity.key': row.identity_key,
+        'identity.event_id': row.identity_event_id || null,
+        'identity.change_journal_id': row.change_journal_id || null,
+        'identity.source_type': row.source_type,
+        'identity.source_id': row.source_id,
+        'identity.redaction_status': row.redaction_status,
+        'identity.confidence': row.confidence,
+        'trace.run_id': row.run_id || null
+      },
+      input: {
+        source_type: row.source_type,
+        source_id: row.source_id
+      },
+      output: {
+        redaction_status: row.redaction_status,
+        confidence: row.confidence
+      },
+      evidence: row,
+      events: [],
+      links: [],
+      confidence: 'observed',
+      source_ref: row.id ?? index
+    }));
+  });
 
   lifecycleSpans.forEach((span) => {
     const endMetadata = parseJsonField<any>(span.evidence?.end?.metadata, {});
@@ -1439,7 +1610,8 @@ export async function buildConversationTracePayload(
     llm_logs_complete: llmCalls.length === 0 ? 'missing' : (llmCalls.every((call) => call.started_at && call.completed_at) ? 'complete' : 'partial'),
     tool_logs_complete: toolCalls.length === 0 ? 'missing' : (toolCalls.every((call) => call.started_at) ? 'complete' : 'partial'),
     http_logs_complete: httpLogs.length === 0 ? 'missing' : (httpLogs.every((log) => log.request_timestamp && log.response_timestamp) ? 'complete' : 'partial'),
-    timeline_complete: timelineRows.length > 0 ? 'complete' : 'partial'
+    timeline_complete: timelineRows.length > 0 ? 'complete' : 'partial',
+    identity_trace_lite: identityActivationTraces.length > 0 || identityEvidenceRefs.length > 0 ? 'complete' : 'missing'
   };
   const tokenSummary = llmCalls.reduce((summary, call) => {
     const inputTokens = toNumber(call.token_usage?.input_tokens ?? call.input_tokens) ?? 0;
@@ -1493,7 +1665,9 @@ export async function buildConversationTracePayload(
       tool_calls: toolCalls,
       http_logs: httpLogs,
       llm_jobs: llmJobRows,
-      queue_messages: queueMessages
+      queue_messages: queueMessages,
+      identity_activation_traces: identityActivationTraces,
+      identity_evidence_refs: identityEvidenceRefs
     },
     data_quality: {
       ...dataQuality,
