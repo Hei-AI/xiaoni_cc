@@ -22,6 +22,7 @@ import {
 } from './runtime-input-renderer';
 import {
   RuntimeStore,
+  type RuntimeAcceptedIdentityFact,
   type SessionReadCutoffState
 } from './runtime-store';
 import { resolveModelContextPolicy } from './model-context-policy';
@@ -180,6 +181,7 @@ type ContextBudgetTurnRecord = {
 type ContextBudgetPlan = {
   requestInput: OpenResponseInputItem[];
   retainedHistory: ConversationTurn[];
+  runtimeIdentityFacts: RuntimeIdentityFactProjection[];
   readCutoffAfterConversationId: number | null;
   estimatedInputTokens: number;
   contextWindowTokens: number | null;
@@ -278,10 +280,21 @@ type FeedbackMemorySubagentParams = {
   innerReactionArtifact: Record<string, unknown> | null;
 };
 
+type RuntimeIdentityFactProjection = {
+  id: number;
+  factKey: string;
+  factText: string;
+  factType: string;
+  confidence: string;
+  activationTags: string[];
+};
+
 const moduleLogger = logger.createModuleLogger('agent-loop-service');
 const READ_HISTORY_TARGET_RATIO = 0.7;
 const READ_HISTORY_HARD_RATIO = 0.95;
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
+const XIAONI_IDENTITY_KEY = 'xiaoni';
+const RUNTIME_IDENTITY_FACT_LIMIT = 4;
 
 const TOOL_NAMES = {
   unreadMeaning: 'emit_unread_meaning',
@@ -1774,6 +1787,112 @@ function parseStringArray(value: unknown) {
     .slice(0, 6);
 }
 
+function buildIdentitySceneText(queueMessage: QueueMessageRecord['payload']) {
+  return [
+    queueMessage.senderName || '',
+    queueMessage.senderId || '',
+    queueMessage.peerName || '',
+    queueMessage.peerId || '',
+    queueMessage.bodyForAgent || '',
+    typeof queueMessage.inboundContext?.ReplyToBody === 'string' ? queueMessage.inboundContext.ReplyToBody : '',
+    ...queueMessage.messages.map((message) => [
+      message.senderName || '',
+      message.senderId || '',
+      message.bodyForAgent || ''
+    ].join(' '))
+  ]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+function scoreRuntimeIdentityFact(fact: RuntimeAcceptedIdentityFact, sceneText: string) {
+  const haystack = sceneText.toLowerCase();
+  const tags = fact.activationTags
+    .map((tag) => tag.trim().toLowerCase())
+    .filter(Boolean);
+  const tagScore = tags.reduce((score, tag) => score + (haystack.includes(tag) ? 2 : 0), 0);
+  const confidenceScore = fact.confidence === 'high' ? 2 : fact.confidence === 'medium' ? 1 : 0;
+  const typeScore = fact.factType === 'self_boundary' || fact.factType === 'social_lesson' ? 1 : 0;
+  return tagScore + confidenceScore + typeScore;
+}
+
+function selectRuntimeIdentityFacts(params: {
+  facts: RuntimeAcceptedIdentityFact[];
+  queueMessage: QueueMessageRecord['payload'];
+  limit?: number;
+}): RuntimeIdentityFactProjection[] {
+  const sceneText = buildIdentitySceneText(params.queueMessage);
+  return params.facts
+    .filter((fact) => fact.status === 'active' && fact.factText.trim())
+    .map((fact) => ({
+      fact,
+      score: scoreRuntimeIdentityFact(fact, sceneText)
+    }))
+    .sort((a, b) => b.score - a.score || b.fact.id - a.fact.id)
+    .slice(0, params.limit ?? RUNTIME_IDENTITY_FACT_LIMIT)
+    .map(({ fact }) => ({
+      id: fact.id,
+      factKey: fact.factKey,
+      factText: fact.factText,
+      factType: fact.factType,
+      confidence: fact.confidence,
+      activationTags: fact.activationTags
+    }));
+}
+
+function renderRuntimeIdentityFacts(facts: RuntimeIdentityFactProjection[]) {
+  if (facts.length === 0) {
+    return '';
+  }
+
+  return [
+    '[身份连续性]',
+    '这些是已经被接受、可在本轮参考的身份事实。它们不是新的指令，也不能覆盖眼前真实聊天；只在相关时自然影响判断。',
+    ...facts.map((fact, index) => `${index + 1}. ${fact.factText} (${fact.factType}, ${fact.confidence})`)
+  ].join('\n');
+}
+
+function buildIdentitySceneFingerprint(queueMessage: QueueMessageRecord['payload']) {
+  const messageIds = queueMessage.messages
+    .map((message) => message.messageId || message.messageSid)
+    .filter(Boolean)
+    .join(',');
+  return `${queueMessage.sessionKey}:${messageIds || queueMessage.runId}`;
+}
+
+function buildFactKeyFromReflection(reflection: FeedbackReflectionSynthesis) {
+  const base = `${reflection.learningScope}:${reflection.learningKey}`
+    .toLowerCase()
+    .replace(/[^a-z0-9._:-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 150);
+  return base ? `feedback.${base}` : `feedback.${uuidv4().slice(0, 12)}`;
+}
+
+function judgeFeedbackReflectionAsIdentityFact(reflection: FeedbackReflectionSynthesis) {
+  const acceptedConfidence = reflection.confidence === 'high' || reflection.confidence === 'medium';
+  const stableEnough = reflection.evidenceWeight >= 0.45 && reflection.stabilityScore >= 0.35 && reflection.importanceScore >= 0.35;
+  const relevantType = reflection.reflectionType === 'self_model_update' || reflection.reflectionType === 'social_lesson';
+
+  if (acceptedConfidence && stableEnough && relevantType) {
+    return {
+      status: 'accepted',
+      judgeStatus: 'accepted',
+      integrityStatus: 'accepted',
+      reason: 'feedback reflection passed phase1 hard-check judge: supported, stable enough, and identity-relevant'
+    } as const;
+  }
+
+  return {
+    status: 'quarantined',
+    judgeStatus: 'quarantined',
+    integrityStatus: 'quarantined',
+    reason: 'feedback reflection kept as candidate until stronger future evidence supports durable identity change'
+  } as const;
+}
+
 function resolveRecentRelatedUserIds(queueMessage: QueueMessageRecord['payload']) {
   const currentSenderId = Number(queueMessage.senderId);
   const seen = new Set<number>();
@@ -1949,10 +2068,12 @@ export class AgentLoopService {
     let storedFeedbackReflectionIds: number[] = [];
     let unreadMeaningArtifact: Record<string, unknown> | null = null;
     let innerReactionArtifact: Record<string, unknown> | null = null;
+    let runtimeIdentityFacts: RuntimeIdentityFactProjection[] = [];
     const contextBudgetTurns: ContextBudgetTurnRecord[] = [];
     let budgetPlan: ContextBudgetPlan = {
       requestInput: [],
       retainedHistory: [],
+      runtimeIdentityFacts: [],
       readCutoffAfterConversationId: null,
       estimatedInputTokens: 0,
       contextWindowTokens: null,
@@ -1994,12 +2115,14 @@ export class AgentLoopService {
       historyCount = history.length;
 
       runtimePrompt = await this.promptResolver.resolveForQueueMessage(payload);
+      runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(payload);
       let loopContinuation: OpenResponseInputItem[] = [];
       budgetPlan = await this.buildContextBudgetPlan({
         history,
         queueMessage: payload,
         runtimePrompt,
-        loopContinuation
+        loopContinuation,
+        runtimeIdentityFacts
       });
       let requestInput = budgetPlan.requestInput;
       let finishResult: Record<string, unknown> | null = null;
@@ -2012,7 +2135,8 @@ export class AgentLoopService {
             history,
             queueMessage: payload,
             runtimePrompt,
-            loopContinuation
+            loopContinuation,
+            runtimeIdentityFacts
           });
           requestInput = budgetPlan.requestInput;
         }
@@ -2166,7 +2290,8 @@ export class AgentLoopService {
               history: budgetPlan.retainedHistory,
               queueMessage: payload,
               runtimePrompt,
-              loopContinuation
+              loopContinuation,
+              runtimeIdentityFacts: budgetPlan.runtimeIdentityFacts
             });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -2254,7 +2379,8 @@ export class AgentLoopService {
             prompt_name: runtimePrompt.promptName,
             model_name: runtimePrompt.modelName
           },
-          retrieved_feedback_reflections: []
+          retrieved_feedback_reflections: [],
+          runtime_identity_facts: runtimeIdentityFacts
         },
         rawResponse: {
           sent_messages: sentMessages,
@@ -2280,6 +2406,12 @@ export class AgentLoopService {
         deliveredMessages: sentMessages,
         unreadMeaningArtifact,
         innerReactionArtifact
+      });
+
+      await this.recordRuntimeIdentityActivation({
+        queueMessage: payload,
+        conversationId,
+        runtimeIdentityFacts
       });
 
       await this.store.attachConversationIdToTrace(payload.traceId, conversationId);
@@ -2447,6 +2579,80 @@ export class AgentLoopService {
     }
   }
 
+  private async loadRuntimeIdentityFacts(queueMessage: QueueMessageRecord['payload']): Promise<RuntimeIdentityFactProjection[]> {
+    const loader = (this.store as RuntimeStore & {
+      listAcceptedIdentityFacts?: RuntimeStore['listAcceptedIdentityFacts'];
+    }).listAcceptedIdentityFacts;
+    if (typeof loader !== 'function') {
+      return [];
+    }
+
+    try {
+      const facts = await loader.call(this.store, {
+        identityKey: XIAONI_IDENTITY_KEY,
+        status: 'active',
+        limit: 12
+      });
+      return selectRuntimeIdentityFacts({
+        facts,
+        queueMessage,
+        limit: RUNTIME_IDENTITY_FACT_LIMIT
+      });
+    } catch (error) {
+      moduleLogger.warn('Failed to load runtime identity facts', {
+        traceId: queueMessage.traceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return [];
+    }
+  }
+
+  private async recordRuntimeIdentityActivation(params: {
+    queueMessage: QueueMessageRecord['payload'];
+    conversationId: number;
+    runtimeIdentityFacts: RuntimeIdentityFactProjection[];
+  }) {
+    if (params.runtimeIdentityFacts.length === 0) {
+      return;
+    }
+    const recorder = (this.store as RuntimeStore & {
+      recordRuntimeIdentityActivationTrace?: RuntimeStore['recordRuntimeIdentityActivationTrace'];
+    }).recordRuntimeIdentityActivationTrace;
+    if (typeof recorder !== 'function') {
+      return;
+    }
+
+    try {
+      await recorder.call(this.store, {
+        identityKey: XIAONI_IDENTITY_KEY,
+        runId: params.queueMessage.runId,
+        traceId: params.queueMessage.traceId,
+        conversationId: params.conversationId,
+        sceneFingerprint: buildIdentitySceneFingerprint(params.queueMessage),
+        cueSummary: params.queueMessage.bodyForAgent,
+        activatedRefs: params.runtimeIdentityFacts.map((fact) => ({
+          accepted_fact_id: fact.id,
+          fact_key: fact.factKey,
+          fact_type: fact.factType,
+          confidence: fact.confidence
+        })),
+        suppressedRefs: [],
+        selectedSkillRef: 'accepted_identity_facts',
+        activationReason: 'accepted identity facts were projected into the runtime input',
+        metadata: {
+          session_key: params.queueMessage.sessionKey,
+          chat_type: params.queueMessage.chatType
+        }
+      });
+    } catch (error) {
+      moduleLogger.warn('Failed to record runtime identity activation trace', {
+        traceId: params.queueMessage.traceId,
+        conversationId: params.conversationId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
   private scheduleFeedbackMemorySubagent(params: FeedbackMemorySubagentParams) {
     void this.runFeedbackMemorySubagent(params).catch((error) => {
       const traceId = `${params.queueMessage.traceId}:subagent:${FEEDBACK_MEMORY_SUBAGENT_TYPE}`;
@@ -2483,6 +2689,12 @@ export class AgentLoopService {
     const stateUpserter = (this.store as RuntimeStore & {
       upsertFeedbackLearningState?: RuntimeStore['upsertFeedbackLearningState'];
     }).upsertFeedbackLearningState;
+    const identityCandidateAppender = (this.store as RuntimeStore & {
+      appendIdentityChangeCandidate?: RuntimeStore['appendIdentityChangeCandidate'];
+    }).appendIdentityChangeCandidate;
+    const acceptedIdentityFactCreator = (this.store as RuntimeStore & {
+      createAcceptedIdentityFact?: RuntimeStore['createAcceptedIdentityFact'];
+    }).createAcceptedIdentityFact;
 
     if (typeof episodeCreator !== 'function' || typeof reflectionCreator !== 'function' || typeof stateUpserter !== 'function') {
       return;
@@ -2580,7 +2792,9 @@ export class AgentLoopService {
         stateGetter,
         episodeCreator,
         reflectionCreator,
-        stateUpserter
+        stateUpserter,
+        identityCandidateAppender,
+        acceptedIdentityFactCreator
       });
 
       if (typeof toolResult.episode_id === 'number') {
@@ -2648,6 +2862,8 @@ export class AgentLoopService {
       episodeCreator: RuntimeStore['createFeedbackEpisode'];
       reflectionCreator: RuntimeStore['createFeedbackReflection'];
       stateUpserter: RuntimeStore['upsertFeedbackLearningState'];
+      identityCandidateAppender?: RuntimeStore['appendIdentityChangeCandidate'];
+      acceptedIdentityFactCreator?: RuntimeStore['createAcceptedIdentityFact'];
     }
   ) {
     const sourceMessageIds = deps.queueMessage.messages
@@ -2746,8 +2962,109 @@ export class AgentLoopService {
             synthesis_reason: reflection.reason
           }
         });
+        let identityCandidateId: number | null = null;
+        let acceptedIdentityFactId: number | null = null;
+        const identityJudge = judgeFeedbackReflectionAsIdentityFact(reflection);
+        if (typeof deps.identityCandidateAppender === 'function') {
+          const candidateResult = await deps.identityCandidateAppender.call(this.store, {
+            identityKey: XIAONI_IDENTITY_KEY,
+            candidateType: 'natural_growth',
+            proposedBy: 'feedback_memory_writer',
+            proposedFrom: 'agent_feedback_reflection',
+            claimText: reflection.summaryText,
+            afterSummary: reflection.retrievalText,
+            status: identityJudge.status,
+            judgeStatus: identityJudge.judgeStatus,
+            judgeReason: identityJudge.reason,
+            judgeRunId: deps.queueMessage.runId,
+            judgedAt: new Date(),
+            quarantineGroupKey: identityJudge.status === 'quarantined' ? reflection.conflictGroupKey || reflection.learningKey : null,
+            metadata: {
+              trace_id: deps.queueMessage.traceId,
+              source_reflection_id: storedReflection.id,
+              learning_key: reflection.learningKey,
+              learning_scope: reflection.learningScope,
+              reflection_type: reflection.reflectionType,
+              feedback_kind: reflection.feedbackKind,
+              importance_score: reflection.importanceScore,
+              evidence_weight: reflection.evidenceWeight,
+              stability_score: reflection.stabilityScore,
+              phase1_judge_engine: 'hard_check_feedback_reflection'
+            },
+            evidenceRefs: [
+              {
+                sourceType: 'agent_feedback_reflection',
+                sourceId: String(storedReflection.id),
+                traceId: deps.queueMessage.traceId,
+                runId: deps.queueMessage.runId,
+                conversationId: deps.conversationId,
+                confidence: reflection.confidence
+              }
+            ],
+            lineageMetadata: {
+              judge_status: identityJudge.judgeStatus,
+              judge_reason: identityJudge.reason
+            }
+          }).catch((error) => {
+            moduleLogger.warn('Failed to append identity candidate from feedback reflection', {
+              traceId: deps.queueMessage.traceId,
+              reflectionId: storedReflection.id,
+              error: error instanceof Error ? error.message : String(error)
+            });
+            return null;
+          });
+          identityCandidateId = Number(candidateResult?.candidate?.id) || null;
+        }
+        if (identityJudge.status === 'accepted' && identityCandidateId && typeof deps.acceptedIdentityFactCreator === 'function') {
+          const factResult = await deps.acceptedIdentityFactCreator.call(this.store, {
+            identityKey: XIAONI_IDENTITY_KEY,
+            factKey: buildFactKeyFromReflection(reflection),
+            factText: reflection.summaryText,
+            factType: reflection.reflectionType === 'self_model_update' ? 'self_boundary' : 'social_lesson',
+            sourceCandidateId: identityCandidateId,
+            confidence: reflection.confidence,
+            activationTags: parseStringArray([
+              reflection.learningKey,
+              reflection.learningScope,
+              reflection.feedbackKind,
+              deps.queueMessage.senderName || ''
+            ]),
+            metadata: {
+              trace_id: deps.queueMessage.traceId,
+              source_reflection_id: storedReflection.id,
+              retrieval_text: reflection.retrievalText,
+              phase1_judge_reason: identityJudge.reason
+            },
+            evidenceRefs: [
+              {
+                sourceType: 'agent_feedback_reflection',
+                sourceId: String(storedReflection.id),
+                traceId: deps.queueMessage.traceId,
+                runId: deps.queueMessage.runId,
+                conversationId: deps.conversationId,
+                confidence: reflection.confidence
+              }
+            ],
+            lineageMetadata: {
+              source: 'feedback_memory_writer',
+              judge_reason: identityJudge.reason
+            }
+          }).catch((error) => {
+            moduleLogger.warn('Failed to create accepted identity fact from feedback reflection', {
+              traceId: deps.queueMessage.traceId,
+              reflectionId: storedReflection.id,
+              identityCandidateId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+            return null;
+          });
+          acceptedIdentityFactId = Number(factResult?.fact?.id) || null;
+        }
         return {
           reflection_id: storedReflection.id,
+          identity_candidate_id: identityCandidateId,
+          accepted_identity_fact_id: acceptedIdentityFactId,
+          identity_judge_status: identityJudge.judgeStatus,
           learning_key: reflection.learningKey,
           learning_scope: reflection.learningScope,
           reason: reflection.reason
@@ -2807,6 +3124,7 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
     loopContinuation: OpenResponseInputItem[];
+    runtimeIdentityFacts: RuntimeIdentityFactProjection[];
   }): Promise<ContextBudgetPlan> {
     const policy = resolveModelContextPolicy(
       params.runtimePrompt.modelName,
@@ -2821,7 +3139,8 @@ export class AgentLoopService {
       history: initialRetainedHistory,
       queueMessage: params.queueMessage,
       runtimePrompt: params.runtimePrompt,
-      loopContinuation: params.loopContinuation
+      loopContinuation: params.loopContinuation,
+      runtimeIdentityFacts: params.runtimeIdentityFacts
     });
     const initialEstimate = await estimateLoopInputTokens({
       modelName: params.runtimePrompt.modelName,
@@ -2833,6 +3152,7 @@ export class AgentLoopService {
       return {
         requestInput: initialRequestInput,
         retainedHistory: initialRetainedHistory,
+        runtimeIdentityFacts: params.runtimeIdentityFacts,
         readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
         estimatedInputTokens: initialEstimate.inputTokens,
         contextWindowTokens,
@@ -2849,7 +3169,8 @@ export class AgentLoopService {
       queueMessage: params.queueMessage,
       runtimePrompt: params.runtimePrompt,
       loopContinuation: params.loopContinuation,
-      targetBudgetTokens
+      targetBudgetTokens,
+      runtimeIdentityFacts: params.runtimeIdentityFacts
     });
 
     await this.store.upsertSessionReadCutoffState({
@@ -2863,6 +3184,7 @@ export class AgentLoopService {
     return {
       requestInput: recomputed.requestInput,
       retainedHistory: recomputed.retainedHistory,
+      runtimeIdentityFacts: params.runtimeIdentityFacts,
       readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
       estimatedInputTokens: recomputed.estimatedInputTokens,
       contextWindowTokens,
@@ -3121,9 +3443,10 @@ function buildLoopRequestInput(params: {
   queueMessage: QueueMessageRecord['payload'];
   runtimePrompt: ResolvedAgentRuntimePrompt;
   loopContinuation: OpenResponseInputItem[];
+  runtimeIdentityFacts?: RuntimeIdentityFactProjection[];
 }) {
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || []),
     ...params.loopContinuation
   ];
 }
@@ -3150,6 +3473,7 @@ async function recomputeReadCutoffToTarget(params: {
   runtimePrompt: ResolvedAgentRuntimePrompt;
   loopContinuation: OpenResponseInputItem[];
   targetBudgetTokens: number;
+  runtimeIdentityFacts: RuntimeIdentityFactProjection[];
 }) {
   let retainedHistory: ConversationTurn[] = [];
   let readCutoffAfterConversationId: number | null = params.history.length > 0
@@ -3162,7 +3486,8 @@ async function recomputeReadCutoffToTarget(params: {
       history: retainedHistory,
       queueMessage: params.queueMessage,
       runtimePrompt: params.runtimePrompt,
-      loopContinuation: params.loopContinuation
+      loopContinuation: params.loopContinuation,
+      runtimeIdentityFacts: params.runtimeIdentityFacts
     })
   });
 
@@ -3175,7 +3500,8 @@ async function recomputeReadCutoffToTarget(params: {
         history: candidateHistory,
         queueMessage: params.queueMessage,
         runtimePrompt: params.runtimePrompt,
-        loopContinuation: params.loopContinuation
+        loopContinuation: params.loopContinuation,
+        runtimeIdentityFacts: params.runtimeIdentityFacts
       })
     });
     if (candidateEstimate.inputTokens > params.targetBudgetTokens) {
@@ -3191,7 +3517,8 @@ async function recomputeReadCutoffToTarget(params: {
       history: retainedHistory,
       queueMessage: params.queueMessage,
       runtimePrompt: params.runtimePrompt,
-      loopContinuation: params.loopContinuation
+      loopContinuation: params.loopContinuation,
+      runtimeIdentityFacts: params.runtimeIdentityFacts
     }),
     retainedHistory,
     readCutoffAfterConversationId,
@@ -3247,7 +3574,8 @@ export function buildInitialInput(
     userPromptTemplate: null,
     contextVariables: {},
     runtimeVariables: {}
-  }
+  },
+  runtimeIdentityFacts: RuntimeIdentityFactProjection[] = []
 ): OpenResponseInputItem[] {
   const items: OpenResponseInputItem[] = [
     {
@@ -3303,6 +3631,10 @@ export function buildInitialInput(
   }
 
   items.push(buildUserSceneInputItem(['[未读消息]']));
+  const identityFactsText = renderRuntimeIdentityFacts(runtimeIdentityFacts);
+  if (identityFactsText) {
+    items.push(buildUserSceneInputItem([identityFactsText]));
+  }
   items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
 
   return items;
@@ -3509,7 +3841,7 @@ function normalizeMessages(args: Record<string, unknown>) {
   const messages: string[] = [];
 
   if (typeof args.message === 'string' && args.message.trim()) {
-    messages.push(args.message.trim());
+    messages.push(sanitizeLowValueOpeningFiller(args.message));
   }
 
   if (Array.isArray(args.messages)) {
@@ -3517,11 +3849,33 @@ function normalizeMessages(args: Record<string, unknown>) {
       if (typeof item !== 'string' || !item.trim()) {
         throw new Error('messages must be an array of non-empty strings');
       }
-      messages.push(item.trim());
+      messages.push(sanitizeLowValueOpeningFiller(item));
     }
   }
 
   return messages;
+}
+
+export function sanitizeLowValueOpeningFiller(message: string) {
+  const original = message.trim();
+  let cleaned = original;
+  let changed = false;
+
+  while (cleaned.length > 0) {
+    const before = cleaned;
+    cleaned = cleaned
+      .replace(/^\s+/, '')
+      .replace(/^哈{2,}/, '')
+      .replace(/^确实(?:是这样)?/, '')
+      .replace(/^[\s,，。！？!?、~～…:：;；]+/, '');
+    changed = changed || cleaned !== before;
+    if (cleaned === before) {
+      break;
+    }
+  }
+
+  const finalMessage = cleaned.trim();
+  return changed && finalMessage.length > 0 ? finalMessage : original;
 }
 
 function normalizeOptionalIntegerList(value: unknown) {

@@ -480,24 +480,34 @@ exports.Prisma.IdentityLineageEventScalarFieldEnum = {
   parent_event_id: 'parent_event_id',
   forked_from_identity_key: 'forked_from_identity_key',
   fork_point_event_id: 'fork_point_event_id',
-  change_journal_id: 'change_journal_id',
+  change_candidate_id: 'change_candidate_id',
+  accepted_fact_id: 'accepted_fact_id',
   integrity_status: 'integrity_status',
   metadata: 'metadata',
   occurred_at: 'occurred_at',
   created_at: 'created_at'
 };
 
-exports.Prisma.IdentityChangeJournalScalarFieldEnum = {
+exports.Prisma.IdentityChangeCandidateScalarFieldEnum = {
   id: 'id',
   identity_key: 'identity_key',
-  change_type: 'change_type',
+  candidate_type: 'candidate_type',
   proposed_by: 'proposed_by',
   proposed_from: 'proposed_from',
+  claim_text: 'claim_text',
   before_summary: 'before_summary',
   after_summary: 'after_summary',
-  integrity_status: 'integrity_status',
-  reason: 'reason',
+  status: 'status',
+  judge_status: 'judge_status',
+  judge_reason: 'judge_reason',
+  judge_run_id: 'judge_run_id',
+  judge_llm_call_id: 'judge_llm_call_id',
+  quarantine_group_key: 'quarantine_group_key',
+  supersedes_fact_id: 'supersedes_fact_id',
+  legacy_source_table: 'legacy_source_table',
+  legacy_source_id: 'legacy_source_id',
   metadata: 'metadata',
+  judged_at: 'judged_at',
   created_at: 'created_at',
   updated_at: 'updated_at'
 };
@@ -506,7 +516,8 @@ exports.Prisma.IdentityEvidenceRefScalarFieldEnum = {
   id: 'id',
   identity_key: 'identity_key',
   identity_event_id: 'identity_event_id',
-  change_journal_id: 'change_journal_id',
+  change_candidate_id: 'change_candidate_id',
+  accepted_fact_id: 'accepted_fact_id',
   source_type: 'source_type',
   source_id: 'source_id',
   trace_id: 'trace_id',
@@ -518,7 +529,25 @@ exports.Prisma.IdentityEvidenceRefScalarFieldEnum = {
   created_at: 'created_at'
 };
 
-exports.Prisma.IdentityActivationTraceScalarFieldEnum = {
+exports.Prisma.AcceptedIdentityFactScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  fact_key: 'fact_key',
+  fact_text: 'fact_text',
+  fact_type: 'fact_type',
+  source_candidate_id: 'source_candidate_id',
+  source_event_id: 'source_event_id',
+  status: 'status',
+  supersedes_fact_id: 'supersedes_fact_id',
+  revoked_by_event_id: 'revoked_by_event_id',
+  confidence: 'confidence',
+  activation_tags: 'activation_tags',
+  metadata: 'metadata',
+  accepted_at: 'accepted_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.RuntimeIdentityActivationTraceScalarFieldEnum = {
   id: 'id',
   identity_key: 'identity_key',
   run_id: 'run_id',
@@ -705,9 +734,10 @@ exports.Prisma.ModelName = {
   AgentFeedbackLearningState: 'AgentFeedbackLearningState',
   XiaoniIdentityRoot: 'XiaoniIdentityRoot',
   IdentityLineageEvent: 'IdentityLineageEvent',
-  IdentityChangeJournal: 'IdentityChangeJournal',
+  IdentityChangeCandidate: 'IdentityChangeCandidate',
   IdentityEvidenceRef: 'IdentityEvidenceRef',
-  IdentityActivationTrace: 'IdentityActivationTrace',
+  AcceptedIdentityFact: 'AcceptedIdentityFact',
+  RuntimeIdentityActivationTrace: 'RuntimeIdentityActivationTrace',
   ChatSpaceTopic: 'ChatSpaceTopic',
   TopicProjectionJob: 'TopicProjectionJob',
   TopicProjectionVersion: 'TopicProjectionVersion',

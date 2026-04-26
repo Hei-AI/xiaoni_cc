@@ -2,11 +2,15 @@ import {
   createFeedbackEpisode,
   createSqlAdapter,
   createFeedbackReflection,
+  appendIdentityChangeCandidate,
+  createAcceptedIdentityFact,
   ensureFeedbackReflectionSchema,
   getFeedbackLearningState,
+  listAcceptedIdentityFacts,
   getTopicProjectionVersionById,
   listFeedbackLearningStates,
   listFeedbackReflections,
+  recordRuntimeIdentityActivationTrace,
   listSelfEvolutionStates,
   listChatSpaceTopics,
   listRelationshipMemoryCards,
@@ -231,6 +235,22 @@ export type RuntimeFeedbackLearningState = {
   updatedAt: string | null;
 };
 
+export type RuntimeAcceptedIdentityFact = {
+  id: number;
+  identityKey: string;
+  factKey: string;
+  factText: string;
+  factType: string;
+  sourceCandidateId: number | null;
+  sourceEventId: number | null;
+  status: string;
+  confidence: string;
+  activationTags: string[];
+  metadata: Record<string, unknown>;
+  acceptedAt: string | null;
+  updatedAt: string | null;
+};
+
 export type RuntimeTopicProjection = {
   topicId: number;
   versionId: number;
@@ -288,6 +308,17 @@ type FeedbackReflectionScore = {
   learningStateScore: number;
   evidenceScore: number;
   combinedScore: number;
+};
+
+type IdentityEvidenceRefParams = {
+  sourceType: string;
+  sourceId: string;
+  traceId?: string | null;
+  runId?: string | null;
+  conversationId?: number | string | null;
+  confidence?: string;
+  redactionStatus?: string;
+  metadata?: Record<string, unknown>;
 };
 
 type RelationshipRagScope = 'group' | 'current_user' | 'recent_users';
@@ -475,6 +506,30 @@ function parseFeedbackLearningState(row: Record<string, unknown>): RuntimeFeedba
     metadata: row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
       ? row.metadata as Record<string, unknown>
       : {},
+    updatedAt: toIso(row.updated_at as string | Date | null | undefined)
+  };
+}
+
+function parseAcceptedIdentityFact(row: Record<string, unknown>): RuntimeAcceptedIdentityFact {
+  return {
+    id: Number(row.id),
+    identityKey: typeof row.identity_key === 'string' ? row.identity_key : '',
+    factKey: typeof row.fact_key === 'string' ? row.fact_key : '',
+    factText: typeof row.fact_text === 'string' ? row.fact_text : '',
+    factType: typeof row.fact_type === 'string' ? row.fact_type : 'self_boundary',
+    sourceCandidateId: row.source_candidate_id === null || typeof row.source_candidate_id === 'undefined'
+      ? null
+      : Number(row.source_candidate_id),
+    sourceEventId: row.source_event_id === null || typeof row.source_event_id === 'undefined'
+      ? null
+      : Number(row.source_event_id),
+    status: typeof row.status === 'string' ? row.status : 'active',
+    confidence: typeof row.confidence === 'string' ? row.confidence : 'medium',
+    activationTags: normalizeStringArray(row.activation_tags),
+    metadata: row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+      ? row.metadata as Record<string, unknown>
+      : {},
+    acceptedAt: toIso(row.accepted_at as string | Date | null | undefined),
     updatedAt: toIso(row.updated_at as string | Date | null | undefined)
   };
 }
@@ -2336,6 +2391,121 @@ export class RuntimeStore {
       metadata: params.metadata || {}
     }, databaseConfig);
     return parseFeedbackEpisode(row as Record<string, unknown>);
+  }
+
+  async listAcceptedIdentityFacts(params: {
+    identityKey: string;
+    status?: string;
+    factType?: string;
+    limit?: number;
+  }) {
+    const rows = await listAcceptedIdentityFacts({
+      identityKey: params.identityKey,
+      status: params.status || 'active',
+      factType: params.factType,
+      limit: params.limit ?? 12
+    }, databaseConfig);
+    return rows.map((row: Record<string, unknown>) => parseAcceptedIdentityFact(row));
+  }
+
+  async recordRuntimeIdentityActivationTrace(params: {
+    identityKey: string;
+    runId?: string | null;
+    traceId?: string | null;
+    conversationId?: number | null;
+    sceneFingerprint?: string | null;
+    cueSummary?: string | null;
+    activatedRefs?: unknown[];
+    suppressedRefs?: unknown[];
+    selectedSkillRef?: string | null;
+    activationReason?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return recordRuntimeIdentityActivationTrace({
+      identityKey: params.identityKey,
+      runId: params.runId ?? null,
+      traceId: params.traceId ?? null,
+      conversationId: params.conversationId ?? null,
+      sceneFingerprint: params.sceneFingerprint ?? null,
+      cueSummary: params.cueSummary ?? null,
+      activatedRefs: params.activatedRefs || [],
+      suppressedRefs: params.suppressedRefs || [],
+      selectedSkillRef: params.selectedSkillRef ?? null,
+      activationReason: params.activationReason ?? null,
+      metadata: params.metadata || {}
+    }, databaseConfig);
+  }
+
+  async appendIdentityChangeCandidate(params: {
+    identityKey: string;
+    candidateType?: string;
+    proposedBy?: string | null;
+    proposedFrom?: string | null;
+    claimText: string;
+    beforeSummary?: string | null;
+    afterSummary?: string | null;
+    status?: string;
+    judgeStatus?: string;
+    judgeReason?: string | null;
+    judgeRunId?: string | null;
+    judgeLlmCallId?: string | null;
+    quarantineGroupKey?: string | null;
+    supersedesFactId?: number | null;
+    metadata?: Record<string, unknown>;
+    judgedAt?: string | Date | null;
+    evidenceRefs?: IdentityEvidenceRefParams[];
+    lineageMetadata?: Record<string, unknown>;
+  }) {
+    return appendIdentityChangeCandidate({
+      identityKey: params.identityKey,
+      candidateType: params.candidateType || 'natural_growth',
+      proposedBy: params.proposedBy ?? null,
+      proposedFrom: params.proposedFrom ?? null,
+      claimText: params.claimText,
+      beforeSummary: params.beforeSummary ?? null,
+      afterSummary: params.afterSummary ?? null,
+      status: params.status || 'pending',
+      judgeStatus: params.judgeStatus || 'not_judged',
+      judgeReason: params.judgeReason ?? null,
+      judgeRunId: params.judgeRunId ?? null,
+      judgeLlmCallId: params.judgeLlmCallId ?? null,
+      quarantineGroupKey: params.quarantineGroupKey ?? null,
+      supersedesFactId: params.supersedesFactId ?? null,
+      metadata: params.metadata || {},
+      judgedAt: params.judgedAt ?? null,
+      evidenceRefs: params.evidenceRefs || [],
+      lineageMetadata: params.lineageMetadata || {}
+    }, databaseConfig);
+  }
+
+  async createAcceptedIdentityFact(params: {
+    identityKey: string;
+    factKey: string;
+    factText: string;
+    factType?: string;
+    sourceCandidateId?: number | null;
+    sourceEventId?: number | null;
+    status?: string;
+    confidence?: string;
+    activationTags?: string[];
+    metadata?: Record<string, unknown>;
+    evidenceRefs?: IdentityEvidenceRefParams[];
+    lineageMetadata?: Record<string, unknown>;
+  }) {
+    return createAcceptedIdentityFact({
+      identityKey: params.identityKey,
+      factKey: params.factKey,
+      factText: params.factText,
+      factType: params.factType || 'self_boundary',
+      sourceCandidateId: params.sourceCandidateId ?? null,
+      sourceEventId: params.sourceEventId ?? null,
+      status: params.status || 'active',
+      confidence: params.confidence || 'medium',
+      activationTags: params.activationTags || [],
+      metadata: params.metadata || {},
+      evidenceRefs: params.evidenceRefs || [],
+      lineageMetadata: params.lineageMetadata || {}
+    }, databaseConfig);
   }
 
   async getFeedbackLearningState(params: {

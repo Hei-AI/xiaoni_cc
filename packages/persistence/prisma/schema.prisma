@@ -424,7 +424,8 @@ model IdentityLineageEvent {
   parent_event_id          BigInt?   @db.BigInt
   forked_from_identity_key String?   @db.VarChar(191)
   fork_point_event_id      BigInt?   @db.BigInt
-  change_journal_id        BigInt?   @db.BigInt
+  change_candidate_id      BigInt?   @db.BigInt
+  accepted_fact_id         BigInt?   @db.BigInt
   integrity_status         String    @default("accepted") @db.VarChar(32)
   metadata                 Json?
   occurred_at              DateTime? @db.Timestamp(3)
@@ -432,34 +433,48 @@ model IdentityLineageEvent {
 
   @@index([identity_key, created_at, id], map: "idx_identity_lineage_events_key_created")
   @@index([event_type, created_at], map: "idx_identity_lineage_events_type_created")
-  @@index([change_journal_id], map: "idx_identity_lineage_events_change")
+  @@index([change_candidate_id], map: "idx_identity_lineage_events_candidate")
+  @@index([accepted_fact_id], map: "idx_identity_lineage_events_fact")
   @@map("identity_lineage_events")
 }
 
-model IdentityChangeJournal {
-  id               BigInt   @id @default(autoincrement()) @db.BigInt
-  identity_key     String   @db.VarChar(191)
-  change_type      String   @db.VarChar(64)
-  proposed_by      String?  @db.VarChar(191)
-  proposed_from    String?  @db.VarChar(191)
-  before_summary   String?
-  after_summary    String
-  integrity_status String   @default("needs_review") @db.VarChar(32)
-  reason           String?
-  metadata         Json?
-  created_at       DateTime @default(now()) @db.Timestamp(3)
-  updated_at       DateTime @updatedAt @db.Timestamp(3)
+model IdentityChangeCandidate {
+  id                    BigInt    @id @default(autoincrement()) @db.BigInt
+  identity_key          String    @db.VarChar(191)
+  candidate_type        String    @db.VarChar(64)
+  proposed_by           String?   @db.VarChar(191)
+  proposed_from         String?   @db.VarChar(191)
+  claim_text            String
+  before_summary        String?
+  after_summary         String?
+  status                String    @default("pending") @db.VarChar(32)
+  judge_status          String    @default("not_judged") @db.VarChar(32)
+  judge_reason          String?
+  judge_run_id          String?   @db.VarChar(128)
+  judge_llm_call_id     String?   @db.VarChar(128)
+  quarantine_group_key  String?   @db.VarChar(191)
+  supersedes_fact_id    BigInt?   @db.BigInt
+  legacy_source_table   String?   @db.VarChar(64)
+  legacy_source_id      String?   @db.VarChar(191)
+  metadata              Json?
+  judged_at             DateTime? @db.Timestamp(3)
+  created_at            DateTime  @default(now()) @db.Timestamp(3)
+  updated_at            DateTime  @updatedAt @db.Timestamp(3)
 
-  @@index([identity_key, integrity_status, created_at], map: "idx_identity_change_journal_key_status_created")
-  @@index([change_type, created_at], map: "idx_identity_change_journal_type_created")
-  @@map("identity_change_journal")
+  @@index([identity_key, status, created_at], map: "idx_identity_change_candidates_key_status_created")
+  @@index([identity_key, judge_status, created_at], map: "idx_identity_change_candidates_key_judge_created")
+  @@index([candidate_type, created_at], map: "idx_identity_change_candidates_type_created")
+  @@index([quarantine_group_key, created_at], map: "idx_identity_change_candidates_quarantine")
+  @@index([legacy_source_table, legacy_source_id], map: "idx_identity_change_candidates_legacy")
+  @@map("identity_change_candidates")
 }
 
 model IdentityEvidenceRef {
   id                BigInt   @id @default(autoincrement()) @db.BigInt
   identity_key      String   @db.VarChar(191)
   identity_event_id BigInt?  @db.BigInt
-  change_journal_id BigInt?  @db.BigInt
+  change_candidate_id BigInt? @db.BigInt
+  accepted_fact_id  BigInt?  @db.BigInt
   source_type       String   @db.VarChar(64)
   source_id         String   @db.VarChar(191)
   trace_id          String?  @db.VarChar(128)
@@ -472,13 +487,38 @@ model IdentityEvidenceRef {
 
   @@index([identity_key, source_type, source_id], map: "idx_identity_evidence_refs_key_source")
   @@index([identity_event_id], map: "idx_identity_evidence_refs_event")
-  @@index([change_journal_id], map: "idx_identity_evidence_refs_change")
+  @@index([change_candidate_id], map: "idx_identity_evidence_refs_candidate")
+  @@index([accepted_fact_id], map: "idx_identity_evidence_refs_fact")
   @@index([trace_id], map: "idx_identity_evidence_refs_trace")
   @@index([run_id], map: "idx_identity_evidence_refs_run")
   @@map("identity_evidence_refs")
 }
 
-model IdentityActivationTrace {
+model AcceptedIdentityFact {
+  id                    BigInt    @id @default(autoincrement()) @db.BigInt
+  identity_key          String    @db.VarChar(191)
+  fact_key              String    @db.VarChar(191)
+  fact_text             String
+  fact_type             String    @db.VarChar(64)
+  source_candidate_id   BigInt?   @db.BigInt
+  source_event_id       BigInt?   @db.BigInt
+  status                String    @default("active") @db.VarChar(32)
+  supersedes_fact_id    BigInt?   @db.BigInt
+  revoked_by_event_id   BigInt?   @db.BigInt
+  confidence            String    @default("medium") @db.VarChar(16)
+  activation_tags       Json
+  metadata              Json?
+  accepted_at           DateTime  @default(now()) @db.Timestamp(3)
+  updated_at            DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([identity_key, status, accepted_at], map: "idx_accepted_identity_facts_key_status_accepted")
+  @@index([identity_key, fact_key, status], map: "idx_accepted_identity_facts_key_fact_status")
+  @@index([source_candidate_id], map: "idx_accepted_identity_facts_candidate")
+  @@index([source_event_id], map: "idx_accepted_identity_facts_event")
+  @@map("accepted_identity_facts")
+}
+
+model RuntimeIdentityActivationTrace {
   id                 BigInt   @id @default(autoincrement()) @db.BigInt
   identity_key       String   @db.VarChar(191)
   run_id             String?  @db.VarChar(128)
@@ -493,9 +533,9 @@ model IdentityActivationTrace {
   metadata           Json?
   created_at         DateTime @default(now()) @db.Timestamp(3)
 
-  @@index([trace_id, run_id], map: "idx_identity_activation_traces_trace_run")
-  @@index([identity_key, created_at], map: "idx_identity_activation_traces_key_created")
-  @@map("identity_activation_traces")
+  @@index([trace_id, run_id], map: "idx_runtime_identity_activation_traces_trace_run")
+  @@index([identity_key, created_at], map: "idx_runtime_identity_activation_traces_key_created")
+  @@map("runtime_identity_activation_traces")
 }
 
 model ChatSpaceTopic {

@@ -1,7 +1,7 @@
 import winston from 'winston';
 import {
   getTrafficLogById,
-  listIdentityActivationTraces,
+  listRuntimeIdentityActivationTraces,
   listIdentityEvidenceRefs,
   listTraceTrafficLogs,
   parseInstantValue,
@@ -116,14 +116,15 @@ function normalizeIdentityEvidenceRef(row: any) {
     ...row,
     id: toNumber(row?.id) ?? row?.id,
     identity_event_id: toNumber(row?.identity_event_id) ?? row?.identity_event_id ?? null,
-    change_journal_id: toNumber(row?.change_journal_id) ?? row?.change_journal_id ?? null,
+    change_candidate_id: toNumber(row?.change_candidate_id) ?? row?.change_candidate_id ?? null,
+    accepted_fact_id: toNumber(row?.accepted_fact_id) ?? row?.accepted_fact_id ?? null,
     conversation_id: toNumber(row?.conversation_id) ?? row?.conversation_id ?? null,
     metadata: parseJsonField<Record<string, unknown> | null>(row?.metadata, null),
     created_at: toIsoString(row?.created_at)
   };
 }
 
-function normalizeIdentityActivationTrace(row: any) {
+function normalizeRuntimeIdentityActivationTrace(row: any) {
   return {
     ...row,
     id: toNumber(row?.id) ?? row?.id,
@@ -871,15 +872,15 @@ export async function buildConversationTracePayload(
     }
   };
 
-  const safeIdentityActivationTraceQuery = async () => {
+  const safeRuntimeIdentityActivationTraceQuery = async () => {
     try {
-      return await listIdentityActivationTraces({
+      return await listRuntimeIdentityActivationTraces({
         traceId,
         conversationId,
         limit: 100
       });
     } catch (error) {
-      logger.warn('Trace query failed: identity activation traces', {
+      logger.warn('Trace query failed: runtime identity activation traces', {
         error: error instanceof Error ? error.message : String(error),
         conversationId,
         traceId
@@ -912,7 +913,7 @@ export async function buildConversationTracePayload(
     timelineRows,
     llmJobRows,
     queueRows,
-    identityActivationTraceRows,
+    runtimeIdentityActivationTraceRows,
     identityEvidenceRefRows
   ] = await Promise.all([
     safeQuery(
@@ -952,7 +953,7 @@ export async function buildConversationTracePayload(
       [traceId, conversationId],
       'agent_queue_messages'
     ),
-    safeIdentityActivationTraceQuery(),
+    safeRuntimeIdentityActivationTraceQuery(),
     safeIdentityEvidenceRefQuery()
   ]);
 
@@ -974,8 +975,8 @@ export async function buildConversationTracePayload(
   const toolCalls = (toolCallRows as any[]).map(normalizeToolCall);
   const httpLogs = (httpRows as any[]).map((row) => normalizeHttpLog(row, { truncateLargeFields: true }));
   const queueMessages = (queueRows as any[]).map(normalizeQueueMessage);
-  const identityActivationTraces = Array.isArray(identityActivationTraceRows)
-    ? (identityActivationTraceRows as any[]).map(normalizeIdentityActivationTrace)
+  const runtimeIdentityActivationTraces = Array.isArray(runtimeIdentityActivationTraceRows)
+    ? (runtimeIdentityActivationTraceRows as any[]).map(normalizeRuntimeIdentityActivationTrace)
     : [];
   const identityEvidenceRefs = Array.isArray(identityEvidenceRefRows)
     ? (identityEvidenceRefRows as any[]).map(normalizeIdentityEvidenceRef)
@@ -994,7 +995,7 @@ export async function buildConversationTracePayload(
     ...toolCalls.map((call) => call.started_at),
     ...httpLogs.map((log) => log.request_timestamp),
     ...queueMessages.map((message) => message.created_at),
-    ...identityActivationTraces.map((row) => row.created_at),
+    ...runtimeIdentityActivationTraces.map((row) => row.created_at),
     ...identityEvidenceRefs.map((row) => row.created_at),
     ...(websocketRows as any[]).map((row) => toIsoString(row.timestamp)),
     toIsoString(conversation.timestamp)
@@ -1006,7 +1007,7 @@ export async function buildConversationTracePayload(
     ...toolCalls.map((call) => call.completed_at),
     ...httpLogs.map((log) => log.response_timestamp),
     ...queueMessages.map((message) => message.completed_at || message.processing_started_at || message.created_at),
-    ...identityActivationTraces.map((row) => row.created_at),
+    ...runtimeIdentityActivationTraces.map((row) => row.created_at),
     ...identityEvidenceRefs.map((row) => row.created_at),
     ...(websocketRows as any[]).map((row) => toIsoString(row.timestamp)),
     latestJob?.completed_at,
@@ -1110,14 +1111,14 @@ export async function buildConversationTracePayload(
     }));
   }
 
-  identityActivationTraces.forEach((row, index) => {
-    const spanId = `identity-activation:${row.id ?? index}`;
+  runtimeIdentityActivationTraces.forEach((row, index) => {
+    const spanId = `runtime-identity-activation:${row.id ?? index}`;
     spanRecords.push(createSpan({
       span_id: spanId,
       parent_span_id: rootSpanId,
       trace_id: traceId,
       conversation_id: row.conversation_id || conversationId,
-      name: 'identity.activation_trace',
+      name: 'identity.activation',
       kind: 'internal',
       status_code: 'ok',
       status_message: null,
@@ -1127,7 +1128,7 @@ export async function buildConversationTracePayload(
       summary: safePreview(row.cue_summary || row.activation_reason || row.selected_skill_ref || row.identity_key),
       attributes: {
         'semantic.role': 'identity_activation',
-        'semantic.display_name': 'identity.activation_trace',
+        'semantic.display_name': 'identity.activation',
         'identity.key': row.identity_key,
         'identity.scene_fingerprint': row.scene_fingerprint || null,
         'identity.selected_skill_ref': row.selected_skill_ref || null,
@@ -1172,7 +1173,8 @@ export async function buildConversationTracePayload(
         'semantic.display_name': 'identity.evidence_ref',
         'identity.key': row.identity_key,
         'identity.event_id': row.identity_event_id || null,
-        'identity.change_journal_id': row.change_journal_id || null,
+        'identity.change_candidate_id': row.change_candidate_id || null,
+        'identity.accepted_fact_id': row.accepted_fact_id || null,
         'identity.source_type': row.source_type,
         'identity.source_id': row.source_id,
         'identity.redaction_status': row.redaction_status,
@@ -1611,7 +1613,7 @@ export async function buildConversationTracePayload(
     tool_logs_complete: toolCalls.length === 0 ? 'missing' : (toolCalls.every((call) => call.started_at) ? 'complete' : 'partial'),
     http_logs_complete: httpLogs.length === 0 ? 'missing' : (httpLogs.every((log) => log.request_timestamp && log.response_timestamp) ? 'complete' : 'partial'),
     timeline_complete: timelineRows.length > 0 ? 'complete' : 'partial',
-    identity_trace_lite: identityActivationTraces.length > 0 || identityEvidenceRefs.length > 0 ? 'complete' : 'missing'
+    identity_trace_lite: runtimeIdentityActivationTraces.length > 0 || identityEvidenceRefs.length > 0 ? 'complete' : 'missing'
   };
   const tokenSummary = llmCalls.reduce((summary, call) => {
     const inputTokens = toNumber(call.token_usage?.input_tokens ?? call.input_tokens) ?? 0;
@@ -1666,7 +1668,7 @@ export async function buildConversationTracePayload(
       http_logs: httpLogs,
       llm_jobs: llmJobRows,
       queue_messages: queueMessages,
-      identity_activation_traces: identityActivationTraces,
+      runtime_identity_activation_traces: runtimeIdentityActivationTraces,
       identity_evidence_refs: identityEvidenceRefs
     },
     data_quality: {

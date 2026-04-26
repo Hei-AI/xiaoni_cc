@@ -1,9 +1,9 @@
 import winston from 'winston';
-import { listIdentityActivationTraces, listIdentityEvidenceRefs, listTraceTrafficLogs } from '@qq-bot/persistence';
+import { listRuntimeIdentityActivationTraces, listIdentityEvidenceRefs, listTraceTrafficLogs } from '@qq-bot/persistence';
 import { buildConversationTracePayload } from '../services/trace-span-builder';
 
 jest.mock('@qq-bot/persistence', () => ({
-  listIdentityActivationTraces: jest.fn(),
+  listRuntimeIdentityActivationTraces: jest.fn(),
   listIdentityEvidenceRefs: jest.fn(),
   listTraceTrafficLogs: jest.fn(),
   parseInstantValue: jest.fn((value: unknown) => {
@@ -88,7 +88,7 @@ function createDatabase(overrides?: {
 describe('buildConversationTracePayload', () => {
   beforeEach(() => {
     jest.resetAllMocks();
-    (listIdentityActivationTraces as jest.Mock).mockResolvedValue([]);
+    (listRuntimeIdentityActivationTraces as jest.Mock).mockResolvedValue([]);
     (listIdentityEvidenceRefs as jest.Mock).mockResolvedValue([]);
   });
 
@@ -442,7 +442,7 @@ describe('buildConversationTracePayload', () => {
   it('surfaces identity trace-lite activation and typed evidence spans', async () => {
     const db = createDatabase();
     (listTraceTrafficLogs as jest.Mock).mockResolvedValue([]);
-    (listIdentityActivationTraces as jest.Mock).mockResolvedValue([
+    (listRuntimeIdentityActivationTraces as jest.Mock).mockResolvedValue([
       {
         id: 601,
         identity_key: 'xiaoni.main',
@@ -451,7 +451,7 @@ describe('buildConversationTracePayload', () => {
         conversation_id: 'conversation-1',
         scene_fingerprint: 'group:253631878',
         cue_summary: 'conversation touched identity history',
-        activated_refs: JSON.stringify([{ sourceType: 'identity_evidence_ref', sourceId: '701' }]),
+        activated_refs: JSON.stringify([{ sourceType: 'accepted_identity_fact', sourceId: '801' }]),
         suppressed_refs: [],
         selected_skill_ref: 'social-boundary',
         activation_reason: 'identity-relevant cue',
@@ -464,7 +464,8 @@ describe('buildConversationTracePayload', () => {
         id: 701,
         identity_key: 'xiaoni.main',
         identity_event_id: 31,
-        change_journal_id: 41,
+        change_candidate_id: 41,
+        accepted_fact_id: 801,
         source_type: 'conversation_item',
         source_id: '123',
         trace_id: 'trace-1',
@@ -478,10 +479,10 @@ describe('buildConversationTracePayload', () => {
     ]);
 
     const payload = await buildConversationTracePayload(db as never, createLogger(), 'conversation-1');
-    const activationSpan = payload!.spans.find((span) => span.span_id === 'identity-activation:601');
+    const activationSpan = payload!.spans.find((span) => span.span_id === 'runtime-identity-activation:601');
     const evidenceSpan = payload!.spans.find((span) => span.span_id === 'identity-evidence:701');
 
-    expect(listIdentityActivationTraces).toHaveBeenCalledWith({
+    expect(listRuntimeIdentityActivationTraces).toHaveBeenCalledWith({
       traceId: 'trace-1',
       conversationId: 'conversation-1',
       limit: 100,
@@ -491,7 +492,7 @@ describe('buildConversationTracePayload', () => {
       limit: 200,
     });
     expect(activationSpan).toMatchObject({
-      name: 'identity.activation_trace',
+      name: 'identity.activation',
       attributes: expect.objectContaining({
         'identity.key': 'xiaoni.main',
         'identity.activated_ref_count': 1,
@@ -511,7 +512,7 @@ describe('buildConversationTracePayload', () => {
         'identity.confidence': 'high',
       }),
     });
-    expect((payload!.raw_evidence as any).identity_activation_traces).toHaveLength(1);
+    expect((payload!.raw_evidence as any).runtime_identity_activation_traces).toHaveLength(1);
     expect((payload!.raw_evidence as any).identity_evidence_refs).toHaveLength(1);
     expect(payload!.data_quality.identity_trace_lite).toBe('complete');
   });

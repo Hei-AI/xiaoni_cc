@@ -71,18 +71,18 @@ test('createXiaoniIdentityRoot rejects duplicate active genesis for same identit
   );
 });
 
-test('appendIdentityChange creates journal, lineage event, and typed evidence refs in one transaction', async () => {
+test('appendIdentityChangeCandidate creates candidate, lineage event, and typed evidence refs in one transaction', async () => {
   const calls = {
-    changes: [],
+    candidates: [],
     events: [],
     refs: []
   };
   const persistence = createPersistence({
     prisma: {
       $transaction: async (callback) => callback({
-        identityChangeJournal: {
+        identityChangeCandidate: {
           create: async ({ data }) => {
-            calls.changes.push(data);
+            calls.candidates.push(data);
             return { id: 7n, ...data };
           }
         },
@@ -102,13 +102,13 @@ test('appendIdentityChange creates journal, lineage event, and typed evidence re
     }
   });
 
-  const result = await persistence.appendIdentityChange({
+  const result = await persistence.appendIdentityChangeCandidate({
     identityKey: 'xiaoni.main',
-    changeType: 'guided_growth',
-    proposedBy: 'operator',
+    candidateType: 'guided_growth',
+    proposedBy: 'feedback_reflection',
     beforeSummary: 'earlier posture',
+    claimText: 'new social boundary should become durable',
     afterSummary: 'new social boundary accepted',
-    integrityStatus: 'needs_review',
     evidenceRefs: [{
       sourceType: 'conversation_item',
       sourceId: 123,
@@ -118,23 +118,82 @@ test('appendIdentityChange creates journal, lineage event, and typed evidence re
     }]
   });
 
-  assert.equal(calls.changes.length, 1);
-  assert.equal(calls.changes[0].identity_key, 'xiaoni.main');
-  assert.equal(calls.changes[0].change_type, 'guided_growth');
+  assert.equal(calls.candidates.length, 1);
+  assert.equal(calls.candidates[0].identity_key, 'xiaoni.main');
+  assert.equal(calls.candidates[0].candidate_type, 'guided_growth');
+  assert.equal(calls.candidates[0].claim_text, 'new social boundary should become durable');
   assert.equal(calls.events.length, 1);
-  assert.equal(calls.events[0].source_type, 'identity_change_journal');
+  assert.equal(calls.events[0].event_type, 'candidate_proposed');
+  assert.equal(calls.events[0].source_type, 'identity_change_candidate');
   assert.equal(calls.events[0].source_id, '7');
-  assert.equal(calls.events[0].change_journal_id, 7n);
+  assert.equal(calls.events[0].change_candidate_id, 7n);
   assert.equal(calls.refs.length, 1);
   assert.equal(calls.refs[0].identity_key, 'xiaoni.main');
   assert.equal(calls.refs[0].identity_event_id, 8n);
-  assert.equal(calls.refs[0].change_journal_id, 7n);
+  assert.equal(calls.refs[0].change_candidate_id, 7n);
   assert.equal(calls.refs[0].source_type, 'conversation_item');
   assert.equal(calls.refs[0].source_id, '123');
   assert.equal(calls.refs[0].trace_id, 'trace-1');
-  assert.equal(result.change.id, 7);
+  assert.equal(result.candidate.id, 7);
   assert.equal(result.event.id, 8);
   assert.equal(result.evidenceRefs[0].id, 21);
+});
+
+test('createAcceptedIdentityFact records durable facts separately from candidates', async () => {
+  const calls = {
+    facts: [],
+    events: [],
+    refs: []
+  };
+  const persistence = createPersistence({
+    prisma: {
+      $transaction: async (callback) => callback({
+        acceptedIdentityFact: {
+          create: async ({ data }) => {
+            calls.facts.push(data);
+            return { id: 31n, ...data };
+          }
+        },
+        identityLineageEvent: {
+          create: async ({ data }) => {
+            calls.events.push(data);
+            return { id: 32n, ...data };
+          }
+        },
+        identityEvidenceRef: {
+          create: async ({ data }) => {
+            calls.refs.push(data);
+            return { id: 33n, ...data };
+          }
+        }
+      })
+    }
+  });
+
+  const result = await persistence.createAcceptedIdentityFact({
+    identityKey: 'xiaoni.main',
+    factKey: 'self.boundary.group_reply',
+    factText: '在群里先观场，再观己，不把围观误当成邀请。',
+    factType: 'self_boundary',
+    sourceCandidateId: 7,
+    confidence: 'high',
+    activationTags: ['group', 'participation'],
+    evidenceRefs: [{
+      sourceType: 'identity_change_candidate',
+      sourceId: 7
+    }]
+  });
+
+  assert.equal(calls.facts[0].identity_key, 'xiaoni.main');
+  assert.equal(calls.facts[0].fact_key, 'self.boundary.group_reply');
+  assert.equal(calls.facts[0].source_candidate_id, 7n);
+  assert.deepEqual(calls.facts[0].activation_tags, ['group', 'participation']);
+  assert.equal(calls.events[0].event_type, 'fact_accepted');
+  assert.equal(calls.events[0].accepted_fact_id, 31n);
+  assert.equal(calls.events[0].change_candidate_id, 7n);
+  assert.equal(calls.refs[0].accepted_fact_id, 31n);
+  assert.equal(calls.refs[0].change_candidate_id, 7n);
+  assert.equal(result.fact.id, 31);
 });
 
 test('appendIdentityLineageEvent rejects unsupported evidence source types', async () => {
@@ -254,11 +313,11 @@ test('recordContinuityTrial records an explicit continuity trial event', async (
   assert.equal(result.event.id, 12);
 });
 
-test('recordIdentityActivationTrace stores trace-lite activation evidence', async () => {
+test('recordRuntimeIdentityActivationTrace stores runtime-only activation evidence', async () => {
   let createPayload = null;
   const persistence = createPersistence({
     prisma: {
-      identityActivationTrace: {
+      runtimeIdentityActivationTrace: {
         create: async ({ data }) => {
           createPayload = data;
           return { id: 30n, ...data };
@@ -267,14 +326,14 @@ test('recordIdentityActivationTrace stores trace-lite activation evidence', asyn
     }
   });
 
-  const result = await persistence.recordIdentityActivationTrace({
+  const result = await persistence.recordRuntimeIdentityActivationTrace({
     identityKey: 'xiaoni.main',
     runId: 'run-1',
     traceId: 'trace-1',
     conversationId: '998',
     sceneFingerprint: 'group:253631878',
     cueSummary: 'conversation touched growth history',
-    activatedRefs: [{ sourceType: 'identity_evidence_ref', sourceId: '21' }],
+    activatedRefs: [{ sourceType: 'accepted_identity_fact', sourceId: '21' }],
     suppressedRefs: [{ sourceType: 'identity_evidence_ref', sourceId: '22' }],
     selectedSkillRef: 'social-boundary',
     activationReason: 'identity-relevant cue'
@@ -282,13 +341,13 @@ test('recordIdentityActivationTrace stores trace-lite activation evidence', asyn
 
   assert.equal(createPayload.identity_key, 'xiaoni.main');
   assert.equal(createPayload.conversation_id, 998n);
-  assert.deepEqual(createPayload.activated_refs, [{ sourceType: 'identity_evidence_ref', sourceId: '21' }]);
+  assert.deepEqual(createPayload.activated_refs, [{ sourceType: 'accepted_identity_fact', sourceId: '21' }]);
   assert.deepEqual(createPayload.suppressed_refs, [{ sourceType: 'identity_evidence_ref', sourceId: '22' }]);
   assert.equal(result.id, 30);
   assert.equal(result.conversation_id, 998);
 });
 
-test('ensureIdentityLineageSchema creates typed evidence tables and active root guard', async () => {
+test('ensureIdentityLineageSchema creates new Phase 1 tables and migrates legacy sidecars', async () => {
   const statements = [];
   const persistence = createPersistence({
     createSqlAdapter: () => ({
@@ -302,7 +361,9 @@ test('ensureIdentityLineageSchema creates typed evidence tables and active root 
 
   await persistence.ensureIdentityLineageSchema();
 
-  assert.ok(statements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS xiaoni_identity_roots')));
-  assert.ok(statements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS identity_evidence_refs')));
-  assert.ok(statements.some((statement) => statement.includes('uniq_xiaoni_identity_roots_active_key')));
+  assert.ok(statements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS identity_change_candidates')));
+  assert.ok(statements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS accepted_identity_facts')));
+  assert.ok(statements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS runtime_identity_activation_traces')));
+  assert.ok(statements.some((statement) => statement.includes('migrated_from')));
+  assert.ok(statements.every((statement) => !statement.includes('CREATE TABLE IF NOT EXISTS identity_change_journal')));
 });

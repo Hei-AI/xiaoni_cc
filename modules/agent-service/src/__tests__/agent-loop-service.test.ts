@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, sanitizeLowValueOpeningFiller } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload } from '../types';
 
@@ -529,6 +529,25 @@ test('buildInitialInput uses the same thin runtime contract for direct chats', (
   assert.match(String(loopInput[0]?.content), /私聊说话时，调用 reply_in_private/);
 });
 
+test('buildInitialInput projects accepted identity facts as runtime scene context', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }), [
+    {
+      id: 91,
+      factKey: 'feedback.opening-style',
+      factText: '小腻收到过明确反馈：不要用“哈哈，确实”这类公式化开头来接话。',
+      factType: 'social_lesson',
+      confidence: 'high',
+      activationTags: ['哈哈', '确实', '接话']
+    }
+  ]);
+
+  assert.match(getMessageContent(loopInput.at(-2)), /\[身份连续性\]/);
+  assert.match(getMessageContent(loopInput.at(-2)), /公式化开头/);
+  assert.match(getMessageContent(loopInput.at(-1)), /问问@\{Bob\(@404\)\} 今天玩什么/);
+});
+
 test('buildInitialInput applies bound user prompt template to the current message block', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT',
@@ -1028,6 +1047,123 @@ test('feedback memory subagent uses a subagent trace and cache key without chang
   assert.equal(timelineEvents.at(-1)?.metadata?.termination_reason, 'no_tool_call');
 });
 
+test('feedback reflection writes an identity candidate and accepted fact when hard-check passes', async () => {
+  const service = new AgentLoopService({} as any);
+  const identityCandidates: any[] = [];
+  const acceptedFacts: any[] = [];
+
+  const result = await (service as any).executeFeedbackWriterTool({
+    callId: 'call-reflection',
+    name: 'synthesize_feedback_reflection',
+    rawArguments: '{}',
+    args: {
+      learning_key: 'style.opening_filler',
+      learning_scope: 'group_self',
+      reflection_type: 'self_model_update',
+      feedback_kind: 'negative',
+      confidence: 'high',
+      importance_score: 0.8,
+      evidence_weight: 0.75,
+      stability_score: 0.7,
+      summary_text: '小腻要避免用“哈哈，确实”作为默认开场，因为这会显得像公式化接话。',
+      retrieval_text: '不要用哈哈确实这类公式化开头。',
+      embedding_text: '公式化开头 哈哈 确实',
+      supersede_latest: false,
+      conflict_group_key: null,
+      reason: '这是明确负反馈。'
+    }
+  }, {
+    queueMessage: createQueuePayload(),
+    conversationId: 1001,
+    unreadMeaningArtifact: { message_act: 'feedback' },
+    innerReactionArtifact: { preferred_action: 'speak' },
+    persistedEpisodeId: 7,
+    persistedReflectionId: null,
+    activeLearningKey: '',
+    activeLearningScope: '',
+    episodeCreator: async () => ({ id: 7 }),
+    reflectionCreator: async () => ({ id: 8 }),
+    stateUpserter: async () => ({ id: 9 }),
+    identityCandidateAppender: async (params: any) => {
+      identityCandidates.push(params);
+      return { candidate: { id: 11 } };
+    },
+    acceptedIdentityFactCreator: async (params: any) => {
+      acceptedFacts.push(params);
+      return { fact: { id: 12 } };
+    }
+  });
+
+  assert.equal(result.reflection_id, 8);
+  assert.equal(result.identity_candidate_id, 11);
+  assert.equal(result.accepted_identity_fact_id, 12);
+  assert.equal(result.identity_judge_status, 'accepted');
+  assert.equal(identityCandidates.length, 1);
+  assert.equal(identityCandidates[0].identityKey, 'xiaoni');
+  assert.equal(identityCandidates[0].status, 'accepted');
+  assert.equal(identityCandidates[0].proposedFrom, 'agent_feedback_reflection');
+  assert.equal(identityCandidates[0].evidenceRefs[0].sourceType, 'agent_feedback_reflection');
+  assert.equal(acceptedFacts.length, 1);
+  assert.equal(acceptedFacts[0].sourceCandidateId, 11);
+  assert.equal(acceptedFacts[0].factType, 'self_boundary');
+  assert.match(acceptedFacts[0].factText, /哈哈，确实/);
+});
+
+test('runtime identity activation selects accepted facts and records trace refs', async () => {
+  const records: any[] = [];
+  const store = {
+    listAcceptedIdentityFacts: async () => [
+      {
+        id: 21,
+        identityKey: 'xiaoni',
+        factKey: 'feedback.opening_filler',
+        factText: '不要用“哈哈，确实”这类公式化开头。',
+        factType: 'social_lesson',
+        sourceCandidateId: 11,
+        sourceEventId: null,
+        status: 'active',
+        confidence: 'high',
+        activationTags: ['哈哈', '确实'],
+        metadata: {},
+        acceptedAt: null,
+        updatedAt: null
+      }
+    ],
+    recordRuntimeIdentityActivationTrace: async (params: any) => {
+      records.push(params);
+      return { id: 31 };
+    }
+  };
+  const service = new AgentLoopService(store as any);
+  const facts = await (service as any).loadRuntimeIdentityFacts({
+    ...createQueuePayload(),
+    bodyForAgent: '哈哈，确实这个问题怎么改？',
+    messages: [{
+      ...createQueuePayload().messages[0],
+      bodyForAgent: '哈哈，确实这个问题怎么改？'
+    }]
+  });
+
+  assert.equal(facts.length, 1);
+  assert.equal(facts[0].id, 21);
+
+  await (service as any).recordRuntimeIdentityActivation({
+    queueMessage: createQueuePayload(),
+    conversationId: 1001,
+    runtimeIdentityFacts: facts
+  });
+
+  assert.equal(records.length, 1);
+  assert.equal(records[0].identityKey, 'xiaoni');
+  assert.equal(records[0].conversationId, 1001);
+  assert.deepEqual(records[0].activatedRefs, [{
+    accepted_fact_id: 21,
+    fact_key: 'feedback.opening_filler',
+    fact_type: 'social_lesson',
+    confidence: 'high'
+  }]);
+});
+
 test('applyToolResultToLoopInput replays send tool payload as function_call_output state', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
 
@@ -1078,14 +1214,14 @@ test('speak_in_group always uses the current conversation group target', async (
   try {
     const result = await (service as any).sendMessage('group', {
       group_id: 999999,
-      message: '当前群里回复',
+      message: '哈哈，确实可以试试',
       mention_user_ids: [404]
     }, createQueuePayload());
 
     assert.deepEqual(result, {
       message_type: 'group',
       mention_user_ids: [404],
-      sent_messages: ['当前群里回复'],
+      sent_messages: ['可以试试'],
       xiaoni_os: null,
       second_beat_suppressed: false,
       delivery: { delivered: true }
@@ -1099,7 +1235,7 @@ test('speak_in_group always uses the current conversation group target', async (
   assert.deepEqual(calls[0]?.body, {
     session_key: 'qq:group:101',
     group_id: 101,
-    messages: ['当前群里回复'],
+    messages: ['可以试试'],
     mention_user_ids: [404]
   });
 });
@@ -1137,7 +1273,7 @@ test('reply_in_private always uses the current conversation sender', async () =>
   try {
     const result = await (service as any).sendMessage('private', {
       user_id: 888888,
-      message: '私聊回复'
+      message: '确实是这样，私聊回复'
     }, privatePayload);
 
     assert.deepEqual(result, {
@@ -1156,6 +1292,16 @@ test('reply_in_private always uses the current conversation sender', async () =>
     user_id: 202,
     messages: ['私聊回复']
   });
+});
+
+test('sanitizeLowValueOpeningFiller only removes low-value opening fillers', () => {
+  assert.equal(sanitizeLowValueOpeningFiller('哈哈，确实可以试试'), '可以试试');
+  assert.equal(sanitizeLowValueOpeningFiller('哈哈哈 可以试试'), '可以试试');
+  assert.equal(sanitizeLowValueOpeningFiller('哈哈可以试试'), '可以试试');
+  assert.equal(sanitizeLowValueOpeningFiller('确实，是这个问题'), '是这个问题');
+  assert.equal(sanitizeLowValueOpeningFiller('确实是这样，先看日志'), '先看日志');
+  assert.equal(sanitizeLowValueOpeningFiller('这件事确实挺难'), '这件事确实挺难');
+  assert.equal(sanitizeLowValueOpeningFiller('哈哈，确实。'), '哈哈，确实。');
 });
 
 test('processQueueMessage fails without a bound prompt and does not call the provider', async () => {

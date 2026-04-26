@@ -99,20 +99,25 @@ export type XiaoniIdentityRoot = $Result.DefaultSelection<Prisma.$XiaoniIdentity
  */
 export type IdentityLineageEvent = $Result.DefaultSelection<Prisma.$IdentityLineageEventPayload>
 /**
- * Model IdentityChangeJournal
+ * Model IdentityChangeCandidate
  * 
  */
-export type IdentityChangeJournal = $Result.DefaultSelection<Prisma.$IdentityChangeJournalPayload>
+export type IdentityChangeCandidate = $Result.DefaultSelection<Prisma.$IdentityChangeCandidatePayload>
 /**
  * Model IdentityEvidenceRef
  * 
  */
 export type IdentityEvidenceRef = $Result.DefaultSelection<Prisma.$IdentityEvidenceRefPayload>
 /**
- * Model IdentityActivationTrace
+ * Model AcceptedIdentityFact
  * 
  */
-export type IdentityActivationTrace = $Result.DefaultSelection<Prisma.$IdentityActivationTracePayload>
+export type AcceptedIdentityFact = $Result.DefaultSelection<Prisma.$AcceptedIdentityFactPayload>
+/**
+ * Model RuntimeIdentityActivationTrace
+ * 
+ */
+export type RuntimeIdentityActivationTrace = $Result.DefaultSelection<Prisma.$RuntimeIdentityActivationTracePayload>
 /**
  * Model ChatSpaceTopic
  * 
@@ -438,14 +443,14 @@ export class PrismaClient<
   get identityLineageEvent(): Prisma.IdentityLineageEventDelegate<ExtArgs, ClientOptions>;
 
   /**
-   * `prisma.identityChangeJournal`: Exposes CRUD operations for the **IdentityChangeJournal** model.
+   * `prisma.identityChangeCandidate`: Exposes CRUD operations for the **IdentityChangeCandidate** model.
     * Example usage:
     * ```ts
-    * // Fetch zero or more IdentityChangeJournals
-    * const identityChangeJournals = await prisma.identityChangeJournal.findMany()
+    * // Fetch zero or more IdentityChangeCandidates
+    * const identityChangeCandidates = await prisma.identityChangeCandidate.findMany()
     * ```
     */
-  get identityChangeJournal(): Prisma.IdentityChangeJournalDelegate<ExtArgs, ClientOptions>;
+  get identityChangeCandidate(): Prisma.IdentityChangeCandidateDelegate<ExtArgs, ClientOptions>;
 
   /**
    * `prisma.identityEvidenceRef`: Exposes CRUD operations for the **IdentityEvidenceRef** model.
@@ -458,14 +463,24 @@ export class PrismaClient<
   get identityEvidenceRef(): Prisma.IdentityEvidenceRefDelegate<ExtArgs, ClientOptions>;
 
   /**
-   * `prisma.identityActivationTrace`: Exposes CRUD operations for the **IdentityActivationTrace** model.
+   * `prisma.acceptedIdentityFact`: Exposes CRUD operations for the **AcceptedIdentityFact** model.
     * Example usage:
     * ```ts
-    * // Fetch zero or more IdentityActivationTraces
-    * const identityActivationTraces = await prisma.identityActivationTrace.findMany()
+    * // Fetch zero or more AcceptedIdentityFacts
+    * const acceptedIdentityFacts = await prisma.acceptedIdentityFact.findMany()
     * ```
     */
-  get identityActivationTrace(): Prisma.IdentityActivationTraceDelegate<ExtArgs, ClientOptions>;
+  get acceptedIdentityFact(): Prisma.AcceptedIdentityFactDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.runtimeIdentityActivationTrace`: Exposes CRUD operations for the **RuntimeIdentityActivationTrace** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more RuntimeIdentityActivationTraces
+    * const runtimeIdentityActivationTraces = await prisma.runtimeIdentityActivationTrace.findMany()
+    * ```
+    */
+  get runtimeIdentityActivationTrace(): Prisma.RuntimeIdentityActivationTraceDelegate<ExtArgs, ClientOptions>;
 
   /**
    * `prisma.chatSpaceTopic`: Exposes CRUD operations for the **ChatSpaceTopic** model.
@@ -994,9 +1009,10 @@ export namespace Prisma {
     AgentFeedbackLearningState: 'AgentFeedbackLearningState',
     XiaoniIdentityRoot: 'XiaoniIdentityRoot',
     IdentityLineageEvent: 'IdentityLineageEvent',
-    IdentityChangeJournal: 'IdentityChangeJournal',
+    IdentityChangeCandidate: 'IdentityChangeCandidate',
     IdentityEvidenceRef: 'IdentityEvidenceRef',
-    IdentityActivationTrace: 'IdentityActivationTrace',
+    AcceptedIdentityFact: 'AcceptedIdentityFact',
+    RuntimeIdentityActivationTrace: 'RuntimeIdentityActivationTrace',
     ChatSpaceTopic: 'ChatSpaceTopic',
     TopicProjectionJob: 'TopicProjectionJob',
     TopicProjectionVersion: 'TopicProjectionVersion',
@@ -1022,7 +1038,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "relationshipLedgerEvent" | "relationshipMemoryJob" | "relationshipMemoryCard" | "relationshipMemoryOverride" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeJournal" | "identityEvidenceRef" | "identityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
+      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "relationshipLedgerEvent" | "relationshipMemoryJob" | "relationshipMemoryCard" | "relationshipMemoryOverride" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -2284,77 +2300,77 @@ export namespace Prisma {
           }
         }
       }
-      IdentityChangeJournal: {
-        payload: Prisma.$IdentityChangeJournalPayload<ExtArgs>
-        fields: Prisma.IdentityChangeJournalFieldRefs
+      IdentityChangeCandidate: {
+        payload: Prisma.$IdentityChangeCandidatePayload<ExtArgs>
+        fields: Prisma.IdentityChangeCandidateFieldRefs
         operations: {
           findUnique: {
-            args: Prisma.IdentityChangeJournalFindUniqueArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityChangeJournalPayload> | null
+            args: Prisma.IdentityChangeCandidateFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$IdentityChangeCandidatePayload> | null
           }
           findUniqueOrThrow: {
-            args: Prisma.IdentityChangeJournalFindUniqueOrThrowArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityChangeJournalPayload>
+            args: Prisma.IdentityChangeCandidateFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$IdentityChangeCandidatePayload>
           }
           findFirst: {
-            args: Prisma.IdentityChangeJournalFindFirstArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityChangeJournalPayload> | null
+            args: Prisma.IdentityChangeCandidateFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$IdentityChangeCandidatePayload> | null
           }
           findFirstOrThrow: {
-            args: Prisma.IdentityChangeJournalFindFirstOrThrowArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityChangeJournalPayload>
+            args: Prisma.IdentityChangeCandidateFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$IdentityChangeCandidatePayload>
           }
           findMany: {
-            args: Prisma.IdentityChangeJournalFindManyArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityChangeJournalPayload>[]
+            args: Prisma.IdentityChangeCandidateFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$IdentityChangeCandidatePayload>[]
           }
           create: {
-            args: Prisma.IdentityChangeJournalCreateArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityChangeJournalPayload>
+            args: Prisma.IdentityChangeCandidateCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$IdentityChangeCandidatePayload>
           }
           createMany: {
-            args: Prisma.IdentityChangeJournalCreateManyArgs<ExtArgs>
+            args: Prisma.IdentityChangeCandidateCreateManyArgs<ExtArgs>
             result: BatchPayload
           }
           createManyAndReturn: {
-            args: Prisma.IdentityChangeJournalCreateManyAndReturnArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityChangeJournalPayload>[]
+            args: Prisma.IdentityChangeCandidateCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$IdentityChangeCandidatePayload>[]
           }
           delete: {
-            args: Prisma.IdentityChangeJournalDeleteArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityChangeJournalPayload>
+            args: Prisma.IdentityChangeCandidateDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$IdentityChangeCandidatePayload>
           }
           update: {
-            args: Prisma.IdentityChangeJournalUpdateArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityChangeJournalPayload>
+            args: Prisma.IdentityChangeCandidateUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$IdentityChangeCandidatePayload>
           }
           deleteMany: {
-            args: Prisma.IdentityChangeJournalDeleteManyArgs<ExtArgs>
+            args: Prisma.IdentityChangeCandidateDeleteManyArgs<ExtArgs>
             result: BatchPayload
           }
           updateMany: {
-            args: Prisma.IdentityChangeJournalUpdateManyArgs<ExtArgs>
+            args: Prisma.IdentityChangeCandidateUpdateManyArgs<ExtArgs>
             result: BatchPayload
           }
           updateManyAndReturn: {
-            args: Prisma.IdentityChangeJournalUpdateManyAndReturnArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityChangeJournalPayload>[]
+            args: Prisma.IdentityChangeCandidateUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$IdentityChangeCandidatePayload>[]
           }
           upsert: {
-            args: Prisma.IdentityChangeJournalUpsertArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityChangeJournalPayload>
+            args: Prisma.IdentityChangeCandidateUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$IdentityChangeCandidatePayload>
           }
           aggregate: {
-            args: Prisma.IdentityChangeJournalAggregateArgs<ExtArgs>
-            result: $Utils.Optional<AggregateIdentityChangeJournal>
+            args: Prisma.IdentityChangeCandidateAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateIdentityChangeCandidate>
           }
           groupBy: {
-            args: Prisma.IdentityChangeJournalGroupByArgs<ExtArgs>
-            result: $Utils.Optional<IdentityChangeJournalGroupByOutputType>[]
+            args: Prisma.IdentityChangeCandidateGroupByArgs<ExtArgs>
+            result: $Utils.Optional<IdentityChangeCandidateGroupByOutputType>[]
           }
           count: {
-            args: Prisma.IdentityChangeJournalCountArgs<ExtArgs>
-            result: $Utils.Optional<IdentityChangeJournalCountAggregateOutputType> | number
+            args: Prisma.IdentityChangeCandidateCountArgs<ExtArgs>
+            result: $Utils.Optional<IdentityChangeCandidateCountAggregateOutputType> | number
           }
         }
       }
@@ -2432,77 +2448,151 @@ export namespace Prisma {
           }
         }
       }
-      IdentityActivationTrace: {
-        payload: Prisma.$IdentityActivationTracePayload<ExtArgs>
-        fields: Prisma.IdentityActivationTraceFieldRefs
+      AcceptedIdentityFact: {
+        payload: Prisma.$AcceptedIdentityFactPayload<ExtArgs>
+        fields: Prisma.AcceptedIdentityFactFieldRefs
         operations: {
           findUnique: {
-            args: Prisma.IdentityActivationTraceFindUniqueArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityActivationTracePayload> | null
+            args: Prisma.AcceptedIdentityFactFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AcceptedIdentityFactPayload> | null
           }
           findUniqueOrThrow: {
-            args: Prisma.IdentityActivationTraceFindUniqueOrThrowArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityActivationTracePayload>
+            args: Prisma.AcceptedIdentityFactFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AcceptedIdentityFactPayload>
           }
           findFirst: {
-            args: Prisma.IdentityActivationTraceFindFirstArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityActivationTracePayload> | null
+            args: Prisma.AcceptedIdentityFactFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AcceptedIdentityFactPayload> | null
           }
           findFirstOrThrow: {
-            args: Prisma.IdentityActivationTraceFindFirstOrThrowArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityActivationTracePayload>
+            args: Prisma.AcceptedIdentityFactFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AcceptedIdentityFactPayload>
           }
           findMany: {
-            args: Prisma.IdentityActivationTraceFindManyArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityActivationTracePayload>[]
+            args: Prisma.AcceptedIdentityFactFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AcceptedIdentityFactPayload>[]
           }
           create: {
-            args: Prisma.IdentityActivationTraceCreateArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityActivationTracePayload>
+            args: Prisma.AcceptedIdentityFactCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AcceptedIdentityFactPayload>
           }
           createMany: {
-            args: Prisma.IdentityActivationTraceCreateManyArgs<ExtArgs>
+            args: Prisma.AcceptedIdentityFactCreateManyArgs<ExtArgs>
             result: BatchPayload
           }
           createManyAndReturn: {
-            args: Prisma.IdentityActivationTraceCreateManyAndReturnArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityActivationTracePayload>[]
+            args: Prisma.AcceptedIdentityFactCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AcceptedIdentityFactPayload>[]
           }
           delete: {
-            args: Prisma.IdentityActivationTraceDeleteArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityActivationTracePayload>
+            args: Prisma.AcceptedIdentityFactDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AcceptedIdentityFactPayload>
           }
           update: {
-            args: Prisma.IdentityActivationTraceUpdateArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityActivationTracePayload>
+            args: Prisma.AcceptedIdentityFactUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AcceptedIdentityFactPayload>
           }
           deleteMany: {
-            args: Prisma.IdentityActivationTraceDeleteManyArgs<ExtArgs>
+            args: Prisma.AcceptedIdentityFactDeleteManyArgs<ExtArgs>
             result: BatchPayload
           }
           updateMany: {
-            args: Prisma.IdentityActivationTraceUpdateManyArgs<ExtArgs>
+            args: Prisma.AcceptedIdentityFactUpdateManyArgs<ExtArgs>
             result: BatchPayload
           }
           updateManyAndReturn: {
-            args: Prisma.IdentityActivationTraceUpdateManyAndReturnArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityActivationTracePayload>[]
+            args: Prisma.AcceptedIdentityFactUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AcceptedIdentityFactPayload>[]
           }
           upsert: {
-            args: Prisma.IdentityActivationTraceUpsertArgs<ExtArgs>
-            result: $Utils.PayloadToResult<Prisma.$IdentityActivationTracePayload>
+            args: Prisma.AcceptedIdentityFactUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AcceptedIdentityFactPayload>
           }
           aggregate: {
-            args: Prisma.IdentityActivationTraceAggregateArgs<ExtArgs>
-            result: $Utils.Optional<AggregateIdentityActivationTrace>
+            args: Prisma.AcceptedIdentityFactAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAcceptedIdentityFact>
           }
           groupBy: {
-            args: Prisma.IdentityActivationTraceGroupByArgs<ExtArgs>
-            result: $Utils.Optional<IdentityActivationTraceGroupByOutputType>[]
+            args: Prisma.AcceptedIdentityFactGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AcceptedIdentityFactGroupByOutputType>[]
           }
           count: {
-            args: Prisma.IdentityActivationTraceCountArgs<ExtArgs>
-            result: $Utils.Optional<IdentityActivationTraceCountAggregateOutputType> | number
+            args: Prisma.AcceptedIdentityFactCountArgs<ExtArgs>
+            result: $Utils.Optional<AcceptedIdentityFactCountAggregateOutputType> | number
+          }
+        }
+      }
+      RuntimeIdentityActivationTrace: {
+        payload: Prisma.$RuntimeIdentityActivationTracePayload<ExtArgs>
+        fields: Prisma.RuntimeIdentityActivationTraceFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.RuntimeIdentityActivationTraceFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RuntimeIdentityActivationTracePayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.RuntimeIdentityActivationTraceFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RuntimeIdentityActivationTracePayload>
+          }
+          findFirst: {
+            args: Prisma.RuntimeIdentityActivationTraceFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RuntimeIdentityActivationTracePayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.RuntimeIdentityActivationTraceFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RuntimeIdentityActivationTracePayload>
+          }
+          findMany: {
+            args: Prisma.RuntimeIdentityActivationTraceFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RuntimeIdentityActivationTracePayload>[]
+          }
+          create: {
+            args: Prisma.RuntimeIdentityActivationTraceCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RuntimeIdentityActivationTracePayload>
+          }
+          createMany: {
+            args: Prisma.RuntimeIdentityActivationTraceCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.RuntimeIdentityActivationTraceCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RuntimeIdentityActivationTracePayload>[]
+          }
+          delete: {
+            args: Prisma.RuntimeIdentityActivationTraceDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RuntimeIdentityActivationTracePayload>
+          }
+          update: {
+            args: Prisma.RuntimeIdentityActivationTraceUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RuntimeIdentityActivationTracePayload>
+          }
+          deleteMany: {
+            args: Prisma.RuntimeIdentityActivationTraceDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.RuntimeIdentityActivationTraceUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.RuntimeIdentityActivationTraceUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RuntimeIdentityActivationTracePayload>[]
+          }
+          upsert: {
+            args: Prisma.RuntimeIdentityActivationTraceUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$RuntimeIdentityActivationTracePayload>
+          }
+          aggregate: {
+            args: Prisma.RuntimeIdentityActivationTraceAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateRuntimeIdentityActivationTrace>
+          }
+          groupBy: {
+            args: Prisma.RuntimeIdentityActivationTraceGroupByArgs<ExtArgs>
+            result: $Utils.Optional<RuntimeIdentityActivationTraceGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.RuntimeIdentityActivationTraceCountArgs<ExtArgs>
+            result: $Utils.Optional<RuntimeIdentityActivationTraceCountAggregateOutputType> | number
           }
         }
       }
@@ -3137,9 +3227,10 @@ export namespace Prisma {
     agentFeedbackLearningState?: AgentFeedbackLearningStateOmit
     xiaoniIdentityRoot?: XiaoniIdentityRootOmit
     identityLineageEvent?: IdentityLineageEventOmit
-    identityChangeJournal?: IdentityChangeJournalOmit
+    identityChangeCandidate?: IdentityChangeCandidateOmit
     identityEvidenceRef?: IdentityEvidenceRefOmit
-    identityActivationTrace?: IdentityActivationTraceOmit
+    acceptedIdentityFact?: AcceptedIdentityFactOmit
+    runtimeIdentityActivationTrace?: RuntimeIdentityActivationTraceOmit
     chatSpaceTopic?: ChatSpaceTopicOmit
     topicProjectionJob?: TopicProjectionJobOmit
     topicProjectionVersion?: TopicProjectionVersionOmit
@@ -22720,7 +22811,8 @@ export namespace Prisma {
     previous_event_id: number | null
     parent_event_id: number | null
     fork_point_event_id: number | null
-    change_journal_id: number | null
+    change_candidate_id: number | null
+    accepted_fact_id: number | null
   }
 
   export type IdentityLineageEventSumAggregateOutputType = {
@@ -22728,7 +22820,8 @@ export namespace Prisma {
     previous_event_id: bigint | null
     parent_event_id: bigint | null
     fork_point_event_id: bigint | null
-    change_journal_id: bigint | null
+    change_candidate_id: bigint | null
+    accepted_fact_id: bigint | null
   }
 
   export type IdentityLineageEventMinAggregateOutputType = {
@@ -22742,7 +22835,8 @@ export namespace Prisma {
     parent_event_id: bigint | null
     forked_from_identity_key: string | null
     fork_point_event_id: bigint | null
-    change_journal_id: bigint | null
+    change_candidate_id: bigint | null
+    accepted_fact_id: bigint | null
     integrity_status: string | null
     occurred_at: Date | null
     created_at: Date | null
@@ -22759,7 +22853,8 @@ export namespace Prisma {
     parent_event_id: bigint | null
     forked_from_identity_key: string | null
     fork_point_event_id: bigint | null
-    change_journal_id: bigint | null
+    change_candidate_id: bigint | null
+    accepted_fact_id: bigint | null
     integrity_status: string | null
     occurred_at: Date | null
     created_at: Date | null
@@ -22776,7 +22871,8 @@ export namespace Prisma {
     parent_event_id: number
     forked_from_identity_key: number
     fork_point_event_id: number
-    change_journal_id: number
+    change_candidate_id: number
+    accepted_fact_id: number
     integrity_status: number
     metadata: number
     occurred_at: number
@@ -22790,7 +22886,8 @@ export namespace Prisma {
     previous_event_id?: true
     parent_event_id?: true
     fork_point_event_id?: true
-    change_journal_id?: true
+    change_candidate_id?: true
+    accepted_fact_id?: true
   }
 
   export type IdentityLineageEventSumAggregateInputType = {
@@ -22798,7 +22895,8 @@ export namespace Prisma {
     previous_event_id?: true
     parent_event_id?: true
     fork_point_event_id?: true
-    change_journal_id?: true
+    change_candidate_id?: true
+    accepted_fact_id?: true
   }
 
   export type IdentityLineageEventMinAggregateInputType = {
@@ -22812,7 +22910,8 @@ export namespace Prisma {
     parent_event_id?: true
     forked_from_identity_key?: true
     fork_point_event_id?: true
-    change_journal_id?: true
+    change_candidate_id?: true
+    accepted_fact_id?: true
     integrity_status?: true
     occurred_at?: true
     created_at?: true
@@ -22829,7 +22928,8 @@ export namespace Prisma {
     parent_event_id?: true
     forked_from_identity_key?: true
     fork_point_event_id?: true
-    change_journal_id?: true
+    change_candidate_id?: true
+    accepted_fact_id?: true
     integrity_status?: true
     occurred_at?: true
     created_at?: true
@@ -22846,7 +22946,8 @@ export namespace Prisma {
     parent_event_id?: true
     forked_from_identity_key?: true
     fork_point_event_id?: true
-    change_journal_id?: true
+    change_candidate_id?: true
+    accepted_fact_id?: true
     integrity_status?: true
     metadata?: true
     occurred_at?: true
@@ -22951,7 +23052,8 @@ export namespace Prisma {
     parent_event_id: bigint | null
     forked_from_identity_key: string | null
     fork_point_event_id: bigint | null
-    change_journal_id: bigint | null
+    change_candidate_id: bigint | null
+    accepted_fact_id: bigint | null
     integrity_status: string
     metadata: JsonValue | null
     occurred_at: Date | null
@@ -22988,7 +23090,8 @@ export namespace Prisma {
     parent_event_id?: boolean
     forked_from_identity_key?: boolean
     fork_point_event_id?: boolean
-    change_journal_id?: boolean
+    change_candidate_id?: boolean
+    accepted_fact_id?: boolean
     integrity_status?: boolean
     metadata?: boolean
     occurred_at?: boolean
@@ -23006,7 +23109,8 @@ export namespace Prisma {
     parent_event_id?: boolean
     forked_from_identity_key?: boolean
     fork_point_event_id?: boolean
-    change_journal_id?: boolean
+    change_candidate_id?: boolean
+    accepted_fact_id?: boolean
     integrity_status?: boolean
     metadata?: boolean
     occurred_at?: boolean
@@ -23024,7 +23128,8 @@ export namespace Prisma {
     parent_event_id?: boolean
     forked_from_identity_key?: boolean
     fork_point_event_id?: boolean
-    change_journal_id?: boolean
+    change_candidate_id?: boolean
+    accepted_fact_id?: boolean
     integrity_status?: boolean
     metadata?: boolean
     occurred_at?: boolean
@@ -23042,14 +23147,15 @@ export namespace Prisma {
     parent_event_id?: boolean
     forked_from_identity_key?: boolean
     fork_point_event_id?: boolean
-    change_journal_id?: boolean
+    change_candidate_id?: boolean
+    accepted_fact_id?: boolean
     integrity_status?: boolean
     metadata?: boolean
     occurred_at?: boolean
     created_at?: boolean
   }
 
-  export type IdentityLineageEventOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "event_type" | "source_type" | "source_id" | "summary_text" | "previous_event_id" | "parent_event_id" | "forked_from_identity_key" | "fork_point_event_id" | "change_journal_id" | "integrity_status" | "metadata" | "occurred_at" | "created_at", ExtArgs["result"]["identityLineageEvent"]>
+  export type IdentityLineageEventOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "event_type" | "source_type" | "source_id" | "summary_text" | "previous_event_id" | "parent_event_id" | "forked_from_identity_key" | "fork_point_event_id" | "change_candidate_id" | "accepted_fact_id" | "integrity_status" | "metadata" | "occurred_at" | "created_at", ExtArgs["result"]["identityLineageEvent"]>
 
   export type $IdentityLineageEventPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "IdentityLineageEvent"
@@ -23065,7 +23171,8 @@ export namespace Prisma {
       parent_event_id: bigint | null
       forked_from_identity_key: string | null
       fork_point_event_id: bigint | null
-      change_journal_id: bigint | null
+      change_candidate_id: bigint | null
+      accepted_fact_id: bigint | null
       integrity_status: string
       metadata: Prisma.JsonValue | null
       occurred_at: Date | null
@@ -23503,7 +23610,8 @@ export namespace Prisma {
     readonly parent_event_id: FieldRef<"IdentityLineageEvent", 'BigInt'>
     readonly forked_from_identity_key: FieldRef<"IdentityLineageEvent", 'String'>
     readonly fork_point_event_id: FieldRef<"IdentityLineageEvent", 'BigInt'>
-    readonly change_journal_id: FieldRef<"IdentityLineageEvent", 'BigInt'>
+    readonly change_candidate_id: FieldRef<"IdentityLineageEvent", 'BigInt'>
+    readonly accepted_fact_id: FieldRef<"IdentityLineageEvent", 'BigInt'>
     readonly integrity_status: FieldRef<"IdentityLineageEvent", 'String'>
     readonly metadata: FieldRef<"IdentityLineageEvent", 'Json'>
     readonly occurred_at: FieldRef<"IdentityLineageEvent", 'DateTime'>
@@ -23875,450 +23983,562 @@ export namespace Prisma {
 
 
   /**
-   * Model IdentityChangeJournal
+   * Model IdentityChangeCandidate
    */
 
-  export type AggregateIdentityChangeJournal = {
-    _count: IdentityChangeJournalCountAggregateOutputType | null
-    _avg: IdentityChangeJournalAvgAggregateOutputType | null
-    _sum: IdentityChangeJournalSumAggregateOutputType | null
-    _min: IdentityChangeJournalMinAggregateOutputType | null
-    _max: IdentityChangeJournalMaxAggregateOutputType | null
+  export type AggregateIdentityChangeCandidate = {
+    _count: IdentityChangeCandidateCountAggregateOutputType | null
+    _avg: IdentityChangeCandidateAvgAggregateOutputType | null
+    _sum: IdentityChangeCandidateSumAggregateOutputType | null
+    _min: IdentityChangeCandidateMinAggregateOutputType | null
+    _max: IdentityChangeCandidateMaxAggregateOutputType | null
   }
 
-  export type IdentityChangeJournalAvgAggregateOutputType = {
+  export type IdentityChangeCandidateAvgAggregateOutputType = {
     id: number | null
+    supersedes_fact_id: number | null
   }
 
-  export type IdentityChangeJournalSumAggregateOutputType = {
+  export type IdentityChangeCandidateSumAggregateOutputType = {
     id: bigint | null
+    supersedes_fact_id: bigint | null
   }
 
-  export type IdentityChangeJournalMinAggregateOutputType = {
+  export type IdentityChangeCandidateMinAggregateOutputType = {
     id: bigint | null
     identity_key: string | null
-    change_type: string | null
+    candidate_type: string | null
     proposed_by: string | null
     proposed_from: string | null
+    claim_text: string | null
     before_summary: string | null
     after_summary: string | null
-    integrity_status: string | null
-    reason: string | null
+    status: string | null
+    judge_status: string | null
+    judge_reason: string | null
+    judge_run_id: string | null
+    judge_llm_call_id: string | null
+    quarantine_group_key: string | null
+    supersedes_fact_id: bigint | null
+    legacy_source_table: string | null
+    legacy_source_id: string | null
+    judged_at: Date | null
     created_at: Date | null
     updated_at: Date | null
   }
 
-  export type IdentityChangeJournalMaxAggregateOutputType = {
+  export type IdentityChangeCandidateMaxAggregateOutputType = {
     id: bigint | null
     identity_key: string | null
-    change_type: string | null
+    candidate_type: string | null
     proposed_by: string | null
     proposed_from: string | null
+    claim_text: string | null
     before_summary: string | null
     after_summary: string | null
-    integrity_status: string | null
-    reason: string | null
+    status: string | null
+    judge_status: string | null
+    judge_reason: string | null
+    judge_run_id: string | null
+    judge_llm_call_id: string | null
+    quarantine_group_key: string | null
+    supersedes_fact_id: bigint | null
+    legacy_source_table: string | null
+    legacy_source_id: string | null
+    judged_at: Date | null
     created_at: Date | null
     updated_at: Date | null
   }
 
-  export type IdentityChangeJournalCountAggregateOutputType = {
+  export type IdentityChangeCandidateCountAggregateOutputType = {
     id: number
     identity_key: number
-    change_type: number
+    candidate_type: number
     proposed_by: number
     proposed_from: number
+    claim_text: number
     before_summary: number
     after_summary: number
-    integrity_status: number
-    reason: number
+    status: number
+    judge_status: number
+    judge_reason: number
+    judge_run_id: number
+    judge_llm_call_id: number
+    quarantine_group_key: number
+    supersedes_fact_id: number
+    legacy_source_table: number
+    legacy_source_id: number
     metadata: number
+    judged_at: number
     created_at: number
     updated_at: number
     _all: number
   }
 
 
-  export type IdentityChangeJournalAvgAggregateInputType = {
+  export type IdentityChangeCandidateAvgAggregateInputType = {
     id?: true
+    supersedes_fact_id?: true
   }
 
-  export type IdentityChangeJournalSumAggregateInputType = {
+  export type IdentityChangeCandidateSumAggregateInputType = {
     id?: true
+    supersedes_fact_id?: true
   }
 
-  export type IdentityChangeJournalMinAggregateInputType = {
+  export type IdentityChangeCandidateMinAggregateInputType = {
     id?: true
     identity_key?: true
-    change_type?: true
+    candidate_type?: true
     proposed_by?: true
     proposed_from?: true
+    claim_text?: true
     before_summary?: true
     after_summary?: true
-    integrity_status?: true
-    reason?: true
+    status?: true
+    judge_status?: true
+    judge_reason?: true
+    judge_run_id?: true
+    judge_llm_call_id?: true
+    quarantine_group_key?: true
+    supersedes_fact_id?: true
+    legacy_source_table?: true
+    legacy_source_id?: true
+    judged_at?: true
     created_at?: true
     updated_at?: true
   }
 
-  export type IdentityChangeJournalMaxAggregateInputType = {
+  export type IdentityChangeCandidateMaxAggregateInputType = {
     id?: true
     identity_key?: true
-    change_type?: true
+    candidate_type?: true
     proposed_by?: true
     proposed_from?: true
+    claim_text?: true
     before_summary?: true
     after_summary?: true
-    integrity_status?: true
-    reason?: true
+    status?: true
+    judge_status?: true
+    judge_reason?: true
+    judge_run_id?: true
+    judge_llm_call_id?: true
+    quarantine_group_key?: true
+    supersedes_fact_id?: true
+    legacy_source_table?: true
+    legacy_source_id?: true
+    judged_at?: true
     created_at?: true
     updated_at?: true
   }
 
-  export type IdentityChangeJournalCountAggregateInputType = {
+  export type IdentityChangeCandidateCountAggregateInputType = {
     id?: true
     identity_key?: true
-    change_type?: true
+    candidate_type?: true
     proposed_by?: true
     proposed_from?: true
+    claim_text?: true
     before_summary?: true
     after_summary?: true
-    integrity_status?: true
-    reason?: true
+    status?: true
+    judge_status?: true
+    judge_reason?: true
+    judge_run_id?: true
+    judge_llm_call_id?: true
+    quarantine_group_key?: true
+    supersedes_fact_id?: true
+    legacy_source_table?: true
+    legacy_source_id?: true
     metadata?: true
+    judged_at?: true
     created_at?: true
     updated_at?: true
     _all?: true
   }
 
-  export type IdentityChangeJournalAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Filter which IdentityChangeJournal to aggregate.
+     * Filter which IdentityChangeCandidate to aggregate.
      */
-    where?: IdentityChangeJournalWhereInput
+    where?: IdentityChangeCandidateWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of IdentityChangeJournals to fetch.
+     * Determine the order of IdentityChangeCandidates to fetch.
      */
-    orderBy?: IdentityChangeJournalOrderByWithRelationInput | IdentityChangeJournalOrderByWithRelationInput[]
+    orderBy?: IdentityChangeCandidateOrderByWithRelationInput | IdentityChangeCandidateOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
      * Sets the start position
      */
-    cursor?: IdentityChangeJournalWhereUniqueInput
+    cursor?: IdentityChangeCandidateWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` IdentityChangeJournals from the position of the cursor.
+     * Take `±n` IdentityChangeCandidates from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` IdentityChangeJournals.
+     * Skip the first `n` IdentityChangeCandidates.
      */
     skip?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
-     * Count returned IdentityChangeJournals
+     * Count returned IdentityChangeCandidates
     **/
-    _count?: true | IdentityChangeJournalCountAggregateInputType
+    _count?: true | IdentityChangeCandidateCountAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to average
     **/
-    _avg?: IdentityChangeJournalAvgAggregateInputType
+    _avg?: IdentityChangeCandidateAvgAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to sum
     **/
-    _sum?: IdentityChangeJournalSumAggregateInputType
+    _sum?: IdentityChangeCandidateSumAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to find the minimum value
     **/
-    _min?: IdentityChangeJournalMinAggregateInputType
+    _min?: IdentityChangeCandidateMinAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to find the maximum value
     **/
-    _max?: IdentityChangeJournalMaxAggregateInputType
+    _max?: IdentityChangeCandidateMaxAggregateInputType
   }
 
-  export type GetIdentityChangeJournalAggregateType<T extends IdentityChangeJournalAggregateArgs> = {
-        [P in keyof T & keyof AggregateIdentityChangeJournal]: P extends '_count' | 'count'
+  export type GetIdentityChangeCandidateAggregateType<T extends IdentityChangeCandidateAggregateArgs> = {
+        [P in keyof T & keyof AggregateIdentityChangeCandidate]: P extends '_count' | 'count'
       ? T[P] extends true
         ? number
-        : GetScalarType<T[P], AggregateIdentityChangeJournal[P]>
-      : GetScalarType<T[P], AggregateIdentityChangeJournal[P]>
+        : GetScalarType<T[P], AggregateIdentityChangeCandidate[P]>
+      : GetScalarType<T[P], AggregateIdentityChangeCandidate[P]>
   }
 
 
 
 
-  export type IdentityChangeJournalGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
-    where?: IdentityChangeJournalWhereInput
-    orderBy?: IdentityChangeJournalOrderByWithAggregationInput | IdentityChangeJournalOrderByWithAggregationInput[]
-    by: IdentityChangeJournalScalarFieldEnum[] | IdentityChangeJournalScalarFieldEnum
-    having?: IdentityChangeJournalScalarWhereWithAggregatesInput
+  export type IdentityChangeCandidateGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: IdentityChangeCandidateWhereInput
+    orderBy?: IdentityChangeCandidateOrderByWithAggregationInput | IdentityChangeCandidateOrderByWithAggregationInput[]
+    by: IdentityChangeCandidateScalarFieldEnum[] | IdentityChangeCandidateScalarFieldEnum
+    having?: IdentityChangeCandidateScalarWhereWithAggregatesInput
     take?: number
     skip?: number
-    _count?: IdentityChangeJournalCountAggregateInputType | true
-    _avg?: IdentityChangeJournalAvgAggregateInputType
-    _sum?: IdentityChangeJournalSumAggregateInputType
-    _min?: IdentityChangeJournalMinAggregateInputType
-    _max?: IdentityChangeJournalMaxAggregateInputType
+    _count?: IdentityChangeCandidateCountAggregateInputType | true
+    _avg?: IdentityChangeCandidateAvgAggregateInputType
+    _sum?: IdentityChangeCandidateSumAggregateInputType
+    _min?: IdentityChangeCandidateMinAggregateInputType
+    _max?: IdentityChangeCandidateMaxAggregateInputType
   }
 
-  export type IdentityChangeJournalGroupByOutputType = {
+  export type IdentityChangeCandidateGroupByOutputType = {
     id: bigint
     identity_key: string
-    change_type: string
+    candidate_type: string
     proposed_by: string | null
     proposed_from: string | null
+    claim_text: string
     before_summary: string | null
-    after_summary: string
-    integrity_status: string
-    reason: string | null
+    after_summary: string | null
+    status: string
+    judge_status: string
+    judge_reason: string | null
+    judge_run_id: string | null
+    judge_llm_call_id: string | null
+    quarantine_group_key: string | null
+    supersedes_fact_id: bigint | null
+    legacy_source_table: string | null
+    legacy_source_id: string | null
     metadata: JsonValue | null
+    judged_at: Date | null
     created_at: Date
     updated_at: Date
-    _count: IdentityChangeJournalCountAggregateOutputType | null
-    _avg: IdentityChangeJournalAvgAggregateOutputType | null
-    _sum: IdentityChangeJournalSumAggregateOutputType | null
-    _min: IdentityChangeJournalMinAggregateOutputType | null
-    _max: IdentityChangeJournalMaxAggregateOutputType | null
+    _count: IdentityChangeCandidateCountAggregateOutputType | null
+    _avg: IdentityChangeCandidateAvgAggregateOutputType | null
+    _sum: IdentityChangeCandidateSumAggregateOutputType | null
+    _min: IdentityChangeCandidateMinAggregateOutputType | null
+    _max: IdentityChangeCandidateMaxAggregateOutputType | null
   }
 
-  type GetIdentityChangeJournalGroupByPayload<T extends IdentityChangeJournalGroupByArgs> = Prisma.PrismaPromise<
+  type GetIdentityChangeCandidateGroupByPayload<T extends IdentityChangeCandidateGroupByArgs> = Prisma.PrismaPromise<
     Array<
-      PickEnumerable<IdentityChangeJournalGroupByOutputType, T['by']> &
+      PickEnumerable<IdentityChangeCandidateGroupByOutputType, T['by']> &
         {
-          [P in ((keyof T) & (keyof IdentityChangeJournalGroupByOutputType))]: P extends '_count'
+          [P in ((keyof T) & (keyof IdentityChangeCandidateGroupByOutputType))]: P extends '_count'
             ? T[P] extends boolean
               ? number
-              : GetScalarType<T[P], IdentityChangeJournalGroupByOutputType[P]>
-            : GetScalarType<T[P], IdentityChangeJournalGroupByOutputType[P]>
+              : GetScalarType<T[P], IdentityChangeCandidateGroupByOutputType[P]>
+            : GetScalarType<T[P], IdentityChangeCandidateGroupByOutputType[P]>
         }
       >
     >
 
 
-  export type IdentityChangeJournalSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+  export type IdentityChangeCandidateSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     identity_key?: boolean
-    change_type?: boolean
+    candidate_type?: boolean
     proposed_by?: boolean
     proposed_from?: boolean
+    claim_text?: boolean
     before_summary?: boolean
     after_summary?: boolean
-    integrity_status?: boolean
-    reason?: boolean
+    status?: boolean
+    judge_status?: boolean
+    judge_reason?: boolean
+    judge_run_id?: boolean
+    judge_llm_call_id?: boolean
+    quarantine_group_key?: boolean
+    supersedes_fact_id?: boolean
+    legacy_source_table?: boolean
+    legacy_source_id?: boolean
     metadata?: boolean
+    judged_at?: boolean
     created_at?: boolean
     updated_at?: boolean
-  }, ExtArgs["result"]["identityChangeJournal"]>
+  }, ExtArgs["result"]["identityChangeCandidate"]>
 
-  export type IdentityChangeJournalSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+  export type IdentityChangeCandidateSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     identity_key?: boolean
-    change_type?: boolean
+    candidate_type?: boolean
     proposed_by?: boolean
     proposed_from?: boolean
+    claim_text?: boolean
     before_summary?: boolean
     after_summary?: boolean
-    integrity_status?: boolean
-    reason?: boolean
+    status?: boolean
+    judge_status?: boolean
+    judge_reason?: boolean
+    judge_run_id?: boolean
+    judge_llm_call_id?: boolean
+    quarantine_group_key?: boolean
+    supersedes_fact_id?: boolean
+    legacy_source_table?: boolean
+    legacy_source_id?: boolean
     metadata?: boolean
+    judged_at?: boolean
     created_at?: boolean
     updated_at?: boolean
-  }, ExtArgs["result"]["identityChangeJournal"]>
+  }, ExtArgs["result"]["identityChangeCandidate"]>
 
-  export type IdentityChangeJournalSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+  export type IdentityChangeCandidateSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     identity_key?: boolean
-    change_type?: boolean
+    candidate_type?: boolean
     proposed_by?: boolean
     proposed_from?: boolean
+    claim_text?: boolean
     before_summary?: boolean
     after_summary?: boolean
-    integrity_status?: boolean
-    reason?: boolean
+    status?: boolean
+    judge_status?: boolean
+    judge_reason?: boolean
+    judge_run_id?: boolean
+    judge_llm_call_id?: boolean
+    quarantine_group_key?: boolean
+    supersedes_fact_id?: boolean
+    legacy_source_table?: boolean
+    legacy_source_id?: boolean
     metadata?: boolean
+    judged_at?: boolean
     created_at?: boolean
     updated_at?: boolean
-  }, ExtArgs["result"]["identityChangeJournal"]>
+  }, ExtArgs["result"]["identityChangeCandidate"]>
 
-  export type IdentityChangeJournalSelectScalar = {
+  export type IdentityChangeCandidateSelectScalar = {
     id?: boolean
     identity_key?: boolean
-    change_type?: boolean
+    candidate_type?: boolean
     proposed_by?: boolean
     proposed_from?: boolean
+    claim_text?: boolean
     before_summary?: boolean
     after_summary?: boolean
-    integrity_status?: boolean
-    reason?: boolean
+    status?: boolean
+    judge_status?: boolean
+    judge_reason?: boolean
+    judge_run_id?: boolean
+    judge_llm_call_id?: boolean
+    quarantine_group_key?: boolean
+    supersedes_fact_id?: boolean
+    legacy_source_table?: boolean
+    legacy_source_id?: boolean
     metadata?: boolean
+    judged_at?: boolean
     created_at?: boolean
     updated_at?: boolean
   }
 
-  export type IdentityChangeJournalOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "change_type" | "proposed_by" | "proposed_from" | "before_summary" | "after_summary" | "integrity_status" | "reason" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["identityChangeJournal"]>
+  export type IdentityChangeCandidateOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "candidate_type" | "proposed_by" | "proposed_from" | "claim_text" | "before_summary" | "after_summary" | "status" | "judge_status" | "judge_reason" | "judge_run_id" | "judge_llm_call_id" | "quarantine_group_key" | "supersedes_fact_id" | "legacy_source_table" | "legacy_source_id" | "metadata" | "judged_at" | "created_at" | "updated_at", ExtArgs["result"]["identityChangeCandidate"]>
 
-  export type $IdentityChangeJournalPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
-    name: "IdentityChangeJournal"
+  export type $IdentityChangeCandidatePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "IdentityChangeCandidate"
     objects: {}
     scalars: $Extensions.GetPayloadResult<{
       id: bigint
       identity_key: string
-      change_type: string
+      candidate_type: string
       proposed_by: string | null
       proposed_from: string | null
+      claim_text: string
       before_summary: string | null
-      after_summary: string
-      integrity_status: string
-      reason: string | null
+      after_summary: string | null
+      status: string
+      judge_status: string
+      judge_reason: string | null
+      judge_run_id: string | null
+      judge_llm_call_id: string | null
+      quarantine_group_key: string | null
+      supersedes_fact_id: bigint | null
+      legacy_source_table: string | null
+      legacy_source_id: string | null
       metadata: Prisma.JsonValue | null
+      judged_at: Date | null
       created_at: Date
       updated_at: Date
-    }, ExtArgs["result"]["identityChangeJournal"]>
+    }, ExtArgs["result"]["identityChangeCandidate"]>
     composites: {}
   }
 
-  type IdentityChangeJournalGetPayload<S extends boolean | null | undefined | IdentityChangeJournalDefaultArgs> = $Result.GetResult<Prisma.$IdentityChangeJournalPayload, S>
+  type IdentityChangeCandidateGetPayload<S extends boolean | null | undefined | IdentityChangeCandidateDefaultArgs> = $Result.GetResult<Prisma.$IdentityChangeCandidatePayload, S>
 
-  type IdentityChangeJournalCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
-    Omit<IdentityChangeJournalFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
-      select?: IdentityChangeJournalCountAggregateInputType | true
+  type IdentityChangeCandidateCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<IdentityChangeCandidateFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: IdentityChangeCandidateCountAggregateInputType | true
     }
 
-  export interface IdentityChangeJournalDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
-    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['IdentityChangeJournal'], meta: { name: 'IdentityChangeJournal' } }
+  export interface IdentityChangeCandidateDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['IdentityChangeCandidate'], meta: { name: 'IdentityChangeCandidate' } }
     /**
-     * Find zero or one IdentityChangeJournal that matches the filter.
-     * @param {IdentityChangeJournalFindUniqueArgs} args - Arguments to find a IdentityChangeJournal
+     * Find zero or one IdentityChangeCandidate that matches the filter.
+     * @param {IdentityChangeCandidateFindUniqueArgs} args - Arguments to find a IdentityChangeCandidate
      * @example
-     * // Get one IdentityChangeJournal
-     * const identityChangeJournal = await prisma.identityChangeJournal.findUnique({
+     * // Get one IdentityChangeCandidate
+     * const identityChangeCandidate = await prisma.identityChangeCandidate.findUnique({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findUnique<T extends IdentityChangeJournalFindUniqueArgs>(args: SelectSubset<T, IdentityChangeJournalFindUniqueArgs<ExtArgs>>): Prisma__IdentityChangeJournalClient<$Result.GetResult<Prisma.$IdentityChangeJournalPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+    findUnique<T extends IdentityChangeCandidateFindUniqueArgs>(args: SelectSubset<T, IdentityChangeCandidateFindUniqueArgs<ExtArgs>>): Prisma__IdentityChangeCandidateClient<$Result.GetResult<Prisma.$IdentityChangeCandidatePayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find one IdentityChangeJournal that matches the filter or throw an error with `error.code='P2025'`
+     * Find one IdentityChangeCandidate that matches the filter or throw an error with `error.code='P2025'`
      * if no matches were found.
-     * @param {IdentityChangeJournalFindUniqueOrThrowArgs} args - Arguments to find a IdentityChangeJournal
+     * @param {IdentityChangeCandidateFindUniqueOrThrowArgs} args - Arguments to find a IdentityChangeCandidate
      * @example
-     * // Get one IdentityChangeJournal
-     * const identityChangeJournal = await prisma.identityChangeJournal.findUniqueOrThrow({
+     * // Get one IdentityChangeCandidate
+     * const identityChangeCandidate = await prisma.identityChangeCandidate.findUniqueOrThrow({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findUniqueOrThrow<T extends IdentityChangeJournalFindUniqueOrThrowArgs>(args: SelectSubset<T, IdentityChangeJournalFindUniqueOrThrowArgs<ExtArgs>>): Prisma__IdentityChangeJournalClient<$Result.GetResult<Prisma.$IdentityChangeJournalPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    findUniqueOrThrow<T extends IdentityChangeCandidateFindUniqueOrThrowArgs>(args: SelectSubset<T, IdentityChangeCandidateFindUniqueOrThrowArgs<ExtArgs>>): Prisma__IdentityChangeCandidateClient<$Result.GetResult<Prisma.$IdentityChangeCandidatePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find the first IdentityChangeJournal that matches the filter.
+     * Find the first IdentityChangeCandidate that matches the filter.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityChangeJournalFindFirstArgs} args - Arguments to find a IdentityChangeJournal
+     * @param {IdentityChangeCandidateFindFirstArgs} args - Arguments to find a IdentityChangeCandidate
      * @example
-     * // Get one IdentityChangeJournal
-     * const identityChangeJournal = await prisma.identityChangeJournal.findFirst({
+     * // Get one IdentityChangeCandidate
+     * const identityChangeCandidate = await prisma.identityChangeCandidate.findFirst({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findFirst<T extends IdentityChangeJournalFindFirstArgs>(args?: SelectSubset<T, IdentityChangeJournalFindFirstArgs<ExtArgs>>): Prisma__IdentityChangeJournalClient<$Result.GetResult<Prisma.$IdentityChangeJournalPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+    findFirst<T extends IdentityChangeCandidateFindFirstArgs>(args?: SelectSubset<T, IdentityChangeCandidateFindFirstArgs<ExtArgs>>): Prisma__IdentityChangeCandidateClient<$Result.GetResult<Prisma.$IdentityChangeCandidatePayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find the first IdentityChangeJournal that matches the filter or
+     * Find the first IdentityChangeCandidate that matches the filter or
      * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityChangeJournalFindFirstOrThrowArgs} args - Arguments to find a IdentityChangeJournal
+     * @param {IdentityChangeCandidateFindFirstOrThrowArgs} args - Arguments to find a IdentityChangeCandidate
      * @example
-     * // Get one IdentityChangeJournal
-     * const identityChangeJournal = await prisma.identityChangeJournal.findFirstOrThrow({
+     * // Get one IdentityChangeCandidate
+     * const identityChangeCandidate = await prisma.identityChangeCandidate.findFirstOrThrow({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findFirstOrThrow<T extends IdentityChangeJournalFindFirstOrThrowArgs>(args?: SelectSubset<T, IdentityChangeJournalFindFirstOrThrowArgs<ExtArgs>>): Prisma__IdentityChangeJournalClient<$Result.GetResult<Prisma.$IdentityChangeJournalPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    findFirstOrThrow<T extends IdentityChangeCandidateFindFirstOrThrowArgs>(args?: SelectSubset<T, IdentityChangeCandidateFindFirstOrThrowArgs<ExtArgs>>): Prisma__IdentityChangeCandidateClient<$Result.GetResult<Prisma.$IdentityChangeCandidatePayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find zero or more IdentityChangeJournals that matches the filter.
+     * Find zero or more IdentityChangeCandidates that matches the filter.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityChangeJournalFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @param {IdentityChangeCandidateFindManyArgs} args - Arguments to filter and select certain fields only.
      * @example
-     * // Get all IdentityChangeJournals
-     * const identityChangeJournals = await prisma.identityChangeJournal.findMany()
+     * // Get all IdentityChangeCandidates
+     * const identityChangeCandidates = await prisma.identityChangeCandidate.findMany()
      * 
-     * // Get first 10 IdentityChangeJournals
-     * const identityChangeJournals = await prisma.identityChangeJournal.findMany({ take: 10 })
+     * // Get first 10 IdentityChangeCandidates
+     * const identityChangeCandidates = await prisma.identityChangeCandidate.findMany({ take: 10 })
      * 
      * // Only select the `id`
-     * const identityChangeJournalWithIdOnly = await prisma.identityChangeJournal.findMany({ select: { id: true } })
+     * const identityChangeCandidateWithIdOnly = await prisma.identityChangeCandidate.findMany({ select: { id: true } })
      * 
      */
-    findMany<T extends IdentityChangeJournalFindManyArgs>(args?: SelectSubset<T, IdentityChangeJournalFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$IdentityChangeJournalPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+    findMany<T extends IdentityChangeCandidateFindManyArgs>(args?: SelectSubset<T, IdentityChangeCandidateFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$IdentityChangeCandidatePayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
 
     /**
-     * Create a IdentityChangeJournal.
-     * @param {IdentityChangeJournalCreateArgs} args - Arguments to create a IdentityChangeJournal.
+     * Create a IdentityChangeCandidate.
+     * @param {IdentityChangeCandidateCreateArgs} args - Arguments to create a IdentityChangeCandidate.
      * @example
-     * // Create one IdentityChangeJournal
-     * const IdentityChangeJournal = await prisma.identityChangeJournal.create({
+     * // Create one IdentityChangeCandidate
+     * const IdentityChangeCandidate = await prisma.identityChangeCandidate.create({
      *   data: {
-     *     // ... data to create a IdentityChangeJournal
+     *     // ... data to create a IdentityChangeCandidate
      *   }
      * })
      * 
      */
-    create<T extends IdentityChangeJournalCreateArgs>(args: SelectSubset<T, IdentityChangeJournalCreateArgs<ExtArgs>>): Prisma__IdentityChangeJournalClient<$Result.GetResult<Prisma.$IdentityChangeJournalPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    create<T extends IdentityChangeCandidateCreateArgs>(args: SelectSubset<T, IdentityChangeCandidateCreateArgs<ExtArgs>>): Prisma__IdentityChangeCandidateClient<$Result.GetResult<Prisma.$IdentityChangeCandidatePayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Create many IdentityChangeJournals.
-     * @param {IdentityChangeJournalCreateManyArgs} args - Arguments to create many IdentityChangeJournals.
+     * Create many IdentityChangeCandidates.
+     * @param {IdentityChangeCandidateCreateManyArgs} args - Arguments to create many IdentityChangeCandidates.
      * @example
-     * // Create many IdentityChangeJournals
-     * const identityChangeJournal = await prisma.identityChangeJournal.createMany({
+     * // Create many IdentityChangeCandidates
+     * const identityChangeCandidate = await prisma.identityChangeCandidate.createMany({
      *   data: [
      *     // ... provide data here
      *   ]
      * })
      *     
      */
-    createMany<T extends IdentityChangeJournalCreateManyArgs>(args?: SelectSubset<T, IdentityChangeJournalCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+    createMany<T extends IdentityChangeCandidateCreateManyArgs>(args?: SelectSubset<T, IdentityChangeCandidateCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
 
     /**
-     * Create many IdentityChangeJournals and returns the data saved in the database.
-     * @param {IdentityChangeJournalCreateManyAndReturnArgs} args - Arguments to create many IdentityChangeJournals.
+     * Create many IdentityChangeCandidates and returns the data saved in the database.
+     * @param {IdentityChangeCandidateCreateManyAndReturnArgs} args - Arguments to create many IdentityChangeCandidates.
      * @example
-     * // Create many IdentityChangeJournals
-     * const identityChangeJournal = await prisma.identityChangeJournal.createManyAndReturn({
+     * // Create many IdentityChangeCandidates
+     * const identityChangeCandidate = await prisma.identityChangeCandidate.createManyAndReturn({
      *   data: [
      *     // ... provide data here
      *   ]
      * })
      * 
-     * // Create many IdentityChangeJournals and only return the `id`
-     * const identityChangeJournalWithIdOnly = await prisma.identityChangeJournal.createManyAndReturn({
+     * // Create many IdentityChangeCandidates and only return the `id`
+     * const identityChangeCandidateWithIdOnly = await prisma.identityChangeCandidate.createManyAndReturn({
      *   select: { id: true },
      *   data: [
      *     // ... provide data here
@@ -24328,28 +24548,28 @@ export namespace Prisma {
      * Read more here: https://pris.ly/d/null-undefined
      * 
      */
-    createManyAndReturn<T extends IdentityChangeJournalCreateManyAndReturnArgs>(args?: SelectSubset<T, IdentityChangeJournalCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$IdentityChangeJournalPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+    createManyAndReturn<T extends IdentityChangeCandidateCreateManyAndReturnArgs>(args?: SelectSubset<T, IdentityChangeCandidateCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$IdentityChangeCandidatePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
 
     /**
-     * Delete a IdentityChangeJournal.
-     * @param {IdentityChangeJournalDeleteArgs} args - Arguments to delete one IdentityChangeJournal.
+     * Delete a IdentityChangeCandidate.
+     * @param {IdentityChangeCandidateDeleteArgs} args - Arguments to delete one IdentityChangeCandidate.
      * @example
-     * // Delete one IdentityChangeJournal
-     * const IdentityChangeJournal = await prisma.identityChangeJournal.delete({
+     * // Delete one IdentityChangeCandidate
+     * const IdentityChangeCandidate = await prisma.identityChangeCandidate.delete({
      *   where: {
-     *     // ... filter to delete one IdentityChangeJournal
+     *     // ... filter to delete one IdentityChangeCandidate
      *   }
      * })
      * 
      */
-    delete<T extends IdentityChangeJournalDeleteArgs>(args: SelectSubset<T, IdentityChangeJournalDeleteArgs<ExtArgs>>): Prisma__IdentityChangeJournalClient<$Result.GetResult<Prisma.$IdentityChangeJournalPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    delete<T extends IdentityChangeCandidateDeleteArgs>(args: SelectSubset<T, IdentityChangeCandidateDeleteArgs<ExtArgs>>): Prisma__IdentityChangeCandidateClient<$Result.GetResult<Prisma.$IdentityChangeCandidatePayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Update one IdentityChangeJournal.
-     * @param {IdentityChangeJournalUpdateArgs} args - Arguments to update one IdentityChangeJournal.
+     * Update one IdentityChangeCandidate.
+     * @param {IdentityChangeCandidateUpdateArgs} args - Arguments to update one IdentityChangeCandidate.
      * @example
-     * // Update one IdentityChangeJournal
-     * const identityChangeJournal = await prisma.identityChangeJournal.update({
+     * // Update one IdentityChangeCandidate
+     * const identityChangeCandidate = await prisma.identityChangeCandidate.update({
      *   where: {
      *     // ... provide filter here
      *   },
@@ -24359,30 +24579,30 @@ export namespace Prisma {
      * })
      * 
      */
-    update<T extends IdentityChangeJournalUpdateArgs>(args: SelectSubset<T, IdentityChangeJournalUpdateArgs<ExtArgs>>): Prisma__IdentityChangeJournalClient<$Result.GetResult<Prisma.$IdentityChangeJournalPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    update<T extends IdentityChangeCandidateUpdateArgs>(args: SelectSubset<T, IdentityChangeCandidateUpdateArgs<ExtArgs>>): Prisma__IdentityChangeCandidateClient<$Result.GetResult<Prisma.$IdentityChangeCandidatePayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Delete zero or more IdentityChangeJournals.
-     * @param {IdentityChangeJournalDeleteManyArgs} args - Arguments to filter IdentityChangeJournals to delete.
+     * Delete zero or more IdentityChangeCandidates.
+     * @param {IdentityChangeCandidateDeleteManyArgs} args - Arguments to filter IdentityChangeCandidates to delete.
      * @example
-     * // Delete a few IdentityChangeJournals
-     * const { count } = await prisma.identityChangeJournal.deleteMany({
+     * // Delete a few IdentityChangeCandidates
+     * const { count } = await prisma.identityChangeCandidate.deleteMany({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      * 
      */
-    deleteMany<T extends IdentityChangeJournalDeleteManyArgs>(args?: SelectSubset<T, IdentityChangeJournalDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+    deleteMany<T extends IdentityChangeCandidateDeleteManyArgs>(args?: SelectSubset<T, IdentityChangeCandidateDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
 
     /**
-     * Update zero or more IdentityChangeJournals.
+     * Update zero or more IdentityChangeCandidates.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityChangeJournalUpdateManyArgs} args - Arguments to update one or more rows.
+     * @param {IdentityChangeCandidateUpdateManyArgs} args - Arguments to update one or more rows.
      * @example
-     * // Update many IdentityChangeJournals
-     * const identityChangeJournal = await prisma.identityChangeJournal.updateMany({
+     * // Update many IdentityChangeCandidates
+     * const identityChangeCandidate = await prisma.identityChangeCandidate.updateMany({
      *   where: {
      *     // ... provide filter here
      *   },
@@ -24392,14 +24612,14 @@ export namespace Prisma {
      * })
      * 
      */
-    updateMany<T extends IdentityChangeJournalUpdateManyArgs>(args: SelectSubset<T, IdentityChangeJournalUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+    updateMany<T extends IdentityChangeCandidateUpdateManyArgs>(args: SelectSubset<T, IdentityChangeCandidateUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
 
     /**
-     * Update zero or more IdentityChangeJournals and returns the data updated in the database.
-     * @param {IdentityChangeJournalUpdateManyAndReturnArgs} args - Arguments to update many IdentityChangeJournals.
+     * Update zero or more IdentityChangeCandidates and returns the data updated in the database.
+     * @param {IdentityChangeCandidateUpdateManyAndReturnArgs} args - Arguments to update many IdentityChangeCandidates.
      * @example
-     * // Update many IdentityChangeJournals
-     * const identityChangeJournal = await prisma.identityChangeJournal.updateManyAndReturn({
+     * // Update many IdentityChangeCandidates
+     * const identityChangeCandidate = await prisma.identityChangeCandidate.updateManyAndReturn({
      *   where: {
      *     // ... provide filter here
      *   },
@@ -24408,8 +24628,8 @@ export namespace Prisma {
      *   ]
      * })
      * 
-     * // Update zero or more IdentityChangeJournals and only return the `id`
-     * const identityChangeJournalWithIdOnly = await prisma.identityChangeJournal.updateManyAndReturn({
+     * // Update zero or more IdentityChangeCandidates and only return the `id`
+     * const identityChangeCandidateWithIdOnly = await prisma.identityChangeCandidate.updateManyAndReturn({
      *   select: { id: true },
      *   where: {
      *     // ... provide filter here
@@ -24422,56 +24642,56 @@ export namespace Prisma {
      * Read more here: https://pris.ly/d/null-undefined
      * 
      */
-    updateManyAndReturn<T extends IdentityChangeJournalUpdateManyAndReturnArgs>(args: SelectSubset<T, IdentityChangeJournalUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$IdentityChangeJournalPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+    updateManyAndReturn<T extends IdentityChangeCandidateUpdateManyAndReturnArgs>(args: SelectSubset<T, IdentityChangeCandidateUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$IdentityChangeCandidatePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
     /**
-     * Create or update one IdentityChangeJournal.
-     * @param {IdentityChangeJournalUpsertArgs} args - Arguments to update or create a IdentityChangeJournal.
+     * Create or update one IdentityChangeCandidate.
+     * @param {IdentityChangeCandidateUpsertArgs} args - Arguments to update or create a IdentityChangeCandidate.
      * @example
-     * // Update or create a IdentityChangeJournal
-     * const identityChangeJournal = await prisma.identityChangeJournal.upsert({
+     * // Update or create a IdentityChangeCandidate
+     * const identityChangeCandidate = await prisma.identityChangeCandidate.upsert({
      *   create: {
-     *     // ... data to create a IdentityChangeJournal
+     *     // ... data to create a IdentityChangeCandidate
      *   },
      *   update: {
      *     // ... in case it already exists, update
      *   },
      *   where: {
-     *     // ... the filter for the IdentityChangeJournal we want to update
+     *     // ... the filter for the IdentityChangeCandidate we want to update
      *   }
      * })
      */
-    upsert<T extends IdentityChangeJournalUpsertArgs>(args: SelectSubset<T, IdentityChangeJournalUpsertArgs<ExtArgs>>): Prisma__IdentityChangeJournalClient<$Result.GetResult<Prisma.$IdentityChangeJournalPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    upsert<T extends IdentityChangeCandidateUpsertArgs>(args: SelectSubset<T, IdentityChangeCandidateUpsertArgs<ExtArgs>>): Prisma__IdentityChangeCandidateClient<$Result.GetResult<Prisma.$IdentityChangeCandidatePayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
 
     /**
-     * Count the number of IdentityChangeJournals.
+     * Count the number of IdentityChangeCandidates.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityChangeJournalCountArgs} args - Arguments to filter IdentityChangeJournals to count.
+     * @param {IdentityChangeCandidateCountArgs} args - Arguments to filter IdentityChangeCandidates to count.
      * @example
-     * // Count the number of IdentityChangeJournals
-     * const count = await prisma.identityChangeJournal.count({
+     * // Count the number of IdentityChangeCandidates
+     * const count = await prisma.identityChangeCandidate.count({
      *   where: {
-     *     // ... the filter for the IdentityChangeJournals we want to count
+     *     // ... the filter for the IdentityChangeCandidates we want to count
      *   }
      * })
     **/
-    count<T extends IdentityChangeJournalCountArgs>(
-      args?: Subset<T, IdentityChangeJournalCountArgs>,
+    count<T extends IdentityChangeCandidateCountArgs>(
+      args?: Subset<T, IdentityChangeCandidateCountArgs>,
     ): Prisma.PrismaPromise<
       T extends $Utils.Record<'select', any>
         ? T['select'] extends true
           ? number
-          : GetScalarType<T['select'], IdentityChangeJournalCountAggregateOutputType>
+          : GetScalarType<T['select'], IdentityChangeCandidateCountAggregateOutputType>
         : number
     >
 
     /**
-     * Allows you to perform aggregations operations on a IdentityChangeJournal.
+     * Allows you to perform aggregations operations on a IdentityChangeCandidate.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityChangeJournalAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @param {IdentityChangeCandidateAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
      * @example
      * // Ordered by age ascending
      * // Where email contains prisma.io
@@ -24491,13 +24711,13 @@ export namespace Prisma {
      *   take: 10,
      * })
     **/
-    aggregate<T extends IdentityChangeJournalAggregateArgs>(args: Subset<T, IdentityChangeJournalAggregateArgs>): Prisma.PrismaPromise<GetIdentityChangeJournalAggregateType<T>>
+    aggregate<T extends IdentityChangeCandidateAggregateArgs>(args: Subset<T, IdentityChangeCandidateAggregateArgs>): Prisma.PrismaPromise<GetIdentityChangeCandidateAggregateType<T>>
 
     /**
-     * Group by IdentityChangeJournal.
+     * Group by IdentityChangeCandidate.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityChangeJournalGroupByArgs} args - Group by arguments.
+     * @param {IdentityChangeCandidateGroupByArgs} args - Group by arguments.
      * @example
      * // Group by city, order by createdAt, get count
      * const result = await prisma.user.groupBy({
@@ -24512,14 +24732,14 @@ export namespace Prisma {
      * 
     **/
     groupBy<
-      T extends IdentityChangeJournalGroupByArgs,
+      T extends IdentityChangeCandidateGroupByArgs,
       HasSelectOrTake extends Or<
         Extends<'skip', Keys<T>>,
         Extends<'take', Keys<T>>
       >,
       OrderByArg extends True extends HasSelectOrTake
-        ? { orderBy: IdentityChangeJournalGroupByArgs['orderBy'] }
-        : { orderBy?: IdentityChangeJournalGroupByArgs['orderBy'] },
+        ? { orderBy: IdentityChangeCandidateGroupByArgs['orderBy'] }
+        : { orderBy?: IdentityChangeCandidateGroupByArgs['orderBy'] },
       OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
       ByFields extends MaybeTupleToUnion<T['by']>,
       ByValid extends Has<ByFields, OrderFields>,
@@ -24568,20 +24788,20 @@ export namespace Prisma {
             ? never
             : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
         }[OrderFields]
-    >(args: SubsetIntersection<T, IdentityChangeJournalGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetIdentityChangeJournalGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+    >(args: SubsetIntersection<T, IdentityChangeCandidateGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetIdentityChangeCandidateGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
   /**
-   * Fields of the IdentityChangeJournal model
+   * Fields of the IdentityChangeCandidate model
    */
-  readonly fields: IdentityChangeJournalFieldRefs;
+  readonly fields: IdentityChangeCandidateFieldRefs;
   }
 
   /**
-   * The delegate class that acts as a "Promise-like" for IdentityChangeJournal.
+   * The delegate class that acts as a "Promise-like" for IdentityChangeCandidate.
    * Why is this prefixed with `Prisma__`?
    * Because we want to prevent naming conflicts as mentioned in
    * https://github.com/prisma/prisma-client-js/issues/707
    */
-  export interface Prisma__IdentityChangeJournalClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+  export interface Prisma__IdentityChangeCandidateClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
     readonly [Symbol.toStringTag]: "PrismaPromise"
     /**
      * Attaches callbacks for the resolution and/or rejection of the Promise.
@@ -24609,384 +24829,393 @@ export namespace Prisma {
 
 
   /**
-   * Fields of the IdentityChangeJournal model
+   * Fields of the IdentityChangeCandidate model
    */
-  interface IdentityChangeJournalFieldRefs {
-    readonly id: FieldRef<"IdentityChangeJournal", 'BigInt'>
-    readonly identity_key: FieldRef<"IdentityChangeJournal", 'String'>
-    readonly change_type: FieldRef<"IdentityChangeJournal", 'String'>
-    readonly proposed_by: FieldRef<"IdentityChangeJournal", 'String'>
-    readonly proposed_from: FieldRef<"IdentityChangeJournal", 'String'>
-    readonly before_summary: FieldRef<"IdentityChangeJournal", 'String'>
-    readonly after_summary: FieldRef<"IdentityChangeJournal", 'String'>
-    readonly integrity_status: FieldRef<"IdentityChangeJournal", 'String'>
-    readonly reason: FieldRef<"IdentityChangeJournal", 'String'>
-    readonly metadata: FieldRef<"IdentityChangeJournal", 'Json'>
-    readonly created_at: FieldRef<"IdentityChangeJournal", 'DateTime'>
-    readonly updated_at: FieldRef<"IdentityChangeJournal", 'DateTime'>
+  interface IdentityChangeCandidateFieldRefs {
+    readonly id: FieldRef<"IdentityChangeCandidate", 'BigInt'>
+    readonly identity_key: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly candidate_type: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly proposed_by: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly proposed_from: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly claim_text: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly before_summary: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly after_summary: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly status: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly judge_status: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly judge_reason: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly judge_run_id: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly judge_llm_call_id: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly quarantine_group_key: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly supersedes_fact_id: FieldRef<"IdentityChangeCandidate", 'BigInt'>
+    readonly legacy_source_table: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly legacy_source_id: FieldRef<"IdentityChangeCandidate", 'String'>
+    readonly metadata: FieldRef<"IdentityChangeCandidate", 'Json'>
+    readonly judged_at: FieldRef<"IdentityChangeCandidate", 'DateTime'>
+    readonly created_at: FieldRef<"IdentityChangeCandidate", 'DateTime'>
+    readonly updated_at: FieldRef<"IdentityChangeCandidate", 'DateTime'>
   }
     
 
   // Custom InputTypes
   /**
-   * IdentityChangeJournal findUnique
+   * IdentityChangeCandidate findUnique
    */
-  export type IdentityChangeJournalFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityChangeJournal
+     * Select specific fields to fetch from the IdentityChangeCandidate
      */
-    select?: IdentityChangeJournalSelect<ExtArgs> | null
+    select?: IdentityChangeCandidateSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityChangeJournal
+     * Omit specific fields from the IdentityChangeCandidate
      */
-    omit?: IdentityChangeJournalOmit<ExtArgs> | null
+    omit?: IdentityChangeCandidateOmit<ExtArgs> | null
     /**
-     * Filter, which IdentityChangeJournal to fetch.
+     * Filter, which IdentityChangeCandidate to fetch.
      */
-    where: IdentityChangeJournalWhereUniqueInput
+    where: IdentityChangeCandidateWhereUniqueInput
   }
 
   /**
-   * IdentityChangeJournal findUniqueOrThrow
+   * IdentityChangeCandidate findUniqueOrThrow
    */
-  export type IdentityChangeJournalFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityChangeJournal
+     * Select specific fields to fetch from the IdentityChangeCandidate
      */
-    select?: IdentityChangeJournalSelect<ExtArgs> | null
+    select?: IdentityChangeCandidateSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityChangeJournal
+     * Omit specific fields from the IdentityChangeCandidate
      */
-    omit?: IdentityChangeJournalOmit<ExtArgs> | null
+    omit?: IdentityChangeCandidateOmit<ExtArgs> | null
     /**
-     * Filter, which IdentityChangeJournal to fetch.
+     * Filter, which IdentityChangeCandidate to fetch.
      */
-    where: IdentityChangeJournalWhereUniqueInput
+    where: IdentityChangeCandidateWhereUniqueInput
   }
 
   /**
-   * IdentityChangeJournal findFirst
+   * IdentityChangeCandidate findFirst
    */
-  export type IdentityChangeJournalFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityChangeJournal
+     * Select specific fields to fetch from the IdentityChangeCandidate
      */
-    select?: IdentityChangeJournalSelect<ExtArgs> | null
+    select?: IdentityChangeCandidateSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityChangeJournal
+     * Omit specific fields from the IdentityChangeCandidate
      */
-    omit?: IdentityChangeJournalOmit<ExtArgs> | null
+    omit?: IdentityChangeCandidateOmit<ExtArgs> | null
     /**
-     * Filter, which IdentityChangeJournal to fetch.
+     * Filter, which IdentityChangeCandidate to fetch.
      */
-    where?: IdentityChangeJournalWhereInput
+    where?: IdentityChangeCandidateWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of IdentityChangeJournals to fetch.
+     * Determine the order of IdentityChangeCandidates to fetch.
      */
-    orderBy?: IdentityChangeJournalOrderByWithRelationInput | IdentityChangeJournalOrderByWithRelationInput[]
+    orderBy?: IdentityChangeCandidateOrderByWithRelationInput | IdentityChangeCandidateOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
-     * Sets the position for searching for IdentityChangeJournals.
+     * Sets the position for searching for IdentityChangeCandidates.
      */
-    cursor?: IdentityChangeJournalWhereUniqueInput
+    cursor?: IdentityChangeCandidateWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` IdentityChangeJournals from the position of the cursor.
+     * Take `±n` IdentityChangeCandidates from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` IdentityChangeJournals.
+     * Skip the first `n` IdentityChangeCandidates.
      */
     skip?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
      * 
-     * Filter by unique combinations of IdentityChangeJournals.
+     * Filter by unique combinations of IdentityChangeCandidates.
      */
-    distinct?: IdentityChangeJournalScalarFieldEnum | IdentityChangeJournalScalarFieldEnum[]
+    distinct?: IdentityChangeCandidateScalarFieldEnum | IdentityChangeCandidateScalarFieldEnum[]
   }
 
   /**
-   * IdentityChangeJournal findFirstOrThrow
+   * IdentityChangeCandidate findFirstOrThrow
    */
-  export type IdentityChangeJournalFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityChangeJournal
+     * Select specific fields to fetch from the IdentityChangeCandidate
      */
-    select?: IdentityChangeJournalSelect<ExtArgs> | null
+    select?: IdentityChangeCandidateSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityChangeJournal
+     * Omit specific fields from the IdentityChangeCandidate
      */
-    omit?: IdentityChangeJournalOmit<ExtArgs> | null
+    omit?: IdentityChangeCandidateOmit<ExtArgs> | null
     /**
-     * Filter, which IdentityChangeJournal to fetch.
+     * Filter, which IdentityChangeCandidate to fetch.
      */
-    where?: IdentityChangeJournalWhereInput
+    where?: IdentityChangeCandidateWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of IdentityChangeJournals to fetch.
+     * Determine the order of IdentityChangeCandidates to fetch.
      */
-    orderBy?: IdentityChangeJournalOrderByWithRelationInput | IdentityChangeJournalOrderByWithRelationInput[]
+    orderBy?: IdentityChangeCandidateOrderByWithRelationInput | IdentityChangeCandidateOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
-     * Sets the position for searching for IdentityChangeJournals.
+     * Sets the position for searching for IdentityChangeCandidates.
      */
-    cursor?: IdentityChangeJournalWhereUniqueInput
+    cursor?: IdentityChangeCandidateWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` IdentityChangeJournals from the position of the cursor.
+     * Take `±n` IdentityChangeCandidates from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` IdentityChangeJournals.
+     * Skip the first `n` IdentityChangeCandidates.
      */
     skip?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
      * 
-     * Filter by unique combinations of IdentityChangeJournals.
+     * Filter by unique combinations of IdentityChangeCandidates.
      */
-    distinct?: IdentityChangeJournalScalarFieldEnum | IdentityChangeJournalScalarFieldEnum[]
+    distinct?: IdentityChangeCandidateScalarFieldEnum | IdentityChangeCandidateScalarFieldEnum[]
   }
 
   /**
-   * IdentityChangeJournal findMany
+   * IdentityChangeCandidate findMany
    */
-  export type IdentityChangeJournalFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityChangeJournal
+     * Select specific fields to fetch from the IdentityChangeCandidate
      */
-    select?: IdentityChangeJournalSelect<ExtArgs> | null
+    select?: IdentityChangeCandidateSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityChangeJournal
+     * Omit specific fields from the IdentityChangeCandidate
      */
-    omit?: IdentityChangeJournalOmit<ExtArgs> | null
+    omit?: IdentityChangeCandidateOmit<ExtArgs> | null
     /**
-     * Filter, which IdentityChangeJournals to fetch.
+     * Filter, which IdentityChangeCandidates to fetch.
      */
-    where?: IdentityChangeJournalWhereInput
+    where?: IdentityChangeCandidateWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of IdentityChangeJournals to fetch.
+     * Determine the order of IdentityChangeCandidates to fetch.
      */
-    orderBy?: IdentityChangeJournalOrderByWithRelationInput | IdentityChangeJournalOrderByWithRelationInput[]
+    orderBy?: IdentityChangeCandidateOrderByWithRelationInput | IdentityChangeCandidateOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
-     * Sets the position for listing IdentityChangeJournals.
+     * Sets the position for listing IdentityChangeCandidates.
      */
-    cursor?: IdentityChangeJournalWhereUniqueInput
+    cursor?: IdentityChangeCandidateWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` IdentityChangeJournals from the position of the cursor.
+     * Take `±n` IdentityChangeCandidates from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` IdentityChangeJournals.
+     * Skip the first `n` IdentityChangeCandidates.
      */
     skip?: number
-    distinct?: IdentityChangeJournalScalarFieldEnum | IdentityChangeJournalScalarFieldEnum[]
+    distinct?: IdentityChangeCandidateScalarFieldEnum | IdentityChangeCandidateScalarFieldEnum[]
   }
 
   /**
-   * IdentityChangeJournal create
+   * IdentityChangeCandidate create
    */
-  export type IdentityChangeJournalCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityChangeJournal
+     * Select specific fields to fetch from the IdentityChangeCandidate
      */
-    select?: IdentityChangeJournalSelect<ExtArgs> | null
+    select?: IdentityChangeCandidateSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityChangeJournal
+     * Omit specific fields from the IdentityChangeCandidate
      */
-    omit?: IdentityChangeJournalOmit<ExtArgs> | null
+    omit?: IdentityChangeCandidateOmit<ExtArgs> | null
     /**
-     * The data needed to create a IdentityChangeJournal.
+     * The data needed to create a IdentityChangeCandidate.
      */
-    data: XOR<IdentityChangeJournalCreateInput, IdentityChangeJournalUncheckedCreateInput>
+    data: XOR<IdentityChangeCandidateCreateInput, IdentityChangeCandidateUncheckedCreateInput>
   }
 
   /**
-   * IdentityChangeJournal createMany
+   * IdentityChangeCandidate createMany
    */
-  export type IdentityChangeJournalCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * The data used to create many IdentityChangeJournals.
+     * The data used to create many IdentityChangeCandidates.
      */
-    data: IdentityChangeJournalCreateManyInput | IdentityChangeJournalCreateManyInput[]
+    data: IdentityChangeCandidateCreateManyInput | IdentityChangeCandidateCreateManyInput[]
     skipDuplicates?: boolean
   }
 
   /**
-   * IdentityChangeJournal createManyAndReturn
+   * IdentityChangeCandidate createManyAndReturn
    */
-  export type IdentityChangeJournalCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityChangeJournal
+     * Select specific fields to fetch from the IdentityChangeCandidate
      */
-    select?: IdentityChangeJournalSelectCreateManyAndReturn<ExtArgs> | null
+    select?: IdentityChangeCandidateSelectCreateManyAndReturn<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityChangeJournal
+     * Omit specific fields from the IdentityChangeCandidate
      */
-    omit?: IdentityChangeJournalOmit<ExtArgs> | null
+    omit?: IdentityChangeCandidateOmit<ExtArgs> | null
     /**
-     * The data used to create many IdentityChangeJournals.
+     * The data used to create many IdentityChangeCandidates.
      */
-    data: IdentityChangeJournalCreateManyInput | IdentityChangeJournalCreateManyInput[]
+    data: IdentityChangeCandidateCreateManyInput | IdentityChangeCandidateCreateManyInput[]
     skipDuplicates?: boolean
   }
 
   /**
-   * IdentityChangeJournal update
+   * IdentityChangeCandidate update
    */
-  export type IdentityChangeJournalUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityChangeJournal
+     * Select specific fields to fetch from the IdentityChangeCandidate
      */
-    select?: IdentityChangeJournalSelect<ExtArgs> | null
+    select?: IdentityChangeCandidateSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityChangeJournal
+     * Omit specific fields from the IdentityChangeCandidate
      */
-    omit?: IdentityChangeJournalOmit<ExtArgs> | null
+    omit?: IdentityChangeCandidateOmit<ExtArgs> | null
     /**
-     * The data needed to update a IdentityChangeJournal.
+     * The data needed to update a IdentityChangeCandidate.
      */
-    data: XOR<IdentityChangeJournalUpdateInput, IdentityChangeJournalUncheckedUpdateInput>
+    data: XOR<IdentityChangeCandidateUpdateInput, IdentityChangeCandidateUncheckedUpdateInput>
     /**
-     * Choose, which IdentityChangeJournal to update.
+     * Choose, which IdentityChangeCandidate to update.
      */
-    where: IdentityChangeJournalWhereUniqueInput
+    where: IdentityChangeCandidateWhereUniqueInput
   }
 
   /**
-   * IdentityChangeJournal updateMany
+   * IdentityChangeCandidate updateMany
    */
-  export type IdentityChangeJournalUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * The data used to update IdentityChangeJournals.
+     * The data used to update IdentityChangeCandidates.
      */
-    data: XOR<IdentityChangeJournalUpdateManyMutationInput, IdentityChangeJournalUncheckedUpdateManyInput>
+    data: XOR<IdentityChangeCandidateUpdateManyMutationInput, IdentityChangeCandidateUncheckedUpdateManyInput>
     /**
-     * Filter which IdentityChangeJournals to update
+     * Filter which IdentityChangeCandidates to update
      */
-    where?: IdentityChangeJournalWhereInput
+    where?: IdentityChangeCandidateWhereInput
     /**
-     * Limit how many IdentityChangeJournals to update.
+     * Limit how many IdentityChangeCandidates to update.
      */
     limit?: number
   }
 
   /**
-   * IdentityChangeJournal updateManyAndReturn
+   * IdentityChangeCandidate updateManyAndReturn
    */
-  export type IdentityChangeJournalUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityChangeJournal
+     * Select specific fields to fetch from the IdentityChangeCandidate
      */
-    select?: IdentityChangeJournalSelectUpdateManyAndReturn<ExtArgs> | null
+    select?: IdentityChangeCandidateSelectUpdateManyAndReturn<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityChangeJournal
+     * Omit specific fields from the IdentityChangeCandidate
      */
-    omit?: IdentityChangeJournalOmit<ExtArgs> | null
+    omit?: IdentityChangeCandidateOmit<ExtArgs> | null
     /**
-     * The data used to update IdentityChangeJournals.
+     * The data used to update IdentityChangeCandidates.
      */
-    data: XOR<IdentityChangeJournalUpdateManyMutationInput, IdentityChangeJournalUncheckedUpdateManyInput>
+    data: XOR<IdentityChangeCandidateUpdateManyMutationInput, IdentityChangeCandidateUncheckedUpdateManyInput>
     /**
-     * Filter which IdentityChangeJournals to update
+     * Filter which IdentityChangeCandidates to update
      */
-    where?: IdentityChangeJournalWhereInput
+    where?: IdentityChangeCandidateWhereInput
     /**
-     * Limit how many IdentityChangeJournals to update.
+     * Limit how many IdentityChangeCandidates to update.
      */
     limit?: number
   }
 
   /**
-   * IdentityChangeJournal upsert
+   * IdentityChangeCandidate upsert
    */
-  export type IdentityChangeJournalUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityChangeJournal
+     * Select specific fields to fetch from the IdentityChangeCandidate
      */
-    select?: IdentityChangeJournalSelect<ExtArgs> | null
+    select?: IdentityChangeCandidateSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityChangeJournal
+     * Omit specific fields from the IdentityChangeCandidate
      */
-    omit?: IdentityChangeJournalOmit<ExtArgs> | null
+    omit?: IdentityChangeCandidateOmit<ExtArgs> | null
     /**
-     * The filter to search for the IdentityChangeJournal to update in case it exists.
+     * The filter to search for the IdentityChangeCandidate to update in case it exists.
      */
-    where: IdentityChangeJournalWhereUniqueInput
+    where: IdentityChangeCandidateWhereUniqueInput
     /**
-     * In case the IdentityChangeJournal found by the `where` argument doesn't exist, create a new IdentityChangeJournal with this data.
+     * In case the IdentityChangeCandidate found by the `where` argument doesn't exist, create a new IdentityChangeCandidate with this data.
      */
-    create: XOR<IdentityChangeJournalCreateInput, IdentityChangeJournalUncheckedCreateInput>
+    create: XOR<IdentityChangeCandidateCreateInput, IdentityChangeCandidateUncheckedCreateInput>
     /**
-     * In case the IdentityChangeJournal was found with the provided `where` argument, update it with this data.
+     * In case the IdentityChangeCandidate was found with the provided `where` argument, update it with this data.
      */
-    update: XOR<IdentityChangeJournalUpdateInput, IdentityChangeJournalUncheckedUpdateInput>
+    update: XOR<IdentityChangeCandidateUpdateInput, IdentityChangeCandidateUncheckedUpdateInput>
   }
 
   /**
-   * IdentityChangeJournal delete
+   * IdentityChangeCandidate delete
    */
-  export type IdentityChangeJournalDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityChangeJournal
+     * Select specific fields to fetch from the IdentityChangeCandidate
      */
-    select?: IdentityChangeJournalSelect<ExtArgs> | null
+    select?: IdentityChangeCandidateSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityChangeJournal
+     * Omit specific fields from the IdentityChangeCandidate
      */
-    omit?: IdentityChangeJournalOmit<ExtArgs> | null
+    omit?: IdentityChangeCandidateOmit<ExtArgs> | null
     /**
-     * Filter which IdentityChangeJournal to delete.
+     * Filter which IdentityChangeCandidate to delete.
      */
-    where: IdentityChangeJournalWhereUniqueInput
+    where: IdentityChangeCandidateWhereUniqueInput
   }
 
   /**
-   * IdentityChangeJournal deleteMany
+   * IdentityChangeCandidate deleteMany
    */
-  export type IdentityChangeJournalDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Filter which IdentityChangeJournals to delete
+     * Filter which IdentityChangeCandidates to delete
      */
-    where?: IdentityChangeJournalWhereInput
+    where?: IdentityChangeCandidateWhereInput
     /**
-     * Limit how many IdentityChangeJournals to delete.
+     * Limit how many IdentityChangeCandidates to delete.
      */
     limit?: number
   }
 
   /**
-   * IdentityChangeJournal without action
+   * IdentityChangeCandidate without action
    */
-  export type IdentityChangeJournalDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type IdentityChangeCandidateDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityChangeJournal
+     * Select specific fields to fetch from the IdentityChangeCandidate
      */
-    select?: IdentityChangeJournalSelect<ExtArgs> | null
+    select?: IdentityChangeCandidateSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityChangeJournal
+     * Omit specific fields from the IdentityChangeCandidate
      */
-    omit?: IdentityChangeJournalOmit<ExtArgs> | null
+    omit?: IdentityChangeCandidateOmit<ExtArgs> | null
   }
 
 
@@ -25005,14 +25234,16 @@ export namespace Prisma {
   export type IdentityEvidenceRefAvgAggregateOutputType = {
     id: number | null
     identity_event_id: number | null
-    change_journal_id: number | null
+    change_candidate_id: number | null
+    accepted_fact_id: number | null
     conversation_id: number | null
   }
 
   export type IdentityEvidenceRefSumAggregateOutputType = {
     id: bigint | null
     identity_event_id: bigint | null
-    change_journal_id: bigint | null
+    change_candidate_id: bigint | null
+    accepted_fact_id: bigint | null
     conversation_id: bigint | null
   }
 
@@ -25020,7 +25251,8 @@ export namespace Prisma {
     id: bigint | null
     identity_key: string | null
     identity_event_id: bigint | null
-    change_journal_id: bigint | null
+    change_candidate_id: bigint | null
+    accepted_fact_id: bigint | null
     source_type: string | null
     source_id: string | null
     trace_id: string | null
@@ -25035,7 +25267,8 @@ export namespace Prisma {
     id: bigint | null
     identity_key: string | null
     identity_event_id: bigint | null
-    change_journal_id: bigint | null
+    change_candidate_id: bigint | null
+    accepted_fact_id: bigint | null
     source_type: string | null
     source_id: string | null
     trace_id: string | null
@@ -25050,7 +25283,8 @@ export namespace Prisma {
     id: number
     identity_key: number
     identity_event_id: number
-    change_journal_id: number
+    change_candidate_id: number
+    accepted_fact_id: number
     source_type: number
     source_id: number
     trace_id: number
@@ -25067,14 +25301,16 @@ export namespace Prisma {
   export type IdentityEvidenceRefAvgAggregateInputType = {
     id?: true
     identity_event_id?: true
-    change_journal_id?: true
+    change_candidate_id?: true
+    accepted_fact_id?: true
     conversation_id?: true
   }
 
   export type IdentityEvidenceRefSumAggregateInputType = {
     id?: true
     identity_event_id?: true
-    change_journal_id?: true
+    change_candidate_id?: true
+    accepted_fact_id?: true
     conversation_id?: true
   }
 
@@ -25082,7 +25318,8 @@ export namespace Prisma {
     id?: true
     identity_key?: true
     identity_event_id?: true
-    change_journal_id?: true
+    change_candidate_id?: true
+    accepted_fact_id?: true
     source_type?: true
     source_id?: true
     trace_id?: true
@@ -25097,7 +25334,8 @@ export namespace Prisma {
     id?: true
     identity_key?: true
     identity_event_id?: true
-    change_journal_id?: true
+    change_candidate_id?: true
+    accepted_fact_id?: true
     source_type?: true
     source_id?: true
     trace_id?: true
@@ -25112,7 +25350,8 @@ export namespace Prisma {
     id?: true
     identity_key?: true
     identity_event_id?: true
-    change_journal_id?: true
+    change_candidate_id?: true
+    accepted_fact_id?: true
     source_type?: true
     source_id?: true
     trace_id?: true
@@ -25215,7 +25454,8 @@ export namespace Prisma {
     id: bigint
     identity_key: string
     identity_event_id: bigint | null
-    change_journal_id: bigint | null
+    change_candidate_id: bigint | null
+    accepted_fact_id: bigint | null
     source_type: string
     source_id: string
     trace_id: string | null
@@ -25250,7 +25490,8 @@ export namespace Prisma {
     id?: boolean
     identity_key?: boolean
     identity_event_id?: boolean
-    change_journal_id?: boolean
+    change_candidate_id?: boolean
+    accepted_fact_id?: boolean
     source_type?: boolean
     source_id?: boolean
     trace_id?: boolean
@@ -25266,7 +25507,8 @@ export namespace Prisma {
     id?: boolean
     identity_key?: boolean
     identity_event_id?: boolean
-    change_journal_id?: boolean
+    change_candidate_id?: boolean
+    accepted_fact_id?: boolean
     source_type?: boolean
     source_id?: boolean
     trace_id?: boolean
@@ -25282,7 +25524,8 @@ export namespace Prisma {
     id?: boolean
     identity_key?: boolean
     identity_event_id?: boolean
-    change_journal_id?: boolean
+    change_candidate_id?: boolean
+    accepted_fact_id?: boolean
     source_type?: boolean
     source_id?: boolean
     trace_id?: boolean
@@ -25298,7 +25541,8 @@ export namespace Prisma {
     id?: boolean
     identity_key?: boolean
     identity_event_id?: boolean
-    change_journal_id?: boolean
+    change_candidate_id?: boolean
+    accepted_fact_id?: boolean
     source_type?: boolean
     source_id?: boolean
     trace_id?: boolean
@@ -25310,7 +25554,7 @@ export namespace Prisma {
     created_at?: boolean
   }
 
-  export type IdentityEvidenceRefOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "identity_event_id" | "change_journal_id" | "source_type" | "source_id" | "trace_id" | "run_id" | "conversation_id" | "redaction_status" | "confidence" | "metadata" | "created_at", ExtArgs["result"]["identityEvidenceRef"]>
+  export type IdentityEvidenceRefOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "identity_event_id" | "change_candidate_id" | "accepted_fact_id" | "source_type" | "source_id" | "trace_id" | "run_id" | "conversation_id" | "redaction_status" | "confidence" | "metadata" | "created_at", ExtArgs["result"]["identityEvidenceRef"]>
 
   export type $IdentityEvidenceRefPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "IdentityEvidenceRef"
@@ -25319,7 +25563,8 @@ export namespace Prisma {
       id: bigint
       identity_key: string
       identity_event_id: bigint | null
-      change_journal_id: bigint | null
+      change_candidate_id: bigint | null
+      accepted_fact_id: bigint | null
       source_type: string
       source_id: string
       trace_id: string | null
@@ -25755,7 +26000,8 @@ export namespace Prisma {
     readonly id: FieldRef<"IdentityEvidenceRef", 'BigInt'>
     readonly identity_key: FieldRef<"IdentityEvidenceRef", 'String'>
     readonly identity_event_id: FieldRef<"IdentityEvidenceRef", 'BigInt'>
-    readonly change_journal_id: FieldRef<"IdentityEvidenceRef", 'BigInt'>
+    readonly change_candidate_id: FieldRef<"IdentityEvidenceRef", 'BigInt'>
+    readonly accepted_fact_id: FieldRef<"IdentityEvidenceRef", 'BigInt'>
     readonly source_type: FieldRef<"IdentityEvidenceRef", 'String'>
     readonly source_id: FieldRef<"IdentityEvidenceRef", 'String'>
     readonly trace_id: FieldRef<"IdentityEvidenceRef", 'String'>
@@ -26132,458 +26378,498 @@ export namespace Prisma {
 
 
   /**
-   * Model IdentityActivationTrace
+   * Model AcceptedIdentityFact
    */
 
-  export type AggregateIdentityActivationTrace = {
-    _count: IdentityActivationTraceCountAggregateOutputType | null
-    _avg: IdentityActivationTraceAvgAggregateOutputType | null
-    _sum: IdentityActivationTraceSumAggregateOutputType | null
-    _min: IdentityActivationTraceMinAggregateOutputType | null
-    _max: IdentityActivationTraceMaxAggregateOutputType | null
+  export type AggregateAcceptedIdentityFact = {
+    _count: AcceptedIdentityFactCountAggregateOutputType | null
+    _avg: AcceptedIdentityFactAvgAggregateOutputType | null
+    _sum: AcceptedIdentityFactSumAggregateOutputType | null
+    _min: AcceptedIdentityFactMinAggregateOutputType | null
+    _max: AcceptedIdentityFactMaxAggregateOutputType | null
   }
 
-  export type IdentityActivationTraceAvgAggregateOutputType = {
+  export type AcceptedIdentityFactAvgAggregateOutputType = {
     id: number | null
-    conversation_id: number | null
+    source_candidate_id: number | null
+    source_event_id: number | null
+    supersedes_fact_id: number | null
+    revoked_by_event_id: number | null
   }
 
-  export type IdentityActivationTraceSumAggregateOutputType = {
+  export type AcceptedIdentityFactSumAggregateOutputType = {
     id: bigint | null
-    conversation_id: bigint | null
+    source_candidate_id: bigint | null
+    source_event_id: bigint | null
+    supersedes_fact_id: bigint | null
+    revoked_by_event_id: bigint | null
   }
 
-  export type IdentityActivationTraceMinAggregateOutputType = {
-    id: bigint | null
-    identity_key: string | null
-    run_id: string | null
-    trace_id: string | null
-    conversation_id: bigint | null
-    scene_fingerprint: string | null
-    cue_summary: string | null
-    selected_skill_ref: string | null
-    activation_reason: string | null
-    created_at: Date | null
-  }
-
-  export type IdentityActivationTraceMaxAggregateOutputType = {
+  export type AcceptedIdentityFactMinAggregateOutputType = {
     id: bigint | null
     identity_key: string | null
-    run_id: string | null
-    trace_id: string | null
-    conversation_id: bigint | null
-    scene_fingerprint: string | null
-    cue_summary: string | null
-    selected_skill_ref: string | null
-    activation_reason: string | null
-    created_at: Date | null
+    fact_key: string | null
+    fact_text: string | null
+    fact_type: string | null
+    source_candidate_id: bigint | null
+    source_event_id: bigint | null
+    status: string | null
+    supersedes_fact_id: bigint | null
+    revoked_by_event_id: bigint | null
+    confidence: string | null
+    accepted_at: Date | null
+    updated_at: Date | null
   }
 
-  export type IdentityActivationTraceCountAggregateOutputType = {
+  export type AcceptedIdentityFactMaxAggregateOutputType = {
+    id: bigint | null
+    identity_key: string | null
+    fact_key: string | null
+    fact_text: string | null
+    fact_type: string | null
+    source_candidate_id: bigint | null
+    source_event_id: bigint | null
+    status: string | null
+    supersedes_fact_id: bigint | null
+    revoked_by_event_id: bigint | null
+    confidence: string | null
+    accepted_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AcceptedIdentityFactCountAggregateOutputType = {
     id: number
     identity_key: number
-    run_id: number
-    trace_id: number
-    conversation_id: number
-    scene_fingerprint: number
-    cue_summary: number
-    activated_refs: number
-    suppressed_refs: number
-    selected_skill_ref: number
-    activation_reason: number
+    fact_key: number
+    fact_text: number
+    fact_type: number
+    source_candidate_id: number
+    source_event_id: number
+    status: number
+    supersedes_fact_id: number
+    revoked_by_event_id: number
+    confidence: number
+    activation_tags: number
     metadata: number
-    created_at: number
+    accepted_at: number
+    updated_at: number
     _all: number
   }
 
 
-  export type IdentityActivationTraceAvgAggregateInputType = {
+  export type AcceptedIdentityFactAvgAggregateInputType = {
     id?: true
-    conversation_id?: true
+    source_candidate_id?: true
+    source_event_id?: true
+    supersedes_fact_id?: true
+    revoked_by_event_id?: true
   }
 
-  export type IdentityActivationTraceSumAggregateInputType = {
+  export type AcceptedIdentityFactSumAggregateInputType = {
     id?: true
-    conversation_id?: true
+    source_candidate_id?: true
+    source_event_id?: true
+    supersedes_fact_id?: true
+    revoked_by_event_id?: true
   }
 
-  export type IdentityActivationTraceMinAggregateInputType = {
+  export type AcceptedIdentityFactMinAggregateInputType = {
     id?: true
     identity_key?: true
-    run_id?: true
-    trace_id?: true
-    conversation_id?: true
-    scene_fingerprint?: true
-    cue_summary?: true
-    selected_skill_ref?: true
-    activation_reason?: true
-    created_at?: true
+    fact_key?: true
+    fact_text?: true
+    fact_type?: true
+    source_candidate_id?: true
+    source_event_id?: true
+    status?: true
+    supersedes_fact_id?: true
+    revoked_by_event_id?: true
+    confidence?: true
+    accepted_at?: true
+    updated_at?: true
   }
 
-  export type IdentityActivationTraceMaxAggregateInputType = {
+  export type AcceptedIdentityFactMaxAggregateInputType = {
     id?: true
     identity_key?: true
-    run_id?: true
-    trace_id?: true
-    conversation_id?: true
-    scene_fingerprint?: true
-    cue_summary?: true
-    selected_skill_ref?: true
-    activation_reason?: true
-    created_at?: true
+    fact_key?: true
+    fact_text?: true
+    fact_type?: true
+    source_candidate_id?: true
+    source_event_id?: true
+    status?: true
+    supersedes_fact_id?: true
+    revoked_by_event_id?: true
+    confidence?: true
+    accepted_at?: true
+    updated_at?: true
   }
 
-  export type IdentityActivationTraceCountAggregateInputType = {
+  export type AcceptedIdentityFactCountAggregateInputType = {
     id?: true
     identity_key?: true
-    run_id?: true
-    trace_id?: true
-    conversation_id?: true
-    scene_fingerprint?: true
-    cue_summary?: true
-    activated_refs?: true
-    suppressed_refs?: true
-    selected_skill_ref?: true
-    activation_reason?: true
+    fact_key?: true
+    fact_text?: true
+    fact_type?: true
+    source_candidate_id?: true
+    source_event_id?: true
+    status?: true
+    supersedes_fact_id?: true
+    revoked_by_event_id?: true
+    confidence?: true
+    activation_tags?: true
     metadata?: true
-    created_at?: true
+    accepted_at?: true
+    updated_at?: true
     _all?: true
   }
 
-  export type IdentityActivationTraceAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Filter which IdentityActivationTrace to aggregate.
+     * Filter which AcceptedIdentityFact to aggregate.
      */
-    where?: IdentityActivationTraceWhereInput
+    where?: AcceptedIdentityFactWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of IdentityActivationTraces to fetch.
+     * Determine the order of AcceptedIdentityFacts to fetch.
      */
-    orderBy?: IdentityActivationTraceOrderByWithRelationInput | IdentityActivationTraceOrderByWithRelationInput[]
+    orderBy?: AcceptedIdentityFactOrderByWithRelationInput | AcceptedIdentityFactOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
      * Sets the start position
      */
-    cursor?: IdentityActivationTraceWhereUniqueInput
+    cursor?: AcceptedIdentityFactWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` IdentityActivationTraces from the position of the cursor.
+     * Take `±n` AcceptedIdentityFacts from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` IdentityActivationTraces.
+     * Skip the first `n` AcceptedIdentityFacts.
      */
     skip?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
-     * Count returned IdentityActivationTraces
+     * Count returned AcceptedIdentityFacts
     **/
-    _count?: true | IdentityActivationTraceCountAggregateInputType
+    _count?: true | AcceptedIdentityFactCountAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to average
     **/
-    _avg?: IdentityActivationTraceAvgAggregateInputType
+    _avg?: AcceptedIdentityFactAvgAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to sum
     **/
-    _sum?: IdentityActivationTraceSumAggregateInputType
+    _sum?: AcceptedIdentityFactSumAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to find the minimum value
     **/
-    _min?: IdentityActivationTraceMinAggregateInputType
+    _min?: AcceptedIdentityFactMinAggregateInputType
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
      * Select which fields to find the maximum value
     **/
-    _max?: IdentityActivationTraceMaxAggregateInputType
+    _max?: AcceptedIdentityFactMaxAggregateInputType
   }
 
-  export type GetIdentityActivationTraceAggregateType<T extends IdentityActivationTraceAggregateArgs> = {
-        [P in keyof T & keyof AggregateIdentityActivationTrace]: P extends '_count' | 'count'
+  export type GetAcceptedIdentityFactAggregateType<T extends AcceptedIdentityFactAggregateArgs> = {
+        [P in keyof T & keyof AggregateAcceptedIdentityFact]: P extends '_count' | 'count'
       ? T[P] extends true
         ? number
-        : GetScalarType<T[P], AggregateIdentityActivationTrace[P]>
-      : GetScalarType<T[P], AggregateIdentityActivationTrace[P]>
+        : GetScalarType<T[P], AggregateAcceptedIdentityFact[P]>
+      : GetScalarType<T[P], AggregateAcceptedIdentityFact[P]>
   }
 
 
 
 
-  export type IdentityActivationTraceGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
-    where?: IdentityActivationTraceWhereInput
-    orderBy?: IdentityActivationTraceOrderByWithAggregationInput | IdentityActivationTraceOrderByWithAggregationInput[]
-    by: IdentityActivationTraceScalarFieldEnum[] | IdentityActivationTraceScalarFieldEnum
-    having?: IdentityActivationTraceScalarWhereWithAggregatesInput
+  export type AcceptedIdentityFactGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AcceptedIdentityFactWhereInput
+    orderBy?: AcceptedIdentityFactOrderByWithAggregationInput | AcceptedIdentityFactOrderByWithAggregationInput[]
+    by: AcceptedIdentityFactScalarFieldEnum[] | AcceptedIdentityFactScalarFieldEnum
+    having?: AcceptedIdentityFactScalarWhereWithAggregatesInput
     take?: number
     skip?: number
-    _count?: IdentityActivationTraceCountAggregateInputType | true
-    _avg?: IdentityActivationTraceAvgAggregateInputType
-    _sum?: IdentityActivationTraceSumAggregateInputType
-    _min?: IdentityActivationTraceMinAggregateInputType
-    _max?: IdentityActivationTraceMaxAggregateInputType
+    _count?: AcceptedIdentityFactCountAggregateInputType | true
+    _avg?: AcceptedIdentityFactAvgAggregateInputType
+    _sum?: AcceptedIdentityFactSumAggregateInputType
+    _min?: AcceptedIdentityFactMinAggregateInputType
+    _max?: AcceptedIdentityFactMaxAggregateInputType
   }
 
-  export type IdentityActivationTraceGroupByOutputType = {
+  export type AcceptedIdentityFactGroupByOutputType = {
     id: bigint
     identity_key: string
-    run_id: string | null
-    trace_id: string | null
-    conversation_id: bigint | null
-    scene_fingerprint: string | null
-    cue_summary: string | null
-    activated_refs: JsonValue
-    suppressed_refs: JsonValue
-    selected_skill_ref: string | null
-    activation_reason: string | null
+    fact_key: string
+    fact_text: string
+    fact_type: string
+    source_candidate_id: bigint | null
+    source_event_id: bigint | null
+    status: string
+    supersedes_fact_id: bigint | null
+    revoked_by_event_id: bigint | null
+    confidence: string
+    activation_tags: JsonValue
     metadata: JsonValue | null
-    created_at: Date
-    _count: IdentityActivationTraceCountAggregateOutputType | null
-    _avg: IdentityActivationTraceAvgAggregateOutputType | null
-    _sum: IdentityActivationTraceSumAggregateOutputType | null
-    _min: IdentityActivationTraceMinAggregateOutputType | null
-    _max: IdentityActivationTraceMaxAggregateOutputType | null
+    accepted_at: Date
+    updated_at: Date
+    _count: AcceptedIdentityFactCountAggregateOutputType | null
+    _avg: AcceptedIdentityFactAvgAggregateOutputType | null
+    _sum: AcceptedIdentityFactSumAggregateOutputType | null
+    _min: AcceptedIdentityFactMinAggregateOutputType | null
+    _max: AcceptedIdentityFactMaxAggregateOutputType | null
   }
 
-  type GetIdentityActivationTraceGroupByPayload<T extends IdentityActivationTraceGroupByArgs> = Prisma.PrismaPromise<
+  type GetAcceptedIdentityFactGroupByPayload<T extends AcceptedIdentityFactGroupByArgs> = Prisma.PrismaPromise<
     Array<
-      PickEnumerable<IdentityActivationTraceGroupByOutputType, T['by']> &
+      PickEnumerable<AcceptedIdentityFactGroupByOutputType, T['by']> &
         {
-          [P in ((keyof T) & (keyof IdentityActivationTraceGroupByOutputType))]: P extends '_count'
+          [P in ((keyof T) & (keyof AcceptedIdentityFactGroupByOutputType))]: P extends '_count'
             ? T[P] extends boolean
               ? number
-              : GetScalarType<T[P], IdentityActivationTraceGroupByOutputType[P]>
-            : GetScalarType<T[P], IdentityActivationTraceGroupByOutputType[P]>
+              : GetScalarType<T[P], AcceptedIdentityFactGroupByOutputType[P]>
+            : GetScalarType<T[P], AcceptedIdentityFactGroupByOutputType[P]>
         }
       >
     >
 
 
-  export type IdentityActivationTraceSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+  export type AcceptedIdentityFactSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     identity_key?: boolean
-    run_id?: boolean
-    trace_id?: boolean
-    conversation_id?: boolean
-    scene_fingerprint?: boolean
-    cue_summary?: boolean
-    activated_refs?: boolean
-    suppressed_refs?: boolean
-    selected_skill_ref?: boolean
-    activation_reason?: boolean
+    fact_key?: boolean
+    fact_text?: boolean
+    fact_type?: boolean
+    source_candidate_id?: boolean
+    source_event_id?: boolean
+    status?: boolean
+    supersedes_fact_id?: boolean
+    revoked_by_event_id?: boolean
+    confidence?: boolean
+    activation_tags?: boolean
     metadata?: boolean
-    created_at?: boolean
-  }, ExtArgs["result"]["identityActivationTrace"]>
+    accepted_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["acceptedIdentityFact"]>
 
-  export type IdentityActivationTraceSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+  export type AcceptedIdentityFactSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     identity_key?: boolean
-    run_id?: boolean
-    trace_id?: boolean
-    conversation_id?: boolean
-    scene_fingerprint?: boolean
-    cue_summary?: boolean
-    activated_refs?: boolean
-    suppressed_refs?: boolean
-    selected_skill_ref?: boolean
-    activation_reason?: boolean
+    fact_key?: boolean
+    fact_text?: boolean
+    fact_type?: boolean
+    source_candidate_id?: boolean
+    source_event_id?: boolean
+    status?: boolean
+    supersedes_fact_id?: boolean
+    revoked_by_event_id?: boolean
+    confidence?: boolean
+    activation_tags?: boolean
     metadata?: boolean
-    created_at?: boolean
-  }, ExtArgs["result"]["identityActivationTrace"]>
+    accepted_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["acceptedIdentityFact"]>
 
-  export type IdentityActivationTraceSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+  export type AcceptedIdentityFactSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     identity_key?: boolean
-    run_id?: boolean
-    trace_id?: boolean
-    conversation_id?: boolean
-    scene_fingerprint?: boolean
-    cue_summary?: boolean
-    activated_refs?: boolean
-    suppressed_refs?: boolean
-    selected_skill_ref?: boolean
-    activation_reason?: boolean
+    fact_key?: boolean
+    fact_text?: boolean
+    fact_type?: boolean
+    source_candidate_id?: boolean
+    source_event_id?: boolean
+    status?: boolean
+    supersedes_fact_id?: boolean
+    revoked_by_event_id?: boolean
+    confidence?: boolean
+    activation_tags?: boolean
     metadata?: boolean
-    created_at?: boolean
-  }, ExtArgs["result"]["identityActivationTrace"]>
+    accepted_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["acceptedIdentityFact"]>
 
-  export type IdentityActivationTraceSelectScalar = {
+  export type AcceptedIdentityFactSelectScalar = {
     id?: boolean
     identity_key?: boolean
-    run_id?: boolean
-    trace_id?: boolean
-    conversation_id?: boolean
-    scene_fingerprint?: boolean
-    cue_summary?: boolean
-    activated_refs?: boolean
-    suppressed_refs?: boolean
-    selected_skill_ref?: boolean
-    activation_reason?: boolean
+    fact_key?: boolean
+    fact_text?: boolean
+    fact_type?: boolean
+    source_candidate_id?: boolean
+    source_event_id?: boolean
+    status?: boolean
+    supersedes_fact_id?: boolean
+    revoked_by_event_id?: boolean
+    confidence?: boolean
+    activation_tags?: boolean
     metadata?: boolean
-    created_at?: boolean
+    accepted_at?: boolean
+    updated_at?: boolean
   }
 
-  export type IdentityActivationTraceOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "run_id" | "trace_id" | "conversation_id" | "scene_fingerprint" | "cue_summary" | "activated_refs" | "suppressed_refs" | "selected_skill_ref" | "activation_reason" | "metadata" | "created_at", ExtArgs["result"]["identityActivationTrace"]>
+  export type AcceptedIdentityFactOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "fact_key" | "fact_text" | "fact_type" | "source_candidate_id" | "source_event_id" | "status" | "supersedes_fact_id" | "revoked_by_event_id" | "confidence" | "activation_tags" | "metadata" | "accepted_at" | "updated_at", ExtArgs["result"]["acceptedIdentityFact"]>
 
-  export type $IdentityActivationTracePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
-    name: "IdentityActivationTrace"
+  export type $AcceptedIdentityFactPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AcceptedIdentityFact"
     objects: {}
     scalars: $Extensions.GetPayloadResult<{
       id: bigint
       identity_key: string
-      run_id: string | null
-      trace_id: string | null
-      conversation_id: bigint | null
-      scene_fingerprint: string | null
-      cue_summary: string | null
-      activated_refs: Prisma.JsonValue
-      suppressed_refs: Prisma.JsonValue
-      selected_skill_ref: string | null
-      activation_reason: string | null
+      fact_key: string
+      fact_text: string
+      fact_type: string
+      source_candidate_id: bigint | null
+      source_event_id: bigint | null
+      status: string
+      supersedes_fact_id: bigint | null
+      revoked_by_event_id: bigint | null
+      confidence: string
+      activation_tags: Prisma.JsonValue
       metadata: Prisma.JsonValue | null
-      created_at: Date
-    }, ExtArgs["result"]["identityActivationTrace"]>
+      accepted_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["acceptedIdentityFact"]>
     composites: {}
   }
 
-  type IdentityActivationTraceGetPayload<S extends boolean | null | undefined | IdentityActivationTraceDefaultArgs> = $Result.GetResult<Prisma.$IdentityActivationTracePayload, S>
+  type AcceptedIdentityFactGetPayload<S extends boolean | null | undefined | AcceptedIdentityFactDefaultArgs> = $Result.GetResult<Prisma.$AcceptedIdentityFactPayload, S>
 
-  type IdentityActivationTraceCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
-    Omit<IdentityActivationTraceFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
-      select?: IdentityActivationTraceCountAggregateInputType | true
+  type AcceptedIdentityFactCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AcceptedIdentityFactFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AcceptedIdentityFactCountAggregateInputType | true
     }
 
-  export interface IdentityActivationTraceDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
-    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['IdentityActivationTrace'], meta: { name: 'IdentityActivationTrace' } }
+  export interface AcceptedIdentityFactDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AcceptedIdentityFact'], meta: { name: 'AcceptedIdentityFact' } }
     /**
-     * Find zero or one IdentityActivationTrace that matches the filter.
-     * @param {IdentityActivationTraceFindUniqueArgs} args - Arguments to find a IdentityActivationTrace
+     * Find zero or one AcceptedIdentityFact that matches the filter.
+     * @param {AcceptedIdentityFactFindUniqueArgs} args - Arguments to find a AcceptedIdentityFact
      * @example
-     * // Get one IdentityActivationTrace
-     * const identityActivationTrace = await prisma.identityActivationTrace.findUnique({
+     * // Get one AcceptedIdentityFact
+     * const acceptedIdentityFact = await prisma.acceptedIdentityFact.findUnique({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findUnique<T extends IdentityActivationTraceFindUniqueArgs>(args: SelectSubset<T, IdentityActivationTraceFindUniqueArgs<ExtArgs>>): Prisma__IdentityActivationTraceClient<$Result.GetResult<Prisma.$IdentityActivationTracePayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+    findUnique<T extends AcceptedIdentityFactFindUniqueArgs>(args: SelectSubset<T, AcceptedIdentityFactFindUniqueArgs<ExtArgs>>): Prisma__AcceptedIdentityFactClient<$Result.GetResult<Prisma.$AcceptedIdentityFactPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find one IdentityActivationTrace that matches the filter or throw an error with `error.code='P2025'`
+     * Find one AcceptedIdentityFact that matches the filter or throw an error with `error.code='P2025'`
      * if no matches were found.
-     * @param {IdentityActivationTraceFindUniqueOrThrowArgs} args - Arguments to find a IdentityActivationTrace
+     * @param {AcceptedIdentityFactFindUniqueOrThrowArgs} args - Arguments to find a AcceptedIdentityFact
      * @example
-     * // Get one IdentityActivationTrace
-     * const identityActivationTrace = await prisma.identityActivationTrace.findUniqueOrThrow({
+     * // Get one AcceptedIdentityFact
+     * const acceptedIdentityFact = await prisma.acceptedIdentityFact.findUniqueOrThrow({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findUniqueOrThrow<T extends IdentityActivationTraceFindUniqueOrThrowArgs>(args: SelectSubset<T, IdentityActivationTraceFindUniqueOrThrowArgs<ExtArgs>>): Prisma__IdentityActivationTraceClient<$Result.GetResult<Prisma.$IdentityActivationTracePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    findUniqueOrThrow<T extends AcceptedIdentityFactFindUniqueOrThrowArgs>(args: SelectSubset<T, AcceptedIdentityFactFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AcceptedIdentityFactClient<$Result.GetResult<Prisma.$AcceptedIdentityFactPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find the first IdentityActivationTrace that matches the filter.
+     * Find the first AcceptedIdentityFact that matches the filter.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityActivationTraceFindFirstArgs} args - Arguments to find a IdentityActivationTrace
+     * @param {AcceptedIdentityFactFindFirstArgs} args - Arguments to find a AcceptedIdentityFact
      * @example
-     * // Get one IdentityActivationTrace
-     * const identityActivationTrace = await prisma.identityActivationTrace.findFirst({
+     * // Get one AcceptedIdentityFact
+     * const acceptedIdentityFact = await prisma.acceptedIdentityFact.findFirst({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findFirst<T extends IdentityActivationTraceFindFirstArgs>(args?: SelectSubset<T, IdentityActivationTraceFindFirstArgs<ExtArgs>>): Prisma__IdentityActivationTraceClient<$Result.GetResult<Prisma.$IdentityActivationTracePayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+    findFirst<T extends AcceptedIdentityFactFindFirstArgs>(args?: SelectSubset<T, AcceptedIdentityFactFindFirstArgs<ExtArgs>>): Prisma__AcceptedIdentityFactClient<$Result.GetResult<Prisma.$AcceptedIdentityFactPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find the first IdentityActivationTrace that matches the filter or
+     * Find the first AcceptedIdentityFact that matches the filter or
      * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityActivationTraceFindFirstOrThrowArgs} args - Arguments to find a IdentityActivationTrace
+     * @param {AcceptedIdentityFactFindFirstOrThrowArgs} args - Arguments to find a AcceptedIdentityFact
      * @example
-     * // Get one IdentityActivationTrace
-     * const identityActivationTrace = await prisma.identityActivationTrace.findFirstOrThrow({
+     * // Get one AcceptedIdentityFact
+     * const acceptedIdentityFact = await prisma.acceptedIdentityFact.findFirstOrThrow({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      */
-    findFirstOrThrow<T extends IdentityActivationTraceFindFirstOrThrowArgs>(args?: SelectSubset<T, IdentityActivationTraceFindFirstOrThrowArgs<ExtArgs>>): Prisma__IdentityActivationTraceClient<$Result.GetResult<Prisma.$IdentityActivationTracePayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    findFirstOrThrow<T extends AcceptedIdentityFactFindFirstOrThrowArgs>(args?: SelectSubset<T, AcceptedIdentityFactFindFirstOrThrowArgs<ExtArgs>>): Prisma__AcceptedIdentityFactClient<$Result.GetResult<Prisma.$AcceptedIdentityFactPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Find zero or more IdentityActivationTraces that matches the filter.
+     * Find zero or more AcceptedIdentityFacts that matches the filter.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityActivationTraceFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @param {AcceptedIdentityFactFindManyArgs} args - Arguments to filter and select certain fields only.
      * @example
-     * // Get all IdentityActivationTraces
-     * const identityActivationTraces = await prisma.identityActivationTrace.findMany()
+     * // Get all AcceptedIdentityFacts
+     * const acceptedIdentityFacts = await prisma.acceptedIdentityFact.findMany()
      * 
-     * // Get first 10 IdentityActivationTraces
-     * const identityActivationTraces = await prisma.identityActivationTrace.findMany({ take: 10 })
+     * // Get first 10 AcceptedIdentityFacts
+     * const acceptedIdentityFacts = await prisma.acceptedIdentityFact.findMany({ take: 10 })
      * 
      * // Only select the `id`
-     * const identityActivationTraceWithIdOnly = await prisma.identityActivationTrace.findMany({ select: { id: true } })
+     * const acceptedIdentityFactWithIdOnly = await prisma.acceptedIdentityFact.findMany({ select: { id: true } })
      * 
      */
-    findMany<T extends IdentityActivationTraceFindManyArgs>(args?: SelectSubset<T, IdentityActivationTraceFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$IdentityActivationTracePayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+    findMany<T extends AcceptedIdentityFactFindManyArgs>(args?: SelectSubset<T, AcceptedIdentityFactFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AcceptedIdentityFactPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
 
     /**
-     * Create a IdentityActivationTrace.
-     * @param {IdentityActivationTraceCreateArgs} args - Arguments to create a IdentityActivationTrace.
+     * Create a AcceptedIdentityFact.
+     * @param {AcceptedIdentityFactCreateArgs} args - Arguments to create a AcceptedIdentityFact.
      * @example
-     * // Create one IdentityActivationTrace
-     * const IdentityActivationTrace = await prisma.identityActivationTrace.create({
+     * // Create one AcceptedIdentityFact
+     * const AcceptedIdentityFact = await prisma.acceptedIdentityFact.create({
      *   data: {
-     *     // ... data to create a IdentityActivationTrace
+     *     // ... data to create a AcceptedIdentityFact
      *   }
      * })
      * 
      */
-    create<T extends IdentityActivationTraceCreateArgs>(args: SelectSubset<T, IdentityActivationTraceCreateArgs<ExtArgs>>): Prisma__IdentityActivationTraceClient<$Result.GetResult<Prisma.$IdentityActivationTracePayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    create<T extends AcceptedIdentityFactCreateArgs>(args: SelectSubset<T, AcceptedIdentityFactCreateArgs<ExtArgs>>): Prisma__AcceptedIdentityFactClient<$Result.GetResult<Prisma.$AcceptedIdentityFactPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Create many IdentityActivationTraces.
-     * @param {IdentityActivationTraceCreateManyArgs} args - Arguments to create many IdentityActivationTraces.
+     * Create many AcceptedIdentityFacts.
+     * @param {AcceptedIdentityFactCreateManyArgs} args - Arguments to create many AcceptedIdentityFacts.
      * @example
-     * // Create many IdentityActivationTraces
-     * const identityActivationTrace = await prisma.identityActivationTrace.createMany({
+     * // Create many AcceptedIdentityFacts
+     * const acceptedIdentityFact = await prisma.acceptedIdentityFact.createMany({
      *   data: [
      *     // ... provide data here
      *   ]
      * })
      *     
      */
-    createMany<T extends IdentityActivationTraceCreateManyArgs>(args?: SelectSubset<T, IdentityActivationTraceCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+    createMany<T extends AcceptedIdentityFactCreateManyArgs>(args?: SelectSubset<T, AcceptedIdentityFactCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
 
     /**
-     * Create many IdentityActivationTraces and returns the data saved in the database.
-     * @param {IdentityActivationTraceCreateManyAndReturnArgs} args - Arguments to create many IdentityActivationTraces.
+     * Create many AcceptedIdentityFacts and returns the data saved in the database.
+     * @param {AcceptedIdentityFactCreateManyAndReturnArgs} args - Arguments to create many AcceptedIdentityFacts.
      * @example
-     * // Create many IdentityActivationTraces
-     * const identityActivationTrace = await prisma.identityActivationTrace.createManyAndReturn({
+     * // Create many AcceptedIdentityFacts
+     * const acceptedIdentityFact = await prisma.acceptedIdentityFact.createManyAndReturn({
      *   data: [
      *     // ... provide data here
      *   ]
      * })
      * 
-     * // Create many IdentityActivationTraces and only return the `id`
-     * const identityActivationTraceWithIdOnly = await prisma.identityActivationTrace.createManyAndReturn({
+     * // Create many AcceptedIdentityFacts and only return the `id`
+     * const acceptedIdentityFactWithIdOnly = await prisma.acceptedIdentityFact.createManyAndReturn({
      *   select: { id: true },
      *   data: [
      *     // ... provide data here
@@ -26593,28 +26879,28 @@ export namespace Prisma {
      * Read more here: https://pris.ly/d/null-undefined
      * 
      */
-    createManyAndReturn<T extends IdentityActivationTraceCreateManyAndReturnArgs>(args?: SelectSubset<T, IdentityActivationTraceCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$IdentityActivationTracePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+    createManyAndReturn<T extends AcceptedIdentityFactCreateManyAndReturnArgs>(args?: SelectSubset<T, AcceptedIdentityFactCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AcceptedIdentityFactPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
 
     /**
-     * Delete a IdentityActivationTrace.
-     * @param {IdentityActivationTraceDeleteArgs} args - Arguments to delete one IdentityActivationTrace.
+     * Delete a AcceptedIdentityFact.
+     * @param {AcceptedIdentityFactDeleteArgs} args - Arguments to delete one AcceptedIdentityFact.
      * @example
-     * // Delete one IdentityActivationTrace
-     * const IdentityActivationTrace = await prisma.identityActivationTrace.delete({
+     * // Delete one AcceptedIdentityFact
+     * const AcceptedIdentityFact = await prisma.acceptedIdentityFact.delete({
      *   where: {
-     *     // ... filter to delete one IdentityActivationTrace
+     *     // ... filter to delete one AcceptedIdentityFact
      *   }
      * })
      * 
      */
-    delete<T extends IdentityActivationTraceDeleteArgs>(args: SelectSubset<T, IdentityActivationTraceDeleteArgs<ExtArgs>>): Prisma__IdentityActivationTraceClient<$Result.GetResult<Prisma.$IdentityActivationTracePayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    delete<T extends AcceptedIdentityFactDeleteArgs>(args: SelectSubset<T, AcceptedIdentityFactDeleteArgs<ExtArgs>>): Prisma__AcceptedIdentityFactClient<$Result.GetResult<Prisma.$AcceptedIdentityFactPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Update one IdentityActivationTrace.
-     * @param {IdentityActivationTraceUpdateArgs} args - Arguments to update one IdentityActivationTrace.
+     * Update one AcceptedIdentityFact.
+     * @param {AcceptedIdentityFactUpdateArgs} args - Arguments to update one AcceptedIdentityFact.
      * @example
-     * // Update one IdentityActivationTrace
-     * const identityActivationTrace = await prisma.identityActivationTrace.update({
+     * // Update one AcceptedIdentityFact
+     * const acceptedIdentityFact = await prisma.acceptedIdentityFact.update({
      *   where: {
      *     // ... provide filter here
      *   },
@@ -26624,30 +26910,30 @@ export namespace Prisma {
      * })
      * 
      */
-    update<T extends IdentityActivationTraceUpdateArgs>(args: SelectSubset<T, IdentityActivationTraceUpdateArgs<ExtArgs>>): Prisma__IdentityActivationTraceClient<$Result.GetResult<Prisma.$IdentityActivationTracePayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    update<T extends AcceptedIdentityFactUpdateArgs>(args: SelectSubset<T, AcceptedIdentityFactUpdateArgs<ExtArgs>>): Prisma__AcceptedIdentityFactClient<$Result.GetResult<Prisma.$AcceptedIdentityFactPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
     /**
-     * Delete zero or more IdentityActivationTraces.
-     * @param {IdentityActivationTraceDeleteManyArgs} args - Arguments to filter IdentityActivationTraces to delete.
+     * Delete zero or more AcceptedIdentityFacts.
+     * @param {AcceptedIdentityFactDeleteManyArgs} args - Arguments to filter AcceptedIdentityFacts to delete.
      * @example
-     * // Delete a few IdentityActivationTraces
-     * const { count } = await prisma.identityActivationTrace.deleteMany({
+     * // Delete a few AcceptedIdentityFacts
+     * const { count } = await prisma.acceptedIdentityFact.deleteMany({
      *   where: {
      *     // ... provide filter here
      *   }
      * })
      * 
      */
-    deleteMany<T extends IdentityActivationTraceDeleteManyArgs>(args?: SelectSubset<T, IdentityActivationTraceDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+    deleteMany<T extends AcceptedIdentityFactDeleteManyArgs>(args?: SelectSubset<T, AcceptedIdentityFactDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
 
     /**
-     * Update zero or more IdentityActivationTraces.
+     * Update zero or more AcceptedIdentityFacts.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityActivationTraceUpdateManyArgs} args - Arguments to update one or more rows.
+     * @param {AcceptedIdentityFactUpdateManyArgs} args - Arguments to update one or more rows.
      * @example
-     * // Update many IdentityActivationTraces
-     * const identityActivationTrace = await prisma.identityActivationTrace.updateMany({
+     * // Update many AcceptedIdentityFacts
+     * const acceptedIdentityFact = await prisma.acceptedIdentityFact.updateMany({
      *   where: {
      *     // ... provide filter here
      *   },
@@ -26657,14 +26943,14 @@ export namespace Prisma {
      * })
      * 
      */
-    updateMany<T extends IdentityActivationTraceUpdateManyArgs>(args: SelectSubset<T, IdentityActivationTraceUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+    updateMany<T extends AcceptedIdentityFactUpdateManyArgs>(args: SelectSubset<T, AcceptedIdentityFactUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
 
     /**
-     * Update zero or more IdentityActivationTraces and returns the data updated in the database.
-     * @param {IdentityActivationTraceUpdateManyAndReturnArgs} args - Arguments to update many IdentityActivationTraces.
+     * Update zero or more AcceptedIdentityFacts and returns the data updated in the database.
+     * @param {AcceptedIdentityFactUpdateManyAndReturnArgs} args - Arguments to update many AcceptedIdentityFacts.
      * @example
-     * // Update many IdentityActivationTraces
-     * const identityActivationTrace = await prisma.identityActivationTrace.updateManyAndReturn({
+     * // Update many AcceptedIdentityFacts
+     * const acceptedIdentityFact = await prisma.acceptedIdentityFact.updateManyAndReturn({
      *   where: {
      *     // ... provide filter here
      *   },
@@ -26673,8 +26959,8 @@ export namespace Prisma {
      *   ]
      * })
      * 
-     * // Update zero or more IdentityActivationTraces and only return the `id`
-     * const identityActivationTraceWithIdOnly = await prisma.identityActivationTrace.updateManyAndReturn({
+     * // Update zero or more AcceptedIdentityFacts and only return the `id`
+     * const acceptedIdentityFactWithIdOnly = await prisma.acceptedIdentityFact.updateManyAndReturn({
      *   select: { id: true },
      *   where: {
      *     // ... provide filter here
@@ -26687,56 +26973,56 @@ export namespace Prisma {
      * Read more here: https://pris.ly/d/null-undefined
      * 
      */
-    updateManyAndReturn<T extends IdentityActivationTraceUpdateManyAndReturnArgs>(args: SelectSubset<T, IdentityActivationTraceUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$IdentityActivationTracePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+    updateManyAndReturn<T extends AcceptedIdentityFactUpdateManyAndReturnArgs>(args: SelectSubset<T, AcceptedIdentityFactUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AcceptedIdentityFactPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
     /**
-     * Create or update one IdentityActivationTrace.
-     * @param {IdentityActivationTraceUpsertArgs} args - Arguments to update or create a IdentityActivationTrace.
+     * Create or update one AcceptedIdentityFact.
+     * @param {AcceptedIdentityFactUpsertArgs} args - Arguments to update or create a AcceptedIdentityFact.
      * @example
-     * // Update or create a IdentityActivationTrace
-     * const identityActivationTrace = await prisma.identityActivationTrace.upsert({
+     * // Update or create a AcceptedIdentityFact
+     * const acceptedIdentityFact = await prisma.acceptedIdentityFact.upsert({
      *   create: {
-     *     // ... data to create a IdentityActivationTrace
+     *     // ... data to create a AcceptedIdentityFact
      *   },
      *   update: {
      *     // ... in case it already exists, update
      *   },
      *   where: {
-     *     // ... the filter for the IdentityActivationTrace we want to update
+     *     // ... the filter for the AcceptedIdentityFact we want to update
      *   }
      * })
      */
-    upsert<T extends IdentityActivationTraceUpsertArgs>(args: SelectSubset<T, IdentityActivationTraceUpsertArgs<ExtArgs>>): Prisma__IdentityActivationTraceClient<$Result.GetResult<Prisma.$IdentityActivationTracePayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+    upsert<T extends AcceptedIdentityFactUpsertArgs>(args: SelectSubset<T, AcceptedIdentityFactUpsertArgs<ExtArgs>>): Prisma__AcceptedIdentityFactClient<$Result.GetResult<Prisma.$AcceptedIdentityFactPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
 
 
     /**
-     * Count the number of IdentityActivationTraces.
+     * Count the number of AcceptedIdentityFacts.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityActivationTraceCountArgs} args - Arguments to filter IdentityActivationTraces to count.
+     * @param {AcceptedIdentityFactCountArgs} args - Arguments to filter AcceptedIdentityFacts to count.
      * @example
-     * // Count the number of IdentityActivationTraces
-     * const count = await prisma.identityActivationTrace.count({
+     * // Count the number of AcceptedIdentityFacts
+     * const count = await prisma.acceptedIdentityFact.count({
      *   where: {
-     *     // ... the filter for the IdentityActivationTraces we want to count
+     *     // ... the filter for the AcceptedIdentityFacts we want to count
      *   }
      * })
     **/
-    count<T extends IdentityActivationTraceCountArgs>(
-      args?: Subset<T, IdentityActivationTraceCountArgs>,
+    count<T extends AcceptedIdentityFactCountArgs>(
+      args?: Subset<T, AcceptedIdentityFactCountArgs>,
     ): Prisma.PrismaPromise<
       T extends $Utils.Record<'select', any>
         ? T['select'] extends true
           ? number
-          : GetScalarType<T['select'], IdentityActivationTraceCountAggregateOutputType>
+          : GetScalarType<T['select'], AcceptedIdentityFactCountAggregateOutputType>
         : number
     >
 
     /**
-     * Allows you to perform aggregations operations on a IdentityActivationTrace.
+     * Allows you to perform aggregations operations on a AcceptedIdentityFact.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityActivationTraceAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @param {AcceptedIdentityFactAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
      * @example
      * // Ordered by age ascending
      * // Where email contains prisma.io
@@ -26756,13 +27042,13 @@ export namespace Prisma {
      *   take: 10,
      * })
     **/
-    aggregate<T extends IdentityActivationTraceAggregateArgs>(args: Subset<T, IdentityActivationTraceAggregateArgs>): Prisma.PrismaPromise<GetIdentityActivationTraceAggregateType<T>>
+    aggregate<T extends AcceptedIdentityFactAggregateArgs>(args: Subset<T, AcceptedIdentityFactAggregateArgs>): Prisma.PrismaPromise<GetAcceptedIdentityFactAggregateType<T>>
 
     /**
-     * Group by IdentityActivationTrace.
+     * Group by AcceptedIdentityFact.
      * Note, that providing `undefined` is treated as the value not being there.
      * Read more here: https://pris.ly/d/null-undefined
-     * @param {IdentityActivationTraceGroupByArgs} args - Group by arguments.
+     * @param {AcceptedIdentityFactGroupByArgs} args - Group by arguments.
      * @example
      * // Group by city, order by createdAt, get count
      * const result = await prisma.user.groupBy({
@@ -26777,14 +27063,14 @@ export namespace Prisma {
      * 
     **/
     groupBy<
-      T extends IdentityActivationTraceGroupByArgs,
+      T extends AcceptedIdentityFactGroupByArgs,
       HasSelectOrTake extends Or<
         Extends<'skip', Keys<T>>,
         Extends<'take', Keys<T>>
       >,
       OrderByArg extends True extends HasSelectOrTake
-        ? { orderBy: IdentityActivationTraceGroupByArgs['orderBy'] }
-        : { orderBy?: IdentityActivationTraceGroupByArgs['orderBy'] },
+        ? { orderBy: AcceptedIdentityFactGroupByArgs['orderBy'] }
+        : { orderBy?: AcceptedIdentityFactGroupByArgs['orderBy'] },
       OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
       ByFields extends MaybeTupleToUnion<T['by']>,
       ByValid extends Has<ByFields, OrderFields>,
@@ -26833,20 +27119,20 @@ export namespace Prisma {
             ? never
             : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
         }[OrderFields]
-    >(args: SubsetIntersection<T, IdentityActivationTraceGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetIdentityActivationTraceGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+    >(args: SubsetIntersection<T, AcceptedIdentityFactGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAcceptedIdentityFactGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
   /**
-   * Fields of the IdentityActivationTrace model
+   * Fields of the AcceptedIdentityFact model
    */
-  readonly fields: IdentityActivationTraceFieldRefs;
+  readonly fields: AcceptedIdentityFactFieldRefs;
   }
 
   /**
-   * The delegate class that acts as a "Promise-like" for IdentityActivationTrace.
+   * The delegate class that acts as a "Promise-like" for AcceptedIdentityFact.
    * Why is this prefixed with `Prisma__`?
    * Because we want to prevent naming conflicts as mentioned in
    * https://github.com/prisma/prisma-client-js/issues/707
    */
-  export interface Prisma__IdentityActivationTraceClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+  export interface Prisma__AcceptedIdentityFactClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
     readonly [Symbol.toStringTag]: "PrismaPromise"
     /**
      * Attaches callbacks for the resolution and/or rejection of the Promise.
@@ -26874,385 +27160,1512 @@ export namespace Prisma {
 
 
   /**
-   * Fields of the IdentityActivationTrace model
+   * Fields of the AcceptedIdentityFact model
    */
-  interface IdentityActivationTraceFieldRefs {
-    readonly id: FieldRef<"IdentityActivationTrace", 'BigInt'>
-    readonly identity_key: FieldRef<"IdentityActivationTrace", 'String'>
-    readonly run_id: FieldRef<"IdentityActivationTrace", 'String'>
-    readonly trace_id: FieldRef<"IdentityActivationTrace", 'String'>
-    readonly conversation_id: FieldRef<"IdentityActivationTrace", 'BigInt'>
-    readonly scene_fingerprint: FieldRef<"IdentityActivationTrace", 'String'>
-    readonly cue_summary: FieldRef<"IdentityActivationTrace", 'String'>
-    readonly activated_refs: FieldRef<"IdentityActivationTrace", 'Json'>
-    readonly suppressed_refs: FieldRef<"IdentityActivationTrace", 'Json'>
-    readonly selected_skill_ref: FieldRef<"IdentityActivationTrace", 'String'>
-    readonly activation_reason: FieldRef<"IdentityActivationTrace", 'String'>
-    readonly metadata: FieldRef<"IdentityActivationTrace", 'Json'>
-    readonly created_at: FieldRef<"IdentityActivationTrace", 'DateTime'>
+  interface AcceptedIdentityFactFieldRefs {
+    readonly id: FieldRef<"AcceptedIdentityFact", 'BigInt'>
+    readonly identity_key: FieldRef<"AcceptedIdentityFact", 'String'>
+    readonly fact_key: FieldRef<"AcceptedIdentityFact", 'String'>
+    readonly fact_text: FieldRef<"AcceptedIdentityFact", 'String'>
+    readonly fact_type: FieldRef<"AcceptedIdentityFact", 'String'>
+    readonly source_candidate_id: FieldRef<"AcceptedIdentityFact", 'BigInt'>
+    readonly source_event_id: FieldRef<"AcceptedIdentityFact", 'BigInt'>
+    readonly status: FieldRef<"AcceptedIdentityFact", 'String'>
+    readonly supersedes_fact_id: FieldRef<"AcceptedIdentityFact", 'BigInt'>
+    readonly revoked_by_event_id: FieldRef<"AcceptedIdentityFact", 'BigInt'>
+    readonly confidence: FieldRef<"AcceptedIdentityFact", 'String'>
+    readonly activation_tags: FieldRef<"AcceptedIdentityFact", 'Json'>
+    readonly metadata: FieldRef<"AcceptedIdentityFact", 'Json'>
+    readonly accepted_at: FieldRef<"AcceptedIdentityFact", 'DateTime'>
+    readonly updated_at: FieldRef<"AcceptedIdentityFact", 'DateTime'>
   }
     
 
   // Custom InputTypes
   /**
-   * IdentityActivationTrace findUnique
+   * AcceptedIdentityFact findUnique
    */
-  export type IdentityActivationTraceFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityActivationTrace
+     * Select specific fields to fetch from the AcceptedIdentityFact
      */
-    select?: IdentityActivationTraceSelect<ExtArgs> | null
+    select?: AcceptedIdentityFactSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityActivationTrace
+     * Omit specific fields from the AcceptedIdentityFact
      */
-    omit?: IdentityActivationTraceOmit<ExtArgs> | null
+    omit?: AcceptedIdentityFactOmit<ExtArgs> | null
     /**
-     * Filter, which IdentityActivationTrace to fetch.
+     * Filter, which AcceptedIdentityFact to fetch.
      */
-    where: IdentityActivationTraceWhereUniqueInput
+    where: AcceptedIdentityFactWhereUniqueInput
   }
 
   /**
-   * IdentityActivationTrace findUniqueOrThrow
+   * AcceptedIdentityFact findUniqueOrThrow
    */
-  export type IdentityActivationTraceFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityActivationTrace
+     * Select specific fields to fetch from the AcceptedIdentityFact
      */
-    select?: IdentityActivationTraceSelect<ExtArgs> | null
+    select?: AcceptedIdentityFactSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityActivationTrace
+     * Omit specific fields from the AcceptedIdentityFact
      */
-    omit?: IdentityActivationTraceOmit<ExtArgs> | null
+    omit?: AcceptedIdentityFactOmit<ExtArgs> | null
     /**
-     * Filter, which IdentityActivationTrace to fetch.
+     * Filter, which AcceptedIdentityFact to fetch.
      */
-    where: IdentityActivationTraceWhereUniqueInput
+    where: AcceptedIdentityFactWhereUniqueInput
   }
 
   /**
-   * IdentityActivationTrace findFirst
+   * AcceptedIdentityFact findFirst
    */
-  export type IdentityActivationTraceFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityActivationTrace
+     * Select specific fields to fetch from the AcceptedIdentityFact
      */
-    select?: IdentityActivationTraceSelect<ExtArgs> | null
+    select?: AcceptedIdentityFactSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityActivationTrace
+     * Omit specific fields from the AcceptedIdentityFact
      */
-    omit?: IdentityActivationTraceOmit<ExtArgs> | null
+    omit?: AcceptedIdentityFactOmit<ExtArgs> | null
     /**
-     * Filter, which IdentityActivationTrace to fetch.
+     * Filter, which AcceptedIdentityFact to fetch.
      */
-    where?: IdentityActivationTraceWhereInput
+    where?: AcceptedIdentityFactWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of IdentityActivationTraces to fetch.
+     * Determine the order of AcceptedIdentityFacts to fetch.
      */
-    orderBy?: IdentityActivationTraceOrderByWithRelationInput | IdentityActivationTraceOrderByWithRelationInput[]
+    orderBy?: AcceptedIdentityFactOrderByWithRelationInput | AcceptedIdentityFactOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
-     * Sets the position for searching for IdentityActivationTraces.
+     * Sets the position for searching for AcceptedIdentityFacts.
      */
-    cursor?: IdentityActivationTraceWhereUniqueInput
+    cursor?: AcceptedIdentityFactWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` IdentityActivationTraces from the position of the cursor.
+     * Take `±n` AcceptedIdentityFacts from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` IdentityActivationTraces.
+     * Skip the first `n` AcceptedIdentityFacts.
      */
     skip?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
      * 
-     * Filter by unique combinations of IdentityActivationTraces.
+     * Filter by unique combinations of AcceptedIdentityFacts.
      */
-    distinct?: IdentityActivationTraceScalarFieldEnum | IdentityActivationTraceScalarFieldEnum[]
+    distinct?: AcceptedIdentityFactScalarFieldEnum | AcceptedIdentityFactScalarFieldEnum[]
   }
 
   /**
-   * IdentityActivationTrace findFirstOrThrow
+   * AcceptedIdentityFact findFirstOrThrow
    */
-  export type IdentityActivationTraceFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityActivationTrace
+     * Select specific fields to fetch from the AcceptedIdentityFact
      */
-    select?: IdentityActivationTraceSelect<ExtArgs> | null
+    select?: AcceptedIdentityFactSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityActivationTrace
+     * Omit specific fields from the AcceptedIdentityFact
      */
-    omit?: IdentityActivationTraceOmit<ExtArgs> | null
+    omit?: AcceptedIdentityFactOmit<ExtArgs> | null
     /**
-     * Filter, which IdentityActivationTrace to fetch.
+     * Filter, which AcceptedIdentityFact to fetch.
      */
-    where?: IdentityActivationTraceWhereInput
+    where?: AcceptedIdentityFactWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of IdentityActivationTraces to fetch.
+     * Determine the order of AcceptedIdentityFacts to fetch.
      */
-    orderBy?: IdentityActivationTraceOrderByWithRelationInput | IdentityActivationTraceOrderByWithRelationInput[]
+    orderBy?: AcceptedIdentityFactOrderByWithRelationInput | AcceptedIdentityFactOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
-     * Sets the position for searching for IdentityActivationTraces.
+     * Sets the position for searching for AcceptedIdentityFacts.
      */
-    cursor?: IdentityActivationTraceWhereUniqueInput
+    cursor?: AcceptedIdentityFactWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` IdentityActivationTraces from the position of the cursor.
+     * Take `±n` AcceptedIdentityFacts from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` IdentityActivationTraces.
+     * Skip the first `n` AcceptedIdentityFacts.
      */
     skip?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
      * 
-     * Filter by unique combinations of IdentityActivationTraces.
+     * Filter by unique combinations of AcceptedIdentityFacts.
      */
-    distinct?: IdentityActivationTraceScalarFieldEnum | IdentityActivationTraceScalarFieldEnum[]
+    distinct?: AcceptedIdentityFactScalarFieldEnum | AcceptedIdentityFactScalarFieldEnum[]
   }
 
   /**
-   * IdentityActivationTrace findMany
+   * AcceptedIdentityFact findMany
    */
-  export type IdentityActivationTraceFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityActivationTrace
+     * Select specific fields to fetch from the AcceptedIdentityFact
      */
-    select?: IdentityActivationTraceSelect<ExtArgs> | null
+    select?: AcceptedIdentityFactSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityActivationTrace
+     * Omit specific fields from the AcceptedIdentityFact
      */
-    omit?: IdentityActivationTraceOmit<ExtArgs> | null
+    omit?: AcceptedIdentityFactOmit<ExtArgs> | null
     /**
-     * Filter, which IdentityActivationTraces to fetch.
+     * Filter, which AcceptedIdentityFacts to fetch.
      */
-    where?: IdentityActivationTraceWhereInput
+    where?: AcceptedIdentityFactWhereInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
      * 
-     * Determine the order of IdentityActivationTraces to fetch.
+     * Determine the order of AcceptedIdentityFacts to fetch.
      */
-    orderBy?: IdentityActivationTraceOrderByWithRelationInput | IdentityActivationTraceOrderByWithRelationInput[]
+    orderBy?: AcceptedIdentityFactOrderByWithRelationInput | AcceptedIdentityFactOrderByWithRelationInput[]
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
      * 
-     * Sets the position for listing IdentityActivationTraces.
+     * Sets the position for listing AcceptedIdentityFacts.
      */
-    cursor?: IdentityActivationTraceWhereUniqueInput
+    cursor?: AcceptedIdentityFactWhereUniqueInput
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Take `±n` IdentityActivationTraces from the position of the cursor.
+     * Take `±n` AcceptedIdentityFacts from the position of the cursor.
      */
     take?: number
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
      * 
-     * Skip the first `n` IdentityActivationTraces.
+     * Skip the first `n` AcceptedIdentityFacts.
      */
     skip?: number
-    distinct?: IdentityActivationTraceScalarFieldEnum | IdentityActivationTraceScalarFieldEnum[]
+    distinct?: AcceptedIdentityFactScalarFieldEnum | AcceptedIdentityFactScalarFieldEnum[]
   }
 
   /**
-   * IdentityActivationTrace create
+   * AcceptedIdentityFact create
    */
-  export type IdentityActivationTraceCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityActivationTrace
+     * Select specific fields to fetch from the AcceptedIdentityFact
      */
-    select?: IdentityActivationTraceSelect<ExtArgs> | null
+    select?: AcceptedIdentityFactSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityActivationTrace
+     * Omit specific fields from the AcceptedIdentityFact
      */
-    omit?: IdentityActivationTraceOmit<ExtArgs> | null
+    omit?: AcceptedIdentityFactOmit<ExtArgs> | null
     /**
-     * The data needed to create a IdentityActivationTrace.
+     * The data needed to create a AcceptedIdentityFact.
      */
-    data: XOR<IdentityActivationTraceCreateInput, IdentityActivationTraceUncheckedCreateInput>
+    data: XOR<AcceptedIdentityFactCreateInput, AcceptedIdentityFactUncheckedCreateInput>
   }
 
   /**
-   * IdentityActivationTrace createMany
+   * AcceptedIdentityFact createMany
    */
-  export type IdentityActivationTraceCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * The data used to create many IdentityActivationTraces.
+     * The data used to create many AcceptedIdentityFacts.
      */
-    data: IdentityActivationTraceCreateManyInput | IdentityActivationTraceCreateManyInput[]
+    data: AcceptedIdentityFactCreateManyInput | AcceptedIdentityFactCreateManyInput[]
     skipDuplicates?: boolean
   }
 
   /**
-   * IdentityActivationTrace createManyAndReturn
+   * AcceptedIdentityFact createManyAndReturn
    */
-  export type IdentityActivationTraceCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityActivationTrace
+     * Select specific fields to fetch from the AcceptedIdentityFact
      */
-    select?: IdentityActivationTraceSelectCreateManyAndReturn<ExtArgs> | null
+    select?: AcceptedIdentityFactSelectCreateManyAndReturn<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityActivationTrace
+     * Omit specific fields from the AcceptedIdentityFact
      */
-    omit?: IdentityActivationTraceOmit<ExtArgs> | null
+    omit?: AcceptedIdentityFactOmit<ExtArgs> | null
     /**
-     * The data used to create many IdentityActivationTraces.
+     * The data used to create many AcceptedIdentityFacts.
      */
-    data: IdentityActivationTraceCreateManyInput | IdentityActivationTraceCreateManyInput[]
+    data: AcceptedIdentityFactCreateManyInput | AcceptedIdentityFactCreateManyInput[]
     skipDuplicates?: boolean
   }
 
   /**
-   * IdentityActivationTrace update
+   * AcceptedIdentityFact update
    */
-  export type IdentityActivationTraceUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityActivationTrace
+     * Select specific fields to fetch from the AcceptedIdentityFact
      */
-    select?: IdentityActivationTraceSelect<ExtArgs> | null
+    select?: AcceptedIdentityFactSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityActivationTrace
+     * Omit specific fields from the AcceptedIdentityFact
      */
-    omit?: IdentityActivationTraceOmit<ExtArgs> | null
+    omit?: AcceptedIdentityFactOmit<ExtArgs> | null
     /**
-     * The data needed to update a IdentityActivationTrace.
+     * The data needed to update a AcceptedIdentityFact.
      */
-    data: XOR<IdentityActivationTraceUpdateInput, IdentityActivationTraceUncheckedUpdateInput>
+    data: XOR<AcceptedIdentityFactUpdateInput, AcceptedIdentityFactUncheckedUpdateInput>
     /**
-     * Choose, which IdentityActivationTrace to update.
+     * Choose, which AcceptedIdentityFact to update.
      */
-    where: IdentityActivationTraceWhereUniqueInput
+    where: AcceptedIdentityFactWhereUniqueInput
   }
 
   /**
-   * IdentityActivationTrace updateMany
+   * AcceptedIdentityFact updateMany
    */
-  export type IdentityActivationTraceUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * The data used to update IdentityActivationTraces.
+     * The data used to update AcceptedIdentityFacts.
      */
-    data: XOR<IdentityActivationTraceUpdateManyMutationInput, IdentityActivationTraceUncheckedUpdateManyInput>
+    data: XOR<AcceptedIdentityFactUpdateManyMutationInput, AcceptedIdentityFactUncheckedUpdateManyInput>
     /**
-     * Filter which IdentityActivationTraces to update
+     * Filter which AcceptedIdentityFacts to update
      */
-    where?: IdentityActivationTraceWhereInput
+    where?: AcceptedIdentityFactWhereInput
     /**
-     * Limit how many IdentityActivationTraces to update.
+     * Limit how many AcceptedIdentityFacts to update.
      */
     limit?: number
   }
 
   /**
-   * IdentityActivationTrace updateManyAndReturn
+   * AcceptedIdentityFact updateManyAndReturn
    */
-  export type IdentityActivationTraceUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityActivationTrace
+     * Select specific fields to fetch from the AcceptedIdentityFact
      */
-    select?: IdentityActivationTraceSelectUpdateManyAndReturn<ExtArgs> | null
+    select?: AcceptedIdentityFactSelectUpdateManyAndReturn<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityActivationTrace
+     * Omit specific fields from the AcceptedIdentityFact
      */
-    omit?: IdentityActivationTraceOmit<ExtArgs> | null
+    omit?: AcceptedIdentityFactOmit<ExtArgs> | null
     /**
-     * The data used to update IdentityActivationTraces.
+     * The data used to update AcceptedIdentityFacts.
      */
-    data: XOR<IdentityActivationTraceUpdateManyMutationInput, IdentityActivationTraceUncheckedUpdateManyInput>
+    data: XOR<AcceptedIdentityFactUpdateManyMutationInput, AcceptedIdentityFactUncheckedUpdateManyInput>
     /**
-     * Filter which IdentityActivationTraces to update
+     * Filter which AcceptedIdentityFacts to update
      */
-    where?: IdentityActivationTraceWhereInput
+    where?: AcceptedIdentityFactWhereInput
     /**
-     * Limit how many IdentityActivationTraces to update.
+     * Limit how many AcceptedIdentityFacts to update.
      */
     limit?: number
   }
 
   /**
-   * IdentityActivationTrace upsert
+   * AcceptedIdentityFact upsert
    */
-  export type IdentityActivationTraceUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityActivationTrace
+     * Select specific fields to fetch from the AcceptedIdentityFact
      */
-    select?: IdentityActivationTraceSelect<ExtArgs> | null
+    select?: AcceptedIdentityFactSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityActivationTrace
+     * Omit specific fields from the AcceptedIdentityFact
      */
-    omit?: IdentityActivationTraceOmit<ExtArgs> | null
+    omit?: AcceptedIdentityFactOmit<ExtArgs> | null
     /**
-     * The filter to search for the IdentityActivationTrace to update in case it exists.
+     * The filter to search for the AcceptedIdentityFact to update in case it exists.
      */
-    where: IdentityActivationTraceWhereUniqueInput
+    where: AcceptedIdentityFactWhereUniqueInput
     /**
-     * In case the IdentityActivationTrace found by the `where` argument doesn't exist, create a new IdentityActivationTrace with this data.
+     * In case the AcceptedIdentityFact found by the `where` argument doesn't exist, create a new AcceptedIdentityFact with this data.
      */
-    create: XOR<IdentityActivationTraceCreateInput, IdentityActivationTraceUncheckedCreateInput>
+    create: XOR<AcceptedIdentityFactCreateInput, AcceptedIdentityFactUncheckedCreateInput>
     /**
-     * In case the IdentityActivationTrace was found with the provided `where` argument, update it with this data.
+     * In case the AcceptedIdentityFact was found with the provided `where` argument, update it with this data.
      */
-    update: XOR<IdentityActivationTraceUpdateInput, IdentityActivationTraceUncheckedUpdateInput>
+    update: XOR<AcceptedIdentityFactUpdateInput, AcceptedIdentityFactUncheckedUpdateInput>
   }
 
   /**
-   * IdentityActivationTrace delete
+   * AcceptedIdentityFact delete
    */
-  export type IdentityActivationTraceDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityActivationTrace
+     * Select specific fields to fetch from the AcceptedIdentityFact
      */
-    select?: IdentityActivationTraceSelect<ExtArgs> | null
+    select?: AcceptedIdentityFactSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityActivationTrace
+     * Omit specific fields from the AcceptedIdentityFact
      */
-    omit?: IdentityActivationTraceOmit<ExtArgs> | null
+    omit?: AcceptedIdentityFactOmit<ExtArgs> | null
     /**
-     * Filter which IdentityActivationTrace to delete.
+     * Filter which AcceptedIdentityFact to delete.
      */
-    where: IdentityActivationTraceWhereUniqueInput
+    where: AcceptedIdentityFactWhereUniqueInput
   }
 
   /**
-   * IdentityActivationTrace deleteMany
+   * AcceptedIdentityFact deleteMany
    */
-  export type IdentityActivationTraceDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Filter which IdentityActivationTraces to delete
+     * Filter which AcceptedIdentityFacts to delete
      */
-    where?: IdentityActivationTraceWhereInput
+    where?: AcceptedIdentityFactWhereInput
     /**
-     * Limit how many IdentityActivationTraces to delete.
+     * Limit how many AcceptedIdentityFacts to delete.
      */
     limit?: number
   }
 
   /**
-   * IdentityActivationTrace without action
+   * AcceptedIdentityFact without action
    */
-  export type IdentityActivationTraceDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+  export type AcceptedIdentityFactDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     /**
-     * Select specific fields to fetch from the IdentityActivationTrace
+     * Select specific fields to fetch from the AcceptedIdentityFact
      */
-    select?: IdentityActivationTraceSelect<ExtArgs> | null
+    select?: AcceptedIdentityFactSelect<ExtArgs> | null
     /**
-     * Omit specific fields from the IdentityActivationTrace
+     * Omit specific fields from the AcceptedIdentityFact
      */
-    omit?: IdentityActivationTraceOmit<ExtArgs> | null
+    omit?: AcceptedIdentityFactOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model RuntimeIdentityActivationTrace
+   */
+
+  export type AggregateRuntimeIdentityActivationTrace = {
+    _count: RuntimeIdentityActivationTraceCountAggregateOutputType | null
+    _avg: RuntimeIdentityActivationTraceAvgAggregateOutputType | null
+    _sum: RuntimeIdentityActivationTraceSumAggregateOutputType | null
+    _min: RuntimeIdentityActivationTraceMinAggregateOutputType | null
+    _max: RuntimeIdentityActivationTraceMaxAggregateOutputType | null
+  }
+
+  export type RuntimeIdentityActivationTraceAvgAggregateOutputType = {
+    id: number | null
+    conversation_id: number | null
+  }
+
+  export type RuntimeIdentityActivationTraceSumAggregateOutputType = {
+    id: bigint | null
+    conversation_id: bigint | null
+  }
+
+  export type RuntimeIdentityActivationTraceMinAggregateOutputType = {
+    id: bigint | null
+    identity_key: string | null
+    run_id: string | null
+    trace_id: string | null
+    conversation_id: bigint | null
+    scene_fingerprint: string | null
+    cue_summary: string | null
+    selected_skill_ref: string | null
+    activation_reason: string | null
+    created_at: Date | null
+  }
+
+  export type RuntimeIdentityActivationTraceMaxAggregateOutputType = {
+    id: bigint | null
+    identity_key: string | null
+    run_id: string | null
+    trace_id: string | null
+    conversation_id: bigint | null
+    scene_fingerprint: string | null
+    cue_summary: string | null
+    selected_skill_ref: string | null
+    activation_reason: string | null
+    created_at: Date | null
+  }
+
+  export type RuntimeIdentityActivationTraceCountAggregateOutputType = {
+    id: number
+    identity_key: number
+    run_id: number
+    trace_id: number
+    conversation_id: number
+    scene_fingerprint: number
+    cue_summary: number
+    activated_refs: number
+    suppressed_refs: number
+    selected_skill_ref: number
+    activation_reason: number
+    metadata: number
+    created_at: number
+    _all: number
+  }
+
+
+  export type RuntimeIdentityActivationTraceAvgAggregateInputType = {
+    id?: true
+    conversation_id?: true
+  }
+
+  export type RuntimeIdentityActivationTraceSumAggregateInputType = {
+    id?: true
+    conversation_id?: true
+  }
+
+  export type RuntimeIdentityActivationTraceMinAggregateInputType = {
+    id?: true
+    identity_key?: true
+    run_id?: true
+    trace_id?: true
+    conversation_id?: true
+    scene_fingerprint?: true
+    cue_summary?: true
+    selected_skill_ref?: true
+    activation_reason?: true
+    created_at?: true
+  }
+
+  export type RuntimeIdentityActivationTraceMaxAggregateInputType = {
+    id?: true
+    identity_key?: true
+    run_id?: true
+    trace_id?: true
+    conversation_id?: true
+    scene_fingerprint?: true
+    cue_summary?: true
+    selected_skill_ref?: true
+    activation_reason?: true
+    created_at?: true
+  }
+
+  export type RuntimeIdentityActivationTraceCountAggregateInputType = {
+    id?: true
+    identity_key?: true
+    run_id?: true
+    trace_id?: true
+    conversation_id?: true
+    scene_fingerprint?: true
+    cue_summary?: true
+    activated_refs?: true
+    suppressed_refs?: true
+    selected_skill_ref?: true
+    activation_reason?: true
+    metadata?: true
+    created_at?: true
+    _all?: true
+  }
+
+  export type RuntimeIdentityActivationTraceAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which RuntimeIdentityActivationTrace to aggregate.
+     */
+    where?: RuntimeIdentityActivationTraceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RuntimeIdentityActivationTraces to fetch.
+     */
+    orderBy?: RuntimeIdentityActivationTraceOrderByWithRelationInput | RuntimeIdentityActivationTraceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: RuntimeIdentityActivationTraceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RuntimeIdentityActivationTraces from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RuntimeIdentityActivationTraces.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned RuntimeIdentityActivationTraces
+    **/
+    _count?: true | RuntimeIdentityActivationTraceCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: RuntimeIdentityActivationTraceAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: RuntimeIdentityActivationTraceSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: RuntimeIdentityActivationTraceMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: RuntimeIdentityActivationTraceMaxAggregateInputType
+  }
+
+  export type GetRuntimeIdentityActivationTraceAggregateType<T extends RuntimeIdentityActivationTraceAggregateArgs> = {
+        [P in keyof T & keyof AggregateRuntimeIdentityActivationTrace]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateRuntimeIdentityActivationTrace[P]>
+      : GetScalarType<T[P], AggregateRuntimeIdentityActivationTrace[P]>
+  }
+
+
+
+
+  export type RuntimeIdentityActivationTraceGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: RuntimeIdentityActivationTraceWhereInput
+    orderBy?: RuntimeIdentityActivationTraceOrderByWithAggregationInput | RuntimeIdentityActivationTraceOrderByWithAggregationInput[]
+    by: RuntimeIdentityActivationTraceScalarFieldEnum[] | RuntimeIdentityActivationTraceScalarFieldEnum
+    having?: RuntimeIdentityActivationTraceScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: RuntimeIdentityActivationTraceCountAggregateInputType | true
+    _avg?: RuntimeIdentityActivationTraceAvgAggregateInputType
+    _sum?: RuntimeIdentityActivationTraceSumAggregateInputType
+    _min?: RuntimeIdentityActivationTraceMinAggregateInputType
+    _max?: RuntimeIdentityActivationTraceMaxAggregateInputType
+  }
+
+  export type RuntimeIdentityActivationTraceGroupByOutputType = {
+    id: bigint
+    identity_key: string
+    run_id: string | null
+    trace_id: string | null
+    conversation_id: bigint | null
+    scene_fingerprint: string | null
+    cue_summary: string | null
+    activated_refs: JsonValue
+    suppressed_refs: JsonValue
+    selected_skill_ref: string | null
+    activation_reason: string | null
+    metadata: JsonValue | null
+    created_at: Date
+    _count: RuntimeIdentityActivationTraceCountAggregateOutputType | null
+    _avg: RuntimeIdentityActivationTraceAvgAggregateOutputType | null
+    _sum: RuntimeIdentityActivationTraceSumAggregateOutputType | null
+    _min: RuntimeIdentityActivationTraceMinAggregateOutputType | null
+    _max: RuntimeIdentityActivationTraceMaxAggregateOutputType | null
+  }
+
+  type GetRuntimeIdentityActivationTraceGroupByPayload<T extends RuntimeIdentityActivationTraceGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<RuntimeIdentityActivationTraceGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof RuntimeIdentityActivationTraceGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], RuntimeIdentityActivationTraceGroupByOutputType[P]>
+            : GetScalarType<T[P], RuntimeIdentityActivationTraceGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type RuntimeIdentityActivationTraceSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    run_id?: boolean
+    trace_id?: boolean
+    conversation_id?: boolean
+    scene_fingerprint?: boolean
+    cue_summary?: boolean
+    activated_refs?: boolean
+    suppressed_refs?: boolean
+    selected_skill_ref?: boolean
+    activation_reason?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["runtimeIdentityActivationTrace"]>
+
+  export type RuntimeIdentityActivationTraceSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    run_id?: boolean
+    trace_id?: boolean
+    conversation_id?: boolean
+    scene_fingerprint?: boolean
+    cue_summary?: boolean
+    activated_refs?: boolean
+    suppressed_refs?: boolean
+    selected_skill_ref?: boolean
+    activation_reason?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["runtimeIdentityActivationTrace"]>
+
+  export type RuntimeIdentityActivationTraceSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    run_id?: boolean
+    trace_id?: boolean
+    conversation_id?: boolean
+    scene_fingerprint?: boolean
+    cue_summary?: boolean
+    activated_refs?: boolean
+    suppressed_refs?: boolean
+    selected_skill_ref?: boolean
+    activation_reason?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["runtimeIdentityActivationTrace"]>
+
+  export type RuntimeIdentityActivationTraceSelectScalar = {
+    id?: boolean
+    identity_key?: boolean
+    run_id?: boolean
+    trace_id?: boolean
+    conversation_id?: boolean
+    scene_fingerprint?: boolean
+    cue_summary?: boolean
+    activated_refs?: boolean
+    suppressed_refs?: boolean
+    selected_skill_ref?: boolean
+    activation_reason?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }
+
+  export type RuntimeIdentityActivationTraceOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "run_id" | "trace_id" | "conversation_id" | "scene_fingerprint" | "cue_summary" | "activated_refs" | "suppressed_refs" | "selected_skill_ref" | "activation_reason" | "metadata" | "created_at", ExtArgs["result"]["runtimeIdentityActivationTrace"]>
+
+  export type $RuntimeIdentityActivationTracePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "RuntimeIdentityActivationTrace"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      identity_key: string
+      run_id: string | null
+      trace_id: string | null
+      conversation_id: bigint | null
+      scene_fingerprint: string | null
+      cue_summary: string | null
+      activated_refs: Prisma.JsonValue
+      suppressed_refs: Prisma.JsonValue
+      selected_skill_ref: string | null
+      activation_reason: string | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+    }, ExtArgs["result"]["runtimeIdentityActivationTrace"]>
+    composites: {}
+  }
+
+  type RuntimeIdentityActivationTraceGetPayload<S extends boolean | null | undefined | RuntimeIdentityActivationTraceDefaultArgs> = $Result.GetResult<Prisma.$RuntimeIdentityActivationTracePayload, S>
+
+  type RuntimeIdentityActivationTraceCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<RuntimeIdentityActivationTraceFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: RuntimeIdentityActivationTraceCountAggregateInputType | true
+    }
+
+  export interface RuntimeIdentityActivationTraceDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['RuntimeIdentityActivationTrace'], meta: { name: 'RuntimeIdentityActivationTrace' } }
+    /**
+     * Find zero or one RuntimeIdentityActivationTrace that matches the filter.
+     * @param {RuntimeIdentityActivationTraceFindUniqueArgs} args - Arguments to find a RuntimeIdentityActivationTrace
+     * @example
+     * // Get one RuntimeIdentityActivationTrace
+     * const runtimeIdentityActivationTrace = await prisma.runtimeIdentityActivationTrace.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends RuntimeIdentityActivationTraceFindUniqueArgs>(args: SelectSubset<T, RuntimeIdentityActivationTraceFindUniqueArgs<ExtArgs>>): Prisma__RuntimeIdentityActivationTraceClient<$Result.GetResult<Prisma.$RuntimeIdentityActivationTracePayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one RuntimeIdentityActivationTrace that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {RuntimeIdentityActivationTraceFindUniqueOrThrowArgs} args - Arguments to find a RuntimeIdentityActivationTrace
+     * @example
+     * // Get one RuntimeIdentityActivationTrace
+     * const runtimeIdentityActivationTrace = await prisma.runtimeIdentityActivationTrace.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends RuntimeIdentityActivationTraceFindUniqueOrThrowArgs>(args: SelectSubset<T, RuntimeIdentityActivationTraceFindUniqueOrThrowArgs<ExtArgs>>): Prisma__RuntimeIdentityActivationTraceClient<$Result.GetResult<Prisma.$RuntimeIdentityActivationTracePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first RuntimeIdentityActivationTrace that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RuntimeIdentityActivationTraceFindFirstArgs} args - Arguments to find a RuntimeIdentityActivationTrace
+     * @example
+     * // Get one RuntimeIdentityActivationTrace
+     * const runtimeIdentityActivationTrace = await prisma.runtimeIdentityActivationTrace.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends RuntimeIdentityActivationTraceFindFirstArgs>(args?: SelectSubset<T, RuntimeIdentityActivationTraceFindFirstArgs<ExtArgs>>): Prisma__RuntimeIdentityActivationTraceClient<$Result.GetResult<Prisma.$RuntimeIdentityActivationTracePayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first RuntimeIdentityActivationTrace that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RuntimeIdentityActivationTraceFindFirstOrThrowArgs} args - Arguments to find a RuntimeIdentityActivationTrace
+     * @example
+     * // Get one RuntimeIdentityActivationTrace
+     * const runtimeIdentityActivationTrace = await prisma.runtimeIdentityActivationTrace.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends RuntimeIdentityActivationTraceFindFirstOrThrowArgs>(args?: SelectSubset<T, RuntimeIdentityActivationTraceFindFirstOrThrowArgs<ExtArgs>>): Prisma__RuntimeIdentityActivationTraceClient<$Result.GetResult<Prisma.$RuntimeIdentityActivationTracePayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more RuntimeIdentityActivationTraces that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RuntimeIdentityActivationTraceFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all RuntimeIdentityActivationTraces
+     * const runtimeIdentityActivationTraces = await prisma.runtimeIdentityActivationTrace.findMany()
+     * 
+     * // Get first 10 RuntimeIdentityActivationTraces
+     * const runtimeIdentityActivationTraces = await prisma.runtimeIdentityActivationTrace.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const runtimeIdentityActivationTraceWithIdOnly = await prisma.runtimeIdentityActivationTrace.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends RuntimeIdentityActivationTraceFindManyArgs>(args?: SelectSubset<T, RuntimeIdentityActivationTraceFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RuntimeIdentityActivationTracePayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a RuntimeIdentityActivationTrace.
+     * @param {RuntimeIdentityActivationTraceCreateArgs} args - Arguments to create a RuntimeIdentityActivationTrace.
+     * @example
+     * // Create one RuntimeIdentityActivationTrace
+     * const RuntimeIdentityActivationTrace = await prisma.runtimeIdentityActivationTrace.create({
+     *   data: {
+     *     // ... data to create a RuntimeIdentityActivationTrace
+     *   }
+     * })
+     * 
+     */
+    create<T extends RuntimeIdentityActivationTraceCreateArgs>(args: SelectSubset<T, RuntimeIdentityActivationTraceCreateArgs<ExtArgs>>): Prisma__RuntimeIdentityActivationTraceClient<$Result.GetResult<Prisma.$RuntimeIdentityActivationTracePayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many RuntimeIdentityActivationTraces.
+     * @param {RuntimeIdentityActivationTraceCreateManyArgs} args - Arguments to create many RuntimeIdentityActivationTraces.
+     * @example
+     * // Create many RuntimeIdentityActivationTraces
+     * const runtimeIdentityActivationTrace = await prisma.runtimeIdentityActivationTrace.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends RuntimeIdentityActivationTraceCreateManyArgs>(args?: SelectSubset<T, RuntimeIdentityActivationTraceCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many RuntimeIdentityActivationTraces and returns the data saved in the database.
+     * @param {RuntimeIdentityActivationTraceCreateManyAndReturnArgs} args - Arguments to create many RuntimeIdentityActivationTraces.
+     * @example
+     * // Create many RuntimeIdentityActivationTraces
+     * const runtimeIdentityActivationTrace = await prisma.runtimeIdentityActivationTrace.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many RuntimeIdentityActivationTraces and only return the `id`
+     * const runtimeIdentityActivationTraceWithIdOnly = await prisma.runtimeIdentityActivationTrace.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends RuntimeIdentityActivationTraceCreateManyAndReturnArgs>(args?: SelectSubset<T, RuntimeIdentityActivationTraceCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RuntimeIdentityActivationTracePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a RuntimeIdentityActivationTrace.
+     * @param {RuntimeIdentityActivationTraceDeleteArgs} args - Arguments to delete one RuntimeIdentityActivationTrace.
+     * @example
+     * // Delete one RuntimeIdentityActivationTrace
+     * const RuntimeIdentityActivationTrace = await prisma.runtimeIdentityActivationTrace.delete({
+     *   where: {
+     *     // ... filter to delete one RuntimeIdentityActivationTrace
+     *   }
+     * })
+     * 
+     */
+    delete<T extends RuntimeIdentityActivationTraceDeleteArgs>(args: SelectSubset<T, RuntimeIdentityActivationTraceDeleteArgs<ExtArgs>>): Prisma__RuntimeIdentityActivationTraceClient<$Result.GetResult<Prisma.$RuntimeIdentityActivationTracePayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one RuntimeIdentityActivationTrace.
+     * @param {RuntimeIdentityActivationTraceUpdateArgs} args - Arguments to update one RuntimeIdentityActivationTrace.
+     * @example
+     * // Update one RuntimeIdentityActivationTrace
+     * const runtimeIdentityActivationTrace = await prisma.runtimeIdentityActivationTrace.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends RuntimeIdentityActivationTraceUpdateArgs>(args: SelectSubset<T, RuntimeIdentityActivationTraceUpdateArgs<ExtArgs>>): Prisma__RuntimeIdentityActivationTraceClient<$Result.GetResult<Prisma.$RuntimeIdentityActivationTracePayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more RuntimeIdentityActivationTraces.
+     * @param {RuntimeIdentityActivationTraceDeleteManyArgs} args - Arguments to filter RuntimeIdentityActivationTraces to delete.
+     * @example
+     * // Delete a few RuntimeIdentityActivationTraces
+     * const { count } = await prisma.runtimeIdentityActivationTrace.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends RuntimeIdentityActivationTraceDeleteManyArgs>(args?: SelectSubset<T, RuntimeIdentityActivationTraceDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more RuntimeIdentityActivationTraces.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RuntimeIdentityActivationTraceUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many RuntimeIdentityActivationTraces
+     * const runtimeIdentityActivationTrace = await prisma.runtimeIdentityActivationTrace.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends RuntimeIdentityActivationTraceUpdateManyArgs>(args: SelectSubset<T, RuntimeIdentityActivationTraceUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more RuntimeIdentityActivationTraces and returns the data updated in the database.
+     * @param {RuntimeIdentityActivationTraceUpdateManyAndReturnArgs} args - Arguments to update many RuntimeIdentityActivationTraces.
+     * @example
+     * // Update many RuntimeIdentityActivationTraces
+     * const runtimeIdentityActivationTrace = await prisma.runtimeIdentityActivationTrace.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more RuntimeIdentityActivationTraces and only return the `id`
+     * const runtimeIdentityActivationTraceWithIdOnly = await prisma.runtimeIdentityActivationTrace.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends RuntimeIdentityActivationTraceUpdateManyAndReturnArgs>(args: SelectSubset<T, RuntimeIdentityActivationTraceUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$RuntimeIdentityActivationTracePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one RuntimeIdentityActivationTrace.
+     * @param {RuntimeIdentityActivationTraceUpsertArgs} args - Arguments to update or create a RuntimeIdentityActivationTrace.
+     * @example
+     * // Update or create a RuntimeIdentityActivationTrace
+     * const runtimeIdentityActivationTrace = await prisma.runtimeIdentityActivationTrace.upsert({
+     *   create: {
+     *     // ... data to create a RuntimeIdentityActivationTrace
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the RuntimeIdentityActivationTrace we want to update
+     *   }
+     * })
+     */
+    upsert<T extends RuntimeIdentityActivationTraceUpsertArgs>(args: SelectSubset<T, RuntimeIdentityActivationTraceUpsertArgs<ExtArgs>>): Prisma__RuntimeIdentityActivationTraceClient<$Result.GetResult<Prisma.$RuntimeIdentityActivationTracePayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of RuntimeIdentityActivationTraces.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RuntimeIdentityActivationTraceCountArgs} args - Arguments to filter RuntimeIdentityActivationTraces to count.
+     * @example
+     * // Count the number of RuntimeIdentityActivationTraces
+     * const count = await prisma.runtimeIdentityActivationTrace.count({
+     *   where: {
+     *     // ... the filter for the RuntimeIdentityActivationTraces we want to count
+     *   }
+     * })
+    **/
+    count<T extends RuntimeIdentityActivationTraceCountArgs>(
+      args?: Subset<T, RuntimeIdentityActivationTraceCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], RuntimeIdentityActivationTraceCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a RuntimeIdentityActivationTrace.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RuntimeIdentityActivationTraceAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends RuntimeIdentityActivationTraceAggregateArgs>(args: Subset<T, RuntimeIdentityActivationTraceAggregateArgs>): Prisma.PrismaPromise<GetRuntimeIdentityActivationTraceAggregateType<T>>
+
+    /**
+     * Group by RuntimeIdentityActivationTrace.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {RuntimeIdentityActivationTraceGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends RuntimeIdentityActivationTraceGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: RuntimeIdentityActivationTraceGroupByArgs['orderBy'] }
+        : { orderBy?: RuntimeIdentityActivationTraceGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, RuntimeIdentityActivationTraceGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetRuntimeIdentityActivationTraceGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the RuntimeIdentityActivationTrace model
+   */
+  readonly fields: RuntimeIdentityActivationTraceFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for RuntimeIdentityActivationTrace.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__RuntimeIdentityActivationTraceClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the RuntimeIdentityActivationTrace model
+   */
+  interface RuntimeIdentityActivationTraceFieldRefs {
+    readonly id: FieldRef<"RuntimeIdentityActivationTrace", 'BigInt'>
+    readonly identity_key: FieldRef<"RuntimeIdentityActivationTrace", 'String'>
+    readonly run_id: FieldRef<"RuntimeIdentityActivationTrace", 'String'>
+    readonly trace_id: FieldRef<"RuntimeIdentityActivationTrace", 'String'>
+    readonly conversation_id: FieldRef<"RuntimeIdentityActivationTrace", 'BigInt'>
+    readonly scene_fingerprint: FieldRef<"RuntimeIdentityActivationTrace", 'String'>
+    readonly cue_summary: FieldRef<"RuntimeIdentityActivationTrace", 'String'>
+    readonly activated_refs: FieldRef<"RuntimeIdentityActivationTrace", 'Json'>
+    readonly suppressed_refs: FieldRef<"RuntimeIdentityActivationTrace", 'Json'>
+    readonly selected_skill_ref: FieldRef<"RuntimeIdentityActivationTrace", 'String'>
+    readonly activation_reason: FieldRef<"RuntimeIdentityActivationTrace", 'String'>
+    readonly metadata: FieldRef<"RuntimeIdentityActivationTrace", 'Json'>
+    readonly created_at: FieldRef<"RuntimeIdentityActivationTrace", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * RuntimeIdentityActivationTrace findUnique
+   */
+  export type RuntimeIdentityActivationTraceFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RuntimeIdentityActivationTrace
+     */
+    select?: RuntimeIdentityActivationTraceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RuntimeIdentityActivationTrace
+     */
+    omit?: RuntimeIdentityActivationTraceOmit<ExtArgs> | null
+    /**
+     * Filter, which RuntimeIdentityActivationTrace to fetch.
+     */
+    where: RuntimeIdentityActivationTraceWhereUniqueInput
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace findUniqueOrThrow
+   */
+  export type RuntimeIdentityActivationTraceFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RuntimeIdentityActivationTrace
+     */
+    select?: RuntimeIdentityActivationTraceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RuntimeIdentityActivationTrace
+     */
+    omit?: RuntimeIdentityActivationTraceOmit<ExtArgs> | null
+    /**
+     * Filter, which RuntimeIdentityActivationTrace to fetch.
+     */
+    where: RuntimeIdentityActivationTraceWhereUniqueInput
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace findFirst
+   */
+  export type RuntimeIdentityActivationTraceFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RuntimeIdentityActivationTrace
+     */
+    select?: RuntimeIdentityActivationTraceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RuntimeIdentityActivationTrace
+     */
+    omit?: RuntimeIdentityActivationTraceOmit<ExtArgs> | null
+    /**
+     * Filter, which RuntimeIdentityActivationTrace to fetch.
+     */
+    where?: RuntimeIdentityActivationTraceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RuntimeIdentityActivationTraces to fetch.
+     */
+    orderBy?: RuntimeIdentityActivationTraceOrderByWithRelationInput | RuntimeIdentityActivationTraceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for RuntimeIdentityActivationTraces.
+     */
+    cursor?: RuntimeIdentityActivationTraceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RuntimeIdentityActivationTraces from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RuntimeIdentityActivationTraces.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of RuntimeIdentityActivationTraces.
+     */
+    distinct?: RuntimeIdentityActivationTraceScalarFieldEnum | RuntimeIdentityActivationTraceScalarFieldEnum[]
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace findFirstOrThrow
+   */
+  export type RuntimeIdentityActivationTraceFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RuntimeIdentityActivationTrace
+     */
+    select?: RuntimeIdentityActivationTraceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RuntimeIdentityActivationTrace
+     */
+    omit?: RuntimeIdentityActivationTraceOmit<ExtArgs> | null
+    /**
+     * Filter, which RuntimeIdentityActivationTrace to fetch.
+     */
+    where?: RuntimeIdentityActivationTraceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RuntimeIdentityActivationTraces to fetch.
+     */
+    orderBy?: RuntimeIdentityActivationTraceOrderByWithRelationInput | RuntimeIdentityActivationTraceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for RuntimeIdentityActivationTraces.
+     */
+    cursor?: RuntimeIdentityActivationTraceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RuntimeIdentityActivationTraces from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RuntimeIdentityActivationTraces.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of RuntimeIdentityActivationTraces.
+     */
+    distinct?: RuntimeIdentityActivationTraceScalarFieldEnum | RuntimeIdentityActivationTraceScalarFieldEnum[]
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace findMany
+   */
+  export type RuntimeIdentityActivationTraceFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RuntimeIdentityActivationTrace
+     */
+    select?: RuntimeIdentityActivationTraceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RuntimeIdentityActivationTrace
+     */
+    omit?: RuntimeIdentityActivationTraceOmit<ExtArgs> | null
+    /**
+     * Filter, which RuntimeIdentityActivationTraces to fetch.
+     */
+    where?: RuntimeIdentityActivationTraceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of RuntimeIdentityActivationTraces to fetch.
+     */
+    orderBy?: RuntimeIdentityActivationTraceOrderByWithRelationInput | RuntimeIdentityActivationTraceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing RuntimeIdentityActivationTraces.
+     */
+    cursor?: RuntimeIdentityActivationTraceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` RuntimeIdentityActivationTraces from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` RuntimeIdentityActivationTraces.
+     */
+    skip?: number
+    distinct?: RuntimeIdentityActivationTraceScalarFieldEnum | RuntimeIdentityActivationTraceScalarFieldEnum[]
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace create
+   */
+  export type RuntimeIdentityActivationTraceCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RuntimeIdentityActivationTrace
+     */
+    select?: RuntimeIdentityActivationTraceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RuntimeIdentityActivationTrace
+     */
+    omit?: RuntimeIdentityActivationTraceOmit<ExtArgs> | null
+    /**
+     * The data needed to create a RuntimeIdentityActivationTrace.
+     */
+    data: XOR<RuntimeIdentityActivationTraceCreateInput, RuntimeIdentityActivationTraceUncheckedCreateInput>
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace createMany
+   */
+  export type RuntimeIdentityActivationTraceCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many RuntimeIdentityActivationTraces.
+     */
+    data: RuntimeIdentityActivationTraceCreateManyInput | RuntimeIdentityActivationTraceCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace createManyAndReturn
+   */
+  export type RuntimeIdentityActivationTraceCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RuntimeIdentityActivationTrace
+     */
+    select?: RuntimeIdentityActivationTraceSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the RuntimeIdentityActivationTrace
+     */
+    omit?: RuntimeIdentityActivationTraceOmit<ExtArgs> | null
+    /**
+     * The data used to create many RuntimeIdentityActivationTraces.
+     */
+    data: RuntimeIdentityActivationTraceCreateManyInput | RuntimeIdentityActivationTraceCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace update
+   */
+  export type RuntimeIdentityActivationTraceUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RuntimeIdentityActivationTrace
+     */
+    select?: RuntimeIdentityActivationTraceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RuntimeIdentityActivationTrace
+     */
+    omit?: RuntimeIdentityActivationTraceOmit<ExtArgs> | null
+    /**
+     * The data needed to update a RuntimeIdentityActivationTrace.
+     */
+    data: XOR<RuntimeIdentityActivationTraceUpdateInput, RuntimeIdentityActivationTraceUncheckedUpdateInput>
+    /**
+     * Choose, which RuntimeIdentityActivationTrace to update.
+     */
+    where: RuntimeIdentityActivationTraceWhereUniqueInput
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace updateMany
+   */
+  export type RuntimeIdentityActivationTraceUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update RuntimeIdentityActivationTraces.
+     */
+    data: XOR<RuntimeIdentityActivationTraceUpdateManyMutationInput, RuntimeIdentityActivationTraceUncheckedUpdateManyInput>
+    /**
+     * Filter which RuntimeIdentityActivationTraces to update
+     */
+    where?: RuntimeIdentityActivationTraceWhereInput
+    /**
+     * Limit how many RuntimeIdentityActivationTraces to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace updateManyAndReturn
+   */
+  export type RuntimeIdentityActivationTraceUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RuntimeIdentityActivationTrace
+     */
+    select?: RuntimeIdentityActivationTraceSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the RuntimeIdentityActivationTrace
+     */
+    omit?: RuntimeIdentityActivationTraceOmit<ExtArgs> | null
+    /**
+     * The data used to update RuntimeIdentityActivationTraces.
+     */
+    data: XOR<RuntimeIdentityActivationTraceUpdateManyMutationInput, RuntimeIdentityActivationTraceUncheckedUpdateManyInput>
+    /**
+     * Filter which RuntimeIdentityActivationTraces to update
+     */
+    where?: RuntimeIdentityActivationTraceWhereInput
+    /**
+     * Limit how many RuntimeIdentityActivationTraces to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace upsert
+   */
+  export type RuntimeIdentityActivationTraceUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RuntimeIdentityActivationTrace
+     */
+    select?: RuntimeIdentityActivationTraceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RuntimeIdentityActivationTrace
+     */
+    omit?: RuntimeIdentityActivationTraceOmit<ExtArgs> | null
+    /**
+     * The filter to search for the RuntimeIdentityActivationTrace to update in case it exists.
+     */
+    where: RuntimeIdentityActivationTraceWhereUniqueInput
+    /**
+     * In case the RuntimeIdentityActivationTrace found by the `where` argument doesn't exist, create a new RuntimeIdentityActivationTrace with this data.
+     */
+    create: XOR<RuntimeIdentityActivationTraceCreateInput, RuntimeIdentityActivationTraceUncheckedCreateInput>
+    /**
+     * In case the RuntimeIdentityActivationTrace was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<RuntimeIdentityActivationTraceUpdateInput, RuntimeIdentityActivationTraceUncheckedUpdateInput>
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace delete
+   */
+  export type RuntimeIdentityActivationTraceDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RuntimeIdentityActivationTrace
+     */
+    select?: RuntimeIdentityActivationTraceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RuntimeIdentityActivationTrace
+     */
+    omit?: RuntimeIdentityActivationTraceOmit<ExtArgs> | null
+    /**
+     * Filter which RuntimeIdentityActivationTrace to delete.
+     */
+    where: RuntimeIdentityActivationTraceWhereUniqueInput
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace deleteMany
+   */
+  export type RuntimeIdentityActivationTraceDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which RuntimeIdentityActivationTraces to delete
+     */
+    where?: RuntimeIdentityActivationTraceWhereInput
+    /**
+     * Limit how many RuntimeIdentityActivationTraces to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * RuntimeIdentityActivationTrace without action
+   */
+  export type RuntimeIdentityActivationTraceDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the RuntimeIdentityActivationTrace
+     */
+    select?: RuntimeIdentityActivationTraceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the RuntimeIdentityActivationTrace
+     */
+    omit?: RuntimeIdentityActivationTraceOmit<ExtArgs> | null
   }
 
 
@@ -35754,7 +37167,8 @@ export namespace Prisma {
     parent_event_id: 'parent_event_id',
     forked_from_identity_key: 'forked_from_identity_key',
     fork_point_event_id: 'fork_point_event_id',
-    change_journal_id: 'change_journal_id',
+    change_candidate_id: 'change_candidate_id',
+    accepted_fact_id: 'accepted_fact_id',
     integrity_status: 'integrity_status',
     metadata: 'metadata',
     occurred_at: 'occurred_at',
@@ -35764,29 +37178,39 @@ export namespace Prisma {
   export type IdentityLineageEventScalarFieldEnum = (typeof IdentityLineageEventScalarFieldEnum)[keyof typeof IdentityLineageEventScalarFieldEnum]
 
 
-  export const IdentityChangeJournalScalarFieldEnum: {
+  export const IdentityChangeCandidateScalarFieldEnum: {
     id: 'id',
     identity_key: 'identity_key',
-    change_type: 'change_type',
+    candidate_type: 'candidate_type',
     proposed_by: 'proposed_by',
     proposed_from: 'proposed_from',
+    claim_text: 'claim_text',
     before_summary: 'before_summary',
     after_summary: 'after_summary',
-    integrity_status: 'integrity_status',
-    reason: 'reason',
+    status: 'status',
+    judge_status: 'judge_status',
+    judge_reason: 'judge_reason',
+    judge_run_id: 'judge_run_id',
+    judge_llm_call_id: 'judge_llm_call_id',
+    quarantine_group_key: 'quarantine_group_key',
+    supersedes_fact_id: 'supersedes_fact_id',
+    legacy_source_table: 'legacy_source_table',
+    legacy_source_id: 'legacy_source_id',
     metadata: 'metadata',
+    judged_at: 'judged_at',
     created_at: 'created_at',
     updated_at: 'updated_at'
   };
 
-  export type IdentityChangeJournalScalarFieldEnum = (typeof IdentityChangeJournalScalarFieldEnum)[keyof typeof IdentityChangeJournalScalarFieldEnum]
+  export type IdentityChangeCandidateScalarFieldEnum = (typeof IdentityChangeCandidateScalarFieldEnum)[keyof typeof IdentityChangeCandidateScalarFieldEnum]
 
 
   export const IdentityEvidenceRefScalarFieldEnum: {
     id: 'id',
     identity_key: 'identity_key',
     identity_event_id: 'identity_event_id',
-    change_journal_id: 'change_journal_id',
+    change_candidate_id: 'change_candidate_id',
+    accepted_fact_id: 'accepted_fact_id',
     source_type: 'source_type',
     source_id: 'source_id',
     trace_id: 'trace_id',
@@ -35801,7 +37225,28 @@ export namespace Prisma {
   export type IdentityEvidenceRefScalarFieldEnum = (typeof IdentityEvidenceRefScalarFieldEnum)[keyof typeof IdentityEvidenceRefScalarFieldEnum]
 
 
-  export const IdentityActivationTraceScalarFieldEnum: {
+  export const AcceptedIdentityFactScalarFieldEnum: {
+    id: 'id',
+    identity_key: 'identity_key',
+    fact_key: 'fact_key',
+    fact_text: 'fact_text',
+    fact_type: 'fact_type',
+    source_candidate_id: 'source_candidate_id',
+    source_event_id: 'source_event_id',
+    status: 'status',
+    supersedes_fact_id: 'supersedes_fact_id',
+    revoked_by_event_id: 'revoked_by_event_id',
+    confidence: 'confidence',
+    activation_tags: 'activation_tags',
+    metadata: 'metadata',
+    accepted_at: 'accepted_at',
+    updated_at: 'updated_at'
+  };
+
+  export type AcceptedIdentityFactScalarFieldEnum = (typeof AcceptedIdentityFactScalarFieldEnum)[keyof typeof AcceptedIdentityFactScalarFieldEnum]
+
+
+  export const RuntimeIdentityActivationTraceScalarFieldEnum: {
     id: 'id',
     identity_key: 'identity_key',
     run_id: 'run_id',
@@ -35817,7 +37262,7 @@ export namespace Prisma {
     created_at: 'created_at'
   };
 
-  export type IdentityActivationTraceScalarFieldEnum = (typeof IdentityActivationTraceScalarFieldEnum)[keyof typeof IdentityActivationTraceScalarFieldEnum]
+  export type RuntimeIdentityActivationTraceScalarFieldEnum = (typeof RuntimeIdentityActivationTraceScalarFieldEnum)[keyof typeof RuntimeIdentityActivationTraceScalarFieldEnum]
 
 
   export const ChatSpaceTopicScalarFieldEnum: {
@@ -38088,7 +39533,8 @@ export namespace Prisma {
     parent_event_id?: BigIntNullableFilter<"IdentityLineageEvent"> | bigint | number | null
     forked_from_identity_key?: StringNullableFilter<"IdentityLineageEvent"> | string | null
     fork_point_event_id?: BigIntNullableFilter<"IdentityLineageEvent"> | bigint | number | null
-    change_journal_id?: BigIntNullableFilter<"IdentityLineageEvent"> | bigint | number | null
+    change_candidate_id?: BigIntNullableFilter<"IdentityLineageEvent"> | bigint | number | null
+    accepted_fact_id?: BigIntNullableFilter<"IdentityLineageEvent"> | bigint | number | null
     integrity_status?: StringFilter<"IdentityLineageEvent"> | string
     metadata?: JsonNullableFilter<"IdentityLineageEvent">
     occurred_at?: DateTimeNullableFilter<"IdentityLineageEvent"> | Date | string | null
@@ -38106,7 +39552,8 @@ export namespace Prisma {
     parent_event_id?: SortOrderInput | SortOrder
     forked_from_identity_key?: SortOrderInput | SortOrder
     fork_point_event_id?: SortOrderInput | SortOrder
-    change_journal_id?: SortOrderInput | SortOrder
+    change_candidate_id?: SortOrderInput | SortOrder
+    accepted_fact_id?: SortOrderInput | SortOrder
     integrity_status?: SortOrder
     metadata?: SortOrderInput | SortOrder
     occurred_at?: SortOrderInput | SortOrder
@@ -38127,7 +39574,8 @@ export namespace Prisma {
     parent_event_id?: BigIntNullableFilter<"IdentityLineageEvent"> | bigint | number | null
     forked_from_identity_key?: StringNullableFilter<"IdentityLineageEvent"> | string | null
     fork_point_event_id?: BigIntNullableFilter<"IdentityLineageEvent"> | bigint | number | null
-    change_journal_id?: BigIntNullableFilter<"IdentityLineageEvent"> | bigint | number | null
+    change_candidate_id?: BigIntNullableFilter<"IdentityLineageEvent"> | bigint | number | null
+    accepted_fact_id?: BigIntNullableFilter<"IdentityLineageEvent"> | bigint | number | null
     integrity_status?: StringFilter<"IdentityLineageEvent"> | string
     metadata?: JsonNullableFilter<"IdentityLineageEvent">
     occurred_at?: DateTimeNullableFilter<"IdentityLineageEvent"> | Date | string | null
@@ -38145,7 +39593,8 @@ export namespace Prisma {
     parent_event_id?: SortOrderInput | SortOrder
     forked_from_identity_key?: SortOrderInput | SortOrder
     fork_point_event_id?: SortOrderInput | SortOrder
-    change_journal_id?: SortOrderInput | SortOrder
+    change_candidate_id?: SortOrderInput | SortOrder
+    accepted_fact_id?: SortOrderInput | SortOrder
     integrity_status?: SortOrder
     metadata?: SortOrderInput | SortOrder
     occurred_at?: SortOrderInput | SortOrder
@@ -38171,100 +39620,146 @@ export namespace Prisma {
     parent_event_id?: BigIntNullableWithAggregatesFilter<"IdentityLineageEvent"> | bigint | number | null
     forked_from_identity_key?: StringNullableWithAggregatesFilter<"IdentityLineageEvent"> | string | null
     fork_point_event_id?: BigIntNullableWithAggregatesFilter<"IdentityLineageEvent"> | bigint | number | null
-    change_journal_id?: BigIntNullableWithAggregatesFilter<"IdentityLineageEvent"> | bigint | number | null
+    change_candidate_id?: BigIntNullableWithAggregatesFilter<"IdentityLineageEvent"> | bigint | number | null
+    accepted_fact_id?: BigIntNullableWithAggregatesFilter<"IdentityLineageEvent"> | bigint | number | null
     integrity_status?: StringWithAggregatesFilter<"IdentityLineageEvent"> | string
     metadata?: JsonNullableWithAggregatesFilter<"IdentityLineageEvent">
     occurred_at?: DateTimeNullableWithAggregatesFilter<"IdentityLineageEvent"> | Date | string | null
     created_at?: DateTimeWithAggregatesFilter<"IdentityLineageEvent"> | Date | string
   }
 
-  export type IdentityChangeJournalWhereInput = {
-    AND?: IdentityChangeJournalWhereInput | IdentityChangeJournalWhereInput[]
-    OR?: IdentityChangeJournalWhereInput[]
-    NOT?: IdentityChangeJournalWhereInput | IdentityChangeJournalWhereInput[]
-    id?: BigIntFilter<"IdentityChangeJournal"> | bigint | number
-    identity_key?: StringFilter<"IdentityChangeJournal"> | string
-    change_type?: StringFilter<"IdentityChangeJournal"> | string
-    proposed_by?: StringNullableFilter<"IdentityChangeJournal"> | string | null
-    proposed_from?: StringNullableFilter<"IdentityChangeJournal"> | string | null
-    before_summary?: StringNullableFilter<"IdentityChangeJournal"> | string | null
-    after_summary?: StringFilter<"IdentityChangeJournal"> | string
-    integrity_status?: StringFilter<"IdentityChangeJournal"> | string
-    reason?: StringNullableFilter<"IdentityChangeJournal"> | string | null
-    metadata?: JsonNullableFilter<"IdentityChangeJournal">
-    created_at?: DateTimeFilter<"IdentityChangeJournal"> | Date | string
-    updated_at?: DateTimeFilter<"IdentityChangeJournal"> | Date | string
+  export type IdentityChangeCandidateWhereInput = {
+    AND?: IdentityChangeCandidateWhereInput | IdentityChangeCandidateWhereInput[]
+    OR?: IdentityChangeCandidateWhereInput[]
+    NOT?: IdentityChangeCandidateWhereInput | IdentityChangeCandidateWhereInput[]
+    id?: BigIntFilter<"IdentityChangeCandidate"> | bigint | number
+    identity_key?: StringFilter<"IdentityChangeCandidate"> | string
+    candidate_type?: StringFilter<"IdentityChangeCandidate"> | string
+    proposed_by?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    proposed_from?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    claim_text?: StringFilter<"IdentityChangeCandidate"> | string
+    before_summary?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    after_summary?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    status?: StringFilter<"IdentityChangeCandidate"> | string
+    judge_status?: StringFilter<"IdentityChangeCandidate"> | string
+    judge_reason?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    judge_run_id?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    judge_llm_call_id?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    quarantine_group_key?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    supersedes_fact_id?: BigIntNullableFilter<"IdentityChangeCandidate"> | bigint | number | null
+    legacy_source_table?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    legacy_source_id?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    metadata?: JsonNullableFilter<"IdentityChangeCandidate">
+    judged_at?: DateTimeNullableFilter<"IdentityChangeCandidate"> | Date | string | null
+    created_at?: DateTimeFilter<"IdentityChangeCandidate"> | Date | string
+    updated_at?: DateTimeFilter<"IdentityChangeCandidate"> | Date | string
   }
 
-  export type IdentityChangeJournalOrderByWithRelationInput = {
+  export type IdentityChangeCandidateOrderByWithRelationInput = {
     id?: SortOrder
     identity_key?: SortOrder
-    change_type?: SortOrder
+    candidate_type?: SortOrder
     proposed_by?: SortOrderInput | SortOrder
     proposed_from?: SortOrderInput | SortOrder
+    claim_text?: SortOrder
     before_summary?: SortOrderInput | SortOrder
-    after_summary?: SortOrder
-    integrity_status?: SortOrder
-    reason?: SortOrderInput | SortOrder
+    after_summary?: SortOrderInput | SortOrder
+    status?: SortOrder
+    judge_status?: SortOrder
+    judge_reason?: SortOrderInput | SortOrder
+    judge_run_id?: SortOrderInput | SortOrder
+    judge_llm_call_id?: SortOrderInput | SortOrder
+    quarantine_group_key?: SortOrderInput | SortOrder
+    supersedes_fact_id?: SortOrderInput | SortOrder
+    legacy_source_table?: SortOrderInput | SortOrder
+    legacy_source_id?: SortOrderInput | SortOrder
     metadata?: SortOrderInput | SortOrder
+    judged_at?: SortOrderInput | SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
   }
 
-  export type IdentityChangeJournalWhereUniqueInput = Prisma.AtLeast<{
+  export type IdentityChangeCandidateWhereUniqueInput = Prisma.AtLeast<{
     id?: bigint | number
-    AND?: IdentityChangeJournalWhereInput | IdentityChangeJournalWhereInput[]
-    OR?: IdentityChangeJournalWhereInput[]
-    NOT?: IdentityChangeJournalWhereInput | IdentityChangeJournalWhereInput[]
-    identity_key?: StringFilter<"IdentityChangeJournal"> | string
-    change_type?: StringFilter<"IdentityChangeJournal"> | string
-    proposed_by?: StringNullableFilter<"IdentityChangeJournal"> | string | null
-    proposed_from?: StringNullableFilter<"IdentityChangeJournal"> | string | null
-    before_summary?: StringNullableFilter<"IdentityChangeJournal"> | string | null
-    after_summary?: StringFilter<"IdentityChangeJournal"> | string
-    integrity_status?: StringFilter<"IdentityChangeJournal"> | string
-    reason?: StringNullableFilter<"IdentityChangeJournal"> | string | null
-    metadata?: JsonNullableFilter<"IdentityChangeJournal">
-    created_at?: DateTimeFilter<"IdentityChangeJournal"> | Date | string
-    updated_at?: DateTimeFilter<"IdentityChangeJournal"> | Date | string
+    AND?: IdentityChangeCandidateWhereInput | IdentityChangeCandidateWhereInput[]
+    OR?: IdentityChangeCandidateWhereInput[]
+    NOT?: IdentityChangeCandidateWhereInput | IdentityChangeCandidateWhereInput[]
+    identity_key?: StringFilter<"IdentityChangeCandidate"> | string
+    candidate_type?: StringFilter<"IdentityChangeCandidate"> | string
+    proposed_by?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    proposed_from?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    claim_text?: StringFilter<"IdentityChangeCandidate"> | string
+    before_summary?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    after_summary?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    status?: StringFilter<"IdentityChangeCandidate"> | string
+    judge_status?: StringFilter<"IdentityChangeCandidate"> | string
+    judge_reason?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    judge_run_id?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    judge_llm_call_id?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    quarantine_group_key?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    supersedes_fact_id?: BigIntNullableFilter<"IdentityChangeCandidate"> | bigint | number | null
+    legacy_source_table?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    legacy_source_id?: StringNullableFilter<"IdentityChangeCandidate"> | string | null
+    metadata?: JsonNullableFilter<"IdentityChangeCandidate">
+    judged_at?: DateTimeNullableFilter<"IdentityChangeCandidate"> | Date | string | null
+    created_at?: DateTimeFilter<"IdentityChangeCandidate"> | Date | string
+    updated_at?: DateTimeFilter<"IdentityChangeCandidate"> | Date | string
   }, "id">
 
-  export type IdentityChangeJournalOrderByWithAggregationInput = {
+  export type IdentityChangeCandidateOrderByWithAggregationInput = {
     id?: SortOrder
     identity_key?: SortOrder
-    change_type?: SortOrder
+    candidate_type?: SortOrder
     proposed_by?: SortOrderInput | SortOrder
     proposed_from?: SortOrderInput | SortOrder
+    claim_text?: SortOrder
     before_summary?: SortOrderInput | SortOrder
-    after_summary?: SortOrder
-    integrity_status?: SortOrder
-    reason?: SortOrderInput | SortOrder
+    after_summary?: SortOrderInput | SortOrder
+    status?: SortOrder
+    judge_status?: SortOrder
+    judge_reason?: SortOrderInput | SortOrder
+    judge_run_id?: SortOrderInput | SortOrder
+    judge_llm_call_id?: SortOrderInput | SortOrder
+    quarantine_group_key?: SortOrderInput | SortOrder
+    supersedes_fact_id?: SortOrderInput | SortOrder
+    legacy_source_table?: SortOrderInput | SortOrder
+    legacy_source_id?: SortOrderInput | SortOrder
     metadata?: SortOrderInput | SortOrder
+    judged_at?: SortOrderInput | SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
-    _count?: IdentityChangeJournalCountOrderByAggregateInput
-    _avg?: IdentityChangeJournalAvgOrderByAggregateInput
-    _max?: IdentityChangeJournalMaxOrderByAggregateInput
-    _min?: IdentityChangeJournalMinOrderByAggregateInput
-    _sum?: IdentityChangeJournalSumOrderByAggregateInput
+    _count?: IdentityChangeCandidateCountOrderByAggregateInput
+    _avg?: IdentityChangeCandidateAvgOrderByAggregateInput
+    _max?: IdentityChangeCandidateMaxOrderByAggregateInput
+    _min?: IdentityChangeCandidateMinOrderByAggregateInput
+    _sum?: IdentityChangeCandidateSumOrderByAggregateInput
   }
 
-  export type IdentityChangeJournalScalarWhereWithAggregatesInput = {
-    AND?: IdentityChangeJournalScalarWhereWithAggregatesInput | IdentityChangeJournalScalarWhereWithAggregatesInput[]
-    OR?: IdentityChangeJournalScalarWhereWithAggregatesInput[]
-    NOT?: IdentityChangeJournalScalarWhereWithAggregatesInput | IdentityChangeJournalScalarWhereWithAggregatesInput[]
-    id?: BigIntWithAggregatesFilter<"IdentityChangeJournal"> | bigint | number
-    identity_key?: StringWithAggregatesFilter<"IdentityChangeJournal"> | string
-    change_type?: StringWithAggregatesFilter<"IdentityChangeJournal"> | string
-    proposed_by?: StringNullableWithAggregatesFilter<"IdentityChangeJournal"> | string | null
-    proposed_from?: StringNullableWithAggregatesFilter<"IdentityChangeJournal"> | string | null
-    before_summary?: StringNullableWithAggregatesFilter<"IdentityChangeJournal"> | string | null
-    after_summary?: StringWithAggregatesFilter<"IdentityChangeJournal"> | string
-    integrity_status?: StringWithAggregatesFilter<"IdentityChangeJournal"> | string
-    reason?: StringNullableWithAggregatesFilter<"IdentityChangeJournal"> | string | null
-    metadata?: JsonNullableWithAggregatesFilter<"IdentityChangeJournal">
-    created_at?: DateTimeWithAggregatesFilter<"IdentityChangeJournal"> | Date | string
-    updated_at?: DateTimeWithAggregatesFilter<"IdentityChangeJournal"> | Date | string
+  export type IdentityChangeCandidateScalarWhereWithAggregatesInput = {
+    AND?: IdentityChangeCandidateScalarWhereWithAggregatesInput | IdentityChangeCandidateScalarWhereWithAggregatesInput[]
+    OR?: IdentityChangeCandidateScalarWhereWithAggregatesInput[]
+    NOT?: IdentityChangeCandidateScalarWhereWithAggregatesInput | IdentityChangeCandidateScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"IdentityChangeCandidate"> | bigint | number
+    identity_key?: StringWithAggregatesFilter<"IdentityChangeCandidate"> | string
+    candidate_type?: StringWithAggregatesFilter<"IdentityChangeCandidate"> | string
+    proposed_by?: StringNullableWithAggregatesFilter<"IdentityChangeCandidate"> | string | null
+    proposed_from?: StringNullableWithAggregatesFilter<"IdentityChangeCandidate"> | string | null
+    claim_text?: StringWithAggregatesFilter<"IdentityChangeCandidate"> | string
+    before_summary?: StringNullableWithAggregatesFilter<"IdentityChangeCandidate"> | string | null
+    after_summary?: StringNullableWithAggregatesFilter<"IdentityChangeCandidate"> | string | null
+    status?: StringWithAggregatesFilter<"IdentityChangeCandidate"> | string
+    judge_status?: StringWithAggregatesFilter<"IdentityChangeCandidate"> | string
+    judge_reason?: StringNullableWithAggregatesFilter<"IdentityChangeCandidate"> | string | null
+    judge_run_id?: StringNullableWithAggregatesFilter<"IdentityChangeCandidate"> | string | null
+    judge_llm_call_id?: StringNullableWithAggregatesFilter<"IdentityChangeCandidate"> | string | null
+    quarantine_group_key?: StringNullableWithAggregatesFilter<"IdentityChangeCandidate"> | string | null
+    supersedes_fact_id?: BigIntNullableWithAggregatesFilter<"IdentityChangeCandidate"> | bigint | number | null
+    legacy_source_table?: StringNullableWithAggregatesFilter<"IdentityChangeCandidate"> | string | null
+    legacy_source_id?: StringNullableWithAggregatesFilter<"IdentityChangeCandidate"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"IdentityChangeCandidate">
+    judged_at?: DateTimeNullableWithAggregatesFilter<"IdentityChangeCandidate"> | Date | string | null
+    created_at?: DateTimeWithAggregatesFilter<"IdentityChangeCandidate"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"IdentityChangeCandidate"> | Date | string
   }
 
   export type IdentityEvidenceRefWhereInput = {
@@ -38274,7 +39769,8 @@ export namespace Prisma {
     id?: BigIntFilter<"IdentityEvidenceRef"> | bigint | number
     identity_key?: StringFilter<"IdentityEvidenceRef"> | string
     identity_event_id?: BigIntNullableFilter<"IdentityEvidenceRef"> | bigint | number | null
-    change_journal_id?: BigIntNullableFilter<"IdentityEvidenceRef"> | bigint | number | null
+    change_candidate_id?: BigIntNullableFilter<"IdentityEvidenceRef"> | bigint | number | null
+    accepted_fact_id?: BigIntNullableFilter<"IdentityEvidenceRef"> | bigint | number | null
     source_type?: StringFilter<"IdentityEvidenceRef"> | string
     source_id?: StringFilter<"IdentityEvidenceRef"> | string
     trace_id?: StringNullableFilter<"IdentityEvidenceRef"> | string | null
@@ -38290,7 +39786,8 @@ export namespace Prisma {
     id?: SortOrder
     identity_key?: SortOrder
     identity_event_id?: SortOrderInput | SortOrder
-    change_journal_id?: SortOrderInput | SortOrder
+    change_candidate_id?: SortOrderInput | SortOrder
+    accepted_fact_id?: SortOrderInput | SortOrder
     source_type?: SortOrder
     source_id?: SortOrder
     trace_id?: SortOrderInput | SortOrder
@@ -38309,7 +39806,8 @@ export namespace Prisma {
     NOT?: IdentityEvidenceRefWhereInput | IdentityEvidenceRefWhereInput[]
     identity_key?: StringFilter<"IdentityEvidenceRef"> | string
     identity_event_id?: BigIntNullableFilter<"IdentityEvidenceRef"> | bigint | number | null
-    change_journal_id?: BigIntNullableFilter<"IdentityEvidenceRef"> | bigint | number | null
+    change_candidate_id?: BigIntNullableFilter<"IdentityEvidenceRef"> | bigint | number | null
+    accepted_fact_id?: BigIntNullableFilter<"IdentityEvidenceRef"> | bigint | number | null
     source_type?: StringFilter<"IdentityEvidenceRef"> | string
     source_id?: StringFilter<"IdentityEvidenceRef"> | string
     trace_id?: StringNullableFilter<"IdentityEvidenceRef"> | string | null
@@ -38325,7 +39823,8 @@ export namespace Prisma {
     id?: SortOrder
     identity_key?: SortOrder
     identity_event_id?: SortOrderInput | SortOrder
-    change_journal_id?: SortOrderInput | SortOrder
+    change_candidate_id?: SortOrderInput | SortOrder
+    accepted_fact_id?: SortOrderInput | SortOrder
     source_type?: SortOrder
     source_id?: SortOrder
     trace_id?: SortOrderInput | SortOrder
@@ -38349,7 +39848,8 @@ export namespace Prisma {
     id?: BigIntWithAggregatesFilter<"IdentityEvidenceRef"> | bigint | number
     identity_key?: StringWithAggregatesFilter<"IdentityEvidenceRef"> | string
     identity_event_id?: BigIntNullableWithAggregatesFilter<"IdentityEvidenceRef"> | bigint | number | null
-    change_journal_id?: BigIntNullableWithAggregatesFilter<"IdentityEvidenceRef"> | bigint | number | null
+    change_candidate_id?: BigIntNullableWithAggregatesFilter<"IdentityEvidenceRef"> | bigint | number | null
+    accepted_fact_id?: BigIntNullableWithAggregatesFilter<"IdentityEvidenceRef"> | bigint | number | null
     source_type?: StringWithAggregatesFilter<"IdentityEvidenceRef"> | string
     source_id?: StringWithAggregatesFilter<"IdentityEvidenceRef"> | string
     trace_id?: StringNullableWithAggregatesFilter<"IdentityEvidenceRef"> | string | null
@@ -38361,61 +39861,130 @@ export namespace Prisma {
     created_at?: DateTimeWithAggregatesFilter<"IdentityEvidenceRef"> | Date | string
   }
 
-  export type IdentityActivationTraceWhereInput = {
-    AND?: IdentityActivationTraceWhereInput | IdentityActivationTraceWhereInput[]
-    OR?: IdentityActivationTraceWhereInput[]
-    NOT?: IdentityActivationTraceWhereInput | IdentityActivationTraceWhereInput[]
-    id?: BigIntFilter<"IdentityActivationTrace"> | bigint | number
-    identity_key?: StringFilter<"IdentityActivationTrace"> | string
-    run_id?: StringNullableFilter<"IdentityActivationTrace"> | string | null
-    trace_id?: StringNullableFilter<"IdentityActivationTrace"> | string | null
-    conversation_id?: BigIntNullableFilter<"IdentityActivationTrace"> | bigint | number | null
-    scene_fingerprint?: StringNullableFilter<"IdentityActivationTrace"> | string | null
-    cue_summary?: StringNullableFilter<"IdentityActivationTrace"> | string | null
-    activated_refs?: JsonFilter<"IdentityActivationTrace">
-    suppressed_refs?: JsonFilter<"IdentityActivationTrace">
-    selected_skill_ref?: StringNullableFilter<"IdentityActivationTrace"> | string | null
-    activation_reason?: StringNullableFilter<"IdentityActivationTrace"> | string | null
-    metadata?: JsonNullableFilter<"IdentityActivationTrace">
-    created_at?: DateTimeFilter<"IdentityActivationTrace"> | Date | string
+  export type AcceptedIdentityFactWhereInput = {
+    AND?: AcceptedIdentityFactWhereInput | AcceptedIdentityFactWhereInput[]
+    OR?: AcceptedIdentityFactWhereInput[]
+    NOT?: AcceptedIdentityFactWhereInput | AcceptedIdentityFactWhereInput[]
+    id?: BigIntFilter<"AcceptedIdentityFact"> | bigint | number
+    identity_key?: StringFilter<"AcceptedIdentityFact"> | string
+    fact_key?: StringFilter<"AcceptedIdentityFact"> | string
+    fact_text?: StringFilter<"AcceptedIdentityFact"> | string
+    fact_type?: StringFilter<"AcceptedIdentityFact"> | string
+    source_candidate_id?: BigIntNullableFilter<"AcceptedIdentityFact"> | bigint | number | null
+    source_event_id?: BigIntNullableFilter<"AcceptedIdentityFact"> | bigint | number | null
+    status?: StringFilter<"AcceptedIdentityFact"> | string
+    supersedes_fact_id?: BigIntNullableFilter<"AcceptedIdentityFact"> | bigint | number | null
+    revoked_by_event_id?: BigIntNullableFilter<"AcceptedIdentityFact"> | bigint | number | null
+    confidence?: StringFilter<"AcceptedIdentityFact"> | string
+    activation_tags?: JsonFilter<"AcceptedIdentityFact">
+    metadata?: JsonNullableFilter<"AcceptedIdentityFact">
+    accepted_at?: DateTimeFilter<"AcceptedIdentityFact"> | Date | string
+    updated_at?: DateTimeFilter<"AcceptedIdentityFact"> | Date | string
   }
 
-  export type IdentityActivationTraceOrderByWithRelationInput = {
+  export type AcceptedIdentityFactOrderByWithRelationInput = {
     id?: SortOrder
     identity_key?: SortOrder
-    run_id?: SortOrderInput | SortOrder
-    trace_id?: SortOrderInput | SortOrder
-    conversation_id?: SortOrderInput | SortOrder
-    scene_fingerprint?: SortOrderInput | SortOrder
-    cue_summary?: SortOrderInput | SortOrder
-    activated_refs?: SortOrder
-    suppressed_refs?: SortOrder
-    selected_skill_ref?: SortOrderInput | SortOrder
-    activation_reason?: SortOrderInput | SortOrder
+    fact_key?: SortOrder
+    fact_text?: SortOrder
+    fact_type?: SortOrder
+    source_candidate_id?: SortOrderInput | SortOrder
+    source_event_id?: SortOrderInput | SortOrder
+    status?: SortOrder
+    supersedes_fact_id?: SortOrderInput | SortOrder
+    revoked_by_event_id?: SortOrderInput | SortOrder
+    confidence?: SortOrder
+    activation_tags?: SortOrder
     metadata?: SortOrderInput | SortOrder
-    created_at?: SortOrder
+    accepted_at?: SortOrder
+    updated_at?: SortOrder
   }
 
-  export type IdentityActivationTraceWhereUniqueInput = Prisma.AtLeast<{
+  export type AcceptedIdentityFactWhereUniqueInput = Prisma.AtLeast<{
     id?: bigint | number
-    AND?: IdentityActivationTraceWhereInput | IdentityActivationTraceWhereInput[]
-    OR?: IdentityActivationTraceWhereInput[]
-    NOT?: IdentityActivationTraceWhereInput | IdentityActivationTraceWhereInput[]
-    identity_key?: StringFilter<"IdentityActivationTrace"> | string
-    run_id?: StringNullableFilter<"IdentityActivationTrace"> | string | null
-    trace_id?: StringNullableFilter<"IdentityActivationTrace"> | string | null
-    conversation_id?: BigIntNullableFilter<"IdentityActivationTrace"> | bigint | number | null
-    scene_fingerprint?: StringNullableFilter<"IdentityActivationTrace"> | string | null
-    cue_summary?: StringNullableFilter<"IdentityActivationTrace"> | string | null
-    activated_refs?: JsonFilter<"IdentityActivationTrace">
-    suppressed_refs?: JsonFilter<"IdentityActivationTrace">
-    selected_skill_ref?: StringNullableFilter<"IdentityActivationTrace"> | string | null
-    activation_reason?: StringNullableFilter<"IdentityActivationTrace"> | string | null
-    metadata?: JsonNullableFilter<"IdentityActivationTrace">
-    created_at?: DateTimeFilter<"IdentityActivationTrace"> | Date | string
+    AND?: AcceptedIdentityFactWhereInput | AcceptedIdentityFactWhereInput[]
+    OR?: AcceptedIdentityFactWhereInput[]
+    NOT?: AcceptedIdentityFactWhereInput | AcceptedIdentityFactWhereInput[]
+    identity_key?: StringFilter<"AcceptedIdentityFact"> | string
+    fact_key?: StringFilter<"AcceptedIdentityFact"> | string
+    fact_text?: StringFilter<"AcceptedIdentityFact"> | string
+    fact_type?: StringFilter<"AcceptedIdentityFact"> | string
+    source_candidate_id?: BigIntNullableFilter<"AcceptedIdentityFact"> | bigint | number | null
+    source_event_id?: BigIntNullableFilter<"AcceptedIdentityFact"> | bigint | number | null
+    status?: StringFilter<"AcceptedIdentityFact"> | string
+    supersedes_fact_id?: BigIntNullableFilter<"AcceptedIdentityFact"> | bigint | number | null
+    revoked_by_event_id?: BigIntNullableFilter<"AcceptedIdentityFact"> | bigint | number | null
+    confidence?: StringFilter<"AcceptedIdentityFact"> | string
+    activation_tags?: JsonFilter<"AcceptedIdentityFact">
+    metadata?: JsonNullableFilter<"AcceptedIdentityFact">
+    accepted_at?: DateTimeFilter<"AcceptedIdentityFact"> | Date | string
+    updated_at?: DateTimeFilter<"AcceptedIdentityFact"> | Date | string
   }, "id">
 
-  export type IdentityActivationTraceOrderByWithAggregationInput = {
+  export type AcceptedIdentityFactOrderByWithAggregationInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fact_key?: SortOrder
+    fact_text?: SortOrder
+    fact_type?: SortOrder
+    source_candidate_id?: SortOrderInput | SortOrder
+    source_event_id?: SortOrderInput | SortOrder
+    status?: SortOrder
+    supersedes_fact_id?: SortOrderInput | SortOrder
+    revoked_by_event_id?: SortOrderInput | SortOrder
+    confidence?: SortOrder
+    activation_tags?: SortOrder
+    metadata?: SortOrderInput | SortOrder
+    accepted_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: AcceptedIdentityFactCountOrderByAggregateInput
+    _avg?: AcceptedIdentityFactAvgOrderByAggregateInput
+    _max?: AcceptedIdentityFactMaxOrderByAggregateInput
+    _min?: AcceptedIdentityFactMinOrderByAggregateInput
+    _sum?: AcceptedIdentityFactSumOrderByAggregateInput
+  }
+
+  export type AcceptedIdentityFactScalarWhereWithAggregatesInput = {
+    AND?: AcceptedIdentityFactScalarWhereWithAggregatesInput | AcceptedIdentityFactScalarWhereWithAggregatesInput[]
+    OR?: AcceptedIdentityFactScalarWhereWithAggregatesInput[]
+    NOT?: AcceptedIdentityFactScalarWhereWithAggregatesInput | AcceptedIdentityFactScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"AcceptedIdentityFact"> | bigint | number
+    identity_key?: StringWithAggregatesFilter<"AcceptedIdentityFact"> | string
+    fact_key?: StringWithAggregatesFilter<"AcceptedIdentityFact"> | string
+    fact_text?: StringWithAggregatesFilter<"AcceptedIdentityFact"> | string
+    fact_type?: StringWithAggregatesFilter<"AcceptedIdentityFact"> | string
+    source_candidate_id?: BigIntNullableWithAggregatesFilter<"AcceptedIdentityFact"> | bigint | number | null
+    source_event_id?: BigIntNullableWithAggregatesFilter<"AcceptedIdentityFact"> | bigint | number | null
+    status?: StringWithAggregatesFilter<"AcceptedIdentityFact"> | string
+    supersedes_fact_id?: BigIntNullableWithAggregatesFilter<"AcceptedIdentityFact"> | bigint | number | null
+    revoked_by_event_id?: BigIntNullableWithAggregatesFilter<"AcceptedIdentityFact"> | bigint | number | null
+    confidence?: StringWithAggregatesFilter<"AcceptedIdentityFact"> | string
+    activation_tags?: JsonWithAggregatesFilter<"AcceptedIdentityFact">
+    metadata?: JsonNullableWithAggregatesFilter<"AcceptedIdentityFact">
+    accepted_at?: DateTimeWithAggregatesFilter<"AcceptedIdentityFact"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"AcceptedIdentityFact"> | Date | string
+  }
+
+  export type RuntimeIdentityActivationTraceWhereInput = {
+    AND?: RuntimeIdentityActivationTraceWhereInput | RuntimeIdentityActivationTraceWhereInput[]
+    OR?: RuntimeIdentityActivationTraceWhereInput[]
+    NOT?: RuntimeIdentityActivationTraceWhereInput | RuntimeIdentityActivationTraceWhereInput[]
+    id?: BigIntFilter<"RuntimeIdentityActivationTrace"> | bigint | number
+    identity_key?: StringFilter<"RuntimeIdentityActivationTrace"> | string
+    run_id?: StringNullableFilter<"RuntimeIdentityActivationTrace"> | string | null
+    trace_id?: StringNullableFilter<"RuntimeIdentityActivationTrace"> | string | null
+    conversation_id?: BigIntNullableFilter<"RuntimeIdentityActivationTrace"> | bigint | number | null
+    scene_fingerprint?: StringNullableFilter<"RuntimeIdentityActivationTrace"> | string | null
+    cue_summary?: StringNullableFilter<"RuntimeIdentityActivationTrace"> | string | null
+    activated_refs?: JsonFilter<"RuntimeIdentityActivationTrace">
+    suppressed_refs?: JsonFilter<"RuntimeIdentityActivationTrace">
+    selected_skill_ref?: StringNullableFilter<"RuntimeIdentityActivationTrace"> | string | null
+    activation_reason?: StringNullableFilter<"RuntimeIdentityActivationTrace"> | string | null
+    metadata?: JsonNullableFilter<"RuntimeIdentityActivationTrace">
+    created_at?: DateTimeFilter<"RuntimeIdentityActivationTrace"> | Date | string
+  }
+
+  export type RuntimeIdentityActivationTraceOrderByWithRelationInput = {
     id?: SortOrder
     identity_key?: SortOrder
     run_id?: SortOrderInput | SortOrder
@@ -38429,30 +39998,65 @@ export namespace Prisma {
     activation_reason?: SortOrderInput | SortOrder
     metadata?: SortOrderInput | SortOrder
     created_at?: SortOrder
-    _count?: IdentityActivationTraceCountOrderByAggregateInput
-    _avg?: IdentityActivationTraceAvgOrderByAggregateInput
-    _max?: IdentityActivationTraceMaxOrderByAggregateInput
-    _min?: IdentityActivationTraceMinOrderByAggregateInput
-    _sum?: IdentityActivationTraceSumOrderByAggregateInput
   }
 
-  export type IdentityActivationTraceScalarWhereWithAggregatesInput = {
-    AND?: IdentityActivationTraceScalarWhereWithAggregatesInput | IdentityActivationTraceScalarWhereWithAggregatesInput[]
-    OR?: IdentityActivationTraceScalarWhereWithAggregatesInput[]
-    NOT?: IdentityActivationTraceScalarWhereWithAggregatesInput | IdentityActivationTraceScalarWhereWithAggregatesInput[]
-    id?: BigIntWithAggregatesFilter<"IdentityActivationTrace"> | bigint | number
-    identity_key?: StringWithAggregatesFilter<"IdentityActivationTrace"> | string
-    run_id?: StringNullableWithAggregatesFilter<"IdentityActivationTrace"> | string | null
-    trace_id?: StringNullableWithAggregatesFilter<"IdentityActivationTrace"> | string | null
-    conversation_id?: BigIntNullableWithAggregatesFilter<"IdentityActivationTrace"> | bigint | number | null
-    scene_fingerprint?: StringNullableWithAggregatesFilter<"IdentityActivationTrace"> | string | null
-    cue_summary?: StringNullableWithAggregatesFilter<"IdentityActivationTrace"> | string | null
-    activated_refs?: JsonWithAggregatesFilter<"IdentityActivationTrace">
-    suppressed_refs?: JsonWithAggregatesFilter<"IdentityActivationTrace">
-    selected_skill_ref?: StringNullableWithAggregatesFilter<"IdentityActivationTrace"> | string | null
-    activation_reason?: StringNullableWithAggregatesFilter<"IdentityActivationTrace"> | string | null
-    metadata?: JsonNullableWithAggregatesFilter<"IdentityActivationTrace">
-    created_at?: DateTimeWithAggregatesFilter<"IdentityActivationTrace"> | Date | string
+  export type RuntimeIdentityActivationTraceWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: RuntimeIdentityActivationTraceWhereInput | RuntimeIdentityActivationTraceWhereInput[]
+    OR?: RuntimeIdentityActivationTraceWhereInput[]
+    NOT?: RuntimeIdentityActivationTraceWhereInput | RuntimeIdentityActivationTraceWhereInput[]
+    identity_key?: StringFilter<"RuntimeIdentityActivationTrace"> | string
+    run_id?: StringNullableFilter<"RuntimeIdentityActivationTrace"> | string | null
+    trace_id?: StringNullableFilter<"RuntimeIdentityActivationTrace"> | string | null
+    conversation_id?: BigIntNullableFilter<"RuntimeIdentityActivationTrace"> | bigint | number | null
+    scene_fingerprint?: StringNullableFilter<"RuntimeIdentityActivationTrace"> | string | null
+    cue_summary?: StringNullableFilter<"RuntimeIdentityActivationTrace"> | string | null
+    activated_refs?: JsonFilter<"RuntimeIdentityActivationTrace">
+    suppressed_refs?: JsonFilter<"RuntimeIdentityActivationTrace">
+    selected_skill_ref?: StringNullableFilter<"RuntimeIdentityActivationTrace"> | string | null
+    activation_reason?: StringNullableFilter<"RuntimeIdentityActivationTrace"> | string | null
+    metadata?: JsonNullableFilter<"RuntimeIdentityActivationTrace">
+    created_at?: DateTimeFilter<"RuntimeIdentityActivationTrace"> | Date | string
+  }, "id">
+
+  export type RuntimeIdentityActivationTraceOrderByWithAggregationInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    run_id?: SortOrderInput | SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    conversation_id?: SortOrderInput | SortOrder
+    scene_fingerprint?: SortOrderInput | SortOrder
+    cue_summary?: SortOrderInput | SortOrder
+    activated_refs?: SortOrder
+    suppressed_refs?: SortOrder
+    selected_skill_ref?: SortOrderInput | SortOrder
+    activation_reason?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    _count?: RuntimeIdentityActivationTraceCountOrderByAggregateInput
+    _avg?: RuntimeIdentityActivationTraceAvgOrderByAggregateInput
+    _max?: RuntimeIdentityActivationTraceMaxOrderByAggregateInput
+    _min?: RuntimeIdentityActivationTraceMinOrderByAggregateInput
+    _sum?: RuntimeIdentityActivationTraceSumOrderByAggregateInput
+  }
+
+  export type RuntimeIdentityActivationTraceScalarWhereWithAggregatesInput = {
+    AND?: RuntimeIdentityActivationTraceScalarWhereWithAggregatesInput | RuntimeIdentityActivationTraceScalarWhereWithAggregatesInput[]
+    OR?: RuntimeIdentityActivationTraceScalarWhereWithAggregatesInput[]
+    NOT?: RuntimeIdentityActivationTraceScalarWhereWithAggregatesInput | RuntimeIdentityActivationTraceScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"RuntimeIdentityActivationTrace"> | bigint | number
+    identity_key?: StringWithAggregatesFilter<"RuntimeIdentityActivationTrace"> | string
+    run_id?: StringNullableWithAggregatesFilter<"RuntimeIdentityActivationTrace"> | string | null
+    trace_id?: StringNullableWithAggregatesFilter<"RuntimeIdentityActivationTrace"> | string | null
+    conversation_id?: BigIntNullableWithAggregatesFilter<"RuntimeIdentityActivationTrace"> | bigint | number | null
+    scene_fingerprint?: StringNullableWithAggregatesFilter<"RuntimeIdentityActivationTrace"> | string | null
+    cue_summary?: StringNullableWithAggregatesFilter<"RuntimeIdentityActivationTrace"> | string | null
+    activated_refs?: JsonWithAggregatesFilter<"RuntimeIdentityActivationTrace">
+    suppressed_refs?: JsonWithAggregatesFilter<"RuntimeIdentityActivationTrace">
+    selected_skill_ref?: StringNullableWithAggregatesFilter<"RuntimeIdentityActivationTrace"> | string | null
+    activation_reason?: StringNullableWithAggregatesFilter<"RuntimeIdentityActivationTrace"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"RuntimeIdentityActivationTrace">
+    created_at?: DateTimeWithAggregatesFilter<"RuntimeIdentityActivationTrace"> | Date | string
   }
 
   export type ChatSpaceTopicWhereInput = {
@@ -41611,7 +43215,8 @@ export namespace Prisma {
     parent_event_id?: bigint | number | null
     forked_from_identity_key?: string | null
     fork_point_event_id?: bigint | number | null
-    change_journal_id?: bigint | number | null
+    change_candidate_id?: bigint | number | null
+    accepted_fact_id?: bigint | number | null
     integrity_status?: string
     metadata?: NullableJsonNullValueInput | InputJsonValue
     occurred_at?: Date | string | null
@@ -41629,7 +43234,8 @@ export namespace Prisma {
     parent_event_id?: bigint | number | null
     forked_from_identity_key?: string | null
     fork_point_event_id?: bigint | number | null
-    change_journal_id?: bigint | number | null
+    change_candidate_id?: bigint | number | null
+    accepted_fact_id?: bigint | number | null
     integrity_status?: string
     metadata?: NullableJsonNullValueInput | InputJsonValue
     occurred_at?: Date | string | null
@@ -41647,7 +43253,8 @@ export namespace Prisma {
     parent_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     forked_from_identity_key?: NullableStringFieldUpdateOperationsInput | string | null
     fork_point_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
-    change_journal_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    change_candidate_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    accepted_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     integrity_status?: StringFieldUpdateOperationsInput | string
     metadata?: NullableJsonNullValueInput | InputJsonValue
     occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -41665,7 +43272,8 @@ export namespace Prisma {
     parent_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     forked_from_identity_key?: NullableStringFieldUpdateOperationsInput | string | null
     fork_point_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
-    change_journal_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    change_candidate_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    accepted_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     integrity_status?: StringFieldUpdateOperationsInput | string
     metadata?: NullableJsonNullValueInput | InputJsonValue
     occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -41683,7 +43291,8 @@ export namespace Prisma {
     parent_event_id?: bigint | number | null
     forked_from_identity_key?: string | null
     fork_point_event_id?: bigint | number | null
-    change_journal_id?: bigint | number | null
+    change_candidate_id?: bigint | number | null
+    accepted_fact_id?: bigint | number | null
     integrity_status?: string
     metadata?: NullableJsonNullValueInput | InputJsonValue
     occurred_at?: Date | string | null
@@ -41701,7 +43310,8 @@ export namespace Prisma {
     parent_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     forked_from_identity_key?: NullableStringFieldUpdateOperationsInput | string | null
     fork_point_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
-    change_journal_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    change_candidate_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    accepted_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     integrity_status?: StringFieldUpdateOperationsInput | string
     metadata?: NullableJsonNullValueInput | InputJsonValue
     occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -41719,114 +43329,178 @@ export namespace Prisma {
     parent_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     forked_from_identity_key?: NullableStringFieldUpdateOperationsInput | string | null
     fork_point_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
-    change_journal_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    change_candidate_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    accepted_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     integrity_status?: StringFieldUpdateOperationsInput | string
     metadata?: NullableJsonNullValueInput | InputJsonValue
     occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type IdentityChangeJournalCreateInput = {
+  export type IdentityChangeCandidateCreateInput = {
     id?: bigint | number
     identity_key: string
-    change_type: string
+    candidate_type: string
     proposed_by?: string | null
     proposed_from?: string | null
+    claim_text: string
     before_summary?: string | null
-    after_summary: string
-    integrity_status?: string
-    reason?: string | null
+    after_summary?: string | null
+    status?: string
+    judge_status?: string
+    judge_reason?: string | null
+    judge_run_id?: string | null
+    judge_llm_call_id?: string | null
+    quarantine_group_key?: string | null
+    supersedes_fact_id?: bigint | number | null
+    legacy_source_table?: string | null
+    legacy_source_id?: string | null
     metadata?: NullableJsonNullValueInput | InputJsonValue
+    judged_at?: Date | string | null
     created_at?: Date | string
     updated_at?: Date | string
   }
 
-  export type IdentityChangeJournalUncheckedCreateInput = {
+  export type IdentityChangeCandidateUncheckedCreateInput = {
     id?: bigint | number
     identity_key: string
-    change_type: string
+    candidate_type: string
     proposed_by?: string | null
     proposed_from?: string | null
+    claim_text: string
     before_summary?: string | null
-    after_summary: string
-    integrity_status?: string
-    reason?: string | null
+    after_summary?: string | null
+    status?: string
+    judge_status?: string
+    judge_reason?: string | null
+    judge_run_id?: string | null
+    judge_llm_call_id?: string | null
+    quarantine_group_key?: string | null
+    supersedes_fact_id?: bigint | number | null
+    legacy_source_table?: string | null
+    legacy_source_id?: string | null
     metadata?: NullableJsonNullValueInput | InputJsonValue
+    judged_at?: Date | string | null
     created_at?: Date | string
     updated_at?: Date | string
   }
 
-  export type IdentityChangeJournalUpdateInput = {
+  export type IdentityChangeCandidateUpdateInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     identity_key?: StringFieldUpdateOperationsInput | string
-    change_type?: StringFieldUpdateOperationsInput | string
+    candidate_type?: StringFieldUpdateOperationsInput | string
     proposed_by?: NullableStringFieldUpdateOperationsInput | string | null
     proposed_from?: NullableStringFieldUpdateOperationsInput | string | null
+    claim_text?: StringFieldUpdateOperationsInput | string
     before_summary?: NullableStringFieldUpdateOperationsInput | string | null
-    after_summary?: StringFieldUpdateOperationsInput | string
-    integrity_status?: StringFieldUpdateOperationsInput | string
-    reason?: NullableStringFieldUpdateOperationsInput | string | null
+    after_summary?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    judge_status?: StringFieldUpdateOperationsInput | string
+    judge_reason?: NullableStringFieldUpdateOperationsInput | string | null
+    judge_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    judge_llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    quarantine_group_key?: NullableStringFieldUpdateOperationsInput | string | null
+    supersedes_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    legacy_source_table?: NullableStringFieldUpdateOperationsInput | string | null
+    legacy_source_id?: NullableStringFieldUpdateOperationsInput | string | null
     metadata?: NullableJsonNullValueInput | InputJsonValue
+    judged_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type IdentityChangeJournalUncheckedUpdateInput = {
+  export type IdentityChangeCandidateUncheckedUpdateInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     identity_key?: StringFieldUpdateOperationsInput | string
-    change_type?: StringFieldUpdateOperationsInput | string
+    candidate_type?: StringFieldUpdateOperationsInput | string
     proposed_by?: NullableStringFieldUpdateOperationsInput | string | null
     proposed_from?: NullableStringFieldUpdateOperationsInput | string | null
+    claim_text?: StringFieldUpdateOperationsInput | string
     before_summary?: NullableStringFieldUpdateOperationsInput | string | null
-    after_summary?: StringFieldUpdateOperationsInput | string
-    integrity_status?: StringFieldUpdateOperationsInput | string
-    reason?: NullableStringFieldUpdateOperationsInput | string | null
+    after_summary?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    judge_status?: StringFieldUpdateOperationsInput | string
+    judge_reason?: NullableStringFieldUpdateOperationsInput | string | null
+    judge_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    judge_llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    quarantine_group_key?: NullableStringFieldUpdateOperationsInput | string | null
+    supersedes_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    legacy_source_table?: NullableStringFieldUpdateOperationsInput | string | null
+    legacy_source_id?: NullableStringFieldUpdateOperationsInput | string | null
     metadata?: NullableJsonNullValueInput | InputJsonValue
+    judged_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type IdentityChangeJournalCreateManyInput = {
+  export type IdentityChangeCandidateCreateManyInput = {
     id?: bigint | number
     identity_key: string
-    change_type: string
+    candidate_type: string
     proposed_by?: string | null
     proposed_from?: string | null
+    claim_text: string
     before_summary?: string | null
-    after_summary: string
-    integrity_status?: string
-    reason?: string | null
+    after_summary?: string | null
+    status?: string
+    judge_status?: string
+    judge_reason?: string | null
+    judge_run_id?: string | null
+    judge_llm_call_id?: string | null
+    quarantine_group_key?: string | null
+    supersedes_fact_id?: bigint | number | null
+    legacy_source_table?: string | null
+    legacy_source_id?: string | null
     metadata?: NullableJsonNullValueInput | InputJsonValue
+    judged_at?: Date | string | null
     created_at?: Date | string
     updated_at?: Date | string
   }
 
-  export type IdentityChangeJournalUpdateManyMutationInput = {
+  export type IdentityChangeCandidateUpdateManyMutationInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     identity_key?: StringFieldUpdateOperationsInput | string
-    change_type?: StringFieldUpdateOperationsInput | string
+    candidate_type?: StringFieldUpdateOperationsInput | string
     proposed_by?: NullableStringFieldUpdateOperationsInput | string | null
     proposed_from?: NullableStringFieldUpdateOperationsInput | string | null
+    claim_text?: StringFieldUpdateOperationsInput | string
     before_summary?: NullableStringFieldUpdateOperationsInput | string | null
-    after_summary?: StringFieldUpdateOperationsInput | string
-    integrity_status?: StringFieldUpdateOperationsInput | string
-    reason?: NullableStringFieldUpdateOperationsInput | string | null
+    after_summary?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    judge_status?: StringFieldUpdateOperationsInput | string
+    judge_reason?: NullableStringFieldUpdateOperationsInput | string | null
+    judge_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    judge_llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    quarantine_group_key?: NullableStringFieldUpdateOperationsInput | string | null
+    supersedes_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    legacy_source_table?: NullableStringFieldUpdateOperationsInput | string | null
+    legacy_source_id?: NullableStringFieldUpdateOperationsInput | string | null
     metadata?: NullableJsonNullValueInput | InputJsonValue
+    judged_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type IdentityChangeJournalUncheckedUpdateManyInput = {
+  export type IdentityChangeCandidateUncheckedUpdateManyInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     identity_key?: StringFieldUpdateOperationsInput | string
-    change_type?: StringFieldUpdateOperationsInput | string
+    candidate_type?: StringFieldUpdateOperationsInput | string
     proposed_by?: NullableStringFieldUpdateOperationsInput | string | null
     proposed_from?: NullableStringFieldUpdateOperationsInput | string | null
+    claim_text?: StringFieldUpdateOperationsInput | string
     before_summary?: NullableStringFieldUpdateOperationsInput | string | null
-    after_summary?: StringFieldUpdateOperationsInput | string
-    integrity_status?: StringFieldUpdateOperationsInput | string
-    reason?: NullableStringFieldUpdateOperationsInput | string | null
+    after_summary?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    judge_status?: StringFieldUpdateOperationsInput | string
+    judge_reason?: NullableStringFieldUpdateOperationsInput | string | null
+    judge_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    judge_llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    quarantine_group_key?: NullableStringFieldUpdateOperationsInput | string | null
+    supersedes_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    legacy_source_table?: NullableStringFieldUpdateOperationsInput | string | null
+    legacy_source_id?: NullableStringFieldUpdateOperationsInput | string | null
     metadata?: NullableJsonNullValueInput | InputJsonValue
+    judged_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -41835,7 +43509,8 @@ export namespace Prisma {
     id?: bigint | number
     identity_key: string
     identity_event_id?: bigint | number | null
-    change_journal_id?: bigint | number | null
+    change_candidate_id?: bigint | number | null
+    accepted_fact_id?: bigint | number | null
     source_type: string
     source_id: string
     trace_id?: string | null
@@ -41851,7 +43526,8 @@ export namespace Prisma {
     id?: bigint | number
     identity_key: string
     identity_event_id?: bigint | number | null
-    change_journal_id?: bigint | number | null
+    change_candidate_id?: bigint | number | null
+    accepted_fact_id?: bigint | number | null
     source_type: string
     source_id: string
     trace_id?: string | null
@@ -41867,7 +43543,8 @@ export namespace Prisma {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     identity_key?: StringFieldUpdateOperationsInput | string
     identity_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
-    change_journal_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    change_candidate_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    accepted_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     source_type?: StringFieldUpdateOperationsInput | string
     source_id?: StringFieldUpdateOperationsInput | string
     trace_id?: NullableStringFieldUpdateOperationsInput | string | null
@@ -41883,7 +43560,8 @@ export namespace Prisma {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     identity_key?: StringFieldUpdateOperationsInput | string
     identity_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
-    change_journal_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    change_candidate_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    accepted_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     source_type?: StringFieldUpdateOperationsInput | string
     source_id?: StringFieldUpdateOperationsInput | string
     trace_id?: NullableStringFieldUpdateOperationsInput | string | null
@@ -41899,7 +43577,8 @@ export namespace Prisma {
     id?: bigint | number
     identity_key: string
     identity_event_id?: bigint | number | null
-    change_journal_id?: bigint | number | null
+    change_candidate_id?: bigint | number | null
+    accepted_fact_id?: bigint | number | null
     source_type: string
     source_id: string
     trace_id?: string | null
@@ -41915,7 +43594,8 @@ export namespace Prisma {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     identity_key?: StringFieldUpdateOperationsInput | string
     identity_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
-    change_journal_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    change_candidate_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    accepted_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     source_type?: StringFieldUpdateOperationsInput | string
     source_id?: StringFieldUpdateOperationsInput | string
     trace_id?: NullableStringFieldUpdateOperationsInput | string | null
@@ -41931,7 +43611,8 @@ export namespace Prisma {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     identity_key?: StringFieldUpdateOperationsInput | string
     identity_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
-    change_journal_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    change_candidate_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    accepted_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     source_type?: StringFieldUpdateOperationsInput | string
     source_id?: StringFieldUpdateOperationsInput | string
     trace_id?: NullableStringFieldUpdateOperationsInput | string | null
@@ -41943,7 +43624,133 @@ export namespace Prisma {
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type IdentityActivationTraceCreateInput = {
+  export type AcceptedIdentityFactCreateInput = {
+    id?: bigint | number
+    identity_key: string
+    fact_key: string
+    fact_text: string
+    fact_type: string
+    source_candidate_id?: bigint | number | null
+    source_event_id?: bigint | number | null
+    status?: string
+    supersedes_fact_id?: bigint | number | null
+    revoked_by_event_id?: bigint | number | null
+    confidence?: string
+    activation_tags: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    accepted_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AcceptedIdentityFactUncheckedCreateInput = {
+    id?: bigint | number
+    identity_key: string
+    fact_key: string
+    fact_text: string
+    fact_type: string
+    source_candidate_id?: bigint | number | null
+    source_event_id?: bigint | number | null
+    status?: string
+    supersedes_fact_id?: bigint | number | null
+    revoked_by_event_id?: bigint | number | null
+    confidence?: string
+    activation_tags: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    accepted_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AcceptedIdentityFactUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fact_key?: StringFieldUpdateOperationsInput | string
+    fact_text?: StringFieldUpdateOperationsInput | string
+    fact_type?: StringFieldUpdateOperationsInput | string
+    source_candidate_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    status?: StringFieldUpdateOperationsInput | string
+    supersedes_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    revoked_by_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    confidence?: StringFieldUpdateOperationsInput | string
+    activation_tags?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    accepted_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AcceptedIdentityFactUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fact_key?: StringFieldUpdateOperationsInput | string
+    fact_text?: StringFieldUpdateOperationsInput | string
+    fact_type?: StringFieldUpdateOperationsInput | string
+    source_candidate_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    status?: StringFieldUpdateOperationsInput | string
+    supersedes_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    revoked_by_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    confidence?: StringFieldUpdateOperationsInput | string
+    activation_tags?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    accepted_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AcceptedIdentityFactCreateManyInput = {
+    id?: bigint | number
+    identity_key: string
+    fact_key: string
+    fact_text: string
+    fact_type: string
+    source_candidate_id?: bigint | number | null
+    source_event_id?: bigint | number | null
+    status?: string
+    supersedes_fact_id?: bigint | number | null
+    revoked_by_event_id?: bigint | number | null
+    confidence?: string
+    activation_tags: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    accepted_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AcceptedIdentityFactUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fact_key?: StringFieldUpdateOperationsInput | string
+    fact_text?: StringFieldUpdateOperationsInput | string
+    fact_type?: StringFieldUpdateOperationsInput | string
+    source_candidate_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    status?: StringFieldUpdateOperationsInput | string
+    supersedes_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    revoked_by_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    confidence?: StringFieldUpdateOperationsInput | string
+    activation_tags?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    accepted_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AcceptedIdentityFactUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    fact_key?: StringFieldUpdateOperationsInput | string
+    fact_text?: StringFieldUpdateOperationsInput | string
+    fact_type?: StringFieldUpdateOperationsInput | string
+    source_candidate_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    status?: StringFieldUpdateOperationsInput | string
+    supersedes_fact_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    revoked_by_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    confidence?: StringFieldUpdateOperationsInput | string
+    activation_tags?: JsonNullValueInput | InputJsonValue
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    accepted_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type RuntimeIdentityActivationTraceCreateInput = {
     id?: bigint | number
     identity_key: string
     run_id?: string | null
@@ -41959,7 +43766,7 @@ export namespace Prisma {
     created_at?: Date | string
   }
 
-  export type IdentityActivationTraceUncheckedCreateInput = {
+  export type RuntimeIdentityActivationTraceUncheckedCreateInput = {
     id?: bigint | number
     identity_key: string
     run_id?: string | null
@@ -41975,7 +43782,7 @@ export namespace Prisma {
     created_at?: Date | string
   }
 
-  export type IdentityActivationTraceUpdateInput = {
+  export type RuntimeIdentityActivationTraceUpdateInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     identity_key?: StringFieldUpdateOperationsInput | string
     run_id?: NullableStringFieldUpdateOperationsInput | string | null
@@ -41991,7 +43798,7 @@ export namespace Prisma {
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type IdentityActivationTraceUncheckedUpdateInput = {
+  export type RuntimeIdentityActivationTraceUncheckedUpdateInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     identity_key?: StringFieldUpdateOperationsInput | string
     run_id?: NullableStringFieldUpdateOperationsInput | string | null
@@ -42007,7 +43814,7 @@ export namespace Prisma {
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type IdentityActivationTraceCreateManyInput = {
+  export type RuntimeIdentityActivationTraceCreateManyInput = {
     id?: bigint | number
     identity_key: string
     run_id?: string | null
@@ -42023,7 +43830,7 @@ export namespace Prisma {
     created_at?: Date | string
   }
 
-  export type IdentityActivationTraceUpdateManyMutationInput = {
+  export type RuntimeIdentityActivationTraceUpdateManyMutationInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     identity_key?: StringFieldUpdateOperationsInput | string
     run_id?: NullableStringFieldUpdateOperationsInput | string | null
@@ -42039,7 +43846,7 @@ export namespace Prisma {
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
-  export type IdentityActivationTraceUncheckedUpdateManyInput = {
+  export type RuntimeIdentityActivationTraceUncheckedUpdateManyInput = {
     id?: BigIntFieldUpdateOperationsInput | bigint | number
     identity_key?: StringFieldUpdateOperationsInput | string
     run_id?: NullableStringFieldUpdateOperationsInput | string | null
@@ -44535,7 +46342,8 @@ export namespace Prisma {
     parent_event_id?: SortOrder
     forked_from_identity_key?: SortOrder
     fork_point_event_id?: SortOrder
-    change_journal_id?: SortOrder
+    change_candidate_id?: SortOrder
+    accepted_fact_id?: SortOrder
     integrity_status?: SortOrder
     metadata?: SortOrder
     occurred_at?: SortOrder
@@ -44547,7 +46355,8 @@ export namespace Prisma {
     previous_event_id?: SortOrder
     parent_event_id?: SortOrder
     fork_point_event_id?: SortOrder
-    change_journal_id?: SortOrder
+    change_candidate_id?: SortOrder
+    accepted_fact_id?: SortOrder
   }
 
   export type IdentityLineageEventMaxOrderByAggregateInput = {
@@ -44561,7 +46370,8 @@ export namespace Prisma {
     parent_event_id?: SortOrder
     forked_from_identity_key?: SortOrder
     fork_point_event_id?: SortOrder
-    change_journal_id?: SortOrder
+    change_candidate_id?: SortOrder
+    accepted_fact_id?: SortOrder
     integrity_status?: SortOrder
     occurred_at?: SortOrder
     created_at?: SortOrder
@@ -44578,7 +46388,8 @@ export namespace Prisma {
     parent_event_id?: SortOrder
     forked_from_identity_key?: SortOrder
     fork_point_event_id?: SortOrder
-    change_journal_id?: SortOrder
+    change_candidate_id?: SortOrder
+    accepted_fact_id?: SortOrder
     integrity_status?: SortOrder
     occurred_at?: SortOrder
     created_at?: SortOrder
@@ -44589,65 +46400,96 @@ export namespace Prisma {
     previous_event_id?: SortOrder
     parent_event_id?: SortOrder
     fork_point_event_id?: SortOrder
-    change_journal_id?: SortOrder
+    change_candidate_id?: SortOrder
+    accepted_fact_id?: SortOrder
   }
 
-  export type IdentityChangeJournalCountOrderByAggregateInput = {
+  export type IdentityChangeCandidateCountOrderByAggregateInput = {
     id?: SortOrder
     identity_key?: SortOrder
-    change_type?: SortOrder
+    candidate_type?: SortOrder
     proposed_by?: SortOrder
     proposed_from?: SortOrder
+    claim_text?: SortOrder
     before_summary?: SortOrder
     after_summary?: SortOrder
-    integrity_status?: SortOrder
-    reason?: SortOrder
+    status?: SortOrder
+    judge_status?: SortOrder
+    judge_reason?: SortOrder
+    judge_run_id?: SortOrder
+    judge_llm_call_id?: SortOrder
+    quarantine_group_key?: SortOrder
+    supersedes_fact_id?: SortOrder
+    legacy_source_table?: SortOrder
+    legacy_source_id?: SortOrder
     metadata?: SortOrder
+    judged_at?: SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
   }
 
-  export type IdentityChangeJournalAvgOrderByAggregateInput = {
+  export type IdentityChangeCandidateAvgOrderByAggregateInput = {
     id?: SortOrder
+    supersedes_fact_id?: SortOrder
   }
 
-  export type IdentityChangeJournalMaxOrderByAggregateInput = {
+  export type IdentityChangeCandidateMaxOrderByAggregateInput = {
     id?: SortOrder
     identity_key?: SortOrder
-    change_type?: SortOrder
+    candidate_type?: SortOrder
     proposed_by?: SortOrder
     proposed_from?: SortOrder
+    claim_text?: SortOrder
     before_summary?: SortOrder
     after_summary?: SortOrder
-    integrity_status?: SortOrder
-    reason?: SortOrder
+    status?: SortOrder
+    judge_status?: SortOrder
+    judge_reason?: SortOrder
+    judge_run_id?: SortOrder
+    judge_llm_call_id?: SortOrder
+    quarantine_group_key?: SortOrder
+    supersedes_fact_id?: SortOrder
+    legacy_source_table?: SortOrder
+    legacy_source_id?: SortOrder
+    judged_at?: SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
   }
 
-  export type IdentityChangeJournalMinOrderByAggregateInput = {
+  export type IdentityChangeCandidateMinOrderByAggregateInput = {
     id?: SortOrder
     identity_key?: SortOrder
-    change_type?: SortOrder
+    candidate_type?: SortOrder
     proposed_by?: SortOrder
     proposed_from?: SortOrder
+    claim_text?: SortOrder
     before_summary?: SortOrder
     after_summary?: SortOrder
-    integrity_status?: SortOrder
-    reason?: SortOrder
+    status?: SortOrder
+    judge_status?: SortOrder
+    judge_reason?: SortOrder
+    judge_run_id?: SortOrder
+    judge_llm_call_id?: SortOrder
+    quarantine_group_key?: SortOrder
+    supersedes_fact_id?: SortOrder
+    legacy_source_table?: SortOrder
+    legacy_source_id?: SortOrder
+    judged_at?: SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
   }
 
-  export type IdentityChangeJournalSumOrderByAggregateInput = {
+  export type IdentityChangeCandidateSumOrderByAggregateInput = {
     id?: SortOrder
+    supersedes_fact_id?: SortOrder
   }
 
   export type IdentityEvidenceRefCountOrderByAggregateInput = {
     id?: SortOrder
     identity_key?: SortOrder
     identity_event_id?: SortOrder
-    change_journal_id?: SortOrder
+    change_candidate_id?: SortOrder
+    accepted_fact_id?: SortOrder
     source_type?: SortOrder
     source_id?: SortOrder
     trace_id?: SortOrder
@@ -44662,7 +46504,8 @@ export namespace Prisma {
   export type IdentityEvidenceRefAvgOrderByAggregateInput = {
     id?: SortOrder
     identity_event_id?: SortOrder
-    change_journal_id?: SortOrder
+    change_candidate_id?: SortOrder
+    accepted_fact_id?: SortOrder
     conversation_id?: SortOrder
   }
 
@@ -44670,7 +46513,8 @@ export namespace Prisma {
     id?: SortOrder
     identity_key?: SortOrder
     identity_event_id?: SortOrder
-    change_journal_id?: SortOrder
+    change_candidate_id?: SortOrder
+    accepted_fact_id?: SortOrder
     source_type?: SortOrder
     source_id?: SortOrder
     trace_id?: SortOrder
@@ -44685,7 +46529,8 @@ export namespace Prisma {
     id?: SortOrder
     identity_key?: SortOrder
     identity_event_id?: SortOrder
-    change_journal_id?: SortOrder
+    change_candidate_id?: SortOrder
+    accepted_fact_id?: SortOrder
     source_type?: SortOrder
     source_id?: SortOrder
     trace_id?: SortOrder
@@ -44699,11 +46544,78 @@ export namespace Prisma {
   export type IdentityEvidenceRefSumOrderByAggregateInput = {
     id?: SortOrder
     identity_event_id?: SortOrder
-    change_journal_id?: SortOrder
+    change_candidate_id?: SortOrder
+    accepted_fact_id?: SortOrder
     conversation_id?: SortOrder
   }
 
-  export type IdentityActivationTraceCountOrderByAggregateInput = {
+  export type AcceptedIdentityFactCountOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fact_key?: SortOrder
+    fact_text?: SortOrder
+    fact_type?: SortOrder
+    source_candidate_id?: SortOrder
+    source_event_id?: SortOrder
+    status?: SortOrder
+    supersedes_fact_id?: SortOrder
+    revoked_by_event_id?: SortOrder
+    confidence?: SortOrder
+    activation_tags?: SortOrder
+    metadata?: SortOrder
+    accepted_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AcceptedIdentityFactAvgOrderByAggregateInput = {
+    id?: SortOrder
+    source_candidate_id?: SortOrder
+    source_event_id?: SortOrder
+    supersedes_fact_id?: SortOrder
+    revoked_by_event_id?: SortOrder
+  }
+
+  export type AcceptedIdentityFactMaxOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fact_key?: SortOrder
+    fact_text?: SortOrder
+    fact_type?: SortOrder
+    source_candidate_id?: SortOrder
+    source_event_id?: SortOrder
+    status?: SortOrder
+    supersedes_fact_id?: SortOrder
+    revoked_by_event_id?: SortOrder
+    confidence?: SortOrder
+    accepted_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AcceptedIdentityFactMinOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    fact_key?: SortOrder
+    fact_text?: SortOrder
+    fact_type?: SortOrder
+    source_candidate_id?: SortOrder
+    source_event_id?: SortOrder
+    status?: SortOrder
+    supersedes_fact_id?: SortOrder
+    revoked_by_event_id?: SortOrder
+    confidence?: SortOrder
+    accepted_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AcceptedIdentityFactSumOrderByAggregateInput = {
+    id?: SortOrder
+    source_candidate_id?: SortOrder
+    source_event_id?: SortOrder
+    supersedes_fact_id?: SortOrder
+    revoked_by_event_id?: SortOrder
+  }
+
+  export type RuntimeIdentityActivationTraceCountOrderByAggregateInput = {
     id?: SortOrder
     identity_key?: SortOrder
     run_id?: SortOrder
@@ -44719,25 +46631,12 @@ export namespace Prisma {
     created_at?: SortOrder
   }
 
-  export type IdentityActivationTraceAvgOrderByAggregateInput = {
+  export type RuntimeIdentityActivationTraceAvgOrderByAggregateInput = {
     id?: SortOrder
     conversation_id?: SortOrder
   }
 
-  export type IdentityActivationTraceMaxOrderByAggregateInput = {
-    id?: SortOrder
-    identity_key?: SortOrder
-    run_id?: SortOrder
-    trace_id?: SortOrder
-    conversation_id?: SortOrder
-    scene_fingerprint?: SortOrder
-    cue_summary?: SortOrder
-    selected_skill_ref?: SortOrder
-    activation_reason?: SortOrder
-    created_at?: SortOrder
-  }
-
-  export type IdentityActivationTraceMinOrderByAggregateInput = {
+  export type RuntimeIdentityActivationTraceMaxOrderByAggregateInput = {
     id?: SortOrder
     identity_key?: SortOrder
     run_id?: SortOrder
@@ -44750,7 +46649,20 @@ export namespace Prisma {
     created_at?: SortOrder
   }
 
-  export type IdentityActivationTraceSumOrderByAggregateInput = {
+  export type RuntimeIdentityActivationTraceMinOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    run_id?: SortOrder
+    trace_id?: SortOrder
+    conversation_id?: SortOrder
+    scene_fingerprint?: SortOrder
+    cue_summary?: SortOrder
+    selected_skill_ref?: SortOrder
+    activation_reason?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type RuntimeIdentityActivationTraceSumOrderByAggregateInput = {
     id?: SortOrder
     conversation_id?: SortOrder
   }

@@ -260,7 +260,8 @@ export type FeedbackLearningStateInput = {
 export type IdentityEvidenceRefInput = {
   identityKey?: string;
   identityEventId?: number | bigint | string | null;
-  changeJournalId?: number | bigint | string | null;
+  changeCandidateId?: number | bigint | string | null;
+  acceptedFactId?: number | bigint | string | null;
   sourceType: string;
   sourceId: string | number | bigint;
   traceId?: string | null;
@@ -283,7 +284,7 @@ export type XiaoniIdentityRootInput = {
 
 export type IdentityLineageEventInput = {
   identityKey: string;
-  eventType?: 'genesis' | 'natural_growth' | 'guided_growth' | 'external_intervention' | 'identity_retcon' | 'corruption' | 'fork' | 'forgetting' | 'death_or_reset' | 'continuity_trial' | 'activation_trace' | string;
+  eventType?: 'genesis' | 'candidate_proposed' | 'candidate_judged' | 'fact_accepted' | 'fact_superseded' | 'fact_revoked' | 'natural_growth' | 'guided_growth' | 'external_intervention' | 'identity_retcon' | 'corruption' | 'fork' | 'forgetting' | 'death_or_reset' | 'continuity_trial' | string;
   sourceType?: string;
   sourceId?: string | number | bigint | null;
   summaryText: string;
@@ -291,29 +292,58 @@ export type IdentityLineageEventInput = {
   parentEventId?: number | bigint | string | null;
   forkedFromIdentityKey?: string | null;
   forkPointEventId?: number | bigint | string | null;
-  changeJournalId?: number | bigint | string | null;
+  changeCandidateId?: number | bigint | string | null;
+  acceptedFactId?: number | bigint | string | null;
   integrityStatus?: 'accepted' | 'needs_review' | 'quarantined' | 'rejected' | string;
   metadata?: Record<string, unknown> | null;
   occurredAt?: string | Date | null;
   evidenceRefs?: IdentityEvidenceRefInput[];
 };
 
-export type IdentityChangeInput = {
+export type IdentityChangeCandidateInput = {
   identityKey: string;
-  changeType?: 'natural_growth' | 'guided_growth' | 'external_intervention' | 'identity_retcon' | 'corruption' | 'fork' | 'forgetting' | 'death_or_reset' | string;
+  candidateType?: 'natural_growth' | 'guided_growth' | 'external_intervention' | 'identity_retcon' | 'corruption' | 'fork' | 'forgetting' | 'death_or_reset' | string;
   proposedBy?: string | null;
   proposedFrom?: string | null;
+  claimText: string;
   beforeSummary?: string | null;
-  afterSummary: string;
-  integrityStatus?: 'accepted' | 'needs_review' | 'quarantined' | 'rejected' | string;
-  reason?: string | null;
+  afterSummary?: string | null;
+  status?: 'pending' | 'accepted' | 'quarantined' | 'rejected' | 'superseded' | string;
+  judgeStatus?: 'not_judged' | 'accepted' | 'quarantined' | 'rejected' | 'failed' | string;
+  judgeReason?: string | null;
+  judgeRunId?: string | null;
+  judgeLlmCallId?: string | null;
+  quarantineGroupKey?: string | null;
+  supersedesFactId?: number | bigint | string | null;
+  legacySourceTable?: string | null;
+  legacySourceId?: string | null;
+  judgedAt?: string | Date | null;
   metadata?: Record<string, unknown> | null;
   lineageMetadata?: Record<string, unknown> | null;
   recordLineageEvent?: boolean;
   evidenceRefs?: IdentityEvidenceRefInput[];
 };
 
-export type IdentityActivationTraceInput = {
+export type AcceptedIdentityFactInput = {
+  identityKey: string;
+  factKey: string;
+  factText: string;
+  factType?: string;
+  sourceCandidateId?: number | bigint | string | null;
+  sourceEventId?: number | bigint | string | null;
+  status?: 'active' | 'superseded' | 'revoked' | 'inactive' | string;
+  supersedesFactId?: number | bigint | string | null;
+  revokedByEventId?: number | bigint | string | null;
+  confidence?: 'high' | 'medium' | 'low' | string;
+  activationTags?: unknown[];
+  acceptedAt?: string | Date | null;
+  metadata?: Record<string, unknown> | null;
+  lineageMetadata?: Record<string, unknown> | null;
+  recordLineageEvent?: boolean;
+  evidenceRefs?: IdentityEvidenceRefInput[];
+};
+
+export type RuntimeIdentityActivationTraceInput = {
   identityKey: string;
   runId?: string | null;
   traceId?: string | null;
@@ -651,10 +681,14 @@ export function appendIdentityLineageEvent(
   input: IdentityLineageEventInput,
   config?: DatabaseUrlConfig
 ): Promise<{ event: any; evidenceRefs: any[] }>;
-export function appendIdentityChange(
-  input: IdentityChangeInput,
+export function appendIdentityChangeCandidate(
+  input: IdentityChangeCandidateInput,
   config?: DatabaseUrlConfig
-): Promise<{ change: any; event: any | null; evidenceRefs: any[] }>;
+): Promise<{ candidate: any; event: any | null; evidenceRefs: any[] }>;
+export function createAcceptedIdentityFact(
+  input: AcceptedIdentityFactInput,
+  config?: DatabaseUrlConfig
+): Promise<{ fact: any; event: any | null; evidenceRefs: any[] }>;
 export function recordIdentityFork(
   input: IdentityLineageEventInput & { forkedFromIdentityKey: string; forkPointEventId: number | bigint | string },
   config?: DatabaseUrlConfig
@@ -667,16 +701,21 @@ export function recordContinuityTrial(
   input: IdentityLineageEventInput,
   config?: DatabaseUrlConfig
 ): Promise<{ event: any; evidenceRefs: any[] }>;
-export function recordIdentityActivationTrace(input: IdentityActivationTraceInput, config?: DatabaseUrlConfig): Promise<any>;
+export function recordRuntimeIdentityActivationTrace(input: RuntimeIdentityActivationTraceInput, config?: DatabaseUrlConfig): Promise<any>;
 export function listIdentityLineageEvents(
-  filters?: { identityKey?: string; eventType?: string; integrityStatus?: string; limit?: number },
+  filters?: { identityKey?: string; eventType?: string; integrityStatus?: string; changeCandidateId?: number | bigint | string; acceptedFactId?: number | bigint | string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function listIdentityChangeCandidates(
+  filters?: { identityKey?: string; candidateType?: string; status?: string; judgeStatus?: string; quarantineGroupKey?: string; limit?: number },
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
 export function listIdentityEvidenceRefs(
   filters?: {
     identityKey?: string;
     identityEventId?: number | bigint | string;
-    changeJournalId?: number | bigint | string;
+    changeCandidateId?: number | bigint | string;
+    acceptedFactId?: number | bigint | string;
     sourceType?: string;
     traceId?: string;
     runId?: string;
@@ -685,7 +724,11 @@ export function listIdentityEvidenceRefs(
   },
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
-export function listIdentityActivationTraces(
+export function listAcceptedIdentityFacts(
+  filters?: { identityKey?: string; factType?: string; status?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function listRuntimeIdentityActivationTraces(
   filters?: { identityKey?: string; traceId?: string; runId?: string; conversationId?: number | bigint | string; limit?: number },
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
