@@ -99,6 +99,16 @@ type OpenResponseToolChoice =
 type ToolContinuationAction = {
   inputItems: OpenResponseInputItem[];
   finishResult: Record<string, unknown> | null;
+  forcedVisibleReply: {
+    toolName: string;
+    args: Record<string, unknown>;
+  } | null;
+};
+
+type ToolContinuationContext = {
+  loopInput: OpenResponseInputItem[];
+  speakingToolName: string;
+  hasVisibleReply: boolean;
 };
 
 type DeliveredAssistantMessage = {
@@ -2120,19 +2130,65 @@ function parseFeedbackReflectionCandidate(value: unknown): FeedbackReflectionCan
 
 export function applyToolResultToLoopInput(
   toolCall: Pick<AgentToolCall, 'name' | 'callId' | 'rawArguments'>,
-  toolResult: Record<string, unknown>
+  toolResult: Record<string, unknown>,
+  context?: ToolContinuationContext
 ): ToolContinuationAction {
   if (isSilentFinishToolName(toolCall.name)) {
+    const pendingImageTaskStatus = context && !context.hasVisibleReply
+      ? extractPendingImageTaskStatus(context.loopInput)
+      : null;
+    if (pendingImageTaskStatus) {
+      const speakingToolName = context?.speakingToolName ?? TOOL_NAMES.groupReply;
+      if (countPriorSilentFinishCalls(context?.loopInput ?? []) >= 1) {
+        const pendingImageTaskState = extractPendingImageTaskState(context?.loopInput ?? []);
+        return {
+          inputItems: [
+            {
+              type: 'function_call_output',
+              call_id: toolCall.callId,
+              output: JSON.stringify(toolResult)
+            }
+          ],
+          finishResult: null,
+          forcedVisibleReply: {
+            toolName: speakingToolName,
+            args: {
+              messages: [pendingImageTaskStatus],
+              ...(pendingImageTaskState?.xiaoniOs ? { xiaoni_os: pendingImageTaskState.xiaoniOs } : {})
+            }
+          }
+        };
+      }
+      return {
+        inputItems: [
+          {
+            type: 'function_call_output',
+            call_id: toolCall.callId,
+            output: JSON.stringify(toolResult)
+          },
+          buildUserSceneInputItem([
+            '[补充事实]',
+            '后台图片任务已经登记，但我还没有对聊天对象发出任何可见回复。',
+            `这轮不能直接用 stay_silent 收口；如果要开口，就调用 ${speakingToolName} 自然接住当前对话。`,
+            `[后台任务状态]\n${pendingImageTaskStatus}`
+          ])
+        ],
+        finishResult: null,
+        forcedVisibleReply: null
+      };
+    }
     return {
       inputItems: [],
-      finishResult: toolResult
+      finishResult: toolResult,
+      forcedVisibleReply: null
     };
   }
 
   if (toolResult.finished === true && extractSentMessages(toolResult).length === 0) {
     return {
       inputItems: [],
-      finishResult: toolResult
+      finishResult: toolResult,
+      forcedVisibleReply: null
     };
   }
 
@@ -2148,10 +2204,63 @@ export function applyToolResultToLoopInput(
       }
     }
   }
+  if (toolCall.name === TOOL_NAMES.imageTask) {
+    const statusText = typeof toolResult.status_text === 'string' ? toolResult.status_text.trim() : '';
+    inputItems.push(buildUserSceneInputItem([
+      '[补充事实]',
+      statusText ? `[后台任务状态]\n${statusText}` : '后台图片任务已经登记。',
+      '这还不等于已经对聊天对象说过话；如果这一轮仍该自然接话，就继续收口，不要把登记任务本身当成已经回复。'
+    ]));
+  }
   return {
     inputItems,
-    finishResult: null
+    finishResult: null,
+    forcedVisibleReply: null
   };
+}
+
+function extractPendingImageTaskStatus(loopInput: OpenResponseInputItem[]) {
+  return extractPendingImageTaskState(loopInput)?.statusText ?? null;
+}
+
+function extractPendingImageTaskState(loopInput: OpenResponseInputItem[]) {
+  const imageTaskCallIds = new Set<string>();
+  for (const item of loopInput) {
+    if (item.type === 'function_call' && item.name === TOOL_NAMES.imageTask) {
+      imageTaskCallIds.add(item.call_id);
+    }
+  }
+
+  for (let index = loopInput.length - 1; index >= 0; index -= 1) {
+    const item = loopInput[index];
+    if (item.type !== 'function_call_output' || !imageTaskCallIds.has(item.call_id)) {
+      continue;
+    }
+    const parsed = parseReplayJsonObject(item.output);
+    if (!parsed || parsed.queued !== true) {
+      continue;
+    }
+    const statusText = typeof parsed.status_text === 'string' ? parsed.status_text.trim() : '';
+    const xiaoniOs = typeof parsed.xiaoni_os === 'string' && parsed.xiaoni_os.trim()
+      ? parsed.xiaoni_os.trim()
+      : null;
+    return {
+      statusText: statusText || '后台图片任务已经登记。',
+      xiaoniOs
+    };
+  }
+
+  return null;
+}
+
+function countPriorSilentFinishCalls(loopInput: OpenResponseInputItem[]) {
+  let count = 0;
+  for (const item of loopInput) {
+    if (item.type === 'function_call' && isSilentFinishToolName(item.name)) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 type ReplayableModelOutput = {
@@ -2408,7 +2517,50 @@ export class AgentLoopService {
               deliveredMessages.push(...extractDeliveredAssistantMessages(toolResult));
             }
 
-            const continuation = applyToolResultToLoopInput(toolCall, toolResult);
+            const continuation = applyToolResultToLoopInput(toolCall, toolResult, {
+              loopInput: requestInput,
+              speakingToolName: payload.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
+              hasVisibleReply: deliveredMessages.length > 0
+            });
+            if (continuation.forcedVisibleReply) {
+              await this.store.logTimelineEvent({
+                traceId: payload.traceId,
+                eventType: 'decision',
+                eventName: 'forced_visible_reply',
+                eventPhase: null,
+                metadata: {
+                  source_tool_name: toolCall.name,
+                  tool_name: continuation.forcedVisibleReply.toolName
+                }
+              });
+              const forcedToolResult = await this.sendMessage(
+                continuation.forcedVisibleReply.toolName === TOOL_NAMES.privateReply ? 'private' : 'group',
+                continuation.forcedVisibleReply.args,
+                payload
+              );
+              if (typeof forcedToolResult?.xiaoni_os === 'string' && forcedToolResult.xiaoni_os.trim().length > 0) {
+                persistedXiaoniOs = forcedToolResult.xiaoni_os.trim();
+              }
+              await this.store.markRunDeliveryCommitted(queueMessage.id);
+              await this.store.logTimelineEvent({
+                traceId: payload.traceId,
+                eventType: 'decision',
+                eventName: 'delivery_commit',
+                eventPhase: null,
+                metadata: {
+                  tool_name: continuation.forcedVisibleReply.toolName,
+                  forced: true
+                }
+              });
+              deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
+              const deliveredFingerprint = buildOutboundFingerprintFromToolResult(forcedToolResult);
+              if (deliveredFingerprint) {
+                deliveredFingerprints.add(deliveredFingerprint);
+              }
+              deliveredMessages.push(...extractDeliveredAssistantMessages(forcedToolResult));
+              finishResult = forcedToolResult;
+              break;
+            }
             if (continuation.finishResult) {
               finishResult = continuation.finishResult;
               break;

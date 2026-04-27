@@ -1394,7 +1394,8 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
       call_id: 'call-1',
       output: '{"sent_messages":["我们出去玩吧"]}'
     }],
-    finishResult: null
+    finishResult: null,
+    forcedVisibleReply: null
   });
   loopInput.push(...continuation.inputItems);
   const lastItem = loopInput.at(-1);
@@ -1403,6 +1404,120 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
   assert.equal(lastItem && lastItem.type === 'function_call_output' ? lastItem.output : null, '{"sent_messages":["我们出去玩吧"]}');
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), true);
+});
+
+test('applyToolResultToLoopInput keeps image task turns open until there is a visible reply', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-image-task',
+    name: IMAGE_TASK_TOOL,
+    arguments: JSON.stringify({
+      prompt: '一张蓝天白云头像图',
+      target_description: '群头像图'
+    })
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-image-task',
+    output: JSON.stringify({
+      queued: true,
+      task_type: 'image_generate',
+      status_text: '我已经开始处理这张图，等结果出来再发。'
+    })
+  });
+
+  const continuation = applyToolResultToLoopInput({
+    callId: 'call-silent-after-image-task',
+    name: SILENT_FINISH_TOOL,
+    rawArguments: '{"reason":"done","outcome":"complete"}'
+  }, {
+    finished: true,
+    reason: 'done',
+    outcome: 'complete'
+  }, {
+    loopInput,
+    speakingToolName: GROUP_REPLY_TOOL,
+    hasVisibleReply: false
+  });
+
+  assert.equal(continuation.finishResult, null);
+  assert.equal(continuation.inputItems.length, 2);
+  const replay = continuation.inputItems[0];
+  assert.equal(replay?.type, 'function_call_output');
+  assert.equal(replay && replay.type === 'function_call_output' ? replay.call_id : null, 'call-silent-after-image-task');
+  const reminder = getMessageContent(continuation.inputItems[1]);
+  assert.equal(continuation.forcedVisibleReply, null);
+  assert.match(reminder, /后台图片任务已经登记，但我还没有对聊天对象发出任何可见回复/);
+  assert.match(reminder, /speak_in_group/);
+  assert.match(reminder, /我已经开始处理这张图/);
+});
+
+test('applyToolResultToLoopInput forces a minimal visible reply after repeated silent image-task turns', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-image-task',
+    name: IMAGE_TASK_TOOL,
+    arguments: JSON.stringify({
+      prompt: '一张蓝天白云头像图',
+      target_description: '群头像图'
+    })
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-image-task',
+    output: JSON.stringify({
+      queued: true,
+      task_type: 'image_generate',
+      xiaoni_os: '这轮先轻轻接住，等图出来再回到现场。',
+      status_text: '我已经开始处理这张图，等结果出来再发。'
+    })
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-silent-1',
+    name: SILENT_FINISH_TOOL,
+    arguments: JSON.stringify({
+      reason: 'done',
+      outcome: 'complete'
+    })
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-silent-1',
+    output: JSON.stringify({
+      finished: true,
+      reason: 'done',
+      outcome: 'complete',
+      no_reply: true
+    })
+  });
+
+  const continuation = applyToolResultToLoopInput({
+    callId: 'call-silent-2',
+    name: SILENT_FINISH_TOOL,
+    rawArguments: '{"reason":"done","outcome":"complete"}'
+  }, {
+    finished: true,
+    reason: 'done',
+    outcome: 'complete'
+  }, {
+    loopInput,
+    speakingToolName: GROUP_REPLY_TOOL,
+    hasVisibleReply: false
+  });
+
+  assert.equal(continuation.finishResult, null);
+  assert.equal(continuation.inputItems.length, 1);
+  assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
+  assert.deepEqual(continuation.forcedVisibleReply, {
+    toolName: GROUP_REPLY_TOOL,
+    args: {
+      messages: ['我已经开始处理这张图，等结果出来再发。'],
+      xiaoni_os: '这轮先轻轻接住，等图出来再回到现场。'
+    }
+  });
 });
 
 test('speak_in_group always uses the current conversation group target', async () => {
@@ -1891,6 +2006,195 @@ test('processQueueMessage completes with no reply when the model directly calls 
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'completed');
 });
 
+test('processQueueMessage does not allow request_image_task to swallow the visible group reply', async () => {
+  const payload = createQueuePayload();
+  payload.traceId = 'trace-image-task-followup';
+  payload.runId = 'run-image-task-followup';
+  payload.batchId = 'batch-image-task-followup';
+  payload.sessionKey = 'qq:group:1019235326';
+  payload.peerId = '1019235326';
+  payload.peerName = 'Regression Group';
+  payload.bodyForAgent = '@小腻 帮我生成一张蓝天白云头像图\n@小腻 你现在是在忙还是空着？';
+  payload.rawBody = '@小腻 帮我生成一张蓝天白云头像图\n@小腻 你现在是在忙还是空着？';
+  payload.inboundContext = {
+    ...payload.inboundContext,
+    NativeChannelId: '1019235326',
+    Body: payload.rawBody,
+    BodyForAgent: payload.bodyForAgent,
+    BodyForCommands: ''
+  };
+  payload.messages = [
+    {
+      ...payload.messages[0],
+      queueMessageId: 2004,
+      traceId: 'trace-image-task-1',
+      messageId: 21,
+      messageSid: 'sid-image-task-1',
+      sessionKey: payload.sessionKey,
+      peerId: payload.peerId,
+      peerName: payload.peerName,
+      bodyForAgent: '@小腻 帮我生成一张蓝天白云头像图',
+      rawBody: '@小腻 帮我生成一张蓝天白云头像图',
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        NativeChannelId: '1019235326',
+        Body: '@小腻 帮我生成一张蓝天白云头像图',
+        BodyForAgent: '@小腻 帮我生成一张蓝天白云头像图',
+        BodyForCommands: ''
+      }
+    },
+    {
+      ...payload.messages[0],
+      queueMessageId: 2005,
+      traceId: 'trace-image-task-2',
+      messageId: 22,
+      messageSid: 'sid-image-task-2',
+      sessionKey: payload.sessionKey,
+      peerId: payload.peerId,
+      peerName: payload.peerName,
+      bodyForAgent: '@小腻 你现在是在忙还是空着？',
+      rawBody: '@小腻 你现在是在忙还是空着？',
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        NativeChannelId: '1019235326',
+        Body: '@小腻 你现在是在忙还是空着？',
+        BodyForAgent: '@小腻 你现在是在忙还是空着？',
+        BodyForCommands: ''
+      }
+    }
+  ];
+
+  const queueMessage = {
+    id: 'run-queue-image-task-followup',
+    traceId: 'trace-image-task-followup',
+    batchId: 'batch-image-task-followup',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-04-27T14:06:27.315Z',
+    queueMessageIds: [2004, 2005],
+    payload
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    completeQueueMessage: [],
+    completeAgentRun: [],
+    updateLlmJob: [],
+    markRunDeliveryCommitted: []
+  };
+  let deliveryPhase = 'reasoning_open';
+
+  const store = {
+    createLlmJob: async () => 'job-image-task-followup',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    createRuntimeTask: async () => 'task-image-followup',
+    getMediaAssetByTag: async () => null,
+    getRunDeliveryState: async () => ({
+      deliveryPhase,
+      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    markRunDeliveryCommitted: async (runId: string) => {
+      deliveryPhase = 'delivery_committed';
+      storeCalls.markRunDeliveryCommitted.push(runId);
+    },
+    markRunDeliveryBlocked: async () => {},
+    createToolExecutionLog: async () => 1,
+    completeToolExecutionLog: async () => {},
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 3589;
+    },
+    attachConversationIdToTrace: async () => {},
+    completeQueueMessage: async (_runId: string, params: any) => { storeCalls.completeQueueMessage.push(params); },
+    failQueueMessage: async () => {},
+    completeAgentRun: async (_runId: string, params: any) => { storeCalls.completeAgentRun.push(params); },
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); }
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const originalFetch = globalThis.fetch;
+  const sendGroupCalls: Array<{ url: string; body: any }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const parsedBody = init?.body ? JSON.parse(String(init.body)) : null;
+    sendGroupCalls.push({
+      url: String(url),
+      body: parsedBody
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          message_id: 7788
+        }
+      })
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    let turn = 0;
+    (service as any).executeAgentTurn = async () => {
+      turn += 1;
+      if (turn === 1) {
+        return {
+          success: true,
+          llm_call_id: 'llm-image-task-1',
+          canonical_response: {
+            output: [{
+              type: 'function_call',
+              call_id: 'call-image-task',
+              name: IMAGE_TASK_TOOL,
+              arguments: JSON.stringify({
+                prompt: '一张很普通的蓝天白云头像图',
+                target_description: '群聊里用于头像的普通蓝天白云图'
+              })
+            }]
+          }
+        };
+      }
+      return {
+        success: true,
+        llm_call_id: `llm-image-task-${turn}`,
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: `call-silent-after-task-${turn}`,
+            name: SILENT_FINISH_TOOL,
+            arguments: JSON.stringify({ reason: 'done', outcome: 'complete' })
+          }]
+        }
+      };
+    };
+
+    await service.processQueueMessage(queueMessage as any);
+
+    assert.equal(turn, 3);
+    assert.equal(storeCalls.createConversation.length, 1);
+    assert.equal(storeCalls.createConversation[0]?.aiResponse, '我已经开始帮Alice处理这张图，等结果出来再发。');
+    assert.deepEqual(storeCalls.completeQueueMessage[0]?.result?.sent_messages, ['我已经开始帮Alice处理这张图，等结果出来再发。']);
+    assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'reply_sent');
+    assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-image-task-followup']);
+    assert.equal(sendGroupCalls.length, 1);
+    assert.equal(sendGroupCalls[0]?.url, `${agentConfig.providerServiceUrl}/api/internal/send_group`);
+    assert.deepEqual(sendGroupCalls[0]?.body, {
+      session_key: 'qq:group:1019235326',
+      group_id: 1019235326,
+      messages: ['我已经开始帮Alice处理这张图，等结果出来再发。'],
+      mention_user_ids: []
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('processQueueMessage stores partially delivered assistant transcript as commentary on failure', async () => {
   const queueMessage = {
     id: 'run-queue-failure',
@@ -2296,7 +2600,8 @@ test('applyToolResultToLoopInput ends the turn on stay_silent without replaying 
 
   assert.deepEqual(continuation, {
     inputItems: [],
-    finishResult
+    finishResult,
+    forcedVisibleReply: null
   });
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), false);
@@ -2322,7 +2627,8 @@ test('applyToolResultToLoopInput ends the turn when a speaking tool is downgrade
 
   assert.deepEqual(continuation, {
     inputItems: [],
-    finishResult
+    finishResult,
+    forcedVisibleReply: null
   });
 });
 
