@@ -1,52 +1,24 @@
-import { Suspense, lazy } from 'react';
+import { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
+import { DashboardPage } from './pages/DashboardPage';
+import { ConversationsPage } from './pages/ConversationsPage';
+import { RunTracePage } from './pages/RunTracePage';
+import { GroupManagementPage } from './pages/GroupManagementPage';
+import { GroupChatDetailPage } from './pages/GroupChatDetailPage';
+import { PrivateChatManagementPage } from './pages/PrivateChatManagementPage';
+import { PrivateChatDetailPage } from './pages/PrivateChatDetailPage';
+import { PromptManagementPage } from './pages/PromptManagementPage';
+import { PromptDetailPage } from './pages/PromptDetailPage';
+import { PromptEditPage } from './pages/PromptEditPage';
+import QueueManagementPage from './pages/QueueManagementPage';
+import { HttpTrafficMonitorPage } from './pages/HttpTrafficMonitorPage';
+import { HttpTrafficDetailPage } from './pages/HttpTrafficDetailPage';
+import { ProviderRequestDesignPreviewPage } from './pages/ProviderRequestDesignPreviewPage';
+import { PlaygroundPage } from './pages/PlaygroundPage';
+import { ImageLabPage } from './pages/ImageLabPage';
 import './globals.css';
-
-const DashboardPage = lazy(async () => ({
-  default: (await import('./pages/DashboardPage')).DashboardPage,
-}));
-const ConversationsPage = lazy(async () => ({
-  default: (await import('./pages/ConversationsPage')).ConversationsPage,
-}));
-const RunTracePage = lazy(async () => ({
-  default: (await import('./pages/RunTracePage')).RunTracePage,
-}));
-const GroupManagementPage = lazy(async () => ({
-  default: (await import('./pages/GroupManagementPage')).GroupManagementPage,
-}));
-const GroupChatDetailPage = lazy(async () => ({
-  default: (await import('./pages/GroupChatDetailPage')).GroupChatDetailPage,
-}));
-const PrivateChatManagementPage = lazy(async () => ({
-  default: (await import('./pages/PrivateChatManagementPage')).PrivateChatManagementPage,
-}));
-const PrivateChatDetailPage = lazy(async () => ({
-  default: (await import('./pages/PrivateChatDetailPage')).PrivateChatDetailPage,
-}));
-const PromptManagementPage = lazy(async () => ({
-  default: (await import('./pages/PromptManagementPage')).PromptManagementPage,
-}));
-const PromptDetailPage = lazy(async () => ({
-  default: (await import('./pages/PromptDetailPage')).PromptDetailPage,
-}));
-const PromptEditPage = lazy(async () => ({
-  default: (await import('./pages/PromptEditPage')).PromptEditPage,
-}));
-const QueueManagementPage = lazy(() => import('./pages/QueueManagementPage'));
-const HttpTrafficMonitorPage = lazy(async () => ({
-  default: (await import('./pages/HttpTrafficMonitorPage')).HttpTrafficMonitorPage,
-}));
-const HttpTrafficDetailPage = lazy(async () => ({
-  default: (await import('./pages/HttpTrafficDetailPage')).HttpTrafficDetailPage,
-}));
-const ProviderRequestDesignPreviewPage = lazy(async () => ({
-  default: (await import('./pages/ProviderRequestDesignPreviewPage')).ProviderRequestDesignPreviewPage,
-}));
-const PlaygroundPage = lazy(async () => ({
-  default: (await import('./pages/PlaygroundPage')).PlaygroundPage,
-}));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -113,6 +85,7 @@ function App() {
               <Route path="/traffic/:id" element={<HttpTrafficDetailPage />} />
               <Route path="/design/provider-request-preview" element={<ProviderRequestDesignPreviewPage />} />
               <Route path="/playground" element={<PlaygroundPage />} />
+              <Route path="/image-lab" element={<ImageLabPage />} />
             </Routes>
           </Suspense>
         </Layout>

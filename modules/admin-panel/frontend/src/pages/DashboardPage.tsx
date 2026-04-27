@@ -9,17 +9,6 @@ import {
   ShieldCheck,
   TrendingUp,
 } from 'lucide-react';
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import { Button } from '@/components/ui/button';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader, PageHeaderBadge } from '@/components/console/PageHeader';
@@ -89,6 +78,16 @@ export const DashboardPage: React.FC = () => {
     [dashboardStats]
   );
 
+  const maxLatency = useMemo(
+    () => Math.max(...responseCurveData.map((item) => item.latency), 1),
+    [responseCurveData]
+  );
+
+  const maxActivityValue = useMemo(
+    () => Math.max(...activityBreakdown.map((item) => item.value), 1),
+    [activityBreakdown]
+  );
+
   const healthTone =
     dashboardStats?.systemHealth === 'healthy'
       ? 'success'
@@ -156,35 +155,27 @@ export const DashboardPage: React.FC = () => {
           icon={<Activity className="h-4 w-4 text-primary" />}
           action={<StatusPill tone="info">Latency Monitor</StatusPill>}
         >
-          <div className="h-[280px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={responseCurveData}>
-                <defs>
-                  <linearGradient id="dashboardLatency" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.55} />
-                    <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="rgba(148,163,184,0.10)" vertical={false} />
-                <XAxis dataKey="time" stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
-                <YAxis stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    background: 'rgba(255,255,255,0.98)',
-                    border: '1px solid rgba(203,213,225,0.9)',
-                    borderRadius: '12px',
-                    boxShadow: '0 10px 30px -18px rgba(15,23,42,0.28)',
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="latency"
-                  stroke="hsl(var(--chart-1))"
-                  strokeWidth={2}
-                  fill="url(#dashboardLatency)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+          <div className="grid gap-3">
+            {responseCurveData.length > 0 ? (
+              responseCurveData.map((point) => (
+                <div key={`${point.index}-${point.time}`} className="rounded-lg border border-border/70 bg-background/70 px-3 py-3">
+                  <div className="mb-2 flex items-center justify-between text-sm">
+                    <span className="font-medium text-foreground">{point.time}</span>
+                    <span className="font-mono text-muted-foreground">{point.latency} ms</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-[hsl(var(--chart-1))] transition-all"
+                      style={{ width: `${Math.max((point.latency / maxLatency) * 100, point.latency > 0 ? 8 : 0)}%` }}
+                    />
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+                暂无响应时延数据
+              </div>
+            )}
           </div>
         </SectionPanel>
 
@@ -194,23 +185,21 @@ export const DashboardPage: React.FC = () => {
           description="把当前系统高价值指标压成一组柱状快照。"
           icon={<TrendingUp className="h-4 w-4 text-primary" />}
         >
-          <div className="h-[280px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={activityBreakdown}>
-                <CartesianGrid stroke="rgba(148,163,184,0.10)" vertical={false} />
-                <XAxis dataKey="name" stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
-                <YAxis stroke="rgba(148,163,184,0.6)" tickLine={false} axisLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    background: 'rgba(255,255,255,0.98)',
-                    border: '1px solid rgba(203,213,225,0.9)',
-                    borderRadius: '12px',
-                    boxShadow: '0 10px 30px -18px rgba(15,23,42,0.28)',
-                  }}
-                />
-                <Bar dataKey="value" fill="hsl(var(--chart-2))" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="grid gap-4">
+            {activityBreakdown.map((item) => (
+              <div key={item.name} className="rounded-lg border border-border/70 bg-background/70 px-3 py-3">
+                <div className="mb-2 flex items-center justify-between text-sm">
+                  <span className="font-medium text-foreground">{item.name}</span>
+                  <span className="font-mono text-muted-foreground">{item.value.toLocaleString()}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-[hsl(var(--chart-2))] transition-all"
+                    style={{ width: `${Math.max((item.value / maxActivityValue) * 100, item.value > 0 ? 8 : 0)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </SectionPanel>
       </div>
