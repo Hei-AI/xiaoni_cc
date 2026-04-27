@@ -5,6 +5,18 @@ export type InboundMentionedUser = {
   label?: string;
 };
 
+export type InboundMediaAsset = {
+  mediaTag: string;
+  placeholder: string;
+  mediaType: 'image' | 'audio' | 'video' | 'file' | string;
+  mimeType?: string;
+  locator?: string;
+  messageSid?: string;
+  fileId?: string;
+  fileName?: string;
+  fileSize?: string;
+};
+
 export type FinalizedInboundContext = {
   Body: string;
   BodyForAgent: string;
@@ -35,6 +47,7 @@ export type FinalizedInboundContext = {
   OriginatingChannel?: string;
   OriginatingTo?: string;
   NativeChannelId?: string;
+  MediaAssets?: InboundMediaAsset[];
   CommandAuthorized: boolean;
 };
 

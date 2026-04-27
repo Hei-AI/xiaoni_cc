@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildGroupMessageText } from '../napcat-client';
+import { buildGroupMessageText, normalizeImageFileReference } from '../napcat-client';
 
 test('buildGroupMessageText returns plain text when no mentions are provided', () => {
   assert.equal(buildGroupMessageText('  你好  '), '你好');
@@ -24,5 +24,16 @@ test('buildGroupMessageText rejects invalid mention ids', () => {
   assert.throws(
     () => buildGroupMessageText('你好', [Number.NaN]),
     /Invalid mention user id/
+  );
+});
+
+test('normalizeImageFileReference converts data URLs to OneBot base64 refs', () => {
+  assert.equal(
+    normalizeImageFileReference('data:image/png;base64,abc123'),
+    'base64://abc123'
+  );
+  assert.equal(
+    normalizeImageFileReference('https://example.com/cat.png'),
+    'https://example.com/cat.png'
   );
 });

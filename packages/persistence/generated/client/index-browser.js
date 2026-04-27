@@ -272,6 +272,121 @@ exports.Prisma.TrafficReplayHistoryScalarFieldEnum = {
   template_id: 'template_id'
 };
 
+exports.Prisma.ImageLabRunScalarFieldEnum = {
+  id: 'id',
+  operation: 'operation',
+  status: 'status',
+  parent_run_id: 'parent_run_id',
+  prompt: 'prompt',
+  provider: 'provider',
+  model: 'model',
+  size: 'size',
+  quality: 'quality',
+  format: 'format',
+  input_json: 'input_json',
+  result_json: 'result_json',
+  error_message: 'error_message',
+  started_at: 'started_at',
+  completed_at: 'completed_at',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.ImageLabArtifactScalarFieldEnum = {
+  id: 'id',
+  run_id: 'run_id',
+  kind: 'kind',
+  file_path: 'file_path',
+  public_path: 'public_path',
+  mime_type: 'mime_type',
+  format: 'format',
+  bytes: 'bytes',
+  width: 'width',
+  height: 'height',
+  revised_prompt: 'revised_prompt',
+  metadata: 'metadata',
+  created_at: 'created_at'
+};
+
+exports.Prisma.AgentMediaAssetScalarFieldEnum = {
+  id: 'id',
+  source: 'source',
+  source_message_id: 'source_message_id',
+  trace_id: 'trace_id',
+  session_key: 'session_key',
+  chat_type: 'chat_type',
+  peer_id: 'peer_id',
+  peer_name: 'peer_name',
+  sender_id: 'sender_id',
+  sender_name: 'sender_name',
+  account_id: 'account_id',
+  message_sid: 'message_sid',
+  media_tag: 'media_tag',
+  placeholder: 'placeholder',
+  media_type: 'media_type',
+  mime_type: 'mime_type',
+  source_locator: 'source_locator',
+  storage_uri: 'storage_uri',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentMediaObservationScalarFieldEnum = {
+  id: 'id',
+  asset_id: 'asset_id',
+  observer: 'observer',
+  description: 'description',
+  source_model: 'source_model',
+  confidence: 'confidence',
+  metadata: 'metadata',
+  created_at: 'created_at'
+};
+
+exports.Prisma.AgentTaskScalarFieldEnum = {
+  id: 'id',
+  task_type: 'task_type',
+  status: 'status',
+  session_key: 'session_key',
+  chat_type: 'chat_type',
+  peer_id: 'peer_id',
+  peer_name: 'peer_name',
+  requester_sender_id: 'requester_sender_id',
+  requester_sender_name: 'requester_sender_name',
+  target_description: 'target_description',
+  prompt: 'prompt',
+  source_trace_id: 'source_trace_id',
+  source_run_id: 'source_run_id',
+  source_queue_message_ids: 'source_queue_message_ids',
+  source_media_tags: 'source_media_tags',
+  source_media_asset_ids: 'source_media_asset_ids',
+  input_json: 'input_json',
+  result_json: 'result_json',
+  error_message: 'error_message',
+  attempts: 'attempts',
+  available_at: 'available_at',
+  claimed_by: 'claimed_by',
+  claimed_at: 'claimed_at',
+  completed_at: 'completed_at',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentTaskArtifactScalarFieldEnum = {
+  id: 'id',
+  task_id: 'task_id',
+  kind: 'kind',
+  file_path: 'file_path',
+  public_path: 'public_path',
+  data_url: 'data_url',
+  mime_type: 'mime_type',
+  format: 'format',
+  bytes: 'bytes',
+  revised_prompt: 'revised_prompt',
+  metadata: 'metadata',
+  created_at: 'created_at'
+};
+
 exports.Prisma.RelationshipLedgerEventScalarFieldEnum = {
   id: 'id',
   group_id: 'group_id',
@@ -723,6 +838,12 @@ exports.Prisma.ModelName = {
   HttpTrafficLog: 'HttpTrafficLog',
   ConversationItem: 'ConversationItem',
   TrafficReplayHistory: 'TrafficReplayHistory',
+  ImageLabRun: 'ImageLabRun',
+  ImageLabArtifact: 'ImageLabArtifact',
+  AgentMediaAsset: 'AgentMediaAsset',
+  AgentMediaObservation: 'AgentMediaObservation',
+  AgentTask: 'AgentTask',
+  AgentTaskArtifact: 'AgentTaskArtifact',
   RelationshipLedgerEvent: 'RelationshipLedgerEvent',
   RelationshipMemoryJob: 'RelationshipMemoryJob',
   RelationshipMemoryCard: 'RelationshipMemoryCard',

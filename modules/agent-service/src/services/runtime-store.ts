@@ -1,11 +1,17 @@
 import {
+  createAgentMediaObservation,
+  createAgentTask,
   createFeedbackEpisode,
   createSqlAdapter,
   createFeedbackReflection,
   appendIdentityChangeCandidate,
   createAcceptedIdentityFact,
+  ensureAgentMediaSchema,
+  ensureAgentTaskSchema,
   ensureFeedbackReflectionSchema,
+  getAgentMediaAssetByTag,
   getFeedbackLearningState,
+  listAgentMediaAssets,
   listAcceptedIdentityFacts,
   getTopicProjectionVersionById,
   listFeedbackLearningStates,
@@ -1417,10 +1423,39 @@ export class RuntimeStore {
   async initialize() {
     await this.ensureSchema();
     await ensureFeedbackReflectionSchema(databaseConfig);
+    await ensureAgentMediaSchema(databaseConfig);
+    await ensureAgentTaskSchema(databaseConfig);
   }
 
   async close() {
     await this.sql.close();
+  }
+
+  async listMediaAssetsForQueueMessage(queueMessage: QueueMessagePayload) {
+    const messageSids = queueMessage.messages
+      .map((message) => message.messageSid)
+      .filter(Boolean);
+    return listAgentMediaAssets({
+      sessionKey: queueMessage.sessionKey,
+      messageSids,
+      limit: 50
+    }, databaseConfig);
+  }
+
+  async getMediaAssetByTag(sessionKey: string, mediaTag: string) {
+    return getAgentMediaAssetByTag({
+      sessionKey,
+      mediaTag,
+      limit: 1
+    }, databaseConfig);
+  }
+
+  async recordMediaObservation(input: Record<string, unknown>) {
+    return createAgentMediaObservation(input, databaseConfig);
+  }
+
+  async createRuntimeTask(input: Record<string, unknown>) {
+    return createAgentTask(input, databaseConfig);
   }
 
   async claimNextQueueMessage(workerId: string): Promise<QueueMessageRecord | null> {

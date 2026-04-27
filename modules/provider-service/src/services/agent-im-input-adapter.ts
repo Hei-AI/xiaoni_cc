@@ -54,6 +54,10 @@ type RenderedMedia = {
   placeholder: string;
   locator?: string;
   mimeType?: string;
+  mediaTag?: string;
+  fileId?: string;
+  fileName?: string;
+  fileSize?: string;
 };
 
 type RecentMessageRecord = {
@@ -229,6 +233,25 @@ function renderFilePlaceholder(fileName?: string) {
   return fileName ? `[File: ${fileName}]` : '[File: file]';
 }
 
+function inferImageMimeTypeFromFileName(fileName?: string) {
+  const normalized = (fileName || '').toLowerCase();
+  if (normalized.endsWith('.png')) return 'image/png';
+  if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) return 'image/jpeg';
+  if (normalized.endsWith('.webp')) return 'image/webp';
+  if (normalized.endsWith('.gif')) return 'image/gif';
+  return undefined;
+}
+
+function isImageLikeFile(data: Record<string, unknown>, fileName?: string, mimeType?: string) {
+  if (mimeType?.toLowerCase().startsWith('image/')) {
+    return true;
+  }
+  if (inferImageMimeTypeFromFileName(fileName)) {
+    return true;
+  }
+  return Boolean(asNonEmptyString(data.picWidth) || asNonEmptyString(data.picHeight));
+}
+
 function renderEmojiPlaceholder(data?: Record<string, unknown>) {
   return asNonEmptyString(data?.text)
     || asNonEmptyString(data?.name)
@@ -252,8 +275,30 @@ function renderMediaFromSegment(segment: OneBotMessageSegment): RenderedMedia | 
       return { type: 'audio', placeholder: '<media:audio>', locator, mimeType: mimeType || 'audio/*' };
     case 'video':
       return { type: 'video', placeholder: '[Video]', locator, mimeType: mimeType || 'video/*' };
-    case 'file':
-      return { type: 'file', placeholder: renderFilePlaceholder(fileName), locator, mimeType: mimeType || 'application/octet-stream' };
+    case 'file': {
+      const fileId = asNonEmptyString(data.file_id) || asNonEmptyString(data.fileId);
+      const fileSize = asNonEmptyString(data.file_size) || asNonEmptyString(data.fileSize);
+      if (isImageLikeFile(data, fileName, mimeType)) {
+        return {
+          type: 'image',
+          placeholder: '[Image]',
+          locator,
+          mimeType: mimeType || inferImageMimeTypeFromFileName(fileName) || 'image/*',
+          fileId,
+          fileName,
+          fileSize,
+        };
+      }
+      return {
+        type: 'file',
+        placeholder: renderFilePlaceholder(fileName),
+        locator,
+        mimeType: mimeType || 'application/octet-stream',
+        fileId,
+        fileName,
+        fileSize,
+      };
+    }
     default:
       return null;
   }
@@ -423,12 +468,29 @@ function buildRenderedMessage(event: OneBotMessageEvent, botAccountId: string) {
   return renderFromRawMessage(rawCandidate, botAccountId, rawMentionNicknames);
 }
 
-function buildMediaContext(media: RenderedMedia[]) {
+function buildMediaContext(media: RenderedMedia[], messageSid?: string) {
   if (media.length === 0) {
     return {};
   }
 
-  const locators = media.map((entry) => entry.locator).filter((value): value is string => Boolean(value));
+  const mediaAssets = media.map((entry, index) => {
+    const mediaTag = entry.mediaTag || `${entry.type}_${index + 1}`;
+    const asset = {
+      mediaTag,
+      placeholder: entry.placeholder,
+      mediaType: entry.type,
+      mimeType: entry.mimeType || 'application/octet-stream',
+      locator: entry.locator,
+      messageSid,
+    };
+    return {
+      ...asset,
+      ...(entry.fileId ? { fileId: entry.fileId } : {}),
+      ...(entry.fileName ? { fileName: entry.fileName } : {}),
+      ...(entry.fileSize ? { fileSize: entry.fileSize } : {}),
+    };
+  });
+  const locators = mediaAssets.map((entry) => entry.locator).filter((value): value is string => Boolean(value));
   const mediaTypes = media.map((entry) => entry.mimeType || 'application/octet-stream');
   const primaryLocator = locators[0];
 
@@ -439,6 +501,7 @@ function buildMediaContext(media: RenderedMedia[]) {
     MediaPaths: locators.length > 0 ? locators : undefined,
     MediaUrls: locators.length > 0 ? locators : undefined,
     MediaTypes: mediaTypes,
+    MediaAssets: mediaAssets,
   };
 }
 
@@ -611,7 +674,7 @@ export function buildNapcatInboundContext(params: BuildNapcatInboundContextParam
     OriginatingChannel: 'qq',
     OriginatingTo: to,
     NativeChannelId: messageType === 'group' ? groupId : userId,
-    ...buildMediaContext(rendered.media),
+    ...buildMediaContext(rendered.media, messageId),
   });
 }
 

@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">小腻长期群聊能力的人体组织图</title>
+  <desc id="desc">A one-page human anatomy metaphor diagram for Xiaoni's long-term group chat behavior and self-evolution loop.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f8f7f3; }
+      .title { font: 700 42px "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #172026; }
+      .subtitle { font: 400 21px "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #50606a; }
+      .label { font: 700 21px "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #18262d; }
+      .body { font: 400 17px "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #34444d; }
+      .small { font: 400 15px "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #57666f; }
+      .tiny { font: 400 13px "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #65727a; }
+      .callout { fill: #ffffff; stroke: #d8ded8; stroke-width: 2; rx: 16; }
+      .callout-blue { fill: #eef7fb; stroke: #9ec7d9; stroke-width: 2; rx: 16; }
+      .callout-green { fill: #eff8f1; stroke: #9ccaa4; stroke-width: 2; rx: 16; }
+      .callout-gold { fill: #fff7e6; stroke: #dfc16f; stroke-width: 2; rx: 16; }
+      .callout-rose { fill: #fff0ef; stroke: #df9f98; stroke-width: 2; rx: 16; }
+      .callout-purple { fill: #f5f1fb; stroke: #b9aad8; stroke-width: 2; rx: 16; }
+      .callout-mint { fill: #edf7f4; stroke: #9ccdc0; stroke-width: 2; rx: 16; }
+      .human { fill: #f1dfd2; stroke: #a97862; stroke-width: 3; }
+      .human-soft { fill: #f8eadf; stroke: #d4aa96; stroke-width: 2; }
+      .brain { fill: #f2d080; stroke: #9d7418; stroke-width: 3; }
+      .heart { fill: #df6960; stroke: #9f3d37; stroke-width: 3; }
+      .memory { fill: #8a78bd; stroke: #5c4a8d; stroke-width: 3; }
+      .digest { fill: #68a877; stroke: #3f7650; stroke-width: 3; }
+      .nerve { stroke: #4f7258; stroke-width: 4; fill: none; stroke-linecap: round; }
+      .connector { stroke: #66747c; stroke-width: 2.5; fill: none; }
+      .connector-soft { stroke: #91a09a; stroke-width: 2.5; fill: none; stroke-dasharray: 7 7; }
+      .loop { stroke: #4c7456; stroke-width: 4; fill: none; marker-end: url(#arrow-green); }
+      .arrow { stroke: #66747c; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .badge { fill: #26343b; rx: 14; }
+      .badge-text { font: 700 15px "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #ffffff; }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#66747c"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#4c7456"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="900"/>
+  <text class="title" x="70" y="68">小腻长期群聊能力的人体组织图</text>
+  <text class="subtitle" x="72" y="106">把小腻当作一个长期在群里生活的人：她先感知现场，再理解、动心、回忆、表达，最后把经历消化成下一轮的成长。</text>
+
+  <g transform="translate(650 120)">
+    <ellipse class="human" cx="155" cy="82" rx="76" ry="78"/>
+    <path class="human" d="M 88 167 C 65 210 62 285 75 370 C 87 455 103 565 125 690 L 185 690 C 198 600 208 515 214 440 C 220 515 231 600 244 690 L 304 690 C 326 565 342 455 354 370 C 367 285 364 210 341 167 C 309 205 120 205 88 167 Z"/>
+    <path class="human-soft" d="M 98 185 C 42 230 25 310 34 402 C 38 440 48 470 66 488 C 83 505 108 498 107 470 C 104 390 108 302 141 230"/>
+    <path class="human-soft" d="M 331 185 C 388 230 405 310 396 402 C 392 440 382 470 364 488 C 347 505 322 498 323 470 C 326 390 322 302 289 230"/>
+    <path class="nerve" d="M 215 135 C 214 215 214 310 214 415 C 214 500 214 596 214 676"/>
+
+    <path class="brain" d="M 123 64 C 118 34 149 18 171 35 C 184 17 215 22 224 43 C 253 41 271 73 253 97 C 263 121 235 145 211 132 C 192 151 158 141 156 115 C 127 118 105 92 123 64 Z"/>
+    <text class="tiny" x="164" y="88">脑</text>
+
+    <path class="heart" d="M 215 282 C 185 246 135 263 144 308 C 151 344 195 366 215 390 C 235 366 279 344 286 308 C 295 263 245 246 215 282 Z"/>
+    <text class="tiny" x="196" y="326" fill="#ffffff">心</text>
+
+    <path class="memory" d="M 255 145 C 282 155 298 183 292 214 C 287 241 262 262 236 258 C 222 255 214 244 220 232 C 230 214 229 194 215 179 C 205 167 223 137 255 145 Z"/>
+    <text class="tiny" x="244" y="208" fill="#ffffff">记忆</text>
+
+    <path class="digest" d="M 168 415 C 178 382 252 382 262 415 C 273 455 255 505 215 512 C 175 505 157 455 168 415 Z"/>
+    <text class="tiny" x="190" y="456" fill="#ffffff">消化</text>
+
+    <path d="M 184 112 C 197 124 232 124 246 112" stroke="#8a5542" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <circle cx="183" cy="78" r="6" fill="#2e3b42"/>
+    <circle cx="245" cy="78" r="6" fill="#2e3b42"/>
+
+    <rect class="badge" x="120" y="710" width="190" height="35"/>
+    <text class="badge-text" x="148" y="733">小腻主AGENT</text>
+  </g>
+
+  <g transform="translate(70 165)">
+    <rect class="callout-blue" x="0" y="0" width="360" height="130"/>
+    <text class="label" x="24" y="34">感官：看见群聊现场</text>
+    <text class="body" x="24" y="68">像眼睛和耳朵，不判断对错，只把现场接进来。</text>
+    <text class="small" x="24" y="98">已读背景、未读消息、回复、引用、@、群开关。</text>
+  </g>
+  <path class="connector" d="M 430 225 C 510 210 590 190 712 175"/>
+
+  <g transform="translate(90 345)">
+    <rect class="callout-gold" x="0" y="0" width="360" height="145"/>
+    <text class="label" x="24" y="34">大脑皮层：先理解发生了什么</text>
+    <text class="body" x="24" y="68">把群聊从“字面句子”还原成社交场面。</text>
+    <text class="small" x="24" y="100">这句话在问、请求、反馈，还是闲聊？</text>
+    <text class="tiny" x="24" y="128">对应工具：emit_unread_meaning</text>
+  </g>
+  <path class="connector" d="M 450 410 C 560 370 650 300 760 205"/>
+
+  <g transform="translate(90 555)">
+    <rect class="callout-rose" x="0" y="0" width="360" height="145"/>
+    <text class="label" x="24" y="34">心脏：再看有没有真实反应</text>
+    <text class="body" x="24" y="68">不是问“能不能接一句”，而是问“我真的被碰到了吗”。</text>
+    <text class="small" x="24" y="100">兴趣、边界、想知道更多、是否只是顺手能接。</text>
+    <text class="tiny" x="24" y="128">对应工具：emit_inner_reaction</text>
+  </g>
+  <path class="connector" d="M 450 620 C 560 595 670 520 792 430"/>
+
+  <g transform="translate(1130 160)">
+    <rect class="callout-purple" x="0" y="0" width="385" height="145"/>
+    <text class="label" x="24" y="34">海马体：召回过往相处经验</text>
+    <text class="body" x="24" y="68">如果真的可能要说或要查，才回忆过去学到的分寸。</text>
+    <text class="small" x="24" y="100">相似反馈、这个人的互动历史、话题经验。</text>
+    <text class="tiny" x="24" y="128">对应工具：recall_long_term_learning</text>
+  </g>
+  <path class="connector" d="M 1130 230 C 1045 210 970 190 900 188"/>
+
+  <g transform="translate(1150 365)">
+    <rect class="callout-mint" x="0" y="0" width="360" height="145"/>
+    <text class="label" x="24" y="34">嘴和手：选择怎么在场</text>
+    <text class="body" x="24" y="68">三种结果都成立：沉默、求知、发言。</text>
+    <text class="small" x="24" y="100">说出口的只有真正要发到群里的话。</text>
+    <text class="tiny" x="24" y="128">stay_silent / web_search / speak_in_group</text>
+  </g>
+  <path class="connector" d="M 1150 430 C 1048 420 988 372 895 315"/>
+
+  <g transform="translate(1130 580)">
+    <rect class="callout-green" x="0" y="0" width="385" height="150"/>
+    <text class="label" x="24" y="34">消化系统：把经历变成成长</text>
+    <text class="body" x="24" y="68">一轮结束后，不是简单存日志，而是复盘真实后果。</text>
+    <text class="small" x="24" y="100">群友接住、冷场、纠偏、反馈，都可能沉淀成经验。</text>
+    <text class="tiny" x="24" y="128">episode -> reflection / learning state -> 身份事实候选</text>
+  </g>
+  <path class="connector" d="M 1130 650 C 1030 635 960 595 858 542"/>
+
+  <g transform="translate(520 712)">
+    <rect class="callout" x="0" y="0" width="560" height="78"/>
+    <text class="label" x="24" y="32">神经系统：底层行为约束</text>
+    <text class="body" x="24" y="60">先观场，再观己；不为“能接一句”而开口；沉默也是行动。</text>
+  </g>
+  <path class="connector-soft" d="M 800 712 C 800 665 804 610 808 540"/>
+
+  <path class="loop" d="M 1280 730 C 1065 835 560 835 300 700"/>
+  <text class="body" x="410" y="830">下一轮带着新的 OS、经验和身份事实继续看场</text>
+
+  <g transform="translate(70 862)">
+    <text class="tiny" x="0" y="0">业务口径：自进化不是“自动改人设”，而是像人一样把经历消化成记忆、分寸和边界；下一轮再用这些长期材料校准自己该不该出现、怎么出现。</text>
+    <text class="tiny" x="0" y="23">真实技术落点：NapCat 收发 QQ；provider-service 负责消息与模型出口；agent-service 负责每轮判断；长期记录在 PostgreSQL / packages/persistence。</text>
+  </g>
+</svg>

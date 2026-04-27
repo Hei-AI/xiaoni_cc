@@ -43,6 +43,9 @@ backend/node_modules/
 logs/
 backend/resources/logs/
 modules/*/resources/logs/
+modules/*/resources/uploads/
+modules/**/resources/logs/
+modules/**/resources/uploads/
 **/*.log
 modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/logs/
 

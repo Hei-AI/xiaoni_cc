@@ -257,6 +257,59 @@ export type FeedbackLearningStateInput = {
   metadata?: Record<string, unknown> | null;
 };
 
+export type ImageLabRunInput = {
+  id: string;
+  operation: string;
+  status?: string;
+  parentRunId?: string | null;
+  parent_run_id?: string | null;
+  prompt: string;
+  provider?: string | null;
+  model?: string | null;
+  size?: string | null;
+  quality?: string | null;
+  format?: string | null;
+  inputJson?: Record<string, unknown> | null;
+  input_json?: Record<string, unknown> | null;
+  resultJson?: Record<string, unknown> | null;
+  result_json?: Record<string, unknown> | null;
+  errorMessage?: string | null;
+  error_message?: string | null;
+  startedAt?: string | Date | null;
+  started_at?: string | Date | null;
+  completedAt?: string | Date | null;
+  completed_at?: string | Date | null;
+};
+
+export type ImageLabRunUpdateInput = {
+  id: string;
+  status?: string;
+  resultJson?: Record<string, unknown> | null;
+  result_json?: Record<string, unknown> | null;
+  errorMessage?: string | null;
+  error_message?: string | null;
+  completedAt?: string | Date | null;
+  completed_at?: string | Date | null;
+};
+
+export type ImageLabArtifactInput = {
+  id: string;
+  kind?: string | null;
+  filePath?: string;
+  file_path?: string;
+  publicPath?: string;
+  public_path?: string;
+  mimeType?: string;
+  mime_type?: string;
+  format?: string | null;
+  bytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  revisedPrompt?: string | null;
+  revised_prompt?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
 export type IdentityEvidenceRefInput = {
   identityKey?: string;
   identityEventId?: number | bigint | string | null;
@@ -815,5 +868,36 @@ export function listTopicReviewEvents(
 export function createGoldenChatCase(input: GoldenChatCaseInput, config?: DatabaseUrlConfig): Promise<any>;
 export function listGoldenChatCases(
   filters?: { chatSpaceType?: string; chatSpaceId?: number | bigint | string; topicId?: number | bigint | string; status?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function ensureImageLabSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function createImageLabRun(input: ImageLabRunInput, config?: DatabaseUrlConfig): Promise<any>;
+export function updateImageLabRun(input: ImageLabRunUpdateInput, config?: DatabaseUrlConfig): Promise<any>;
+export function addImageLabArtifacts(runId: string, artifacts: ImageLabArtifactInput[], config?: DatabaseUrlConfig): Promise<any[]>;
+export function getImageLabRunById(id: string, config?: DatabaseUrlConfig): Promise<any | null>;
+export function listImageLabRuns(
+  filters?: { operation?: string; status?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function ensureAgentMediaSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function upsertAgentMediaAsset(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<any>;
+export function upsertAgentMediaAssets(inputs: Record<string, any>[], config?: DatabaseUrlConfig): Promise<any[]>;
+export function listAgentMediaAssets(
+  filters?: { sessionKey?: string; session_key?: string; messageSids?: string[]; message_sids?: string[]; mediaTag?: string; media_tag?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function getAgentMediaAssetByTag(
+  filters?: { sessionKey?: string; session_key?: string; messageSids?: string[]; message_sids?: string[]; mediaTag?: string; media_tag?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any | null>;
+export function createAgentMediaObservation(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<any>;
+export function ensureAgentTaskSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function createAgentTask(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<any>;
+export function claimNextAgentTask(workerId: string, config?: DatabaseUrlConfig): Promise<any | null>;
+export function updateAgentTask(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<any>;
+export function addAgentTaskArtifacts(taskId: string, artifacts: Record<string, any>[], config?: DatabaseUrlConfig): Promise<any[]>;
+export function getAgentTaskById(id: string, config?: DatabaseUrlConfig): Promise<any | null>;
+export function listAgentTasks(
+  filters?: { sessionKey?: string; session_key?: string; status?: string; limit?: number },
   config?: DatabaseUrlConfig
 ): Promise<any[]>;

@@ -209,7 +209,7 @@ type InnerReaction = {
   feltDirection: string;
   reactionAuthenticity: 'none' | 'weak_but_real' | 'formed' | 'empty_but_convenient';
   shouldSearch: boolean;
-  preferredAction: 'speak' | 'silent' | 'search';
+  preferredAction: 'speak' | 'silent' | 'search' | 'image_task';
   reason: string;
 };
 
@@ -300,6 +300,8 @@ const TOOL_NAMES = {
   unreadMeaning: 'emit_unread_meaning',
   innerReaction: 'emit_inner_reaction',
   longTermRecall: 'recall_long_term_learning',
+  inspectImage: 'inspect_image_placeholder',
+  imageTask: 'request_image_task',
   feedbackEpisode: 'extract_feedback_episode',
   feedbackReflection: 'synthesize_feedback_reflection',
   feedbackLearningState: 'update_learning_state',
@@ -387,6 +389,59 @@ const GROUP_MESSAGE_TOOL = {
         }
       },
       required: ['xiaoni_os'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+const INSPECT_IMAGE_TOOL = {
+  type: 'function',
+  function: {
+    name: TOOL_NAMES.inspectImage,
+    description: [
+      '当当前上下文里有图片占位符，而我真的需要看清图片内容后才能继续时，调用这个工具。',
+      '只传入上下文里出现的临时图片标签，例如 image_1；不要猜 URL、文件路径或真实 id。'
+    ].join(' '),
+    parameters: {
+      type: 'object',
+      properties: {
+        media_tag: { type: 'string' },
+        reason: { type: 'string' }
+      },
+      required: ['media_tag', 'reason'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+const IMAGE_TASK_TOOL = {
+  type: 'function',
+  function: {
+    name: TOOL_NAMES.imageTask,
+    description: [
+      '当我要帮眼前的人生成或编辑一张图，但这件事应该作为后台任务继续时，调用这个工具。',
+      '这个工具只登记任务；不要等待图片在当前轮完成。',
+      '描述我在帮谁做什么，用自然语言，不要暴露任务 id、URL 或文件路径。'
+    ].join(' '),
+    parameters: {
+      type: 'object',
+      properties: {
+        operation: {
+          type: 'string',
+          enum: ['generate', 'edit']
+        },
+        prompt: { type: 'string' },
+        target_description: { type: 'string' },
+        source_media_tags: {
+          type: 'array',
+          items: { type: 'string' }
+        },
+        xiaoni_os: {
+          type: 'string',
+          description: '给下一轮的小腻留一段隐藏的 xiaoni_os，说明这件后台任务在我这里留下的延续。不会发给群里的人。'
+        }
+      },
+      required: ['operation', 'prompt', 'target_description', 'xiaoni_os'],
       additionalProperties: false
     }
   }
@@ -493,7 +548,7 @@ const INNER_REACTION_TOOL = {
         },
         preferred_action: {
           type: 'string',
-          enum: ['speak', 'silent', 'search']
+          enum: ['speak', 'silent', 'search', 'image_task']
         },
         reason: {
           type: 'string'
@@ -891,7 +946,7 @@ function selectActorToolDefinitions(chatType: 'group' | 'direct', modelName: str
   const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled ? [WEB_SEARCH_TOOL] : [];
 
   if (chatType === 'group') {
-    return [...tools, GROUP_MESSAGE_TOOL, FINISH_TOOL];
+    return [...tools, GROUP_MESSAGE_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL, FINISH_TOOL];
   }
   return [...tools, PRIVATE_MESSAGE_TOOL, FINISH_TOOL];
 }
@@ -932,9 +987,17 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
     ]);
   }
 
-  if ((latestInnerReaction?.preferredAction === 'speak' || latestInnerReaction?.preferredAction === 'search') && !hasLongTermRecallReplay(loopInput)) {
+  if ((latestInnerReaction?.preferredAction === 'speak' || latestInnerReaction?.preferredAction === 'search' || latestInnerReaction?.preferredAction === 'image_task') && !hasLongTermRecallReplay(loopInput)) {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.longTermRecall }
+    ]);
+  }
+
+  if (latestInnerReaction?.preferredAction === 'image_task') {
+    return buildAllowedToolsToolChoice([
+      { type: 'function', name: TOOL_NAMES.inspectImage },
+      { type: 'function', name: TOOL_NAMES.imageTask },
+      { type: 'function', name: TOOL_NAMES.silentFinish }
     ]);
   }
 
@@ -950,6 +1013,8 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
 
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
     { type: 'function', name: TOOL_NAMES.groupReply },
+    { type: 'function', name: TOOL_NAMES.inspectImage },
+    { type: 'function', name: TOOL_NAMES.imageTask },
     { type: 'function', name: TOOL_NAMES.silentFinish }
   ];
   if (agentConfig.webSearchEnabled) {
@@ -1401,6 +1466,8 @@ const SINGLE_TURN_TOOL_CONTRACT = [
   '- 群聊说话时，调用 speak_in_group',
   '- 私聊说话时，调用 reply_in_private',
   '- 需要求知时，调用 web_search',
+  '- 只有真的需要看清图片内容时，调用 inspect_image_placeholder',
+  '- 需要帮别人生成或编辑图片时，调用 request_image_task；它只登记后台任务，不要等待结果',
   '- 最终不说时，调用 stay_silent',
   '',
   '无论说、查还是不说，都留下自然的 xiaoni_os，写这轮之后留在我身上的余波与延续。',
@@ -1652,6 +1719,7 @@ function parseInnerReaction(value: unknown): InnerReaction | null {
   const preferredAction = rawPreferredAction === 'speak'
     || rawPreferredAction === 'silent'
     || rawPreferredAction === 'search'
+    || rawPreferredAction === 'image_task'
     ? rawPreferredAction
     : null;
   const reason = typeof rawReason === 'string' ? rawReason.trim() : '';
@@ -3396,6 +3464,12 @@ export class AgentLoopService {
           }))
         };
       }
+      case TOOL_NAMES.inspectImage: {
+        return this.inspectImagePlaceholder(toolCall.args, queueMessage);
+      }
+      case TOOL_NAMES.imageTask: {
+        return this.requestImageTask(toolCall.args, queueMessage);
+      }
       case TOOL_NAMES.silentFinish:
       case 'finish':
         return {
@@ -3409,6 +3483,180 @@ export class AgentLoopService {
       default:
         throw new Error(`Unsupported tool: ${toolCall.name}`);
     }
+  }
+
+  private async inspectImagePlaceholder(
+    args: Record<string, unknown>,
+    queueMessage: QueueMessageRecord['payload']
+  ) {
+    const mediaTag = typeof args.media_tag === 'string' && args.media_tag.trim()
+      ? args.media_tag.trim()
+      : '';
+    if (!mediaTag) {
+      throw new Error(`${TOOL_NAMES.inspectImage} requires media_tag`);
+    }
+
+    const asset = await this.store.getMediaAssetByTag(queueMessage.sessionKey, mediaTag);
+    if (!asset) {
+      throw new Error(`${TOOL_NAMES.inspectImage} could not find the requested image placeholder`);
+    }
+
+    const cachedObservation = Array.isArray(asset.observations) ? asset.observations[0] : null;
+    if (cachedObservation?.description) {
+      return {
+        media_tag: mediaTag,
+        inspected: true,
+        cached: true,
+        description: cachedObservation.description
+      };
+    }
+
+    const imageUrl = typeof asset.source_locator === 'string' && asset.source_locator.trim()
+      ? asset.source_locator.trim()
+      : typeof asset.storage_uri === 'string' && asset.storage_uri.trim()
+        ? asset.storage_uri.trim()
+        : '';
+    if (!imageUrl) {
+      return {
+        media_tag: mediaTag,
+        inspected: false,
+        description: '这张图片目前只有占位符，没有可读取的图片链接。'
+      };
+    }
+
+    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/media/inspect`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        trace_id: queueMessage.traceId,
+        image_url: imageUrl,
+        prompt: '请用中文客观描述这张图片里可见的内容。只描述可见事实，不要猜测隐私、身份或意图。'
+      })
+    });
+    const payload = await response.json() as { success?: boolean; error?: string; data?: { description?: string; model?: string } };
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.error || `${TOOL_NAMES.inspectImage} failed with ${response.status}`);
+    }
+
+    const description = typeof payload.data?.description === 'string' && payload.data.description.trim()
+      ? payload.data.description.trim()
+      : '图片已读取，但没有得到有效描述。';
+    await this.store.recordMediaObservation({
+      assetId: asset.id,
+      observer: 'xiaoni',
+      description,
+      sourceModel: payload.data?.model || null,
+      metadata: {
+        trace_id: queueMessage.traceId,
+        reason: typeof args.reason === 'string' ? args.reason : null
+      }
+    });
+
+    return {
+      media_tag: mediaTag,
+      inspected: true,
+      cached: false,
+      description
+    };
+  }
+
+  private async requestImageTask(
+    args: Record<string, unknown>,
+    queueMessage: QueueMessageRecord['payload']
+  ) {
+    const operation = args.operation === 'edit' ? 'edit' : 'generate';
+    const prompt = typeof args.prompt === 'string' && args.prompt.trim()
+      ? args.prompt.trim()
+      : '';
+    const targetDescription = typeof args.target_description === 'string' && args.target_description.trim()
+      ? args.target_description.trim()
+      : `帮 ${queueMessage.senderName || queueMessage.senderId} 做一张图`;
+    if (!prompt) {
+      throw new Error(`${TOOL_NAMES.imageTask} requires prompt`);
+    }
+
+    const sourceMediaTags = Array.isArray(args.source_media_tags)
+      ? args.source_media_tags.map((item) => typeof item === 'string' ? item.trim() : '').filter(Boolean)
+      : [];
+    const mediaAssets = [];
+    for (const mediaTag of sourceMediaTags) {
+      const asset = await this.resolveMediaAssetForTask(queueMessage, mediaTag);
+      if (asset) {
+        mediaAssets.push(asset);
+      }
+    }
+
+    await this.store.createRuntimeTask({
+      taskType: operation === 'edit' ? 'image_edit' : 'image_generate',
+      status: 'pending',
+      sessionKey: queueMessage.sessionKey,
+      chatType: queueMessage.chatType,
+      peerId: queueMessage.peerId,
+      peerName: queueMessage.peerName || null,
+      requesterSenderId: queueMessage.senderId,
+      requesterSenderName: queueMessage.senderName || null,
+      targetDescription,
+      prompt,
+      sourceTraceId: queueMessage.traceId,
+      sourceRunId: queueMessage.runId,
+      sourceQueueMessageIds: queueMessage.messages.map((message) => message.queueMessageId),
+      sourceMediaTags,
+      sourceMediaAssetIds: mediaAssets.map((asset) => asset.id),
+      inputJson: {
+        operation,
+        source_media_tags: sourceMediaTags,
+        has_source_media: mediaAssets.length > 0
+      }
+    });
+
+    const xiaoniOs = typeof args.xiaoni_os === 'string' && args.xiaoni_os.trim()
+      ? args.xiaoni_os.trim()
+      : null;
+
+    return {
+      queued: true,
+      task_type: operation === 'edit' ? 'image_edit' : 'image_generate',
+      task_context: targetDescription,
+      xiaoni_os: xiaoniOs,
+      status_text: `我已经开始帮${queueMessage.senderName || '对方'}处理这张图，等结果出来再发。`
+    };
+  }
+
+  private async resolveMediaAssetForTask(
+    queueMessage: QueueMessageRecord['payload'],
+    requestedTag: string
+  ) {
+    const exact = await this.store.getMediaAssetByTag(queueMessage.sessionKey, requestedTag);
+    if (exact) {
+      return exact;
+    }
+
+    const normalized = requestedTag.toLowerCase();
+    const contextualAssets = [];
+    for (const message of queueMessage.messages) {
+      const assets = Array.isArray(message.inboundContext.MediaAssets)
+        ? message.inboundContext.MediaAssets
+        : [];
+      contextualAssets.push(...assets);
+    }
+
+    const candidate = contextualAssets.find((asset) => {
+      const mediaTag = typeof asset.mediaTag === 'string' ? asset.mediaTag.toLowerCase() : '';
+      const placeholder = typeof asset.placeholder === 'string' ? asset.placeholder.toLowerCase() : '';
+      const fileName = typeof asset.fileName === 'string' ? asset.fileName.toLowerCase() : '';
+      return normalized === mediaTag
+        || normalized === `file:${fileName}`
+        || normalized === fileName
+        || Boolean(fileName && normalized.includes(fileName))
+        || Boolean(placeholder && normalized === placeholder);
+    });
+    if (candidate?.mediaTag) {
+      return this.store.getMediaAssetByTag(queueMessage.sessionKey, candidate.mediaTag);
+    }
+
+    return null;
   }
 
   private async sendMessage(
@@ -3697,6 +3945,10 @@ export function buildInitialInput(
   if (identityFactsText) {
     items.push(buildUserSceneInputItem([identityFactsText]));
   }
+  const mediaPlaceholderContext = renderCurrentMediaPlaceholderContext(queueMessage);
+  if (mediaPlaceholderContext) {
+    items.push(buildUserSceneInputItem([mediaPlaceholderContext]));
+  }
   items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
 
   return items;
@@ -3759,6 +4011,35 @@ function buildCurrentTurnInputItems(
     : currentMessages;
 
   return renderedMessages.map((message) => buildUserSceneInputItem([message]));
+}
+
+function renderCurrentMediaPlaceholderContext(queueMessage: QueueMessageRecord['payload']) {
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  for (const message of queueMessage.messages) {
+    const assets = Array.isArray(message.inboundContext.MediaAssets)
+      ? message.inboundContext.MediaAssets
+      : [];
+    for (const asset of assets) {
+      if (!asset || typeof asset.mediaTag !== 'string' || seen.has(asset.mediaTag)) {
+        continue;
+      }
+      seen.add(asset.mediaTag);
+      const sender = message.senderName || message.senderId || '有人';
+      const typeText = asset.mediaType === 'image' ? '图片' : asset.mediaType;
+      lines.push(`- ${asset.mediaTag}: ${sender} 发来的${typeText}占位符 ${asset.placeholder || '[Image]'}。如果确实需要看清内容，再调用 inspect_image_placeholder。`);
+    }
+  }
+
+  if (lines.length === 0) {
+    return '';
+  }
+
+  return [
+    '[当前媒体占位符]',
+    '这些只是占位符，不等于我已经看过内容；不要猜图里有什么。',
+    ...lines
+  ].join('\n');
 }
 
 function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {

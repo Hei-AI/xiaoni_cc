@@ -40,6 +40,7 @@ COPY <<'EOF' /etc/nginx/conf.d/default.conf
 server {
     listen 80;
     server_name localhost;
+    client_max_body_size 50m;
 
     # Enable Docker DNS re-resolution to avoid stale upstream IPs
     resolver 127.0.0.11 valid=30s;
@@ -76,7 +77,7 @@ server {
     }
 
     # API代理到后端
-    location /api/ {
+    location ^~ /api/ {
         # Use variable-based proxy_pass so Docker DNS is re-resolved
         set $admin_backend http://qqbot-admin-backend:9080;
         proxy_pass $admin_backend;

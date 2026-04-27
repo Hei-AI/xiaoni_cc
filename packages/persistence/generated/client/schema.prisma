@@ -178,6 +178,153 @@ model TrafficReplayHistory {
   @@map("traffic_replay_history")
 }
 
+model ImageLabRun {
+  id            String             @id @db.VarChar(64)
+  operation     String             @db.VarChar(32)
+  status        String             @db.VarChar(32)
+  parent_run_id String?            @db.VarChar(64)
+  prompt        String             @db.Text
+  provider      String?            @db.VarChar(64)
+  model         String?            @db.VarChar(128)
+  size          String?            @db.VarChar(32)
+  quality       String?            @db.VarChar(32)
+  format        String?            @db.VarChar(16)
+  input_json    Json?
+  result_json   Json?
+  error_message String?            @db.Text
+  started_at    DateTime?          @db.Timestamp(3)
+  completed_at  DateTime?          @db.Timestamp(3)
+  created_at    DateTime           @default(now()) @db.Timestamp(3)
+  updated_at    DateTime           @updatedAt @db.Timestamp(3)
+  artifacts     ImageLabArtifact[]
+
+  @@index([created_at, id], map: "idx_image_lab_runs_created")
+  @@index([operation, created_at], map: "idx_image_lab_runs_operation_created")
+  @@index([status, created_at], map: "idx_image_lab_runs_status_created")
+  @@index([parent_run_id], map: "idx_image_lab_runs_parent")
+  @@map("image_lab_runs")
+}
+
+model ImageLabArtifact {
+  id             String      @id @db.VarChar(64)
+  run_id         String      @db.VarChar(64)
+  kind           String      @default("image") @db.VarChar(32)
+  file_path      String      @db.Text
+  public_path    String      @db.Text
+  mime_type      String      @db.VarChar(128)
+  format         String?     @db.VarChar(16)
+  bytes          Int?
+  width          Int?
+  height         Int?
+  revised_prompt String?     @db.Text
+  metadata       Json?
+  created_at     DateTime    @default(now()) @db.Timestamp(3)
+  run            ImageLabRun @relation(fields: [run_id], references: [id], onDelete: Cascade)
+
+  @@index([run_id, created_at], map: "idx_image_lab_artifacts_run_created")
+  @@map("image_lab_artifacts")
+}
+
+model AgentMediaAsset {
+  id                String                  @id @db.VarChar(64)
+  source            String                  @db.VarChar(32)
+  source_message_id BigInt?                 @db.BigInt
+  trace_id          String?                 @db.VarChar(128)
+  session_key       String                  @db.VarChar(191)
+  chat_type         String                  @db.VarChar(16)
+  peer_id           String?                 @db.VarChar(191)
+  peer_name         String?                 @db.VarChar(255)
+  sender_id         String?                 @db.VarChar(191)
+  sender_name       String?                 @db.VarChar(255)
+  account_id        String?                 @db.VarChar(191)
+  message_sid       String?                 @db.VarChar(191)
+  media_tag         String                  @db.VarChar(64)
+  placeholder       String                  @default("[Image]") @db.VarChar(64)
+  media_type        String                  @default("image") @db.VarChar(32)
+  mime_type         String?                 @db.VarChar(128)
+  source_locator    String?                 @db.Text
+  storage_uri       String?                 @db.Text
+  metadata          Json?
+  created_at        DateTime                @default(now()) @db.Timestamp(3)
+  updated_at        DateTime                @updatedAt @db.Timestamp(3)
+  observations      AgentMediaObservation[]
+
+  @@unique([message_sid, media_tag], map: "uniq_agent_media_message_tag")
+  @@index([session_key, created_at, id], map: "idx_agent_media_session_created")
+  @@index([source_message_id], map: "idx_agent_media_source_message")
+  @@index([message_sid], map: "idx_agent_media_message_sid")
+  @@map("agent_media_assets")
+}
+
+model AgentMediaObservation {
+  id           String          @id @db.VarChar(64)
+  asset_id     String          @db.VarChar(64)
+  observer     String          @db.VarChar(64)
+  description  String          @db.Text
+  source_model String?         @db.VarChar(128)
+  confidence   String?         @db.VarChar(32)
+  metadata     Json?
+  created_at   DateTime        @default(now()) @db.Timestamp(3)
+  asset        AgentMediaAsset @relation(fields: [asset_id], references: [id], onDelete: Cascade)
+
+  @@index([asset_id, created_at], map: "idx_agent_media_observations_asset_created")
+  @@map("agent_media_observations")
+}
+
+model AgentTask {
+  id                       String              @id @db.VarChar(64)
+  task_type                String              @db.VarChar(64)
+  status                   String              @db.VarChar(32)
+  session_key              String              @db.VarChar(191)
+  chat_type                String              @db.VarChar(16)
+  peer_id                  String?             @db.VarChar(191)
+  peer_name                String?             @db.VarChar(255)
+  requester_sender_id      String?             @db.VarChar(191)
+  requester_sender_name    String?             @db.VarChar(255)
+  target_description       String?             @db.Text
+  prompt                   String              @db.Text
+  source_trace_id          String?             @db.VarChar(128)
+  source_run_id            String?             @db.VarChar(128)
+  source_queue_message_ids Json?
+  source_media_tags        Json?
+  source_media_asset_ids   Json?
+  input_json               Json?
+  result_json              Json?
+  error_message            String?             @db.Text
+  attempts                 Int                 @default(0)
+  available_at             DateTime            @default(now()) @db.Timestamp(3)
+  claimed_by               String?             @db.VarChar(128)
+  claimed_at               DateTime?           @db.Timestamp(3)
+  completed_at             DateTime?           @db.Timestamp(3)
+  created_at               DateTime            @default(now()) @db.Timestamp(3)
+  updated_at               DateTime            @updatedAt @db.Timestamp(3)
+  artifacts                AgentTaskArtifact[]
+
+  @@index([status, available_at, id], map: "idx_agent_tasks_status_available")
+  @@index([session_key, created_at, id], map: "idx_agent_tasks_session_created")
+  @@index([source_trace_id], map: "idx_agent_tasks_trace")
+  @@map("agent_tasks")
+}
+
+model AgentTaskArtifact {
+  id             String    @id @db.VarChar(64)
+  task_id        String    @db.VarChar(64)
+  kind           String    @default("image") @db.VarChar(32)
+  file_path      String?   @db.Text
+  public_path    String?   @db.Text
+  data_url       String?   @db.Text
+  mime_type      String?   @db.VarChar(128)
+  format         String?   @db.VarChar(16)
+  bytes          Int?
+  revised_prompt String?   @db.Text
+  metadata       Json?
+  created_at     DateTime  @default(now()) @db.Timestamp(3)
+  task           AgentTask @relation(fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@index([task_id, created_at], map: "idx_agent_task_artifacts_task_created")
+  @@map("agent_task_artifacts")
+}
+
 model RelationshipLedgerEvent {
   id                 BigInt    @id @default(autoincrement()) @db.BigInt
   group_id           BigInt?   @db.BigInt

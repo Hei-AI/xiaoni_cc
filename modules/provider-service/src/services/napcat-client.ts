@@ -39,6 +39,20 @@ export function buildGroupMessageText(message: string, mentionUserIds: Array<str
   return `${mentionPrefix} ${trimmedMessage}`;
 }
 
+export function normalizeImageFileReference(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error('Group image file cannot be empty');
+  }
+
+  const dataUrlMatch = /^data:([^;]+);base64,(.+)$/i.exec(trimmed);
+  if (dataUrlMatch) {
+    return `base64://${dataUrlMatch[2]}`;
+  }
+
+  return trimmed;
+}
+
 export class NapcatClient {
   private readonly moduleLogger = logger.createModuleLogger('napcat-client');
   private readonly httpClient: AxiosInstance;
@@ -86,6 +100,35 @@ export class NapcatClient {
     return this.callAction('send_group_msg', {
       group_id: groupId,
       message: buildGroupMessageText(message, mentionUserIds)
+    });
+  }
+
+  async sendGroupImage(groupId: number, imageFile: string, caption?: string): Promise<any> {
+    const message: Array<Record<string, unknown>> = [
+      {
+        type: 'image',
+        data: {
+          file: normalizeImageFileReference(imageFile)
+        }
+      }
+    ];
+    if (typeof caption === 'string' && caption.trim()) {
+      message.push({
+        type: 'text',
+        data: {
+          text: caption.trim()
+        }
+      });
+    }
+    return this.callAction('send_group_msg', {
+      group_id: groupId,
+      message
+    });
+  }
+
+  async getFile(fileId: string): Promise<any> {
+    return this.callAction('get_file', {
+      file_id: fileId
     });
   }
 

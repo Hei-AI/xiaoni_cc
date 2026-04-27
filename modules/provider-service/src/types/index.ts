@@ -106,6 +106,18 @@ export interface InboundMentionedUser {
   label?: string;
 }
 
+export interface InboundMediaAsset {
+  mediaTag: string;
+  placeholder: string;
+  mediaType: 'image' | 'audio' | 'video' | 'file' | string;
+  mimeType?: string;
+  locator?: string;
+  messageSid?: string;
+  fileId?: string;
+  fileName?: string;
+  fileSize?: string;
+}
+
 export interface InboundContext {
   Body?: string;
   BodyForAgent?: string;
@@ -134,6 +146,7 @@ export interface InboundContext {
   MediaPaths?: string[];
   MediaUrls?: string[];
   MediaTypes?: string[];
+  MediaAssets?: InboundMediaAsset[];
   ChatType?: ChatType | string;
   ConversationLabel?: string;
   GroupSubject?: string;

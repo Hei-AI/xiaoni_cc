@@ -167,6 +167,66 @@ test('maps media-only messages to AI-readable placeholders and media fields', ()
     'https://example.com/notes.txt'
   ]);
   assert.deepEqual(inboundContext.MediaTypes, ['image/png', 'text/plain']);
+  assert.deepEqual(inboundContext.MediaAssets, [
+    {
+      mediaTag: 'image_1',
+      placeholder: '[Image]',
+      mediaType: 'image',
+      mimeType: 'image/png',
+      locator: 'https://example.com/cat.png',
+      messageSid: '1004'
+    },
+    {
+      mediaTag: 'file_2',
+      placeholder: '[File: notes.txt]',
+      mediaType: 'file',
+      mimeType: 'text/plain',
+      locator: 'https://example.com/notes.txt',
+      messageSid: '1004',
+      fileName: 'notes.txt'
+    }
+  ]);
+});
+
+test('treats image-like QQ file segments as image placeholders with file metadata', () => {
+  const inboundContext = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'group',
+      self_id: Number(BOT_ID),
+      user_id: 85178516,
+      group_id: 1019235326,
+      message_id: 1006,
+      message: [
+        {
+          type: 'file',
+          data: {
+            file: 'rain.png',
+            file_id: '/tmp/rain-file-id',
+            file_size: '1810231',
+            url: 'https://example.com/rain-download'
+          }
+        }
+      ]
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+
+  assert.ok(inboundContext);
+  assert.equal(inboundContext.BodyForAgent, '[Image]');
+  assert.deepEqual(inboundContext.MediaAssets, [
+    {
+      mediaTag: 'image_1',
+      placeholder: '[Image]',
+      mediaType: 'image',
+      mimeType: 'image/png',
+      locator: 'https://example.com/rain-download',
+      messageSid: '1006',
+      fileId: '/tmp/rain-file-id',
+      fileName: 'rain.png',
+      fileSize: '1810231'
+    }
+  ]);
 });
 
 test('returns null for unsupported post types', () => {

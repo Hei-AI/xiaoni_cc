@@ -114,6 +114,7 @@ services:
       - 1.1.1.1
     volumes:
       - ./logs/provider-service:/app/logs
+      - ./resource/napcat_qq_data:/app/napcat-qq-data:ro
       - ${HOME}/.codex:/root/.codex
       - ${HOME}/.gemini:/root/.gemini
     networks:

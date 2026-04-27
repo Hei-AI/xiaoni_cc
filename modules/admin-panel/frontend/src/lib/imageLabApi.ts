@@ -27,10 +27,51 @@ export interface ImageLabImageResult {
   base64?: string;
   mimeType: string;
   revisedPrompt?: string | null;
+  artifactId?: string;
 }
 
 export interface ImageLabResponse {
   images: ImageLabImageResult[];
+  raw: unknown;
+  historyRun?: ImageLabHistoryRun | null;
+}
+
+export interface ImageLabPromptAssistantRequest {
+  prompt: string;
+  mode: ImageLabMode;
+  size: string;
+  quality: ImageLabQuality;
+  format: ImageLabFormat;
+  referenceImages?: ImageLabReferenceImage[];
+}
+
+export interface ImageLabPromptAssistantResponse {
+  finalPrompt: string;
+  detectedUseCase: string;
+  summary: string;
+  sections: {
+    subject: string;
+    scene: string;
+    style: string;
+    composition: string;
+    camera: string;
+    lighting: string;
+    details: string;
+    constraints: string;
+  };
+  suggested?: {
+    size?: string;
+    quality?: ImageLabQuality | string;
+    format?: ImageLabFormat | string;
+  };
+  warnings: string[];
+  sourcePatterns: Array<{
+    id: string;
+    label: string;
+    useCase: string;
+    sourceUrl?: string;
+  }>;
+  modelName?: string;
   raw: unknown;
 }
 
@@ -47,6 +88,40 @@ type ApiEnvelope = {
   message?: string;
   error?: string;
 };
+
+export interface ImageLabHistoryArtifact {
+  id: string;
+  run_id: string;
+  public_path: string;
+  mime_type: string;
+  format?: string | null;
+  bytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  revised_prompt?: string | null;
+  created_at: string;
+}
+
+export interface ImageLabHistoryRun {
+  id: string;
+  operation: 'generate' | 'edit' | 'prompt_assistant' | string;
+  status: 'pending' | 'succeeded' | 'failed' | string;
+  parent_run_id?: string | null;
+  prompt: string;
+  provider?: string | null;
+  model?: string | null;
+  size?: string | null;
+  quality?: string | null;
+  format?: string | null;
+  input_json?: Record<string, unknown>;
+  result_json?: Record<string, unknown>;
+  error_message?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  artifacts: ImageLabHistoryArtifact[];
+}
 
 type ResponseImageCandidate = {
   dataUrl?: unknown;
@@ -151,7 +226,8 @@ function parseImageLabResponsePayload(payload: ApiEnvelope, requestedFormat: Ima
     throw new Error('Image Lab response did not include an image');
   }
 
-  return { images, raw: payload };
+  const historyRun = isRecord(data) && isRecord(data.history_run) ? data.history_run as unknown as ImageLabHistoryRun : null;
+  return { images, raw: payload, historyRun };
 }
 
 async function parseImageLabResponse(response: Response, requestedFormat: ImageLabFormat): Promise<ImageLabResponse> {
@@ -195,14 +271,45 @@ async function pollImageLabJob(jobId: string, requestedFormat: ImageLabFormat): 
   throw new Error('Image Lab job timed out while waiting for a result');
 }
 
-function buildBody(payload: ImageLabRequest): Record<string, unknown> {
-  const referenceImages = (payload.referenceImages ?? []).map((image, index) => ({
+async function urlToDataUrl(url: string): Promise<{ dataUrl: string; mimeType: string }> {
+  if (url.startsWith('data:')) {
+    const match = /^data:([^;,]+);base64,/i.exec(url);
+    return {
+      dataUrl: url,
+      mimeType: match?.[1] || 'image/png',
+    };
+  }
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load reference image ${url}`);
+  }
+  const blob = await response.blob();
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Failed to read reference image'));
+    reader.onerror = () => reject(new Error('Failed to read reference image'));
+    reader.readAsDataURL(blob);
+  });
+  return {
+    dataUrl,
+    mimeType: blob.type || 'image/png',
+  };
+}
+
+async function resolveReferenceImage(image: ImageLabReferenceImage, index: number) {
+  const resolved = image.dataUrl ? await urlToDataUrl(image.dataUrl) : null;
+  return {
     id: image.id,
     filename: image.name || `reference-${index + 1}`,
-    data_url: image.dataUrl,
+    data_url: resolved?.dataUrl,
     b64_json: image.base64,
-    mime_type: image.mimeType,
-  }));
+    mime_type: image.mimeType || resolved?.mimeType,
+  };
+}
+
+async function buildBody(payload: ImageLabRequest): Promise<Record<string, unknown>> {
+  const referenceImages = await Promise.all((payload.referenceImages ?? []).map(resolveReferenceImage));
   const compressionFields = payload.format === 'png'
     ? {}
     : {
@@ -228,7 +335,7 @@ async function postImageLab(endpoint: '/api/image-lab/generate' | '/api/image-la
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(buildBody(payload)),
+    body: JSON.stringify(await buildBody(payload)),
   });
 
   if (response.status === 202) {
@@ -249,4 +356,98 @@ export function generateImageLab(payload: ImageLabRequest): Promise<ImageLabResp
 
 export function editImageLab(payload: ImageLabRequest): Promise<ImageLabResponse> {
   return postImageLab('/api/image-lab/edit', payload);
+}
+
+function normalizePromptAssistantPayload(payload: ApiEnvelope): ImageLabPromptAssistantResponse {
+  const data = isRecord(payload.data) ? payload.data : {};
+  const sections = isRecord(data.sections) ? data.sections : {};
+  const suggested = isRecord(data.suggested) ? data.suggested : {};
+  const sourcePatterns = Array.isArray(data.sourcePatterns)
+    ? data.sourcePatterns.filter(isRecord).map((item) => ({
+        id: typeof item.id === 'string' ? item.id : '',
+        label: typeof item.label === 'string' ? item.label : '',
+        useCase: typeof item.useCase === 'string' ? item.useCase : '',
+        sourceUrl: typeof item.sourceUrl === 'string' ? item.sourceUrl : undefined,
+      })).filter((item) => item.id && item.label)
+    : [];
+
+  const finalPrompt = typeof data.finalPrompt === 'string' ? data.finalPrompt.trim() : '';
+  if (!finalPrompt) {
+    throw new Error('Prompt Assistant response did not include a final prompt');
+  }
+
+  return {
+    finalPrompt,
+    detectedUseCase: typeof data.detectedUseCase === 'string' ? data.detectedUseCase : 'general',
+    summary: typeof data.summary === 'string' ? data.summary : '',
+    sections: {
+      subject: typeof sections.subject === 'string' ? sections.subject : '',
+      scene: typeof sections.scene === 'string' ? sections.scene : '',
+      style: typeof sections.style === 'string' ? sections.style : '',
+      composition: typeof sections.composition === 'string' ? sections.composition : '',
+      camera: typeof sections.camera === 'string' ? sections.camera : '',
+      lighting: typeof sections.lighting === 'string' ? sections.lighting : '',
+      details: typeof sections.details === 'string' ? sections.details : '',
+      constraints: typeof sections.constraints === 'string' ? sections.constraints : '',
+    },
+    suggested: {
+      size: typeof suggested.size === 'string' ? suggested.size : undefined,
+      quality: typeof suggested.quality === 'string' ? suggested.quality : undefined,
+      format: typeof suggested.format === 'string' ? suggested.format : undefined,
+    },
+    warnings: Array.isArray(data.warnings) ? data.warnings.filter((item): item is string => typeof item === 'string') : [],
+    sourcePatterns,
+    modelName: typeof data.modelName === 'string' ? data.modelName : undefined,
+    raw: payload,
+  };
+}
+
+export async function assistImageLabPrompt(payload: ImageLabPromptAssistantRequest): Promise<ImageLabPromptAssistantResponse> {
+  const referenceImages = (payload.referenceImages ?? []).map((image, index) => ({
+    id: image.id,
+    name: image.name || `reference-${index + 1}`,
+    mimeType: image.mimeType,
+    hasImage: Boolean(image.dataUrl || image.base64),
+  }));
+
+  const response = await fetch('/api/image-lab/prompt-assistant', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: payload.prompt,
+      mode: payload.mode,
+      size: payload.size,
+      quality: payload.quality,
+      format: payload.format,
+      referenceImages,
+    }),
+  });
+
+  return normalizePromptAssistantPayload(await readImageLabEnvelope(response));
+}
+
+function normalizeHistoryImage(run: ImageLabHistoryRun, artifact: ImageLabHistoryArtifact): ImageLabImageResult {
+  return {
+    dataUrl: artifact.public_path,
+    mimeType: artifact.mime_type || mimeTypeFor(run.format || undefined),
+    revisedPrompt: artifact.revised_prompt || null,
+    artifactId: artifact.id,
+  };
+}
+
+export async function fetchImageLabHistory(limit = 50): Promise<ImageLabHistoryRun[]> {
+  const response = await fetch(`/api/image-lab/history?limit=${encodeURIComponent(String(limit))}`);
+  const envelope = await readImageLabEnvelope(response);
+  const data = isRecord(envelope.data) ? envelope.data : {};
+  const runs = Array.isArray(data.runs) ? data.runs : [];
+  return runs.filter(isRecord) as unknown as ImageLabHistoryRun[];
+}
+
+export function imageLabHistoryRunToImages(run: ImageLabHistoryRun): ImageLabImageResult[] {
+  if (!Array.isArray(run.artifacts)) {
+    return [];
+  }
+  return run.artifacts
+    .filter((artifact) => typeof artifact.public_path === 'string' && artifact.public_path.length > 0)
+    .map((artifact) => normalizeHistoryImage(run, artifact));
 }

@@ -10,8 +10,20 @@ const UNREAD_MEANING_TOOL = 'emit_unread_meaning';
 const INNER_REACTION_TOOL = 'emit_inner_reaction';
 const LONG_TERM_RECALL_TOOL = 'recall_long_term_learning';
 const GROUP_REPLY_TOOL = 'speak_in_group';
+const INSPECT_IMAGE_TOOL = 'inspect_image_placeholder';
+const IMAGE_TASK_TOOL = 'request_image_task';
 const SILENT_FINISH_TOOL = 'stay_silent';
 const WEB_SEARCH_TOOL = 'web_search';
+const GROUP_LOOP_TOOLS = [
+  UNREAD_MEANING_TOOL,
+  INNER_REACTION_TOOL,
+  LONG_TERM_RECALL_TOOL,
+  WEB_SEARCH_TOOL,
+  GROUP_REPLY_TOOL,
+  INSPECT_IMAGE_TOOL,
+  IMAGE_TASK_TOOL,
+  SILENT_FINISH_TOOL
+];
 
 function getToolName(tool: { type: string; function?: { name?: string } }) {
   return tool.type === 'function' ? tool.function?.name : tool.type;
@@ -211,7 +223,7 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.equal(request.parallel_tool_calls, false);
   assert.deepEqual(
     request.tools.map((tool) => getToolName(tool)),
-    [UNREAD_MEANING_TOOL, INNER_REACTION_TOOL, LONG_TERM_RECALL_TOOL, WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
+    GROUP_LOOP_TOOLS
   );
   const planFunction = getFunctionTool(request.tools[0]);
   assert.equal(planFunction?.name, UNREAD_MEANING_TOOL);
@@ -239,7 +251,7 @@ test('buildCanonicalAgentTurnRequest keeps the same group loop tools on the firs
 
   assert.deepEqual(
     request.tools.map((tool: any) => getToolName(tool)),
-    [UNREAD_MEANING_TOOL, INNER_REACTION_TOOL, LONG_TERM_RECALL_TOOL, WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
+    GROUP_LOOP_TOOLS
   );
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [UNREAD_MEANING_TOOL]);
   assert.match(String(request.instructions), /这一轮在我体内自然按这个顺序展开/);
@@ -394,7 +406,7 @@ test('buildCanonicalAgentTurnRequest allows speech after recall when inner react
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]);
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL, SILENT_FINISH_TOOL]);
 });
 
 test('buildCanonicalAgentTurnRequest allows search after recall when inner reaction prefers search', () => {
@@ -570,7 +582,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
   assert.equal(requestBody.canonicalRequest.parallel_tool_calls, false);
   assert.deepEqual(
     requestBody.canonicalRequest.tools.map((tool: any) => getToolName(tool)),
-    [UNREAD_MEANING_TOOL, INNER_REACTION_TOOL, LONG_TERM_RECALL_TOOL, WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]
+    GROUP_LOOP_TOOLS
   );
   assert.deepEqual(requestBody.canonicalRequest.metadata, {
     trace_id: 'trace-1',
@@ -604,6 +616,35 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.match(currentPrompt, /2026-03-28T08:00:00.000Z \{Alice\(@202\)\}/);
   assert.match(currentPrompt, /问问@\{Bob\(@404\)\} 今天玩什么/);
   assert.doesNotMatch(currentPrompt, /\[mentioned bot\]/);
+});
+
+test('buildInitialInput projects image placeholders without exposing image locators', () => {
+  const payload = createQueuePayload();
+  payload.bodyForAgent = '[Image] 帮我看看';
+  payload.rawBody = '[Image] 帮我看看';
+  payload.messages[0].bodyForAgent = '[Image] 帮我看看';
+  payload.messages[0].rawBody = '[Image] 帮我看看';
+  payload.messages[0].inboundContext = {
+    ...payload.messages[0].inboundContext,
+    MediaAssets: [
+      {
+        mediaTag: 'image_1',
+        placeholder: '[Image]',
+        mediaType: 'image',
+        mimeType: 'image/png',
+        locator: 'https://example.com/private/cat.png',
+        messageSid: 'msg-1'
+      }
+    ]
+  };
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt());
+  const rendered = loopInput.map(getMessageContent).join('\n');
+
+  assert.match(rendered, /\[当前媒体占位符\]/);
+  assert.match(rendered, /image_1/);
+  assert.match(rendered, /不要猜图里有什么/);
+  assert.doesNotMatch(rendered, /example\.com\/private/);
 });
 
 test('buildInitialInput renders reply context in natural language format', () => {

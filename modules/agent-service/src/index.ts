@@ -3,15 +3,19 @@ import { agentConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
 import { AgentLoopService } from './services/agent-loop-service';
+import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 
 const moduleLogger = logger.createModuleLogger('agent-service');
 const app = express();
 const store = new RuntimeStore();
 const loopService = new AgentLoopService(store);
+const taskWorkerService = new AgentTaskWorkerService();
 
 let stopping = false;
 let workerTimer: NodeJS.Timeout | null = null;
+let taskWorkerTimer: NodeJS.Timeout | null = null;
 let workerBusy = false;
+let taskWorkerBusy = false;
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -20,6 +24,7 @@ app.get('/health', async (_req, res) => {
     status: 'healthy',
     service: 'agent-service',
     worker_busy: workerBusy,
+    task_worker_busy: taskWorkerBusy,
     timestamp: new Date().toISOString()
   });
 });
@@ -62,6 +67,38 @@ function scheduleNext(delayMs: number) {
   }, delayMs);
 }
 
+async function pollTaskQueueOnce() {
+  if (stopping || taskWorkerBusy) {
+    scheduleNextTaskPoll(agentConfig.idleIntervalMs);
+    return;
+  }
+
+  taskWorkerBusy = true;
+  try {
+    const processed = await taskWorkerService.processNext(`${agentConfig.workerId}:task`);
+    scheduleNextTaskPoll(processed ? agentConfig.pollIntervalMs : agentConfig.idleIntervalMs);
+  } catch (error) {
+    moduleLogger.error('Agent task queue poll failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    scheduleNextTaskPoll(agentConfig.idleIntervalMs);
+  } finally {
+    taskWorkerBusy = false;
+  }
+}
+
+function scheduleNextTaskPoll(delayMs: number) {
+  if (stopping) {
+    return;
+  }
+  if (taskWorkerTimer) {
+    clearTimeout(taskWorkerTimer);
+  }
+  taskWorkerTimer = setTimeout(() => {
+    void pollTaskQueueOnce();
+  }, delayMs);
+}
+
 async function shutdown(signal: string) {
   if (stopping) {
     return;
@@ -70,6 +107,10 @@ async function shutdown(signal: string) {
   if (workerTimer) {
     clearTimeout(workerTimer);
     workerTimer = null;
+  }
+  if (taskWorkerTimer) {
+    clearTimeout(taskWorkerTimer);
+    taskWorkerTimer = null;
   }
   moduleLogger.info('Shutting down agent service', { signal });
   await store.close().catch(() => undefined);
@@ -85,6 +126,7 @@ async function start() {
     });
   });
   scheduleNext(200);
+  scheduleNextTaskPoll(500);
 }
 
 process.on('SIGINT', () => {

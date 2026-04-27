@@ -1,5 +1,15 @@
 import express from 'express';
-import { ensureIdentityLineageSchema, ensureRelationshipMemorySchema, ensureSelfEvolutionSchema, ensureTopicLabSchema } from '@qq-bot/persistence';
+import fs from 'fs/promises';
+import path from 'path';
+import { randomUUID } from 'crypto';
+import {
+  ensureAgentMediaSchema,
+  ensureIdentityLineageSchema,
+  ensureRelationshipMemorySchema,
+  ensureSelfEvolutionSchema,
+  ensureTopicLabSchema,
+  upsertAgentMediaAssets,
+} from '@qq-bot/persistence';
 import { aiConfig, relationshipMemoryConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
@@ -24,7 +34,7 @@ import TopicProjectionService from './services/topic-projection-service';
 import TopicProjectionExecutorService from './services/topic-projection-executor-service';
 import TopicReviewMaterializationService from './services/topic-review-materialization-service';
 import { GroupParticipationService } from './services/group-participation-service';
-import { ImageProviderError, OpenAIImageProvider } from './services/image-provider';
+import { ImagePromptAssistantService, ImageProviderError, OpenAIImageProvider } from './services/image-provider';
 import {
   buildSimpleQueueSimulationContext,
   type ProviderMessageType,
@@ -36,8 +46,13 @@ import { logger } from './utils/logger';
 
 const app = express();
 const moduleLogger = logger.createModuleLogger('provider-service');
+const RUNTIME_ASSET_ROOT = process.env.PROVIDER_RUNTIME_ASSET_ROOT || '/app/logs/runtime-assets';
+const RUNTIME_ASSET_BASE_URL = (process.env.PROVIDER_RUNTIME_ASSET_BASE_URL || `http://qqbot-provider-service:${serverConfig.port}`).replace(/\/$/, '');
+const NAPCAT_QQ_DATA_ROOT = process.env.NAPCAT_QQ_DATA_ROOT || '/app/napcat-qq-data';
+const NAPCAT_QQ_CONTAINER_ROOT = '/app/.config/QQ';
 const embeddingService = new EmbeddingService(aiConfig);
 const imageProvider = new OpenAIImageProvider();
+const imagePromptAssistant = new ImagePromptAssistantService();
 const napcatClient = new NapcatClient();
 const inboxService = new InboundInboxService();
 const chatPolicyService = new ChatPolicyService();
@@ -108,6 +123,143 @@ const transcriptService = new SessionTranscriptService({
   ].join('\n'),
   summaryWebhookUrl: process.env.TRANSCRIPT_SUMMARY_WEBHOOK_URL || undefined
 });
+
+function parseImageDataUrl(value: string) {
+  const match = /^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/i.exec(value.trim());
+  if (!match) {
+    return null;
+  }
+  const mimeType = match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase();
+  const extension = mimeType === 'image/jpeg'
+    ? 'jpg'
+    : mimeType.replace('image/', '');
+  return {
+    mimeType,
+    extension,
+    buffer: Buffer.from(match[2].replace(/\s+/g, ''), 'base64')
+  };
+}
+
+async function materializeRuntimeImageAsset(imageFile: string) {
+  const parsed = parseImageDataUrl(imageFile);
+  if (!parsed) {
+    return imageFile;
+  }
+  await fs.mkdir(RUNTIME_ASSET_ROOT, { recursive: true });
+  const filename = `${Date.now()}-${randomUUID().slice(0, 8)}.${parsed.extension}`;
+  await fs.writeFile(path.join(RUNTIME_ASSET_ROOT, filename), parsed.buffer);
+  return `${RUNTIME_ASSET_BASE_URL}/api/internal/runtime-assets/${encodeURIComponent(filename)}`;
+}
+
+function isSupportedImageMimeType(value?: string | null) {
+  return typeof value === 'string' && /^image\/(?:png|jpeg|jpg|webp|gif)$/i.test(value);
+}
+
+function inferImageMimeTypeFromName(value?: string | null) {
+  const normalized = (value || '').toLowerCase();
+  if (normalized.endsWith('.png')) return 'image/png';
+  if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) return 'image/jpeg';
+  if (normalized.endsWith('.webp')) return 'image/webp';
+  if (normalized.endsWith('.gif')) return 'image/gif';
+  return null;
+}
+
+function sniffImageMimeType(buffer: Buffer, fallback?: string | null) {
+  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return 'image/png';
+  }
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+  if (buffer.subarray(0, 3).toString('ascii') === 'GIF') {
+    return 'image/gif';
+  }
+  return isSupportedImageMimeType(fallback) ? fallback!.toLowerCase().replace('image/jpg', 'image/jpeg') : null;
+}
+
+function toDataUrl(buffer: Buffer, mimeType: string) {
+  return `data:${mimeType};base64,${buffer.toString('base64')}`;
+}
+
+function mapNapcatContainerPath(filePath: string) {
+  if (!filePath.startsWith(NAPCAT_QQ_CONTAINER_ROOT + '/')) {
+    throw new Error('Unsupported NapCat file path');
+  }
+  const relative = path.relative(NAPCAT_QQ_CONTAINER_ROOT, filePath);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error('Unsafe NapCat file path');
+  }
+  return path.join(NAPCAT_QQ_DATA_ROOT, relative);
+}
+
+async function readNapcatFileAsImageDataUrl(filePath: string, filename?: string | null, mimeType?: string | null) {
+  const hostPath = mapNapcatContainerPath(filePath);
+  const buffer = await fs.readFile(hostPath);
+  const detectedMimeType = sniffImageMimeType(buffer, mimeType || inferImageMimeTypeFromName(filename));
+  if (!detectedMimeType) {
+    throw new Error('Resolved NapCat file is not a supported image');
+  }
+  return {
+    data_url: toDataUrl(buffer, detectedMimeType),
+    mime_type: detectedMimeType,
+    bytes: buffer.length,
+    filename: filename || path.basename(filePath)
+  };
+}
+
+async function fetchImageAsDataUrl(url: string, mimeType?: string | null) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image source: ${response.status}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const detectedMimeType = sniffImageMimeType(buffer, mimeType || response.headers.get('content-type'));
+  if (!detectedMimeType) {
+    throw new Error('Fetched source is not a supported image');
+  }
+  return {
+    data_url: toDataUrl(buffer, detectedMimeType),
+    mime_type: detectedMimeType,
+    bytes: buffer.length
+  };
+}
+
+async function persistInboundMediaAssets(inboundContext: FinalizedInboundContext, sourceMessageId?: number | null, traceId?: string) {
+  const mediaAssets = Array.isArray(inboundContext.MediaAssets) ? inboundContext.MediaAssets : [];
+  if (mediaAssets.length === 0) {
+    return [];
+  }
+
+  return upsertAgentMediaAssets(mediaAssets.map((asset) => ({
+    source: inboundContext.Surface || inboundContext.Provider || 'napcat',
+    sourceMessageId: sourceMessageId || null,
+    traceId,
+    sessionKey: inboundContext.SessionKey || '',
+    chatType: inboundContext.ChatType === 'group' ? 'group' : 'direct',
+    peerId: inboundContext.NativeChannelId || inboundContext.To || null,
+    peerName: inboundContext.ConversationLabel || null,
+    senderId: inboundContext.SenderId || null,
+    senderName: inboundContext.SenderName || null,
+    accountId: inboundContext.AccountId || null,
+    messageSid: asset.messageSid || inboundContext.MessageSid || null,
+    mediaTag: asset.mediaTag,
+    placeholder: asset.placeholder,
+    mediaType: asset.mediaType,
+    mimeType: asset.mimeType,
+    sourceLocator: asset.locator,
+    metadata: {
+      provider: inboundContext.Provider || null,
+      surface: inboundContext.Surface || null,
+      placeholder: asset.placeholder,
+      file_id: asset.fileId || null,
+      file_name: asset.fileName || null,
+      file_size: asset.fileSize || null
+    }
+  })));
+}
 
 function scheduleCompactionSideEffects(inboundContext: FinalizedInboundContext) {
   moduleLogger.debug('Skipped transcript/memory side effects for simplified runtime', {
@@ -390,6 +542,7 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     traceId,
     source: 'napcat'
   });
+  await persistInboundMediaAssets(inboundContext, result.event.id, result.traceId);
   rememberInboundContext(recentMessageCache, inboundContext);
 
   markIncomingActivityAsync({
@@ -702,6 +855,70 @@ app.post('/api/internal/send_group', async (req, res) => {
   }
 });
 
+app.post('/api/internal/send_group_image', async (req, res) => {
+  try {
+    const groupId = Number(req.body?.group_id);
+    const imageFile = typeof req.body?.image_file === 'string'
+      ? req.body.image_file
+      : typeof req.body?.data_url === 'string'
+        ? req.body.data_url
+        : typeof req.body?.url === 'string'
+          ? req.body.url
+          : '';
+    const caption = typeof req.body?.caption === 'string' ? req.body.caption : undefined;
+    const sessionKey = typeof req.body?.session_key === 'string' && req.body.session_key.trim().length > 0
+      ? req.body.session_key.trim()
+      : null;
+
+    if (!Number.isFinite(groupId) || !imageFile.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameters: group_id and image_file/data_url/url'
+      });
+    }
+
+    const deliverableImageFile = await materializeRuntimeImageAsset(imageFile);
+    const data = await napcatClient.sendGroupImage(groupId, deliverableImageFile, caption);
+    if (sessionKey) {
+      groupParticipationService.recordBotReply(sessionKey);
+    }
+    res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to send group image',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.get('/api/internal/runtime-assets/:filename', async (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename || '');
+    if (!filename) {
+      return res.status(404).end();
+    }
+    const filePath = path.join(RUNTIME_ASSET_ROOT, filename);
+    const extension = path.extname(filename).toLowerCase();
+    const mimeType = extension === '.jpg' || extension === '.jpeg'
+      ? 'image/jpeg'
+      : extension === '.webp'
+        ? 'image/webp'
+        : extension === '.gif'
+          ? 'image/gif'
+          : 'image/png';
+    res.type(mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(await fs.readFile(filePath));
+  } catch {
+    res.status(404).end();
+  }
+});
+
 app.post(['/webhook', '/api/onebot/events', '/api/onebot/webhook'], async (req, res) => {
   try {
     const event = (req.body || {}) as OneBotMessageEvent;
@@ -803,6 +1020,192 @@ app.post('/api/internal/image/edit', async (req, res) => {
     res.status(statusCode).json({
       success: false,
       error: error instanceof Error ? error.message : 'Image edit failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/image/prompt-assistant', async (req, res) => {
+  try {
+    const data = await imagePromptAssistant.compose(req.body || {});
+    res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    moduleLogger.error('Image prompt assistant request failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Image prompt assistant failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/media/inspect', async (req, res) => {
+  try {
+    const imageUrl = typeof req.body?.image_url === 'string'
+      ? req.body.image_url.trim()
+      : typeof req.body?.url === 'string'
+        ? req.body.url.trim()
+        : typeof req.body?.data_url === 'string'
+          ? req.body.data_url.trim()
+          : '';
+    if (!imageUrl) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: image_url'
+      });
+    }
+
+    const prompt = typeof req.body?.prompt === 'string' && req.body.prompt.trim()
+      ? req.body.prompt.trim()
+      : '请用中文客观描述这张图片里可见的内容。只描述可见事实，不要猜测隐私、身份或意图。';
+    const model = typeof req.body?.model === 'string' && req.body.model.trim()
+      ? req.body.model.trim()
+      : aiConfig.model_name;
+    const result = await executeAgentRequest({
+      trace_id: typeof req.body?.trace_id === 'string' ? req.body.trace_id : undefined,
+      agent_turn: 0,
+      agent_type: 'media_inspector',
+      prompt_name: 'runtime_media_inspect',
+      model,
+      canonicalRequest: {
+        model,
+        input: [
+          {
+            type: 'message',
+            role: 'user',
+            content: [
+              { type: 'input_text', text: prompt },
+              { type: 'input_image', image_url: imageUrl }
+            ]
+          }
+        ]
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        description: result.response || '',
+        model: result.model || model,
+        provider: result.provider || null,
+        llm_call_id: result.llm_call_id || null
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    moduleLogger.error('Media inspect request failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Media inspect failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/media/materialize-image', async (req, res) => {
+  try {
+    const metadata = req.body?.metadata && typeof req.body.metadata === 'object'
+      ? req.body.metadata as Record<string, unknown>
+      : {};
+    const fileId = typeof req.body?.file_id === 'string' && req.body.file_id.trim()
+      ? req.body.file_id.trim()
+      : typeof metadata.file_id === 'string' && metadata.file_id.trim()
+        ? metadata.file_id.trim()
+        : '';
+    const filename = typeof req.body?.file_name === 'string' && req.body.file_name.trim()
+      ? req.body.file_name.trim()
+      : typeof metadata.file_name === 'string' && metadata.file_name.trim()
+        ? metadata.file_name.trim()
+        : null;
+    const mimeType = typeof req.body?.mime_type === 'string' && req.body.mime_type.trim()
+      ? req.body.mime_type.trim()
+      : null;
+
+    if (fileId) {
+      const fileInfo = await napcatClient.getFile(fileId);
+      const filePath = typeof fileInfo?.file === 'string' && fileInfo.file.trim()
+        ? fileInfo.file.trim()
+        : typeof fileInfo?.url === 'string' && fileInfo.url.trim()
+          ? fileInfo.url.trim()
+          : '';
+      if (filePath && !/^https?:\/\//i.test(filePath)) {
+        const data = await readNapcatFileAsImageDataUrl(filePath, filename || fileInfo?.file_name, mimeType);
+        return res.json({
+          success: true,
+          data: {
+            ...data,
+            source: 'napcat_file'
+          },
+          timestamp: new Date().toISOString()
+        });
+      }
+      if (filePath) {
+        const data = await fetchImageAsDataUrl(filePath, mimeType);
+        return res.json({
+          success: true,
+          data: {
+            ...data,
+            source: 'napcat_file_url'
+          },
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
+    const sourceLocator = typeof req.body?.source_locator === 'string' && req.body.source_locator.trim()
+      ? req.body.source_locator.trim()
+      : typeof req.body?.url === 'string' && req.body.url.trim()
+        ? req.body.url.trim()
+        : '';
+    if (!sourceLocator) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing source image locator or file_id'
+      });
+    }
+    if (sourceLocator.startsWith('data:')) {
+      const parsed = parseImageDataUrl(sourceLocator);
+      if (!parsed) {
+        return res.status(400).json({
+          success: false,
+          error: 'Unsupported image data URL'
+        });
+      }
+      return res.json({
+        success: true,
+        data: {
+          data_url: toDataUrl(parsed.buffer, parsed.mimeType),
+          mime_type: parsed.mimeType,
+          bytes: parsed.buffer.length,
+          source: 'data_url'
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+    const data = await fetchImageAsDataUrl(sourceLocator, mimeType);
+    res.json({
+      success: true,
+      data: {
+        ...data,
+        source: 'url'
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    moduleLogger.error('Media materialize request failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Media materialize failed',
       timestamp: new Date().toISOString()
     });
   }
@@ -1275,6 +1678,7 @@ async function startServer() {
   await ensureSelfEvolutionSchema();
   await ensureIdentityLineageSchema();
   await ensureTopicLabSchema();
+  await ensureAgentMediaSchema();
   await inboxService.initialize();
   await conversationStoreService.initialize();
   await transcriptSnapshotService.initialize();

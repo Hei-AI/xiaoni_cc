@@ -44,6 +44,36 @@ export type ConversationItem = $Result.DefaultSelection<Prisma.$ConversationItem
  */
 export type TrafficReplayHistory = $Result.DefaultSelection<Prisma.$TrafficReplayHistoryPayload>
 /**
+ * Model ImageLabRun
+ * 
+ */
+export type ImageLabRun = $Result.DefaultSelection<Prisma.$ImageLabRunPayload>
+/**
+ * Model ImageLabArtifact
+ * 
+ */
+export type ImageLabArtifact = $Result.DefaultSelection<Prisma.$ImageLabArtifactPayload>
+/**
+ * Model AgentMediaAsset
+ * 
+ */
+export type AgentMediaAsset = $Result.DefaultSelection<Prisma.$AgentMediaAssetPayload>
+/**
+ * Model AgentMediaObservation
+ * 
+ */
+export type AgentMediaObservation = $Result.DefaultSelection<Prisma.$AgentMediaObservationPayload>
+/**
+ * Model AgentTask
+ * 
+ */
+export type AgentTask = $Result.DefaultSelection<Prisma.$AgentTaskPayload>
+/**
+ * Model AgentTaskArtifact
+ * 
+ */
+export type AgentTaskArtifact = $Result.DefaultSelection<Prisma.$AgentTaskArtifactPayload>
+/**
  * Model RelationshipLedgerEvent
  * 
  */
@@ -331,6 +361,66 @@ export class PrismaClient<
     * ```
     */
   get trafficReplayHistory(): Prisma.TrafficReplayHistoryDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.imageLabRun`: Exposes CRUD operations for the **ImageLabRun** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more ImageLabRuns
+    * const imageLabRuns = await prisma.imageLabRun.findMany()
+    * ```
+    */
+  get imageLabRun(): Prisma.ImageLabRunDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.imageLabArtifact`: Exposes CRUD operations for the **ImageLabArtifact** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more ImageLabArtifacts
+    * const imageLabArtifacts = await prisma.imageLabArtifact.findMany()
+    * ```
+    */
+  get imageLabArtifact(): Prisma.ImageLabArtifactDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.agentMediaAsset`: Exposes CRUD operations for the **AgentMediaAsset** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AgentMediaAssets
+    * const agentMediaAssets = await prisma.agentMediaAsset.findMany()
+    * ```
+    */
+  get agentMediaAsset(): Prisma.AgentMediaAssetDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.agentMediaObservation`: Exposes CRUD operations for the **AgentMediaObservation** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AgentMediaObservations
+    * const agentMediaObservations = await prisma.agentMediaObservation.findMany()
+    * ```
+    */
+  get agentMediaObservation(): Prisma.AgentMediaObservationDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.agentTask`: Exposes CRUD operations for the **AgentTask** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AgentTasks
+    * const agentTasks = await prisma.agentTask.findMany()
+    * ```
+    */
+  get agentTask(): Prisma.AgentTaskDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.agentTaskArtifact`: Exposes CRUD operations for the **AgentTaskArtifact** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AgentTaskArtifacts
+    * const agentTaskArtifacts = await prisma.agentTaskArtifact.findMany()
+    * ```
+    */
+  get agentTaskArtifact(): Prisma.AgentTaskArtifactDelegate<ExtArgs, ClientOptions>;
 
   /**
    * `prisma.relationshipLedgerEvent`: Exposes CRUD operations for the **RelationshipLedgerEvent** model.
@@ -998,6 +1088,12 @@ export namespace Prisma {
     HttpTrafficLog: 'HttpTrafficLog',
     ConversationItem: 'ConversationItem',
     TrafficReplayHistory: 'TrafficReplayHistory',
+    ImageLabRun: 'ImageLabRun',
+    ImageLabArtifact: 'ImageLabArtifact',
+    AgentMediaAsset: 'AgentMediaAsset',
+    AgentMediaObservation: 'AgentMediaObservation',
+    AgentTask: 'AgentTask',
+    AgentTaskArtifact: 'AgentTaskArtifact',
     RelationshipLedgerEvent: 'RelationshipLedgerEvent',
     RelationshipMemoryJob: 'RelationshipMemoryJob',
     RelationshipMemoryCard: 'RelationshipMemoryCard',
@@ -1038,7 +1134,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "relationshipLedgerEvent" | "relationshipMemoryJob" | "relationshipMemoryCard" | "relationshipMemoryOverride" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
+      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "relationshipLedgerEvent" | "relationshipMemoryJob" | "relationshipMemoryCard" | "relationshipMemoryOverride" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -1483,6 +1579,450 @@ export namespace Prisma {
           count: {
             args: Prisma.TrafficReplayHistoryCountArgs<ExtArgs>
             result: $Utils.Optional<TrafficReplayHistoryCountAggregateOutputType> | number
+          }
+        }
+      }
+      ImageLabRun: {
+        payload: Prisma.$ImageLabRunPayload<ExtArgs>
+        fields: Prisma.ImageLabRunFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.ImageLabRunFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabRunPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.ImageLabRunFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabRunPayload>
+          }
+          findFirst: {
+            args: Prisma.ImageLabRunFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabRunPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.ImageLabRunFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabRunPayload>
+          }
+          findMany: {
+            args: Prisma.ImageLabRunFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabRunPayload>[]
+          }
+          create: {
+            args: Prisma.ImageLabRunCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabRunPayload>
+          }
+          createMany: {
+            args: Prisma.ImageLabRunCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.ImageLabRunCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabRunPayload>[]
+          }
+          delete: {
+            args: Prisma.ImageLabRunDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabRunPayload>
+          }
+          update: {
+            args: Prisma.ImageLabRunUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabRunPayload>
+          }
+          deleteMany: {
+            args: Prisma.ImageLabRunDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.ImageLabRunUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.ImageLabRunUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabRunPayload>[]
+          }
+          upsert: {
+            args: Prisma.ImageLabRunUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabRunPayload>
+          }
+          aggregate: {
+            args: Prisma.ImageLabRunAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateImageLabRun>
+          }
+          groupBy: {
+            args: Prisma.ImageLabRunGroupByArgs<ExtArgs>
+            result: $Utils.Optional<ImageLabRunGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.ImageLabRunCountArgs<ExtArgs>
+            result: $Utils.Optional<ImageLabRunCountAggregateOutputType> | number
+          }
+        }
+      }
+      ImageLabArtifact: {
+        payload: Prisma.$ImageLabArtifactPayload<ExtArgs>
+        fields: Prisma.ImageLabArtifactFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.ImageLabArtifactFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabArtifactPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.ImageLabArtifactFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabArtifactPayload>
+          }
+          findFirst: {
+            args: Prisma.ImageLabArtifactFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabArtifactPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.ImageLabArtifactFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabArtifactPayload>
+          }
+          findMany: {
+            args: Prisma.ImageLabArtifactFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabArtifactPayload>[]
+          }
+          create: {
+            args: Prisma.ImageLabArtifactCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabArtifactPayload>
+          }
+          createMany: {
+            args: Prisma.ImageLabArtifactCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.ImageLabArtifactCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabArtifactPayload>[]
+          }
+          delete: {
+            args: Prisma.ImageLabArtifactDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabArtifactPayload>
+          }
+          update: {
+            args: Prisma.ImageLabArtifactUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabArtifactPayload>
+          }
+          deleteMany: {
+            args: Prisma.ImageLabArtifactDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.ImageLabArtifactUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.ImageLabArtifactUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabArtifactPayload>[]
+          }
+          upsert: {
+            args: Prisma.ImageLabArtifactUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$ImageLabArtifactPayload>
+          }
+          aggregate: {
+            args: Prisma.ImageLabArtifactAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateImageLabArtifact>
+          }
+          groupBy: {
+            args: Prisma.ImageLabArtifactGroupByArgs<ExtArgs>
+            result: $Utils.Optional<ImageLabArtifactGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.ImageLabArtifactCountArgs<ExtArgs>
+            result: $Utils.Optional<ImageLabArtifactCountAggregateOutputType> | number
+          }
+        }
+      }
+      AgentMediaAsset: {
+        payload: Prisma.$AgentMediaAssetPayload<ExtArgs>
+        fields: Prisma.AgentMediaAssetFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AgentMediaAssetFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaAssetPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AgentMediaAssetFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaAssetPayload>
+          }
+          findFirst: {
+            args: Prisma.AgentMediaAssetFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaAssetPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AgentMediaAssetFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaAssetPayload>
+          }
+          findMany: {
+            args: Prisma.AgentMediaAssetFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaAssetPayload>[]
+          }
+          create: {
+            args: Prisma.AgentMediaAssetCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaAssetPayload>
+          }
+          createMany: {
+            args: Prisma.AgentMediaAssetCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AgentMediaAssetCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaAssetPayload>[]
+          }
+          delete: {
+            args: Prisma.AgentMediaAssetDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaAssetPayload>
+          }
+          update: {
+            args: Prisma.AgentMediaAssetUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaAssetPayload>
+          }
+          deleteMany: {
+            args: Prisma.AgentMediaAssetDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AgentMediaAssetUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AgentMediaAssetUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaAssetPayload>[]
+          }
+          upsert: {
+            args: Prisma.AgentMediaAssetUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaAssetPayload>
+          }
+          aggregate: {
+            args: Prisma.AgentMediaAssetAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAgentMediaAsset>
+          }
+          groupBy: {
+            args: Prisma.AgentMediaAssetGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AgentMediaAssetGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AgentMediaAssetCountArgs<ExtArgs>
+            result: $Utils.Optional<AgentMediaAssetCountAggregateOutputType> | number
+          }
+        }
+      }
+      AgentMediaObservation: {
+        payload: Prisma.$AgentMediaObservationPayload<ExtArgs>
+        fields: Prisma.AgentMediaObservationFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AgentMediaObservationFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaObservationPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AgentMediaObservationFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaObservationPayload>
+          }
+          findFirst: {
+            args: Prisma.AgentMediaObservationFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaObservationPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AgentMediaObservationFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaObservationPayload>
+          }
+          findMany: {
+            args: Prisma.AgentMediaObservationFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaObservationPayload>[]
+          }
+          create: {
+            args: Prisma.AgentMediaObservationCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaObservationPayload>
+          }
+          createMany: {
+            args: Prisma.AgentMediaObservationCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AgentMediaObservationCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaObservationPayload>[]
+          }
+          delete: {
+            args: Prisma.AgentMediaObservationDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaObservationPayload>
+          }
+          update: {
+            args: Prisma.AgentMediaObservationUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaObservationPayload>
+          }
+          deleteMany: {
+            args: Prisma.AgentMediaObservationDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AgentMediaObservationUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AgentMediaObservationUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaObservationPayload>[]
+          }
+          upsert: {
+            args: Prisma.AgentMediaObservationUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMediaObservationPayload>
+          }
+          aggregate: {
+            args: Prisma.AgentMediaObservationAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAgentMediaObservation>
+          }
+          groupBy: {
+            args: Prisma.AgentMediaObservationGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AgentMediaObservationGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AgentMediaObservationCountArgs<ExtArgs>
+            result: $Utils.Optional<AgentMediaObservationCountAggregateOutputType> | number
+          }
+        }
+      }
+      AgentTask: {
+        payload: Prisma.$AgentTaskPayload<ExtArgs>
+        fields: Prisma.AgentTaskFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AgentTaskFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AgentTaskFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskPayload>
+          }
+          findFirst: {
+            args: Prisma.AgentTaskFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AgentTaskFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskPayload>
+          }
+          findMany: {
+            args: Prisma.AgentTaskFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskPayload>[]
+          }
+          create: {
+            args: Prisma.AgentTaskCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskPayload>
+          }
+          createMany: {
+            args: Prisma.AgentTaskCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AgentTaskCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskPayload>[]
+          }
+          delete: {
+            args: Prisma.AgentTaskDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskPayload>
+          }
+          update: {
+            args: Prisma.AgentTaskUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskPayload>
+          }
+          deleteMany: {
+            args: Prisma.AgentTaskDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AgentTaskUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AgentTaskUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskPayload>[]
+          }
+          upsert: {
+            args: Prisma.AgentTaskUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskPayload>
+          }
+          aggregate: {
+            args: Prisma.AgentTaskAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAgentTask>
+          }
+          groupBy: {
+            args: Prisma.AgentTaskGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AgentTaskGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AgentTaskCountArgs<ExtArgs>
+            result: $Utils.Optional<AgentTaskCountAggregateOutputType> | number
+          }
+        }
+      }
+      AgentTaskArtifact: {
+        payload: Prisma.$AgentTaskArtifactPayload<ExtArgs>
+        fields: Prisma.AgentTaskArtifactFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AgentTaskArtifactFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskArtifactPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AgentTaskArtifactFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskArtifactPayload>
+          }
+          findFirst: {
+            args: Prisma.AgentTaskArtifactFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskArtifactPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AgentTaskArtifactFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskArtifactPayload>
+          }
+          findMany: {
+            args: Prisma.AgentTaskArtifactFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskArtifactPayload>[]
+          }
+          create: {
+            args: Prisma.AgentTaskArtifactCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskArtifactPayload>
+          }
+          createMany: {
+            args: Prisma.AgentTaskArtifactCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AgentTaskArtifactCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskArtifactPayload>[]
+          }
+          delete: {
+            args: Prisma.AgentTaskArtifactDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskArtifactPayload>
+          }
+          update: {
+            args: Prisma.AgentTaskArtifactUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskArtifactPayload>
+          }
+          deleteMany: {
+            args: Prisma.AgentTaskArtifactDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AgentTaskArtifactUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AgentTaskArtifactUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskArtifactPayload>[]
+          }
+          upsert: {
+            args: Prisma.AgentTaskArtifactUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentTaskArtifactPayload>
+          }
+          aggregate: {
+            args: Prisma.AgentTaskArtifactAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAgentTaskArtifact>
+          }
+          groupBy: {
+            args: Prisma.AgentTaskArtifactGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AgentTaskArtifactGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AgentTaskArtifactCountArgs<ExtArgs>
+            result: $Utils.Optional<AgentTaskArtifactCountAggregateOutputType> | number
           }
         }
       }
@@ -3216,6 +3756,12 @@ export namespace Prisma {
     httpTrafficLog?: HttpTrafficLogOmit
     conversationItem?: ConversationItemOmit
     trafficReplayHistory?: TrafficReplayHistoryOmit
+    imageLabRun?: ImageLabRunOmit
+    imageLabArtifact?: ImageLabArtifactOmit
+    agentMediaAsset?: AgentMediaAssetOmit
+    agentMediaObservation?: AgentMediaObservationOmit
+    agentTask?: AgentTaskOmit
+    agentTaskArtifact?: AgentTaskArtifactOmit
     relationshipLedgerEvent?: RelationshipLedgerEventOmit
     relationshipMemoryJob?: RelationshipMemoryJobOmit
     relationshipMemoryCard?: RelationshipMemoryCardOmit
@@ -3312,6 +3858,98 @@ export namespace Prisma {
    * Count Types
    */
 
+
+  /**
+   * Count Type ImageLabRunCountOutputType
+   */
+
+  export type ImageLabRunCountOutputType = {
+    artifacts: number
+  }
+
+  export type ImageLabRunCountOutputTypeSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    artifacts?: boolean | ImageLabRunCountOutputTypeCountArtifactsArgs
+  }
+
+  // Custom InputTypes
+  /**
+   * ImageLabRunCountOutputType without action
+   */
+  export type ImageLabRunCountOutputTypeDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRunCountOutputType
+     */
+    select?: ImageLabRunCountOutputTypeSelect<ExtArgs> | null
+  }
+
+  /**
+   * ImageLabRunCountOutputType without action
+   */
+  export type ImageLabRunCountOutputTypeCountArtifactsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: ImageLabArtifactWhereInput
+  }
+
+
+  /**
+   * Count Type AgentMediaAssetCountOutputType
+   */
+
+  export type AgentMediaAssetCountOutputType = {
+    observations: number
+  }
+
+  export type AgentMediaAssetCountOutputTypeSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    observations?: boolean | AgentMediaAssetCountOutputTypeCountObservationsArgs
+  }
+
+  // Custom InputTypes
+  /**
+   * AgentMediaAssetCountOutputType without action
+   */
+  export type AgentMediaAssetCountOutputTypeDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAssetCountOutputType
+     */
+    select?: AgentMediaAssetCountOutputTypeSelect<ExtArgs> | null
+  }
+
+  /**
+   * AgentMediaAssetCountOutputType without action
+   */
+  export type AgentMediaAssetCountOutputTypeCountObservationsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AgentMediaObservationWhereInput
+  }
+
+
+  /**
+   * Count Type AgentTaskCountOutputType
+   */
+
+  export type AgentTaskCountOutputType = {
+    artifacts: number
+  }
+
+  export type AgentTaskCountOutputTypeSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    artifacts?: boolean | AgentTaskCountOutputTypeCountArtifactsArgs
+  }
+
+  // Custom InputTypes
+  /**
+   * AgentTaskCountOutputType without action
+   */
+  export type AgentTaskCountOutputTypeDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskCountOutputType
+     */
+    select?: AgentTaskCountOutputTypeSelect<ExtArgs> | null
+  }
+
+  /**
+   * AgentTaskCountOutputType without action
+   */
+  export type AgentTaskCountOutputTypeCountArtifactsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AgentTaskArtifactWhereInput
+  }
 
 
   /**
@@ -10900,6 +11538,7361 @@ export namespace Prisma {
      * Omit specific fields from the TrafficReplayHistory
      */
     omit?: TrafficReplayHistoryOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model ImageLabRun
+   */
+
+  export type AggregateImageLabRun = {
+    _count: ImageLabRunCountAggregateOutputType | null
+    _min: ImageLabRunMinAggregateOutputType | null
+    _max: ImageLabRunMaxAggregateOutputType | null
+  }
+
+  export type ImageLabRunMinAggregateOutputType = {
+    id: string | null
+    operation: string | null
+    status: string | null
+    parent_run_id: string | null
+    prompt: string | null
+    provider: string | null
+    model: string | null
+    size: string | null
+    quality: string | null
+    format: string | null
+    error_message: string | null
+    started_at: Date | null
+    completed_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type ImageLabRunMaxAggregateOutputType = {
+    id: string | null
+    operation: string | null
+    status: string | null
+    parent_run_id: string | null
+    prompt: string | null
+    provider: string | null
+    model: string | null
+    size: string | null
+    quality: string | null
+    format: string | null
+    error_message: string | null
+    started_at: Date | null
+    completed_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type ImageLabRunCountAggregateOutputType = {
+    id: number
+    operation: number
+    status: number
+    parent_run_id: number
+    prompt: number
+    provider: number
+    model: number
+    size: number
+    quality: number
+    format: number
+    input_json: number
+    result_json: number
+    error_message: number
+    started_at: number
+    completed_at: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type ImageLabRunMinAggregateInputType = {
+    id?: true
+    operation?: true
+    status?: true
+    parent_run_id?: true
+    prompt?: true
+    provider?: true
+    model?: true
+    size?: true
+    quality?: true
+    format?: true
+    error_message?: true
+    started_at?: true
+    completed_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type ImageLabRunMaxAggregateInputType = {
+    id?: true
+    operation?: true
+    status?: true
+    parent_run_id?: true
+    prompt?: true
+    provider?: true
+    model?: true
+    size?: true
+    quality?: true
+    format?: true
+    error_message?: true
+    started_at?: true
+    completed_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type ImageLabRunCountAggregateInputType = {
+    id?: true
+    operation?: true
+    status?: true
+    parent_run_id?: true
+    prompt?: true
+    provider?: true
+    model?: true
+    size?: true
+    quality?: true
+    format?: true
+    input_json?: true
+    result_json?: true
+    error_message?: true
+    started_at?: true
+    completed_at?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type ImageLabRunAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ImageLabRun to aggregate.
+     */
+    where?: ImageLabRunWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageLabRuns to fetch.
+     */
+    orderBy?: ImageLabRunOrderByWithRelationInput | ImageLabRunOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: ImageLabRunWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageLabRuns from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageLabRuns.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned ImageLabRuns
+    **/
+    _count?: true | ImageLabRunCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: ImageLabRunMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: ImageLabRunMaxAggregateInputType
+  }
+
+  export type GetImageLabRunAggregateType<T extends ImageLabRunAggregateArgs> = {
+        [P in keyof T & keyof AggregateImageLabRun]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateImageLabRun[P]>
+      : GetScalarType<T[P], AggregateImageLabRun[P]>
+  }
+
+
+
+
+  export type ImageLabRunGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: ImageLabRunWhereInput
+    orderBy?: ImageLabRunOrderByWithAggregationInput | ImageLabRunOrderByWithAggregationInput[]
+    by: ImageLabRunScalarFieldEnum[] | ImageLabRunScalarFieldEnum
+    having?: ImageLabRunScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: ImageLabRunCountAggregateInputType | true
+    _min?: ImageLabRunMinAggregateInputType
+    _max?: ImageLabRunMaxAggregateInputType
+  }
+
+  export type ImageLabRunGroupByOutputType = {
+    id: string
+    operation: string
+    status: string
+    parent_run_id: string | null
+    prompt: string
+    provider: string | null
+    model: string | null
+    size: string | null
+    quality: string | null
+    format: string | null
+    input_json: JsonValue | null
+    result_json: JsonValue | null
+    error_message: string | null
+    started_at: Date | null
+    completed_at: Date | null
+    created_at: Date
+    updated_at: Date
+    _count: ImageLabRunCountAggregateOutputType | null
+    _min: ImageLabRunMinAggregateOutputType | null
+    _max: ImageLabRunMaxAggregateOutputType | null
+  }
+
+  type GetImageLabRunGroupByPayload<T extends ImageLabRunGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<ImageLabRunGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof ImageLabRunGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], ImageLabRunGroupByOutputType[P]>
+            : GetScalarType<T[P], ImageLabRunGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type ImageLabRunSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    operation?: boolean
+    status?: boolean
+    parent_run_id?: boolean
+    prompt?: boolean
+    provider?: boolean
+    model?: boolean
+    size?: boolean
+    quality?: boolean
+    format?: boolean
+    input_json?: boolean
+    result_json?: boolean
+    error_message?: boolean
+    started_at?: boolean
+    completed_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+    artifacts?: boolean | ImageLabRun$artifactsArgs<ExtArgs>
+    _count?: boolean | ImageLabRunCountOutputTypeDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["imageLabRun"]>
+
+  export type ImageLabRunSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    operation?: boolean
+    status?: boolean
+    parent_run_id?: boolean
+    prompt?: boolean
+    provider?: boolean
+    model?: boolean
+    size?: boolean
+    quality?: boolean
+    format?: boolean
+    input_json?: boolean
+    result_json?: boolean
+    error_message?: boolean
+    started_at?: boolean
+    completed_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["imageLabRun"]>
+
+  export type ImageLabRunSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    operation?: boolean
+    status?: boolean
+    parent_run_id?: boolean
+    prompt?: boolean
+    provider?: boolean
+    model?: boolean
+    size?: boolean
+    quality?: boolean
+    format?: boolean
+    input_json?: boolean
+    result_json?: boolean
+    error_message?: boolean
+    started_at?: boolean
+    completed_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["imageLabRun"]>
+
+  export type ImageLabRunSelectScalar = {
+    id?: boolean
+    operation?: boolean
+    status?: boolean
+    parent_run_id?: boolean
+    prompt?: boolean
+    provider?: boolean
+    model?: boolean
+    size?: boolean
+    quality?: boolean
+    format?: boolean
+    input_json?: boolean
+    result_json?: boolean
+    error_message?: boolean
+    started_at?: boolean
+    completed_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type ImageLabRunOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "operation" | "status" | "parent_run_id" | "prompt" | "provider" | "model" | "size" | "quality" | "format" | "input_json" | "result_json" | "error_message" | "started_at" | "completed_at" | "created_at" | "updated_at", ExtArgs["result"]["imageLabRun"]>
+  export type ImageLabRunInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    artifacts?: boolean | ImageLabRun$artifactsArgs<ExtArgs>
+    _count?: boolean | ImageLabRunCountOutputTypeDefaultArgs<ExtArgs>
+  }
+  export type ImageLabRunIncludeCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {}
+  export type ImageLabRunIncludeUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {}
+
+  export type $ImageLabRunPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "ImageLabRun"
+    objects: {
+      artifacts: Prisma.$ImageLabArtifactPayload<ExtArgs>[]
+    }
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      operation: string
+      status: string
+      parent_run_id: string | null
+      prompt: string
+      provider: string | null
+      model: string | null
+      size: string | null
+      quality: string | null
+      format: string | null
+      input_json: Prisma.JsonValue | null
+      result_json: Prisma.JsonValue | null
+      error_message: string | null
+      started_at: Date | null
+      completed_at: Date | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["imageLabRun"]>
+    composites: {}
+  }
+
+  type ImageLabRunGetPayload<S extends boolean | null | undefined | ImageLabRunDefaultArgs> = $Result.GetResult<Prisma.$ImageLabRunPayload, S>
+
+  type ImageLabRunCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<ImageLabRunFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: ImageLabRunCountAggregateInputType | true
+    }
+
+  export interface ImageLabRunDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['ImageLabRun'], meta: { name: 'ImageLabRun' } }
+    /**
+     * Find zero or one ImageLabRun that matches the filter.
+     * @param {ImageLabRunFindUniqueArgs} args - Arguments to find a ImageLabRun
+     * @example
+     * // Get one ImageLabRun
+     * const imageLabRun = await prisma.imageLabRun.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends ImageLabRunFindUniqueArgs>(args: SelectSubset<T, ImageLabRunFindUniqueArgs<ExtArgs>>): Prisma__ImageLabRunClient<$Result.GetResult<Prisma.$ImageLabRunPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one ImageLabRun that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {ImageLabRunFindUniqueOrThrowArgs} args - Arguments to find a ImageLabRun
+     * @example
+     * // Get one ImageLabRun
+     * const imageLabRun = await prisma.imageLabRun.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends ImageLabRunFindUniqueOrThrowArgs>(args: SelectSubset<T, ImageLabRunFindUniqueOrThrowArgs<ExtArgs>>): Prisma__ImageLabRunClient<$Result.GetResult<Prisma.$ImageLabRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ImageLabRun that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabRunFindFirstArgs} args - Arguments to find a ImageLabRun
+     * @example
+     * // Get one ImageLabRun
+     * const imageLabRun = await prisma.imageLabRun.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends ImageLabRunFindFirstArgs>(args?: SelectSubset<T, ImageLabRunFindFirstArgs<ExtArgs>>): Prisma__ImageLabRunClient<$Result.GetResult<Prisma.$ImageLabRunPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ImageLabRun that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabRunFindFirstOrThrowArgs} args - Arguments to find a ImageLabRun
+     * @example
+     * // Get one ImageLabRun
+     * const imageLabRun = await prisma.imageLabRun.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends ImageLabRunFindFirstOrThrowArgs>(args?: SelectSubset<T, ImageLabRunFindFirstOrThrowArgs<ExtArgs>>): Prisma__ImageLabRunClient<$Result.GetResult<Prisma.$ImageLabRunPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more ImageLabRuns that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabRunFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all ImageLabRuns
+     * const imageLabRuns = await prisma.imageLabRun.findMany()
+     * 
+     * // Get first 10 ImageLabRuns
+     * const imageLabRuns = await prisma.imageLabRun.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const imageLabRunWithIdOnly = await prisma.imageLabRun.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends ImageLabRunFindManyArgs>(args?: SelectSubset<T, ImageLabRunFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageLabRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a ImageLabRun.
+     * @param {ImageLabRunCreateArgs} args - Arguments to create a ImageLabRun.
+     * @example
+     * // Create one ImageLabRun
+     * const ImageLabRun = await prisma.imageLabRun.create({
+     *   data: {
+     *     // ... data to create a ImageLabRun
+     *   }
+     * })
+     * 
+     */
+    create<T extends ImageLabRunCreateArgs>(args: SelectSubset<T, ImageLabRunCreateArgs<ExtArgs>>): Prisma__ImageLabRunClient<$Result.GetResult<Prisma.$ImageLabRunPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many ImageLabRuns.
+     * @param {ImageLabRunCreateManyArgs} args - Arguments to create many ImageLabRuns.
+     * @example
+     * // Create many ImageLabRuns
+     * const imageLabRun = await prisma.imageLabRun.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends ImageLabRunCreateManyArgs>(args?: SelectSubset<T, ImageLabRunCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many ImageLabRuns and returns the data saved in the database.
+     * @param {ImageLabRunCreateManyAndReturnArgs} args - Arguments to create many ImageLabRuns.
+     * @example
+     * // Create many ImageLabRuns
+     * const imageLabRun = await prisma.imageLabRun.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many ImageLabRuns and only return the `id`
+     * const imageLabRunWithIdOnly = await prisma.imageLabRun.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends ImageLabRunCreateManyAndReturnArgs>(args?: SelectSubset<T, ImageLabRunCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageLabRunPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a ImageLabRun.
+     * @param {ImageLabRunDeleteArgs} args - Arguments to delete one ImageLabRun.
+     * @example
+     * // Delete one ImageLabRun
+     * const ImageLabRun = await prisma.imageLabRun.delete({
+     *   where: {
+     *     // ... filter to delete one ImageLabRun
+     *   }
+     * })
+     * 
+     */
+    delete<T extends ImageLabRunDeleteArgs>(args: SelectSubset<T, ImageLabRunDeleteArgs<ExtArgs>>): Prisma__ImageLabRunClient<$Result.GetResult<Prisma.$ImageLabRunPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one ImageLabRun.
+     * @param {ImageLabRunUpdateArgs} args - Arguments to update one ImageLabRun.
+     * @example
+     * // Update one ImageLabRun
+     * const imageLabRun = await prisma.imageLabRun.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends ImageLabRunUpdateArgs>(args: SelectSubset<T, ImageLabRunUpdateArgs<ExtArgs>>): Prisma__ImageLabRunClient<$Result.GetResult<Prisma.$ImageLabRunPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more ImageLabRuns.
+     * @param {ImageLabRunDeleteManyArgs} args - Arguments to filter ImageLabRuns to delete.
+     * @example
+     * // Delete a few ImageLabRuns
+     * const { count } = await prisma.imageLabRun.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends ImageLabRunDeleteManyArgs>(args?: SelectSubset<T, ImageLabRunDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ImageLabRuns.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabRunUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many ImageLabRuns
+     * const imageLabRun = await prisma.imageLabRun.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends ImageLabRunUpdateManyArgs>(args: SelectSubset<T, ImageLabRunUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ImageLabRuns and returns the data updated in the database.
+     * @param {ImageLabRunUpdateManyAndReturnArgs} args - Arguments to update many ImageLabRuns.
+     * @example
+     * // Update many ImageLabRuns
+     * const imageLabRun = await prisma.imageLabRun.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more ImageLabRuns and only return the `id`
+     * const imageLabRunWithIdOnly = await prisma.imageLabRun.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends ImageLabRunUpdateManyAndReturnArgs>(args: SelectSubset<T, ImageLabRunUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageLabRunPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one ImageLabRun.
+     * @param {ImageLabRunUpsertArgs} args - Arguments to update or create a ImageLabRun.
+     * @example
+     * // Update or create a ImageLabRun
+     * const imageLabRun = await prisma.imageLabRun.upsert({
+     *   create: {
+     *     // ... data to create a ImageLabRun
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the ImageLabRun we want to update
+     *   }
+     * })
+     */
+    upsert<T extends ImageLabRunUpsertArgs>(args: SelectSubset<T, ImageLabRunUpsertArgs<ExtArgs>>): Prisma__ImageLabRunClient<$Result.GetResult<Prisma.$ImageLabRunPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of ImageLabRuns.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabRunCountArgs} args - Arguments to filter ImageLabRuns to count.
+     * @example
+     * // Count the number of ImageLabRuns
+     * const count = await prisma.imageLabRun.count({
+     *   where: {
+     *     // ... the filter for the ImageLabRuns we want to count
+     *   }
+     * })
+    **/
+    count<T extends ImageLabRunCountArgs>(
+      args?: Subset<T, ImageLabRunCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], ImageLabRunCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a ImageLabRun.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabRunAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends ImageLabRunAggregateArgs>(args: Subset<T, ImageLabRunAggregateArgs>): Prisma.PrismaPromise<GetImageLabRunAggregateType<T>>
+
+    /**
+     * Group by ImageLabRun.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabRunGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends ImageLabRunGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: ImageLabRunGroupByArgs['orderBy'] }
+        : { orderBy?: ImageLabRunGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, ImageLabRunGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetImageLabRunGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the ImageLabRun model
+   */
+  readonly fields: ImageLabRunFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for ImageLabRun.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__ImageLabRunClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    artifacts<T extends ImageLabRun$artifactsArgs<ExtArgs> = {}>(args?: Subset<T, ImageLabRun$artifactsArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageLabArtifactPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the ImageLabRun model
+   */
+  interface ImageLabRunFieldRefs {
+    readonly id: FieldRef<"ImageLabRun", 'String'>
+    readonly operation: FieldRef<"ImageLabRun", 'String'>
+    readonly status: FieldRef<"ImageLabRun", 'String'>
+    readonly parent_run_id: FieldRef<"ImageLabRun", 'String'>
+    readonly prompt: FieldRef<"ImageLabRun", 'String'>
+    readonly provider: FieldRef<"ImageLabRun", 'String'>
+    readonly model: FieldRef<"ImageLabRun", 'String'>
+    readonly size: FieldRef<"ImageLabRun", 'String'>
+    readonly quality: FieldRef<"ImageLabRun", 'String'>
+    readonly format: FieldRef<"ImageLabRun", 'String'>
+    readonly input_json: FieldRef<"ImageLabRun", 'Json'>
+    readonly result_json: FieldRef<"ImageLabRun", 'Json'>
+    readonly error_message: FieldRef<"ImageLabRun", 'String'>
+    readonly started_at: FieldRef<"ImageLabRun", 'DateTime'>
+    readonly completed_at: FieldRef<"ImageLabRun", 'DateTime'>
+    readonly created_at: FieldRef<"ImageLabRun", 'DateTime'>
+    readonly updated_at: FieldRef<"ImageLabRun", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * ImageLabRun findUnique
+   */
+  export type ImageLabRunFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRun
+     */
+    select?: ImageLabRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabRun
+     */
+    omit?: ImageLabRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabRunInclude<ExtArgs> | null
+    /**
+     * Filter, which ImageLabRun to fetch.
+     */
+    where: ImageLabRunWhereUniqueInput
+  }
+
+  /**
+   * ImageLabRun findUniqueOrThrow
+   */
+  export type ImageLabRunFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRun
+     */
+    select?: ImageLabRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabRun
+     */
+    omit?: ImageLabRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabRunInclude<ExtArgs> | null
+    /**
+     * Filter, which ImageLabRun to fetch.
+     */
+    where: ImageLabRunWhereUniqueInput
+  }
+
+  /**
+   * ImageLabRun findFirst
+   */
+  export type ImageLabRunFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRun
+     */
+    select?: ImageLabRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabRun
+     */
+    omit?: ImageLabRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabRunInclude<ExtArgs> | null
+    /**
+     * Filter, which ImageLabRun to fetch.
+     */
+    where?: ImageLabRunWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageLabRuns to fetch.
+     */
+    orderBy?: ImageLabRunOrderByWithRelationInput | ImageLabRunOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ImageLabRuns.
+     */
+    cursor?: ImageLabRunWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageLabRuns from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageLabRuns.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ImageLabRuns.
+     */
+    distinct?: ImageLabRunScalarFieldEnum | ImageLabRunScalarFieldEnum[]
+  }
+
+  /**
+   * ImageLabRun findFirstOrThrow
+   */
+  export type ImageLabRunFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRun
+     */
+    select?: ImageLabRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabRun
+     */
+    omit?: ImageLabRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabRunInclude<ExtArgs> | null
+    /**
+     * Filter, which ImageLabRun to fetch.
+     */
+    where?: ImageLabRunWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageLabRuns to fetch.
+     */
+    orderBy?: ImageLabRunOrderByWithRelationInput | ImageLabRunOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ImageLabRuns.
+     */
+    cursor?: ImageLabRunWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageLabRuns from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageLabRuns.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ImageLabRuns.
+     */
+    distinct?: ImageLabRunScalarFieldEnum | ImageLabRunScalarFieldEnum[]
+  }
+
+  /**
+   * ImageLabRun findMany
+   */
+  export type ImageLabRunFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRun
+     */
+    select?: ImageLabRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabRun
+     */
+    omit?: ImageLabRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabRunInclude<ExtArgs> | null
+    /**
+     * Filter, which ImageLabRuns to fetch.
+     */
+    where?: ImageLabRunWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageLabRuns to fetch.
+     */
+    orderBy?: ImageLabRunOrderByWithRelationInput | ImageLabRunOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing ImageLabRuns.
+     */
+    cursor?: ImageLabRunWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageLabRuns from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageLabRuns.
+     */
+    skip?: number
+    distinct?: ImageLabRunScalarFieldEnum | ImageLabRunScalarFieldEnum[]
+  }
+
+  /**
+   * ImageLabRun create
+   */
+  export type ImageLabRunCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRun
+     */
+    select?: ImageLabRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabRun
+     */
+    omit?: ImageLabRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabRunInclude<ExtArgs> | null
+    /**
+     * The data needed to create a ImageLabRun.
+     */
+    data: XOR<ImageLabRunCreateInput, ImageLabRunUncheckedCreateInput>
+  }
+
+  /**
+   * ImageLabRun createMany
+   */
+  export type ImageLabRunCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many ImageLabRuns.
+     */
+    data: ImageLabRunCreateManyInput | ImageLabRunCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ImageLabRun createManyAndReturn
+   */
+  export type ImageLabRunCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRun
+     */
+    select?: ImageLabRunSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabRun
+     */
+    omit?: ImageLabRunOmit<ExtArgs> | null
+    /**
+     * The data used to create many ImageLabRuns.
+     */
+    data: ImageLabRunCreateManyInput | ImageLabRunCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ImageLabRun update
+   */
+  export type ImageLabRunUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRun
+     */
+    select?: ImageLabRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabRun
+     */
+    omit?: ImageLabRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabRunInclude<ExtArgs> | null
+    /**
+     * The data needed to update a ImageLabRun.
+     */
+    data: XOR<ImageLabRunUpdateInput, ImageLabRunUncheckedUpdateInput>
+    /**
+     * Choose, which ImageLabRun to update.
+     */
+    where: ImageLabRunWhereUniqueInput
+  }
+
+  /**
+   * ImageLabRun updateMany
+   */
+  export type ImageLabRunUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update ImageLabRuns.
+     */
+    data: XOR<ImageLabRunUpdateManyMutationInput, ImageLabRunUncheckedUpdateManyInput>
+    /**
+     * Filter which ImageLabRuns to update
+     */
+    where?: ImageLabRunWhereInput
+    /**
+     * Limit how many ImageLabRuns to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageLabRun updateManyAndReturn
+   */
+  export type ImageLabRunUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRun
+     */
+    select?: ImageLabRunSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabRun
+     */
+    omit?: ImageLabRunOmit<ExtArgs> | null
+    /**
+     * The data used to update ImageLabRuns.
+     */
+    data: XOR<ImageLabRunUpdateManyMutationInput, ImageLabRunUncheckedUpdateManyInput>
+    /**
+     * Filter which ImageLabRuns to update
+     */
+    where?: ImageLabRunWhereInput
+    /**
+     * Limit how many ImageLabRuns to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageLabRun upsert
+   */
+  export type ImageLabRunUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRun
+     */
+    select?: ImageLabRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabRun
+     */
+    omit?: ImageLabRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabRunInclude<ExtArgs> | null
+    /**
+     * The filter to search for the ImageLabRun to update in case it exists.
+     */
+    where: ImageLabRunWhereUniqueInput
+    /**
+     * In case the ImageLabRun found by the `where` argument doesn't exist, create a new ImageLabRun with this data.
+     */
+    create: XOR<ImageLabRunCreateInput, ImageLabRunUncheckedCreateInput>
+    /**
+     * In case the ImageLabRun was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<ImageLabRunUpdateInput, ImageLabRunUncheckedUpdateInput>
+  }
+
+  /**
+   * ImageLabRun delete
+   */
+  export type ImageLabRunDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRun
+     */
+    select?: ImageLabRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabRun
+     */
+    omit?: ImageLabRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabRunInclude<ExtArgs> | null
+    /**
+     * Filter which ImageLabRun to delete.
+     */
+    where: ImageLabRunWhereUniqueInput
+  }
+
+  /**
+   * ImageLabRun deleteMany
+   */
+  export type ImageLabRunDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ImageLabRuns to delete
+     */
+    where?: ImageLabRunWhereInput
+    /**
+     * Limit how many ImageLabRuns to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageLabRun.artifacts
+   */
+  export type ImageLabRun$artifactsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactInclude<ExtArgs> | null
+    where?: ImageLabArtifactWhereInput
+    orderBy?: ImageLabArtifactOrderByWithRelationInput | ImageLabArtifactOrderByWithRelationInput[]
+    cursor?: ImageLabArtifactWhereUniqueInput
+    take?: number
+    skip?: number
+    distinct?: ImageLabArtifactScalarFieldEnum | ImageLabArtifactScalarFieldEnum[]
+  }
+
+  /**
+   * ImageLabRun without action
+   */
+  export type ImageLabRunDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabRun
+     */
+    select?: ImageLabRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabRun
+     */
+    omit?: ImageLabRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabRunInclude<ExtArgs> | null
+  }
+
+
+  /**
+   * Model ImageLabArtifact
+   */
+
+  export type AggregateImageLabArtifact = {
+    _count: ImageLabArtifactCountAggregateOutputType | null
+    _avg: ImageLabArtifactAvgAggregateOutputType | null
+    _sum: ImageLabArtifactSumAggregateOutputType | null
+    _min: ImageLabArtifactMinAggregateOutputType | null
+    _max: ImageLabArtifactMaxAggregateOutputType | null
+  }
+
+  export type ImageLabArtifactAvgAggregateOutputType = {
+    bytes: number | null
+    width: number | null
+    height: number | null
+  }
+
+  export type ImageLabArtifactSumAggregateOutputType = {
+    bytes: number | null
+    width: number | null
+    height: number | null
+  }
+
+  export type ImageLabArtifactMinAggregateOutputType = {
+    id: string | null
+    run_id: string | null
+    kind: string | null
+    file_path: string | null
+    public_path: string | null
+    mime_type: string | null
+    format: string | null
+    bytes: number | null
+    width: number | null
+    height: number | null
+    revised_prompt: string | null
+    created_at: Date | null
+  }
+
+  export type ImageLabArtifactMaxAggregateOutputType = {
+    id: string | null
+    run_id: string | null
+    kind: string | null
+    file_path: string | null
+    public_path: string | null
+    mime_type: string | null
+    format: string | null
+    bytes: number | null
+    width: number | null
+    height: number | null
+    revised_prompt: string | null
+    created_at: Date | null
+  }
+
+  export type ImageLabArtifactCountAggregateOutputType = {
+    id: number
+    run_id: number
+    kind: number
+    file_path: number
+    public_path: number
+    mime_type: number
+    format: number
+    bytes: number
+    width: number
+    height: number
+    revised_prompt: number
+    metadata: number
+    created_at: number
+    _all: number
+  }
+
+
+  export type ImageLabArtifactAvgAggregateInputType = {
+    bytes?: true
+    width?: true
+    height?: true
+  }
+
+  export type ImageLabArtifactSumAggregateInputType = {
+    bytes?: true
+    width?: true
+    height?: true
+  }
+
+  export type ImageLabArtifactMinAggregateInputType = {
+    id?: true
+    run_id?: true
+    kind?: true
+    file_path?: true
+    public_path?: true
+    mime_type?: true
+    format?: true
+    bytes?: true
+    width?: true
+    height?: true
+    revised_prompt?: true
+    created_at?: true
+  }
+
+  export type ImageLabArtifactMaxAggregateInputType = {
+    id?: true
+    run_id?: true
+    kind?: true
+    file_path?: true
+    public_path?: true
+    mime_type?: true
+    format?: true
+    bytes?: true
+    width?: true
+    height?: true
+    revised_prompt?: true
+    created_at?: true
+  }
+
+  export type ImageLabArtifactCountAggregateInputType = {
+    id?: true
+    run_id?: true
+    kind?: true
+    file_path?: true
+    public_path?: true
+    mime_type?: true
+    format?: true
+    bytes?: true
+    width?: true
+    height?: true
+    revised_prompt?: true
+    metadata?: true
+    created_at?: true
+    _all?: true
+  }
+
+  export type ImageLabArtifactAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ImageLabArtifact to aggregate.
+     */
+    where?: ImageLabArtifactWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageLabArtifacts to fetch.
+     */
+    orderBy?: ImageLabArtifactOrderByWithRelationInput | ImageLabArtifactOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: ImageLabArtifactWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageLabArtifacts from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageLabArtifacts.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned ImageLabArtifacts
+    **/
+    _count?: true | ImageLabArtifactCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: ImageLabArtifactAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: ImageLabArtifactSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: ImageLabArtifactMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: ImageLabArtifactMaxAggregateInputType
+  }
+
+  export type GetImageLabArtifactAggregateType<T extends ImageLabArtifactAggregateArgs> = {
+        [P in keyof T & keyof AggregateImageLabArtifact]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateImageLabArtifact[P]>
+      : GetScalarType<T[P], AggregateImageLabArtifact[P]>
+  }
+
+
+
+
+  export type ImageLabArtifactGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: ImageLabArtifactWhereInput
+    orderBy?: ImageLabArtifactOrderByWithAggregationInput | ImageLabArtifactOrderByWithAggregationInput[]
+    by: ImageLabArtifactScalarFieldEnum[] | ImageLabArtifactScalarFieldEnum
+    having?: ImageLabArtifactScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: ImageLabArtifactCountAggregateInputType | true
+    _avg?: ImageLabArtifactAvgAggregateInputType
+    _sum?: ImageLabArtifactSumAggregateInputType
+    _min?: ImageLabArtifactMinAggregateInputType
+    _max?: ImageLabArtifactMaxAggregateInputType
+  }
+
+  export type ImageLabArtifactGroupByOutputType = {
+    id: string
+    run_id: string
+    kind: string
+    file_path: string
+    public_path: string
+    mime_type: string
+    format: string | null
+    bytes: number | null
+    width: number | null
+    height: number | null
+    revised_prompt: string | null
+    metadata: JsonValue | null
+    created_at: Date
+    _count: ImageLabArtifactCountAggregateOutputType | null
+    _avg: ImageLabArtifactAvgAggregateOutputType | null
+    _sum: ImageLabArtifactSumAggregateOutputType | null
+    _min: ImageLabArtifactMinAggregateOutputType | null
+    _max: ImageLabArtifactMaxAggregateOutputType | null
+  }
+
+  type GetImageLabArtifactGroupByPayload<T extends ImageLabArtifactGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<ImageLabArtifactGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof ImageLabArtifactGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], ImageLabArtifactGroupByOutputType[P]>
+            : GetScalarType<T[P], ImageLabArtifactGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type ImageLabArtifactSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    run_id?: boolean
+    kind?: boolean
+    file_path?: boolean
+    public_path?: boolean
+    mime_type?: boolean
+    format?: boolean
+    bytes?: boolean
+    width?: boolean
+    height?: boolean
+    revised_prompt?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    run?: boolean | ImageLabRunDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["imageLabArtifact"]>
+
+  export type ImageLabArtifactSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    run_id?: boolean
+    kind?: boolean
+    file_path?: boolean
+    public_path?: boolean
+    mime_type?: boolean
+    format?: boolean
+    bytes?: boolean
+    width?: boolean
+    height?: boolean
+    revised_prompt?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    run?: boolean | ImageLabRunDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["imageLabArtifact"]>
+
+  export type ImageLabArtifactSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    run_id?: boolean
+    kind?: boolean
+    file_path?: boolean
+    public_path?: boolean
+    mime_type?: boolean
+    format?: boolean
+    bytes?: boolean
+    width?: boolean
+    height?: boolean
+    revised_prompt?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    run?: boolean | ImageLabRunDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["imageLabArtifact"]>
+
+  export type ImageLabArtifactSelectScalar = {
+    id?: boolean
+    run_id?: boolean
+    kind?: boolean
+    file_path?: boolean
+    public_path?: boolean
+    mime_type?: boolean
+    format?: boolean
+    bytes?: boolean
+    width?: boolean
+    height?: boolean
+    revised_prompt?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }
+
+  export type ImageLabArtifactOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "run_id" | "kind" | "file_path" | "public_path" | "mime_type" | "format" | "bytes" | "width" | "height" | "revised_prompt" | "metadata" | "created_at", ExtArgs["result"]["imageLabArtifact"]>
+  export type ImageLabArtifactInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    run?: boolean | ImageLabRunDefaultArgs<ExtArgs>
+  }
+  export type ImageLabArtifactIncludeCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    run?: boolean | ImageLabRunDefaultArgs<ExtArgs>
+  }
+  export type ImageLabArtifactIncludeUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    run?: boolean | ImageLabRunDefaultArgs<ExtArgs>
+  }
+
+  export type $ImageLabArtifactPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "ImageLabArtifact"
+    objects: {
+      run: Prisma.$ImageLabRunPayload<ExtArgs>
+    }
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      run_id: string
+      kind: string
+      file_path: string
+      public_path: string
+      mime_type: string
+      format: string | null
+      bytes: number | null
+      width: number | null
+      height: number | null
+      revised_prompt: string | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+    }, ExtArgs["result"]["imageLabArtifact"]>
+    composites: {}
+  }
+
+  type ImageLabArtifactGetPayload<S extends boolean | null | undefined | ImageLabArtifactDefaultArgs> = $Result.GetResult<Prisma.$ImageLabArtifactPayload, S>
+
+  type ImageLabArtifactCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<ImageLabArtifactFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: ImageLabArtifactCountAggregateInputType | true
+    }
+
+  export interface ImageLabArtifactDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['ImageLabArtifact'], meta: { name: 'ImageLabArtifact' } }
+    /**
+     * Find zero or one ImageLabArtifact that matches the filter.
+     * @param {ImageLabArtifactFindUniqueArgs} args - Arguments to find a ImageLabArtifact
+     * @example
+     * // Get one ImageLabArtifact
+     * const imageLabArtifact = await prisma.imageLabArtifact.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends ImageLabArtifactFindUniqueArgs>(args: SelectSubset<T, ImageLabArtifactFindUniqueArgs<ExtArgs>>): Prisma__ImageLabArtifactClient<$Result.GetResult<Prisma.$ImageLabArtifactPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one ImageLabArtifact that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {ImageLabArtifactFindUniqueOrThrowArgs} args - Arguments to find a ImageLabArtifact
+     * @example
+     * // Get one ImageLabArtifact
+     * const imageLabArtifact = await prisma.imageLabArtifact.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends ImageLabArtifactFindUniqueOrThrowArgs>(args: SelectSubset<T, ImageLabArtifactFindUniqueOrThrowArgs<ExtArgs>>): Prisma__ImageLabArtifactClient<$Result.GetResult<Prisma.$ImageLabArtifactPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ImageLabArtifact that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabArtifactFindFirstArgs} args - Arguments to find a ImageLabArtifact
+     * @example
+     * // Get one ImageLabArtifact
+     * const imageLabArtifact = await prisma.imageLabArtifact.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends ImageLabArtifactFindFirstArgs>(args?: SelectSubset<T, ImageLabArtifactFindFirstArgs<ExtArgs>>): Prisma__ImageLabArtifactClient<$Result.GetResult<Prisma.$ImageLabArtifactPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first ImageLabArtifact that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabArtifactFindFirstOrThrowArgs} args - Arguments to find a ImageLabArtifact
+     * @example
+     * // Get one ImageLabArtifact
+     * const imageLabArtifact = await prisma.imageLabArtifact.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends ImageLabArtifactFindFirstOrThrowArgs>(args?: SelectSubset<T, ImageLabArtifactFindFirstOrThrowArgs<ExtArgs>>): Prisma__ImageLabArtifactClient<$Result.GetResult<Prisma.$ImageLabArtifactPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more ImageLabArtifacts that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabArtifactFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all ImageLabArtifacts
+     * const imageLabArtifacts = await prisma.imageLabArtifact.findMany()
+     * 
+     * // Get first 10 ImageLabArtifacts
+     * const imageLabArtifacts = await prisma.imageLabArtifact.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const imageLabArtifactWithIdOnly = await prisma.imageLabArtifact.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends ImageLabArtifactFindManyArgs>(args?: SelectSubset<T, ImageLabArtifactFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageLabArtifactPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a ImageLabArtifact.
+     * @param {ImageLabArtifactCreateArgs} args - Arguments to create a ImageLabArtifact.
+     * @example
+     * // Create one ImageLabArtifact
+     * const ImageLabArtifact = await prisma.imageLabArtifact.create({
+     *   data: {
+     *     // ... data to create a ImageLabArtifact
+     *   }
+     * })
+     * 
+     */
+    create<T extends ImageLabArtifactCreateArgs>(args: SelectSubset<T, ImageLabArtifactCreateArgs<ExtArgs>>): Prisma__ImageLabArtifactClient<$Result.GetResult<Prisma.$ImageLabArtifactPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many ImageLabArtifacts.
+     * @param {ImageLabArtifactCreateManyArgs} args - Arguments to create many ImageLabArtifacts.
+     * @example
+     * // Create many ImageLabArtifacts
+     * const imageLabArtifact = await prisma.imageLabArtifact.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends ImageLabArtifactCreateManyArgs>(args?: SelectSubset<T, ImageLabArtifactCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many ImageLabArtifacts and returns the data saved in the database.
+     * @param {ImageLabArtifactCreateManyAndReturnArgs} args - Arguments to create many ImageLabArtifacts.
+     * @example
+     * // Create many ImageLabArtifacts
+     * const imageLabArtifact = await prisma.imageLabArtifact.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many ImageLabArtifacts and only return the `id`
+     * const imageLabArtifactWithIdOnly = await prisma.imageLabArtifact.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends ImageLabArtifactCreateManyAndReturnArgs>(args?: SelectSubset<T, ImageLabArtifactCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageLabArtifactPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a ImageLabArtifact.
+     * @param {ImageLabArtifactDeleteArgs} args - Arguments to delete one ImageLabArtifact.
+     * @example
+     * // Delete one ImageLabArtifact
+     * const ImageLabArtifact = await prisma.imageLabArtifact.delete({
+     *   where: {
+     *     // ... filter to delete one ImageLabArtifact
+     *   }
+     * })
+     * 
+     */
+    delete<T extends ImageLabArtifactDeleteArgs>(args: SelectSubset<T, ImageLabArtifactDeleteArgs<ExtArgs>>): Prisma__ImageLabArtifactClient<$Result.GetResult<Prisma.$ImageLabArtifactPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one ImageLabArtifact.
+     * @param {ImageLabArtifactUpdateArgs} args - Arguments to update one ImageLabArtifact.
+     * @example
+     * // Update one ImageLabArtifact
+     * const imageLabArtifact = await prisma.imageLabArtifact.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends ImageLabArtifactUpdateArgs>(args: SelectSubset<T, ImageLabArtifactUpdateArgs<ExtArgs>>): Prisma__ImageLabArtifactClient<$Result.GetResult<Prisma.$ImageLabArtifactPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more ImageLabArtifacts.
+     * @param {ImageLabArtifactDeleteManyArgs} args - Arguments to filter ImageLabArtifacts to delete.
+     * @example
+     * // Delete a few ImageLabArtifacts
+     * const { count } = await prisma.imageLabArtifact.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends ImageLabArtifactDeleteManyArgs>(args?: SelectSubset<T, ImageLabArtifactDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ImageLabArtifacts.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabArtifactUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many ImageLabArtifacts
+     * const imageLabArtifact = await prisma.imageLabArtifact.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends ImageLabArtifactUpdateManyArgs>(args: SelectSubset<T, ImageLabArtifactUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more ImageLabArtifacts and returns the data updated in the database.
+     * @param {ImageLabArtifactUpdateManyAndReturnArgs} args - Arguments to update many ImageLabArtifacts.
+     * @example
+     * // Update many ImageLabArtifacts
+     * const imageLabArtifact = await prisma.imageLabArtifact.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more ImageLabArtifacts and only return the `id`
+     * const imageLabArtifactWithIdOnly = await prisma.imageLabArtifact.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends ImageLabArtifactUpdateManyAndReturnArgs>(args: SelectSubset<T, ImageLabArtifactUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$ImageLabArtifactPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one ImageLabArtifact.
+     * @param {ImageLabArtifactUpsertArgs} args - Arguments to update or create a ImageLabArtifact.
+     * @example
+     * // Update or create a ImageLabArtifact
+     * const imageLabArtifact = await prisma.imageLabArtifact.upsert({
+     *   create: {
+     *     // ... data to create a ImageLabArtifact
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the ImageLabArtifact we want to update
+     *   }
+     * })
+     */
+    upsert<T extends ImageLabArtifactUpsertArgs>(args: SelectSubset<T, ImageLabArtifactUpsertArgs<ExtArgs>>): Prisma__ImageLabArtifactClient<$Result.GetResult<Prisma.$ImageLabArtifactPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of ImageLabArtifacts.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabArtifactCountArgs} args - Arguments to filter ImageLabArtifacts to count.
+     * @example
+     * // Count the number of ImageLabArtifacts
+     * const count = await prisma.imageLabArtifact.count({
+     *   where: {
+     *     // ... the filter for the ImageLabArtifacts we want to count
+     *   }
+     * })
+    **/
+    count<T extends ImageLabArtifactCountArgs>(
+      args?: Subset<T, ImageLabArtifactCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], ImageLabArtifactCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a ImageLabArtifact.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabArtifactAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends ImageLabArtifactAggregateArgs>(args: Subset<T, ImageLabArtifactAggregateArgs>): Prisma.PrismaPromise<GetImageLabArtifactAggregateType<T>>
+
+    /**
+     * Group by ImageLabArtifact.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {ImageLabArtifactGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends ImageLabArtifactGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: ImageLabArtifactGroupByArgs['orderBy'] }
+        : { orderBy?: ImageLabArtifactGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, ImageLabArtifactGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetImageLabArtifactGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the ImageLabArtifact model
+   */
+  readonly fields: ImageLabArtifactFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for ImageLabArtifact.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__ImageLabArtifactClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    run<T extends ImageLabRunDefaultArgs<ExtArgs> = {}>(args?: Subset<T, ImageLabRunDefaultArgs<ExtArgs>>): Prisma__ImageLabRunClient<$Result.GetResult<Prisma.$ImageLabRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the ImageLabArtifact model
+   */
+  interface ImageLabArtifactFieldRefs {
+    readonly id: FieldRef<"ImageLabArtifact", 'String'>
+    readonly run_id: FieldRef<"ImageLabArtifact", 'String'>
+    readonly kind: FieldRef<"ImageLabArtifact", 'String'>
+    readonly file_path: FieldRef<"ImageLabArtifact", 'String'>
+    readonly public_path: FieldRef<"ImageLabArtifact", 'String'>
+    readonly mime_type: FieldRef<"ImageLabArtifact", 'String'>
+    readonly format: FieldRef<"ImageLabArtifact", 'String'>
+    readonly bytes: FieldRef<"ImageLabArtifact", 'Int'>
+    readonly width: FieldRef<"ImageLabArtifact", 'Int'>
+    readonly height: FieldRef<"ImageLabArtifact", 'Int'>
+    readonly revised_prompt: FieldRef<"ImageLabArtifact", 'String'>
+    readonly metadata: FieldRef<"ImageLabArtifact", 'Json'>
+    readonly created_at: FieldRef<"ImageLabArtifact", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * ImageLabArtifact findUnique
+   */
+  export type ImageLabArtifactFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactInclude<ExtArgs> | null
+    /**
+     * Filter, which ImageLabArtifact to fetch.
+     */
+    where: ImageLabArtifactWhereUniqueInput
+  }
+
+  /**
+   * ImageLabArtifact findUniqueOrThrow
+   */
+  export type ImageLabArtifactFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactInclude<ExtArgs> | null
+    /**
+     * Filter, which ImageLabArtifact to fetch.
+     */
+    where: ImageLabArtifactWhereUniqueInput
+  }
+
+  /**
+   * ImageLabArtifact findFirst
+   */
+  export type ImageLabArtifactFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactInclude<ExtArgs> | null
+    /**
+     * Filter, which ImageLabArtifact to fetch.
+     */
+    where?: ImageLabArtifactWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageLabArtifacts to fetch.
+     */
+    orderBy?: ImageLabArtifactOrderByWithRelationInput | ImageLabArtifactOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ImageLabArtifacts.
+     */
+    cursor?: ImageLabArtifactWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageLabArtifacts from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageLabArtifacts.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ImageLabArtifacts.
+     */
+    distinct?: ImageLabArtifactScalarFieldEnum | ImageLabArtifactScalarFieldEnum[]
+  }
+
+  /**
+   * ImageLabArtifact findFirstOrThrow
+   */
+  export type ImageLabArtifactFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactInclude<ExtArgs> | null
+    /**
+     * Filter, which ImageLabArtifact to fetch.
+     */
+    where?: ImageLabArtifactWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageLabArtifacts to fetch.
+     */
+    orderBy?: ImageLabArtifactOrderByWithRelationInput | ImageLabArtifactOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for ImageLabArtifacts.
+     */
+    cursor?: ImageLabArtifactWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageLabArtifacts from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageLabArtifacts.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of ImageLabArtifacts.
+     */
+    distinct?: ImageLabArtifactScalarFieldEnum | ImageLabArtifactScalarFieldEnum[]
+  }
+
+  /**
+   * ImageLabArtifact findMany
+   */
+  export type ImageLabArtifactFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactInclude<ExtArgs> | null
+    /**
+     * Filter, which ImageLabArtifacts to fetch.
+     */
+    where?: ImageLabArtifactWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of ImageLabArtifacts to fetch.
+     */
+    orderBy?: ImageLabArtifactOrderByWithRelationInput | ImageLabArtifactOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing ImageLabArtifacts.
+     */
+    cursor?: ImageLabArtifactWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` ImageLabArtifacts from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` ImageLabArtifacts.
+     */
+    skip?: number
+    distinct?: ImageLabArtifactScalarFieldEnum | ImageLabArtifactScalarFieldEnum[]
+  }
+
+  /**
+   * ImageLabArtifact create
+   */
+  export type ImageLabArtifactCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactInclude<ExtArgs> | null
+    /**
+     * The data needed to create a ImageLabArtifact.
+     */
+    data: XOR<ImageLabArtifactCreateInput, ImageLabArtifactUncheckedCreateInput>
+  }
+
+  /**
+   * ImageLabArtifact createMany
+   */
+  export type ImageLabArtifactCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many ImageLabArtifacts.
+     */
+    data: ImageLabArtifactCreateManyInput | ImageLabArtifactCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * ImageLabArtifact createManyAndReturn
+   */
+  export type ImageLabArtifactCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * The data used to create many ImageLabArtifacts.
+     */
+    data: ImageLabArtifactCreateManyInput | ImageLabArtifactCreateManyInput[]
+    skipDuplicates?: boolean
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactIncludeCreateManyAndReturn<ExtArgs> | null
+  }
+
+  /**
+   * ImageLabArtifact update
+   */
+  export type ImageLabArtifactUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactInclude<ExtArgs> | null
+    /**
+     * The data needed to update a ImageLabArtifact.
+     */
+    data: XOR<ImageLabArtifactUpdateInput, ImageLabArtifactUncheckedUpdateInput>
+    /**
+     * Choose, which ImageLabArtifact to update.
+     */
+    where: ImageLabArtifactWhereUniqueInput
+  }
+
+  /**
+   * ImageLabArtifact updateMany
+   */
+  export type ImageLabArtifactUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update ImageLabArtifacts.
+     */
+    data: XOR<ImageLabArtifactUpdateManyMutationInput, ImageLabArtifactUncheckedUpdateManyInput>
+    /**
+     * Filter which ImageLabArtifacts to update
+     */
+    where?: ImageLabArtifactWhereInput
+    /**
+     * Limit how many ImageLabArtifacts to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageLabArtifact updateManyAndReturn
+   */
+  export type ImageLabArtifactUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * The data used to update ImageLabArtifacts.
+     */
+    data: XOR<ImageLabArtifactUpdateManyMutationInput, ImageLabArtifactUncheckedUpdateManyInput>
+    /**
+     * Filter which ImageLabArtifacts to update
+     */
+    where?: ImageLabArtifactWhereInput
+    /**
+     * Limit how many ImageLabArtifacts to update.
+     */
+    limit?: number
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactIncludeUpdateManyAndReturn<ExtArgs> | null
+  }
+
+  /**
+   * ImageLabArtifact upsert
+   */
+  export type ImageLabArtifactUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactInclude<ExtArgs> | null
+    /**
+     * The filter to search for the ImageLabArtifact to update in case it exists.
+     */
+    where: ImageLabArtifactWhereUniqueInput
+    /**
+     * In case the ImageLabArtifact found by the `where` argument doesn't exist, create a new ImageLabArtifact with this data.
+     */
+    create: XOR<ImageLabArtifactCreateInput, ImageLabArtifactUncheckedCreateInput>
+    /**
+     * In case the ImageLabArtifact was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<ImageLabArtifactUpdateInput, ImageLabArtifactUncheckedUpdateInput>
+  }
+
+  /**
+   * ImageLabArtifact delete
+   */
+  export type ImageLabArtifactDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactInclude<ExtArgs> | null
+    /**
+     * Filter which ImageLabArtifact to delete.
+     */
+    where: ImageLabArtifactWhereUniqueInput
+  }
+
+  /**
+   * ImageLabArtifact deleteMany
+   */
+  export type ImageLabArtifactDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which ImageLabArtifacts to delete
+     */
+    where?: ImageLabArtifactWhereInput
+    /**
+     * Limit how many ImageLabArtifacts to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * ImageLabArtifact without action
+   */
+  export type ImageLabArtifactDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the ImageLabArtifact
+     */
+    select?: ImageLabArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the ImageLabArtifact
+     */
+    omit?: ImageLabArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: ImageLabArtifactInclude<ExtArgs> | null
+  }
+
+
+  /**
+   * Model AgentMediaAsset
+   */
+
+  export type AggregateAgentMediaAsset = {
+    _count: AgentMediaAssetCountAggregateOutputType | null
+    _avg: AgentMediaAssetAvgAggregateOutputType | null
+    _sum: AgentMediaAssetSumAggregateOutputType | null
+    _min: AgentMediaAssetMinAggregateOutputType | null
+    _max: AgentMediaAssetMaxAggregateOutputType | null
+  }
+
+  export type AgentMediaAssetAvgAggregateOutputType = {
+    source_message_id: number | null
+  }
+
+  export type AgentMediaAssetSumAggregateOutputType = {
+    source_message_id: bigint | null
+  }
+
+  export type AgentMediaAssetMinAggregateOutputType = {
+    id: string | null
+    source: string | null
+    source_message_id: bigint | null
+    trace_id: string | null
+    session_key: string | null
+    chat_type: string | null
+    peer_id: string | null
+    peer_name: string | null
+    sender_id: string | null
+    sender_name: string | null
+    account_id: string | null
+    message_sid: string | null
+    media_tag: string | null
+    placeholder: string | null
+    media_type: string | null
+    mime_type: string | null
+    source_locator: string | null
+    storage_uri: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AgentMediaAssetMaxAggregateOutputType = {
+    id: string | null
+    source: string | null
+    source_message_id: bigint | null
+    trace_id: string | null
+    session_key: string | null
+    chat_type: string | null
+    peer_id: string | null
+    peer_name: string | null
+    sender_id: string | null
+    sender_name: string | null
+    account_id: string | null
+    message_sid: string | null
+    media_tag: string | null
+    placeholder: string | null
+    media_type: string | null
+    mime_type: string | null
+    source_locator: string | null
+    storage_uri: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AgentMediaAssetCountAggregateOutputType = {
+    id: number
+    source: number
+    source_message_id: number
+    trace_id: number
+    session_key: number
+    chat_type: number
+    peer_id: number
+    peer_name: number
+    sender_id: number
+    sender_name: number
+    account_id: number
+    message_sid: number
+    media_tag: number
+    placeholder: number
+    media_type: number
+    mime_type: number
+    source_locator: number
+    storage_uri: number
+    metadata: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type AgentMediaAssetAvgAggregateInputType = {
+    source_message_id?: true
+  }
+
+  export type AgentMediaAssetSumAggregateInputType = {
+    source_message_id?: true
+  }
+
+  export type AgentMediaAssetMinAggregateInputType = {
+    id?: true
+    source?: true
+    source_message_id?: true
+    trace_id?: true
+    session_key?: true
+    chat_type?: true
+    peer_id?: true
+    peer_name?: true
+    sender_id?: true
+    sender_name?: true
+    account_id?: true
+    message_sid?: true
+    media_tag?: true
+    placeholder?: true
+    media_type?: true
+    mime_type?: true
+    source_locator?: true
+    storage_uri?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AgentMediaAssetMaxAggregateInputType = {
+    id?: true
+    source?: true
+    source_message_id?: true
+    trace_id?: true
+    session_key?: true
+    chat_type?: true
+    peer_id?: true
+    peer_name?: true
+    sender_id?: true
+    sender_name?: true
+    account_id?: true
+    message_sid?: true
+    media_tag?: true
+    placeholder?: true
+    media_type?: true
+    mime_type?: true
+    source_locator?: true
+    storage_uri?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AgentMediaAssetCountAggregateInputType = {
+    id?: true
+    source?: true
+    source_message_id?: true
+    trace_id?: true
+    session_key?: true
+    chat_type?: true
+    peer_id?: true
+    peer_name?: true
+    sender_id?: true
+    sender_name?: true
+    account_id?: true
+    message_sid?: true
+    media_tag?: true
+    placeholder?: true
+    media_type?: true
+    mime_type?: true
+    source_locator?: true
+    storage_uri?: true
+    metadata?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type AgentMediaAssetAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentMediaAsset to aggregate.
+     */
+    where?: AgentMediaAssetWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMediaAssets to fetch.
+     */
+    orderBy?: AgentMediaAssetOrderByWithRelationInput | AgentMediaAssetOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: AgentMediaAssetWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMediaAssets from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMediaAssets.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned AgentMediaAssets
+    **/
+    _count?: true | AgentMediaAssetCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: AgentMediaAssetAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: AgentMediaAssetSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: AgentMediaAssetMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: AgentMediaAssetMaxAggregateInputType
+  }
+
+  export type GetAgentMediaAssetAggregateType<T extends AgentMediaAssetAggregateArgs> = {
+        [P in keyof T & keyof AggregateAgentMediaAsset]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAgentMediaAsset[P]>
+      : GetScalarType<T[P], AggregateAgentMediaAsset[P]>
+  }
+
+
+
+
+  export type AgentMediaAssetGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AgentMediaAssetWhereInput
+    orderBy?: AgentMediaAssetOrderByWithAggregationInput | AgentMediaAssetOrderByWithAggregationInput[]
+    by: AgentMediaAssetScalarFieldEnum[] | AgentMediaAssetScalarFieldEnum
+    having?: AgentMediaAssetScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AgentMediaAssetCountAggregateInputType | true
+    _avg?: AgentMediaAssetAvgAggregateInputType
+    _sum?: AgentMediaAssetSumAggregateInputType
+    _min?: AgentMediaAssetMinAggregateInputType
+    _max?: AgentMediaAssetMaxAggregateInputType
+  }
+
+  export type AgentMediaAssetGroupByOutputType = {
+    id: string
+    source: string
+    source_message_id: bigint | null
+    trace_id: string | null
+    session_key: string
+    chat_type: string
+    peer_id: string | null
+    peer_name: string | null
+    sender_id: string | null
+    sender_name: string | null
+    account_id: string | null
+    message_sid: string | null
+    media_tag: string
+    placeholder: string
+    media_type: string
+    mime_type: string | null
+    source_locator: string | null
+    storage_uri: string | null
+    metadata: JsonValue | null
+    created_at: Date
+    updated_at: Date
+    _count: AgentMediaAssetCountAggregateOutputType | null
+    _avg: AgentMediaAssetAvgAggregateOutputType | null
+    _sum: AgentMediaAssetSumAggregateOutputType | null
+    _min: AgentMediaAssetMinAggregateOutputType | null
+    _max: AgentMediaAssetMaxAggregateOutputType | null
+  }
+
+  type GetAgentMediaAssetGroupByPayload<T extends AgentMediaAssetGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AgentMediaAssetGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AgentMediaAssetGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AgentMediaAssetGroupByOutputType[P]>
+            : GetScalarType<T[P], AgentMediaAssetGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AgentMediaAssetSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    source?: boolean
+    source_message_id?: boolean
+    trace_id?: boolean
+    session_key?: boolean
+    chat_type?: boolean
+    peer_id?: boolean
+    peer_name?: boolean
+    sender_id?: boolean
+    sender_name?: boolean
+    account_id?: boolean
+    message_sid?: boolean
+    media_tag?: boolean
+    placeholder?: boolean
+    media_type?: boolean
+    mime_type?: boolean
+    source_locator?: boolean
+    storage_uri?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+    observations?: boolean | AgentMediaAsset$observationsArgs<ExtArgs>
+    _count?: boolean | AgentMediaAssetCountOutputTypeDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["agentMediaAsset"]>
+
+  export type AgentMediaAssetSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    source?: boolean
+    source_message_id?: boolean
+    trace_id?: boolean
+    session_key?: boolean
+    chat_type?: boolean
+    peer_id?: boolean
+    peer_name?: boolean
+    sender_id?: boolean
+    sender_name?: boolean
+    account_id?: boolean
+    message_sid?: boolean
+    media_tag?: boolean
+    placeholder?: boolean
+    media_type?: boolean
+    mime_type?: boolean
+    source_locator?: boolean
+    storage_uri?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentMediaAsset"]>
+
+  export type AgentMediaAssetSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    source?: boolean
+    source_message_id?: boolean
+    trace_id?: boolean
+    session_key?: boolean
+    chat_type?: boolean
+    peer_id?: boolean
+    peer_name?: boolean
+    sender_id?: boolean
+    sender_name?: boolean
+    account_id?: boolean
+    message_sid?: boolean
+    media_tag?: boolean
+    placeholder?: boolean
+    media_type?: boolean
+    mime_type?: boolean
+    source_locator?: boolean
+    storage_uri?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentMediaAsset"]>
+
+  export type AgentMediaAssetSelectScalar = {
+    id?: boolean
+    source?: boolean
+    source_message_id?: boolean
+    trace_id?: boolean
+    session_key?: boolean
+    chat_type?: boolean
+    peer_id?: boolean
+    peer_name?: boolean
+    sender_id?: boolean
+    sender_name?: boolean
+    account_id?: boolean
+    message_sid?: boolean
+    media_tag?: boolean
+    placeholder?: boolean
+    media_type?: boolean
+    mime_type?: boolean
+    source_locator?: boolean
+    storage_uri?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type AgentMediaAssetOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "source" | "source_message_id" | "trace_id" | "session_key" | "chat_type" | "peer_id" | "peer_name" | "sender_id" | "sender_name" | "account_id" | "message_sid" | "media_tag" | "placeholder" | "media_type" | "mime_type" | "source_locator" | "storage_uri" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["agentMediaAsset"]>
+  export type AgentMediaAssetInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    observations?: boolean | AgentMediaAsset$observationsArgs<ExtArgs>
+    _count?: boolean | AgentMediaAssetCountOutputTypeDefaultArgs<ExtArgs>
+  }
+  export type AgentMediaAssetIncludeCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {}
+  export type AgentMediaAssetIncludeUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {}
+
+  export type $AgentMediaAssetPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AgentMediaAsset"
+    objects: {
+      observations: Prisma.$AgentMediaObservationPayload<ExtArgs>[]
+    }
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      source: string
+      source_message_id: bigint | null
+      trace_id: string | null
+      session_key: string
+      chat_type: string
+      peer_id: string | null
+      peer_name: string | null
+      sender_id: string | null
+      sender_name: string | null
+      account_id: string | null
+      message_sid: string | null
+      media_tag: string
+      placeholder: string
+      media_type: string
+      mime_type: string | null
+      source_locator: string | null
+      storage_uri: string | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["agentMediaAsset"]>
+    composites: {}
+  }
+
+  type AgentMediaAssetGetPayload<S extends boolean | null | undefined | AgentMediaAssetDefaultArgs> = $Result.GetResult<Prisma.$AgentMediaAssetPayload, S>
+
+  type AgentMediaAssetCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AgentMediaAssetFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AgentMediaAssetCountAggregateInputType | true
+    }
+
+  export interface AgentMediaAssetDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AgentMediaAsset'], meta: { name: 'AgentMediaAsset' } }
+    /**
+     * Find zero or one AgentMediaAsset that matches the filter.
+     * @param {AgentMediaAssetFindUniqueArgs} args - Arguments to find a AgentMediaAsset
+     * @example
+     * // Get one AgentMediaAsset
+     * const agentMediaAsset = await prisma.agentMediaAsset.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AgentMediaAssetFindUniqueArgs>(args: SelectSubset<T, AgentMediaAssetFindUniqueArgs<ExtArgs>>): Prisma__AgentMediaAssetClient<$Result.GetResult<Prisma.$AgentMediaAssetPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AgentMediaAsset that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AgentMediaAssetFindUniqueOrThrowArgs} args - Arguments to find a AgentMediaAsset
+     * @example
+     * // Get one AgentMediaAsset
+     * const agentMediaAsset = await prisma.agentMediaAsset.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AgentMediaAssetFindUniqueOrThrowArgs>(args: SelectSubset<T, AgentMediaAssetFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AgentMediaAssetClient<$Result.GetResult<Prisma.$AgentMediaAssetPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentMediaAsset that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaAssetFindFirstArgs} args - Arguments to find a AgentMediaAsset
+     * @example
+     * // Get one AgentMediaAsset
+     * const agentMediaAsset = await prisma.agentMediaAsset.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AgentMediaAssetFindFirstArgs>(args?: SelectSubset<T, AgentMediaAssetFindFirstArgs<ExtArgs>>): Prisma__AgentMediaAssetClient<$Result.GetResult<Prisma.$AgentMediaAssetPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentMediaAsset that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaAssetFindFirstOrThrowArgs} args - Arguments to find a AgentMediaAsset
+     * @example
+     * // Get one AgentMediaAsset
+     * const agentMediaAsset = await prisma.agentMediaAsset.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AgentMediaAssetFindFirstOrThrowArgs>(args?: SelectSubset<T, AgentMediaAssetFindFirstOrThrowArgs<ExtArgs>>): Prisma__AgentMediaAssetClient<$Result.GetResult<Prisma.$AgentMediaAssetPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AgentMediaAssets that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaAssetFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AgentMediaAssets
+     * const agentMediaAssets = await prisma.agentMediaAsset.findMany()
+     * 
+     * // Get first 10 AgentMediaAssets
+     * const agentMediaAssets = await prisma.agentMediaAsset.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const agentMediaAssetWithIdOnly = await prisma.agentMediaAsset.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends AgentMediaAssetFindManyArgs>(args?: SelectSubset<T, AgentMediaAssetFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMediaAssetPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AgentMediaAsset.
+     * @param {AgentMediaAssetCreateArgs} args - Arguments to create a AgentMediaAsset.
+     * @example
+     * // Create one AgentMediaAsset
+     * const AgentMediaAsset = await prisma.agentMediaAsset.create({
+     *   data: {
+     *     // ... data to create a AgentMediaAsset
+     *   }
+     * })
+     * 
+     */
+    create<T extends AgentMediaAssetCreateArgs>(args: SelectSubset<T, AgentMediaAssetCreateArgs<ExtArgs>>): Prisma__AgentMediaAssetClient<$Result.GetResult<Prisma.$AgentMediaAssetPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AgentMediaAssets.
+     * @param {AgentMediaAssetCreateManyArgs} args - Arguments to create many AgentMediaAssets.
+     * @example
+     * // Create many AgentMediaAssets
+     * const agentMediaAsset = await prisma.agentMediaAsset.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends AgentMediaAssetCreateManyArgs>(args?: SelectSubset<T, AgentMediaAssetCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AgentMediaAssets and returns the data saved in the database.
+     * @param {AgentMediaAssetCreateManyAndReturnArgs} args - Arguments to create many AgentMediaAssets.
+     * @example
+     * // Create many AgentMediaAssets
+     * const agentMediaAsset = await prisma.agentMediaAsset.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many AgentMediaAssets and only return the `id`
+     * const agentMediaAssetWithIdOnly = await prisma.agentMediaAsset.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends AgentMediaAssetCreateManyAndReturnArgs>(args?: SelectSubset<T, AgentMediaAssetCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMediaAssetPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AgentMediaAsset.
+     * @param {AgentMediaAssetDeleteArgs} args - Arguments to delete one AgentMediaAsset.
+     * @example
+     * // Delete one AgentMediaAsset
+     * const AgentMediaAsset = await prisma.agentMediaAsset.delete({
+     *   where: {
+     *     // ... filter to delete one AgentMediaAsset
+     *   }
+     * })
+     * 
+     */
+    delete<T extends AgentMediaAssetDeleteArgs>(args: SelectSubset<T, AgentMediaAssetDeleteArgs<ExtArgs>>): Prisma__AgentMediaAssetClient<$Result.GetResult<Prisma.$AgentMediaAssetPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AgentMediaAsset.
+     * @param {AgentMediaAssetUpdateArgs} args - Arguments to update one AgentMediaAsset.
+     * @example
+     * // Update one AgentMediaAsset
+     * const agentMediaAsset = await prisma.agentMediaAsset.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends AgentMediaAssetUpdateArgs>(args: SelectSubset<T, AgentMediaAssetUpdateArgs<ExtArgs>>): Prisma__AgentMediaAssetClient<$Result.GetResult<Prisma.$AgentMediaAssetPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AgentMediaAssets.
+     * @param {AgentMediaAssetDeleteManyArgs} args - Arguments to filter AgentMediaAssets to delete.
+     * @example
+     * // Delete a few AgentMediaAssets
+     * const { count } = await prisma.agentMediaAsset.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends AgentMediaAssetDeleteManyArgs>(args?: SelectSubset<T, AgentMediaAssetDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentMediaAssets.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaAssetUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AgentMediaAssets
+     * const agentMediaAsset = await prisma.agentMediaAsset.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends AgentMediaAssetUpdateManyArgs>(args: SelectSubset<T, AgentMediaAssetUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentMediaAssets and returns the data updated in the database.
+     * @param {AgentMediaAssetUpdateManyAndReturnArgs} args - Arguments to update many AgentMediaAssets.
+     * @example
+     * // Update many AgentMediaAssets
+     * const agentMediaAsset = await prisma.agentMediaAsset.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more AgentMediaAssets and only return the `id`
+     * const agentMediaAssetWithIdOnly = await prisma.agentMediaAsset.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends AgentMediaAssetUpdateManyAndReturnArgs>(args: SelectSubset<T, AgentMediaAssetUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMediaAssetPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AgentMediaAsset.
+     * @param {AgentMediaAssetUpsertArgs} args - Arguments to update or create a AgentMediaAsset.
+     * @example
+     * // Update or create a AgentMediaAsset
+     * const agentMediaAsset = await prisma.agentMediaAsset.upsert({
+     *   create: {
+     *     // ... data to create a AgentMediaAsset
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AgentMediaAsset we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AgentMediaAssetUpsertArgs>(args: SelectSubset<T, AgentMediaAssetUpsertArgs<ExtArgs>>): Prisma__AgentMediaAssetClient<$Result.GetResult<Prisma.$AgentMediaAssetPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AgentMediaAssets.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaAssetCountArgs} args - Arguments to filter AgentMediaAssets to count.
+     * @example
+     * // Count the number of AgentMediaAssets
+     * const count = await prisma.agentMediaAsset.count({
+     *   where: {
+     *     // ... the filter for the AgentMediaAssets we want to count
+     *   }
+     * })
+    **/
+    count<T extends AgentMediaAssetCountArgs>(
+      args?: Subset<T, AgentMediaAssetCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AgentMediaAssetCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AgentMediaAsset.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaAssetAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AgentMediaAssetAggregateArgs>(args: Subset<T, AgentMediaAssetAggregateArgs>): Prisma.PrismaPromise<GetAgentMediaAssetAggregateType<T>>
+
+    /**
+     * Group by AgentMediaAsset.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaAssetGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends AgentMediaAssetGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AgentMediaAssetGroupByArgs['orderBy'] }
+        : { orderBy?: AgentMediaAssetGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AgentMediaAssetGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAgentMediaAssetGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AgentMediaAsset model
+   */
+  readonly fields: AgentMediaAssetFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AgentMediaAsset.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AgentMediaAssetClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    observations<T extends AgentMediaAsset$observationsArgs<ExtArgs> = {}>(args?: Subset<T, AgentMediaAsset$observationsArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMediaObservationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AgentMediaAsset model
+   */
+  interface AgentMediaAssetFieldRefs {
+    readonly id: FieldRef<"AgentMediaAsset", 'String'>
+    readonly source: FieldRef<"AgentMediaAsset", 'String'>
+    readonly source_message_id: FieldRef<"AgentMediaAsset", 'BigInt'>
+    readonly trace_id: FieldRef<"AgentMediaAsset", 'String'>
+    readonly session_key: FieldRef<"AgentMediaAsset", 'String'>
+    readonly chat_type: FieldRef<"AgentMediaAsset", 'String'>
+    readonly peer_id: FieldRef<"AgentMediaAsset", 'String'>
+    readonly peer_name: FieldRef<"AgentMediaAsset", 'String'>
+    readonly sender_id: FieldRef<"AgentMediaAsset", 'String'>
+    readonly sender_name: FieldRef<"AgentMediaAsset", 'String'>
+    readonly account_id: FieldRef<"AgentMediaAsset", 'String'>
+    readonly message_sid: FieldRef<"AgentMediaAsset", 'String'>
+    readonly media_tag: FieldRef<"AgentMediaAsset", 'String'>
+    readonly placeholder: FieldRef<"AgentMediaAsset", 'String'>
+    readonly media_type: FieldRef<"AgentMediaAsset", 'String'>
+    readonly mime_type: FieldRef<"AgentMediaAsset", 'String'>
+    readonly source_locator: FieldRef<"AgentMediaAsset", 'String'>
+    readonly storage_uri: FieldRef<"AgentMediaAsset", 'String'>
+    readonly metadata: FieldRef<"AgentMediaAsset", 'Json'>
+    readonly created_at: FieldRef<"AgentMediaAsset", 'DateTime'>
+    readonly updated_at: FieldRef<"AgentMediaAsset", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * AgentMediaAsset findUnique
+   */
+  export type AgentMediaAssetFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAsset
+     */
+    select?: AgentMediaAssetSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaAsset
+     */
+    omit?: AgentMediaAssetOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaAssetInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentMediaAsset to fetch.
+     */
+    where: AgentMediaAssetWhereUniqueInput
+  }
+
+  /**
+   * AgentMediaAsset findUniqueOrThrow
+   */
+  export type AgentMediaAssetFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAsset
+     */
+    select?: AgentMediaAssetSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaAsset
+     */
+    omit?: AgentMediaAssetOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaAssetInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentMediaAsset to fetch.
+     */
+    where: AgentMediaAssetWhereUniqueInput
+  }
+
+  /**
+   * AgentMediaAsset findFirst
+   */
+  export type AgentMediaAssetFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAsset
+     */
+    select?: AgentMediaAssetSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaAsset
+     */
+    omit?: AgentMediaAssetOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaAssetInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentMediaAsset to fetch.
+     */
+    where?: AgentMediaAssetWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMediaAssets to fetch.
+     */
+    orderBy?: AgentMediaAssetOrderByWithRelationInput | AgentMediaAssetOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentMediaAssets.
+     */
+    cursor?: AgentMediaAssetWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMediaAssets from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMediaAssets.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentMediaAssets.
+     */
+    distinct?: AgentMediaAssetScalarFieldEnum | AgentMediaAssetScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMediaAsset findFirstOrThrow
+   */
+  export type AgentMediaAssetFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAsset
+     */
+    select?: AgentMediaAssetSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaAsset
+     */
+    omit?: AgentMediaAssetOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaAssetInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentMediaAsset to fetch.
+     */
+    where?: AgentMediaAssetWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMediaAssets to fetch.
+     */
+    orderBy?: AgentMediaAssetOrderByWithRelationInput | AgentMediaAssetOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentMediaAssets.
+     */
+    cursor?: AgentMediaAssetWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMediaAssets from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMediaAssets.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentMediaAssets.
+     */
+    distinct?: AgentMediaAssetScalarFieldEnum | AgentMediaAssetScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMediaAsset findMany
+   */
+  export type AgentMediaAssetFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAsset
+     */
+    select?: AgentMediaAssetSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaAsset
+     */
+    omit?: AgentMediaAssetOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaAssetInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentMediaAssets to fetch.
+     */
+    where?: AgentMediaAssetWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMediaAssets to fetch.
+     */
+    orderBy?: AgentMediaAssetOrderByWithRelationInput | AgentMediaAssetOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing AgentMediaAssets.
+     */
+    cursor?: AgentMediaAssetWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMediaAssets from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMediaAssets.
+     */
+    skip?: number
+    distinct?: AgentMediaAssetScalarFieldEnum | AgentMediaAssetScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMediaAsset create
+   */
+  export type AgentMediaAssetCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAsset
+     */
+    select?: AgentMediaAssetSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaAsset
+     */
+    omit?: AgentMediaAssetOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaAssetInclude<ExtArgs> | null
+    /**
+     * The data needed to create a AgentMediaAsset.
+     */
+    data: XOR<AgentMediaAssetCreateInput, AgentMediaAssetUncheckedCreateInput>
+  }
+
+  /**
+   * AgentMediaAsset createMany
+   */
+  export type AgentMediaAssetCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AgentMediaAssets.
+     */
+    data: AgentMediaAssetCreateManyInput | AgentMediaAssetCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentMediaAsset createManyAndReturn
+   */
+  export type AgentMediaAssetCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAsset
+     */
+    select?: AgentMediaAssetSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaAsset
+     */
+    omit?: AgentMediaAssetOmit<ExtArgs> | null
+    /**
+     * The data used to create many AgentMediaAssets.
+     */
+    data: AgentMediaAssetCreateManyInput | AgentMediaAssetCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentMediaAsset update
+   */
+  export type AgentMediaAssetUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAsset
+     */
+    select?: AgentMediaAssetSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaAsset
+     */
+    omit?: AgentMediaAssetOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaAssetInclude<ExtArgs> | null
+    /**
+     * The data needed to update a AgentMediaAsset.
+     */
+    data: XOR<AgentMediaAssetUpdateInput, AgentMediaAssetUncheckedUpdateInput>
+    /**
+     * Choose, which AgentMediaAsset to update.
+     */
+    where: AgentMediaAssetWhereUniqueInput
+  }
+
+  /**
+   * AgentMediaAsset updateMany
+   */
+  export type AgentMediaAssetUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AgentMediaAssets.
+     */
+    data: XOR<AgentMediaAssetUpdateManyMutationInput, AgentMediaAssetUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentMediaAssets to update
+     */
+    where?: AgentMediaAssetWhereInput
+    /**
+     * Limit how many AgentMediaAssets to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMediaAsset updateManyAndReturn
+   */
+  export type AgentMediaAssetUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAsset
+     */
+    select?: AgentMediaAssetSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaAsset
+     */
+    omit?: AgentMediaAssetOmit<ExtArgs> | null
+    /**
+     * The data used to update AgentMediaAssets.
+     */
+    data: XOR<AgentMediaAssetUpdateManyMutationInput, AgentMediaAssetUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentMediaAssets to update
+     */
+    where?: AgentMediaAssetWhereInput
+    /**
+     * Limit how many AgentMediaAssets to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMediaAsset upsert
+   */
+  export type AgentMediaAssetUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAsset
+     */
+    select?: AgentMediaAssetSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaAsset
+     */
+    omit?: AgentMediaAssetOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaAssetInclude<ExtArgs> | null
+    /**
+     * The filter to search for the AgentMediaAsset to update in case it exists.
+     */
+    where: AgentMediaAssetWhereUniqueInput
+    /**
+     * In case the AgentMediaAsset found by the `where` argument doesn't exist, create a new AgentMediaAsset with this data.
+     */
+    create: XOR<AgentMediaAssetCreateInput, AgentMediaAssetUncheckedCreateInput>
+    /**
+     * In case the AgentMediaAsset was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AgentMediaAssetUpdateInput, AgentMediaAssetUncheckedUpdateInput>
+  }
+
+  /**
+   * AgentMediaAsset delete
+   */
+  export type AgentMediaAssetDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAsset
+     */
+    select?: AgentMediaAssetSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaAsset
+     */
+    omit?: AgentMediaAssetOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaAssetInclude<ExtArgs> | null
+    /**
+     * Filter which AgentMediaAsset to delete.
+     */
+    where: AgentMediaAssetWhereUniqueInput
+  }
+
+  /**
+   * AgentMediaAsset deleteMany
+   */
+  export type AgentMediaAssetDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentMediaAssets to delete
+     */
+    where?: AgentMediaAssetWhereInput
+    /**
+     * Limit how many AgentMediaAssets to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMediaAsset.observations
+   */
+  export type AgentMediaAsset$observationsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationInclude<ExtArgs> | null
+    where?: AgentMediaObservationWhereInput
+    orderBy?: AgentMediaObservationOrderByWithRelationInput | AgentMediaObservationOrderByWithRelationInput[]
+    cursor?: AgentMediaObservationWhereUniqueInput
+    take?: number
+    skip?: number
+    distinct?: AgentMediaObservationScalarFieldEnum | AgentMediaObservationScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMediaAsset without action
+   */
+  export type AgentMediaAssetDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaAsset
+     */
+    select?: AgentMediaAssetSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaAsset
+     */
+    omit?: AgentMediaAssetOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaAssetInclude<ExtArgs> | null
+  }
+
+
+  /**
+   * Model AgentMediaObservation
+   */
+
+  export type AggregateAgentMediaObservation = {
+    _count: AgentMediaObservationCountAggregateOutputType | null
+    _min: AgentMediaObservationMinAggregateOutputType | null
+    _max: AgentMediaObservationMaxAggregateOutputType | null
+  }
+
+  export type AgentMediaObservationMinAggregateOutputType = {
+    id: string | null
+    asset_id: string | null
+    observer: string | null
+    description: string | null
+    source_model: string | null
+    confidence: string | null
+    created_at: Date | null
+  }
+
+  export type AgentMediaObservationMaxAggregateOutputType = {
+    id: string | null
+    asset_id: string | null
+    observer: string | null
+    description: string | null
+    source_model: string | null
+    confidence: string | null
+    created_at: Date | null
+  }
+
+  export type AgentMediaObservationCountAggregateOutputType = {
+    id: number
+    asset_id: number
+    observer: number
+    description: number
+    source_model: number
+    confidence: number
+    metadata: number
+    created_at: number
+    _all: number
+  }
+
+
+  export type AgentMediaObservationMinAggregateInputType = {
+    id?: true
+    asset_id?: true
+    observer?: true
+    description?: true
+    source_model?: true
+    confidence?: true
+    created_at?: true
+  }
+
+  export type AgentMediaObservationMaxAggregateInputType = {
+    id?: true
+    asset_id?: true
+    observer?: true
+    description?: true
+    source_model?: true
+    confidence?: true
+    created_at?: true
+  }
+
+  export type AgentMediaObservationCountAggregateInputType = {
+    id?: true
+    asset_id?: true
+    observer?: true
+    description?: true
+    source_model?: true
+    confidence?: true
+    metadata?: true
+    created_at?: true
+    _all?: true
+  }
+
+  export type AgentMediaObservationAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentMediaObservation to aggregate.
+     */
+    where?: AgentMediaObservationWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMediaObservations to fetch.
+     */
+    orderBy?: AgentMediaObservationOrderByWithRelationInput | AgentMediaObservationOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: AgentMediaObservationWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMediaObservations from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMediaObservations.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned AgentMediaObservations
+    **/
+    _count?: true | AgentMediaObservationCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: AgentMediaObservationMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: AgentMediaObservationMaxAggregateInputType
+  }
+
+  export type GetAgentMediaObservationAggregateType<T extends AgentMediaObservationAggregateArgs> = {
+        [P in keyof T & keyof AggregateAgentMediaObservation]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAgentMediaObservation[P]>
+      : GetScalarType<T[P], AggregateAgentMediaObservation[P]>
+  }
+
+
+
+
+  export type AgentMediaObservationGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AgentMediaObservationWhereInput
+    orderBy?: AgentMediaObservationOrderByWithAggregationInput | AgentMediaObservationOrderByWithAggregationInput[]
+    by: AgentMediaObservationScalarFieldEnum[] | AgentMediaObservationScalarFieldEnum
+    having?: AgentMediaObservationScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AgentMediaObservationCountAggregateInputType | true
+    _min?: AgentMediaObservationMinAggregateInputType
+    _max?: AgentMediaObservationMaxAggregateInputType
+  }
+
+  export type AgentMediaObservationGroupByOutputType = {
+    id: string
+    asset_id: string
+    observer: string
+    description: string
+    source_model: string | null
+    confidence: string | null
+    metadata: JsonValue | null
+    created_at: Date
+    _count: AgentMediaObservationCountAggregateOutputType | null
+    _min: AgentMediaObservationMinAggregateOutputType | null
+    _max: AgentMediaObservationMaxAggregateOutputType | null
+  }
+
+  type GetAgentMediaObservationGroupByPayload<T extends AgentMediaObservationGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AgentMediaObservationGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AgentMediaObservationGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AgentMediaObservationGroupByOutputType[P]>
+            : GetScalarType<T[P], AgentMediaObservationGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AgentMediaObservationSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    asset_id?: boolean
+    observer?: boolean
+    description?: boolean
+    source_model?: boolean
+    confidence?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    asset?: boolean | AgentMediaAssetDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["agentMediaObservation"]>
+
+  export type AgentMediaObservationSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    asset_id?: boolean
+    observer?: boolean
+    description?: boolean
+    source_model?: boolean
+    confidence?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    asset?: boolean | AgentMediaAssetDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["agentMediaObservation"]>
+
+  export type AgentMediaObservationSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    asset_id?: boolean
+    observer?: boolean
+    description?: boolean
+    source_model?: boolean
+    confidence?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    asset?: boolean | AgentMediaAssetDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["agentMediaObservation"]>
+
+  export type AgentMediaObservationSelectScalar = {
+    id?: boolean
+    asset_id?: boolean
+    observer?: boolean
+    description?: boolean
+    source_model?: boolean
+    confidence?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }
+
+  export type AgentMediaObservationOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "asset_id" | "observer" | "description" | "source_model" | "confidence" | "metadata" | "created_at", ExtArgs["result"]["agentMediaObservation"]>
+  export type AgentMediaObservationInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    asset?: boolean | AgentMediaAssetDefaultArgs<ExtArgs>
+  }
+  export type AgentMediaObservationIncludeCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    asset?: boolean | AgentMediaAssetDefaultArgs<ExtArgs>
+  }
+  export type AgentMediaObservationIncludeUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    asset?: boolean | AgentMediaAssetDefaultArgs<ExtArgs>
+  }
+
+  export type $AgentMediaObservationPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AgentMediaObservation"
+    objects: {
+      asset: Prisma.$AgentMediaAssetPayload<ExtArgs>
+    }
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      asset_id: string
+      observer: string
+      description: string
+      source_model: string | null
+      confidence: string | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+    }, ExtArgs["result"]["agentMediaObservation"]>
+    composites: {}
+  }
+
+  type AgentMediaObservationGetPayload<S extends boolean | null | undefined | AgentMediaObservationDefaultArgs> = $Result.GetResult<Prisma.$AgentMediaObservationPayload, S>
+
+  type AgentMediaObservationCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AgentMediaObservationFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AgentMediaObservationCountAggregateInputType | true
+    }
+
+  export interface AgentMediaObservationDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AgentMediaObservation'], meta: { name: 'AgentMediaObservation' } }
+    /**
+     * Find zero or one AgentMediaObservation that matches the filter.
+     * @param {AgentMediaObservationFindUniqueArgs} args - Arguments to find a AgentMediaObservation
+     * @example
+     * // Get one AgentMediaObservation
+     * const agentMediaObservation = await prisma.agentMediaObservation.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AgentMediaObservationFindUniqueArgs>(args: SelectSubset<T, AgentMediaObservationFindUniqueArgs<ExtArgs>>): Prisma__AgentMediaObservationClient<$Result.GetResult<Prisma.$AgentMediaObservationPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AgentMediaObservation that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AgentMediaObservationFindUniqueOrThrowArgs} args - Arguments to find a AgentMediaObservation
+     * @example
+     * // Get one AgentMediaObservation
+     * const agentMediaObservation = await prisma.agentMediaObservation.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AgentMediaObservationFindUniqueOrThrowArgs>(args: SelectSubset<T, AgentMediaObservationFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AgentMediaObservationClient<$Result.GetResult<Prisma.$AgentMediaObservationPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentMediaObservation that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaObservationFindFirstArgs} args - Arguments to find a AgentMediaObservation
+     * @example
+     * // Get one AgentMediaObservation
+     * const agentMediaObservation = await prisma.agentMediaObservation.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AgentMediaObservationFindFirstArgs>(args?: SelectSubset<T, AgentMediaObservationFindFirstArgs<ExtArgs>>): Prisma__AgentMediaObservationClient<$Result.GetResult<Prisma.$AgentMediaObservationPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentMediaObservation that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaObservationFindFirstOrThrowArgs} args - Arguments to find a AgentMediaObservation
+     * @example
+     * // Get one AgentMediaObservation
+     * const agentMediaObservation = await prisma.agentMediaObservation.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AgentMediaObservationFindFirstOrThrowArgs>(args?: SelectSubset<T, AgentMediaObservationFindFirstOrThrowArgs<ExtArgs>>): Prisma__AgentMediaObservationClient<$Result.GetResult<Prisma.$AgentMediaObservationPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AgentMediaObservations that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaObservationFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AgentMediaObservations
+     * const agentMediaObservations = await prisma.agentMediaObservation.findMany()
+     * 
+     * // Get first 10 AgentMediaObservations
+     * const agentMediaObservations = await prisma.agentMediaObservation.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const agentMediaObservationWithIdOnly = await prisma.agentMediaObservation.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends AgentMediaObservationFindManyArgs>(args?: SelectSubset<T, AgentMediaObservationFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMediaObservationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AgentMediaObservation.
+     * @param {AgentMediaObservationCreateArgs} args - Arguments to create a AgentMediaObservation.
+     * @example
+     * // Create one AgentMediaObservation
+     * const AgentMediaObservation = await prisma.agentMediaObservation.create({
+     *   data: {
+     *     // ... data to create a AgentMediaObservation
+     *   }
+     * })
+     * 
+     */
+    create<T extends AgentMediaObservationCreateArgs>(args: SelectSubset<T, AgentMediaObservationCreateArgs<ExtArgs>>): Prisma__AgentMediaObservationClient<$Result.GetResult<Prisma.$AgentMediaObservationPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AgentMediaObservations.
+     * @param {AgentMediaObservationCreateManyArgs} args - Arguments to create many AgentMediaObservations.
+     * @example
+     * // Create many AgentMediaObservations
+     * const agentMediaObservation = await prisma.agentMediaObservation.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends AgentMediaObservationCreateManyArgs>(args?: SelectSubset<T, AgentMediaObservationCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AgentMediaObservations and returns the data saved in the database.
+     * @param {AgentMediaObservationCreateManyAndReturnArgs} args - Arguments to create many AgentMediaObservations.
+     * @example
+     * // Create many AgentMediaObservations
+     * const agentMediaObservation = await prisma.agentMediaObservation.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many AgentMediaObservations and only return the `id`
+     * const agentMediaObservationWithIdOnly = await prisma.agentMediaObservation.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends AgentMediaObservationCreateManyAndReturnArgs>(args?: SelectSubset<T, AgentMediaObservationCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMediaObservationPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AgentMediaObservation.
+     * @param {AgentMediaObservationDeleteArgs} args - Arguments to delete one AgentMediaObservation.
+     * @example
+     * // Delete one AgentMediaObservation
+     * const AgentMediaObservation = await prisma.agentMediaObservation.delete({
+     *   where: {
+     *     // ... filter to delete one AgentMediaObservation
+     *   }
+     * })
+     * 
+     */
+    delete<T extends AgentMediaObservationDeleteArgs>(args: SelectSubset<T, AgentMediaObservationDeleteArgs<ExtArgs>>): Prisma__AgentMediaObservationClient<$Result.GetResult<Prisma.$AgentMediaObservationPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AgentMediaObservation.
+     * @param {AgentMediaObservationUpdateArgs} args - Arguments to update one AgentMediaObservation.
+     * @example
+     * // Update one AgentMediaObservation
+     * const agentMediaObservation = await prisma.agentMediaObservation.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends AgentMediaObservationUpdateArgs>(args: SelectSubset<T, AgentMediaObservationUpdateArgs<ExtArgs>>): Prisma__AgentMediaObservationClient<$Result.GetResult<Prisma.$AgentMediaObservationPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AgentMediaObservations.
+     * @param {AgentMediaObservationDeleteManyArgs} args - Arguments to filter AgentMediaObservations to delete.
+     * @example
+     * // Delete a few AgentMediaObservations
+     * const { count } = await prisma.agentMediaObservation.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends AgentMediaObservationDeleteManyArgs>(args?: SelectSubset<T, AgentMediaObservationDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentMediaObservations.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaObservationUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AgentMediaObservations
+     * const agentMediaObservation = await prisma.agentMediaObservation.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends AgentMediaObservationUpdateManyArgs>(args: SelectSubset<T, AgentMediaObservationUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentMediaObservations and returns the data updated in the database.
+     * @param {AgentMediaObservationUpdateManyAndReturnArgs} args - Arguments to update many AgentMediaObservations.
+     * @example
+     * // Update many AgentMediaObservations
+     * const agentMediaObservation = await prisma.agentMediaObservation.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more AgentMediaObservations and only return the `id`
+     * const agentMediaObservationWithIdOnly = await prisma.agentMediaObservation.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends AgentMediaObservationUpdateManyAndReturnArgs>(args: SelectSubset<T, AgentMediaObservationUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMediaObservationPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AgentMediaObservation.
+     * @param {AgentMediaObservationUpsertArgs} args - Arguments to update or create a AgentMediaObservation.
+     * @example
+     * // Update or create a AgentMediaObservation
+     * const agentMediaObservation = await prisma.agentMediaObservation.upsert({
+     *   create: {
+     *     // ... data to create a AgentMediaObservation
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AgentMediaObservation we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AgentMediaObservationUpsertArgs>(args: SelectSubset<T, AgentMediaObservationUpsertArgs<ExtArgs>>): Prisma__AgentMediaObservationClient<$Result.GetResult<Prisma.$AgentMediaObservationPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AgentMediaObservations.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaObservationCountArgs} args - Arguments to filter AgentMediaObservations to count.
+     * @example
+     * // Count the number of AgentMediaObservations
+     * const count = await prisma.agentMediaObservation.count({
+     *   where: {
+     *     // ... the filter for the AgentMediaObservations we want to count
+     *   }
+     * })
+    **/
+    count<T extends AgentMediaObservationCountArgs>(
+      args?: Subset<T, AgentMediaObservationCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AgentMediaObservationCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AgentMediaObservation.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaObservationAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AgentMediaObservationAggregateArgs>(args: Subset<T, AgentMediaObservationAggregateArgs>): Prisma.PrismaPromise<GetAgentMediaObservationAggregateType<T>>
+
+    /**
+     * Group by AgentMediaObservation.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMediaObservationGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends AgentMediaObservationGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AgentMediaObservationGroupByArgs['orderBy'] }
+        : { orderBy?: AgentMediaObservationGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AgentMediaObservationGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAgentMediaObservationGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AgentMediaObservation model
+   */
+  readonly fields: AgentMediaObservationFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AgentMediaObservation.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AgentMediaObservationClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    asset<T extends AgentMediaAssetDefaultArgs<ExtArgs> = {}>(args?: Subset<T, AgentMediaAssetDefaultArgs<ExtArgs>>): Prisma__AgentMediaAssetClient<$Result.GetResult<Prisma.$AgentMediaAssetPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AgentMediaObservation model
+   */
+  interface AgentMediaObservationFieldRefs {
+    readonly id: FieldRef<"AgentMediaObservation", 'String'>
+    readonly asset_id: FieldRef<"AgentMediaObservation", 'String'>
+    readonly observer: FieldRef<"AgentMediaObservation", 'String'>
+    readonly description: FieldRef<"AgentMediaObservation", 'String'>
+    readonly source_model: FieldRef<"AgentMediaObservation", 'String'>
+    readonly confidence: FieldRef<"AgentMediaObservation", 'String'>
+    readonly metadata: FieldRef<"AgentMediaObservation", 'Json'>
+    readonly created_at: FieldRef<"AgentMediaObservation", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * AgentMediaObservation findUnique
+   */
+  export type AgentMediaObservationFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentMediaObservation to fetch.
+     */
+    where: AgentMediaObservationWhereUniqueInput
+  }
+
+  /**
+   * AgentMediaObservation findUniqueOrThrow
+   */
+  export type AgentMediaObservationFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentMediaObservation to fetch.
+     */
+    where: AgentMediaObservationWhereUniqueInput
+  }
+
+  /**
+   * AgentMediaObservation findFirst
+   */
+  export type AgentMediaObservationFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentMediaObservation to fetch.
+     */
+    where?: AgentMediaObservationWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMediaObservations to fetch.
+     */
+    orderBy?: AgentMediaObservationOrderByWithRelationInput | AgentMediaObservationOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentMediaObservations.
+     */
+    cursor?: AgentMediaObservationWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMediaObservations from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMediaObservations.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentMediaObservations.
+     */
+    distinct?: AgentMediaObservationScalarFieldEnum | AgentMediaObservationScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMediaObservation findFirstOrThrow
+   */
+  export type AgentMediaObservationFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentMediaObservation to fetch.
+     */
+    where?: AgentMediaObservationWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMediaObservations to fetch.
+     */
+    orderBy?: AgentMediaObservationOrderByWithRelationInput | AgentMediaObservationOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentMediaObservations.
+     */
+    cursor?: AgentMediaObservationWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMediaObservations from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMediaObservations.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentMediaObservations.
+     */
+    distinct?: AgentMediaObservationScalarFieldEnum | AgentMediaObservationScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMediaObservation findMany
+   */
+  export type AgentMediaObservationFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentMediaObservations to fetch.
+     */
+    where?: AgentMediaObservationWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMediaObservations to fetch.
+     */
+    orderBy?: AgentMediaObservationOrderByWithRelationInput | AgentMediaObservationOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing AgentMediaObservations.
+     */
+    cursor?: AgentMediaObservationWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMediaObservations from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMediaObservations.
+     */
+    skip?: number
+    distinct?: AgentMediaObservationScalarFieldEnum | AgentMediaObservationScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMediaObservation create
+   */
+  export type AgentMediaObservationCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationInclude<ExtArgs> | null
+    /**
+     * The data needed to create a AgentMediaObservation.
+     */
+    data: XOR<AgentMediaObservationCreateInput, AgentMediaObservationUncheckedCreateInput>
+  }
+
+  /**
+   * AgentMediaObservation createMany
+   */
+  export type AgentMediaObservationCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AgentMediaObservations.
+     */
+    data: AgentMediaObservationCreateManyInput | AgentMediaObservationCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentMediaObservation createManyAndReturn
+   */
+  export type AgentMediaObservationCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * The data used to create many AgentMediaObservations.
+     */
+    data: AgentMediaObservationCreateManyInput | AgentMediaObservationCreateManyInput[]
+    skipDuplicates?: boolean
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationIncludeCreateManyAndReturn<ExtArgs> | null
+  }
+
+  /**
+   * AgentMediaObservation update
+   */
+  export type AgentMediaObservationUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationInclude<ExtArgs> | null
+    /**
+     * The data needed to update a AgentMediaObservation.
+     */
+    data: XOR<AgentMediaObservationUpdateInput, AgentMediaObservationUncheckedUpdateInput>
+    /**
+     * Choose, which AgentMediaObservation to update.
+     */
+    where: AgentMediaObservationWhereUniqueInput
+  }
+
+  /**
+   * AgentMediaObservation updateMany
+   */
+  export type AgentMediaObservationUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AgentMediaObservations.
+     */
+    data: XOR<AgentMediaObservationUpdateManyMutationInput, AgentMediaObservationUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentMediaObservations to update
+     */
+    where?: AgentMediaObservationWhereInput
+    /**
+     * Limit how many AgentMediaObservations to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMediaObservation updateManyAndReturn
+   */
+  export type AgentMediaObservationUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * The data used to update AgentMediaObservations.
+     */
+    data: XOR<AgentMediaObservationUpdateManyMutationInput, AgentMediaObservationUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentMediaObservations to update
+     */
+    where?: AgentMediaObservationWhereInput
+    /**
+     * Limit how many AgentMediaObservations to update.
+     */
+    limit?: number
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationIncludeUpdateManyAndReturn<ExtArgs> | null
+  }
+
+  /**
+   * AgentMediaObservation upsert
+   */
+  export type AgentMediaObservationUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationInclude<ExtArgs> | null
+    /**
+     * The filter to search for the AgentMediaObservation to update in case it exists.
+     */
+    where: AgentMediaObservationWhereUniqueInput
+    /**
+     * In case the AgentMediaObservation found by the `where` argument doesn't exist, create a new AgentMediaObservation with this data.
+     */
+    create: XOR<AgentMediaObservationCreateInput, AgentMediaObservationUncheckedCreateInput>
+    /**
+     * In case the AgentMediaObservation was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AgentMediaObservationUpdateInput, AgentMediaObservationUncheckedUpdateInput>
+  }
+
+  /**
+   * AgentMediaObservation delete
+   */
+  export type AgentMediaObservationDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationInclude<ExtArgs> | null
+    /**
+     * Filter which AgentMediaObservation to delete.
+     */
+    where: AgentMediaObservationWhereUniqueInput
+  }
+
+  /**
+   * AgentMediaObservation deleteMany
+   */
+  export type AgentMediaObservationDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentMediaObservations to delete
+     */
+    where?: AgentMediaObservationWhereInput
+    /**
+     * Limit how many AgentMediaObservations to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMediaObservation without action
+   */
+  export type AgentMediaObservationDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMediaObservation
+     */
+    select?: AgentMediaObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMediaObservation
+     */
+    omit?: AgentMediaObservationOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentMediaObservationInclude<ExtArgs> | null
+  }
+
+
+  /**
+   * Model AgentTask
+   */
+
+  export type AggregateAgentTask = {
+    _count: AgentTaskCountAggregateOutputType | null
+    _avg: AgentTaskAvgAggregateOutputType | null
+    _sum: AgentTaskSumAggregateOutputType | null
+    _min: AgentTaskMinAggregateOutputType | null
+    _max: AgentTaskMaxAggregateOutputType | null
+  }
+
+  export type AgentTaskAvgAggregateOutputType = {
+    attempts: number | null
+  }
+
+  export type AgentTaskSumAggregateOutputType = {
+    attempts: number | null
+  }
+
+  export type AgentTaskMinAggregateOutputType = {
+    id: string | null
+    task_type: string | null
+    status: string | null
+    session_key: string | null
+    chat_type: string | null
+    peer_id: string | null
+    peer_name: string | null
+    requester_sender_id: string | null
+    requester_sender_name: string | null
+    target_description: string | null
+    prompt: string | null
+    source_trace_id: string | null
+    source_run_id: string | null
+    error_message: string | null
+    attempts: number | null
+    available_at: Date | null
+    claimed_by: string | null
+    claimed_at: Date | null
+    completed_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AgentTaskMaxAggregateOutputType = {
+    id: string | null
+    task_type: string | null
+    status: string | null
+    session_key: string | null
+    chat_type: string | null
+    peer_id: string | null
+    peer_name: string | null
+    requester_sender_id: string | null
+    requester_sender_name: string | null
+    target_description: string | null
+    prompt: string | null
+    source_trace_id: string | null
+    source_run_id: string | null
+    error_message: string | null
+    attempts: number | null
+    available_at: Date | null
+    claimed_by: string | null
+    claimed_at: Date | null
+    completed_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AgentTaskCountAggregateOutputType = {
+    id: number
+    task_type: number
+    status: number
+    session_key: number
+    chat_type: number
+    peer_id: number
+    peer_name: number
+    requester_sender_id: number
+    requester_sender_name: number
+    target_description: number
+    prompt: number
+    source_trace_id: number
+    source_run_id: number
+    source_queue_message_ids: number
+    source_media_tags: number
+    source_media_asset_ids: number
+    input_json: number
+    result_json: number
+    error_message: number
+    attempts: number
+    available_at: number
+    claimed_by: number
+    claimed_at: number
+    completed_at: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type AgentTaskAvgAggregateInputType = {
+    attempts?: true
+  }
+
+  export type AgentTaskSumAggregateInputType = {
+    attempts?: true
+  }
+
+  export type AgentTaskMinAggregateInputType = {
+    id?: true
+    task_type?: true
+    status?: true
+    session_key?: true
+    chat_type?: true
+    peer_id?: true
+    peer_name?: true
+    requester_sender_id?: true
+    requester_sender_name?: true
+    target_description?: true
+    prompt?: true
+    source_trace_id?: true
+    source_run_id?: true
+    error_message?: true
+    attempts?: true
+    available_at?: true
+    claimed_by?: true
+    claimed_at?: true
+    completed_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AgentTaskMaxAggregateInputType = {
+    id?: true
+    task_type?: true
+    status?: true
+    session_key?: true
+    chat_type?: true
+    peer_id?: true
+    peer_name?: true
+    requester_sender_id?: true
+    requester_sender_name?: true
+    target_description?: true
+    prompt?: true
+    source_trace_id?: true
+    source_run_id?: true
+    error_message?: true
+    attempts?: true
+    available_at?: true
+    claimed_by?: true
+    claimed_at?: true
+    completed_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AgentTaskCountAggregateInputType = {
+    id?: true
+    task_type?: true
+    status?: true
+    session_key?: true
+    chat_type?: true
+    peer_id?: true
+    peer_name?: true
+    requester_sender_id?: true
+    requester_sender_name?: true
+    target_description?: true
+    prompt?: true
+    source_trace_id?: true
+    source_run_id?: true
+    source_queue_message_ids?: true
+    source_media_tags?: true
+    source_media_asset_ids?: true
+    input_json?: true
+    result_json?: true
+    error_message?: true
+    attempts?: true
+    available_at?: true
+    claimed_by?: true
+    claimed_at?: true
+    completed_at?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type AgentTaskAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentTask to aggregate.
+     */
+    where?: AgentTaskWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentTasks to fetch.
+     */
+    orderBy?: AgentTaskOrderByWithRelationInput | AgentTaskOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: AgentTaskWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentTasks from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentTasks.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned AgentTasks
+    **/
+    _count?: true | AgentTaskCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: AgentTaskAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: AgentTaskSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: AgentTaskMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: AgentTaskMaxAggregateInputType
+  }
+
+  export type GetAgentTaskAggregateType<T extends AgentTaskAggregateArgs> = {
+        [P in keyof T & keyof AggregateAgentTask]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAgentTask[P]>
+      : GetScalarType<T[P], AggregateAgentTask[P]>
+  }
+
+
+
+
+  export type AgentTaskGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AgentTaskWhereInput
+    orderBy?: AgentTaskOrderByWithAggregationInput | AgentTaskOrderByWithAggregationInput[]
+    by: AgentTaskScalarFieldEnum[] | AgentTaskScalarFieldEnum
+    having?: AgentTaskScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AgentTaskCountAggregateInputType | true
+    _avg?: AgentTaskAvgAggregateInputType
+    _sum?: AgentTaskSumAggregateInputType
+    _min?: AgentTaskMinAggregateInputType
+    _max?: AgentTaskMaxAggregateInputType
+  }
+
+  export type AgentTaskGroupByOutputType = {
+    id: string
+    task_type: string
+    status: string
+    session_key: string
+    chat_type: string
+    peer_id: string | null
+    peer_name: string | null
+    requester_sender_id: string | null
+    requester_sender_name: string | null
+    target_description: string | null
+    prompt: string
+    source_trace_id: string | null
+    source_run_id: string | null
+    source_queue_message_ids: JsonValue | null
+    source_media_tags: JsonValue | null
+    source_media_asset_ids: JsonValue | null
+    input_json: JsonValue | null
+    result_json: JsonValue | null
+    error_message: string | null
+    attempts: number
+    available_at: Date
+    claimed_by: string | null
+    claimed_at: Date | null
+    completed_at: Date | null
+    created_at: Date
+    updated_at: Date
+    _count: AgentTaskCountAggregateOutputType | null
+    _avg: AgentTaskAvgAggregateOutputType | null
+    _sum: AgentTaskSumAggregateOutputType | null
+    _min: AgentTaskMinAggregateOutputType | null
+    _max: AgentTaskMaxAggregateOutputType | null
+  }
+
+  type GetAgentTaskGroupByPayload<T extends AgentTaskGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AgentTaskGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AgentTaskGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AgentTaskGroupByOutputType[P]>
+            : GetScalarType<T[P], AgentTaskGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AgentTaskSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    task_type?: boolean
+    status?: boolean
+    session_key?: boolean
+    chat_type?: boolean
+    peer_id?: boolean
+    peer_name?: boolean
+    requester_sender_id?: boolean
+    requester_sender_name?: boolean
+    target_description?: boolean
+    prompt?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    source_queue_message_ids?: boolean
+    source_media_tags?: boolean
+    source_media_asset_ids?: boolean
+    input_json?: boolean
+    result_json?: boolean
+    error_message?: boolean
+    attempts?: boolean
+    available_at?: boolean
+    claimed_by?: boolean
+    claimed_at?: boolean
+    completed_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+    artifacts?: boolean | AgentTask$artifactsArgs<ExtArgs>
+    _count?: boolean | AgentTaskCountOutputTypeDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["agentTask"]>
+
+  export type AgentTaskSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    task_type?: boolean
+    status?: boolean
+    session_key?: boolean
+    chat_type?: boolean
+    peer_id?: boolean
+    peer_name?: boolean
+    requester_sender_id?: boolean
+    requester_sender_name?: boolean
+    target_description?: boolean
+    prompt?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    source_queue_message_ids?: boolean
+    source_media_tags?: boolean
+    source_media_asset_ids?: boolean
+    input_json?: boolean
+    result_json?: boolean
+    error_message?: boolean
+    attempts?: boolean
+    available_at?: boolean
+    claimed_by?: boolean
+    claimed_at?: boolean
+    completed_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentTask"]>
+
+  export type AgentTaskSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    task_type?: boolean
+    status?: boolean
+    session_key?: boolean
+    chat_type?: boolean
+    peer_id?: boolean
+    peer_name?: boolean
+    requester_sender_id?: boolean
+    requester_sender_name?: boolean
+    target_description?: boolean
+    prompt?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    source_queue_message_ids?: boolean
+    source_media_tags?: boolean
+    source_media_asset_ids?: boolean
+    input_json?: boolean
+    result_json?: boolean
+    error_message?: boolean
+    attempts?: boolean
+    available_at?: boolean
+    claimed_by?: boolean
+    claimed_at?: boolean
+    completed_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentTask"]>
+
+  export type AgentTaskSelectScalar = {
+    id?: boolean
+    task_type?: boolean
+    status?: boolean
+    session_key?: boolean
+    chat_type?: boolean
+    peer_id?: boolean
+    peer_name?: boolean
+    requester_sender_id?: boolean
+    requester_sender_name?: boolean
+    target_description?: boolean
+    prompt?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    source_queue_message_ids?: boolean
+    source_media_tags?: boolean
+    source_media_asset_ids?: boolean
+    input_json?: boolean
+    result_json?: boolean
+    error_message?: boolean
+    attempts?: boolean
+    available_at?: boolean
+    claimed_by?: boolean
+    claimed_at?: boolean
+    completed_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type AgentTaskOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "task_type" | "status" | "session_key" | "chat_type" | "peer_id" | "peer_name" | "requester_sender_id" | "requester_sender_name" | "target_description" | "prompt" | "source_trace_id" | "source_run_id" | "source_queue_message_ids" | "source_media_tags" | "source_media_asset_ids" | "input_json" | "result_json" | "error_message" | "attempts" | "available_at" | "claimed_by" | "claimed_at" | "completed_at" | "created_at" | "updated_at", ExtArgs["result"]["agentTask"]>
+  export type AgentTaskInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    artifacts?: boolean | AgentTask$artifactsArgs<ExtArgs>
+    _count?: boolean | AgentTaskCountOutputTypeDefaultArgs<ExtArgs>
+  }
+  export type AgentTaskIncludeCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {}
+  export type AgentTaskIncludeUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {}
+
+  export type $AgentTaskPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AgentTask"
+    objects: {
+      artifacts: Prisma.$AgentTaskArtifactPayload<ExtArgs>[]
+    }
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      task_type: string
+      status: string
+      session_key: string
+      chat_type: string
+      peer_id: string | null
+      peer_name: string | null
+      requester_sender_id: string | null
+      requester_sender_name: string | null
+      target_description: string | null
+      prompt: string
+      source_trace_id: string | null
+      source_run_id: string | null
+      source_queue_message_ids: Prisma.JsonValue | null
+      source_media_tags: Prisma.JsonValue | null
+      source_media_asset_ids: Prisma.JsonValue | null
+      input_json: Prisma.JsonValue | null
+      result_json: Prisma.JsonValue | null
+      error_message: string | null
+      attempts: number
+      available_at: Date
+      claimed_by: string | null
+      claimed_at: Date | null
+      completed_at: Date | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["agentTask"]>
+    composites: {}
+  }
+
+  type AgentTaskGetPayload<S extends boolean | null | undefined | AgentTaskDefaultArgs> = $Result.GetResult<Prisma.$AgentTaskPayload, S>
+
+  type AgentTaskCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AgentTaskFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AgentTaskCountAggregateInputType | true
+    }
+
+  export interface AgentTaskDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AgentTask'], meta: { name: 'AgentTask' } }
+    /**
+     * Find zero or one AgentTask that matches the filter.
+     * @param {AgentTaskFindUniqueArgs} args - Arguments to find a AgentTask
+     * @example
+     * // Get one AgentTask
+     * const agentTask = await prisma.agentTask.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AgentTaskFindUniqueArgs>(args: SelectSubset<T, AgentTaskFindUniqueArgs<ExtArgs>>): Prisma__AgentTaskClient<$Result.GetResult<Prisma.$AgentTaskPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AgentTask that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AgentTaskFindUniqueOrThrowArgs} args - Arguments to find a AgentTask
+     * @example
+     * // Get one AgentTask
+     * const agentTask = await prisma.agentTask.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AgentTaskFindUniqueOrThrowArgs>(args: SelectSubset<T, AgentTaskFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AgentTaskClient<$Result.GetResult<Prisma.$AgentTaskPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentTask that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskFindFirstArgs} args - Arguments to find a AgentTask
+     * @example
+     * // Get one AgentTask
+     * const agentTask = await prisma.agentTask.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AgentTaskFindFirstArgs>(args?: SelectSubset<T, AgentTaskFindFirstArgs<ExtArgs>>): Prisma__AgentTaskClient<$Result.GetResult<Prisma.$AgentTaskPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentTask that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskFindFirstOrThrowArgs} args - Arguments to find a AgentTask
+     * @example
+     * // Get one AgentTask
+     * const agentTask = await prisma.agentTask.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AgentTaskFindFirstOrThrowArgs>(args?: SelectSubset<T, AgentTaskFindFirstOrThrowArgs<ExtArgs>>): Prisma__AgentTaskClient<$Result.GetResult<Prisma.$AgentTaskPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AgentTasks that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AgentTasks
+     * const agentTasks = await prisma.agentTask.findMany()
+     * 
+     * // Get first 10 AgentTasks
+     * const agentTasks = await prisma.agentTask.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const agentTaskWithIdOnly = await prisma.agentTask.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends AgentTaskFindManyArgs>(args?: SelectSubset<T, AgentTaskFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentTaskPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AgentTask.
+     * @param {AgentTaskCreateArgs} args - Arguments to create a AgentTask.
+     * @example
+     * // Create one AgentTask
+     * const AgentTask = await prisma.agentTask.create({
+     *   data: {
+     *     // ... data to create a AgentTask
+     *   }
+     * })
+     * 
+     */
+    create<T extends AgentTaskCreateArgs>(args: SelectSubset<T, AgentTaskCreateArgs<ExtArgs>>): Prisma__AgentTaskClient<$Result.GetResult<Prisma.$AgentTaskPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AgentTasks.
+     * @param {AgentTaskCreateManyArgs} args - Arguments to create many AgentTasks.
+     * @example
+     * // Create many AgentTasks
+     * const agentTask = await prisma.agentTask.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends AgentTaskCreateManyArgs>(args?: SelectSubset<T, AgentTaskCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AgentTasks and returns the data saved in the database.
+     * @param {AgentTaskCreateManyAndReturnArgs} args - Arguments to create many AgentTasks.
+     * @example
+     * // Create many AgentTasks
+     * const agentTask = await prisma.agentTask.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many AgentTasks and only return the `id`
+     * const agentTaskWithIdOnly = await prisma.agentTask.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends AgentTaskCreateManyAndReturnArgs>(args?: SelectSubset<T, AgentTaskCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentTaskPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AgentTask.
+     * @param {AgentTaskDeleteArgs} args - Arguments to delete one AgentTask.
+     * @example
+     * // Delete one AgentTask
+     * const AgentTask = await prisma.agentTask.delete({
+     *   where: {
+     *     // ... filter to delete one AgentTask
+     *   }
+     * })
+     * 
+     */
+    delete<T extends AgentTaskDeleteArgs>(args: SelectSubset<T, AgentTaskDeleteArgs<ExtArgs>>): Prisma__AgentTaskClient<$Result.GetResult<Prisma.$AgentTaskPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AgentTask.
+     * @param {AgentTaskUpdateArgs} args - Arguments to update one AgentTask.
+     * @example
+     * // Update one AgentTask
+     * const agentTask = await prisma.agentTask.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends AgentTaskUpdateArgs>(args: SelectSubset<T, AgentTaskUpdateArgs<ExtArgs>>): Prisma__AgentTaskClient<$Result.GetResult<Prisma.$AgentTaskPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AgentTasks.
+     * @param {AgentTaskDeleteManyArgs} args - Arguments to filter AgentTasks to delete.
+     * @example
+     * // Delete a few AgentTasks
+     * const { count } = await prisma.agentTask.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends AgentTaskDeleteManyArgs>(args?: SelectSubset<T, AgentTaskDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentTasks.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AgentTasks
+     * const agentTask = await prisma.agentTask.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends AgentTaskUpdateManyArgs>(args: SelectSubset<T, AgentTaskUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentTasks and returns the data updated in the database.
+     * @param {AgentTaskUpdateManyAndReturnArgs} args - Arguments to update many AgentTasks.
+     * @example
+     * // Update many AgentTasks
+     * const agentTask = await prisma.agentTask.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more AgentTasks and only return the `id`
+     * const agentTaskWithIdOnly = await prisma.agentTask.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends AgentTaskUpdateManyAndReturnArgs>(args: SelectSubset<T, AgentTaskUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentTaskPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AgentTask.
+     * @param {AgentTaskUpsertArgs} args - Arguments to update or create a AgentTask.
+     * @example
+     * // Update or create a AgentTask
+     * const agentTask = await prisma.agentTask.upsert({
+     *   create: {
+     *     // ... data to create a AgentTask
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AgentTask we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AgentTaskUpsertArgs>(args: SelectSubset<T, AgentTaskUpsertArgs<ExtArgs>>): Prisma__AgentTaskClient<$Result.GetResult<Prisma.$AgentTaskPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AgentTasks.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskCountArgs} args - Arguments to filter AgentTasks to count.
+     * @example
+     * // Count the number of AgentTasks
+     * const count = await prisma.agentTask.count({
+     *   where: {
+     *     // ... the filter for the AgentTasks we want to count
+     *   }
+     * })
+    **/
+    count<T extends AgentTaskCountArgs>(
+      args?: Subset<T, AgentTaskCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AgentTaskCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AgentTask.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AgentTaskAggregateArgs>(args: Subset<T, AgentTaskAggregateArgs>): Prisma.PrismaPromise<GetAgentTaskAggregateType<T>>
+
+    /**
+     * Group by AgentTask.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends AgentTaskGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AgentTaskGroupByArgs['orderBy'] }
+        : { orderBy?: AgentTaskGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AgentTaskGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAgentTaskGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AgentTask model
+   */
+  readonly fields: AgentTaskFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AgentTask.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AgentTaskClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    artifacts<T extends AgentTask$artifactsArgs<ExtArgs> = {}>(args?: Subset<T, AgentTask$artifactsArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentTaskArtifactPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AgentTask model
+   */
+  interface AgentTaskFieldRefs {
+    readonly id: FieldRef<"AgentTask", 'String'>
+    readonly task_type: FieldRef<"AgentTask", 'String'>
+    readonly status: FieldRef<"AgentTask", 'String'>
+    readonly session_key: FieldRef<"AgentTask", 'String'>
+    readonly chat_type: FieldRef<"AgentTask", 'String'>
+    readonly peer_id: FieldRef<"AgentTask", 'String'>
+    readonly peer_name: FieldRef<"AgentTask", 'String'>
+    readonly requester_sender_id: FieldRef<"AgentTask", 'String'>
+    readonly requester_sender_name: FieldRef<"AgentTask", 'String'>
+    readonly target_description: FieldRef<"AgentTask", 'String'>
+    readonly prompt: FieldRef<"AgentTask", 'String'>
+    readonly source_trace_id: FieldRef<"AgentTask", 'String'>
+    readonly source_run_id: FieldRef<"AgentTask", 'String'>
+    readonly source_queue_message_ids: FieldRef<"AgentTask", 'Json'>
+    readonly source_media_tags: FieldRef<"AgentTask", 'Json'>
+    readonly source_media_asset_ids: FieldRef<"AgentTask", 'Json'>
+    readonly input_json: FieldRef<"AgentTask", 'Json'>
+    readonly result_json: FieldRef<"AgentTask", 'Json'>
+    readonly error_message: FieldRef<"AgentTask", 'String'>
+    readonly attempts: FieldRef<"AgentTask", 'Int'>
+    readonly available_at: FieldRef<"AgentTask", 'DateTime'>
+    readonly claimed_by: FieldRef<"AgentTask", 'String'>
+    readonly claimed_at: FieldRef<"AgentTask", 'DateTime'>
+    readonly completed_at: FieldRef<"AgentTask", 'DateTime'>
+    readonly created_at: FieldRef<"AgentTask", 'DateTime'>
+    readonly updated_at: FieldRef<"AgentTask", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * AgentTask findUnique
+   */
+  export type AgentTaskFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTask
+     */
+    select?: AgentTaskSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTask
+     */
+    omit?: AgentTaskOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentTask to fetch.
+     */
+    where: AgentTaskWhereUniqueInput
+  }
+
+  /**
+   * AgentTask findUniqueOrThrow
+   */
+  export type AgentTaskFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTask
+     */
+    select?: AgentTaskSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTask
+     */
+    omit?: AgentTaskOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentTask to fetch.
+     */
+    where: AgentTaskWhereUniqueInput
+  }
+
+  /**
+   * AgentTask findFirst
+   */
+  export type AgentTaskFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTask
+     */
+    select?: AgentTaskSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTask
+     */
+    omit?: AgentTaskOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentTask to fetch.
+     */
+    where?: AgentTaskWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentTasks to fetch.
+     */
+    orderBy?: AgentTaskOrderByWithRelationInput | AgentTaskOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentTasks.
+     */
+    cursor?: AgentTaskWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentTasks from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentTasks.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentTasks.
+     */
+    distinct?: AgentTaskScalarFieldEnum | AgentTaskScalarFieldEnum[]
+  }
+
+  /**
+   * AgentTask findFirstOrThrow
+   */
+  export type AgentTaskFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTask
+     */
+    select?: AgentTaskSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTask
+     */
+    omit?: AgentTaskOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentTask to fetch.
+     */
+    where?: AgentTaskWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentTasks to fetch.
+     */
+    orderBy?: AgentTaskOrderByWithRelationInput | AgentTaskOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentTasks.
+     */
+    cursor?: AgentTaskWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentTasks from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentTasks.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentTasks.
+     */
+    distinct?: AgentTaskScalarFieldEnum | AgentTaskScalarFieldEnum[]
+  }
+
+  /**
+   * AgentTask findMany
+   */
+  export type AgentTaskFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTask
+     */
+    select?: AgentTaskSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTask
+     */
+    omit?: AgentTaskOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentTasks to fetch.
+     */
+    where?: AgentTaskWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentTasks to fetch.
+     */
+    orderBy?: AgentTaskOrderByWithRelationInput | AgentTaskOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing AgentTasks.
+     */
+    cursor?: AgentTaskWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentTasks from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentTasks.
+     */
+    skip?: number
+    distinct?: AgentTaskScalarFieldEnum | AgentTaskScalarFieldEnum[]
+  }
+
+  /**
+   * AgentTask create
+   */
+  export type AgentTaskCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTask
+     */
+    select?: AgentTaskSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTask
+     */
+    omit?: AgentTaskOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskInclude<ExtArgs> | null
+    /**
+     * The data needed to create a AgentTask.
+     */
+    data: XOR<AgentTaskCreateInput, AgentTaskUncheckedCreateInput>
+  }
+
+  /**
+   * AgentTask createMany
+   */
+  export type AgentTaskCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AgentTasks.
+     */
+    data: AgentTaskCreateManyInput | AgentTaskCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentTask createManyAndReturn
+   */
+  export type AgentTaskCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTask
+     */
+    select?: AgentTaskSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTask
+     */
+    omit?: AgentTaskOmit<ExtArgs> | null
+    /**
+     * The data used to create many AgentTasks.
+     */
+    data: AgentTaskCreateManyInput | AgentTaskCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentTask update
+   */
+  export type AgentTaskUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTask
+     */
+    select?: AgentTaskSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTask
+     */
+    omit?: AgentTaskOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskInclude<ExtArgs> | null
+    /**
+     * The data needed to update a AgentTask.
+     */
+    data: XOR<AgentTaskUpdateInput, AgentTaskUncheckedUpdateInput>
+    /**
+     * Choose, which AgentTask to update.
+     */
+    where: AgentTaskWhereUniqueInput
+  }
+
+  /**
+   * AgentTask updateMany
+   */
+  export type AgentTaskUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AgentTasks.
+     */
+    data: XOR<AgentTaskUpdateManyMutationInput, AgentTaskUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentTasks to update
+     */
+    where?: AgentTaskWhereInput
+    /**
+     * Limit how many AgentTasks to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentTask updateManyAndReturn
+   */
+  export type AgentTaskUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTask
+     */
+    select?: AgentTaskSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTask
+     */
+    omit?: AgentTaskOmit<ExtArgs> | null
+    /**
+     * The data used to update AgentTasks.
+     */
+    data: XOR<AgentTaskUpdateManyMutationInput, AgentTaskUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentTasks to update
+     */
+    where?: AgentTaskWhereInput
+    /**
+     * Limit how many AgentTasks to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentTask upsert
+   */
+  export type AgentTaskUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTask
+     */
+    select?: AgentTaskSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTask
+     */
+    omit?: AgentTaskOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskInclude<ExtArgs> | null
+    /**
+     * The filter to search for the AgentTask to update in case it exists.
+     */
+    where: AgentTaskWhereUniqueInput
+    /**
+     * In case the AgentTask found by the `where` argument doesn't exist, create a new AgentTask with this data.
+     */
+    create: XOR<AgentTaskCreateInput, AgentTaskUncheckedCreateInput>
+    /**
+     * In case the AgentTask was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AgentTaskUpdateInput, AgentTaskUncheckedUpdateInput>
+  }
+
+  /**
+   * AgentTask delete
+   */
+  export type AgentTaskDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTask
+     */
+    select?: AgentTaskSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTask
+     */
+    omit?: AgentTaskOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskInclude<ExtArgs> | null
+    /**
+     * Filter which AgentTask to delete.
+     */
+    where: AgentTaskWhereUniqueInput
+  }
+
+  /**
+   * AgentTask deleteMany
+   */
+  export type AgentTaskDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentTasks to delete
+     */
+    where?: AgentTaskWhereInput
+    /**
+     * Limit how many AgentTasks to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentTask.artifacts
+   */
+  export type AgentTask$artifactsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactInclude<ExtArgs> | null
+    where?: AgentTaskArtifactWhereInput
+    orderBy?: AgentTaskArtifactOrderByWithRelationInput | AgentTaskArtifactOrderByWithRelationInput[]
+    cursor?: AgentTaskArtifactWhereUniqueInput
+    take?: number
+    skip?: number
+    distinct?: AgentTaskArtifactScalarFieldEnum | AgentTaskArtifactScalarFieldEnum[]
+  }
+
+  /**
+   * AgentTask without action
+   */
+  export type AgentTaskDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTask
+     */
+    select?: AgentTaskSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTask
+     */
+    omit?: AgentTaskOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskInclude<ExtArgs> | null
+  }
+
+
+  /**
+   * Model AgentTaskArtifact
+   */
+
+  export type AggregateAgentTaskArtifact = {
+    _count: AgentTaskArtifactCountAggregateOutputType | null
+    _avg: AgentTaskArtifactAvgAggregateOutputType | null
+    _sum: AgentTaskArtifactSumAggregateOutputType | null
+    _min: AgentTaskArtifactMinAggregateOutputType | null
+    _max: AgentTaskArtifactMaxAggregateOutputType | null
+  }
+
+  export type AgentTaskArtifactAvgAggregateOutputType = {
+    bytes: number | null
+  }
+
+  export type AgentTaskArtifactSumAggregateOutputType = {
+    bytes: number | null
+  }
+
+  export type AgentTaskArtifactMinAggregateOutputType = {
+    id: string | null
+    task_id: string | null
+    kind: string | null
+    file_path: string | null
+    public_path: string | null
+    data_url: string | null
+    mime_type: string | null
+    format: string | null
+    bytes: number | null
+    revised_prompt: string | null
+    created_at: Date | null
+  }
+
+  export type AgentTaskArtifactMaxAggregateOutputType = {
+    id: string | null
+    task_id: string | null
+    kind: string | null
+    file_path: string | null
+    public_path: string | null
+    data_url: string | null
+    mime_type: string | null
+    format: string | null
+    bytes: number | null
+    revised_prompt: string | null
+    created_at: Date | null
+  }
+
+  export type AgentTaskArtifactCountAggregateOutputType = {
+    id: number
+    task_id: number
+    kind: number
+    file_path: number
+    public_path: number
+    data_url: number
+    mime_type: number
+    format: number
+    bytes: number
+    revised_prompt: number
+    metadata: number
+    created_at: number
+    _all: number
+  }
+
+
+  export type AgentTaskArtifactAvgAggregateInputType = {
+    bytes?: true
+  }
+
+  export type AgentTaskArtifactSumAggregateInputType = {
+    bytes?: true
+  }
+
+  export type AgentTaskArtifactMinAggregateInputType = {
+    id?: true
+    task_id?: true
+    kind?: true
+    file_path?: true
+    public_path?: true
+    data_url?: true
+    mime_type?: true
+    format?: true
+    bytes?: true
+    revised_prompt?: true
+    created_at?: true
+  }
+
+  export type AgentTaskArtifactMaxAggregateInputType = {
+    id?: true
+    task_id?: true
+    kind?: true
+    file_path?: true
+    public_path?: true
+    data_url?: true
+    mime_type?: true
+    format?: true
+    bytes?: true
+    revised_prompt?: true
+    created_at?: true
+  }
+
+  export type AgentTaskArtifactCountAggregateInputType = {
+    id?: true
+    task_id?: true
+    kind?: true
+    file_path?: true
+    public_path?: true
+    data_url?: true
+    mime_type?: true
+    format?: true
+    bytes?: true
+    revised_prompt?: true
+    metadata?: true
+    created_at?: true
+    _all?: true
+  }
+
+  export type AgentTaskArtifactAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentTaskArtifact to aggregate.
+     */
+    where?: AgentTaskArtifactWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentTaskArtifacts to fetch.
+     */
+    orderBy?: AgentTaskArtifactOrderByWithRelationInput | AgentTaskArtifactOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: AgentTaskArtifactWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentTaskArtifacts from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentTaskArtifacts.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned AgentTaskArtifacts
+    **/
+    _count?: true | AgentTaskArtifactCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: AgentTaskArtifactAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: AgentTaskArtifactSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: AgentTaskArtifactMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: AgentTaskArtifactMaxAggregateInputType
+  }
+
+  export type GetAgentTaskArtifactAggregateType<T extends AgentTaskArtifactAggregateArgs> = {
+        [P in keyof T & keyof AggregateAgentTaskArtifact]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAgentTaskArtifact[P]>
+      : GetScalarType<T[P], AggregateAgentTaskArtifact[P]>
+  }
+
+
+
+
+  export type AgentTaskArtifactGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AgentTaskArtifactWhereInput
+    orderBy?: AgentTaskArtifactOrderByWithAggregationInput | AgentTaskArtifactOrderByWithAggregationInput[]
+    by: AgentTaskArtifactScalarFieldEnum[] | AgentTaskArtifactScalarFieldEnum
+    having?: AgentTaskArtifactScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AgentTaskArtifactCountAggregateInputType | true
+    _avg?: AgentTaskArtifactAvgAggregateInputType
+    _sum?: AgentTaskArtifactSumAggregateInputType
+    _min?: AgentTaskArtifactMinAggregateInputType
+    _max?: AgentTaskArtifactMaxAggregateInputType
+  }
+
+  export type AgentTaskArtifactGroupByOutputType = {
+    id: string
+    task_id: string
+    kind: string
+    file_path: string | null
+    public_path: string | null
+    data_url: string | null
+    mime_type: string | null
+    format: string | null
+    bytes: number | null
+    revised_prompt: string | null
+    metadata: JsonValue | null
+    created_at: Date
+    _count: AgentTaskArtifactCountAggregateOutputType | null
+    _avg: AgentTaskArtifactAvgAggregateOutputType | null
+    _sum: AgentTaskArtifactSumAggregateOutputType | null
+    _min: AgentTaskArtifactMinAggregateOutputType | null
+    _max: AgentTaskArtifactMaxAggregateOutputType | null
+  }
+
+  type GetAgentTaskArtifactGroupByPayload<T extends AgentTaskArtifactGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AgentTaskArtifactGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AgentTaskArtifactGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AgentTaskArtifactGroupByOutputType[P]>
+            : GetScalarType<T[P], AgentTaskArtifactGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AgentTaskArtifactSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    task_id?: boolean
+    kind?: boolean
+    file_path?: boolean
+    public_path?: boolean
+    data_url?: boolean
+    mime_type?: boolean
+    format?: boolean
+    bytes?: boolean
+    revised_prompt?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    task?: boolean | AgentTaskDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["agentTaskArtifact"]>
+
+  export type AgentTaskArtifactSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    task_id?: boolean
+    kind?: boolean
+    file_path?: boolean
+    public_path?: boolean
+    data_url?: boolean
+    mime_type?: boolean
+    format?: boolean
+    bytes?: boolean
+    revised_prompt?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    task?: boolean | AgentTaskDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["agentTaskArtifact"]>
+
+  export type AgentTaskArtifactSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    task_id?: boolean
+    kind?: boolean
+    file_path?: boolean
+    public_path?: boolean
+    data_url?: boolean
+    mime_type?: boolean
+    format?: boolean
+    bytes?: boolean
+    revised_prompt?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    task?: boolean | AgentTaskDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["agentTaskArtifact"]>
+
+  export type AgentTaskArtifactSelectScalar = {
+    id?: boolean
+    task_id?: boolean
+    kind?: boolean
+    file_path?: boolean
+    public_path?: boolean
+    data_url?: boolean
+    mime_type?: boolean
+    format?: boolean
+    bytes?: boolean
+    revised_prompt?: boolean
+    metadata?: boolean
+    created_at?: boolean
+  }
+
+  export type AgentTaskArtifactOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "task_id" | "kind" | "file_path" | "public_path" | "data_url" | "mime_type" | "format" | "bytes" | "revised_prompt" | "metadata" | "created_at", ExtArgs["result"]["agentTaskArtifact"]>
+  export type AgentTaskArtifactInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    task?: boolean | AgentTaskDefaultArgs<ExtArgs>
+  }
+  export type AgentTaskArtifactIncludeCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    task?: boolean | AgentTaskDefaultArgs<ExtArgs>
+  }
+  export type AgentTaskArtifactIncludeUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    task?: boolean | AgentTaskDefaultArgs<ExtArgs>
+  }
+
+  export type $AgentTaskArtifactPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AgentTaskArtifact"
+    objects: {
+      task: Prisma.$AgentTaskPayload<ExtArgs>
+    }
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      task_id: string
+      kind: string
+      file_path: string | null
+      public_path: string | null
+      data_url: string | null
+      mime_type: string | null
+      format: string | null
+      bytes: number | null
+      revised_prompt: string | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+    }, ExtArgs["result"]["agentTaskArtifact"]>
+    composites: {}
+  }
+
+  type AgentTaskArtifactGetPayload<S extends boolean | null | undefined | AgentTaskArtifactDefaultArgs> = $Result.GetResult<Prisma.$AgentTaskArtifactPayload, S>
+
+  type AgentTaskArtifactCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AgentTaskArtifactFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AgentTaskArtifactCountAggregateInputType | true
+    }
+
+  export interface AgentTaskArtifactDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AgentTaskArtifact'], meta: { name: 'AgentTaskArtifact' } }
+    /**
+     * Find zero or one AgentTaskArtifact that matches the filter.
+     * @param {AgentTaskArtifactFindUniqueArgs} args - Arguments to find a AgentTaskArtifact
+     * @example
+     * // Get one AgentTaskArtifact
+     * const agentTaskArtifact = await prisma.agentTaskArtifact.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AgentTaskArtifactFindUniqueArgs>(args: SelectSubset<T, AgentTaskArtifactFindUniqueArgs<ExtArgs>>): Prisma__AgentTaskArtifactClient<$Result.GetResult<Prisma.$AgentTaskArtifactPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AgentTaskArtifact that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AgentTaskArtifactFindUniqueOrThrowArgs} args - Arguments to find a AgentTaskArtifact
+     * @example
+     * // Get one AgentTaskArtifact
+     * const agentTaskArtifact = await prisma.agentTaskArtifact.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AgentTaskArtifactFindUniqueOrThrowArgs>(args: SelectSubset<T, AgentTaskArtifactFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AgentTaskArtifactClient<$Result.GetResult<Prisma.$AgentTaskArtifactPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentTaskArtifact that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskArtifactFindFirstArgs} args - Arguments to find a AgentTaskArtifact
+     * @example
+     * // Get one AgentTaskArtifact
+     * const agentTaskArtifact = await prisma.agentTaskArtifact.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AgentTaskArtifactFindFirstArgs>(args?: SelectSubset<T, AgentTaskArtifactFindFirstArgs<ExtArgs>>): Prisma__AgentTaskArtifactClient<$Result.GetResult<Prisma.$AgentTaskArtifactPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentTaskArtifact that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskArtifactFindFirstOrThrowArgs} args - Arguments to find a AgentTaskArtifact
+     * @example
+     * // Get one AgentTaskArtifact
+     * const agentTaskArtifact = await prisma.agentTaskArtifact.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AgentTaskArtifactFindFirstOrThrowArgs>(args?: SelectSubset<T, AgentTaskArtifactFindFirstOrThrowArgs<ExtArgs>>): Prisma__AgentTaskArtifactClient<$Result.GetResult<Prisma.$AgentTaskArtifactPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AgentTaskArtifacts that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskArtifactFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AgentTaskArtifacts
+     * const agentTaskArtifacts = await prisma.agentTaskArtifact.findMany()
+     * 
+     * // Get first 10 AgentTaskArtifacts
+     * const agentTaskArtifacts = await prisma.agentTaskArtifact.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const agentTaskArtifactWithIdOnly = await prisma.agentTaskArtifact.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends AgentTaskArtifactFindManyArgs>(args?: SelectSubset<T, AgentTaskArtifactFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentTaskArtifactPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AgentTaskArtifact.
+     * @param {AgentTaskArtifactCreateArgs} args - Arguments to create a AgentTaskArtifact.
+     * @example
+     * // Create one AgentTaskArtifact
+     * const AgentTaskArtifact = await prisma.agentTaskArtifact.create({
+     *   data: {
+     *     // ... data to create a AgentTaskArtifact
+     *   }
+     * })
+     * 
+     */
+    create<T extends AgentTaskArtifactCreateArgs>(args: SelectSubset<T, AgentTaskArtifactCreateArgs<ExtArgs>>): Prisma__AgentTaskArtifactClient<$Result.GetResult<Prisma.$AgentTaskArtifactPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AgentTaskArtifacts.
+     * @param {AgentTaskArtifactCreateManyArgs} args - Arguments to create many AgentTaskArtifacts.
+     * @example
+     * // Create many AgentTaskArtifacts
+     * const agentTaskArtifact = await prisma.agentTaskArtifact.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends AgentTaskArtifactCreateManyArgs>(args?: SelectSubset<T, AgentTaskArtifactCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AgentTaskArtifacts and returns the data saved in the database.
+     * @param {AgentTaskArtifactCreateManyAndReturnArgs} args - Arguments to create many AgentTaskArtifacts.
+     * @example
+     * // Create many AgentTaskArtifacts
+     * const agentTaskArtifact = await prisma.agentTaskArtifact.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many AgentTaskArtifacts and only return the `id`
+     * const agentTaskArtifactWithIdOnly = await prisma.agentTaskArtifact.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends AgentTaskArtifactCreateManyAndReturnArgs>(args?: SelectSubset<T, AgentTaskArtifactCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentTaskArtifactPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AgentTaskArtifact.
+     * @param {AgentTaskArtifactDeleteArgs} args - Arguments to delete one AgentTaskArtifact.
+     * @example
+     * // Delete one AgentTaskArtifact
+     * const AgentTaskArtifact = await prisma.agentTaskArtifact.delete({
+     *   where: {
+     *     // ... filter to delete one AgentTaskArtifact
+     *   }
+     * })
+     * 
+     */
+    delete<T extends AgentTaskArtifactDeleteArgs>(args: SelectSubset<T, AgentTaskArtifactDeleteArgs<ExtArgs>>): Prisma__AgentTaskArtifactClient<$Result.GetResult<Prisma.$AgentTaskArtifactPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AgentTaskArtifact.
+     * @param {AgentTaskArtifactUpdateArgs} args - Arguments to update one AgentTaskArtifact.
+     * @example
+     * // Update one AgentTaskArtifact
+     * const agentTaskArtifact = await prisma.agentTaskArtifact.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends AgentTaskArtifactUpdateArgs>(args: SelectSubset<T, AgentTaskArtifactUpdateArgs<ExtArgs>>): Prisma__AgentTaskArtifactClient<$Result.GetResult<Prisma.$AgentTaskArtifactPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AgentTaskArtifacts.
+     * @param {AgentTaskArtifactDeleteManyArgs} args - Arguments to filter AgentTaskArtifacts to delete.
+     * @example
+     * // Delete a few AgentTaskArtifacts
+     * const { count } = await prisma.agentTaskArtifact.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends AgentTaskArtifactDeleteManyArgs>(args?: SelectSubset<T, AgentTaskArtifactDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentTaskArtifacts.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskArtifactUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AgentTaskArtifacts
+     * const agentTaskArtifact = await prisma.agentTaskArtifact.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends AgentTaskArtifactUpdateManyArgs>(args: SelectSubset<T, AgentTaskArtifactUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentTaskArtifacts and returns the data updated in the database.
+     * @param {AgentTaskArtifactUpdateManyAndReturnArgs} args - Arguments to update many AgentTaskArtifacts.
+     * @example
+     * // Update many AgentTaskArtifacts
+     * const agentTaskArtifact = await prisma.agentTaskArtifact.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more AgentTaskArtifacts and only return the `id`
+     * const agentTaskArtifactWithIdOnly = await prisma.agentTaskArtifact.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends AgentTaskArtifactUpdateManyAndReturnArgs>(args: SelectSubset<T, AgentTaskArtifactUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentTaskArtifactPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AgentTaskArtifact.
+     * @param {AgentTaskArtifactUpsertArgs} args - Arguments to update or create a AgentTaskArtifact.
+     * @example
+     * // Update or create a AgentTaskArtifact
+     * const agentTaskArtifact = await prisma.agentTaskArtifact.upsert({
+     *   create: {
+     *     // ... data to create a AgentTaskArtifact
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AgentTaskArtifact we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AgentTaskArtifactUpsertArgs>(args: SelectSubset<T, AgentTaskArtifactUpsertArgs<ExtArgs>>): Prisma__AgentTaskArtifactClient<$Result.GetResult<Prisma.$AgentTaskArtifactPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AgentTaskArtifacts.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskArtifactCountArgs} args - Arguments to filter AgentTaskArtifacts to count.
+     * @example
+     * // Count the number of AgentTaskArtifacts
+     * const count = await prisma.agentTaskArtifact.count({
+     *   where: {
+     *     // ... the filter for the AgentTaskArtifacts we want to count
+     *   }
+     * })
+    **/
+    count<T extends AgentTaskArtifactCountArgs>(
+      args?: Subset<T, AgentTaskArtifactCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AgentTaskArtifactCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AgentTaskArtifact.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskArtifactAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AgentTaskArtifactAggregateArgs>(args: Subset<T, AgentTaskArtifactAggregateArgs>): Prisma.PrismaPromise<GetAgentTaskArtifactAggregateType<T>>
+
+    /**
+     * Group by AgentTaskArtifact.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentTaskArtifactGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends AgentTaskArtifactGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AgentTaskArtifactGroupByArgs['orderBy'] }
+        : { orderBy?: AgentTaskArtifactGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AgentTaskArtifactGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAgentTaskArtifactGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AgentTaskArtifact model
+   */
+  readonly fields: AgentTaskArtifactFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AgentTaskArtifact.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AgentTaskArtifactClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    task<T extends AgentTaskDefaultArgs<ExtArgs> = {}>(args?: Subset<T, AgentTaskDefaultArgs<ExtArgs>>): Prisma__AgentTaskClient<$Result.GetResult<Prisma.$AgentTaskPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AgentTaskArtifact model
+   */
+  interface AgentTaskArtifactFieldRefs {
+    readonly id: FieldRef<"AgentTaskArtifact", 'String'>
+    readonly task_id: FieldRef<"AgentTaskArtifact", 'String'>
+    readonly kind: FieldRef<"AgentTaskArtifact", 'String'>
+    readonly file_path: FieldRef<"AgentTaskArtifact", 'String'>
+    readonly public_path: FieldRef<"AgentTaskArtifact", 'String'>
+    readonly data_url: FieldRef<"AgentTaskArtifact", 'String'>
+    readonly mime_type: FieldRef<"AgentTaskArtifact", 'String'>
+    readonly format: FieldRef<"AgentTaskArtifact", 'String'>
+    readonly bytes: FieldRef<"AgentTaskArtifact", 'Int'>
+    readonly revised_prompt: FieldRef<"AgentTaskArtifact", 'String'>
+    readonly metadata: FieldRef<"AgentTaskArtifact", 'Json'>
+    readonly created_at: FieldRef<"AgentTaskArtifact", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * AgentTaskArtifact findUnique
+   */
+  export type AgentTaskArtifactFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentTaskArtifact to fetch.
+     */
+    where: AgentTaskArtifactWhereUniqueInput
+  }
+
+  /**
+   * AgentTaskArtifact findUniqueOrThrow
+   */
+  export type AgentTaskArtifactFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentTaskArtifact to fetch.
+     */
+    where: AgentTaskArtifactWhereUniqueInput
+  }
+
+  /**
+   * AgentTaskArtifact findFirst
+   */
+  export type AgentTaskArtifactFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentTaskArtifact to fetch.
+     */
+    where?: AgentTaskArtifactWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentTaskArtifacts to fetch.
+     */
+    orderBy?: AgentTaskArtifactOrderByWithRelationInput | AgentTaskArtifactOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentTaskArtifacts.
+     */
+    cursor?: AgentTaskArtifactWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentTaskArtifacts from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentTaskArtifacts.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentTaskArtifacts.
+     */
+    distinct?: AgentTaskArtifactScalarFieldEnum | AgentTaskArtifactScalarFieldEnum[]
+  }
+
+  /**
+   * AgentTaskArtifact findFirstOrThrow
+   */
+  export type AgentTaskArtifactFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentTaskArtifact to fetch.
+     */
+    where?: AgentTaskArtifactWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentTaskArtifacts to fetch.
+     */
+    orderBy?: AgentTaskArtifactOrderByWithRelationInput | AgentTaskArtifactOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentTaskArtifacts.
+     */
+    cursor?: AgentTaskArtifactWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentTaskArtifacts from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentTaskArtifacts.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentTaskArtifacts.
+     */
+    distinct?: AgentTaskArtifactScalarFieldEnum | AgentTaskArtifactScalarFieldEnum[]
+  }
+
+  /**
+   * AgentTaskArtifact findMany
+   */
+  export type AgentTaskArtifactFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactInclude<ExtArgs> | null
+    /**
+     * Filter, which AgentTaskArtifacts to fetch.
+     */
+    where?: AgentTaskArtifactWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentTaskArtifacts to fetch.
+     */
+    orderBy?: AgentTaskArtifactOrderByWithRelationInput | AgentTaskArtifactOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing AgentTaskArtifacts.
+     */
+    cursor?: AgentTaskArtifactWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentTaskArtifacts from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentTaskArtifacts.
+     */
+    skip?: number
+    distinct?: AgentTaskArtifactScalarFieldEnum | AgentTaskArtifactScalarFieldEnum[]
+  }
+
+  /**
+   * AgentTaskArtifact create
+   */
+  export type AgentTaskArtifactCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactInclude<ExtArgs> | null
+    /**
+     * The data needed to create a AgentTaskArtifact.
+     */
+    data: XOR<AgentTaskArtifactCreateInput, AgentTaskArtifactUncheckedCreateInput>
+  }
+
+  /**
+   * AgentTaskArtifact createMany
+   */
+  export type AgentTaskArtifactCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AgentTaskArtifacts.
+     */
+    data: AgentTaskArtifactCreateManyInput | AgentTaskArtifactCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentTaskArtifact createManyAndReturn
+   */
+  export type AgentTaskArtifactCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * The data used to create many AgentTaskArtifacts.
+     */
+    data: AgentTaskArtifactCreateManyInput | AgentTaskArtifactCreateManyInput[]
+    skipDuplicates?: boolean
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactIncludeCreateManyAndReturn<ExtArgs> | null
+  }
+
+  /**
+   * AgentTaskArtifact update
+   */
+  export type AgentTaskArtifactUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactInclude<ExtArgs> | null
+    /**
+     * The data needed to update a AgentTaskArtifact.
+     */
+    data: XOR<AgentTaskArtifactUpdateInput, AgentTaskArtifactUncheckedUpdateInput>
+    /**
+     * Choose, which AgentTaskArtifact to update.
+     */
+    where: AgentTaskArtifactWhereUniqueInput
+  }
+
+  /**
+   * AgentTaskArtifact updateMany
+   */
+  export type AgentTaskArtifactUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AgentTaskArtifacts.
+     */
+    data: XOR<AgentTaskArtifactUpdateManyMutationInput, AgentTaskArtifactUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentTaskArtifacts to update
+     */
+    where?: AgentTaskArtifactWhereInput
+    /**
+     * Limit how many AgentTaskArtifacts to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentTaskArtifact updateManyAndReturn
+   */
+  export type AgentTaskArtifactUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * The data used to update AgentTaskArtifacts.
+     */
+    data: XOR<AgentTaskArtifactUpdateManyMutationInput, AgentTaskArtifactUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentTaskArtifacts to update
+     */
+    where?: AgentTaskArtifactWhereInput
+    /**
+     * Limit how many AgentTaskArtifacts to update.
+     */
+    limit?: number
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactIncludeUpdateManyAndReturn<ExtArgs> | null
+  }
+
+  /**
+   * AgentTaskArtifact upsert
+   */
+  export type AgentTaskArtifactUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactInclude<ExtArgs> | null
+    /**
+     * The filter to search for the AgentTaskArtifact to update in case it exists.
+     */
+    where: AgentTaskArtifactWhereUniqueInput
+    /**
+     * In case the AgentTaskArtifact found by the `where` argument doesn't exist, create a new AgentTaskArtifact with this data.
+     */
+    create: XOR<AgentTaskArtifactCreateInput, AgentTaskArtifactUncheckedCreateInput>
+    /**
+     * In case the AgentTaskArtifact was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AgentTaskArtifactUpdateInput, AgentTaskArtifactUncheckedUpdateInput>
+  }
+
+  /**
+   * AgentTaskArtifact delete
+   */
+  export type AgentTaskArtifactDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactInclude<ExtArgs> | null
+    /**
+     * Filter which AgentTaskArtifact to delete.
+     */
+    where: AgentTaskArtifactWhereUniqueInput
+  }
+
+  /**
+   * AgentTaskArtifact deleteMany
+   */
+  export type AgentTaskArtifactDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentTaskArtifacts to delete
+     */
+    where?: AgentTaskArtifactWhereInput
+    /**
+     * Limit how many AgentTaskArtifacts to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentTaskArtifact without action
+   */
+  export type AgentTaskArtifactDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentTaskArtifact
+     */
+    select?: AgentTaskArtifactSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentTaskArtifact
+     */
+    omit?: AgentTaskArtifactOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AgentTaskArtifactInclude<ExtArgs> | null
   }
 
 
@@ -36929,6 +44922,139 @@ export namespace Prisma {
   export type TrafficReplayHistoryScalarFieldEnum = (typeof TrafficReplayHistoryScalarFieldEnum)[keyof typeof TrafficReplayHistoryScalarFieldEnum]
 
 
+  export const ImageLabRunScalarFieldEnum: {
+    id: 'id',
+    operation: 'operation',
+    status: 'status',
+    parent_run_id: 'parent_run_id',
+    prompt: 'prompt',
+    provider: 'provider',
+    model: 'model',
+    size: 'size',
+    quality: 'quality',
+    format: 'format',
+    input_json: 'input_json',
+    result_json: 'result_json',
+    error_message: 'error_message',
+    started_at: 'started_at',
+    completed_at: 'completed_at',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type ImageLabRunScalarFieldEnum = (typeof ImageLabRunScalarFieldEnum)[keyof typeof ImageLabRunScalarFieldEnum]
+
+
+  export const ImageLabArtifactScalarFieldEnum: {
+    id: 'id',
+    run_id: 'run_id',
+    kind: 'kind',
+    file_path: 'file_path',
+    public_path: 'public_path',
+    mime_type: 'mime_type',
+    format: 'format',
+    bytes: 'bytes',
+    width: 'width',
+    height: 'height',
+    revised_prompt: 'revised_prompt',
+    metadata: 'metadata',
+    created_at: 'created_at'
+  };
+
+  export type ImageLabArtifactScalarFieldEnum = (typeof ImageLabArtifactScalarFieldEnum)[keyof typeof ImageLabArtifactScalarFieldEnum]
+
+
+  export const AgentMediaAssetScalarFieldEnum: {
+    id: 'id',
+    source: 'source',
+    source_message_id: 'source_message_id',
+    trace_id: 'trace_id',
+    session_key: 'session_key',
+    chat_type: 'chat_type',
+    peer_id: 'peer_id',
+    peer_name: 'peer_name',
+    sender_id: 'sender_id',
+    sender_name: 'sender_name',
+    account_id: 'account_id',
+    message_sid: 'message_sid',
+    media_tag: 'media_tag',
+    placeholder: 'placeholder',
+    media_type: 'media_type',
+    mime_type: 'mime_type',
+    source_locator: 'source_locator',
+    storage_uri: 'storage_uri',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type AgentMediaAssetScalarFieldEnum = (typeof AgentMediaAssetScalarFieldEnum)[keyof typeof AgentMediaAssetScalarFieldEnum]
+
+
+  export const AgentMediaObservationScalarFieldEnum: {
+    id: 'id',
+    asset_id: 'asset_id',
+    observer: 'observer',
+    description: 'description',
+    source_model: 'source_model',
+    confidence: 'confidence',
+    metadata: 'metadata',
+    created_at: 'created_at'
+  };
+
+  export type AgentMediaObservationScalarFieldEnum = (typeof AgentMediaObservationScalarFieldEnum)[keyof typeof AgentMediaObservationScalarFieldEnum]
+
+
+  export const AgentTaskScalarFieldEnum: {
+    id: 'id',
+    task_type: 'task_type',
+    status: 'status',
+    session_key: 'session_key',
+    chat_type: 'chat_type',
+    peer_id: 'peer_id',
+    peer_name: 'peer_name',
+    requester_sender_id: 'requester_sender_id',
+    requester_sender_name: 'requester_sender_name',
+    target_description: 'target_description',
+    prompt: 'prompt',
+    source_trace_id: 'source_trace_id',
+    source_run_id: 'source_run_id',
+    source_queue_message_ids: 'source_queue_message_ids',
+    source_media_tags: 'source_media_tags',
+    source_media_asset_ids: 'source_media_asset_ids',
+    input_json: 'input_json',
+    result_json: 'result_json',
+    error_message: 'error_message',
+    attempts: 'attempts',
+    available_at: 'available_at',
+    claimed_by: 'claimed_by',
+    claimed_at: 'claimed_at',
+    completed_at: 'completed_at',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type AgentTaskScalarFieldEnum = (typeof AgentTaskScalarFieldEnum)[keyof typeof AgentTaskScalarFieldEnum]
+
+
+  export const AgentTaskArtifactScalarFieldEnum: {
+    id: 'id',
+    task_id: 'task_id',
+    kind: 'kind',
+    file_path: 'file_path',
+    public_path: 'public_path',
+    data_url: 'data_url',
+    mime_type: 'mime_type',
+    format: 'format',
+    bytes: 'bytes',
+    revised_prompt: 'revised_prompt',
+    metadata: 'metadata',
+    created_at: 'created_at'
+  };
+
+  export type AgentTaskArtifactScalarFieldEnum = (typeof AgentTaskArtifactScalarFieldEnum)[keyof typeof AgentTaskArtifactScalarFieldEnum]
+
+
   export const RelationshipLedgerEventScalarFieldEnum: {
     id: 'id',
     group_id: 'group_id',
@@ -38392,6 +46518,680 @@ export namespace Prisma {
     body_size_diff?: IntNullableWithAggregatesFilter<"TrafficReplayHistory"> | number | null
     success?: BoolWithAggregatesFilter<"TrafficReplayHistory"> | boolean
     template_id?: IntNullableWithAggregatesFilter<"TrafficReplayHistory"> | number | null
+  }
+
+  export type ImageLabRunWhereInput = {
+    AND?: ImageLabRunWhereInput | ImageLabRunWhereInput[]
+    OR?: ImageLabRunWhereInput[]
+    NOT?: ImageLabRunWhereInput | ImageLabRunWhereInput[]
+    id?: StringFilter<"ImageLabRun"> | string
+    operation?: StringFilter<"ImageLabRun"> | string
+    status?: StringFilter<"ImageLabRun"> | string
+    parent_run_id?: StringNullableFilter<"ImageLabRun"> | string | null
+    prompt?: StringFilter<"ImageLabRun"> | string
+    provider?: StringNullableFilter<"ImageLabRun"> | string | null
+    model?: StringNullableFilter<"ImageLabRun"> | string | null
+    size?: StringNullableFilter<"ImageLabRun"> | string | null
+    quality?: StringNullableFilter<"ImageLabRun"> | string | null
+    format?: StringNullableFilter<"ImageLabRun"> | string | null
+    input_json?: JsonNullableFilter<"ImageLabRun">
+    result_json?: JsonNullableFilter<"ImageLabRun">
+    error_message?: StringNullableFilter<"ImageLabRun"> | string | null
+    started_at?: DateTimeNullableFilter<"ImageLabRun"> | Date | string | null
+    completed_at?: DateTimeNullableFilter<"ImageLabRun"> | Date | string | null
+    created_at?: DateTimeFilter<"ImageLabRun"> | Date | string
+    updated_at?: DateTimeFilter<"ImageLabRun"> | Date | string
+    artifacts?: ImageLabArtifactListRelationFilter
+  }
+
+  export type ImageLabRunOrderByWithRelationInput = {
+    id?: SortOrder
+    operation?: SortOrder
+    status?: SortOrder
+    parent_run_id?: SortOrderInput | SortOrder
+    prompt?: SortOrder
+    provider?: SortOrderInput | SortOrder
+    model?: SortOrderInput | SortOrder
+    size?: SortOrderInput | SortOrder
+    quality?: SortOrderInput | SortOrder
+    format?: SortOrderInput | SortOrder
+    input_json?: SortOrderInput | SortOrder
+    result_json?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    started_at?: SortOrderInput | SortOrder
+    completed_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    artifacts?: ImageLabArtifactOrderByRelationAggregateInput
+  }
+
+  export type ImageLabRunWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    AND?: ImageLabRunWhereInput | ImageLabRunWhereInput[]
+    OR?: ImageLabRunWhereInput[]
+    NOT?: ImageLabRunWhereInput | ImageLabRunWhereInput[]
+    operation?: StringFilter<"ImageLabRun"> | string
+    status?: StringFilter<"ImageLabRun"> | string
+    parent_run_id?: StringNullableFilter<"ImageLabRun"> | string | null
+    prompt?: StringFilter<"ImageLabRun"> | string
+    provider?: StringNullableFilter<"ImageLabRun"> | string | null
+    model?: StringNullableFilter<"ImageLabRun"> | string | null
+    size?: StringNullableFilter<"ImageLabRun"> | string | null
+    quality?: StringNullableFilter<"ImageLabRun"> | string | null
+    format?: StringNullableFilter<"ImageLabRun"> | string | null
+    input_json?: JsonNullableFilter<"ImageLabRun">
+    result_json?: JsonNullableFilter<"ImageLabRun">
+    error_message?: StringNullableFilter<"ImageLabRun"> | string | null
+    started_at?: DateTimeNullableFilter<"ImageLabRun"> | Date | string | null
+    completed_at?: DateTimeNullableFilter<"ImageLabRun"> | Date | string | null
+    created_at?: DateTimeFilter<"ImageLabRun"> | Date | string
+    updated_at?: DateTimeFilter<"ImageLabRun"> | Date | string
+    artifacts?: ImageLabArtifactListRelationFilter
+  }, "id">
+
+  export type ImageLabRunOrderByWithAggregationInput = {
+    id?: SortOrder
+    operation?: SortOrder
+    status?: SortOrder
+    parent_run_id?: SortOrderInput | SortOrder
+    prompt?: SortOrder
+    provider?: SortOrderInput | SortOrder
+    model?: SortOrderInput | SortOrder
+    size?: SortOrderInput | SortOrder
+    quality?: SortOrderInput | SortOrder
+    format?: SortOrderInput | SortOrder
+    input_json?: SortOrderInput | SortOrder
+    result_json?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    started_at?: SortOrderInput | SortOrder
+    completed_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: ImageLabRunCountOrderByAggregateInput
+    _max?: ImageLabRunMaxOrderByAggregateInput
+    _min?: ImageLabRunMinOrderByAggregateInput
+  }
+
+  export type ImageLabRunScalarWhereWithAggregatesInput = {
+    AND?: ImageLabRunScalarWhereWithAggregatesInput | ImageLabRunScalarWhereWithAggregatesInput[]
+    OR?: ImageLabRunScalarWhereWithAggregatesInput[]
+    NOT?: ImageLabRunScalarWhereWithAggregatesInput | ImageLabRunScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"ImageLabRun"> | string
+    operation?: StringWithAggregatesFilter<"ImageLabRun"> | string
+    status?: StringWithAggregatesFilter<"ImageLabRun"> | string
+    parent_run_id?: StringNullableWithAggregatesFilter<"ImageLabRun"> | string | null
+    prompt?: StringWithAggregatesFilter<"ImageLabRun"> | string
+    provider?: StringNullableWithAggregatesFilter<"ImageLabRun"> | string | null
+    model?: StringNullableWithAggregatesFilter<"ImageLabRun"> | string | null
+    size?: StringNullableWithAggregatesFilter<"ImageLabRun"> | string | null
+    quality?: StringNullableWithAggregatesFilter<"ImageLabRun"> | string | null
+    format?: StringNullableWithAggregatesFilter<"ImageLabRun"> | string | null
+    input_json?: JsonNullableWithAggregatesFilter<"ImageLabRun">
+    result_json?: JsonNullableWithAggregatesFilter<"ImageLabRun">
+    error_message?: StringNullableWithAggregatesFilter<"ImageLabRun"> | string | null
+    started_at?: DateTimeNullableWithAggregatesFilter<"ImageLabRun"> | Date | string | null
+    completed_at?: DateTimeNullableWithAggregatesFilter<"ImageLabRun"> | Date | string | null
+    created_at?: DateTimeWithAggregatesFilter<"ImageLabRun"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"ImageLabRun"> | Date | string
+  }
+
+  export type ImageLabArtifactWhereInput = {
+    AND?: ImageLabArtifactWhereInput | ImageLabArtifactWhereInput[]
+    OR?: ImageLabArtifactWhereInput[]
+    NOT?: ImageLabArtifactWhereInput | ImageLabArtifactWhereInput[]
+    id?: StringFilter<"ImageLabArtifact"> | string
+    run_id?: StringFilter<"ImageLabArtifact"> | string
+    kind?: StringFilter<"ImageLabArtifact"> | string
+    file_path?: StringFilter<"ImageLabArtifact"> | string
+    public_path?: StringFilter<"ImageLabArtifact"> | string
+    mime_type?: StringFilter<"ImageLabArtifact"> | string
+    format?: StringNullableFilter<"ImageLabArtifact"> | string | null
+    bytes?: IntNullableFilter<"ImageLabArtifact"> | number | null
+    width?: IntNullableFilter<"ImageLabArtifact"> | number | null
+    height?: IntNullableFilter<"ImageLabArtifact"> | number | null
+    revised_prompt?: StringNullableFilter<"ImageLabArtifact"> | string | null
+    metadata?: JsonNullableFilter<"ImageLabArtifact">
+    created_at?: DateTimeFilter<"ImageLabArtifact"> | Date | string
+    run?: XOR<ImageLabRunScalarRelationFilter, ImageLabRunWhereInput>
+  }
+
+  export type ImageLabArtifactOrderByWithRelationInput = {
+    id?: SortOrder
+    run_id?: SortOrder
+    kind?: SortOrder
+    file_path?: SortOrder
+    public_path?: SortOrder
+    mime_type?: SortOrder
+    format?: SortOrderInput | SortOrder
+    bytes?: SortOrderInput | SortOrder
+    width?: SortOrderInput | SortOrder
+    height?: SortOrderInput | SortOrder
+    revised_prompt?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    run?: ImageLabRunOrderByWithRelationInput
+  }
+
+  export type ImageLabArtifactWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    AND?: ImageLabArtifactWhereInput | ImageLabArtifactWhereInput[]
+    OR?: ImageLabArtifactWhereInput[]
+    NOT?: ImageLabArtifactWhereInput | ImageLabArtifactWhereInput[]
+    run_id?: StringFilter<"ImageLabArtifact"> | string
+    kind?: StringFilter<"ImageLabArtifact"> | string
+    file_path?: StringFilter<"ImageLabArtifact"> | string
+    public_path?: StringFilter<"ImageLabArtifact"> | string
+    mime_type?: StringFilter<"ImageLabArtifact"> | string
+    format?: StringNullableFilter<"ImageLabArtifact"> | string | null
+    bytes?: IntNullableFilter<"ImageLabArtifact"> | number | null
+    width?: IntNullableFilter<"ImageLabArtifact"> | number | null
+    height?: IntNullableFilter<"ImageLabArtifact"> | number | null
+    revised_prompt?: StringNullableFilter<"ImageLabArtifact"> | string | null
+    metadata?: JsonNullableFilter<"ImageLabArtifact">
+    created_at?: DateTimeFilter<"ImageLabArtifact"> | Date | string
+    run?: XOR<ImageLabRunScalarRelationFilter, ImageLabRunWhereInput>
+  }, "id">
+
+  export type ImageLabArtifactOrderByWithAggregationInput = {
+    id?: SortOrder
+    run_id?: SortOrder
+    kind?: SortOrder
+    file_path?: SortOrder
+    public_path?: SortOrder
+    mime_type?: SortOrder
+    format?: SortOrderInput | SortOrder
+    bytes?: SortOrderInput | SortOrder
+    width?: SortOrderInput | SortOrder
+    height?: SortOrderInput | SortOrder
+    revised_prompt?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    _count?: ImageLabArtifactCountOrderByAggregateInput
+    _avg?: ImageLabArtifactAvgOrderByAggregateInput
+    _max?: ImageLabArtifactMaxOrderByAggregateInput
+    _min?: ImageLabArtifactMinOrderByAggregateInput
+    _sum?: ImageLabArtifactSumOrderByAggregateInput
+  }
+
+  export type ImageLabArtifactScalarWhereWithAggregatesInput = {
+    AND?: ImageLabArtifactScalarWhereWithAggregatesInput | ImageLabArtifactScalarWhereWithAggregatesInput[]
+    OR?: ImageLabArtifactScalarWhereWithAggregatesInput[]
+    NOT?: ImageLabArtifactScalarWhereWithAggregatesInput | ImageLabArtifactScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"ImageLabArtifact"> | string
+    run_id?: StringWithAggregatesFilter<"ImageLabArtifact"> | string
+    kind?: StringWithAggregatesFilter<"ImageLabArtifact"> | string
+    file_path?: StringWithAggregatesFilter<"ImageLabArtifact"> | string
+    public_path?: StringWithAggregatesFilter<"ImageLabArtifact"> | string
+    mime_type?: StringWithAggregatesFilter<"ImageLabArtifact"> | string
+    format?: StringNullableWithAggregatesFilter<"ImageLabArtifact"> | string | null
+    bytes?: IntNullableWithAggregatesFilter<"ImageLabArtifact"> | number | null
+    width?: IntNullableWithAggregatesFilter<"ImageLabArtifact"> | number | null
+    height?: IntNullableWithAggregatesFilter<"ImageLabArtifact"> | number | null
+    revised_prompt?: StringNullableWithAggregatesFilter<"ImageLabArtifact"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"ImageLabArtifact">
+    created_at?: DateTimeWithAggregatesFilter<"ImageLabArtifact"> | Date | string
+  }
+
+  export type AgentMediaAssetWhereInput = {
+    AND?: AgentMediaAssetWhereInput | AgentMediaAssetWhereInput[]
+    OR?: AgentMediaAssetWhereInput[]
+    NOT?: AgentMediaAssetWhereInput | AgentMediaAssetWhereInput[]
+    id?: StringFilter<"AgentMediaAsset"> | string
+    source?: StringFilter<"AgentMediaAsset"> | string
+    source_message_id?: BigIntNullableFilter<"AgentMediaAsset"> | bigint | number | null
+    trace_id?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    session_key?: StringFilter<"AgentMediaAsset"> | string
+    chat_type?: StringFilter<"AgentMediaAsset"> | string
+    peer_id?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    peer_name?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    sender_id?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    sender_name?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    account_id?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    message_sid?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    media_tag?: StringFilter<"AgentMediaAsset"> | string
+    placeholder?: StringFilter<"AgentMediaAsset"> | string
+    media_type?: StringFilter<"AgentMediaAsset"> | string
+    mime_type?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    source_locator?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    storage_uri?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    metadata?: JsonNullableFilter<"AgentMediaAsset">
+    created_at?: DateTimeFilter<"AgentMediaAsset"> | Date | string
+    updated_at?: DateTimeFilter<"AgentMediaAsset"> | Date | string
+    observations?: AgentMediaObservationListRelationFilter
+  }
+
+  export type AgentMediaAssetOrderByWithRelationInput = {
+    id?: SortOrder
+    source?: SortOrder
+    source_message_id?: SortOrderInput | SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrderInput | SortOrder
+    peer_name?: SortOrderInput | SortOrder
+    sender_id?: SortOrderInput | SortOrder
+    sender_name?: SortOrderInput | SortOrder
+    account_id?: SortOrderInput | SortOrder
+    message_sid?: SortOrderInput | SortOrder
+    media_tag?: SortOrder
+    placeholder?: SortOrder
+    media_type?: SortOrder
+    mime_type?: SortOrderInput | SortOrder
+    source_locator?: SortOrderInput | SortOrder
+    storage_uri?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    observations?: AgentMediaObservationOrderByRelationAggregateInput
+  }
+
+  export type AgentMediaAssetWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    message_sid_media_tag?: AgentMediaAssetMessage_sidMedia_tagCompoundUniqueInput
+    AND?: AgentMediaAssetWhereInput | AgentMediaAssetWhereInput[]
+    OR?: AgentMediaAssetWhereInput[]
+    NOT?: AgentMediaAssetWhereInput | AgentMediaAssetWhereInput[]
+    source?: StringFilter<"AgentMediaAsset"> | string
+    source_message_id?: BigIntNullableFilter<"AgentMediaAsset"> | bigint | number | null
+    trace_id?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    session_key?: StringFilter<"AgentMediaAsset"> | string
+    chat_type?: StringFilter<"AgentMediaAsset"> | string
+    peer_id?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    peer_name?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    sender_id?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    sender_name?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    account_id?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    message_sid?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    media_tag?: StringFilter<"AgentMediaAsset"> | string
+    placeholder?: StringFilter<"AgentMediaAsset"> | string
+    media_type?: StringFilter<"AgentMediaAsset"> | string
+    mime_type?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    source_locator?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    storage_uri?: StringNullableFilter<"AgentMediaAsset"> | string | null
+    metadata?: JsonNullableFilter<"AgentMediaAsset">
+    created_at?: DateTimeFilter<"AgentMediaAsset"> | Date | string
+    updated_at?: DateTimeFilter<"AgentMediaAsset"> | Date | string
+    observations?: AgentMediaObservationListRelationFilter
+  }, "id" | "message_sid_media_tag">
+
+  export type AgentMediaAssetOrderByWithAggregationInput = {
+    id?: SortOrder
+    source?: SortOrder
+    source_message_id?: SortOrderInput | SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrderInput | SortOrder
+    peer_name?: SortOrderInput | SortOrder
+    sender_id?: SortOrderInput | SortOrder
+    sender_name?: SortOrderInput | SortOrder
+    account_id?: SortOrderInput | SortOrder
+    message_sid?: SortOrderInput | SortOrder
+    media_tag?: SortOrder
+    placeholder?: SortOrder
+    media_type?: SortOrder
+    mime_type?: SortOrderInput | SortOrder
+    source_locator?: SortOrderInput | SortOrder
+    storage_uri?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: AgentMediaAssetCountOrderByAggregateInput
+    _avg?: AgentMediaAssetAvgOrderByAggregateInput
+    _max?: AgentMediaAssetMaxOrderByAggregateInput
+    _min?: AgentMediaAssetMinOrderByAggregateInput
+    _sum?: AgentMediaAssetSumOrderByAggregateInput
+  }
+
+  export type AgentMediaAssetScalarWhereWithAggregatesInput = {
+    AND?: AgentMediaAssetScalarWhereWithAggregatesInput | AgentMediaAssetScalarWhereWithAggregatesInput[]
+    OR?: AgentMediaAssetScalarWhereWithAggregatesInput[]
+    NOT?: AgentMediaAssetScalarWhereWithAggregatesInput | AgentMediaAssetScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"AgentMediaAsset"> | string
+    source?: StringWithAggregatesFilter<"AgentMediaAsset"> | string
+    source_message_id?: BigIntNullableWithAggregatesFilter<"AgentMediaAsset"> | bigint | number | null
+    trace_id?: StringNullableWithAggregatesFilter<"AgentMediaAsset"> | string | null
+    session_key?: StringWithAggregatesFilter<"AgentMediaAsset"> | string
+    chat_type?: StringWithAggregatesFilter<"AgentMediaAsset"> | string
+    peer_id?: StringNullableWithAggregatesFilter<"AgentMediaAsset"> | string | null
+    peer_name?: StringNullableWithAggregatesFilter<"AgentMediaAsset"> | string | null
+    sender_id?: StringNullableWithAggregatesFilter<"AgentMediaAsset"> | string | null
+    sender_name?: StringNullableWithAggregatesFilter<"AgentMediaAsset"> | string | null
+    account_id?: StringNullableWithAggregatesFilter<"AgentMediaAsset"> | string | null
+    message_sid?: StringNullableWithAggregatesFilter<"AgentMediaAsset"> | string | null
+    media_tag?: StringWithAggregatesFilter<"AgentMediaAsset"> | string
+    placeholder?: StringWithAggregatesFilter<"AgentMediaAsset"> | string
+    media_type?: StringWithAggregatesFilter<"AgentMediaAsset"> | string
+    mime_type?: StringNullableWithAggregatesFilter<"AgentMediaAsset"> | string | null
+    source_locator?: StringNullableWithAggregatesFilter<"AgentMediaAsset"> | string | null
+    storage_uri?: StringNullableWithAggregatesFilter<"AgentMediaAsset"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"AgentMediaAsset">
+    created_at?: DateTimeWithAggregatesFilter<"AgentMediaAsset"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"AgentMediaAsset"> | Date | string
+  }
+
+  export type AgentMediaObservationWhereInput = {
+    AND?: AgentMediaObservationWhereInput | AgentMediaObservationWhereInput[]
+    OR?: AgentMediaObservationWhereInput[]
+    NOT?: AgentMediaObservationWhereInput | AgentMediaObservationWhereInput[]
+    id?: StringFilter<"AgentMediaObservation"> | string
+    asset_id?: StringFilter<"AgentMediaObservation"> | string
+    observer?: StringFilter<"AgentMediaObservation"> | string
+    description?: StringFilter<"AgentMediaObservation"> | string
+    source_model?: StringNullableFilter<"AgentMediaObservation"> | string | null
+    confidence?: StringNullableFilter<"AgentMediaObservation"> | string | null
+    metadata?: JsonNullableFilter<"AgentMediaObservation">
+    created_at?: DateTimeFilter<"AgentMediaObservation"> | Date | string
+    asset?: XOR<AgentMediaAssetScalarRelationFilter, AgentMediaAssetWhereInput>
+  }
+
+  export type AgentMediaObservationOrderByWithRelationInput = {
+    id?: SortOrder
+    asset_id?: SortOrder
+    observer?: SortOrder
+    description?: SortOrder
+    source_model?: SortOrderInput | SortOrder
+    confidence?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    asset?: AgentMediaAssetOrderByWithRelationInput
+  }
+
+  export type AgentMediaObservationWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    AND?: AgentMediaObservationWhereInput | AgentMediaObservationWhereInput[]
+    OR?: AgentMediaObservationWhereInput[]
+    NOT?: AgentMediaObservationWhereInput | AgentMediaObservationWhereInput[]
+    asset_id?: StringFilter<"AgentMediaObservation"> | string
+    observer?: StringFilter<"AgentMediaObservation"> | string
+    description?: StringFilter<"AgentMediaObservation"> | string
+    source_model?: StringNullableFilter<"AgentMediaObservation"> | string | null
+    confidence?: StringNullableFilter<"AgentMediaObservation"> | string | null
+    metadata?: JsonNullableFilter<"AgentMediaObservation">
+    created_at?: DateTimeFilter<"AgentMediaObservation"> | Date | string
+    asset?: XOR<AgentMediaAssetScalarRelationFilter, AgentMediaAssetWhereInput>
+  }, "id">
+
+  export type AgentMediaObservationOrderByWithAggregationInput = {
+    id?: SortOrder
+    asset_id?: SortOrder
+    observer?: SortOrder
+    description?: SortOrder
+    source_model?: SortOrderInput | SortOrder
+    confidence?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    _count?: AgentMediaObservationCountOrderByAggregateInput
+    _max?: AgentMediaObservationMaxOrderByAggregateInput
+    _min?: AgentMediaObservationMinOrderByAggregateInput
+  }
+
+  export type AgentMediaObservationScalarWhereWithAggregatesInput = {
+    AND?: AgentMediaObservationScalarWhereWithAggregatesInput | AgentMediaObservationScalarWhereWithAggregatesInput[]
+    OR?: AgentMediaObservationScalarWhereWithAggregatesInput[]
+    NOT?: AgentMediaObservationScalarWhereWithAggregatesInput | AgentMediaObservationScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"AgentMediaObservation"> | string
+    asset_id?: StringWithAggregatesFilter<"AgentMediaObservation"> | string
+    observer?: StringWithAggregatesFilter<"AgentMediaObservation"> | string
+    description?: StringWithAggregatesFilter<"AgentMediaObservation"> | string
+    source_model?: StringNullableWithAggregatesFilter<"AgentMediaObservation"> | string | null
+    confidence?: StringNullableWithAggregatesFilter<"AgentMediaObservation"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"AgentMediaObservation">
+    created_at?: DateTimeWithAggregatesFilter<"AgentMediaObservation"> | Date | string
+  }
+
+  export type AgentTaskWhereInput = {
+    AND?: AgentTaskWhereInput | AgentTaskWhereInput[]
+    OR?: AgentTaskWhereInput[]
+    NOT?: AgentTaskWhereInput | AgentTaskWhereInput[]
+    id?: StringFilter<"AgentTask"> | string
+    task_type?: StringFilter<"AgentTask"> | string
+    status?: StringFilter<"AgentTask"> | string
+    session_key?: StringFilter<"AgentTask"> | string
+    chat_type?: StringFilter<"AgentTask"> | string
+    peer_id?: StringNullableFilter<"AgentTask"> | string | null
+    peer_name?: StringNullableFilter<"AgentTask"> | string | null
+    requester_sender_id?: StringNullableFilter<"AgentTask"> | string | null
+    requester_sender_name?: StringNullableFilter<"AgentTask"> | string | null
+    target_description?: StringNullableFilter<"AgentTask"> | string | null
+    prompt?: StringFilter<"AgentTask"> | string
+    source_trace_id?: StringNullableFilter<"AgentTask"> | string | null
+    source_run_id?: StringNullableFilter<"AgentTask"> | string | null
+    source_queue_message_ids?: JsonNullableFilter<"AgentTask">
+    source_media_tags?: JsonNullableFilter<"AgentTask">
+    source_media_asset_ids?: JsonNullableFilter<"AgentTask">
+    input_json?: JsonNullableFilter<"AgentTask">
+    result_json?: JsonNullableFilter<"AgentTask">
+    error_message?: StringNullableFilter<"AgentTask"> | string | null
+    attempts?: IntFilter<"AgentTask"> | number
+    available_at?: DateTimeFilter<"AgentTask"> | Date | string
+    claimed_by?: StringNullableFilter<"AgentTask"> | string | null
+    claimed_at?: DateTimeNullableFilter<"AgentTask"> | Date | string | null
+    completed_at?: DateTimeNullableFilter<"AgentTask"> | Date | string | null
+    created_at?: DateTimeFilter<"AgentTask"> | Date | string
+    updated_at?: DateTimeFilter<"AgentTask"> | Date | string
+    artifacts?: AgentTaskArtifactListRelationFilter
+  }
+
+  export type AgentTaskOrderByWithRelationInput = {
+    id?: SortOrder
+    task_type?: SortOrder
+    status?: SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrderInput | SortOrder
+    peer_name?: SortOrderInput | SortOrder
+    requester_sender_id?: SortOrderInput | SortOrder
+    requester_sender_name?: SortOrderInput | SortOrder
+    target_description?: SortOrderInput | SortOrder
+    prompt?: SortOrder
+    source_trace_id?: SortOrderInput | SortOrder
+    source_run_id?: SortOrderInput | SortOrder
+    source_queue_message_ids?: SortOrderInput | SortOrder
+    source_media_tags?: SortOrderInput | SortOrder
+    source_media_asset_ids?: SortOrderInput | SortOrder
+    input_json?: SortOrderInput | SortOrder
+    result_json?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    attempts?: SortOrder
+    available_at?: SortOrder
+    claimed_by?: SortOrderInput | SortOrder
+    claimed_at?: SortOrderInput | SortOrder
+    completed_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    artifacts?: AgentTaskArtifactOrderByRelationAggregateInput
+  }
+
+  export type AgentTaskWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    AND?: AgentTaskWhereInput | AgentTaskWhereInput[]
+    OR?: AgentTaskWhereInput[]
+    NOT?: AgentTaskWhereInput | AgentTaskWhereInput[]
+    task_type?: StringFilter<"AgentTask"> | string
+    status?: StringFilter<"AgentTask"> | string
+    session_key?: StringFilter<"AgentTask"> | string
+    chat_type?: StringFilter<"AgentTask"> | string
+    peer_id?: StringNullableFilter<"AgentTask"> | string | null
+    peer_name?: StringNullableFilter<"AgentTask"> | string | null
+    requester_sender_id?: StringNullableFilter<"AgentTask"> | string | null
+    requester_sender_name?: StringNullableFilter<"AgentTask"> | string | null
+    target_description?: StringNullableFilter<"AgentTask"> | string | null
+    prompt?: StringFilter<"AgentTask"> | string
+    source_trace_id?: StringNullableFilter<"AgentTask"> | string | null
+    source_run_id?: StringNullableFilter<"AgentTask"> | string | null
+    source_queue_message_ids?: JsonNullableFilter<"AgentTask">
+    source_media_tags?: JsonNullableFilter<"AgentTask">
+    source_media_asset_ids?: JsonNullableFilter<"AgentTask">
+    input_json?: JsonNullableFilter<"AgentTask">
+    result_json?: JsonNullableFilter<"AgentTask">
+    error_message?: StringNullableFilter<"AgentTask"> | string | null
+    attempts?: IntFilter<"AgentTask"> | number
+    available_at?: DateTimeFilter<"AgentTask"> | Date | string
+    claimed_by?: StringNullableFilter<"AgentTask"> | string | null
+    claimed_at?: DateTimeNullableFilter<"AgentTask"> | Date | string | null
+    completed_at?: DateTimeNullableFilter<"AgentTask"> | Date | string | null
+    created_at?: DateTimeFilter<"AgentTask"> | Date | string
+    updated_at?: DateTimeFilter<"AgentTask"> | Date | string
+    artifacts?: AgentTaskArtifactListRelationFilter
+  }, "id">
+
+  export type AgentTaskOrderByWithAggregationInput = {
+    id?: SortOrder
+    task_type?: SortOrder
+    status?: SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrderInput | SortOrder
+    peer_name?: SortOrderInput | SortOrder
+    requester_sender_id?: SortOrderInput | SortOrder
+    requester_sender_name?: SortOrderInput | SortOrder
+    target_description?: SortOrderInput | SortOrder
+    prompt?: SortOrder
+    source_trace_id?: SortOrderInput | SortOrder
+    source_run_id?: SortOrderInput | SortOrder
+    source_queue_message_ids?: SortOrderInput | SortOrder
+    source_media_tags?: SortOrderInput | SortOrder
+    source_media_asset_ids?: SortOrderInput | SortOrder
+    input_json?: SortOrderInput | SortOrder
+    result_json?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    attempts?: SortOrder
+    available_at?: SortOrder
+    claimed_by?: SortOrderInput | SortOrder
+    claimed_at?: SortOrderInput | SortOrder
+    completed_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: AgentTaskCountOrderByAggregateInput
+    _avg?: AgentTaskAvgOrderByAggregateInput
+    _max?: AgentTaskMaxOrderByAggregateInput
+    _min?: AgentTaskMinOrderByAggregateInput
+    _sum?: AgentTaskSumOrderByAggregateInput
+  }
+
+  export type AgentTaskScalarWhereWithAggregatesInput = {
+    AND?: AgentTaskScalarWhereWithAggregatesInput | AgentTaskScalarWhereWithAggregatesInput[]
+    OR?: AgentTaskScalarWhereWithAggregatesInput[]
+    NOT?: AgentTaskScalarWhereWithAggregatesInput | AgentTaskScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"AgentTask"> | string
+    task_type?: StringWithAggregatesFilter<"AgentTask"> | string
+    status?: StringWithAggregatesFilter<"AgentTask"> | string
+    session_key?: StringWithAggregatesFilter<"AgentTask"> | string
+    chat_type?: StringWithAggregatesFilter<"AgentTask"> | string
+    peer_id?: StringNullableWithAggregatesFilter<"AgentTask"> | string | null
+    peer_name?: StringNullableWithAggregatesFilter<"AgentTask"> | string | null
+    requester_sender_id?: StringNullableWithAggregatesFilter<"AgentTask"> | string | null
+    requester_sender_name?: StringNullableWithAggregatesFilter<"AgentTask"> | string | null
+    target_description?: StringNullableWithAggregatesFilter<"AgentTask"> | string | null
+    prompt?: StringWithAggregatesFilter<"AgentTask"> | string
+    source_trace_id?: StringNullableWithAggregatesFilter<"AgentTask"> | string | null
+    source_run_id?: StringNullableWithAggregatesFilter<"AgentTask"> | string | null
+    source_queue_message_ids?: JsonNullableWithAggregatesFilter<"AgentTask">
+    source_media_tags?: JsonNullableWithAggregatesFilter<"AgentTask">
+    source_media_asset_ids?: JsonNullableWithAggregatesFilter<"AgentTask">
+    input_json?: JsonNullableWithAggregatesFilter<"AgentTask">
+    result_json?: JsonNullableWithAggregatesFilter<"AgentTask">
+    error_message?: StringNullableWithAggregatesFilter<"AgentTask"> | string | null
+    attempts?: IntWithAggregatesFilter<"AgentTask"> | number
+    available_at?: DateTimeWithAggregatesFilter<"AgentTask"> | Date | string
+    claimed_by?: StringNullableWithAggregatesFilter<"AgentTask"> | string | null
+    claimed_at?: DateTimeNullableWithAggregatesFilter<"AgentTask"> | Date | string | null
+    completed_at?: DateTimeNullableWithAggregatesFilter<"AgentTask"> | Date | string | null
+    created_at?: DateTimeWithAggregatesFilter<"AgentTask"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"AgentTask"> | Date | string
+  }
+
+  export type AgentTaskArtifactWhereInput = {
+    AND?: AgentTaskArtifactWhereInput | AgentTaskArtifactWhereInput[]
+    OR?: AgentTaskArtifactWhereInput[]
+    NOT?: AgentTaskArtifactWhereInput | AgentTaskArtifactWhereInput[]
+    id?: StringFilter<"AgentTaskArtifact"> | string
+    task_id?: StringFilter<"AgentTaskArtifact"> | string
+    kind?: StringFilter<"AgentTaskArtifact"> | string
+    file_path?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    public_path?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    data_url?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    mime_type?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    format?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    bytes?: IntNullableFilter<"AgentTaskArtifact"> | number | null
+    revised_prompt?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    metadata?: JsonNullableFilter<"AgentTaskArtifact">
+    created_at?: DateTimeFilter<"AgentTaskArtifact"> | Date | string
+    task?: XOR<AgentTaskScalarRelationFilter, AgentTaskWhereInput>
+  }
+
+  export type AgentTaskArtifactOrderByWithRelationInput = {
+    id?: SortOrder
+    task_id?: SortOrder
+    kind?: SortOrder
+    file_path?: SortOrderInput | SortOrder
+    public_path?: SortOrderInput | SortOrder
+    data_url?: SortOrderInput | SortOrder
+    mime_type?: SortOrderInput | SortOrder
+    format?: SortOrderInput | SortOrder
+    bytes?: SortOrderInput | SortOrder
+    revised_prompt?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    task?: AgentTaskOrderByWithRelationInput
+  }
+
+  export type AgentTaskArtifactWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    AND?: AgentTaskArtifactWhereInput | AgentTaskArtifactWhereInput[]
+    OR?: AgentTaskArtifactWhereInput[]
+    NOT?: AgentTaskArtifactWhereInput | AgentTaskArtifactWhereInput[]
+    task_id?: StringFilter<"AgentTaskArtifact"> | string
+    kind?: StringFilter<"AgentTaskArtifact"> | string
+    file_path?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    public_path?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    data_url?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    mime_type?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    format?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    bytes?: IntNullableFilter<"AgentTaskArtifact"> | number | null
+    revised_prompt?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    metadata?: JsonNullableFilter<"AgentTaskArtifact">
+    created_at?: DateTimeFilter<"AgentTaskArtifact"> | Date | string
+    task?: XOR<AgentTaskScalarRelationFilter, AgentTaskWhereInput>
+  }, "id">
+
+  export type AgentTaskArtifactOrderByWithAggregationInput = {
+    id?: SortOrder
+    task_id?: SortOrder
+    kind?: SortOrder
+    file_path?: SortOrderInput | SortOrder
+    public_path?: SortOrderInput | SortOrder
+    data_url?: SortOrderInput | SortOrder
+    mime_type?: SortOrderInput | SortOrder
+    format?: SortOrderInput | SortOrder
+    bytes?: SortOrderInput | SortOrder
+    revised_prompt?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    _count?: AgentTaskArtifactCountOrderByAggregateInput
+    _avg?: AgentTaskArtifactAvgOrderByAggregateInput
+    _max?: AgentTaskArtifactMaxOrderByAggregateInput
+    _min?: AgentTaskArtifactMinOrderByAggregateInput
+    _sum?: AgentTaskArtifactSumOrderByAggregateInput
+  }
+
+  export type AgentTaskArtifactScalarWhereWithAggregatesInput = {
+    AND?: AgentTaskArtifactScalarWhereWithAggregatesInput | AgentTaskArtifactScalarWhereWithAggregatesInput[]
+    OR?: AgentTaskArtifactScalarWhereWithAggregatesInput[]
+    NOT?: AgentTaskArtifactScalarWhereWithAggregatesInput | AgentTaskArtifactScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"AgentTaskArtifact"> | string
+    task_id?: StringWithAggregatesFilter<"AgentTaskArtifact"> | string
+    kind?: StringWithAggregatesFilter<"AgentTaskArtifact"> | string
+    file_path?: StringNullableWithAggregatesFilter<"AgentTaskArtifact"> | string | null
+    public_path?: StringNullableWithAggregatesFilter<"AgentTaskArtifact"> | string | null
+    data_url?: StringNullableWithAggregatesFilter<"AgentTaskArtifact"> | string | null
+    mime_type?: StringNullableWithAggregatesFilter<"AgentTaskArtifact"> | string | null
+    format?: StringNullableWithAggregatesFilter<"AgentTaskArtifact"> | string | null
+    bytes?: IntNullableWithAggregatesFilter<"AgentTaskArtifact"> | number | null
+    revised_prompt?: StringNullableWithAggregatesFilter<"AgentTaskArtifact"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"AgentTaskArtifact">
+    created_at?: DateTimeWithAggregatesFilter<"AgentTaskArtifact"> | Date | string
   }
 
   export type RelationshipLedgerEventWhereInput = {
@@ -41823,6 +50623,820 @@ export namespace Prisma {
     body_size_diff?: NullableIntFieldUpdateOperationsInput | number | null
     success?: BoolFieldUpdateOperationsInput | boolean
     template_id?: NullableIntFieldUpdateOperationsInput | number | null
+  }
+
+  export type ImageLabRunCreateInput = {
+    id: string
+    operation: string
+    status: string
+    parent_run_id?: string | null
+    prompt: string
+    provider?: string | null
+    model?: string | null
+    size?: string | null
+    quality?: string | null
+    format?: string | null
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    artifacts?: ImageLabArtifactCreateNestedManyWithoutRunInput
+  }
+
+  export type ImageLabRunUncheckedCreateInput = {
+    id: string
+    operation: string
+    status: string
+    parent_run_id?: string | null
+    prompt: string
+    provider?: string | null
+    model?: string | null
+    size?: string | null
+    quality?: string | null
+    format?: string | null
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    artifacts?: ImageLabArtifactUncheckedCreateNestedManyWithoutRunInput
+  }
+
+  export type ImageLabRunUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    operation?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    parent_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    prompt?: StringFieldUpdateOperationsInput | string
+    provider?: NullableStringFieldUpdateOperationsInput | string | null
+    model?: NullableStringFieldUpdateOperationsInput | string | null
+    size?: NullableStringFieldUpdateOperationsInput | string | null
+    quality?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    artifacts?: ImageLabArtifactUpdateManyWithoutRunNestedInput
+  }
+
+  export type ImageLabRunUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    operation?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    parent_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    prompt?: StringFieldUpdateOperationsInput | string
+    provider?: NullableStringFieldUpdateOperationsInput | string | null
+    model?: NullableStringFieldUpdateOperationsInput | string | null
+    size?: NullableStringFieldUpdateOperationsInput | string | null
+    quality?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    artifacts?: ImageLabArtifactUncheckedUpdateManyWithoutRunNestedInput
+  }
+
+  export type ImageLabRunCreateManyInput = {
+    id: string
+    operation: string
+    status: string
+    parent_run_id?: string | null
+    prompt: string
+    provider?: string | null
+    model?: string | null
+    size?: string | null
+    quality?: string | null
+    format?: string | null
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type ImageLabRunUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    operation?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    parent_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    prompt?: StringFieldUpdateOperationsInput | string
+    provider?: NullableStringFieldUpdateOperationsInput | string | null
+    model?: NullableStringFieldUpdateOperationsInput | string | null
+    size?: NullableStringFieldUpdateOperationsInput | string | null
+    quality?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ImageLabRunUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    operation?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    parent_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    prompt?: StringFieldUpdateOperationsInput | string
+    provider?: NullableStringFieldUpdateOperationsInput | string | null
+    model?: NullableStringFieldUpdateOperationsInput | string | null
+    size?: NullableStringFieldUpdateOperationsInput | string | null
+    quality?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ImageLabArtifactCreateInput = {
+    id: string
+    kind?: string
+    file_path: string
+    public_path: string
+    mime_type: string
+    format?: string | null
+    bytes?: number | null
+    width?: number | null
+    height?: number | null
+    revised_prompt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    run: ImageLabRunCreateNestedOneWithoutArtifactsInput
+  }
+
+  export type ImageLabArtifactUncheckedCreateInput = {
+    id: string
+    run_id: string
+    kind?: string
+    file_path: string
+    public_path: string
+    mime_type: string
+    format?: string | null
+    bytes?: number | null
+    width?: number | null
+    height?: number | null
+    revised_prompt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type ImageLabArtifactUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: StringFieldUpdateOperationsInput | string
+    public_path?: StringFieldUpdateOperationsInput | string
+    mime_type?: StringFieldUpdateOperationsInput | string
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    width?: NullableIntFieldUpdateOperationsInput | number | null
+    height?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    run?: ImageLabRunUpdateOneRequiredWithoutArtifactsNestedInput
+  }
+
+  export type ImageLabArtifactUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    run_id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: StringFieldUpdateOperationsInput | string
+    public_path?: StringFieldUpdateOperationsInput | string
+    mime_type?: StringFieldUpdateOperationsInput | string
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    width?: NullableIntFieldUpdateOperationsInput | number | null
+    height?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ImageLabArtifactCreateManyInput = {
+    id: string
+    run_id: string
+    kind?: string
+    file_path: string
+    public_path: string
+    mime_type: string
+    format?: string | null
+    bytes?: number | null
+    width?: number | null
+    height?: number | null
+    revised_prompt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type ImageLabArtifactUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: StringFieldUpdateOperationsInput | string
+    public_path?: StringFieldUpdateOperationsInput | string
+    mime_type?: StringFieldUpdateOperationsInput | string
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    width?: NullableIntFieldUpdateOperationsInput | number | null
+    height?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ImageLabArtifactUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    run_id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: StringFieldUpdateOperationsInput | string
+    public_path?: StringFieldUpdateOperationsInput | string
+    mime_type?: StringFieldUpdateOperationsInput | string
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    width?: NullableIntFieldUpdateOperationsInput | number | null
+    height?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMediaAssetCreateInput = {
+    id: string
+    source: string
+    source_message_id?: bigint | number | null
+    trace_id?: string | null
+    session_key: string
+    chat_type: string
+    peer_id?: string | null
+    peer_name?: string | null
+    sender_id?: string | null
+    sender_name?: string | null
+    account_id?: string | null
+    message_sid?: string | null
+    media_tag: string
+    placeholder?: string
+    media_type?: string
+    mime_type?: string | null
+    source_locator?: string | null
+    storage_uri?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+    observations?: AgentMediaObservationCreateNestedManyWithoutAssetInput
+  }
+
+  export type AgentMediaAssetUncheckedCreateInput = {
+    id: string
+    source: string
+    source_message_id?: bigint | number | null
+    trace_id?: string | null
+    session_key: string
+    chat_type: string
+    peer_id?: string | null
+    peer_name?: string | null
+    sender_id?: string | null
+    sender_name?: string | null
+    account_id?: string | null
+    message_sid?: string | null
+    media_tag: string
+    placeholder?: string
+    media_type?: string
+    mime_type?: string | null
+    source_locator?: string | null
+    storage_uri?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+    observations?: AgentMediaObservationUncheckedCreateNestedManyWithoutAssetInput
+  }
+
+  export type AgentMediaAssetUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source?: StringFieldUpdateOperationsInput | string
+    source_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    chat_type?: StringFieldUpdateOperationsInput | string
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_name?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_name?: NullableStringFieldUpdateOperationsInput | string | null
+    account_id?: NullableStringFieldUpdateOperationsInput | string | null
+    message_sid?: NullableStringFieldUpdateOperationsInput | string | null
+    media_tag?: StringFieldUpdateOperationsInput | string
+    placeholder?: StringFieldUpdateOperationsInput | string
+    media_type?: StringFieldUpdateOperationsInput | string
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    source_locator?: NullableStringFieldUpdateOperationsInput | string | null
+    storage_uri?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    observations?: AgentMediaObservationUpdateManyWithoutAssetNestedInput
+  }
+
+  export type AgentMediaAssetUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source?: StringFieldUpdateOperationsInput | string
+    source_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    chat_type?: StringFieldUpdateOperationsInput | string
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_name?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_name?: NullableStringFieldUpdateOperationsInput | string | null
+    account_id?: NullableStringFieldUpdateOperationsInput | string | null
+    message_sid?: NullableStringFieldUpdateOperationsInput | string | null
+    media_tag?: StringFieldUpdateOperationsInput | string
+    placeholder?: StringFieldUpdateOperationsInput | string
+    media_type?: StringFieldUpdateOperationsInput | string
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    source_locator?: NullableStringFieldUpdateOperationsInput | string | null
+    storage_uri?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    observations?: AgentMediaObservationUncheckedUpdateManyWithoutAssetNestedInput
+  }
+
+  export type AgentMediaAssetCreateManyInput = {
+    id: string
+    source: string
+    source_message_id?: bigint | number | null
+    trace_id?: string | null
+    session_key: string
+    chat_type: string
+    peer_id?: string | null
+    peer_name?: string | null
+    sender_id?: string | null
+    sender_name?: string | null
+    account_id?: string | null
+    message_sid?: string | null
+    media_tag: string
+    placeholder?: string
+    media_type?: string
+    mime_type?: string | null
+    source_locator?: string | null
+    storage_uri?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentMediaAssetUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source?: StringFieldUpdateOperationsInput | string
+    source_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    chat_type?: StringFieldUpdateOperationsInput | string
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_name?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_name?: NullableStringFieldUpdateOperationsInput | string | null
+    account_id?: NullableStringFieldUpdateOperationsInput | string | null
+    message_sid?: NullableStringFieldUpdateOperationsInput | string | null
+    media_tag?: StringFieldUpdateOperationsInput | string
+    placeholder?: StringFieldUpdateOperationsInput | string
+    media_type?: StringFieldUpdateOperationsInput | string
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    source_locator?: NullableStringFieldUpdateOperationsInput | string | null
+    storage_uri?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMediaAssetUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source?: StringFieldUpdateOperationsInput | string
+    source_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    chat_type?: StringFieldUpdateOperationsInput | string
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_name?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_name?: NullableStringFieldUpdateOperationsInput | string | null
+    account_id?: NullableStringFieldUpdateOperationsInput | string | null
+    message_sid?: NullableStringFieldUpdateOperationsInput | string | null
+    media_tag?: StringFieldUpdateOperationsInput | string
+    placeholder?: StringFieldUpdateOperationsInput | string
+    media_type?: StringFieldUpdateOperationsInput | string
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    source_locator?: NullableStringFieldUpdateOperationsInput | string | null
+    storage_uri?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMediaObservationCreateInput = {
+    id: string
+    observer: string
+    description: string
+    source_model?: string | null
+    confidence?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    asset: AgentMediaAssetCreateNestedOneWithoutObservationsInput
+  }
+
+  export type AgentMediaObservationUncheckedCreateInput = {
+    id: string
+    asset_id: string
+    observer: string
+    description: string
+    source_model?: string | null
+    confidence?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type AgentMediaObservationUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    observer?: StringFieldUpdateOperationsInput | string
+    description?: StringFieldUpdateOperationsInput | string
+    source_model?: NullableStringFieldUpdateOperationsInput | string | null
+    confidence?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    asset?: AgentMediaAssetUpdateOneRequiredWithoutObservationsNestedInput
+  }
+
+  export type AgentMediaObservationUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    asset_id?: StringFieldUpdateOperationsInput | string
+    observer?: StringFieldUpdateOperationsInput | string
+    description?: StringFieldUpdateOperationsInput | string
+    source_model?: NullableStringFieldUpdateOperationsInput | string | null
+    confidence?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMediaObservationCreateManyInput = {
+    id: string
+    asset_id: string
+    observer: string
+    description: string
+    source_model?: string | null
+    confidence?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type AgentMediaObservationUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    observer?: StringFieldUpdateOperationsInput | string
+    description?: StringFieldUpdateOperationsInput | string
+    source_model?: NullableStringFieldUpdateOperationsInput | string | null
+    confidence?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMediaObservationUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    asset_id?: StringFieldUpdateOperationsInput | string
+    observer?: StringFieldUpdateOperationsInput | string
+    description?: StringFieldUpdateOperationsInput | string
+    source_model?: NullableStringFieldUpdateOperationsInput | string | null
+    confidence?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentTaskCreateInput = {
+    id: string
+    task_type: string
+    status: string
+    session_key: string
+    chat_type: string
+    peer_id?: string | null
+    peer_name?: string | null
+    requester_sender_id?: string | null
+    requester_sender_name?: string | null
+    target_description?: string | null
+    prompt: string
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    source_queue_message_ids?: NullableJsonNullValueInput | InputJsonValue
+    source_media_tags?: NullableJsonNullValueInput | InputJsonValue
+    source_media_asset_ids?: NullableJsonNullValueInput | InputJsonValue
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    attempts?: number
+    available_at?: Date | string
+    claimed_by?: string | null
+    claimed_at?: Date | string | null
+    completed_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    artifacts?: AgentTaskArtifactCreateNestedManyWithoutTaskInput
+  }
+
+  export type AgentTaskUncheckedCreateInput = {
+    id: string
+    task_type: string
+    status: string
+    session_key: string
+    chat_type: string
+    peer_id?: string | null
+    peer_name?: string | null
+    requester_sender_id?: string | null
+    requester_sender_name?: string | null
+    target_description?: string | null
+    prompt: string
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    source_queue_message_ids?: NullableJsonNullValueInput | InputJsonValue
+    source_media_tags?: NullableJsonNullValueInput | InputJsonValue
+    source_media_asset_ids?: NullableJsonNullValueInput | InputJsonValue
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    attempts?: number
+    available_at?: Date | string
+    claimed_by?: string | null
+    claimed_at?: Date | string | null
+    completed_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    artifacts?: AgentTaskArtifactUncheckedCreateNestedManyWithoutTaskInput
+  }
+
+  export type AgentTaskUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    task_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    session_key?: StringFieldUpdateOperationsInput | string
+    chat_type?: StringFieldUpdateOperationsInput | string
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_name?: NullableStringFieldUpdateOperationsInput | string | null
+    requester_sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    requester_sender_name?: NullableStringFieldUpdateOperationsInput | string | null
+    target_description?: NullableStringFieldUpdateOperationsInput | string | null
+    prompt?: StringFieldUpdateOperationsInput | string
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_queue_message_ids?: NullableJsonNullValueInput | InputJsonValue
+    source_media_tags?: NullableJsonNullValueInput | InputJsonValue
+    source_media_asset_ids?: NullableJsonNullValueInput | InputJsonValue
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    attempts?: IntFieldUpdateOperationsInput | number
+    available_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    claimed_by?: NullableStringFieldUpdateOperationsInput | string | null
+    claimed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    artifacts?: AgentTaskArtifactUpdateManyWithoutTaskNestedInput
+  }
+
+  export type AgentTaskUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    task_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    session_key?: StringFieldUpdateOperationsInput | string
+    chat_type?: StringFieldUpdateOperationsInput | string
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_name?: NullableStringFieldUpdateOperationsInput | string | null
+    requester_sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    requester_sender_name?: NullableStringFieldUpdateOperationsInput | string | null
+    target_description?: NullableStringFieldUpdateOperationsInput | string | null
+    prompt?: StringFieldUpdateOperationsInput | string
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_queue_message_ids?: NullableJsonNullValueInput | InputJsonValue
+    source_media_tags?: NullableJsonNullValueInput | InputJsonValue
+    source_media_asset_ids?: NullableJsonNullValueInput | InputJsonValue
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    attempts?: IntFieldUpdateOperationsInput | number
+    available_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    claimed_by?: NullableStringFieldUpdateOperationsInput | string | null
+    claimed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    artifacts?: AgentTaskArtifactUncheckedUpdateManyWithoutTaskNestedInput
+  }
+
+  export type AgentTaskCreateManyInput = {
+    id: string
+    task_type: string
+    status: string
+    session_key: string
+    chat_type: string
+    peer_id?: string | null
+    peer_name?: string | null
+    requester_sender_id?: string | null
+    requester_sender_name?: string | null
+    target_description?: string | null
+    prompt: string
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    source_queue_message_ids?: NullableJsonNullValueInput | InputJsonValue
+    source_media_tags?: NullableJsonNullValueInput | InputJsonValue
+    source_media_asset_ids?: NullableJsonNullValueInput | InputJsonValue
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    attempts?: number
+    available_at?: Date | string
+    claimed_by?: string | null
+    claimed_at?: Date | string | null
+    completed_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentTaskUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    task_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    session_key?: StringFieldUpdateOperationsInput | string
+    chat_type?: StringFieldUpdateOperationsInput | string
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_name?: NullableStringFieldUpdateOperationsInput | string | null
+    requester_sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    requester_sender_name?: NullableStringFieldUpdateOperationsInput | string | null
+    target_description?: NullableStringFieldUpdateOperationsInput | string | null
+    prompt?: StringFieldUpdateOperationsInput | string
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_queue_message_ids?: NullableJsonNullValueInput | InputJsonValue
+    source_media_tags?: NullableJsonNullValueInput | InputJsonValue
+    source_media_asset_ids?: NullableJsonNullValueInput | InputJsonValue
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    attempts?: IntFieldUpdateOperationsInput | number
+    available_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    claimed_by?: NullableStringFieldUpdateOperationsInput | string | null
+    claimed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentTaskUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    task_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    session_key?: StringFieldUpdateOperationsInput | string
+    chat_type?: StringFieldUpdateOperationsInput | string
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_name?: NullableStringFieldUpdateOperationsInput | string | null
+    requester_sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    requester_sender_name?: NullableStringFieldUpdateOperationsInput | string | null
+    target_description?: NullableStringFieldUpdateOperationsInput | string | null
+    prompt?: StringFieldUpdateOperationsInput | string
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_queue_message_ids?: NullableJsonNullValueInput | InputJsonValue
+    source_media_tags?: NullableJsonNullValueInput | InputJsonValue
+    source_media_asset_ids?: NullableJsonNullValueInput | InputJsonValue
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    attempts?: IntFieldUpdateOperationsInput | number
+    available_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    claimed_by?: NullableStringFieldUpdateOperationsInput | string | null
+    claimed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentTaskArtifactCreateInput = {
+    id: string
+    kind?: string
+    file_path?: string | null
+    public_path?: string | null
+    data_url?: string | null
+    mime_type?: string | null
+    format?: string | null
+    bytes?: number | null
+    revised_prompt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    task: AgentTaskCreateNestedOneWithoutArtifactsInput
+  }
+
+  export type AgentTaskArtifactUncheckedCreateInput = {
+    id: string
+    task_id: string
+    kind?: string
+    file_path?: string | null
+    public_path?: string | null
+    data_url?: string | null
+    mime_type?: string | null
+    format?: string | null
+    bytes?: number | null
+    revised_prompt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type AgentTaskArtifactUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: NullableStringFieldUpdateOperationsInput | string | null
+    public_path?: NullableStringFieldUpdateOperationsInput | string | null
+    data_url?: NullableStringFieldUpdateOperationsInput | string | null
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    task?: AgentTaskUpdateOneRequiredWithoutArtifactsNestedInput
+  }
+
+  export type AgentTaskArtifactUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    task_id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: NullableStringFieldUpdateOperationsInput | string | null
+    public_path?: NullableStringFieldUpdateOperationsInput | string | null
+    data_url?: NullableStringFieldUpdateOperationsInput | string | null
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentTaskArtifactCreateManyInput = {
+    id: string
+    task_id: string
+    kind?: string
+    file_path?: string | null
+    public_path?: string | null
+    data_url?: string | null
+    mime_type?: string | null
+    format?: string | null
+    bytes?: number | null
+    revised_prompt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type AgentTaskArtifactUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: NullableStringFieldUpdateOperationsInput | string | null
+    public_path?: NullableStringFieldUpdateOperationsInput | string | null
+    data_url?: NullableStringFieldUpdateOperationsInput | string | null
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentTaskArtifactUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    task_id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: NullableStringFieldUpdateOperationsInput | string | null
+    public_path?: NullableStringFieldUpdateOperationsInput | string | null
+    data_url?: NullableStringFieldUpdateOperationsInput | string | null
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type RelationshipLedgerEventCreateInput = {
@@ -45593,6 +55207,415 @@ export namespace Prisma {
     template_id?: SortOrder
   }
 
+  export type ImageLabArtifactListRelationFilter = {
+    every?: ImageLabArtifactWhereInput
+    some?: ImageLabArtifactWhereInput
+    none?: ImageLabArtifactWhereInput
+  }
+
+  export type ImageLabArtifactOrderByRelationAggregateInput = {
+    _count?: SortOrder
+  }
+
+  export type ImageLabRunCountOrderByAggregateInput = {
+    id?: SortOrder
+    operation?: SortOrder
+    status?: SortOrder
+    parent_run_id?: SortOrder
+    prompt?: SortOrder
+    provider?: SortOrder
+    model?: SortOrder
+    size?: SortOrder
+    quality?: SortOrder
+    format?: SortOrder
+    input_json?: SortOrder
+    result_json?: SortOrder
+    error_message?: SortOrder
+    started_at?: SortOrder
+    completed_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type ImageLabRunMaxOrderByAggregateInput = {
+    id?: SortOrder
+    operation?: SortOrder
+    status?: SortOrder
+    parent_run_id?: SortOrder
+    prompt?: SortOrder
+    provider?: SortOrder
+    model?: SortOrder
+    size?: SortOrder
+    quality?: SortOrder
+    format?: SortOrder
+    error_message?: SortOrder
+    started_at?: SortOrder
+    completed_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type ImageLabRunMinOrderByAggregateInput = {
+    id?: SortOrder
+    operation?: SortOrder
+    status?: SortOrder
+    parent_run_id?: SortOrder
+    prompt?: SortOrder
+    provider?: SortOrder
+    model?: SortOrder
+    size?: SortOrder
+    quality?: SortOrder
+    format?: SortOrder
+    error_message?: SortOrder
+    started_at?: SortOrder
+    completed_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type ImageLabRunScalarRelationFilter = {
+    is?: ImageLabRunWhereInput
+    isNot?: ImageLabRunWhereInput
+  }
+
+  export type ImageLabArtifactCountOrderByAggregateInput = {
+    id?: SortOrder
+    run_id?: SortOrder
+    kind?: SortOrder
+    file_path?: SortOrder
+    public_path?: SortOrder
+    mime_type?: SortOrder
+    format?: SortOrder
+    bytes?: SortOrder
+    width?: SortOrder
+    height?: SortOrder
+    revised_prompt?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type ImageLabArtifactAvgOrderByAggregateInput = {
+    bytes?: SortOrder
+    width?: SortOrder
+    height?: SortOrder
+  }
+
+  export type ImageLabArtifactMaxOrderByAggregateInput = {
+    id?: SortOrder
+    run_id?: SortOrder
+    kind?: SortOrder
+    file_path?: SortOrder
+    public_path?: SortOrder
+    mime_type?: SortOrder
+    format?: SortOrder
+    bytes?: SortOrder
+    width?: SortOrder
+    height?: SortOrder
+    revised_prompt?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type ImageLabArtifactMinOrderByAggregateInput = {
+    id?: SortOrder
+    run_id?: SortOrder
+    kind?: SortOrder
+    file_path?: SortOrder
+    public_path?: SortOrder
+    mime_type?: SortOrder
+    format?: SortOrder
+    bytes?: SortOrder
+    width?: SortOrder
+    height?: SortOrder
+    revised_prompt?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type ImageLabArtifactSumOrderByAggregateInput = {
+    bytes?: SortOrder
+    width?: SortOrder
+    height?: SortOrder
+  }
+
+  export type AgentMediaObservationListRelationFilter = {
+    every?: AgentMediaObservationWhereInput
+    some?: AgentMediaObservationWhereInput
+    none?: AgentMediaObservationWhereInput
+  }
+
+  export type AgentMediaObservationOrderByRelationAggregateInput = {
+    _count?: SortOrder
+  }
+
+  export type AgentMediaAssetMessage_sidMedia_tagCompoundUniqueInput = {
+    message_sid: string
+    media_tag: string
+  }
+
+  export type AgentMediaAssetCountOrderByAggregateInput = {
+    id?: SortOrder
+    source?: SortOrder
+    source_message_id?: SortOrder
+    trace_id?: SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrder
+    peer_name?: SortOrder
+    sender_id?: SortOrder
+    sender_name?: SortOrder
+    account_id?: SortOrder
+    message_sid?: SortOrder
+    media_tag?: SortOrder
+    placeholder?: SortOrder
+    media_type?: SortOrder
+    mime_type?: SortOrder
+    source_locator?: SortOrder
+    storage_uri?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMediaAssetAvgOrderByAggregateInput = {
+    source_message_id?: SortOrder
+  }
+
+  export type AgentMediaAssetMaxOrderByAggregateInput = {
+    id?: SortOrder
+    source?: SortOrder
+    source_message_id?: SortOrder
+    trace_id?: SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrder
+    peer_name?: SortOrder
+    sender_id?: SortOrder
+    sender_name?: SortOrder
+    account_id?: SortOrder
+    message_sid?: SortOrder
+    media_tag?: SortOrder
+    placeholder?: SortOrder
+    media_type?: SortOrder
+    mime_type?: SortOrder
+    source_locator?: SortOrder
+    storage_uri?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMediaAssetMinOrderByAggregateInput = {
+    id?: SortOrder
+    source?: SortOrder
+    source_message_id?: SortOrder
+    trace_id?: SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrder
+    peer_name?: SortOrder
+    sender_id?: SortOrder
+    sender_name?: SortOrder
+    account_id?: SortOrder
+    message_sid?: SortOrder
+    media_tag?: SortOrder
+    placeholder?: SortOrder
+    media_type?: SortOrder
+    mime_type?: SortOrder
+    source_locator?: SortOrder
+    storage_uri?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMediaAssetSumOrderByAggregateInput = {
+    source_message_id?: SortOrder
+  }
+
+  export type AgentMediaAssetScalarRelationFilter = {
+    is?: AgentMediaAssetWhereInput
+    isNot?: AgentMediaAssetWhereInput
+  }
+
+  export type AgentMediaObservationCountOrderByAggregateInput = {
+    id?: SortOrder
+    asset_id?: SortOrder
+    observer?: SortOrder
+    description?: SortOrder
+    source_model?: SortOrder
+    confidence?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type AgentMediaObservationMaxOrderByAggregateInput = {
+    id?: SortOrder
+    asset_id?: SortOrder
+    observer?: SortOrder
+    description?: SortOrder
+    source_model?: SortOrder
+    confidence?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type AgentMediaObservationMinOrderByAggregateInput = {
+    id?: SortOrder
+    asset_id?: SortOrder
+    observer?: SortOrder
+    description?: SortOrder
+    source_model?: SortOrder
+    confidence?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type AgentTaskArtifactListRelationFilter = {
+    every?: AgentTaskArtifactWhereInput
+    some?: AgentTaskArtifactWhereInput
+    none?: AgentTaskArtifactWhereInput
+  }
+
+  export type AgentTaskArtifactOrderByRelationAggregateInput = {
+    _count?: SortOrder
+  }
+
+  export type AgentTaskCountOrderByAggregateInput = {
+    id?: SortOrder
+    task_type?: SortOrder
+    status?: SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrder
+    peer_name?: SortOrder
+    requester_sender_id?: SortOrder
+    requester_sender_name?: SortOrder
+    target_description?: SortOrder
+    prompt?: SortOrder
+    source_trace_id?: SortOrder
+    source_run_id?: SortOrder
+    source_queue_message_ids?: SortOrder
+    source_media_tags?: SortOrder
+    source_media_asset_ids?: SortOrder
+    input_json?: SortOrder
+    result_json?: SortOrder
+    error_message?: SortOrder
+    attempts?: SortOrder
+    available_at?: SortOrder
+    claimed_by?: SortOrder
+    claimed_at?: SortOrder
+    completed_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentTaskAvgOrderByAggregateInput = {
+    attempts?: SortOrder
+  }
+
+  export type AgentTaskMaxOrderByAggregateInput = {
+    id?: SortOrder
+    task_type?: SortOrder
+    status?: SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrder
+    peer_name?: SortOrder
+    requester_sender_id?: SortOrder
+    requester_sender_name?: SortOrder
+    target_description?: SortOrder
+    prompt?: SortOrder
+    source_trace_id?: SortOrder
+    source_run_id?: SortOrder
+    error_message?: SortOrder
+    attempts?: SortOrder
+    available_at?: SortOrder
+    claimed_by?: SortOrder
+    claimed_at?: SortOrder
+    completed_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentTaskMinOrderByAggregateInput = {
+    id?: SortOrder
+    task_type?: SortOrder
+    status?: SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrder
+    peer_name?: SortOrder
+    requester_sender_id?: SortOrder
+    requester_sender_name?: SortOrder
+    target_description?: SortOrder
+    prompt?: SortOrder
+    source_trace_id?: SortOrder
+    source_run_id?: SortOrder
+    error_message?: SortOrder
+    attempts?: SortOrder
+    available_at?: SortOrder
+    claimed_by?: SortOrder
+    claimed_at?: SortOrder
+    completed_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentTaskSumOrderByAggregateInput = {
+    attempts?: SortOrder
+  }
+
+  export type AgentTaskScalarRelationFilter = {
+    is?: AgentTaskWhereInput
+    isNot?: AgentTaskWhereInput
+  }
+
+  export type AgentTaskArtifactCountOrderByAggregateInput = {
+    id?: SortOrder
+    task_id?: SortOrder
+    kind?: SortOrder
+    file_path?: SortOrder
+    public_path?: SortOrder
+    data_url?: SortOrder
+    mime_type?: SortOrder
+    format?: SortOrder
+    bytes?: SortOrder
+    revised_prompt?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type AgentTaskArtifactAvgOrderByAggregateInput = {
+    bytes?: SortOrder
+  }
+
+  export type AgentTaskArtifactMaxOrderByAggregateInput = {
+    id?: SortOrder
+    task_id?: SortOrder
+    kind?: SortOrder
+    file_path?: SortOrder
+    public_path?: SortOrder
+    data_url?: SortOrder
+    mime_type?: SortOrder
+    format?: SortOrder
+    bytes?: SortOrder
+    revised_prompt?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type AgentTaskArtifactMinOrderByAggregateInput = {
+    id?: SortOrder
+    task_id?: SortOrder
+    kind?: SortOrder
+    file_path?: SortOrder
+    public_path?: SortOrder
+    data_url?: SortOrder
+    mime_type?: SortOrder
+    format?: SortOrder
+    bytes?: SortOrder
+    revised_prompt?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type AgentTaskArtifactSumOrderByAggregateInput = {
+    bytes?: SortOrder
+  }
+
   export type FloatFilter<$PrismaModel = never> = {
     equals?: number | FloatFieldRefInput<$PrismaModel>
     in?: number[] | ListFloatFieldRefInput<$PrismaModel>
@@ -47154,6 +57177,174 @@ export namespace Prisma {
     set?: boolean
   }
 
+  export type ImageLabArtifactCreateNestedManyWithoutRunInput = {
+    create?: XOR<ImageLabArtifactCreateWithoutRunInput, ImageLabArtifactUncheckedCreateWithoutRunInput> | ImageLabArtifactCreateWithoutRunInput[] | ImageLabArtifactUncheckedCreateWithoutRunInput[]
+    connectOrCreate?: ImageLabArtifactCreateOrConnectWithoutRunInput | ImageLabArtifactCreateOrConnectWithoutRunInput[]
+    createMany?: ImageLabArtifactCreateManyRunInputEnvelope
+    connect?: ImageLabArtifactWhereUniqueInput | ImageLabArtifactWhereUniqueInput[]
+  }
+
+  export type ImageLabArtifactUncheckedCreateNestedManyWithoutRunInput = {
+    create?: XOR<ImageLabArtifactCreateWithoutRunInput, ImageLabArtifactUncheckedCreateWithoutRunInput> | ImageLabArtifactCreateWithoutRunInput[] | ImageLabArtifactUncheckedCreateWithoutRunInput[]
+    connectOrCreate?: ImageLabArtifactCreateOrConnectWithoutRunInput | ImageLabArtifactCreateOrConnectWithoutRunInput[]
+    createMany?: ImageLabArtifactCreateManyRunInputEnvelope
+    connect?: ImageLabArtifactWhereUniqueInput | ImageLabArtifactWhereUniqueInput[]
+  }
+
+  export type ImageLabArtifactUpdateManyWithoutRunNestedInput = {
+    create?: XOR<ImageLabArtifactCreateWithoutRunInput, ImageLabArtifactUncheckedCreateWithoutRunInput> | ImageLabArtifactCreateWithoutRunInput[] | ImageLabArtifactUncheckedCreateWithoutRunInput[]
+    connectOrCreate?: ImageLabArtifactCreateOrConnectWithoutRunInput | ImageLabArtifactCreateOrConnectWithoutRunInput[]
+    upsert?: ImageLabArtifactUpsertWithWhereUniqueWithoutRunInput | ImageLabArtifactUpsertWithWhereUniqueWithoutRunInput[]
+    createMany?: ImageLabArtifactCreateManyRunInputEnvelope
+    set?: ImageLabArtifactWhereUniqueInput | ImageLabArtifactWhereUniqueInput[]
+    disconnect?: ImageLabArtifactWhereUniqueInput | ImageLabArtifactWhereUniqueInput[]
+    delete?: ImageLabArtifactWhereUniqueInput | ImageLabArtifactWhereUniqueInput[]
+    connect?: ImageLabArtifactWhereUniqueInput | ImageLabArtifactWhereUniqueInput[]
+    update?: ImageLabArtifactUpdateWithWhereUniqueWithoutRunInput | ImageLabArtifactUpdateWithWhereUniqueWithoutRunInput[]
+    updateMany?: ImageLabArtifactUpdateManyWithWhereWithoutRunInput | ImageLabArtifactUpdateManyWithWhereWithoutRunInput[]
+    deleteMany?: ImageLabArtifactScalarWhereInput | ImageLabArtifactScalarWhereInput[]
+  }
+
+  export type ImageLabArtifactUncheckedUpdateManyWithoutRunNestedInput = {
+    create?: XOR<ImageLabArtifactCreateWithoutRunInput, ImageLabArtifactUncheckedCreateWithoutRunInput> | ImageLabArtifactCreateWithoutRunInput[] | ImageLabArtifactUncheckedCreateWithoutRunInput[]
+    connectOrCreate?: ImageLabArtifactCreateOrConnectWithoutRunInput | ImageLabArtifactCreateOrConnectWithoutRunInput[]
+    upsert?: ImageLabArtifactUpsertWithWhereUniqueWithoutRunInput | ImageLabArtifactUpsertWithWhereUniqueWithoutRunInput[]
+    createMany?: ImageLabArtifactCreateManyRunInputEnvelope
+    set?: ImageLabArtifactWhereUniqueInput | ImageLabArtifactWhereUniqueInput[]
+    disconnect?: ImageLabArtifactWhereUniqueInput | ImageLabArtifactWhereUniqueInput[]
+    delete?: ImageLabArtifactWhereUniqueInput | ImageLabArtifactWhereUniqueInput[]
+    connect?: ImageLabArtifactWhereUniqueInput | ImageLabArtifactWhereUniqueInput[]
+    update?: ImageLabArtifactUpdateWithWhereUniqueWithoutRunInput | ImageLabArtifactUpdateWithWhereUniqueWithoutRunInput[]
+    updateMany?: ImageLabArtifactUpdateManyWithWhereWithoutRunInput | ImageLabArtifactUpdateManyWithWhereWithoutRunInput[]
+    deleteMany?: ImageLabArtifactScalarWhereInput | ImageLabArtifactScalarWhereInput[]
+  }
+
+  export type ImageLabRunCreateNestedOneWithoutArtifactsInput = {
+    create?: XOR<ImageLabRunCreateWithoutArtifactsInput, ImageLabRunUncheckedCreateWithoutArtifactsInput>
+    connectOrCreate?: ImageLabRunCreateOrConnectWithoutArtifactsInput
+    connect?: ImageLabRunWhereUniqueInput
+  }
+
+  export type ImageLabRunUpdateOneRequiredWithoutArtifactsNestedInput = {
+    create?: XOR<ImageLabRunCreateWithoutArtifactsInput, ImageLabRunUncheckedCreateWithoutArtifactsInput>
+    connectOrCreate?: ImageLabRunCreateOrConnectWithoutArtifactsInput
+    upsert?: ImageLabRunUpsertWithoutArtifactsInput
+    connect?: ImageLabRunWhereUniqueInput
+    update?: XOR<XOR<ImageLabRunUpdateToOneWithWhereWithoutArtifactsInput, ImageLabRunUpdateWithoutArtifactsInput>, ImageLabRunUncheckedUpdateWithoutArtifactsInput>
+  }
+
+  export type AgentMediaObservationCreateNestedManyWithoutAssetInput = {
+    create?: XOR<AgentMediaObservationCreateWithoutAssetInput, AgentMediaObservationUncheckedCreateWithoutAssetInput> | AgentMediaObservationCreateWithoutAssetInput[] | AgentMediaObservationUncheckedCreateWithoutAssetInput[]
+    connectOrCreate?: AgentMediaObservationCreateOrConnectWithoutAssetInput | AgentMediaObservationCreateOrConnectWithoutAssetInput[]
+    createMany?: AgentMediaObservationCreateManyAssetInputEnvelope
+    connect?: AgentMediaObservationWhereUniqueInput | AgentMediaObservationWhereUniqueInput[]
+  }
+
+  export type AgentMediaObservationUncheckedCreateNestedManyWithoutAssetInput = {
+    create?: XOR<AgentMediaObservationCreateWithoutAssetInput, AgentMediaObservationUncheckedCreateWithoutAssetInput> | AgentMediaObservationCreateWithoutAssetInput[] | AgentMediaObservationUncheckedCreateWithoutAssetInput[]
+    connectOrCreate?: AgentMediaObservationCreateOrConnectWithoutAssetInput | AgentMediaObservationCreateOrConnectWithoutAssetInput[]
+    createMany?: AgentMediaObservationCreateManyAssetInputEnvelope
+    connect?: AgentMediaObservationWhereUniqueInput | AgentMediaObservationWhereUniqueInput[]
+  }
+
+  export type AgentMediaObservationUpdateManyWithoutAssetNestedInput = {
+    create?: XOR<AgentMediaObservationCreateWithoutAssetInput, AgentMediaObservationUncheckedCreateWithoutAssetInput> | AgentMediaObservationCreateWithoutAssetInput[] | AgentMediaObservationUncheckedCreateWithoutAssetInput[]
+    connectOrCreate?: AgentMediaObservationCreateOrConnectWithoutAssetInput | AgentMediaObservationCreateOrConnectWithoutAssetInput[]
+    upsert?: AgentMediaObservationUpsertWithWhereUniqueWithoutAssetInput | AgentMediaObservationUpsertWithWhereUniqueWithoutAssetInput[]
+    createMany?: AgentMediaObservationCreateManyAssetInputEnvelope
+    set?: AgentMediaObservationWhereUniqueInput | AgentMediaObservationWhereUniqueInput[]
+    disconnect?: AgentMediaObservationWhereUniqueInput | AgentMediaObservationWhereUniqueInput[]
+    delete?: AgentMediaObservationWhereUniqueInput | AgentMediaObservationWhereUniqueInput[]
+    connect?: AgentMediaObservationWhereUniqueInput | AgentMediaObservationWhereUniqueInput[]
+    update?: AgentMediaObservationUpdateWithWhereUniqueWithoutAssetInput | AgentMediaObservationUpdateWithWhereUniqueWithoutAssetInput[]
+    updateMany?: AgentMediaObservationUpdateManyWithWhereWithoutAssetInput | AgentMediaObservationUpdateManyWithWhereWithoutAssetInput[]
+    deleteMany?: AgentMediaObservationScalarWhereInput | AgentMediaObservationScalarWhereInput[]
+  }
+
+  export type AgentMediaObservationUncheckedUpdateManyWithoutAssetNestedInput = {
+    create?: XOR<AgentMediaObservationCreateWithoutAssetInput, AgentMediaObservationUncheckedCreateWithoutAssetInput> | AgentMediaObservationCreateWithoutAssetInput[] | AgentMediaObservationUncheckedCreateWithoutAssetInput[]
+    connectOrCreate?: AgentMediaObservationCreateOrConnectWithoutAssetInput | AgentMediaObservationCreateOrConnectWithoutAssetInput[]
+    upsert?: AgentMediaObservationUpsertWithWhereUniqueWithoutAssetInput | AgentMediaObservationUpsertWithWhereUniqueWithoutAssetInput[]
+    createMany?: AgentMediaObservationCreateManyAssetInputEnvelope
+    set?: AgentMediaObservationWhereUniqueInput | AgentMediaObservationWhereUniqueInput[]
+    disconnect?: AgentMediaObservationWhereUniqueInput | AgentMediaObservationWhereUniqueInput[]
+    delete?: AgentMediaObservationWhereUniqueInput | AgentMediaObservationWhereUniqueInput[]
+    connect?: AgentMediaObservationWhereUniqueInput | AgentMediaObservationWhereUniqueInput[]
+    update?: AgentMediaObservationUpdateWithWhereUniqueWithoutAssetInput | AgentMediaObservationUpdateWithWhereUniqueWithoutAssetInput[]
+    updateMany?: AgentMediaObservationUpdateManyWithWhereWithoutAssetInput | AgentMediaObservationUpdateManyWithWhereWithoutAssetInput[]
+    deleteMany?: AgentMediaObservationScalarWhereInput | AgentMediaObservationScalarWhereInput[]
+  }
+
+  export type AgentMediaAssetCreateNestedOneWithoutObservationsInput = {
+    create?: XOR<AgentMediaAssetCreateWithoutObservationsInput, AgentMediaAssetUncheckedCreateWithoutObservationsInput>
+    connectOrCreate?: AgentMediaAssetCreateOrConnectWithoutObservationsInput
+    connect?: AgentMediaAssetWhereUniqueInput
+  }
+
+  export type AgentMediaAssetUpdateOneRequiredWithoutObservationsNestedInput = {
+    create?: XOR<AgentMediaAssetCreateWithoutObservationsInput, AgentMediaAssetUncheckedCreateWithoutObservationsInput>
+    connectOrCreate?: AgentMediaAssetCreateOrConnectWithoutObservationsInput
+    upsert?: AgentMediaAssetUpsertWithoutObservationsInput
+    connect?: AgentMediaAssetWhereUniqueInput
+    update?: XOR<XOR<AgentMediaAssetUpdateToOneWithWhereWithoutObservationsInput, AgentMediaAssetUpdateWithoutObservationsInput>, AgentMediaAssetUncheckedUpdateWithoutObservationsInput>
+  }
+
+  export type AgentTaskArtifactCreateNestedManyWithoutTaskInput = {
+    create?: XOR<AgentTaskArtifactCreateWithoutTaskInput, AgentTaskArtifactUncheckedCreateWithoutTaskInput> | AgentTaskArtifactCreateWithoutTaskInput[] | AgentTaskArtifactUncheckedCreateWithoutTaskInput[]
+    connectOrCreate?: AgentTaskArtifactCreateOrConnectWithoutTaskInput | AgentTaskArtifactCreateOrConnectWithoutTaskInput[]
+    createMany?: AgentTaskArtifactCreateManyTaskInputEnvelope
+    connect?: AgentTaskArtifactWhereUniqueInput | AgentTaskArtifactWhereUniqueInput[]
+  }
+
+  export type AgentTaskArtifactUncheckedCreateNestedManyWithoutTaskInput = {
+    create?: XOR<AgentTaskArtifactCreateWithoutTaskInput, AgentTaskArtifactUncheckedCreateWithoutTaskInput> | AgentTaskArtifactCreateWithoutTaskInput[] | AgentTaskArtifactUncheckedCreateWithoutTaskInput[]
+    connectOrCreate?: AgentTaskArtifactCreateOrConnectWithoutTaskInput | AgentTaskArtifactCreateOrConnectWithoutTaskInput[]
+    createMany?: AgentTaskArtifactCreateManyTaskInputEnvelope
+    connect?: AgentTaskArtifactWhereUniqueInput | AgentTaskArtifactWhereUniqueInput[]
+  }
+
+  export type AgentTaskArtifactUpdateManyWithoutTaskNestedInput = {
+    create?: XOR<AgentTaskArtifactCreateWithoutTaskInput, AgentTaskArtifactUncheckedCreateWithoutTaskInput> | AgentTaskArtifactCreateWithoutTaskInput[] | AgentTaskArtifactUncheckedCreateWithoutTaskInput[]
+    connectOrCreate?: AgentTaskArtifactCreateOrConnectWithoutTaskInput | AgentTaskArtifactCreateOrConnectWithoutTaskInput[]
+    upsert?: AgentTaskArtifactUpsertWithWhereUniqueWithoutTaskInput | AgentTaskArtifactUpsertWithWhereUniqueWithoutTaskInput[]
+    createMany?: AgentTaskArtifactCreateManyTaskInputEnvelope
+    set?: AgentTaskArtifactWhereUniqueInput | AgentTaskArtifactWhereUniqueInput[]
+    disconnect?: AgentTaskArtifactWhereUniqueInput | AgentTaskArtifactWhereUniqueInput[]
+    delete?: AgentTaskArtifactWhereUniqueInput | AgentTaskArtifactWhereUniqueInput[]
+    connect?: AgentTaskArtifactWhereUniqueInput | AgentTaskArtifactWhereUniqueInput[]
+    update?: AgentTaskArtifactUpdateWithWhereUniqueWithoutTaskInput | AgentTaskArtifactUpdateWithWhereUniqueWithoutTaskInput[]
+    updateMany?: AgentTaskArtifactUpdateManyWithWhereWithoutTaskInput | AgentTaskArtifactUpdateManyWithWhereWithoutTaskInput[]
+    deleteMany?: AgentTaskArtifactScalarWhereInput | AgentTaskArtifactScalarWhereInput[]
+  }
+
+  export type AgentTaskArtifactUncheckedUpdateManyWithoutTaskNestedInput = {
+    create?: XOR<AgentTaskArtifactCreateWithoutTaskInput, AgentTaskArtifactUncheckedCreateWithoutTaskInput> | AgentTaskArtifactCreateWithoutTaskInput[] | AgentTaskArtifactUncheckedCreateWithoutTaskInput[]
+    connectOrCreate?: AgentTaskArtifactCreateOrConnectWithoutTaskInput | AgentTaskArtifactCreateOrConnectWithoutTaskInput[]
+    upsert?: AgentTaskArtifactUpsertWithWhereUniqueWithoutTaskInput | AgentTaskArtifactUpsertWithWhereUniqueWithoutTaskInput[]
+    createMany?: AgentTaskArtifactCreateManyTaskInputEnvelope
+    set?: AgentTaskArtifactWhereUniqueInput | AgentTaskArtifactWhereUniqueInput[]
+    disconnect?: AgentTaskArtifactWhereUniqueInput | AgentTaskArtifactWhereUniqueInput[]
+    delete?: AgentTaskArtifactWhereUniqueInput | AgentTaskArtifactWhereUniqueInput[]
+    connect?: AgentTaskArtifactWhereUniqueInput | AgentTaskArtifactWhereUniqueInput[]
+    update?: AgentTaskArtifactUpdateWithWhereUniqueWithoutTaskInput | AgentTaskArtifactUpdateWithWhereUniqueWithoutTaskInput[]
+    updateMany?: AgentTaskArtifactUpdateManyWithWhereWithoutTaskInput | AgentTaskArtifactUpdateManyWithWhereWithoutTaskInput[]
+    deleteMany?: AgentTaskArtifactScalarWhereInput | AgentTaskArtifactScalarWhereInput[]
+  }
+
+  export type AgentTaskCreateNestedOneWithoutArtifactsInput = {
+    create?: XOR<AgentTaskCreateWithoutArtifactsInput, AgentTaskUncheckedCreateWithoutArtifactsInput>
+    connectOrCreate?: AgentTaskCreateOrConnectWithoutArtifactsInput
+    connect?: AgentTaskWhereUniqueInput
+  }
+
+  export type AgentTaskUpdateOneRequiredWithoutArtifactsNestedInput = {
+    create?: XOR<AgentTaskCreateWithoutArtifactsInput, AgentTaskUncheckedCreateWithoutArtifactsInput>
+    connectOrCreate?: AgentTaskCreateOrConnectWithoutArtifactsInput
+    upsert?: AgentTaskUpsertWithoutArtifactsInput
+    connect?: AgentTaskWhereUniqueInput
+    update?: XOR<XOR<AgentTaskUpdateToOneWithWhereWithoutArtifactsInput, AgentTaskUpdateWithoutArtifactsInput>, AgentTaskUncheckedUpdateWithoutArtifactsInput>
+  }
+
   export type FloatFieldUpdateOperationsInput = {
     set?: number
     increment?: number
@@ -47477,6 +57668,709 @@ export namespace Prisma {
     _sum?: NestedFloatFilter<$PrismaModel>
     _min?: NestedFloatFilter<$PrismaModel>
     _max?: NestedFloatFilter<$PrismaModel>
+  }
+
+  export type ImageLabArtifactCreateWithoutRunInput = {
+    id: string
+    kind?: string
+    file_path: string
+    public_path: string
+    mime_type: string
+    format?: string | null
+    bytes?: number | null
+    width?: number | null
+    height?: number | null
+    revised_prompt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type ImageLabArtifactUncheckedCreateWithoutRunInput = {
+    id: string
+    kind?: string
+    file_path: string
+    public_path: string
+    mime_type: string
+    format?: string | null
+    bytes?: number | null
+    width?: number | null
+    height?: number | null
+    revised_prompt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type ImageLabArtifactCreateOrConnectWithoutRunInput = {
+    where: ImageLabArtifactWhereUniqueInput
+    create: XOR<ImageLabArtifactCreateWithoutRunInput, ImageLabArtifactUncheckedCreateWithoutRunInput>
+  }
+
+  export type ImageLabArtifactCreateManyRunInputEnvelope = {
+    data: ImageLabArtifactCreateManyRunInput | ImageLabArtifactCreateManyRunInput[]
+    skipDuplicates?: boolean
+  }
+
+  export type ImageLabArtifactUpsertWithWhereUniqueWithoutRunInput = {
+    where: ImageLabArtifactWhereUniqueInput
+    update: XOR<ImageLabArtifactUpdateWithoutRunInput, ImageLabArtifactUncheckedUpdateWithoutRunInput>
+    create: XOR<ImageLabArtifactCreateWithoutRunInput, ImageLabArtifactUncheckedCreateWithoutRunInput>
+  }
+
+  export type ImageLabArtifactUpdateWithWhereUniqueWithoutRunInput = {
+    where: ImageLabArtifactWhereUniqueInput
+    data: XOR<ImageLabArtifactUpdateWithoutRunInput, ImageLabArtifactUncheckedUpdateWithoutRunInput>
+  }
+
+  export type ImageLabArtifactUpdateManyWithWhereWithoutRunInput = {
+    where: ImageLabArtifactScalarWhereInput
+    data: XOR<ImageLabArtifactUpdateManyMutationInput, ImageLabArtifactUncheckedUpdateManyWithoutRunInput>
+  }
+
+  export type ImageLabArtifactScalarWhereInput = {
+    AND?: ImageLabArtifactScalarWhereInput | ImageLabArtifactScalarWhereInput[]
+    OR?: ImageLabArtifactScalarWhereInput[]
+    NOT?: ImageLabArtifactScalarWhereInput | ImageLabArtifactScalarWhereInput[]
+    id?: StringFilter<"ImageLabArtifact"> | string
+    run_id?: StringFilter<"ImageLabArtifact"> | string
+    kind?: StringFilter<"ImageLabArtifact"> | string
+    file_path?: StringFilter<"ImageLabArtifact"> | string
+    public_path?: StringFilter<"ImageLabArtifact"> | string
+    mime_type?: StringFilter<"ImageLabArtifact"> | string
+    format?: StringNullableFilter<"ImageLabArtifact"> | string | null
+    bytes?: IntNullableFilter<"ImageLabArtifact"> | number | null
+    width?: IntNullableFilter<"ImageLabArtifact"> | number | null
+    height?: IntNullableFilter<"ImageLabArtifact"> | number | null
+    revised_prompt?: StringNullableFilter<"ImageLabArtifact"> | string | null
+    metadata?: JsonNullableFilter<"ImageLabArtifact">
+    created_at?: DateTimeFilter<"ImageLabArtifact"> | Date | string
+  }
+
+  export type ImageLabRunCreateWithoutArtifactsInput = {
+    id: string
+    operation: string
+    status: string
+    parent_run_id?: string | null
+    prompt: string
+    provider?: string | null
+    model?: string | null
+    size?: string | null
+    quality?: string | null
+    format?: string | null
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type ImageLabRunUncheckedCreateWithoutArtifactsInput = {
+    id: string
+    operation: string
+    status: string
+    parent_run_id?: string | null
+    prompt: string
+    provider?: string | null
+    model?: string | null
+    size?: string | null
+    quality?: string | null
+    format?: string | null
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type ImageLabRunCreateOrConnectWithoutArtifactsInput = {
+    where: ImageLabRunWhereUniqueInput
+    create: XOR<ImageLabRunCreateWithoutArtifactsInput, ImageLabRunUncheckedCreateWithoutArtifactsInput>
+  }
+
+  export type ImageLabRunUpsertWithoutArtifactsInput = {
+    update: XOR<ImageLabRunUpdateWithoutArtifactsInput, ImageLabRunUncheckedUpdateWithoutArtifactsInput>
+    create: XOR<ImageLabRunCreateWithoutArtifactsInput, ImageLabRunUncheckedCreateWithoutArtifactsInput>
+    where?: ImageLabRunWhereInput
+  }
+
+  export type ImageLabRunUpdateToOneWithWhereWithoutArtifactsInput = {
+    where?: ImageLabRunWhereInput
+    data: XOR<ImageLabRunUpdateWithoutArtifactsInput, ImageLabRunUncheckedUpdateWithoutArtifactsInput>
+  }
+
+  export type ImageLabRunUpdateWithoutArtifactsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    operation?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    parent_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    prompt?: StringFieldUpdateOperationsInput | string
+    provider?: NullableStringFieldUpdateOperationsInput | string | null
+    model?: NullableStringFieldUpdateOperationsInput | string | null
+    size?: NullableStringFieldUpdateOperationsInput | string | null
+    quality?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ImageLabRunUncheckedUpdateWithoutArtifactsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    operation?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    parent_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    prompt?: StringFieldUpdateOperationsInput | string
+    provider?: NullableStringFieldUpdateOperationsInput | string | null
+    model?: NullableStringFieldUpdateOperationsInput | string | null
+    size?: NullableStringFieldUpdateOperationsInput | string | null
+    quality?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMediaObservationCreateWithoutAssetInput = {
+    id: string
+    observer: string
+    description: string
+    source_model?: string | null
+    confidence?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type AgentMediaObservationUncheckedCreateWithoutAssetInput = {
+    id: string
+    observer: string
+    description: string
+    source_model?: string | null
+    confidence?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type AgentMediaObservationCreateOrConnectWithoutAssetInput = {
+    where: AgentMediaObservationWhereUniqueInput
+    create: XOR<AgentMediaObservationCreateWithoutAssetInput, AgentMediaObservationUncheckedCreateWithoutAssetInput>
+  }
+
+  export type AgentMediaObservationCreateManyAssetInputEnvelope = {
+    data: AgentMediaObservationCreateManyAssetInput | AgentMediaObservationCreateManyAssetInput[]
+    skipDuplicates?: boolean
+  }
+
+  export type AgentMediaObservationUpsertWithWhereUniqueWithoutAssetInput = {
+    where: AgentMediaObservationWhereUniqueInput
+    update: XOR<AgentMediaObservationUpdateWithoutAssetInput, AgentMediaObservationUncheckedUpdateWithoutAssetInput>
+    create: XOR<AgentMediaObservationCreateWithoutAssetInput, AgentMediaObservationUncheckedCreateWithoutAssetInput>
+  }
+
+  export type AgentMediaObservationUpdateWithWhereUniqueWithoutAssetInput = {
+    where: AgentMediaObservationWhereUniqueInput
+    data: XOR<AgentMediaObservationUpdateWithoutAssetInput, AgentMediaObservationUncheckedUpdateWithoutAssetInput>
+  }
+
+  export type AgentMediaObservationUpdateManyWithWhereWithoutAssetInput = {
+    where: AgentMediaObservationScalarWhereInput
+    data: XOR<AgentMediaObservationUpdateManyMutationInput, AgentMediaObservationUncheckedUpdateManyWithoutAssetInput>
+  }
+
+  export type AgentMediaObservationScalarWhereInput = {
+    AND?: AgentMediaObservationScalarWhereInput | AgentMediaObservationScalarWhereInput[]
+    OR?: AgentMediaObservationScalarWhereInput[]
+    NOT?: AgentMediaObservationScalarWhereInput | AgentMediaObservationScalarWhereInput[]
+    id?: StringFilter<"AgentMediaObservation"> | string
+    asset_id?: StringFilter<"AgentMediaObservation"> | string
+    observer?: StringFilter<"AgentMediaObservation"> | string
+    description?: StringFilter<"AgentMediaObservation"> | string
+    source_model?: StringNullableFilter<"AgentMediaObservation"> | string | null
+    confidence?: StringNullableFilter<"AgentMediaObservation"> | string | null
+    metadata?: JsonNullableFilter<"AgentMediaObservation">
+    created_at?: DateTimeFilter<"AgentMediaObservation"> | Date | string
+  }
+
+  export type AgentMediaAssetCreateWithoutObservationsInput = {
+    id: string
+    source: string
+    source_message_id?: bigint | number | null
+    trace_id?: string | null
+    session_key: string
+    chat_type: string
+    peer_id?: string | null
+    peer_name?: string | null
+    sender_id?: string | null
+    sender_name?: string | null
+    account_id?: string | null
+    message_sid?: string | null
+    media_tag: string
+    placeholder?: string
+    media_type?: string
+    mime_type?: string | null
+    source_locator?: string | null
+    storage_uri?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentMediaAssetUncheckedCreateWithoutObservationsInput = {
+    id: string
+    source: string
+    source_message_id?: bigint | number | null
+    trace_id?: string | null
+    session_key: string
+    chat_type: string
+    peer_id?: string | null
+    peer_name?: string | null
+    sender_id?: string | null
+    sender_name?: string | null
+    account_id?: string | null
+    message_sid?: string | null
+    media_tag: string
+    placeholder?: string
+    media_type?: string
+    mime_type?: string | null
+    source_locator?: string | null
+    storage_uri?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentMediaAssetCreateOrConnectWithoutObservationsInput = {
+    where: AgentMediaAssetWhereUniqueInput
+    create: XOR<AgentMediaAssetCreateWithoutObservationsInput, AgentMediaAssetUncheckedCreateWithoutObservationsInput>
+  }
+
+  export type AgentMediaAssetUpsertWithoutObservationsInput = {
+    update: XOR<AgentMediaAssetUpdateWithoutObservationsInput, AgentMediaAssetUncheckedUpdateWithoutObservationsInput>
+    create: XOR<AgentMediaAssetCreateWithoutObservationsInput, AgentMediaAssetUncheckedCreateWithoutObservationsInput>
+    where?: AgentMediaAssetWhereInput
+  }
+
+  export type AgentMediaAssetUpdateToOneWithWhereWithoutObservationsInput = {
+    where?: AgentMediaAssetWhereInput
+    data: XOR<AgentMediaAssetUpdateWithoutObservationsInput, AgentMediaAssetUncheckedUpdateWithoutObservationsInput>
+  }
+
+  export type AgentMediaAssetUpdateWithoutObservationsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source?: StringFieldUpdateOperationsInput | string
+    source_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    chat_type?: StringFieldUpdateOperationsInput | string
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_name?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_name?: NullableStringFieldUpdateOperationsInput | string | null
+    account_id?: NullableStringFieldUpdateOperationsInput | string | null
+    message_sid?: NullableStringFieldUpdateOperationsInput | string | null
+    media_tag?: StringFieldUpdateOperationsInput | string
+    placeholder?: StringFieldUpdateOperationsInput | string
+    media_type?: StringFieldUpdateOperationsInput | string
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    source_locator?: NullableStringFieldUpdateOperationsInput | string | null
+    storage_uri?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMediaAssetUncheckedUpdateWithoutObservationsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source?: StringFieldUpdateOperationsInput | string
+    source_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: StringFieldUpdateOperationsInput | string
+    chat_type?: StringFieldUpdateOperationsInput | string
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_name?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_name?: NullableStringFieldUpdateOperationsInput | string | null
+    account_id?: NullableStringFieldUpdateOperationsInput | string | null
+    message_sid?: NullableStringFieldUpdateOperationsInput | string | null
+    media_tag?: StringFieldUpdateOperationsInput | string
+    placeholder?: StringFieldUpdateOperationsInput | string
+    media_type?: StringFieldUpdateOperationsInput | string
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    source_locator?: NullableStringFieldUpdateOperationsInput | string | null
+    storage_uri?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentTaskArtifactCreateWithoutTaskInput = {
+    id: string
+    kind?: string
+    file_path?: string | null
+    public_path?: string | null
+    data_url?: string | null
+    mime_type?: string | null
+    format?: string | null
+    bytes?: number | null
+    revised_prompt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type AgentTaskArtifactUncheckedCreateWithoutTaskInput = {
+    id: string
+    kind?: string
+    file_path?: string | null
+    public_path?: string | null
+    data_url?: string | null
+    mime_type?: string | null
+    format?: string | null
+    bytes?: number | null
+    revised_prompt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type AgentTaskArtifactCreateOrConnectWithoutTaskInput = {
+    where: AgentTaskArtifactWhereUniqueInput
+    create: XOR<AgentTaskArtifactCreateWithoutTaskInput, AgentTaskArtifactUncheckedCreateWithoutTaskInput>
+  }
+
+  export type AgentTaskArtifactCreateManyTaskInputEnvelope = {
+    data: AgentTaskArtifactCreateManyTaskInput | AgentTaskArtifactCreateManyTaskInput[]
+    skipDuplicates?: boolean
+  }
+
+  export type AgentTaskArtifactUpsertWithWhereUniqueWithoutTaskInput = {
+    where: AgentTaskArtifactWhereUniqueInput
+    update: XOR<AgentTaskArtifactUpdateWithoutTaskInput, AgentTaskArtifactUncheckedUpdateWithoutTaskInput>
+    create: XOR<AgentTaskArtifactCreateWithoutTaskInput, AgentTaskArtifactUncheckedCreateWithoutTaskInput>
+  }
+
+  export type AgentTaskArtifactUpdateWithWhereUniqueWithoutTaskInput = {
+    where: AgentTaskArtifactWhereUniqueInput
+    data: XOR<AgentTaskArtifactUpdateWithoutTaskInput, AgentTaskArtifactUncheckedUpdateWithoutTaskInput>
+  }
+
+  export type AgentTaskArtifactUpdateManyWithWhereWithoutTaskInput = {
+    where: AgentTaskArtifactScalarWhereInput
+    data: XOR<AgentTaskArtifactUpdateManyMutationInput, AgentTaskArtifactUncheckedUpdateManyWithoutTaskInput>
+  }
+
+  export type AgentTaskArtifactScalarWhereInput = {
+    AND?: AgentTaskArtifactScalarWhereInput | AgentTaskArtifactScalarWhereInput[]
+    OR?: AgentTaskArtifactScalarWhereInput[]
+    NOT?: AgentTaskArtifactScalarWhereInput | AgentTaskArtifactScalarWhereInput[]
+    id?: StringFilter<"AgentTaskArtifact"> | string
+    task_id?: StringFilter<"AgentTaskArtifact"> | string
+    kind?: StringFilter<"AgentTaskArtifact"> | string
+    file_path?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    public_path?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    data_url?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    mime_type?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    format?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    bytes?: IntNullableFilter<"AgentTaskArtifact"> | number | null
+    revised_prompt?: StringNullableFilter<"AgentTaskArtifact"> | string | null
+    metadata?: JsonNullableFilter<"AgentTaskArtifact">
+    created_at?: DateTimeFilter<"AgentTaskArtifact"> | Date | string
+  }
+
+  export type AgentTaskCreateWithoutArtifactsInput = {
+    id: string
+    task_type: string
+    status: string
+    session_key: string
+    chat_type: string
+    peer_id?: string | null
+    peer_name?: string | null
+    requester_sender_id?: string | null
+    requester_sender_name?: string | null
+    target_description?: string | null
+    prompt: string
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    source_queue_message_ids?: NullableJsonNullValueInput | InputJsonValue
+    source_media_tags?: NullableJsonNullValueInput | InputJsonValue
+    source_media_asset_ids?: NullableJsonNullValueInput | InputJsonValue
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    attempts?: number
+    available_at?: Date | string
+    claimed_by?: string | null
+    claimed_at?: Date | string | null
+    completed_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentTaskUncheckedCreateWithoutArtifactsInput = {
+    id: string
+    task_type: string
+    status: string
+    session_key: string
+    chat_type: string
+    peer_id?: string | null
+    peer_name?: string | null
+    requester_sender_id?: string | null
+    requester_sender_name?: string | null
+    target_description?: string | null
+    prompt: string
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    source_queue_message_ids?: NullableJsonNullValueInput | InputJsonValue
+    source_media_tags?: NullableJsonNullValueInput | InputJsonValue
+    source_media_asset_ids?: NullableJsonNullValueInput | InputJsonValue
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: string | null
+    attempts?: number
+    available_at?: Date | string
+    claimed_by?: string | null
+    claimed_at?: Date | string | null
+    completed_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentTaskCreateOrConnectWithoutArtifactsInput = {
+    where: AgentTaskWhereUniqueInput
+    create: XOR<AgentTaskCreateWithoutArtifactsInput, AgentTaskUncheckedCreateWithoutArtifactsInput>
+  }
+
+  export type AgentTaskUpsertWithoutArtifactsInput = {
+    update: XOR<AgentTaskUpdateWithoutArtifactsInput, AgentTaskUncheckedUpdateWithoutArtifactsInput>
+    create: XOR<AgentTaskCreateWithoutArtifactsInput, AgentTaskUncheckedCreateWithoutArtifactsInput>
+    where?: AgentTaskWhereInput
+  }
+
+  export type AgentTaskUpdateToOneWithWhereWithoutArtifactsInput = {
+    where?: AgentTaskWhereInput
+    data: XOR<AgentTaskUpdateWithoutArtifactsInput, AgentTaskUncheckedUpdateWithoutArtifactsInput>
+  }
+
+  export type AgentTaskUpdateWithoutArtifactsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    task_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    session_key?: StringFieldUpdateOperationsInput | string
+    chat_type?: StringFieldUpdateOperationsInput | string
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_name?: NullableStringFieldUpdateOperationsInput | string | null
+    requester_sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    requester_sender_name?: NullableStringFieldUpdateOperationsInput | string | null
+    target_description?: NullableStringFieldUpdateOperationsInput | string | null
+    prompt?: StringFieldUpdateOperationsInput | string
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_queue_message_ids?: NullableJsonNullValueInput | InputJsonValue
+    source_media_tags?: NullableJsonNullValueInput | InputJsonValue
+    source_media_asset_ids?: NullableJsonNullValueInput | InputJsonValue
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    attempts?: IntFieldUpdateOperationsInput | number
+    available_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    claimed_by?: NullableStringFieldUpdateOperationsInput | string | null
+    claimed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentTaskUncheckedUpdateWithoutArtifactsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    task_type?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    session_key?: StringFieldUpdateOperationsInput | string
+    chat_type?: StringFieldUpdateOperationsInput | string
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_name?: NullableStringFieldUpdateOperationsInput | string | null
+    requester_sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    requester_sender_name?: NullableStringFieldUpdateOperationsInput | string | null
+    target_description?: NullableStringFieldUpdateOperationsInput | string | null
+    prompt?: StringFieldUpdateOperationsInput | string
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_queue_message_ids?: NullableJsonNullValueInput | InputJsonValue
+    source_media_tags?: NullableJsonNullValueInput | InputJsonValue
+    source_media_asset_ids?: NullableJsonNullValueInput | InputJsonValue
+    input_json?: NullableJsonNullValueInput | InputJsonValue
+    result_json?: NullableJsonNullValueInput | InputJsonValue
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    attempts?: IntFieldUpdateOperationsInput | number
+    available_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    claimed_by?: NullableStringFieldUpdateOperationsInput | string | null
+    claimed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ImageLabArtifactCreateManyRunInput = {
+    id: string
+    kind?: string
+    file_path: string
+    public_path: string
+    mime_type: string
+    format?: string | null
+    bytes?: number | null
+    width?: number | null
+    height?: number | null
+    revised_prompt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type ImageLabArtifactUpdateWithoutRunInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: StringFieldUpdateOperationsInput | string
+    public_path?: StringFieldUpdateOperationsInput | string
+    mime_type?: StringFieldUpdateOperationsInput | string
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    width?: NullableIntFieldUpdateOperationsInput | number | null
+    height?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ImageLabArtifactUncheckedUpdateWithoutRunInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: StringFieldUpdateOperationsInput | string
+    public_path?: StringFieldUpdateOperationsInput | string
+    mime_type?: StringFieldUpdateOperationsInput | string
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    width?: NullableIntFieldUpdateOperationsInput | number | null
+    height?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type ImageLabArtifactUncheckedUpdateManyWithoutRunInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: StringFieldUpdateOperationsInput | string
+    public_path?: StringFieldUpdateOperationsInput | string
+    mime_type?: StringFieldUpdateOperationsInput | string
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    width?: NullableIntFieldUpdateOperationsInput | number | null
+    height?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMediaObservationCreateManyAssetInput = {
+    id: string
+    observer: string
+    description: string
+    source_model?: string | null
+    confidence?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type AgentMediaObservationUpdateWithoutAssetInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    observer?: StringFieldUpdateOperationsInput | string
+    description?: StringFieldUpdateOperationsInput | string
+    source_model?: NullableStringFieldUpdateOperationsInput | string | null
+    confidence?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMediaObservationUncheckedUpdateWithoutAssetInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    observer?: StringFieldUpdateOperationsInput | string
+    description?: StringFieldUpdateOperationsInput | string
+    source_model?: NullableStringFieldUpdateOperationsInput | string | null
+    confidence?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMediaObservationUncheckedUpdateManyWithoutAssetInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    observer?: StringFieldUpdateOperationsInput | string
+    description?: StringFieldUpdateOperationsInput | string
+    source_model?: NullableStringFieldUpdateOperationsInput | string | null
+    confidence?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentTaskArtifactCreateManyTaskInput = {
+    id: string
+    kind?: string
+    file_path?: string | null
+    public_path?: string | null
+    data_url?: string | null
+    mime_type?: string | null
+    format?: string | null
+    bytes?: number | null
+    revised_prompt?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+  }
+
+  export type AgentTaskArtifactUpdateWithoutTaskInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: NullableStringFieldUpdateOperationsInput | string | null
+    public_path?: NullableStringFieldUpdateOperationsInput | string | null
+    data_url?: NullableStringFieldUpdateOperationsInput | string | null
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentTaskArtifactUncheckedUpdateWithoutTaskInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: NullableStringFieldUpdateOperationsInput | string | null
+    public_path?: NullableStringFieldUpdateOperationsInput | string | null
+    data_url?: NullableStringFieldUpdateOperationsInput | string | null
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentTaskArtifactUncheckedUpdateManyWithoutTaskInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    file_path?: NullableStringFieldUpdateOperationsInput | string | null
+    public_path?: NullableStringFieldUpdateOperationsInput | string | null
+    data_url?: NullableStringFieldUpdateOperationsInput | string | null
+    mime_type?: NullableStringFieldUpdateOperationsInput | string | null
+    format?: NullableStringFieldUpdateOperationsInput | string | null
+    bytes?: NullableIntFieldUpdateOperationsInput | number | null
+    revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
 

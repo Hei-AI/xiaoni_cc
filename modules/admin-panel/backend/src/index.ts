@@ -17,6 +17,7 @@ import { createPlaygroundRoutes } from './routes/playground-routes';
 import { createRunRoutes } from './routes/run-routes';
 import { createTopicLabRoutes } from './routes/topic-lab-routes';
 import { createImageLabRoutes } from './routes/image-lab-routes';
+import { createAgentRuntimeRoutes } from './routes/agent-runtime-routes';
 import simpleQueueRoutes from './routes/simple-queue';
 import { TrafficLogWatcher, DEFAULT_WATCHER_CONFIG } from './services/traffic-log-watcher';
 
@@ -145,6 +146,8 @@ async function startServer() {
   app.use('/api', createTopicLabRoutes(database, logger));       // Chat memory lab APIs
   logger.info('🔧 Registering image lab routes...');
   app.use('/api', createImageLabRoutes(database, logger));       // Image generation/edit proxy APIs
+  logger.info('🔧 Registering agent runtime routes...');
+  app.use('/api', createAgentRuntimeRoutes(database));            // Runtime task/media observability APIs
 
   logger.info('🔧 Registering inbox routes...');
   app.use('/api/inbox', inboxRoutes);
