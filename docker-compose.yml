@@ -207,6 +207,7 @@ services:
     container_name: qqbot-admin-frontend
     ports:
       - "127.0.0.1:3003:80"
+      - "172.18.0.1:3904:80"
     environment:
       - VITE_API_BASE_URL=http://qqbot-admin-backend:9080
       - TZ=Asia/Shanghai

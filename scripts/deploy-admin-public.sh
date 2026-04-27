@@ -12,7 +12,7 @@ echo "[2/6] Rebuilding public admin frontend image..."
 docker compose build admin-frontend
 
 echo "[3/6] Recreating public admin chain..."
-docker compose up -d admin-frontend admin-expose-proxy
+docker compose up -d --force-recreate admin-frontend admin-expose-proxy
 
 echo "[4/6] Waiting for admin frontend container health..."
 for _ in $(seq 1 30); do

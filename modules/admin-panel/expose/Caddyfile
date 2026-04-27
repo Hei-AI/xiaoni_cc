@@ -6,5 +6,5 @@
         import /etc/caddy/local/*.caddy
     }
 
-    reverse_proxy admin-frontend:80
+    reverse_proxy 172.18.0.1:3904
 }
