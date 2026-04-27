@@ -828,6 +828,56 @@ function extractLatestInnerReaction(loopInput: OpenResponseInputItem[]): InnerRe
   return null;
 }
 
+function extractLatestUnreadMeaning(loopInput: OpenResponseInputItem[]): UnreadMeaning | null {
+  const unreadMeaningCallIds = new Set<string>();
+  for (const item of loopInput) {
+    if (item.type === 'function_call' && item.name === TOOL_NAMES.unreadMeaning) {
+      unreadMeaningCallIds.add(item.call_id);
+    }
+  }
+
+  for (let index = loopInput.length - 1; index >= 0; index -= 1) {
+    const item = loopInput[index];
+    if (item.type === 'function_call_output' && unreadMeaningCallIds.has(item.call_id)) {
+      const parsed = parseReplayJsonObject(item.output);
+      const meaning = parseUnreadMeaning(parsed);
+      if (meaning) {
+        return meaning;
+      }
+    }
+    if (item.type === 'function_call' && item.name === TOOL_NAMES.unreadMeaning) {
+      const parsed = parseReplayJsonObject(item.arguments);
+      const meaning = parseUnreadMeaning(parsed);
+      if (meaning) {
+        return meaning;
+      }
+    }
+  }
+
+  return null;
+}
+
+function hasLongTermRecallReplay(loopInput: OpenResponseInputItem[]) {
+  return hasToolReplay(loopInput, TOOL_NAMES.longTermRecall);
+}
+
+function hasDirectNewCue(meaning: UnreadMeaning | null) {
+  if (!meaning?.addressedToMe) {
+    return false;
+  }
+  if (meaning.hasRealNovelty) {
+    return true;
+  }
+  return meaning.messageAct === 'question' || meaning.messageAct === 'request' || meaning.messageAct === 'feedback';
+}
+
+function shouldDowngradeWeakSpeakToSilence(reaction: InnerReaction | null, meaning: UnreadMeaning | null) {
+  return reaction?.preferredAction === 'speak'
+    && reaction.interestLevel === 'low'
+    && reaction.reactionAuthenticity === 'weak_but_real'
+    && !hasDirectNewCue(meaning);
+}
+
 function buildAllowedToolsToolChoice(tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }>): OpenResponseToolChoice {
   return {
     type: 'allowed_tools',
@@ -864,15 +914,27 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
 
   if (!hasInnerReactionReplay(loopInput)) {
     return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.innerReaction },
-      { type: 'function', name: TOOL_NAMES.longTermRecall }
+      { type: 'function', name: TOOL_NAMES.innerReaction }
     ]);
   }
 
   const latestInnerReaction = extractLatestInnerReaction(loopInput);
+  const latestUnreadMeaning = extractLatestUnreadMeaning(loopInput);
   if (latestInnerReaction?.preferredAction === 'silent') {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.silentFinish }
+    ]);
+  }
+
+  if (shouldDowngradeWeakSpeakToSilence(latestInnerReaction, latestUnreadMeaning)) {
+    return buildAllowedToolsToolChoice([
+      { type: 'function', name: TOOL_NAMES.silentFinish }
+    ]);
+  }
+
+  if ((latestInnerReaction?.preferredAction === 'speak' || latestInnerReaction?.preferredAction === 'search') && !hasLongTermRecallReplay(loopInput)) {
+    return buildAllowedToolsToolChoice([
+      { type: 'function', name: TOOL_NAMES.longTermRecall }
     ]);
   }
 

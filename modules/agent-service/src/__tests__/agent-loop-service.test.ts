@@ -248,7 +248,7 @@ test('buildCanonicalAgentTurnRequest keeps the same group loop tools on the firs
   assert.match(String(request.instructions), /只有当前两步都已经形成，我才调用 speak_in_group、stay_silent 或 web_search/);
 });
 
-test('buildCanonicalAgentTurnRequest only unlocks inner reaction and recall after unread meaning replay', () => {
+test('buildCanonicalAgentTurnRequest only unlocks inner reaction after unread meaning replay', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({
     type: 'function_call',
@@ -263,7 +263,7 @@ test('buildCanonicalAgentTurnRequest only unlocks inner reaction and recall afte
   });
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [INNER_REACTION_TOOL, LONG_TERM_RECALL_TOOL]);
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [INNER_REACTION_TOOL]);
 });
 
 test('buildCanonicalAgentTurnRequest only allows stay_silent after inner reaction prefers silence', () => {
@@ -296,7 +296,7 @@ test('buildCanonicalAgentTurnRequest only allows stay_silent after inner reactio
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL]);
 });
 
-test('buildCanonicalAgentTurnRequest allows speech only when inner reaction prefers speak', () => {
+test('buildCanonicalAgentTurnRequest requires recall before speech when inner reaction prefers speak', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({
     type: 'function_call',
@@ -323,7 +323,179 @@ test('buildCanonicalAgentTurnRequest allows speech only when inner reaction pref
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LONG_TERM_RECALL_TOOL]);
+});
+
+test('buildCanonicalAgentTurnRequest requires recall before search when inner reaction prefers search', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"有人问一个新资料问题","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问资料"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"有人问一个新资料问题","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问资料"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"先查证","reaction_authenticity":"formed","should_search":true,"preferred_action":"search","reason":"需要外部信息"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"先查证","reaction_authenticity":"formed","should_search":true,"preferred_action":"search","reason":"需要外部信息"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LONG_TERM_RECALL_TOOL]);
+});
+
+test('buildCanonicalAgentTurnRequest allows speech after recall when inner reaction prefers speak', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"明确问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接提问"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"明确问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接提问"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"high","wants_to_know_more":false,"recalled_prior_pattern":"这是直接递话","felt_direction":"可以承担一句回应","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实回应"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"high","wants_to_know_more":false,"recalled_prior_pattern":"这是直接递话","felt_direction":"可以承担一句回应","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实回应"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-recall',
+    name: LONG_TERM_RECALL_TOOL,
+    arguments: '{"reason":"当前反应可能和以往互动反馈有关","topic_hint":"直接递话","include_current_sender":true,"desired_recall_count":2}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-recall',
+    output: '{"reason":"当前反应可能和以往互动反馈有关","topic_hint":"直接递话","query_text":"直接递话","items":[],"markdown_items":[]}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, SILENT_FINISH_TOOL]);
+});
+
+test('buildCanonicalAgentTurnRequest allows search after recall when inner reaction prefers search', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"有人问一个新资料问题","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问资料"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"有人问一个新资料问题","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问资料"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"先查证","reaction_authenticity":"formed","should_search":true,"preferred_action":"search","reason":"需要外部信息"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"先查证","reaction_authenticity":"formed","should_search":true,"preferred_action":"search","reason":"需要外部信息"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-recall',
+    name: LONG_TERM_RECALL_TOOL,
+    arguments: '{"reason":"当前反应可能和以往互动反馈有关","topic_hint":"资料问题","include_current_sender":true,"desired_recall_count":2}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-recall',
+    output: '{"reason":"当前反应可能和以往互动反馈有关","topic_hint":"资料问题","query_text":"资料问题","items":[],"markdown_items":[]}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, SILENT_FINISH_TOOL]);
+});
+
+test('buildCanonicalAgentTurnRequest downgrades low weak speech without direct new cue to silence', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"对上一句轻梗做收口","message_act":"joke","social_target":"me","addressed_to_me":true,"has_real_novelty":false,"confidence":"high","reason":"只是短促收口调侃"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"对上一句轻梗做收口","message_act":"joke","social_target":"me","addressed_to_me":true,"has_real_novelty":false,"confidence":"high","reason":"只是短促收口调侃"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"low","wants_to_know_more":false,"recalled_prior_pattern":"短句轻收口","felt_direction":"轻轻接住也可以，但没有新拉力","reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"speak","reason":"只是轻微会心"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"low","wants_to_know_more":false,"recalled_prior_pattern":"短句轻收口","felt_direction":"轻轻接住也可以，但没有新拉力","reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"speak","reason":"只是轻微会心"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL]);
+});
+
+test('buildCanonicalAgentTurnRequest keeps direct new low weak speech on the recall path', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"明确问小腻一个新问题","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接新问题"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"明确问小腻一个新问题","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接新问题"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"low","wants_to_know_more":false,"recalled_prior_pattern":"直接递话仍要回应","felt_direction":"短答即可","reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"speak","reason":"直接问到我"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"low","wants_to_know_more":false,"recalled_prior_pattern":"直接递话仍要回应","felt_direction":"短答即可","reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"speak","reason":"直接问到我"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LONG_TERM_RECALL_TOOL]);
 });
 
 test('executeAgentTurn sends the standard canonical request shape to provider-service', async () => {
