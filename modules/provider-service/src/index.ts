@@ -24,6 +24,7 @@ import TopicProjectionService from './services/topic-projection-service';
 import TopicProjectionExecutorService from './services/topic-projection-executor-service';
 import TopicReviewMaterializationService from './services/topic-review-materialization-service';
 import { GroupParticipationService } from './services/group-participation-service';
+import { ImageProviderError, OpenAIImageProvider } from './services/image-provider';
 import {
   buildSimpleQueueSimulationContext,
   type ProviderMessageType,
@@ -36,6 +37,7 @@ import { logger } from './utils/logger';
 const app = express();
 const moduleLogger = logger.createModuleLogger('provider-service');
 const embeddingService = new EmbeddingService(aiConfig);
+const imageProvider = new OpenAIImageProvider();
 const napcatClient = new NapcatClient();
 const inboxService = new InboundInboxService();
 const chatPolicyService = new ChatPolicyService();
@@ -569,8 +571,8 @@ async function processAutoReply(params: {
   };
 }
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: process.env.IMAGE_LAB_JSON_LIMIT || '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: process.env.IMAGE_LAB_JSON_LIMIT || '50mb' }));
 
 app.get('/health', async (_req, res) => {
   const [napcat, inbox] = await Promise.all([
@@ -757,6 +759,50 @@ app.post('/api/internal/agent/execute', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Agent execution failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/image/generate', async (req, res) => {
+  try {
+    const data = await imageProvider.generate(req.body || {});
+    res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    const statusCode = error instanceof ImageProviderError ? error.statusCode : 500;
+    moduleLogger.error('Image generation request failed', {
+      error: error instanceof Error ? error.message : String(error),
+      statusCode
+    });
+    res.status(statusCode).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Image generation failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/image/edit', async (req, res) => {
+  try {
+    const data = await imageProvider.edit(req.body || {});
+    res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    const statusCode = error instanceof ImageProviderError ? error.statusCode : 500;
+    moduleLogger.error('Image edit request failed', {
+      error: error instanceof Error ? error.message : String(error),
+      statusCode
+    });
+    res.status(statusCode).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Image edit failed',
       timestamp: new Date().toISOString()
     });
   }

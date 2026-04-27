@@ -16,6 +16,7 @@ import { createTrafficMonitorRoutes } from './routes/traffic-monitor-routes';
 import { createPlaygroundRoutes } from './routes/playground-routes';
 import { createRunRoutes } from './routes/run-routes';
 import { createTopicLabRoutes } from './routes/topic-lab-routes';
+import { createImageLabRoutes } from './routes/image-lab-routes';
 import simpleQueueRoutes from './routes/simple-queue';
 import { TrafficLogWatcher, DEFAULT_WATCHER_CONFIG } from './services/traffic-log-watcher';
 
@@ -98,8 +99,8 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: process.env.IMAGE_LAB_JSON_LIMIT || '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: process.env.IMAGE_LAB_JSON_LIMIT || '50mb' }));
 
 // 路由将在数据库初始化后设置
 
@@ -142,6 +143,8 @@ async function startServer() {
   app.use('/api', createRunRoutes(database, logger));            // Agent run workspace APIs
   logger.info('🔧 Registering topic lab routes...');
   app.use('/api', createTopicLabRoutes(database, logger));       // Chat memory lab APIs
+  logger.info('🔧 Registering image lab routes...');
+  app.use('/api', createImageLabRoutes(database, logger));       // Image generation/edit proxy APIs
 
   logger.info('🔧 Registering inbox routes...');
   app.use('/api/inbox', inboxRoutes);

@@ -483,8 +483,9 @@ class HTTPTrafficLogger:
         # 响应信息处理
         response_headers = dict(flow.response.headers) if flow.response else {}
         response_body = None
+        response_content = flow.response.content if flow.response and flow.response.content is not None else b''
         if flow.response and self.config['enable_response_body']:
-            response_body = self._safe_extract_body(flow.response.content, flow.response.headers.get('content-type', ''))
+            response_body = self._safe_extract_body(response_content, flow.response.headers.get('content-type', ''))
 
         # 构建记录
         record = {
@@ -514,7 +515,7 @@ class HTTPTrafficLogger:
             'response_headers': ujson.dumps(response_headers) if response_headers else None,
             'response_body': response_body,
             'response_content_type': flow.response.headers.get('content-type') if flow.response else None,
-            'response_size': len(flow.response.content) if flow.response else 0,
+            'response_size': len(response_content) if flow.response else 0,
 
             # 性能信息
             'duration_ms': duration_ms,
