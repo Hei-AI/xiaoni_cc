@@ -1,6 +1,14 @@
 <!-- /autoplan restore point: /home/liahua/.gstack/projects/liahua-qq_bot/refactor-runtime-gateway-autoplan-restore-20260331-180135.md -->
 # Group Reply Relevance And Continuity
 
+> Status: superseded as an implementation plan.
+>
+> Keep this file as historical design/review context only. The current project
+> queue in `TODOS.md` explicitly retires a standalone pre-agent gate. Future
+> "should Xiaoni notice / speak / stay silent" work should live inside the
+> agent-service scene-understanding and identity/activation trace path, while
+> provider-service keeps only hard safety boundaries and observability.
+
 ## Goal
 - Add the Stage 2 group reply decision layer for 小腻:
   - nobody explicitly `@` 小腻

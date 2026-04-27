@@ -13,8 +13,10 @@ should attach to the identity lineage substrate once Phase 1 exists.
 
 So the queue is now split this way:
 
-- Stage A behavior cleanup: keep fixing what users actually see in group chat.
-- Identity Lineage Phase 1: build the continuity substrate.
+- Stage A behavior cleanup: keep fixing what users actually see in group chat,
+  but mark already-shipped guardrails separately from live QA.
+- Identity Lineage Phase 1: finish the continuity substrate around the vertical
+  slice that already landed.
 - Infrastructure follow-up: keep if it improves correctness or performance and is
   independent of identity.
 - Retired as standalone: fold into identity lineage instead of building another
@@ -22,7 +24,7 @@ So the queue is now split this way:
 
 ## P0 - Clean up Xiaoni group-reply style pollution after the silent-gate hotfix
 
-Status: active Stage A follow-up.
+Status: partially shipped; active Stage A QA / observability follow-up.
 
 What:
 
@@ -33,11 +35,15 @@ even though silent inner reactions can no longer speak.
 
 Why:
 
-The hotfix only makes the inner-reaction decision authoritative when it says
-silence. It does not remove polluted recent history, and it does not stop valid
-`preferred_action=speak` turns from choosing low-value affirmative openers.
-Without follow-up, 小腻 may become quieter but still sound patterned when she does
-speak.
+The silent gate and output sanitizer now cover two earlier failure modes:
+
+- `preferred_action=silent` only unlocks `stay_silent`.
+- `speak_in_group` / `reply_in_private` output normalization strips low-value
+  opening fillers like `哈哈，确实` when there is still real content after them.
+
+That still does not prove the live group is healthy. Recent polluted history can
+still bias replay, and valid `preferred_action=speak` turns may still choose
+low-value participation if the scene understanding is weak.
 
 Identity impact:
 
@@ -48,14 +54,14 @@ better. This item stays active.
 Follow-up work:
 
 - Run a targeted replay/live QA pass for the latest `哈哈` / `确实` cluster and
-  verify the hotfix does not over-silence normal group participation.
+  verify the shipped sanitizer does not over-correct normal speech.
 - Decide whether to advance
   `agent_session_context_windows.read_cutoff_after_conversation_id` or add
   runtime-only style-pollution filtering in the replay renderer.
 - Preserve raw chat as truth. Prefer renderer/projection changes over rewriting
   stored chat history.
-- Add trace-detail observability that shows when inner reaction narrowed the
-  allowed tool set, especially `silent -> stay_silent only`.
+- Add trace-detail observability that makes tool narrowing readable to operators,
+  especially `silent -> stay_silent only`.
 - Add tests for the `preferred_action=search` path and decide whether search
   should force another inner reaction before speech.
 - If Identity Lineage Phase 1 exists by the time this is implemented, record
@@ -71,8 +77,10 @@ Depends on / blocked by:
 
 ## P0 - Finish Xiaoni Identity Lineage Phase 1
 
-Status: in progress. The clean Phase 1 persistence contract and first runtime
-vertical slice have landed.
+Status: in progress. The Phase 1 persistence contract, migration bridge, runtime
+projection, activation trace, and feedback-reflection vertical slice have landed.
+The remaining work is trial coverage, provenance completeness, and production
+verification.
 
 Source:
 
@@ -169,7 +177,21 @@ Done means:
 - Runtime can receive only a capped set of accepted identity facts plus activation
   refs, not the full identity history.
 
+Remaining Phase 1 work:
+
+- Add explicit continuity trial fixtures for ordinary growth, external rewrite,
+  reinterpretation, forgetting, fork divergence, and runtime/genesis separation.
+- Verify trace spans expose enough identity evidence for an operator to answer:
+  who proposed the change, what evidence supported it, what judge decided, and
+  why runtime was allowed to use it.
+- Exercise the migration bridge from legacy `identity_change_journal` and
+  `identity_activation_traces` on real or representative rows.
+- Run module tests plus compose verification for the touched services before
+  calling Phase 1 complete.
+
 ## P2 - Retire standalone pre-agent gate
+
+Status: active architectural constraint, not an implementation task.
 
 What:
 
@@ -213,7 +235,7 @@ Constraints:
 
 ## P1 - Materialize transcript snapshot compaction in production
 
-Status: independent infrastructure follow-up.
+Status: partially implemented; independent infrastructure follow-up.
 
 What:
 
@@ -223,10 +245,12 @@ fixed-anchor replay code ready to consume them once they exist.
 
 Why:
 
-The stateless replay refactor is already done. What is still missing is the
-production loop that turns long conversation history into a ready summary
-anchor. Until that happens, replay is still correct, but it falls back to
-rebuilding from the start of the session.
+The stateless replay refactor is already done. `provider-service` now has a
+`TranscriptSnapshotService`, `SessionTranscriptService` can mark snapshot jobs
+`pending`, and ready snapshots can be consumed as prompt summaries. What is still
+missing is the enabled production result path that turns pending jobs into ready
+summary anchors. Until that happens, replay is still correct, but it can fall
+back to rebuilding from the start of the session.
 
 Identity impact:
 
@@ -236,6 +260,11 @@ same rule as identity work: raw chat is truth, summaries are projections.
 
 Follow-up work:
 
+- Enable or replace `/api/internal/transcript-summary/result`; it currently
+  returns the generic runtime-feature-disabled response.
+- Re-enable the live side-effect scheduling path if transcript compaction should
+  run from provider traffic; the current simplified path logs that compaction
+  side effects are skipped.
 - Confirm the summary webhook or equivalent production summary executor that
   will consume pending snapshot jobs.
 - Add deployment-time verification that

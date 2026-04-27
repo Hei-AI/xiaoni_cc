@@ -22,8 +22,14 @@
   - 再看 `AGENTS.md`
 
 ## Runtime And Operations
+- 当前业务与运行架构：
+  - `docs/CURRENT_ARCHITECTURE.md`
 - 路线图：
   - `docs/ROADMAP.md`
+- 执行计划归档与当前候选：
+  - `docs/exec-plans/README.md`
+  - `docs/exec-plans/active/`
+  - `docs/exec-plans/completed/`
 - 脚本入口：
   - `scripts/README.md`
 

@@ -5,12 +5,13 @@
 
 ## First 5 Minutes
 - 这是 QQ Bot 的主仓，但当前保留的是“运行底座 + 管理端”，不是完整旧业务全集。
-- 默认先记住主链路：`NapCat -> provider-service -> admin-backend -> admin-frontend`
+- 默认先分清两条链：小腻行为链是 `NapCat -> provider-service -> agent-service -> provider-service -> NapCat`，管理端链是 `admin-frontend -> admin-backend`。
 - 先信这些入口：`README.md`、`docs/INDEX.md`、`AGENTS.md`
 
 ## First 15 Minutes
-- 主入口只看四处：`modules/provider-service`、`modules/admin-panel/backend`、`modules/admin-panel/frontend`、`packages/persistence`
-- 次级入口：`modules/agent-service`、`modules/http-traffic-monitor`、`modules/embedding-server`
+- 想理解小腻怎么说话，先看 `docs/CURRENT_ARCHITECTURE.md`，再看 `modules/provider-service`、`modules/agent-service`、`packages/persistence`。
+- 想调管理端，先看 `modules/admin-panel/backend`、`modules/admin-panel/frontend`。
+- 次级入口：`modules/http-traffic-monitor`、`modules/embedding-server`
 - 当前运行数据库是 PostgreSQL
 - 接任务前，先在 `docs/INDEX.md` 找对应专项文档，不要直接全仓漫游
 

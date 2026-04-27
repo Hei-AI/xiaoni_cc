@@ -125,4 +125,5 @@ python3 scripts/start_modules.py status
 
 - [docs/START_HERE.md](docs/START_HERE.md)
 - [docs/INDEX.md](docs/INDEX.md)
+- [docs/CURRENT_ARCHITECTURE.md](docs/CURRENT_ARCHITECTURE.md)
 - [docs/ROADMAP.md](docs/ROADMAP.md)

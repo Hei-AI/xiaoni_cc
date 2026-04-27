@@ -14,7 +14,7 @@
 - 继续清理残留的旧文案和脚本假设，避免误导运行与排障
 - 稳定 admin playground、queue management、traffic replay、agent run workspace、runtime status 等保留调试面
 - 完成 transcript snapshot compact/materialize 闭环，让 fixed-anchor replay 不再只靠“从会话开头重放”
-- 推进 agent input message structure v2，把 speaker / mentions / reply context 从扁平文本升级为结构化 transcript payload
+- 收尾 Xiaoni Identity Lineage Phase 1：连续性试验、trace 证据完整性、legacy migration 验证和 compose 级验证
 - 为新的业务流程重建预留清晰边界：业务编排在新服务中实现，外部能力接入继续放在 `provider-service`
 
 ## 中期计划
@@ -22,7 +22,7 @@
 - 完成新的业务流程服务落地，并与 `provider-service` 通过稳定契约集成
 - 将 provider debug、trace、traffic replay 的语义对齐，减少导入/重跑链路中的语义损失
 - 继续优化 Admin 的对象选择、细节查看和排障工作流
-- 设计并验证带 memory / topic continuity / addressee inference 的群聊 pre-agent relevance gate；当前 provider 侧只保留硬边界和 observability，不把它再当完整社交判断层
+- 把群聊参与判断收口到 agent-service 的场景理解与 identity / activation trace；provider 侧只保留硬边界和 observability
 - 逐步清理只服务于旧认知架构的数据库表、脚本和文档
 
 ## 长期方向
