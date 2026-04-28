@@ -90,11 +90,11 @@ export function useRunTraceSpanDetail(runId: string | null, spanId: string | nul
   });
 }
 
-export function useRunDetail(runId: string | null) {
+export function useRunDetail(runId: string | null, enabled = true) {
   return useQuery<AgentRunDetail>({
     queryKey: ['run-detail', runId],
     queryFn: () => fetchJson<AgentRunDetail>(`/api/runs/${runId}`),
-    enabled: Boolean(runId),
+    enabled: Boolean(runId) && enabled,
     staleTime: 10000,
   });
 }
