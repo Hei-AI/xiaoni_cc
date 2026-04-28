@@ -24,6 +24,8 @@
 ## Runtime And Operations
 - 当前业务与运行架构：
   - `docs/CURRENT_ARCHITECTURE.md`
+- `agent-service` loop 细版，含输入输出、工具契约、抑制路径、自学习闭环：
+  - `docs/AGENTS_AGENT_LOOP_RUNTIME.md`
 - 路线图：
   - `docs/ROADMAP.md`
 - 执行计划归档与当前候选：
