@@ -603,6 +603,7 @@ export function ensureSelfEvolutionSchema(config?: DatabaseUrlConfig): Promise<v
 export function ensureFeedbackReflectionSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function ensureIdentityLineageSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function ensureTopicLabSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function ensureAbExperimentSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function appendRelationshipLedgerEvent(input: RelationshipLedgerEventInput, config?: DatabaseUrlConfig): Promise<any>;
 export function reinforceRelationshipLedgerEvent(
   id: number | bigint | string,
@@ -729,6 +730,10 @@ export const IdentityLineageValidationError: {
   new(message: string, code?: string): Error & { code?: string };
 };
 export function createXiaoniIdentityRoot(input: XiaoniIdentityRootInput, config?: DatabaseUrlConfig): Promise<any>;
+export function ensureXiaoniIdentityRoot(
+  input: XiaoniIdentityRootInput,
+  config?: DatabaseUrlConfig
+): Promise<{ root: any; event: any | null; created: boolean }>;
 export function getActiveXiaoniIdentityRoot(identityKey: string, config?: DatabaseUrlConfig): Promise<any | null>;
 export function appendIdentityLineageEvent(
   input: IdentityLineageEventInput,
@@ -901,3 +906,139 @@ export function listAgentTasks(
   filters?: { sessionKey?: string; session_key?: string; status?: string; limit?: number },
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
+export type AbTurnSnapshotInput = {
+  id?: string;
+  sourceKey?: string;
+  source_key?: string;
+  traceId?: string | null;
+  trace_id?: string | null;
+  runId?: string | null;
+  run_id?: string | null;
+  sessionKey?: string | null;
+  session_key?: string | null;
+  chatType?: string | null;
+  chat_type?: string | null;
+  peerId?: string | null;
+  peer_id?: string | null;
+  senderId?: string | null;
+  sender_id?: string | null;
+  queueMessageIds?: unknown[];
+  queue_message_ids?: unknown[];
+  providerEventIds?: unknown[];
+  provider_event_ids?: unknown[];
+  scene?: Record<string, unknown>;
+  memoryStreamView?: Record<string, unknown>;
+  memory_stream_view?: Record<string, unknown>;
+  retrievalPolicy?: Record<string, unknown>;
+  retrieval_policy?: Record<string, unknown>;
+  runtimeConfig?: Record<string, unknown>;
+  runtime_config?: Record<string, unknown>;
+  captureStatus?: string;
+  capture_status?: string;
+  controlStatus?: string;
+  control_status?: string;
+  treatmentStatus?: string;
+  treatment_status?: string;
+  evalStatus?: string;
+  eval_status?: string;
+  captureError?: string | null;
+  capture_error?: string | null;
+};
+export type AbArmRunInput = {
+  id?: string;
+  snapshotId?: string;
+  snapshot_id?: string;
+  arm: 'control' | 'treatment' | string;
+  projectOrNamespace?: string | null;
+  project_or_namespace?: string | null;
+  runnerName?: string | null;
+  runner_name?: string | null;
+  modelName?: string | null;
+  model_name?: string | null;
+  inputSummary?: Record<string, unknown>;
+  input_summary?: Record<string, unknown>;
+  outputArtifact?: Record<string, unknown>;
+  output_artifact?: Record<string, unknown>;
+  memoryContext?: Record<string, unknown>;
+  memory_context?: Record<string, unknown>;
+  failure?: Record<string, unknown> | null;
+  startedAt?: string | Date | null;
+  started_at?: string | Date | null;
+  completedAt?: string | Date | null;
+  completed_at?: string | Date | null;
+  status?: string;
+};
+export type AbMemoryStreamItemInput = {
+  id?: string;
+  namespace: string;
+  arm: 'control' | 'treatment' | string;
+  type: 'observation' | 'reflection' | 'plan' | string;
+  subtype?: string | null;
+  content: string;
+  retrievalText?: string | null;
+  retrieval_text?: string | null;
+  embeddingText?: string | null;
+  embedding_text?: string | null;
+  importance?: number;
+  confidence?: number;
+  status?: string;
+  sourceEventRefs?: unknown[];
+  source_event_refs?: unknown[];
+  provenance?: Record<string, unknown>;
+  ttlExpiresAt?: string | Date | null;
+  ttl_expires_at?: string | Date | null;
+  fulfilledAt?: string | Date | null;
+  fulfilled_at?: string | Date | null;
+};
+export type AbEvalResultInput = {
+  id?: string;
+  snapshotId?: string;
+  snapshot_id?: string;
+  controlArmRunId?: string | null;
+  control_arm_run_id?: string | null;
+  treatmentArmRunId?: string | null;
+  treatment_arm_run_id?: string | null;
+  label?: 'mini_better' | 'control_better' | 'tie' | 'both_bad' | 'unclear' | string;
+  dimensions?: Record<string, unknown>;
+  reviewerNotes?: string | null;
+  reviewer_notes?: string | null;
+  isolationCheck?: Record<string, unknown>;
+  isolation_check?: Record<string, unknown>;
+  fixtureId?: string | null;
+  fixture_id?: string | null;
+};
+export function createAbTurnSnapshot(input: AbTurnSnapshotInput, config?: DatabaseUrlConfig): Promise<any>;
+export function getAbTurnSnapshot(idOrSourceKey: string, config?: DatabaseUrlConfig): Promise<any | null>;
+export function listAbTurnSnapshots(
+  filters?: {
+    traceId?: string;
+    trace_id?: string;
+    runId?: string;
+    run_id?: string;
+    sessionKey?: string;
+    session_key?: string;
+    chatType?: string;
+    chat_type?: string;
+    captureStatus?: string;
+    capture_status?: string;
+    controlStatus?: string;
+    control_status?: string;
+    treatmentStatus?: string;
+    treatment_status?: string;
+    evalStatus?: string;
+    eval_status?: string;
+    limit?: number;
+  },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function updateAbTurnSnapshotStatuses(snapshotId: string, statuses?: Record<string, string>, config?: DatabaseUrlConfig): Promise<any | null>;
+export function upsertAbArmRun(input: AbArmRunInput, config?: DatabaseUrlConfig): Promise<any>;
+export function getAbArmRunsForSnapshot(snapshotId: string, config?: DatabaseUrlConfig): Promise<any[]>;
+export function createAbMemoryStreamItem(input: AbMemoryStreamItemInput, config?: DatabaseUrlConfig): Promise<any>;
+export function listAbMemoryStreamItems(
+  filters?: { namespace?: string; arm?: string; type?: string; subtype?: string; status?: string; includeExpired?: boolean; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
+export function markAbMemoryPlanFulfilled(id: string, params?: { status?: string; fulfilledAt?: string | Date; fulfilled_at?: string | Date }, config?: DatabaseUrlConfig): Promise<any>;
+export function createAbEvalResult(input: AbEvalResultInput, config?: DatabaseUrlConfig): Promise<any>;
+export function getAbExperimentTrace(snapshotId: string, config?: DatabaseUrlConfig): Promise<any | null>;

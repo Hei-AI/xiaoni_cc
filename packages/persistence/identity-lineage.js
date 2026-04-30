@@ -616,6 +616,73 @@ function createIdentityLineagePersistence({ getPrismaClient, createSqlAdapter })
     return normalizeIdentityRecord(created);
   }
 
+  async function ensureXiaoniIdentityRoot(input, config = {}) {
+    const prisma = getClient(config);
+    const data = buildRootData(input);
+    const existing = await prisma.xiaoniIdentityRoot.findFirst({
+      where: {
+        identity_key: data.identity_key,
+        status: 'active'
+      },
+      orderBy: [
+        { created_at: 'desc' },
+        { id: 'desc' }
+      ]
+    });
+    if (existing) {
+      return {
+        root: normalizeIdentityRecord(existing),
+        event: null,
+        created: false
+      };
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const active = await tx.xiaoniIdentityRoot.findFirst({
+        where: {
+          identity_key: data.identity_key,
+          status: 'active'
+        },
+        orderBy: [
+          { created_at: 'desc' },
+          { id: 'desc' }
+        ]
+      });
+      if (active) {
+        return {
+          root: normalizeIdentityRecord(active),
+          event: null,
+          created: false
+        };
+      }
+
+      const root = await tx.xiaoniIdentityRoot.create({ data });
+      const event = await tx.identityLineageEvent.create({
+        data: buildLineageEventData({
+          identityKey: data.identity_key,
+          eventType: 'genesis',
+          sourceType: 'runtime_instruction',
+          sourceId: data.source_prompt_id || data.identity_key,
+          summaryText: `Genesis snapshot recorded for ${data.identity_key}.`,
+          integrityStatus: 'accepted',
+          metadata: {
+            root_id: typeof root.id === 'bigint' ? String(root.id) : root.id,
+            source_prompt_id: data.source_prompt_id,
+            system_instruction_hash: data.system_instruction_hash,
+            created_by: data.created_by,
+            ...(data.metadata && typeof data.metadata === 'object' ? data.metadata : {})
+          }
+        })
+      });
+
+      return {
+        root: normalizeIdentityRecord(root),
+        event: normalizeIdentityRecord(event),
+        created: true
+      };
+    });
+  }
+
   async function getActiveXiaoniIdentityRoot(identityKey, config = {}) {
     const prisma = getClient(config);
     const key = normalizeRequiredString(identityKey, 'identityKey');
@@ -905,6 +972,7 @@ function createIdentityLineagePersistence({ getPrismaClient, createSqlAdapter })
     IdentityLineageValidationError,
     ensureIdentityLineageSchema,
     createXiaoniIdentityRoot,
+    ensureXiaoniIdentityRoot,
     getActiveXiaoniIdentityRoot,
     appendIdentityChangeCandidate,
     appendIdentityLineageEvent,

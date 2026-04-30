@@ -8,6 +8,8 @@ import {
   createAcceptedIdentityFact,
   ensureAgentMediaSchema,
   ensureAgentTaskSchema,
+  ensureIdentityLineageSchema,
+  ensureXiaoniIdentityRoot,
   ensureFeedbackReflectionSchema,
   getAgentMediaAssetByTag,
   getFeedbackLearningState,
@@ -1423,6 +1425,7 @@ export class RuntimeStore {
   async initialize() {
     await this.ensureSchema();
     await ensureFeedbackReflectionSchema(databaseConfig);
+    await ensureIdentityLineageSchema(databaseConfig);
     await ensureAgentMediaSchema(databaseConfig);
     await ensureAgentTaskSchema(databaseConfig);
   }
@@ -2441,6 +2444,22 @@ export class RuntimeStore {
       limit: params.limit ?? 12
     }, databaseConfig);
     return rows.map((row: Record<string, unknown>) => parseAcceptedIdentityFact(row));
+  }
+
+  async ensureXiaoniIdentityRoot(params: {
+    identityKey: string;
+    sourcePromptId?: string | null;
+    systemInstructionSnapshot: string;
+    createdBy?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return ensureXiaoniIdentityRoot({
+      identityKey: params.identityKey,
+      sourcePromptId: params.sourcePromptId ?? null,
+      systemInstructionSnapshot: params.systemInstructionSnapshot,
+      createdBy: params.createdBy ?? 'agent-service',
+      metadata: params.metadata || {}
+    }, databaseConfig);
   }
 
   async recordRuntimeIdentityActivationTrace(params: {

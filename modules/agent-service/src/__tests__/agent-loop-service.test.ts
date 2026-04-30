@@ -165,6 +165,7 @@ function createRuntimePrompt(overrides: Partial<ResolvedAgentRuntimePrompt> = {}
     promptId: null,
     promptName: 'agent_loop_v1',
     systemPrompt: agentConfig.systemPrompt,
+    identityGenesisSnapshot: agentConfig.systemPrompt,
     userPromptTemplate: null,
     contextVariables: {},
     runtimeVariables: {},
@@ -1734,7 +1735,8 @@ test('processQueueMessage persists delivered assistant transcript items with fin
     completeQueueMessage: [],
     completeAgentRun: [],
     updateLlmJob: [],
-    markRunDeliveryCommitted: []
+    markRunDeliveryCommitted: [],
+    ensureXiaoniIdentityRoot: []
   };
   let deliveryPhase = 'reasoning_open';
 
@@ -1762,6 +1764,10 @@ test('processQueueMessage persists delivered assistant transcript items with fin
       storeCalls.createConversation.push(params);
       return 1001;
     },
+    ensureXiaoniIdentityRoot: async (params: any) => {
+      storeCalls.ensureXiaoniIdentityRoot.push(params);
+      return { root: { id: 1 }, event: { id: 2 }, created: true };
+    },
     attachConversationIdToTrace: async () => {},
     completeQueueMessage: async (_runId: string, params: any) => { storeCalls.completeQueueMessage.push(params); },
     completeAgentRun: async (_runId: string, params: any) => { storeCalls.completeAgentRun.push(params); },
@@ -1769,7 +1775,12 @@ test('processQueueMessage persists delivered assistant transcript items with fin
   } as any;
 
   const service = new AgentLoopService(store, {
-    resolveForQueueMessage: async () => createRuntimePrompt()
+    resolveForQueueMessage: async () => createRuntimePrompt({
+      promptId: 'prompt-main',
+      promptName: '小腻主AGENT',
+      systemPrompt: 'rendered prompt trace-success',
+      identityGenesisSnapshot: 'raw stable prompt'
+    })
   } as any);
 
   (service as any).executeSocialTurnPlanner = async () => ({
@@ -1841,6 +1852,19 @@ test('processQueueMessage persists delivered assistant transcript items with fin
 
   await service.processQueueMessage(queueMessage as any);
 
+  assert.deepEqual(storeCalls.ensureXiaoniIdentityRoot, [{
+    identityKey: 'xiaoni',
+    sourcePromptId: 'prompt-main',
+    systemInstructionSnapshot: 'raw stable prompt',
+    createdBy: 'agent-service',
+      metadata: {
+        prompt_name: '小腻主AGENT',
+        prompt_source: 'default',
+        trace_id: 'trace-1',
+        run_id: 'run-1',
+        canonical_identity_key: 'xiaoni'
+      }
+  }]);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, '第一条\n\n第二条');
   assert.equal(storeCalls.createConversation[0]?.sessionKey, 'qq:group:101');

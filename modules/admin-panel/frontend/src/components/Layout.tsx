@@ -25,6 +25,7 @@ import {
   Sparkles,
   Search,
   ShieldCheck,
+  ServerCog,
   User,
   Users,
 } from 'lucide-react';
@@ -235,6 +236,18 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           icon: Network,
           description: 'HTTP 请求、回放与异常',
           active: location.pathname.startsWith('/traffic'),
+        },
+      ],
+    },
+    {
+      label: 'Operations',
+      items: [
+        {
+          href: '/operations/codex-pool',
+          label: 'Codex 账号',
+          icon: ServerCog,
+          description: '管理 Codex OAuth 登录、账号启停与 active auth 投影',
+          active: location.pathname.startsWith('/operations/codex-pool'),
         },
       ],
     },

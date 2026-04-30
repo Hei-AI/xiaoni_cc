@@ -30,6 +30,14 @@ interface GroupChatSettingRow {
   last_activity: string | null;
 }
 
+interface ToolMetricRow {
+  tool_name: string;
+  hit_count: number | string;
+  run_count: number | string;
+  successful_hit_count: number | string;
+  last_hit_at: string | null;
+}
+
 type ChatSettingToggleField = 'is_enabled' | 'continuous_learning_enabled' | 'auto_reply_enabled';
 
 type ChatSettingSanitizeOptions = {
@@ -43,6 +51,82 @@ const TOGGLE_FIELDS: readonly ChatSettingToggleField[] = [
 ];
 
 const HAS_PROMPT_BINDING_SQL = "CASE WHEN agent_prompt_id IS NOT NULL AND TRIM(agent_prompt_id) <> '' THEN 1 ELSE 0 END";
+
+function buildRuntimeSessionKey(scope: 'group' | 'private', id: number): string {
+  return scope === 'group' ? `qq:group:${id}` : `qq:private:${id}`;
+}
+
+function parseMetricsWindowDays(raw: unknown): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    return 7;
+  }
+  return Math.max(1, Math.min(30, Math.floor(value)));
+}
+
+async function loadSessionToolMetrics(
+  database: DatabaseManager,
+  sessionKey: string,
+  windowDays: number
+) {
+  const windowStart = serializeTimestampForStorage(
+    new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000)
+  ) || '1970-01-01 00:00:00.000';
+
+  const totalRunsResult = await database.executeQuery<{ total_runs: number | string }>(
+    `
+      SELECT COUNT(DISTINCT trace_id) AS total_runs
+      FROM agent_runs
+      WHERE session_key = ?
+        AND created_at >= ?
+    `,
+    [sessionKey, windowStart]
+  );
+
+  const totalRuns = Number(totalRunsResult[0]?.total_runs || 0);
+
+  const toolRows = await database.executeQuery<ToolMetricRow>(
+    `
+      WITH session_runs AS (
+        SELECT DISTINCT trace_id
+        FROM agent_runs
+        WHERE session_key = ?
+          AND created_at >= ?
+      )
+      SELECT
+        tool_name,
+        COUNT(*) AS hit_count,
+        COUNT(DISTINCT trace_id) AS run_count,
+        COUNT(CASE WHEN status = 'completed' THEN 1 END) AS successful_hit_count,
+        MAX(COALESCE(completed_at, started_at)) AS last_hit_at
+      FROM tool_execution_logs
+      WHERE trace_id IN (SELECT trace_id FROM session_runs)
+      GROUP BY tool_name
+      ORDER BY COUNT(*) DESC, tool_name ASC
+    `,
+    [sessionKey, windowStart]
+  );
+
+  return {
+    session_key: sessionKey,
+    window_days: windowDays,
+    total_runs: totalRuns,
+    tools: toolRows.map((row) => {
+      const hitCount = Number(row.hit_count || 0);
+      const runCount = Number(row.run_count || 0);
+      const successfulHitCount = Number(row.successful_hit_count || 0);
+      return {
+        tool_name: row.tool_name,
+        hit_count: hitCount,
+        run_count: runCount,
+        successful_hit_count: successfulHitCount,
+        run_hit_rate: totalRuns > 0 ? Number((runCount / totalRuns).toFixed(4)) : 0,
+        avg_hits_per_hit_run: runCount > 0 ? Number((hitCount / runCount).toFixed(2)) : 0,
+        last_hit_at: row.last_hit_at || null
+      };
+    })
+  };
+}
 
 export function normalizeChatSettingUpdates(
   updates: Record<string, unknown>,
@@ -639,6 +723,37 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
     }
   });
 
+  router.get('/private-chats/:userId/tool-metrics', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const windowDays = parseMetricsWindowDays(req.query.days);
+
+      if (!userId || Number.isNaN(userId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid user ID',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const data = await loadSessionToolMetrics(database, buildRuntimeSessionKey('private', userId), windowDays);
+
+      res.json({
+        success: true,
+        data,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to fetch private chat tool metrics', { error, userId: req.params.userId });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch private chat tool metrics',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   router.post('/private-chats', async (req, res) => {
     try {
       const userId = Number(req.body?.user_id);
@@ -995,6 +1110,37 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       res.status(500).json({
         success: false,
         error: 'Failed to fetch group details',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/group-chats/:groupId/tool-metrics', async (req, res) => {
+    try {
+      const groupId = parseInt(req.params.groupId);
+      const windowDays = parseMetricsWindowDays(req.query.days);
+
+      if (!groupId || Number.isNaN(groupId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid group ID',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const data = await loadSessionToolMetrics(database, buildRuntimeSessionKey('group', groupId), windowDays);
+
+      res.json({
+        success: true,
+        data,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to fetch group chat tool metrics', { error, groupId: req.params.groupId });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch group chat tool metrics',
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString()
       });

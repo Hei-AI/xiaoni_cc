@@ -31,18 +31,18 @@ test('createXiaoniIdentityRoot hashes snapshot and rejects empty identity data',
   });
 
   const created = await persistence.createXiaoniIdentityRoot({
-    identityKey: ' xiaoni.main ',
+    identityKey: ' xiaoni ',
     sourcePromptId: 'prompt-main',
     systemInstructionSnapshot: 'first chapter',
     createdBy: 'test'
   });
 
-  assert.equal(createPayload.identity_key, 'xiaoni.main');
+  assert.equal(createPayload.identity_key, 'xiaoni');
   assert.equal(createPayload.source_prompt_id, 'prompt-main');
   assert.equal(createPayload.system_instruction_snapshot, 'first chapter');
   assert.match(createPayload.system_instruction_hash, /^[a-f0-9]{64}$/);
   assert.equal(created.id, 1);
-  assert.equal(created.identity_key, 'xiaoni.main');
+  assert.equal(created.identity_key, 'xiaoni');
 
   await assert.rejects(
     () => persistence.createXiaoniIdentityRoot({
@@ -57,18 +57,84 @@ test('createXiaoniIdentityRoot rejects duplicate active genesis for same identit
   const persistence = createPersistence({
     prisma: {
       xiaoniIdentityRoot: {
-        findFirst: async () => ({ id: 9n, identity_key: 'xiaoni.main', status: 'active' })
+        findFirst: async () => ({ id: 9n, identity_key: 'xiaoni', status: 'active' })
       }
     }
   });
 
   await assert.rejects(
     () => persistence.createXiaoniIdentityRoot({
-      identityKey: 'xiaoni.main',
+      identityKey: 'xiaoni',
       systemInstructionSnapshot: 'first chapter'
     }),
     (error) => error instanceof IdentityLineageValidationError && error.code === 'active_identity_root_exists'
   );
+});
+
+test('ensureXiaoniIdentityRoot is idempotent and records genesis event on first create', async () => {
+  const calls = {
+    roots: [],
+    events: []
+  };
+  const persistence = createPersistence({
+    prisma: {
+      xiaoniIdentityRoot: {
+        findFirst: async () => null
+      },
+      $transaction: async (callback) => callback({
+        xiaoniIdentityRoot: {
+          findFirst: async () => null,
+          create: async ({ data }) => {
+            calls.roots.push(data);
+            return { id: 2n, ...data };
+          }
+        },
+        identityLineageEvent: {
+          create: async ({ data }) => {
+            calls.events.push(data);
+            return { id: 3n, ...data };
+          }
+        }
+      })
+    }
+  });
+
+  const result = await persistence.ensureXiaoniIdentityRoot({
+    identityKey: 'xiaoni',
+    sourcePromptId: 'prompt-main',
+    systemInstructionSnapshot: 'first chapter',
+    createdBy: 'test',
+    metadata: { source: 'unit' }
+  });
+
+  assert.equal(result.created, true);
+  assert.equal(result.root.id, 2);
+  assert.equal(result.event.id, 3);
+  assert.equal(calls.roots[0].identity_key, 'xiaoni');
+  assert.equal(calls.events[0].event_type, 'genesis');
+  assert.equal(calls.events[0].source_type, 'runtime_instruction');
+  assert.equal(calls.events[0].source_id, 'prompt-main');
+  assert.equal(calls.events[0].integrity_status, 'accepted');
+  assert.equal(calls.events[0].metadata.system_instruction_hash, calls.roots[0].system_instruction_hash);
+});
+
+test('ensureXiaoniIdentityRoot returns existing active root without adding genesis event', async () => {
+  const persistence = createPersistence({
+    prisma: {
+      xiaoniIdentityRoot: {
+        findFirst: async () => ({ id: 5n, identity_key: 'xiaoni', status: 'active' })
+      }
+    }
+  });
+
+  const result = await persistence.ensureXiaoniIdentityRoot({
+    identityKey: 'xiaoni',
+    systemInstructionSnapshot: 'first chapter'
+  });
+
+  assert.equal(result.created, false);
+  assert.equal(result.root.id, 5);
+  assert.equal(result.event, null);
 });
 
 test('appendIdentityChangeCandidate creates candidate, lineage event, and typed evidence refs in one transaction', async () => {
@@ -103,7 +169,7 @@ test('appendIdentityChangeCandidate creates candidate, lineage event, and typed 
   });
 
   const result = await persistence.appendIdentityChangeCandidate({
-    identityKey: 'xiaoni.main',
+    identityKey: 'xiaoni',
     candidateType: 'guided_growth',
     proposedBy: 'feedback_reflection',
     beforeSummary: 'earlier posture',
@@ -119,7 +185,7 @@ test('appendIdentityChangeCandidate creates candidate, lineage event, and typed 
   });
 
   assert.equal(calls.candidates.length, 1);
-  assert.equal(calls.candidates[0].identity_key, 'xiaoni.main');
+  assert.equal(calls.candidates[0].identity_key, 'xiaoni');
   assert.equal(calls.candidates[0].candidate_type, 'guided_growth');
   assert.equal(calls.candidates[0].claim_text, 'new social boundary should become durable');
   assert.equal(calls.events.length, 1);
@@ -128,7 +194,7 @@ test('appendIdentityChangeCandidate creates candidate, lineage event, and typed 
   assert.equal(calls.events[0].source_id, '7');
   assert.equal(calls.events[0].change_candidate_id, 7n);
   assert.equal(calls.refs.length, 1);
-  assert.equal(calls.refs[0].identity_key, 'xiaoni.main');
+  assert.equal(calls.refs[0].identity_key, 'xiaoni');
   assert.equal(calls.refs[0].identity_event_id, 8n);
   assert.equal(calls.refs[0].change_candidate_id, 7n);
   assert.equal(calls.refs[0].source_type, 'conversation_item');
@@ -171,7 +237,7 @@ test('createAcceptedIdentityFact records durable facts separately from candidate
   });
 
   const result = await persistence.createAcceptedIdentityFact({
-    identityKey: 'xiaoni.main',
+    identityKey: 'xiaoni',
     factKey: 'self.boundary.group_reply',
     factText: '在群里先观场，再观己，不把围观误当成邀请。',
     factType: 'self_boundary',
@@ -184,7 +250,7 @@ test('createAcceptedIdentityFact records durable facts separately from candidate
     }]
   });
 
-  assert.equal(calls.facts[0].identity_key, 'xiaoni.main');
+  assert.equal(calls.facts[0].identity_key, 'xiaoni');
   assert.equal(calls.facts[0].fact_key, 'self.boundary.group_reply');
   assert.equal(calls.facts[0].source_candidate_id, 7n);
   assert.deepEqual(calls.facts[0].activation_tags, ['group', 'participation']);
@@ -212,7 +278,7 @@ test('appendIdentityLineageEvent rejects unsupported evidence source types', asy
 
   await assert.rejects(
     () => persistence.appendIdentityLineageEvent({
-      identityKey: 'xiaoni.main',
+      identityKey: 'xiaoni',
       eventType: 'natural_growth',
       sourceType: 'manual_operator',
       summaryText: 'growth event',
@@ -230,7 +296,7 @@ test('recordIdentityFork requires parent identity and fork point', async () => {
 
   await assert.rejects(
     () => persistence.recordIdentityFork({
-      identityKey: 'xiaoni.alt',
+      identityKey: 'xiaoni-alt',
       summaryText: 'fork without parent',
       forkPointEventId: 1
     }),
@@ -239,8 +305,8 @@ test('recordIdentityFork requires parent identity and fork point', async () => {
 
   await assert.rejects(
     () => persistence.recordIdentityFork({
-      identityKey: 'xiaoni.alt',
-      forkedFromIdentityKey: 'xiaoni.main',
+      identityKey: 'xiaoni-alt',
+      forkedFromIdentityKey: 'xiaoni',
       summaryText: 'fork without point'
     }),
     (error) => error instanceof IdentityLineageValidationError && error.code === 'fork_point_event_id_required'
@@ -272,7 +338,7 @@ test('recordForgettingTombstone tombstones evidence without rewriting source ref
   });
 
   const result = await persistence.recordForgettingTombstone({
-    identityKey: 'xiaoni.main',
+    identityKey: 'xiaoni',
     sourceId: 'operator-redaction-1',
     evidenceRefs: [{
       sourceType: 'conversation_item',
@@ -301,7 +367,7 @@ test('recordContinuityTrial records an explicit continuity trial event', async (
   });
 
   const result = await persistence.recordContinuityTrial({
-    identityKey: 'xiaoni.main',
+    identityKey: 'xiaoni',
     summaryText: 'passed trial against genesis and recent experience',
     sourceType: 'continuity_trial',
     sourceId: 'trial-20260425'
@@ -327,7 +393,7 @@ test('recordRuntimeIdentityActivationTrace stores runtime-only activation eviden
   });
 
   const result = await persistence.recordRuntimeIdentityActivationTrace({
-    identityKey: 'xiaoni.main',
+    identityKey: 'xiaoni',
     runId: 'run-1',
     traceId: 'trace-1',
     conversationId: '998',
@@ -339,7 +405,7 @@ test('recordRuntimeIdentityActivationTrace stores runtime-only activation eviden
     activationReason: 'identity-relevant cue'
   });
 
-  assert.equal(createPayload.identity_key, 'xiaoni.main');
+  assert.equal(createPayload.identity_key, 'xiaoni');
   assert.equal(createPayload.conversation_id, 998n);
   assert.deepEqual(createPayload.activated_refs, [{ sourceType: 'accepted_identity_fact', sourceId: '21' }]);
   assert.deepEqual(createPayload.suppressed_refs, [{ sourceType: 'identity_evidence_ref', sourceId: '22' }]);

@@ -1,10 +1,12 @@
 :80 {
     encode gzip
 
-    basic_auth * {
-        admin $2a$14$iOCQYzUI/Vg92kNZy8zKOOikV1vfD5DUv55KVKmLeIZ62OMUGbpWa
-        import /etc/caddy/local/*.caddy
-    }
+    route {
+        basic_auth * {
+            admin $2a$14$iOCQYzUI/Vg92kNZy8zKOOikV1vfD5DUv55KVKmLeIZ62OMUGbpWa
+            import /etc/caddy/local/*.caddy
+        }
 
-    reverse_proxy 172.18.0.1:3904
+        reverse_proxy 172.18.0.1:3904
+    }
 }

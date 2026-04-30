@@ -11,6 +11,7 @@ const { createTopicLabPersistence } = require('./topic-lab');
 const { createImageLabPersistence } = require('./image-lab');
 const { createAgentMediaPersistence } = require('./agent-media');
 const { createAgentTaskPersistence } = require('./agent-tasks');
+const { createAbExperimentPersistence } = require('./ab-experiment');
 const {
   STORAGE_TIMEZONE,
   TIMESTAMP_WITHOUT_TZ_OID,
@@ -343,6 +344,11 @@ const agentTaskPersistence = createAgentTaskPersistence({
   createSqlAdapter
 });
 
+const abExperimentPersistence = createAbExperimentPersistence({
+  getPrismaClient,
+  createSqlAdapter
+});
+
 module.exports = {
   Prisma,
   buildDatabaseUrl,
@@ -360,5 +366,6 @@ module.exports = {
   ...topicLabPersistence,
   ...imageLabPersistence,
   ...agentMediaPersistence,
-  ...agentTaskPersistence
+  ...agentTaskPersistence,
+  ...abExperimentPersistence
 };

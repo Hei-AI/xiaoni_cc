@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { ArrowLeft, Loader2, Pause, Play, RefreshCw, Waypoints } from 'lucide-react';
 import { TraceWaterfall } from '@/components/trace-canvas/TraceWaterfall';
 import { TraceInspectorPanel, TraceInspectorSheet } from '@/components/trace-canvas/TraceInspector';
+import { AbTracePanel } from '@/components/AbTracePanel';
 import { PageHeader, PageHeaderBadge } from '@/components/console/PageHeader';
 import { PageShell } from '@/components/console/PageShell';
 import { MetricCard } from '@/components/console/MetricCard';
@@ -217,6 +218,8 @@ export const RunTracePage: React.FC = () => {
               <MetricCard key={metric.label} label={metric.label} value={metric.value} detail={metric.detail} tone={metric.tone} />
             ))}
           </div>
+
+          <AbTracePanel runId={runId} autoRefreshEnabled={autoRefreshEnabled} />
 
           {isDesktop ? (
             <ResizableSplit

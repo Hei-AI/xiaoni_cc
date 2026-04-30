@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1.7
 
 ARG NPM_REGISTRY=https://registry.npmmirror.com
+ARG CODEX_CLI_VERSION=0.125.0
 
 FROM node:18-alpine AS base
-RUN apk add --no-cache tzdata
+RUN apk add --no-cache tzdata ca-certificates
 ENV TZ=Asia/Shanghai
 RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 WORKDIR /app/modules/provider-service
@@ -11,7 +12,7 @@ WORKDIR /app/modules/provider-service
 FROM base AS deps
 WORKDIR /app
 COPY packages/persistence/package.json packages/persistence/package-lock.json ./packages/persistence/
-COPY packages/persistence/index.js packages/persistence/index.d.ts packages/persistence/time.js packages/persistence/traffic.js packages/persistence/relationship-memory.js packages/persistence/self-evolution.js packages/persistence/feedback-reflection.js packages/persistence/identity-lineage.js packages/persistence/topic-lab.js packages/persistence/image-lab.js packages/persistence/agent-media.js packages/persistence/agent-tasks.js ./packages/persistence/
+COPY packages/persistence/index.js packages/persistence/index.d.ts packages/persistence/time.js packages/persistence/traffic.js packages/persistence/relationship-memory.js packages/persistence/self-evolution.js packages/persistence/feedback-reflection.js packages/persistence/identity-lineage.js packages/persistence/topic-lab.js packages/persistence/image-lab.js packages/persistence/agent-media.js packages/persistence/agent-tasks.js packages/persistence/ab-experiment.js ./packages/persistence/
 COPY packages/persistence/prisma ./packages/persistence/prisma
 RUN --mount=type=cache,target=/root/.npm \
   npm --prefix ./packages/persistence ci --no-audit --no-fund \
@@ -36,7 +37,7 @@ RUN npm run build
 FROM base AS prod-deps
 WORKDIR /app
 COPY packages/persistence/package.json packages/persistence/package-lock.json ./packages/persistence/
-COPY packages/persistence/index.js packages/persistence/index.d.ts packages/persistence/time.js packages/persistence/traffic.js packages/persistence/relationship-memory.js packages/persistence/self-evolution.js packages/persistence/feedback-reflection.js packages/persistence/identity-lineage.js packages/persistence/topic-lab.js packages/persistence/image-lab.js packages/persistence/agent-media.js packages/persistence/agent-tasks.js ./packages/persistence/
+COPY packages/persistence/index.js packages/persistence/index.d.ts packages/persistence/time.js packages/persistence/traffic.js packages/persistence/relationship-memory.js packages/persistence/self-evolution.js packages/persistence/feedback-reflection.js packages/persistence/identity-lineage.js packages/persistence/topic-lab.js packages/persistence/image-lab.js packages/persistence/agent-media.js packages/persistence/agent-tasks.js packages/persistence/ab-experiment.js ./packages/persistence/
 COPY packages/persistence/prisma ./packages/persistence/prisma
 RUN --mount=type=cache,target=/root/.npm \
   npm --prefix ./packages/persistence ci --omit=dev --no-audit --no-fund \
@@ -49,10 +50,15 @@ RUN --mount=type=cache,target=/root/.npm \
   && npm config delete registry
 
 FROM node:18-alpine AS runtime
-RUN apk add --no-cache tzdata
+RUN apk add --no-cache tzdata ca-certificates
 WORKDIR /app/modules/provider-service
 ENV TZ=Asia/Shanghai
 RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+ARG NPM_REGISTRY
+ARG CODEX_CLI_VERSION
+RUN npm config set registry ${NPM_REGISTRY} \
+  && npm install -g @openai/codex@${CODEX_CLI_VERSION} --no-audit --no-fund \
+  && npm config delete registry
 RUN mkdir -p /app/logs
 COPY modules/provider-service/package.json modules/provider-service/package-lock.json ./
 COPY --from=prod-deps /app/packages/persistence /app/packages/persistence

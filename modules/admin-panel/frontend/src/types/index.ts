@@ -56,6 +56,14 @@ export interface AgentRunListItem {
   cached_input_tokens_total: number;
 }
 
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+}
+
 export interface RelationshipMemoryOverrideRecord {
   id: number;
   action_type?: string | null;
@@ -685,4 +693,138 @@ export interface TraceWaterfallViewModel {
   traceDurationMs: number;
   metrics: TraceMetric[];
   metadataBadges: string[];
+}
+
+export type AbTraceArm = 'control' | 'treatment';
+export type AbTraceStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+export type AbTraceEvalLabel = 'mini_better' | 'control_better' | 'tie' | 'both_bad' | 'unclear';
+export type AbTraceMemoryItemType = 'observation' | 'reflection' | 'plan';
+
+export interface AbTraceSceneSummaryDto {
+  chatType?: string | null;
+  peerId?: string | null;
+  senderId?: string | null;
+  unreadMessageCount: number;
+  recentContextCount: number;
+  summary?: string | null;
+}
+
+export interface AbTraceActionSummaryDto {
+  kind?: string | null;
+  textPreview?: string | null;
+  confidence?: number | null;
+  rationalePreview?: string | null;
+}
+
+export interface AbTraceArmSummaryDto {
+  arm: AbTraceArm;
+  status: AbTraceStatus;
+  armRunId?: string | null;
+  modelName?: string | null;
+  runnerName?: string | null;
+  finalAction?: AbTraceActionSummaryDto | null;
+  failureCode?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+}
+
+export interface AbTraceDimensionSummaryDto {
+  contextuality?: number | null;
+  continuity?: number | null;
+  socialNaturalness?: number | null;
+  actionFit?: number | null;
+  memoryUse?: number | null;
+  isolationIntegrity?: number | null;
+}
+
+export interface AbTraceIsolationSummaryDto {
+  passed?: boolean | null;
+  productionSideEffectCount: number;
+  forbiddenSymbolCount: number;
+}
+
+export interface AbTracePayloadSizeMarkersDto {
+  sceneBytes?: number;
+  retrievedMemoryBytes?: number;
+  initialImpulseBytes?: number;
+  memoryTensionBytes?: number;
+  finalCandidateBytes?: number;
+  evalBytes?: number;
+}
+
+export interface AbTraceSummaryDto {
+  snapshotId: string;
+  traceId?: string | null;
+  runId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  captureStatus: AbTraceStatus | 'created' | 'partial';
+  controlStatus: AbTraceStatus;
+  treatmentStatus: AbTraceStatus;
+  evalStatus: AbTraceStatus;
+  scene: AbTraceSceneSummaryDto;
+  controlArm?: AbTraceArmSummaryDto | null;
+  treatmentArm?: AbTraceArmSummaryDto | null;
+  evalLabel?: AbTraceEvalLabel | null;
+  evalDimensions?: AbTraceDimensionSummaryDto | null;
+  isolationCheck?: AbTraceIsolationSummaryDto | null;
+  payloadSizeMarkers: AbTracePayloadSizeMarkersDto;
+  hasDetail: boolean;
+}
+
+export interface AbTraceSceneMessageDto {
+  id?: string | number | null;
+  role: string;
+  content: string;
+  senderId?: string | null;
+  senderName?: string | null;
+  timestamp?: string | null;
+  sourceRefs?: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AbTraceSceneDetailDto {
+  unreadMessages: AbTraceSceneMessageDto[];
+  recentContext: AbTraceSceneMessageDto[];
+  readCutoff?: Record<string, unknown> | null;
+  summary?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AbTraceMemoryItemDto {
+  id: string;
+  type: AbTraceMemoryItemType;
+  subtype?: string | null;
+  content: string;
+  score?: number | null;
+  relevanceScore?: number | null;
+  recencyScore?: number | null;
+  importanceScore?: number | null;
+  confidence?: number | null;
+  sourceRefs?: Array<Record<string, unknown>>;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AbTraceRetrievedMemoryDto {
+  namespace: string;
+  observations: AbTraceMemoryItemDto[];
+  reflections: AbTraceMemoryItemDto[];
+  plans: AbTraceMemoryItemDto[];
+  selfState?: AbTraceMemoryItemDto[];
+  budget?: Record<string, unknown>;
+}
+
+export interface AbTraceDetailDto {
+  summary: AbTraceSummaryDto;
+  providerEventIds: Array<string | number>;
+  queueMessageIds: Array<string | number>;
+  scene: AbTraceSceneDetailDto;
+  retrievedMemory: AbTraceRetrievedMemoryDto;
+  initialImpulse?: Record<string, unknown> | null;
+  memoryTensionSummary?: Record<string, unknown> | null;
+  finalCandidateAction?: Record<string, unknown> | null;
+  failure?: Record<string, unknown> | null;
+  eval?: Record<string, unknown> | null;
 }

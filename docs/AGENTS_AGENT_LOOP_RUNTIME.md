@@ -28,120 +28,118 @@
 
 这意味着她不是“没看到”，而是“看到了，也有点感觉，但判断还不值得承担一句话”。
 
-## 抑制图，Mermaid
-
-```mermaid
-flowchart TD
-    A[QQ group message via NapCat] --> B[provider-service processAutoReply]
-    B --> C{auto_reply_enabled?}
-    C -- no --> C1[stop before loop]
-    C -- yes --> D[agent_queue_messages enqueue]
-    D --> E[agent-service processQueueMessage]
-    E --> F[buildInitialInput<br/>[已读消息] + [未读消息] + runtime identity facts + current batch]
-    F --> G[Turn 1<br/>allowed_tools = emit_unread_meaning]
-    G --> H[UnreadMeaning output<br/>latest_unread_focus<br/>message_act<br/>social_target<br/>addressed_to_me<br/>has_real_novelty]
-    H --> I[Turn 2<br/>allowed_tools = emit_inner_reaction]
-    I --> J[InnerReaction output<br/>interest_level<br/>reaction_authenticity<br/>preferred_action<br/>should_search]
-    J --> K{preferred_action == silent?}
-    K -- yes --> S1[Turn 3<br/>allowed_tools = stay_silent]
-    J --> L{preferred_action == speak<br/>and interest=low<br/>and authenticity=weak_but_real<br/>and no direct new cue?}
-    L -- yes --> S1
-    K -- no --> M{preferred_action in speak/search/image_task?}
-    M -- yes --> N[Turn 3<br/>allowed_tools = recall_long_term_learning]
-    N --> O[Recall output<br/>relevant feedback reflections]
-    O --> P{search / speak / image_task / silent}
-    P -- speak --> Q[allowed_tools includes speak_in_group]
-    P -- search --> R[allowed_tools includes web_search or stay_silent]
-    P -- silent --> S1
-    Q --> T[provider-service /api/internal/send_group]
-    T --> U[QQ group outbound]
-    S1 --> V[finish_result.no_reply = true]
-    U --> W[completeQueueMessage + completeAgentRun]
-    V --> W
-    W --> X[async feedback_memory_writer subagent]
-    X --> Y[extract_feedback_episode]
-    Y --> Z[synthesize_feedback_reflection]
-    Z --> AA[update_learning_state]
-```
-
 ## 抑制图，PlantUML
 
 ```plantuml
 @startuml
-title Xiaoni agent-service loop, recent silence path
+title 小腻近期被抑制说话的业务路径
 
 start
-:NapCat inbound group message;
-:provider-service processAutoReply;
+:群里出现新消息;
+:系统先确认这个群\n是否允许小腻自动参与;
+note right
+输入：
+- 新消息批次
+- 群配置
 
-if (auto_reply_enabled?) then (no)
-  :stop before loop;
+输出：
+- 允许进入小腻主流程
+或
+- 停在入口，不进入主动发言
+end note
+
+if (群自动回复开关关闭?) then (是)
+  :消息只记录，不进入小腻主动发言;
   stop
-else (yes)
-  :enqueue agent_queue_messages;
+else (否)
+  :把这批消息放进待处理池;
 endif
 
-:agent-service processQueueMessage;
-:buildInitialInput;
+:把现场重新摆到小腻面前;
 note right
-[已读消息]
-[未读消息]
-runtime identity facts
-current batch
+- 已读消息
+- 当前未读消息
+- 已读历史里每一轮保留下来的 <小腻的OS>
+- 已确认的身份事实
 end note
 
-:Turn 1;
-:allowed_tools = emit_unread_meaning;
-:UnreadMeaning output;
+:第一步，交给 LLM\n只判断眼前这批未读到底在干什么;
 note right
-latest_unread_focus
-message_act
-social_target
-addressed_to_me
-has_real_novelty
-reason
+输出：
+- 重点在讲什么
+- 这是陈述 / 玩笑 / 提问 / 请求
+- 注意力是指向群里，还是明确指向小腻
+- 有没有真正的新推进
 end note
 
-:Turn 2;
-:allowed_tools = emit_inner_reaction;
-:InnerReaction output;
+:第二步，交给 LLM\n只判断小腻自己身上有没有真实反应;
 note right
-interest_level
-reaction_authenticity
-preferred_action
-should_search
-felt_direction
+输出：
+- 兴趣强度高不高
+- 这反应是真形成了，还是只是顺手能接
+- 当前更像想说、想查，还是更适合不出现
 end note
 
-if (preferred_action == silent?) then (yes)
-  :allowed_tools = stay_silent;
-  :finish no_reply;
-else (no)
-  if (speak + low interest + weak_but_real + no direct new cue?) then (yes)
-    :force downgrade to stay_silent;
-    :finish no_reply;
-  else (no)
-    if (preferred_action in speak/search/image_task?) then (yes)
-      :allowed_tools = recall_long_term_learning;
-      :recall reflections;
-    endif
-    if (final action == speak) then (yes)
-      :allowed_tools include speak_in_group;
-      :provider-service send_group;
-      :QQ outbound;
-    elseif (final action == search)
-      :allowed_tools include web_search;
-    else
-      :stay_silent;
+if (第二步已经觉得\n这轮更适合不出现?) then (是)
+  :进入沉默收口;
+  note right
+  输出：
+  - 不发言
+  - 留下这一轮的 xiaoni_os
+  end note
+else (否)
+  if (只是轻微想接一句，\n但没有被明确拉进来?) then (是)
+  :工程规则主动压住这句冲动;
+    note right
+    条件：
+    - 兴趣低
+    - 反应只是 weak_but_real
+    - 没有人明确点到小腻
+    - 也没有新问题 / 新请求 / 新反馈
+    end note
+    :进入沉默收口;
+  else (否)
+    :如果这件事可能和过去学到的分寸有关;\n先回看少量相处经验;
+    note right
+    输出：
+    - 召回几条相关长期学习
+    - 用来校准现在该不该开口
+    end note
+
+    if (回看之后仍觉得该说) then (是)
+      :组织一句值得承担的话;
+      note right
+      输出：
+      - 群里真正能看到的话
+      - 同时留下隐藏的 xiaoni_os
+      end note
+      :把这句话发回 QQ 群;
+    elseif (回看之后觉得要先查) then (先查)
+      :先去查外部事实，\n查完再回到说 / 不说判断;
+    else (还是不说)
+      :进入沉默收口;
     endif
   endif
 endif
 
-:completeQueueMessage + completeAgentRun;
-:schedule feedback_memory_writer;
-:extract_feedback_episode;
-:synthesize_feedback_reflection;
-:update_learning_state;
+:把这轮结果记账;
+note right
+输出：
+- conversation_items
+- agent_runs
+- tool_execution_logs
+- xiaoni_os
+end note
+
+:异步进入自学习闭环;
+:先判断这轮有没有值得长期留下的互动证据;
+:如果有，再把证据提炼成一条经验;
+:最后更新当前更活跃的学习状态;
+note right
+这条闭环不会回头改写
+刚刚那一轮说不说，
+但会影响以后召回什么经验。
+end note
 stop
 @enduml
 ```
@@ -197,6 +195,21 @@ user: 2026-04-28T09:12:15.000+08:00 {小镜(@714457117)}
 duck typing 如果它叫起来像鸭子那它就是诗
 ```
 
+这里要特别纠正一个我前面图里的说法：
+
+- 不是只带“上一轮”的 `<小腻的OS>`
+- 代码是对 `history` 里的 **每一轮保留 turn** 都调用 `buildTurnOs(turn)`
+- 也就是说，只要那一轮还在当前上下文窗口里，它留下的 `<小腻的OS>` 都可能重新进入这轮输入
+
+对应代码：
+
+- 历史逐轮回放：`agent-loop-service.ts:4055-4093`
+- 单轮 OS 提取：`agent-loop-service.ts:4109-4147`
+
+所以更准确的人话是：
+
+> 小腻当前看到的，不只是“上一轮的残留”，而是“当前仍被保留在上下文里的过去几轮残留”。
+
 ### 2. Turn 1, `emit_unread_meaning`
 
 代码：
@@ -205,10 +218,23 @@ duck typing 如果它叫起来像鸭子那它就是诗
 - allowed-tools 收缩：`agent-loop-service.ts:973-978`
 - 执行回显：`agent-loop-service.ts:3536-3550`
 
+这一步是谁在判断：
+
+- 是 LLM
+- 不是工程代码直接判断
+- 工程代码只做一件事：这一轮 **只允许** 它调用这个工具，别的都不让
+
 输入：
 
 - 上一步完整 `buildInitialInput`
 - `tool_choice = allowed_tools([emit_unread_meaning])`
+
+tool desc 原文：
+
+```text
+先只理解最新未读到底在讲什么，以及它此刻把注意力拉向了哪里。
+这一步只产出理解，不产出行动。
+```
 
 输出 JSON：
 
@@ -223,6 +249,16 @@ duck typing 如果它叫起来像鸭子那它就是诗
   "reason": "..."
 }
 ```
+
+字段解释：
+
+- `latest_unread_focus`：这批未读真正把焦点推到了哪
+- `message_act`：这是陈述、提问、玩笑、请求，还是别的
+- `social_target`：这句话主要是面向群里、面向别人，还是面向小腻
+- `addressed_to_me`：有没有明确把小腻拉进来
+- `has_real_novelty`：是不是出现了新的推进，不只是重复回声
+- `confidence`：模型自己对这个判断有多确定
+- `reason`：它为什么这么判
 
 最近这个群的高频输出：
 
@@ -240,10 +276,25 @@ duck typing 如果它叫起来像鸭子那它就是诗
 - allowed-tools 收缩：`agent-loop-service.ts:980-984`
 - 执行回显：`agent-loop-service.ts:3551-3566`
 
+这一步是谁在判断：
+
+- 也是 LLM
+- 不是工程代码直接算“兴趣值”
+- 工程代码只控制：第一步做完之前，不允许它跳到这一步以后
+
 输入：
 
 - 原始 scene input
 - 上一步 `emit_unread_meaning` 的 tool call 和 tool output replay
+
+tool desc 原文：
+
+```text
+在已经理解最新未读之后，只判断你体内有没有真实反应。
+这里先不要替自己找一句能说出口的话，只看这条消息有没有真的在你身上碰出一点东西。
+如果只是因为有个话口、顺手能接、补一句也不违和，那还不算你真正的反应。
+如果只是很轻地被碰到一下，也可以如实承认这种轻微但真实的反应。
+```
 
 输出 JSON：
 
@@ -259,6 +310,17 @@ duck typing 如果它叫起来像鸭子那它就是诗
   "reason": "..."
 }
 ```
+
+字段解释：
+
+- `interest_level`：这件事在她身上拉力强不强
+- `wants_to_know_more`：有没有继续想追下去
+- `recalled_prior_pattern`：她主观觉得像不像以前碰到过的关系场景
+- `felt_direction`：当前内在倾向更像接、等、查还是收住
+- `reaction_authenticity`：这到底是真反应，还是“刚好能接”
+- `should_search`：如果要继续，是否更适合先查资料
+- `preferred_action`：当前最像说 / 不说 / 查 / 图任务
+- `reason`：它为什么这么判
 
 最近这个群的高频输出：
 
@@ -319,6 +381,17 @@ group chatter
 -> run ends with no_reply=true
 ```
 
+这里要明确区分两类东西：
+
+- **LLM 做的语义识别**
+  - 这句话到底是不是在对小腻说
+  - 这轮到底是群体接龙还是明确提问
+  - 她自己现在是真有反应，还是只是可以顺手接
+- **工程做的阻断**
+  - 如果第二步判成 `silent`，后面就不开放 `speak`
+  - 如果只是 `low + weak_but_real` 且没有 direct new cue，就强制压回沉默
+  - 如果这轮已经发出去一次，就不允许重复发第二次
+
 ## 对照样本，会说话的 run 是怎么分叉出去的
 
 样本 trace：
@@ -349,6 +422,103 @@ turn4: {"mode":"required","type":"allowed_tools","tools":[{"type":"web_search"},
 UnreadMeaning 里的 social_target / addressed_to_me / message_act
 + InnerReaction 里的 preferred_action / interest_level / reaction_authenticity
 ```
+
+## 哪些是工程阻断，哪些是 LLM 语义识别
+
+### LLM 语义识别
+
+它负责产出的，主要是这些：
+
+- `message_act`
+- `social_target`
+- `addressed_to_me`
+- `has_real_novelty`
+- `interest_level`
+- `reaction_authenticity`
+- `preferred_action`
+
+这些值不是工程规则提前算好的，是模型在当前输入上做出的语义判断。
+
+### 工程阻断
+
+工程真正做的是三件事：
+
+1. 决定这一轮允许模型调用哪些工具
+2. 根据上一轮 tool 输出，缩小下一轮选择面
+3. 在某些条件满足时，直接禁止继续往“说话”方向走
+
+最关键的三个阻断点：
+
+- 入口阻断：`auto_reply_enabled=false`，不进 loop
+- 中途阻断：第二步如果已经判成 `silent`，直接只开放 `stay_silent`
+- 保守阻断：`low + weak_but_real + no direct new cue`，强制压回 `stay_silent`
+
+## “学到的分寸有关”这块，最近真实命中过吗
+
+命中过，但不多。
+
+我查了 `253631878` 最近 7 天的 live 数据：
+
+- `emit_unread_meaning`: `259` 次
+- `emit_inner_reaction`: `259` 次
+- `stay_silent`: `204` 次
+- `speak_in_group`: `122` 次，分布在 `86` 个 run
+- `recall_long_term_learning`: `4` 次，分布在 `4` 个 run
+
+也就是：
+
+- recall 不是常态步骤
+- 最近 7 天它只在 `259` 个 run 里命中 `4` 次，约 `1.5%`
+
+最近 4 次 recall 命中主题分别是：
+
+1. `AI生成内容的可靠性、引用校验、政策草案/正式文本中使用AI的风险`
+2. `handling contradictory completed yet required to be reversed status updates in group chat`
+3. `duck typing / 诗学定义 / 用比喻定义技术概念`
+4. `群聊里对一个已经成立的主题做标题式收束时，如何短而自然地承接`
+
+所以这条“学到的分寸有关”不是空话，它真实命中过，但当前命中频率很低。
+
+管理端应该直接把这组统计挂出来，而不是继续靠人工查库：
+
+- 每个群聊 / 私聊详情页，都应该看到最近窗口内每款工具的：
+  - 命中次数
+  - 命中 run 数
+  - run 覆盖率
+  - 最近命中时间
+- 这样才能直接看出最近是：
+  - `stay_silent` 在吞主路径
+  - 还是 `recall_long_term_learning` / `speak_in_group` / `web_search` 比例真的变了
+
+## “过去学到的东西”输入从哪里来
+
+图里之前没画清楚，这里补上。
+
+recall 的输入不是凭空来的，它至少吃三类东西：
+
+1. 当前消息现场
+   - 当前 queue batch
+   - 当前说话人
+   - 最近相关发言人
+
+2. LLM 刚刚给出的 recall 请求
+   - `reason`
+   - `topic_hint`
+   - `include_current_sender`
+   - `desired_recall_count`
+
+3. 存量长期学习
+   - 来自 `feedback_reflection` / `learning_state`
+   - 通过 `listRelevantFeedbackReflections(...)` 取回
+
+对应代码：
+
+- recall 请求参数定义：`agent-loop-service.ts:573-603`
+- recall 执行：`agent-loop-service.ts:3567-3618`
+
+所以这一步不是“模型想起一点过去”，而是：
+
+> 模型先提出要回看什么，工程层再去反馈学习库里按 query 拉几条，最后把命中的 reflection 返回给模型。
 
 ### 4. 第一层抑制，直接判沉默
 
@@ -580,3 +750,40 @@ appendIdentityChangeCandidate
 - 哪些 `group / statement / not addressed_to_me` 其实应该升级成值得接的话头
 - 哪些 `weak_but_real` 被压得太保守
 - 哪些旧 `xiaoni_os` 残留在 replay 里，继续把下一轮往“先收住”推
+
+## 运行态组件图，异步自学习怎么接上去
+
+这部分更适合组件图，而不是继续堆在抑制路径图里。
+
+```plantuml
+@startuml
+title 小腻运行态组件图
+
+component "NapCat" as napcat
+component "provider-service\n入站/出站网关" as provider
+component "agent-service\n主 loop" as agent
+database "agent_queue_messages" as queue
+database "conversation_items\nagent_runs\ntool_execution_logs" as runtime_db
+database "feedback episodes\nfeedback reflections\nlearning state" as learning_db
+component "feedback_memory_writer\n异步子 agent" as subagent
+
+napcat --> provider : QQ 新消息
+provider --> queue : 允许自动回复时入队
+queue --> agent : 拉取待处理消息
+agent --> runtime_db : 写主链运行记录
+agent --> provider : 需要发言时调用出站发送
+provider --> napcat : 发回 QQ
+
+agent --> subagent : 主 loop 结束后异步调度\n带上本轮结果 / unread meaning / inner reaction / xiaoni_os
+subagent --> provider : 继续调用同一个 LLM 执行三步学习写入
+subagent --> learning_db : episode / reflection / learning_state
+learning_db --> agent : 以后 recall 时被取回
+@enduml
+```
+
+这张图里要看的核心是：
+
+- 主 loop 负责“这轮说不说”
+- 异步子 agent 负责“这轮之后学不学”
+- 学到的东西不会回头改写这一轮结果
+- 但会进长期学习库，影响以后 recall 命中什么

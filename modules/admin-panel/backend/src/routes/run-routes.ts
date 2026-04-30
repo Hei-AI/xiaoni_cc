@@ -12,6 +12,7 @@ import {
 } from '@qq-bot/persistence';
 import winston from 'winston';
 import { DatabaseManager } from '../services/database';
+import { getAbTraceDetail, getAbTraceSummary, listAbTraceSummaries } from '../services/ab-trace-service';
 import { buildConversationTracePayload, buildConversationTraceSpanDetail } from '../services/trace-span-builder';
 
 function decodeSessionKey(raw: string) {
@@ -100,6 +101,11 @@ function parseRelationshipScopeFromSessionKey(sessionKey: string) {
     targetUserId: null,
     normalizedSessionKey: sessionKey
   };
+}
+
+function parsePositiveInteger(value: unknown, fallback: number) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function normalizeRelationshipCard(record: any, overrides: any[]) {
@@ -565,6 +571,19 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
   router.get('/runs/sessions/:sessionKey', async (req, res) => {
     try {
       const sessionKey = decodeSessionKey(req.params.sessionKey);
+      const page = parsePositiveInteger(req.query.page, 1);
+      const limit = Math.min(parsePositiveInteger(req.query.limit, 30), 100);
+      const offset = (page - 1) * limit;
+      const totalRows = await database.executeQuery(
+        `
+          SELECT COUNT(*)::INTEGER AS total
+          FROM agent_runs
+          WHERE session_key = ?
+        `,
+        [sessionKey]
+      );
+      const totalRow = totalRows[0] as { total?: number | string } | undefined;
+      const total = Number(totalRow?.total || 0);
       const rows = await database.executeQuery(
         `
           WITH llm_totals AS (
@@ -620,13 +639,21 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
           LEFT JOIN llm_totals t ON t.trace_id = r.trace_id
           WHERE r.session_key = ?
           ORDER BY r.created_at DESC, r.id DESC
+          LIMIT ?
+          OFFSET ?
         `,
-        [sessionKey]
+        [sessionKey, limit, offset]
       );
 
       res.json({
         success: true,
-        data: rows,
+        data: {
+          items: rows,
+          total,
+          page,
+          limit,
+          total_pages: Math.max(1, Math.ceil(total / limit))
+        },
         timestamp: new Date().toISOString()
       });
     } catch (error) {
@@ -1186,6 +1213,136 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
       res.status(500).json({
         success: false,
         error: 'Failed to fetch run trace',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/ab/snapshots', async (req, res) => {
+    try {
+      const limit = Math.min(parsePositiveInteger(req.query.limit, 50), 200);
+      const summaries = await listAbTraceSummaries({
+        runId: typeof req.query.runId === 'string' ? req.query.runId : undefined,
+        traceId: typeof req.query.traceId === 'string' ? req.query.traceId : undefined,
+        limit
+      });
+
+      res.json({
+        success: true,
+        data: summaries,
+        total: summaries.length,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to list AB trace snapshots', { error });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to list AB trace snapshots',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/ab/snapshots/:snapshotId/trace', async (req, res) => {
+    try {
+      const summary = await getAbTraceSummary(decodeURIComponent(req.params.snapshotId));
+      if (!summary) {
+        return res.status(404).json({
+          success: false,
+          error: 'AB trace snapshot not found',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      res.json({
+        success: true,
+        data: summary,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to fetch AB trace summary', { error, snapshotId: req.params.snapshotId });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch AB trace summary',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/ab/snapshots/:snapshotId/trace/detail', async (req, res) => {
+    try {
+      const detail = await getAbTraceDetail(decodeURIComponent(req.params.snapshotId));
+      if (!detail) {
+        return res.status(404).json({
+          success: false,
+          error: 'AB trace detail not found',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      res.json({
+        success: true,
+        data: detail,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to fetch AB trace detail', { error, snapshotId: req.params.snapshotId });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch AB trace detail',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/runs/:runId/ab-trace', async (req, res) => {
+    try {
+      const summaries = await listAbTraceSummaries({
+        runId: req.params.runId,
+        limit: Math.min(parsePositiveInteger(req.query.limit, 20), 100)
+      });
+
+      res.json({
+        success: true,
+        data: summaries,
+        total: summaries.length,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to fetch run AB trace summaries', { error, runId: req.params.runId });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch run AB trace summaries',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/runs/:runId/ab-trace/:snapshotId/detail', async (req, res) => {
+    try {
+      const detail = await getAbTraceDetail(decodeURIComponent(req.params.snapshotId));
+      if (!detail || detail.summary.runId !== req.params.runId) {
+        return res.status(404).json({
+          success: false,
+          error: 'Run AB trace detail not found',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      res.json({
+        success: true,
+        data: detail,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to fetch run AB trace detail', {
+        error,
+        runId: req.params.runId,
+        snapshotId: req.params.snapshotId
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch run AB trace detail',
         timestamp: new Date().toISOString()
       });
     }

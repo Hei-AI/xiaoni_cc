@@ -32,6 +32,7 @@ import {
   PauseCircle,
   Calendar,
   Hash,
+  BarChart3,
   Clock,
   User,
   Eye
@@ -80,6 +81,26 @@ interface GroupChatDetailResponse {
       limit: number;
       totalPages: number;
     };
+  };
+}
+
+interface ToolMetric {
+  tool_name: string;
+  hit_count: number;
+  run_count: number;
+  successful_hit_count: number;
+  run_hit_rate: number;
+  avg_hits_per_hit_run: number;
+  last_hit_at: string | null;
+}
+
+interface ToolMetricsResponse {
+  success: boolean;
+  data: {
+    session_key: string;
+    window_days: number;
+    total_runs: number;
+    tools: ToolMetric[];
   };
 }
 
@@ -141,6 +162,14 @@ const updateGroupPrompt = async (groupId: string, promptId: string | null) => {
   return response.json();
 };
 
+const fetchGroupToolMetrics = async (groupId: string, days = 7): Promise<ToolMetricsResponse> => {
+  const response = await fetch(`/api/group-chats/${groupId}/tool-metrics?days=${days}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch group tool metrics');
+  }
+  return response.json();
+};
+
 export const GroupChatDetailPage: React.FC = () => {
   const { groupId } = useParams<{ groupId: string }>();
   const navigate = useNavigate();
@@ -175,6 +204,12 @@ export const GroupChatDetailPage: React.FC = () => {
       endTime: dateRange.endTime,
       showAll 
     }),
+    enabled: !!groupId,
+  });
+
+  const { data: toolMetricsData, refetch: refetchToolMetrics } = useQuery({
+    queryKey: ['group-chat-tool-metrics', groupId, 7],
+    queryFn: () => fetchGroupToolMetrics(groupId!, 7),
     enabled: !!groupId,
   });
 
@@ -262,6 +297,8 @@ export const GroupChatDetailPage: React.FC = () => {
     return formatTimestamp(dateString);
   };
 
+  const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
+
   const formatDuration = (ms: number) => {
     if (ms < 1000) return `${ms}ms`;
     return `${(ms / 1000).toFixed(2)}s`;
@@ -294,7 +331,10 @@ export const GroupChatDetailPage: React.FC = () => {
           <Button 
             variant="outline" 
             size="sm" 
-            onClick={() => refetch()}
+            onClick={() => {
+              refetch();
+              refetchToolMetrics();
+            }}
             disabled={isRefetching}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${isRefetching ? 'animate-spin' : ''}`} />
@@ -546,6 +586,56 @@ export const GroupChatDetailPage: React.FC = () => {
               </CardContent>
             </Card>
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                工具命中率
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                <span>窗口：最近 {toolMetricsData?.data.window_days ?? 7} 天</span>
+                <Badge variant="outline">总 run {toolMetricsData?.data.total_runs ?? 0}</Badge>
+              </div>
+
+              {toolMetricsData?.data.tools?.length ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>工具</TableHead>
+                        <TableHead>命中次数</TableHead>
+                        <TableHead>命中 run 数</TableHead>
+                        <TableHead>run 覆盖率</TableHead>
+                        <TableHead>平均每次命中 run 调用</TableHead>
+                        <TableHead>最近命中</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {toolMetricsData.data.tools.map((tool) => (
+                        <TableRow key={tool.tool_name}>
+                          <TableCell className="font-mono text-xs">{tool.tool_name}</TableCell>
+                          <TableCell>{tool.hit_count}</TableCell>
+                          <TableCell>{tool.run_count}</TableCell>
+                          <TableCell>{formatPercent(tool.run_hit_rate)}</TableCell>
+                          <TableCell>{tool.avg_hits_per_hit_run.toFixed(2)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {tool.last_hit_at ? formatDate(tool.last_hit_at) : '无'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  最近窗口内还没有工具命中记录。
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* 搜索和过滤 */}
           <Card>

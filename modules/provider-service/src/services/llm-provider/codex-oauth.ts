@@ -10,9 +10,10 @@ import {
   type OAuthCredentialSource
 } from './oauth-credentials';
 
-const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
-const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
-const CODEX_JWT_CLAIM_PATH = 'https://api.openai.com/auth';
+export const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
+export const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
+export const CODEX_AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize';
+export const CODEX_JWT_CLAIM_PATH = 'https://api.openai.com/auth';
 
 export async function resolveCodexOAuthCredential(
   aiConfig: AIConfig,
@@ -62,7 +63,7 @@ export async function refreshCodexOAuthCredential(
     throw new Error('Codex OAuth refresh token is missing.');
   }
 
-  const response = await fetch(CODEX_TOKEN_URL, {
+  const response = await (globalThis.fetch || fetch)(CODEX_TOKEN_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded'
@@ -94,11 +95,57 @@ export async function refreshCodexOAuthCredential(
     refresh: payload.refresh_token || credential.refresh,
     expires: Date.now() + (payload.expires_in * 1000),
     accountId: extractCodexAccountId(payload.access_token) || credential.accountId,
-    email: credential.email
+    email: credential.email,
+    idToken: credential.idToken
   };
 
   await persistOAuthCredential(source, refreshed);
   return refreshed;
+}
+
+export async function exchangeCodexAuthorizationCode(params: {
+  code: string;
+  codeVerifier: string;
+  redirectUri: string;
+}): Promise<NormalizedOAuthCredential> {
+  const response = await (globalThis.fetch || fetch)(CODEX_TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: params.code,
+      redirect_uri: params.redirectUri,
+      client_id: CODEX_CLIENT_ID,
+      code_verifier: params.codeVerifier
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`Codex OAuth code exchange failed: ${errorText}`);
+  }
+
+  const payload = await response.json() as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    id_token?: string;
+  };
+
+  if (!payload.access_token || !payload.refresh_token || typeof payload.expires_in !== 'number') {
+    throw new Error('Codex OAuth code exchange returned an invalid payload.');
+  }
+
+  return {
+    access: payload.access_token,
+    refresh: payload.refresh_token,
+    expires: Date.now() + (payload.expires_in * 1000),
+    accountId: extractCodexAccountId(payload.access_token) || undefined,
+    email: extractEmailFromJwt(payload.id_token || payload.access_token) || undefined,
+    idToken: payload.id_token
+  };
 }
 
 export function extractCodexAccountId(accessToken: string): string | null {
@@ -128,6 +175,16 @@ function decodeJwtPayload(token: string): Record<string, any> | null {
 
   try {
     return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
+export function extractEmailFromJwt(token: string): string | null {
+  try {
+    const payload = decodeJwtPayload(token);
+    const email = payload?.email;
+    return typeof email === 'string' && email.trim().length > 0 ? email.trim() : null;
   } catch {
     return null;
   }

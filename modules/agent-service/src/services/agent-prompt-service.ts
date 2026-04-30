@@ -8,6 +8,7 @@ export type ResolvedAgentRuntimePrompt = {
   promptId: string | null;
   promptName: string;
   systemPrompt: string;
+  identityGenesisSnapshot: string;
   userPromptTemplate: string | null;
   contextVariables: Record<string, unknown>;
   runtimeVariables: Record<string, unknown>;
@@ -188,6 +189,7 @@ export class AgentPromptService implements AgentPromptResolver {
       promptId: resolved.prompt.id,
       promptName: resolved.prompt.promptName,
       systemPrompt: renderPromptTemplate(resolved.prompt.systemInstruction, contextVariables, runtimeVariables),
+      identityGenesisSnapshot: resolved.prompt.systemInstruction,
       userPromptTemplate: resolved.prompt.userPromptTemplate,
       contextVariables,
       runtimeVariables,

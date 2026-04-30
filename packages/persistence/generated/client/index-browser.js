@@ -387,6 +387,82 @@ exports.Prisma.AgentTaskArtifactScalarFieldEnum = {
   created_at: 'created_at'
 };
 
+exports.Prisma.AbTurnSnapshotScalarFieldEnum = {
+  id: 'id',
+  source_key: 'source_key',
+  trace_id: 'trace_id',
+  run_id: 'run_id',
+  session_key: 'session_key',
+  chat_type: 'chat_type',
+  peer_id: 'peer_id',
+  sender_id: 'sender_id',
+  queue_message_ids: 'queue_message_ids',
+  provider_event_ids: 'provider_event_ids',
+  scene: 'scene',
+  memory_stream_view: 'memory_stream_view',
+  retrieval_policy: 'retrieval_policy',
+  runtime_config: 'runtime_config',
+  capture_status: 'capture_status',
+  control_status: 'control_status',
+  treatment_status: 'treatment_status',
+  eval_status: 'eval_status',
+  capture_error: 'capture_error',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AbArmRunScalarFieldEnum = {
+  id: 'id',
+  snapshot_id: 'snapshot_id',
+  arm: 'arm',
+  project_or_namespace: 'project_or_namespace',
+  runner_name: 'runner_name',
+  model_name: 'model_name',
+  input_summary: 'input_summary',
+  output_artifact: 'output_artifact',
+  memory_context: 'memory_context',
+  failure: 'failure',
+  started_at: 'started_at',
+  completed_at: 'completed_at',
+  status: 'status',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AbMemoryStreamItemScalarFieldEnum = {
+  id: 'id',
+  namespace: 'namespace',
+  arm: 'arm',
+  type: 'type',
+  subtype: 'subtype',
+  content: 'content',
+  retrieval_text: 'retrieval_text',
+  embedding_text: 'embedding_text',
+  importance: 'importance',
+  confidence: 'confidence',
+  status: 'status',
+  source_event_refs: 'source_event_refs',
+  provenance: 'provenance',
+  ttl_expires_at: 'ttl_expires_at',
+  fulfilled_at: 'fulfilled_at',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AbEvalResultScalarFieldEnum = {
+  id: 'id',
+  snapshot_id: 'snapshot_id',
+  control_arm_run_id: 'control_arm_run_id',
+  treatment_arm_run_id: 'treatment_arm_run_id',
+  label: 'label',
+  dimensions: 'dimensions',
+  reviewer_notes: 'reviewer_notes',
+  isolation_check: 'isolation_check',
+  fixture_id: 'fixture_id',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
 exports.Prisma.RelationshipLedgerEventScalarFieldEnum = {
   id: 'id',
   group_id: 'group_id',
@@ -844,6 +920,10 @@ exports.Prisma.ModelName = {
   AgentMediaObservation: 'AgentMediaObservation',
   AgentTask: 'AgentTask',
   AgentTaskArtifact: 'AgentTaskArtifact',
+  AbTurnSnapshot: 'AbTurnSnapshot',
+  AbArmRun: 'AbArmRun',
+  AbMemoryStreamItem: 'AbMemoryStreamItem',
+  AbEvalResult: 'AbEvalResult',
   RelationshipLedgerEvent: 'RelationshipLedgerEvent',
   RelationshipMemoryJob: 'RelationshipMemoryJob',
   RelationshipMemoryCard: 'RelationshipMemoryCard',

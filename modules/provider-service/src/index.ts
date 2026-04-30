@@ -34,6 +34,7 @@ import TopicProjectionService from './services/topic-projection-service';
 import TopicProjectionExecutorService from './services/topic-projection-executor-service';
 import TopicReviewMaterializationService from './services/topic-review-materialization-service';
 import { GroupParticipationService } from './services/group-participation-service';
+import { codexAccountManager } from './services/codex-account-manager';
 import { ImagePromptAssistantService, ImageProviderError, OpenAIImageProvider } from './services/image-provider';
 import {
   buildSimpleQueueSimulationContext,
@@ -1241,6 +1242,140 @@ app.post('/api/internal/config-cache/clear', (_req, res) => {
     agentType: 'all',
     timestamp: new Date().toISOString()
   });
+});
+
+app.get('/api/internal/codex-accounts/status', async (_req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: await codexAccountManager.getStatus(),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to load Codex accounts status',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.get('/api/internal/codex-accounts', async (_req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: await codexAccountManager.listAccounts(),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to list Codex accounts',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/codex-accounts/login-session', async (req, res) => {
+  try {
+    const redirectUri = typeof req.body?.redirectUri === 'string' ? req.body.redirectUri.trim() : undefined;
+    const replaceAccountId = typeof req.body?.replaceAccountId === 'string' ? req.body.replaceAccountId.trim() : undefined;
+    res.json({
+      success: true,
+      data: await codexAccountManager.createLoginSession({ redirectUri, replaceAccountId }),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to create Codex login session',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/codex-accounts/complete-login', async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: await codexAccountManager.completeLogin({
+        callbackUrl: typeof req.body?.callbackUrl === 'string' ? req.body.callbackUrl : undefined,
+        code: typeof req.body?.code === 'string' ? req.body.code : undefined,
+        state: typeof req.body?.state === 'string' ? req.body.state : undefined
+      }),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to complete Codex login',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/codex-accounts/:accountId/activate', async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: await codexAccountManager.activateAccount(req.params.accountId),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to activate Codex account',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/codex-accounts/:accountId/refresh', async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: await codexAccountManager.refreshAccount(req.params.accountId),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to refresh Codex account',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/codex-accounts/:accountId/enabled', async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: await codexAccountManager.setAccountEnabled(req.params.accountId, req.body?.enabled !== false),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to update Codex account status',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.delete('/api/internal/codex-accounts/:accountId', async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: await codexAccountManager.removeAccount(req.params.accountId),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to remove Codex account',
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 app.post('/api/internal/chat-policies/check-incoming', async (req, res) => {

@@ -445,7 +445,7 @@ describe('buildConversationTracePayload', () => {
     (listRuntimeIdentityActivationTraces as jest.Mock).mockResolvedValue([
       {
         id: 601,
-        identity_key: 'xiaoni.main',
+        identity_key: 'xiaoni',
         run_id: 'run-identity',
         trace_id: 'trace-1',
         conversation_id: 'conversation-1',
@@ -462,7 +462,7 @@ describe('buildConversationTracePayload', () => {
     (listIdentityEvidenceRefs as jest.Mock).mockResolvedValue([
       {
         id: 701,
-        identity_key: 'xiaoni.main',
+        identity_key: 'xiaoni',
         identity_event_id: 31,
         change_candidate_id: 41,
         accepted_fact_id: 801,
@@ -494,7 +494,7 @@ describe('buildConversationTracePayload', () => {
     expect(activationSpan).toMatchObject({
       name: 'identity.activation',
       attributes: expect.objectContaining({
-        'identity.key': 'xiaoni.main',
+        'identity.key': 'xiaoni',
         'identity.activated_ref_count': 1,
         'identity.selected_skill_ref': 'social-boundary',
       }),
@@ -506,7 +506,7 @@ describe('buildConversationTracePayload', () => {
     expect(evidenceSpan).toMatchObject({
       name: 'identity.evidence_ref',
       attributes: expect.objectContaining({
-        'identity.key': 'xiaoni.main',
+        'identity.key': 'xiaoni',
         'identity.source_type': 'conversation_item',
         'identity.source_id': '123',
         'identity.confidence': 'high',

@@ -54,6 +54,7 @@ describe('playground-models', () => {
 
     expect(override).toBe('');
     expect(defaultModelForPlaygroundProvider('openai')).toBe('gpt-5.4-mini');
+    expect(defaultModelForPlaygroundProvider('codex')).toBe('gpt-5.4-mini');
     expect(getPromptDefaultModelName(null)).toBeNull();
   });
 

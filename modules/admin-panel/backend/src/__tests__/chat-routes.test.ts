@@ -293,4 +293,102 @@ describe('chat settings routes', () => {
       validationError: null,
     });
   });
+
+  it('returns grouped tool hit metrics for a group chat detail page', async () => {
+    const database = createDatabaseMock();
+    database.executeQuery
+      .mockResolvedValueOnce([{ total_runs: 20 }])
+      .mockResolvedValueOnce([
+        {
+          tool_name: 'stay_silent',
+          hit_count: 14,
+          run_count: 14,
+          successful_hit_count: 14,
+          last_hit_at: '2026-04-28T01:23:45.000Z'
+        },
+        {
+          tool_name: 'emit_inner_reaction',
+          hit_count: 20,
+          run_count: 20,
+          successful_hit_count: 20,
+          last_hit_at: '2026-04-28T01:23:40.000Z'
+        }
+      ]);
+
+    const response = await request(createApp(database))
+      .get('/api/group-chats/253631878/tool-metrics?days=7');
+
+    expect(response.status).toBe(200);
+    expect(database.executeQuery).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('FROM agent_runs'),
+      ['qq:group:253631878', expect.any(String)]
+    );
+    expect(database.executeQuery).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('FROM tool_execution_logs'),
+      ['qq:group:253631878', expect.any(String)]
+    );
+    expect(response.body.data).toMatchObject({
+      session_key: 'qq:group:253631878',
+      window_days: 7,
+      total_runs: 20
+    });
+    expect(response.body.data.tools).toEqual([
+      {
+        tool_name: 'stay_silent',
+        hit_count: 14,
+        run_count: 14,
+        successful_hit_count: 14,
+        run_hit_rate: 0.7,
+        avg_hits_per_hit_run: 1,
+        last_hit_at: '2026-04-28T01:23:45.000Z'
+      },
+      {
+        tool_name: 'emit_inner_reaction',
+        hit_count: 20,
+        run_count: 20,
+        successful_hit_count: 20,
+        run_hit_rate: 1,
+        avg_hits_per_hit_run: 1,
+        last_hit_at: '2026-04-28T01:23:40.000Z'
+      }
+    ]);
+  });
+
+  it('returns grouped tool hit metrics for a private chat detail page', async () => {
+    const database = createDatabaseMock();
+    database.executeQuery
+      .mockResolvedValueOnce([{ total_runs: 8 }])
+      .mockResolvedValueOnce([
+        {
+          tool_name: 'speak_in_group',
+          hit_count: 3,
+          run_count: 2,
+          successful_hit_count: 3,
+          last_hit_at: '2026-04-28T02:00:00.000Z'
+        }
+      ]);
+
+    const response = await request(createApp(database))
+      .get('/api/private-chats/1129974489/tool-metrics?days=14');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({
+      session_key: 'qq:private:1129974489',
+      window_days: 14,
+      total_runs: 8
+    });
+    expect(response.body.data.tools).toEqual([
+      {
+        tool_name: 'speak_in_group',
+        hit_count: 3,
+        run_count: 2,
+        successful_hit_count: 3,
+        run_hit_rate: 0.25,
+        avg_hits_per_hit_run: 1.5,
+        last_hit_at: '2026-04-28T02:00:00.000Z'
+      }
+    ]);
+  });
 });

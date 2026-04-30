@@ -31,12 +31,14 @@ test('allows environment provider overrides by model name', () => {
   const original = process.env.MODEL_PROVIDER_OVERRIDES_JSON;
   process.env.MODEL_PROVIDER_OVERRIDES_JSON = JSON.stringify({
     'gpt-5.4': 'openai',
-    'gpt-5-mini': 'codex'
+    'gpt-5-mini': 'codex',
+    'gpt-5.4-mini': 'codex'
   });
 
   try {
     assert.equal(inferProviderFromModelName('gpt-5.4'), 'openai');
     assert.equal(inferProviderFromModelName('gpt-5-mini'), 'codex');
+    assert.equal(inferProviderFromModelName('gpt-5.4-mini'), 'codex');
   } finally {
     if (original === undefined) {
       delete process.env.MODEL_PROVIDER_OVERRIDES_JSON;

@@ -74,6 +74,26 @@ export type AgentTask = $Result.DefaultSelection<Prisma.$AgentTaskPayload>
  */
 export type AgentTaskArtifact = $Result.DefaultSelection<Prisma.$AgentTaskArtifactPayload>
 /**
+ * Model AbTurnSnapshot
+ * 
+ */
+export type AbTurnSnapshot = $Result.DefaultSelection<Prisma.$AbTurnSnapshotPayload>
+/**
+ * Model AbArmRun
+ * 
+ */
+export type AbArmRun = $Result.DefaultSelection<Prisma.$AbArmRunPayload>
+/**
+ * Model AbMemoryStreamItem
+ * 
+ */
+export type AbMemoryStreamItem = $Result.DefaultSelection<Prisma.$AbMemoryStreamItemPayload>
+/**
+ * Model AbEvalResult
+ * 
+ */
+export type AbEvalResult = $Result.DefaultSelection<Prisma.$AbEvalResultPayload>
+/**
  * Model RelationshipLedgerEvent
  * 
  */
@@ -421,6 +441,46 @@ export class PrismaClient<
     * ```
     */
   get agentTaskArtifact(): Prisma.AgentTaskArtifactDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.abTurnSnapshot`: Exposes CRUD operations for the **AbTurnSnapshot** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AbTurnSnapshots
+    * const abTurnSnapshots = await prisma.abTurnSnapshot.findMany()
+    * ```
+    */
+  get abTurnSnapshot(): Prisma.AbTurnSnapshotDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.abArmRun`: Exposes CRUD operations for the **AbArmRun** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AbArmRuns
+    * const abArmRuns = await prisma.abArmRun.findMany()
+    * ```
+    */
+  get abArmRun(): Prisma.AbArmRunDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.abMemoryStreamItem`: Exposes CRUD operations for the **AbMemoryStreamItem** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AbMemoryStreamItems
+    * const abMemoryStreamItems = await prisma.abMemoryStreamItem.findMany()
+    * ```
+    */
+  get abMemoryStreamItem(): Prisma.AbMemoryStreamItemDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.abEvalResult`: Exposes CRUD operations for the **AbEvalResult** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AbEvalResults
+    * const abEvalResults = await prisma.abEvalResult.findMany()
+    * ```
+    */
+  get abEvalResult(): Prisma.AbEvalResultDelegate<ExtArgs, ClientOptions>;
 
   /**
    * `prisma.relationshipLedgerEvent`: Exposes CRUD operations for the **RelationshipLedgerEvent** model.
@@ -1094,6 +1154,10 @@ export namespace Prisma {
     AgentMediaObservation: 'AgentMediaObservation',
     AgentTask: 'AgentTask',
     AgentTaskArtifact: 'AgentTaskArtifact',
+    AbTurnSnapshot: 'AbTurnSnapshot',
+    AbArmRun: 'AbArmRun',
+    AbMemoryStreamItem: 'AbMemoryStreamItem',
+    AbEvalResult: 'AbEvalResult',
     RelationshipLedgerEvent: 'RelationshipLedgerEvent',
     RelationshipMemoryJob: 'RelationshipMemoryJob',
     RelationshipMemoryCard: 'RelationshipMemoryCard',
@@ -1134,7 +1198,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "relationshipLedgerEvent" | "relationshipMemoryJob" | "relationshipMemoryCard" | "relationshipMemoryOverride" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
+      modelProps: "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "relationshipMemoryJob" | "relationshipMemoryCard" | "relationshipMemoryOverride" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -2023,6 +2087,302 @@ export namespace Prisma {
           count: {
             args: Prisma.AgentTaskArtifactCountArgs<ExtArgs>
             result: $Utils.Optional<AgentTaskArtifactCountAggregateOutputType> | number
+          }
+        }
+      }
+      AbTurnSnapshot: {
+        payload: Prisma.$AbTurnSnapshotPayload<ExtArgs>
+        fields: Prisma.AbTurnSnapshotFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AbTurnSnapshotFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbTurnSnapshotPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AbTurnSnapshotFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbTurnSnapshotPayload>
+          }
+          findFirst: {
+            args: Prisma.AbTurnSnapshotFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbTurnSnapshotPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AbTurnSnapshotFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbTurnSnapshotPayload>
+          }
+          findMany: {
+            args: Prisma.AbTurnSnapshotFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbTurnSnapshotPayload>[]
+          }
+          create: {
+            args: Prisma.AbTurnSnapshotCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbTurnSnapshotPayload>
+          }
+          createMany: {
+            args: Prisma.AbTurnSnapshotCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AbTurnSnapshotCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbTurnSnapshotPayload>[]
+          }
+          delete: {
+            args: Prisma.AbTurnSnapshotDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbTurnSnapshotPayload>
+          }
+          update: {
+            args: Prisma.AbTurnSnapshotUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbTurnSnapshotPayload>
+          }
+          deleteMany: {
+            args: Prisma.AbTurnSnapshotDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AbTurnSnapshotUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AbTurnSnapshotUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbTurnSnapshotPayload>[]
+          }
+          upsert: {
+            args: Prisma.AbTurnSnapshotUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbTurnSnapshotPayload>
+          }
+          aggregate: {
+            args: Prisma.AbTurnSnapshotAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAbTurnSnapshot>
+          }
+          groupBy: {
+            args: Prisma.AbTurnSnapshotGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AbTurnSnapshotGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AbTurnSnapshotCountArgs<ExtArgs>
+            result: $Utils.Optional<AbTurnSnapshotCountAggregateOutputType> | number
+          }
+        }
+      }
+      AbArmRun: {
+        payload: Prisma.$AbArmRunPayload<ExtArgs>
+        fields: Prisma.AbArmRunFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AbArmRunFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbArmRunPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AbArmRunFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbArmRunPayload>
+          }
+          findFirst: {
+            args: Prisma.AbArmRunFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbArmRunPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AbArmRunFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbArmRunPayload>
+          }
+          findMany: {
+            args: Prisma.AbArmRunFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbArmRunPayload>[]
+          }
+          create: {
+            args: Prisma.AbArmRunCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbArmRunPayload>
+          }
+          createMany: {
+            args: Prisma.AbArmRunCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AbArmRunCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbArmRunPayload>[]
+          }
+          delete: {
+            args: Prisma.AbArmRunDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbArmRunPayload>
+          }
+          update: {
+            args: Prisma.AbArmRunUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbArmRunPayload>
+          }
+          deleteMany: {
+            args: Prisma.AbArmRunDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AbArmRunUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AbArmRunUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbArmRunPayload>[]
+          }
+          upsert: {
+            args: Prisma.AbArmRunUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbArmRunPayload>
+          }
+          aggregate: {
+            args: Prisma.AbArmRunAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAbArmRun>
+          }
+          groupBy: {
+            args: Prisma.AbArmRunGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AbArmRunGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AbArmRunCountArgs<ExtArgs>
+            result: $Utils.Optional<AbArmRunCountAggregateOutputType> | number
+          }
+        }
+      }
+      AbMemoryStreamItem: {
+        payload: Prisma.$AbMemoryStreamItemPayload<ExtArgs>
+        fields: Prisma.AbMemoryStreamItemFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AbMemoryStreamItemFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbMemoryStreamItemPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AbMemoryStreamItemFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbMemoryStreamItemPayload>
+          }
+          findFirst: {
+            args: Prisma.AbMemoryStreamItemFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbMemoryStreamItemPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AbMemoryStreamItemFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbMemoryStreamItemPayload>
+          }
+          findMany: {
+            args: Prisma.AbMemoryStreamItemFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbMemoryStreamItemPayload>[]
+          }
+          create: {
+            args: Prisma.AbMemoryStreamItemCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbMemoryStreamItemPayload>
+          }
+          createMany: {
+            args: Prisma.AbMemoryStreamItemCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AbMemoryStreamItemCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbMemoryStreamItemPayload>[]
+          }
+          delete: {
+            args: Prisma.AbMemoryStreamItemDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbMemoryStreamItemPayload>
+          }
+          update: {
+            args: Prisma.AbMemoryStreamItemUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbMemoryStreamItemPayload>
+          }
+          deleteMany: {
+            args: Prisma.AbMemoryStreamItemDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AbMemoryStreamItemUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AbMemoryStreamItemUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbMemoryStreamItemPayload>[]
+          }
+          upsert: {
+            args: Prisma.AbMemoryStreamItemUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbMemoryStreamItemPayload>
+          }
+          aggregate: {
+            args: Prisma.AbMemoryStreamItemAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAbMemoryStreamItem>
+          }
+          groupBy: {
+            args: Prisma.AbMemoryStreamItemGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AbMemoryStreamItemGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AbMemoryStreamItemCountArgs<ExtArgs>
+            result: $Utils.Optional<AbMemoryStreamItemCountAggregateOutputType> | number
+          }
+        }
+      }
+      AbEvalResult: {
+        payload: Prisma.$AbEvalResultPayload<ExtArgs>
+        fields: Prisma.AbEvalResultFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AbEvalResultFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbEvalResultPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AbEvalResultFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbEvalResultPayload>
+          }
+          findFirst: {
+            args: Prisma.AbEvalResultFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbEvalResultPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AbEvalResultFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbEvalResultPayload>
+          }
+          findMany: {
+            args: Prisma.AbEvalResultFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbEvalResultPayload>[]
+          }
+          create: {
+            args: Prisma.AbEvalResultCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbEvalResultPayload>
+          }
+          createMany: {
+            args: Prisma.AbEvalResultCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AbEvalResultCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbEvalResultPayload>[]
+          }
+          delete: {
+            args: Prisma.AbEvalResultDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbEvalResultPayload>
+          }
+          update: {
+            args: Prisma.AbEvalResultUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbEvalResultPayload>
+          }
+          deleteMany: {
+            args: Prisma.AbEvalResultDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AbEvalResultUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AbEvalResultUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbEvalResultPayload>[]
+          }
+          upsert: {
+            args: Prisma.AbEvalResultUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AbEvalResultPayload>
+          }
+          aggregate: {
+            args: Prisma.AbEvalResultAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAbEvalResult>
+          }
+          groupBy: {
+            args: Prisma.AbEvalResultGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AbEvalResultGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AbEvalResultCountArgs<ExtArgs>
+            result: $Utils.Optional<AbEvalResultCountAggregateOutputType> | number
           }
         }
       }
@@ -3762,6 +4122,10 @@ export namespace Prisma {
     agentMediaObservation?: AgentMediaObservationOmit
     agentTask?: AgentTaskOmit
     agentTaskArtifact?: AgentTaskArtifactOmit
+    abTurnSnapshot?: AbTurnSnapshotOmit
+    abArmRun?: AbArmRunOmit
+    abMemoryStreamItem?: AbMemoryStreamItemOmit
+    abEvalResult?: AbEvalResultOmit
     relationshipLedgerEvent?: RelationshipLedgerEventOmit
     relationshipMemoryJob?: RelationshipMemoryJobOmit
     relationshipMemoryCard?: RelationshipMemoryCardOmit
@@ -3949,6 +4313,86 @@ export namespace Prisma {
    */
   export type AgentTaskCountOutputTypeCountArtifactsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     where?: AgentTaskArtifactWhereInput
+  }
+
+
+  /**
+   * Count Type AbTurnSnapshotCountOutputType
+   */
+
+  export type AbTurnSnapshotCountOutputType = {
+    arm_runs: number
+    eval_results: number
+  }
+
+  export type AbTurnSnapshotCountOutputTypeSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    arm_runs?: boolean | AbTurnSnapshotCountOutputTypeCountArm_runsArgs
+    eval_results?: boolean | AbTurnSnapshotCountOutputTypeCountEval_resultsArgs
+  }
+
+  // Custom InputTypes
+  /**
+   * AbTurnSnapshotCountOutputType without action
+   */
+  export type AbTurnSnapshotCountOutputTypeDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshotCountOutputType
+     */
+    select?: AbTurnSnapshotCountOutputTypeSelect<ExtArgs> | null
+  }
+
+  /**
+   * AbTurnSnapshotCountOutputType without action
+   */
+  export type AbTurnSnapshotCountOutputTypeCountArm_runsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AbArmRunWhereInput
+  }
+
+  /**
+   * AbTurnSnapshotCountOutputType without action
+   */
+  export type AbTurnSnapshotCountOutputTypeCountEval_resultsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AbEvalResultWhereInput
+  }
+
+
+  /**
+   * Count Type AbArmRunCountOutputType
+   */
+
+  export type AbArmRunCountOutputType = {
+    control_eval_results: number
+    treatment_eval_results: number
+  }
+
+  export type AbArmRunCountOutputTypeSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    control_eval_results?: boolean | AbArmRunCountOutputTypeCountControl_eval_resultsArgs
+    treatment_eval_results?: boolean | AbArmRunCountOutputTypeCountTreatment_eval_resultsArgs
+  }
+
+  // Custom InputTypes
+  /**
+   * AbArmRunCountOutputType without action
+   */
+  export type AbArmRunCountOutputTypeDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRunCountOutputType
+     */
+    select?: AbArmRunCountOutputTypeSelect<ExtArgs> | null
+  }
+
+  /**
+   * AbArmRunCountOutputType without action
+   */
+  export type AbArmRunCountOutputTypeCountControl_eval_resultsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AbEvalResultWhereInput
+  }
+
+  /**
+   * AbArmRunCountOutputType without action
+   */
+  export type AbArmRunCountOutputTypeCountTreatment_eval_resultsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AbEvalResultWhereInput
   }
 
 
@@ -18893,6 +19337,4881 @@ export namespace Prisma {
      * Choose, which related nodes to fetch as well
      */
     include?: AgentTaskArtifactInclude<ExtArgs> | null
+  }
+
+
+  /**
+   * Model AbTurnSnapshot
+   */
+
+  export type AggregateAbTurnSnapshot = {
+    _count: AbTurnSnapshotCountAggregateOutputType | null
+    _min: AbTurnSnapshotMinAggregateOutputType | null
+    _max: AbTurnSnapshotMaxAggregateOutputType | null
+  }
+
+  export type AbTurnSnapshotMinAggregateOutputType = {
+    id: string | null
+    source_key: string | null
+    trace_id: string | null
+    run_id: string | null
+    session_key: string | null
+    chat_type: string | null
+    peer_id: string | null
+    sender_id: string | null
+    capture_status: string | null
+    control_status: string | null
+    treatment_status: string | null
+    eval_status: string | null
+    capture_error: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AbTurnSnapshotMaxAggregateOutputType = {
+    id: string | null
+    source_key: string | null
+    trace_id: string | null
+    run_id: string | null
+    session_key: string | null
+    chat_type: string | null
+    peer_id: string | null
+    sender_id: string | null
+    capture_status: string | null
+    control_status: string | null
+    treatment_status: string | null
+    eval_status: string | null
+    capture_error: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AbTurnSnapshotCountAggregateOutputType = {
+    id: number
+    source_key: number
+    trace_id: number
+    run_id: number
+    session_key: number
+    chat_type: number
+    peer_id: number
+    sender_id: number
+    queue_message_ids: number
+    provider_event_ids: number
+    scene: number
+    memory_stream_view: number
+    retrieval_policy: number
+    runtime_config: number
+    capture_status: number
+    control_status: number
+    treatment_status: number
+    eval_status: number
+    capture_error: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type AbTurnSnapshotMinAggregateInputType = {
+    id?: true
+    source_key?: true
+    trace_id?: true
+    run_id?: true
+    session_key?: true
+    chat_type?: true
+    peer_id?: true
+    sender_id?: true
+    capture_status?: true
+    control_status?: true
+    treatment_status?: true
+    eval_status?: true
+    capture_error?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AbTurnSnapshotMaxAggregateInputType = {
+    id?: true
+    source_key?: true
+    trace_id?: true
+    run_id?: true
+    session_key?: true
+    chat_type?: true
+    peer_id?: true
+    sender_id?: true
+    capture_status?: true
+    control_status?: true
+    treatment_status?: true
+    eval_status?: true
+    capture_error?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AbTurnSnapshotCountAggregateInputType = {
+    id?: true
+    source_key?: true
+    trace_id?: true
+    run_id?: true
+    session_key?: true
+    chat_type?: true
+    peer_id?: true
+    sender_id?: true
+    queue_message_ids?: true
+    provider_event_ids?: true
+    scene?: true
+    memory_stream_view?: true
+    retrieval_policy?: true
+    runtime_config?: true
+    capture_status?: true
+    control_status?: true
+    treatment_status?: true
+    eval_status?: true
+    capture_error?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type AbTurnSnapshotAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AbTurnSnapshot to aggregate.
+     */
+    where?: AbTurnSnapshotWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbTurnSnapshots to fetch.
+     */
+    orderBy?: AbTurnSnapshotOrderByWithRelationInput | AbTurnSnapshotOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: AbTurnSnapshotWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbTurnSnapshots from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbTurnSnapshots.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned AbTurnSnapshots
+    **/
+    _count?: true | AbTurnSnapshotCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: AbTurnSnapshotMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: AbTurnSnapshotMaxAggregateInputType
+  }
+
+  export type GetAbTurnSnapshotAggregateType<T extends AbTurnSnapshotAggregateArgs> = {
+        [P in keyof T & keyof AggregateAbTurnSnapshot]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAbTurnSnapshot[P]>
+      : GetScalarType<T[P], AggregateAbTurnSnapshot[P]>
+  }
+
+
+
+
+  export type AbTurnSnapshotGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AbTurnSnapshotWhereInput
+    orderBy?: AbTurnSnapshotOrderByWithAggregationInput | AbTurnSnapshotOrderByWithAggregationInput[]
+    by: AbTurnSnapshotScalarFieldEnum[] | AbTurnSnapshotScalarFieldEnum
+    having?: AbTurnSnapshotScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AbTurnSnapshotCountAggregateInputType | true
+    _min?: AbTurnSnapshotMinAggregateInputType
+    _max?: AbTurnSnapshotMaxAggregateInputType
+  }
+
+  export type AbTurnSnapshotGroupByOutputType = {
+    id: string
+    source_key: string
+    trace_id: string | null
+    run_id: string | null
+    session_key: string | null
+    chat_type: string | null
+    peer_id: string | null
+    sender_id: string | null
+    queue_message_ids: JsonValue
+    provider_event_ids: JsonValue
+    scene: JsonValue
+    memory_stream_view: JsonValue
+    retrieval_policy: JsonValue
+    runtime_config: JsonValue
+    capture_status: string
+    control_status: string
+    treatment_status: string
+    eval_status: string
+    capture_error: string | null
+    created_at: Date
+    updated_at: Date
+    _count: AbTurnSnapshotCountAggregateOutputType | null
+    _min: AbTurnSnapshotMinAggregateOutputType | null
+    _max: AbTurnSnapshotMaxAggregateOutputType | null
+  }
+
+  type GetAbTurnSnapshotGroupByPayload<T extends AbTurnSnapshotGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AbTurnSnapshotGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AbTurnSnapshotGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AbTurnSnapshotGroupByOutputType[P]>
+            : GetScalarType<T[P], AbTurnSnapshotGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AbTurnSnapshotSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    source_key?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    session_key?: boolean
+    chat_type?: boolean
+    peer_id?: boolean
+    sender_id?: boolean
+    queue_message_ids?: boolean
+    provider_event_ids?: boolean
+    scene?: boolean
+    memory_stream_view?: boolean
+    retrieval_policy?: boolean
+    runtime_config?: boolean
+    capture_status?: boolean
+    control_status?: boolean
+    treatment_status?: boolean
+    eval_status?: boolean
+    capture_error?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+    arm_runs?: boolean | AbTurnSnapshot$arm_runsArgs<ExtArgs>
+    eval_results?: boolean | AbTurnSnapshot$eval_resultsArgs<ExtArgs>
+    _count?: boolean | AbTurnSnapshotCountOutputTypeDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["abTurnSnapshot"]>
+
+  export type AbTurnSnapshotSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    source_key?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    session_key?: boolean
+    chat_type?: boolean
+    peer_id?: boolean
+    sender_id?: boolean
+    queue_message_ids?: boolean
+    provider_event_ids?: boolean
+    scene?: boolean
+    memory_stream_view?: boolean
+    retrieval_policy?: boolean
+    runtime_config?: boolean
+    capture_status?: boolean
+    control_status?: boolean
+    treatment_status?: boolean
+    eval_status?: boolean
+    capture_error?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["abTurnSnapshot"]>
+
+  export type AbTurnSnapshotSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    source_key?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    session_key?: boolean
+    chat_type?: boolean
+    peer_id?: boolean
+    sender_id?: boolean
+    queue_message_ids?: boolean
+    provider_event_ids?: boolean
+    scene?: boolean
+    memory_stream_view?: boolean
+    retrieval_policy?: boolean
+    runtime_config?: boolean
+    capture_status?: boolean
+    control_status?: boolean
+    treatment_status?: boolean
+    eval_status?: boolean
+    capture_error?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["abTurnSnapshot"]>
+
+  export type AbTurnSnapshotSelectScalar = {
+    id?: boolean
+    source_key?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    session_key?: boolean
+    chat_type?: boolean
+    peer_id?: boolean
+    sender_id?: boolean
+    queue_message_ids?: boolean
+    provider_event_ids?: boolean
+    scene?: boolean
+    memory_stream_view?: boolean
+    retrieval_policy?: boolean
+    runtime_config?: boolean
+    capture_status?: boolean
+    control_status?: boolean
+    treatment_status?: boolean
+    eval_status?: boolean
+    capture_error?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type AbTurnSnapshotOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "source_key" | "trace_id" | "run_id" | "session_key" | "chat_type" | "peer_id" | "sender_id" | "queue_message_ids" | "provider_event_ids" | "scene" | "memory_stream_view" | "retrieval_policy" | "runtime_config" | "capture_status" | "control_status" | "treatment_status" | "eval_status" | "capture_error" | "created_at" | "updated_at", ExtArgs["result"]["abTurnSnapshot"]>
+  export type AbTurnSnapshotInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    arm_runs?: boolean | AbTurnSnapshot$arm_runsArgs<ExtArgs>
+    eval_results?: boolean | AbTurnSnapshot$eval_resultsArgs<ExtArgs>
+    _count?: boolean | AbTurnSnapshotCountOutputTypeDefaultArgs<ExtArgs>
+  }
+  export type AbTurnSnapshotIncludeCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {}
+  export type AbTurnSnapshotIncludeUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {}
+
+  export type $AbTurnSnapshotPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AbTurnSnapshot"
+    objects: {
+      arm_runs: Prisma.$AbArmRunPayload<ExtArgs>[]
+      eval_results: Prisma.$AbEvalResultPayload<ExtArgs>[]
+    }
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      source_key: string
+      trace_id: string | null
+      run_id: string | null
+      session_key: string | null
+      chat_type: string | null
+      peer_id: string | null
+      sender_id: string | null
+      queue_message_ids: Prisma.JsonValue
+      provider_event_ids: Prisma.JsonValue
+      scene: Prisma.JsonValue
+      memory_stream_view: Prisma.JsonValue
+      retrieval_policy: Prisma.JsonValue
+      runtime_config: Prisma.JsonValue
+      capture_status: string
+      control_status: string
+      treatment_status: string
+      eval_status: string
+      capture_error: string | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["abTurnSnapshot"]>
+    composites: {}
+  }
+
+  type AbTurnSnapshotGetPayload<S extends boolean | null | undefined | AbTurnSnapshotDefaultArgs> = $Result.GetResult<Prisma.$AbTurnSnapshotPayload, S>
+
+  type AbTurnSnapshotCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AbTurnSnapshotFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AbTurnSnapshotCountAggregateInputType | true
+    }
+
+  export interface AbTurnSnapshotDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AbTurnSnapshot'], meta: { name: 'AbTurnSnapshot' } }
+    /**
+     * Find zero or one AbTurnSnapshot that matches the filter.
+     * @param {AbTurnSnapshotFindUniqueArgs} args - Arguments to find a AbTurnSnapshot
+     * @example
+     * // Get one AbTurnSnapshot
+     * const abTurnSnapshot = await prisma.abTurnSnapshot.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AbTurnSnapshotFindUniqueArgs>(args: SelectSubset<T, AbTurnSnapshotFindUniqueArgs<ExtArgs>>): Prisma__AbTurnSnapshotClient<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AbTurnSnapshot that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AbTurnSnapshotFindUniqueOrThrowArgs} args - Arguments to find a AbTurnSnapshot
+     * @example
+     * // Get one AbTurnSnapshot
+     * const abTurnSnapshot = await prisma.abTurnSnapshot.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AbTurnSnapshotFindUniqueOrThrowArgs>(args: SelectSubset<T, AbTurnSnapshotFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AbTurnSnapshotClient<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AbTurnSnapshot that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbTurnSnapshotFindFirstArgs} args - Arguments to find a AbTurnSnapshot
+     * @example
+     * // Get one AbTurnSnapshot
+     * const abTurnSnapshot = await prisma.abTurnSnapshot.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AbTurnSnapshotFindFirstArgs>(args?: SelectSubset<T, AbTurnSnapshotFindFirstArgs<ExtArgs>>): Prisma__AbTurnSnapshotClient<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AbTurnSnapshot that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbTurnSnapshotFindFirstOrThrowArgs} args - Arguments to find a AbTurnSnapshot
+     * @example
+     * // Get one AbTurnSnapshot
+     * const abTurnSnapshot = await prisma.abTurnSnapshot.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AbTurnSnapshotFindFirstOrThrowArgs>(args?: SelectSubset<T, AbTurnSnapshotFindFirstOrThrowArgs<ExtArgs>>): Prisma__AbTurnSnapshotClient<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AbTurnSnapshots that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbTurnSnapshotFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AbTurnSnapshots
+     * const abTurnSnapshots = await prisma.abTurnSnapshot.findMany()
+     * 
+     * // Get first 10 AbTurnSnapshots
+     * const abTurnSnapshots = await prisma.abTurnSnapshot.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const abTurnSnapshotWithIdOnly = await prisma.abTurnSnapshot.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends AbTurnSnapshotFindManyArgs>(args?: SelectSubset<T, AbTurnSnapshotFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AbTurnSnapshot.
+     * @param {AbTurnSnapshotCreateArgs} args - Arguments to create a AbTurnSnapshot.
+     * @example
+     * // Create one AbTurnSnapshot
+     * const AbTurnSnapshot = await prisma.abTurnSnapshot.create({
+     *   data: {
+     *     // ... data to create a AbTurnSnapshot
+     *   }
+     * })
+     * 
+     */
+    create<T extends AbTurnSnapshotCreateArgs>(args: SelectSubset<T, AbTurnSnapshotCreateArgs<ExtArgs>>): Prisma__AbTurnSnapshotClient<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AbTurnSnapshots.
+     * @param {AbTurnSnapshotCreateManyArgs} args - Arguments to create many AbTurnSnapshots.
+     * @example
+     * // Create many AbTurnSnapshots
+     * const abTurnSnapshot = await prisma.abTurnSnapshot.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends AbTurnSnapshotCreateManyArgs>(args?: SelectSubset<T, AbTurnSnapshotCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AbTurnSnapshots and returns the data saved in the database.
+     * @param {AbTurnSnapshotCreateManyAndReturnArgs} args - Arguments to create many AbTurnSnapshots.
+     * @example
+     * // Create many AbTurnSnapshots
+     * const abTurnSnapshot = await prisma.abTurnSnapshot.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many AbTurnSnapshots and only return the `id`
+     * const abTurnSnapshotWithIdOnly = await prisma.abTurnSnapshot.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends AbTurnSnapshotCreateManyAndReturnArgs>(args?: SelectSubset<T, AbTurnSnapshotCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AbTurnSnapshot.
+     * @param {AbTurnSnapshotDeleteArgs} args - Arguments to delete one AbTurnSnapshot.
+     * @example
+     * // Delete one AbTurnSnapshot
+     * const AbTurnSnapshot = await prisma.abTurnSnapshot.delete({
+     *   where: {
+     *     // ... filter to delete one AbTurnSnapshot
+     *   }
+     * })
+     * 
+     */
+    delete<T extends AbTurnSnapshotDeleteArgs>(args: SelectSubset<T, AbTurnSnapshotDeleteArgs<ExtArgs>>): Prisma__AbTurnSnapshotClient<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AbTurnSnapshot.
+     * @param {AbTurnSnapshotUpdateArgs} args - Arguments to update one AbTurnSnapshot.
+     * @example
+     * // Update one AbTurnSnapshot
+     * const abTurnSnapshot = await prisma.abTurnSnapshot.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends AbTurnSnapshotUpdateArgs>(args: SelectSubset<T, AbTurnSnapshotUpdateArgs<ExtArgs>>): Prisma__AbTurnSnapshotClient<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AbTurnSnapshots.
+     * @param {AbTurnSnapshotDeleteManyArgs} args - Arguments to filter AbTurnSnapshots to delete.
+     * @example
+     * // Delete a few AbTurnSnapshots
+     * const { count } = await prisma.abTurnSnapshot.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends AbTurnSnapshotDeleteManyArgs>(args?: SelectSubset<T, AbTurnSnapshotDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AbTurnSnapshots.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbTurnSnapshotUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AbTurnSnapshots
+     * const abTurnSnapshot = await prisma.abTurnSnapshot.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends AbTurnSnapshotUpdateManyArgs>(args: SelectSubset<T, AbTurnSnapshotUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AbTurnSnapshots and returns the data updated in the database.
+     * @param {AbTurnSnapshotUpdateManyAndReturnArgs} args - Arguments to update many AbTurnSnapshots.
+     * @example
+     * // Update many AbTurnSnapshots
+     * const abTurnSnapshot = await prisma.abTurnSnapshot.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more AbTurnSnapshots and only return the `id`
+     * const abTurnSnapshotWithIdOnly = await prisma.abTurnSnapshot.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends AbTurnSnapshotUpdateManyAndReturnArgs>(args: SelectSubset<T, AbTurnSnapshotUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AbTurnSnapshot.
+     * @param {AbTurnSnapshotUpsertArgs} args - Arguments to update or create a AbTurnSnapshot.
+     * @example
+     * // Update or create a AbTurnSnapshot
+     * const abTurnSnapshot = await prisma.abTurnSnapshot.upsert({
+     *   create: {
+     *     // ... data to create a AbTurnSnapshot
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AbTurnSnapshot we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AbTurnSnapshotUpsertArgs>(args: SelectSubset<T, AbTurnSnapshotUpsertArgs<ExtArgs>>): Prisma__AbTurnSnapshotClient<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AbTurnSnapshots.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbTurnSnapshotCountArgs} args - Arguments to filter AbTurnSnapshots to count.
+     * @example
+     * // Count the number of AbTurnSnapshots
+     * const count = await prisma.abTurnSnapshot.count({
+     *   where: {
+     *     // ... the filter for the AbTurnSnapshots we want to count
+     *   }
+     * })
+    **/
+    count<T extends AbTurnSnapshotCountArgs>(
+      args?: Subset<T, AbTurnSnapshotCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AbTurnSnapshotCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AbTurnSnapshot.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbTurnSnapshotAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AbTurnSnapshotAggregateArgs>(args: Subset<T, AbTurnSnapshotAggregateArgs>): Prisma.PrismaPromise<GetAbTurnSnapshotAggregateType<T>>
+
+    /**
+     * Group by AbTurnSnapshot.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbTurnSnapshotGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends AbTurnSnapshotGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AbTurnSnapshotGroupByArgs['orderBy'] }
+        : { orderBy?: AbTurnSnapshotGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AbTurnSnapshotGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAbTurnSnapshotGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AbTurnSnapshot model
+   */
+  readonly fields: AbTurnSnapshotFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AbTurnSnapshot.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AbTurnSnapshotClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    arm_runs<T extends AbTurnSnapshot$arm_runsArgs<ExtArgs> = {}>(args?: Subset<T, AbTurnSnapshot$arm_runsArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+    eval_results<T extends AbTurnSnapshot$eval_resultsArgs<ExtArgs> = {}>(args?: Subset<T, AbTurnSnapshot$eval_resultsArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AbTurnSnapshot model
+   */
+  interface AbTurnSnapshotFieldRefs {
+    readonly id: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly source_key: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly trace_id: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly run_id: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly session_key: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly chat_type: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly peer_id: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly sender_id: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly queue_message_ids: FieldRef<"AbTurnSnapshot", 'Json'>
+    readonly provider_event_ids: FieldRef<"AbTurnSnapshot", 'Json'>
+    readonly scene: FieldRef<"AbTurnSnapshot", 'Json'>
+    readonly memory_stream_view: FieldRef<"AbTurnSnapshot", 'Json'>
+    readonly retrieval_policy: FieldRef<"AbTurnSnapshot", 'Json'>
+    readonly runtime_config: FieldRef<"AbTurnSnapshot", 'Json'>
+    readonly capture_status: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly control_status: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly treatment_status: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly eval_status: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly capture_error: FieldRef<"AbTurnSnapshot", 'String'>
+    readonly created_at: FieldRef<"AbTurnSnapshot", 'DateTime'>
+    readonly updated_at: FieldRef<"AbTurnSnapshot", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * AbTurnSnapshot findUnique
+   */
+  export type AbTurnSnapshotFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshot
+     */
+    select?: AbTurnSnapshotSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbTurnSnapshot
+     */
+    omit?: AbTurnSnapshotOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbTurnSnapshotInclude<ExtArgs> | null
+    /**
+     * Filter, which AbTurnSnapshot to fetch.
+     */
+    where: AbTurnSnapshotWhereUniqueInput
+  }
+
+  /**
+   * AbTurnSnapshot findUniqueOrThrow
+   */
+  export type AbTurnSnapshotFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshot
+     */
+    select?: AbTurnSnapshotSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbTurnSnapshot
+     */
+    omit?: AbTurnSnapshotOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbTurnSnapshotInclude<ExtArgs> | null
+    /**
+     * Filter, which AbTurnSnapshot to fetch.
+     */
+    where: AbTurnSnapshotWhereUniqueInput
+  }
+
+  /**
+   * AbTurnSnapshot findFirst
+   */
+  export type AbTurnSnapshotFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshot
+     */
+    select?: AbTurnSnapshotSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbTurnSnapshot
+     */
+    omit?: AbTurnSnapshotOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbTurnSnapshotInclude<ExtArgs> | null
+    /**
+     * Filter, which AbTurnSnapshot to fetch.
+     */
+    where?: AbTurnSnapshotWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbTurnSnapshots to fetch.
+     */
+    orderBy?: AbTurnSnapshotOrderByWithRelationInput | AbTurnSnapshotOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AbTurnSnapshots.
+     */
+    cursor?: AbTurnSnapshotWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbTurnSnapshots from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbTurnSnapshots.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AbTurnSnapshots.
+     */
+    distinct?: AbTurnSnapshotScalarFieldEnum | AbTurnSnapshotScalarFieldEnum[]
+  }
+
+  /**
+   * AbTurnSnapshot findFirstOrThrow
+   */
+  export type AbTurnSnapshotFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshot
+     */
+    select?: AbTurnSnapshotSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbTurnSnapshot
+     */
+    omit?: AbTurnSnapshotOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbTurnSnapshotInclude<ExtArgs> | null
+    /**
+     * Filter, which AbTurnSnapshot to fetch.
+     */
+    where?: AbTurnSnapshotWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbTurnSnapshots to fetch.
+     */
+    orderBy?: AbTurnSnapshotOrderByWithRelationInput | AbTurnSnapshotOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AbTurnSnapshots.
+     */
+    cursor?: AbTurnSnapshotWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbTurnSnapshots from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbTurnSnapshots.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AbTurnSnapshots.
+     */
+    distinct?: AbTurnSnapshotScalarFieldEnum | AbTurnSnapshotScalarFieldEnum[]
+  }
+
+  /**
+   * AbTurnSnapshot findMany
+   */
+  export type AbTurnSnapshotFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshot
+     */
+    select?: AbTurnSnapshotSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbTurnSnapshot
+     */
+    omit?: AbTurnSnapshotOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbTurnSnapshotInclude<ExtArgs> | null
+    /**
+     * Filter, which AbTurnSnapshots to fetch.
+     */
+    where?: AbTurnSnapshotWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbTurnSnapshots to fetch.
+     */
+    orderBy?: AbTurnSnapshotOrderByWithRelationInput | AbTurnSnapshotOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing AbTurnSnapshots.
+     */
+    cursor?: AbTurnSnapshotWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbTurnSnapshots from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbTurnSnapshots.
+     */
+    skip?: number
+    distinct?: AbTurnSnapshotScalarFieldEnum | AbTurnSnapshotScalarFieldEnum[]
+  }
+
+  /**
+   * AbTurnSnapshot create
+   */
+  export type AbTurnSnapshotCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshot
+     */
+    select?: AbTurnSnapshotSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbTurnSnapshot
+     */
+    omit?: AbTurnSnapshotOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbTurnSnapshotInclude<ExtArgs> | null
+    /**
+     * The data needed to create a AbTurnSnapshot.
+     */
+    data: XOR<AbTurnSnapshotCreateInput, AbTurnSnapshotUncheckedCreateInput>
+  }
+
+  /**
+   * AbTurnSnapshot createMany
+   */
+  export type AbTurnSnapshotCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AbTurnSnapshots.
+     */
+    data: AbTurnSnapshotCreateManyInput | AbTurnSnapshotCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AbTurnSnapshot createManyAndReturn
+   */
+  export type AbTurnSnapshotCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshot
+     */
+    select?: AbTurnSnapshotSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbTurnSnapshot
+     */
+    omit?: AbTurnSnapshotOmit<ExtArgs> | null
+    /**
+     * The data used to create many AbTurnSnapshots.
+     */
+    data: AbTurnSnapshotCreateManyInput | AbTurnSnapshotCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AbTurnSnapshot update
+   */
+  export type AbTurnSnapshotUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshot
+     */
+    select?: AbTurnSnapshotSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbTurnSnapshot
+     */
+    omit?: AbTurnSnapshotOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbTurnSnapshotInclude<ExtArgs> | null
+    /**
+     * The data needed to update a AbTurnSnapshot.
+     */
+    data: XOR<AbTurnSnapshotUpdateInput, AbTurnSnapshotUncheckedUpdateInput>
+    /**
+     * Choose, which AbTurnSnapshot to update.
+     */
+    where: AbTurnSnapshotWhereUniqueInput
+  }
+
+  /**
+   * AbTurnSnapshot updateMany
+   */
+  export type AbTurnSnapshotUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AbTurnSnapshots.
+     */
+    data: XOR<AbTurnSnapshotUpdateManyMutationInput, AbTurnSnapshotUncheckedUpdateManyInput>
+    /**
+     * Filter which AbTurnSnapshots to update
+     */
+    where?: AbTurnSnapshotWhereInput
+    /**
+     * Limit how many AbTurnSnapshots to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AbTurnSnapshot updateManyAndReturn
+   */
+  export type AbTurnSnapshotUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshot
+     */
+    select?: AbTurnSnapshotSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbTurnSnapshot
+     */
+    omit?: AbTurnSnapshotOmit<ExtArgs> | null
+    /**
+     * The data used to update AbTurnSnapshots.
+     */
+    data: XOR<AbTurnSnapshotUpdateManyMutationInput, AbTurnSnapshotUncheckedUpdateManyInput>
+    /**
+     * Filter which AbTurnSnapshots to update
+     */
+    where?: AbTurnSnapshotWhereInput
+    /**
+     * Limit how many AbTurnSnapshots to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AbTurnSnapshot upsert
+   */
+  export type AbTurnSnapshotUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshot
+     */
+    select?: AbTurnSnapshotSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbTurnSnapshot
+     */
+    omit?: AbTurnSnapshotOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbTurnSnapshotInclude<ExtArgs> | null
+    /**
+     * The filter to search for the AbTurnSnapshot to update in case it exists.
+     */
+    where: AbTurnSnapshotWhereUniqueInput
+    /**
+     * In case the AbTurnSnapshot found by the `where` argument doesn't exist, create a new AbTurnSnapshot with this data.
+     */
+    create: XOR<AbTurnSnapshotCreateInput, AbTurnSnapshotUncheckedCreateInput>
+    /**
+     * In case the AbTurnSnapshot was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AbTurnSnapshotUpdateInput, AbTurnSnapshotUncheckedUpdateInput>
+  }
+
+  /**
+   * AbTurnSnapshot delete
+   */
+  export type AbTurnSnapshotDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshot
+     */
+    select?: AbTurnSnapshotSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbTurnSnapshot
+     */
+    omit?: AbTurnSnapshotOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbTurnSnapshotInclude<ExtArgs> | null
+    /**
+     * Filter which AbTurnSnapshot to delete.
+     */
+    where: AbTurnSnapshotWhereUniqueInput
+  }
+
+  /**
+   * AbTurnSnapshot deleteMany
+   */
+  export type AbTurnSnapshotDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AbTurnSnapshots to delete
+     */
+    where?: AbTurnSnapshotWhereInput
+    /**
+     * Limit how many AbTurnSnapshots to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AbTurnSnapshot.arm_runs
+   */
+  export type AbTurnSnapshot$arm_runsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+    where?: AbArmRunWhereInput
+    orderBy?: AbArmRunOrderByWithRelationInput | AbArmRunOrderByWithRelationInput[]
+    cursor?: AbArmRunWhereUniqueInput
+    take?: number
+    skip?: number
+    distinct?: AbArmRunScalarFieldEnum | AbArmRunScalarFieldEnum[]
+  }
+
+  /**
+   * AbTurnSnapshot.eval_results
+   */
+  export type AbTurnSnapshot$eval_resultsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
+    where?: AbEvalResultWhereInput
+    orderBy?: AbEvalResultOrderByWithRelationInput | AbEvalResultOrderByWithRelationInput[]
+    cursor?: AbEvalResultWhereUniqueInput
+    take?: number
+    skip?: number
+    distinct?: AbEvalResultScalarFieldEnum | AbEvalResultScalarFieldEnum[]
+  }
+
+  /**
+   * AbTurnSnapshot without action
+   */
+  export type AbTurnSnapshotDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbTurnSnapshot
+     */
+    select?: AbTurnSnapshotSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbTurnSnapshot
+     */
+    omit?: AbTurnSnapshotOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbTurnSnapshotInclude<ExtArgs> | null
+  }
+
+
+  /**
+   * Model AbArmRun
+   */
+
+  export type AggregateAbArmRun = {
+    _count: AbArmRunCountAggregateOutputType | null
+    _min: AbArmRunMinAggregateOutputType | null
+    _max: AbArmRunMaxAggregateOutputType | null
+  }
+
+  export type AbArmRunMinAggregateOutputType = {
+    id: string | null
+    snapshot_id: string | null
+    arm: string | null
+    project_or_namespace: string | null
+    runner_name: string | null
+    model_name: string | null
+    started_at: Date | null
+    completed_at: Date | null
+    status: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AbArmRunMaxAggregateOutputType = {
+    id: string | null
+    snapshot_id: string | null
+    arm: string | null
+    project_or_namespace: string | null
+    runner_name: string | null
+    model_name: string | null
+    started_at: Date | null
+    completed_at: Date | null
+    status: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AbArmRunCountAggregateOutputType = {
+    id: number
+    snapshot_id: number
+    arm: number
+    project_or_namespace: number
+    runner_name: number
+    model_name: number
+    input_summary: number
+    output_artifact: number
+    memory_context: number
+    failure: number
+    started_at: number
+    completed_at: number
+    status: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type AbArmRunMinAggregateInputType = {
+    id?: true
+    snapshot_id?: true
+    arm?: true
+    project_or_namespace?: true
+    runner_name?: true
+    model_name?: true
+    started_at?: true
+    completed_at?: true
+    status?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AbArmRunMaxAggregateInputType = {
+    id?: true
+    snapshot_id?: true
+    arm?: true
+    project_or_namespace?: true
+    runner_name?: true
+    model_name?: true
+    started_at?: true
+    completed_at?: true
+    status?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AbArmRunCountAggregateInputType = {
+    id?: true
+    snapshot_id?: true
+    arm?: true
+    project_or_namespace?: true
+    runner_name?: true
+    model_name?: true
+    input_summary?: true
+    output_artifact?: true
+    memory_context?: true
+    failure?: true
+    started_at?: true
+    completed_at?: true
+    status?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type AbArmRunAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AbArmRun to aggregate.
+     */
+    where?: AbArmRunWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbArmRuns to fetch.
+     */
+    orderBy?: AbArmRunOrderByWithRelationInput | AbArmRunOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: AbArmRunWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbArmRuns from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbArmRuns.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned AbArmRuns
+    **/
+    _count?: true | AbArmRunCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: AbArmRunMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: AbArmRunMaxAggregateInputType
+  }
+
+  export type GetAbArmRunAggregateType<T extends AbArmRunAggregateArgs> = {
+        [P in keyof T & keyof AggregateAbArmRun]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAbArmRun[P]>
+      : GetScalarType<T[P], AggregateAbArmRun[P]>
+  }
+
+
+
+
+  export type AbArmRunGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AbArmRunWhereInput
+    orderBy?: AbArmRunOrderByWithAggregationInput | AbArmRunOrderByWithAggregationInput[]
+    by: AbArmRunScalarFieldEnum[] | AbArmRunScalarFieldEnum
+    having?: AbArmRunScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AbArmRunCountAggregateInputType | true
+    _min?: AbArmRunMinAggregateInputType
+    _max?: AbArmRunMaxAggregateInputType
+  }
+
+  export type AbArmRunGroupByOutputType = {
+    id: string
+    snapshot_id: string
+    arm: string
+    project_or_namespace: string | null
+    runner_name: string | null
+    model_name: string | null
+    input_summary: JsonValue
+    output_artifact: JsonValue
+    memory_context: JsonValue
+    failure: JsonValue | null
+    started_at: Date | null
+    completed_at: Date | null
+    status: string
+    created_at: Date
+    updated_at: Date
+    _count: AbArmRunCountAggregateOutputType | null
+    _min: AbArmRunMinAggregateOutputType | null
+    _max: AbArmRunMaxAggregateOutputType | null
+  }
+
+  type GetAbArmRunGroupByPayload<T extends AbArmRunGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AbArmRunGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AbArmRunGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AbArmRunGroupByOutputType[P]>
+            : GetScalarType<T[P], AbArmRunGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AbArmRunSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    snapshot_id?: boolean
+    arm?: boolean
+    project_or_namespace?: boolean
+    runner_name?: boolean
+    model_name?: boolean
+    input_summary?: boolean
+    output_artifact?: boolean
+    memory_context?: boolean
+    failure?: boolean
+    started_at?: boolean
+    completed_at?: boolean
+    status?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+    snapshot?: boolean | AbTurnSnapshotDefaultArgs<ExtArgs>
+    control_eval_results?: boolean | AbArmRun$control_eval_resultsArgs<ExtArgs>
+    treatment_eval_results?: boolean | AbArmRun$treatment_eval_resultsArgs<ExtArgs>
+    _count?: boolean | AbArmRunCountOutputTypeDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["abArmRun"]>
+
+  export type AbArmRunSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    snapshot_id?: boolean
+    arm?: boolean
+    project_or_namespace?: boolean
+    runner_name?: boolean
+    model_name?: boolean
+    input_summary?: boolean
+    output_artifact?: boolean
+    memory_context?: boolean
+    failure?: boolean
+    started_at?: boolean
+    completed_at?: boolean
+    status?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+    snapshot?: boolean | AbTurnSnapshotDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["abArmRun"]>
+
+  export type AbArmRunSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    snapshot_id?: boolean
+    arm?: boolean
+    project_or_namespace?: boolean
+    runner_name?: boolean
+    model_name?: boolean
+    input_summary?: boolean
+    output_artifact?: boolean
+    memory_context?: boolean
+    failure?: boolean
+    started_at?: boolean
+    completed_at?: boolean
+    status?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+    snapshot?: boolean | AbTurnSnapshotDefaultArgs<ExtArgs>
+  }, ExtArgs["result"]["abArmRun"]>
+
+  export type AbArmRunSelectScalar = {
+    id?: boolean
+    snapshot_id?: boolean
+    arm?: boolean
+    project_or_namespace?: boolean
+    runner_name?: boolean
+    model_name?: boolean
+    input_summary?: boolean
+    output_artifact?: boolean
+    memory_context?: boolean
+    failure?: boolean
+    started_at?: boolean
+    completed_at?: boolean
+    status?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type AbArmRunOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "snapshot_id" | "arm" | "project_or_namespace" | "runner_name" | "model_name" | "input_summary" | "output_artifact" | "memory_context" | "failure" | "started_at" | "completed_at" | "status" | "created_at" | "updated_at", ExtArgs["result"]["abArmRun"]>
+  export type AbArmRunInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    snapshot?: boolean | AbTurnSnapshotDefaultArgs<ExtArgs>
+    control_eval_results?: boolean | AbArmRun$control_eval_resultsArgs<ExtArgs>
+    treatment_eval_results?: boolean | AbArmRun$treatment_eval_resultsArgs<ExtArgs>
+    _count?: boolean | AbArmRunCountOutputTypeDefaultArgs<ExtArgs>
+  }
+  export type AbArmRunIncludeCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    snapshot?: boolean | AbTurnSnapshotDefaultArgs<ExtArgs>
+  }
+  export type AbArmRunIncludeUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    snapshot?: boolean | AbTurnSnapshotDefaultArgs<ExtArgs>
+  }
+
+  export type $AbArmRunPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AbArmRun"
+    objects: {
+      snapshot: Prisma.$AbTurnSnapshotPayload<ExtArgs>
+      control_eval_results: Prisma.$AbEvalResultPayload<ExtArgs>[]
+      treatment_eval_results: Prisma.$AbEvalResultPayload<ExtArgs>[]
+    }
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      snapshot_id: string
+      arm: string
+      project_or_namespace: string | null
+      runner_name: string | null
+      model_name: string | null
+      input_summary: Prisma.JsonValue
+      output_artifact: Prisma.JsonValue
+      memory_context: Prisma.JsonValue
+      failure: Prisma.JsonValue | null
+      started_at: Date | null
+      completed_at: Date | null
+      status: string
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["abArmRun"]>
+    composites: {}
+  }
+
+  type AbArmRunGetPayload<S extends boolean | null | undefined | AbArmRunDefaultArgs> = $Result.GetResult<Prisma.$AbArmRunPayload, S>
+
+  type AbArmRunCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AbArmRunFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AbArmRunCountAggregateInputType | true
+    }
+
+  export interface AbArmRunDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AbArmRun'], meta: { name: 'AbArmRun' } }
+    /**
+     * Find zero or one AbArmRun that matches the filter.
+     * @param {AbArmRunFindUniqueArgs} args - Arguments to find a AbArmRun
+     * @example
+     * // Get one AbArmRun
+     * const abArmRun = await prisma.abArmRun.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AbArmRunFindUniqueArgs>(args: SelectSubset<T, AbArmRunFindUniqueArgs<ExtArgs>>): Prisma__AbArmRunClient<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AbArmRun that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AbArmRunFindUniqueOrThrowArgs} args - Arguments to find a AbArmRun
+     * @example
+     * // Get one AbArmRun
+     * const abArmRun = await prisma.abArmRun.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AbArmRunFindUniqueOrThrowArgs>(args: SelectSubset<T, AbArmRunFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AbArmRunClient<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AbArmRun that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbArmRunFindFirstArgs} args - Arguments to find a AbArmRun
+     * @example
+     * // Get one AbArmRun
+     * const abArmRun = await prisma.abArmRun.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AbArmRunFindFirstArgs>(args?: SelectSubset<T, AbArmRunFindFirstArgs<ExtArgs>>): Prisma__AbArmRunClient<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AbArmRun that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbArmRunFindFirstOrThrowArgs} args - Arguments to find a AbArmRun
+     * @example
+     * // Get one AbArmRun
+     * const abArmRun = await prisma.abArmRun.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AbArmRunFindFirstOrThrowArgs>(args?: SelectSubset<T, AbArmRunFindFirstOrThrowArgs<ExtArgs>>): Prisma__AbArmRunClient<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AbArmRuns that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbArmRunFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AbArmRuns
+     * const abArmRuns = await prisma.abArmRun.findMany()
+     * 
+     * // Get first 10 AbArmRuns
+     * const abArmRuns = await prisma.abArmRun.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const abArmRunWithIdOnly = await prisma.abArmRun.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends AbArmRunFindManyArgs>(args?: SelectSubset<T, AbArmRunFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AbArmRun.
+     * @param {AbArmRunCreateArgs} args - Arguments to create a AbArmRun.
+     * @example
+     * // Create one AbArmRun
+     * const AbArmRun = await prisma.abArmRun.create({
+     *   data: {
+     *     // ... data to create a AbArmRun
+     *   }
+     * })
+     * 
+     */
+    create<T extends AbArmRunCreateArgs>(args: SelectSubset<T, AbArmRunCreateArgs<ExtArgs>>): Prisma__AbArmRunClient<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AbArmRuns.
+     * @param {AbArmRunCreateManyArgs} args - Arguments to create many AbArmRuns.
+     * @example
+     * // Create many AbArmRuns
+     * const abArmRun = await prisma.abArmRun.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends AbArmRunCreateManyArgs>(args?: SelectSubset<T, AbArmRunCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AbArmRuns and returns the data saved in the database.
+     * @param {AbArmRunCreateManyAndReturnArgs} args - Arguments to create many AbArmRuns.
+     * @example
+     * // Create many AbArmRuns
+     * const abArmRun = await prisma.abArmRun.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many AbArmRuns and only return the `id`
+     * const abArmRunWithIdOnly = await prisma.abArmRun.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends AbArmRunCreateManyAndReturnArgs>(args?: SelectSubset<T, AbArmRunCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AbArmRun.
+     * @param {AbArmRunDeleteArgs} args - Arguments to delete one AbArmRun.
+     * @example
+     * // Delete one AbArmRun
+     * const AbArmRun = await prisma.abArmRun.delete({
+     *   where: {
+     *     // ... filter to delete one AbArmRun
+     *   }
+     * })
+     * 
+     */
+    delete<T extends AbArmRunDeleteArgs>(args: SelectSubset<T, AbArmRunDeleteArgs<ExtArgs>>): Prisma__AbArmRunClient<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AbArmRun.
+     * @param {AbArmRunUpdateArgs} args - Arguments to update one AbArmRun.
+     * @example
+     * // Update one AbArmRun
+     * const abArmRun = await prisma.abArmRun.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends AbArmRunUpdateArgs>(args: SelectSubset<T, AbArmRunUpdateArgs<ExtArgs>>): Prisma__AbArmRunClient<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AbArmRuns.
+     * @param {AbArmRunDeleteManyArgs} args - Arguments to filter AbArmRuns to delete.
+     * @example
+     * // Delete a few AbArmRuns
+     * const { count } = await prisma.abArmRun.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends AbArmRunDeleteManyArgs>(args?: SelectSubset<T, AbArmRunDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AbArmRuns.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbArmRunUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AbArmRuns
+     * const abArmRun = await prisma.abArmRun.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends AbArmRunUpdateManyArgs>(args: SelectSubset<T, AbArmRunUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AbArmRuns and returns the data updated in the database.
+     * @param {AbArmRunUpdateManyAndReturnArgs} args - Arguments to update many AbArmRuns.
+     * @example
+     * // Update many AbArmRuns
+     * const abArmRun = await prisma.abArmRun.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more AbArmRuns and only return the `id`
+     * const abArmRunWithIdOnly = await prisma.abArmRun.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends AbArmRunUpdateManyAndReturnArgs>(args: SelectSubset<T, AbArmRunUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AbArmRun.
+     * @param {AbArmRunUpsertArgs} args - Arguments to update or create a AbArmRun.
+     * @example
+     * // Update or create a AbArmRun
+     * const abArmRun = await prisma.abArmRun.upsert({
+     *   create: {
+     *     // ... data to create a AbArmRun
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AbArmRun we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AbArmRunUpsertArgs>(args: SelectSubset<T, AbArmRunUpsertArgs<ExtArgs>>): Prisma__AbArmRunClient<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AbArmRuns.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbArmRunCountArgs} args - Arguments to filter AbArmRuns to count.
+     * @example
+     * // Count the number of AbArmRuns
+     * const count = await prisma.abArmRun.count({
+     *   where: {
+     *     // ... the filter for the AbArmRuns we want to count
+     *   }
+     * })
+    **/
+    count<T extends AbArmRunCountArgs>(
+      args?: Subset<T, AbArmRunCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AbArmRunCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AbArmRun.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbArmRunAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AbArmRunAggregateArgs>(args: Subset<T, AbArmRunAggregateArgs>): Prisma.PrismaPromise<GetAbArmRunAggregateType<T>>
+
+    /**
+     * Group by AbArmRun.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbArmRunGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends AbArmRunGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AbArmRunGroupByArgs['orderBy'] }
+        : { orderBy?: AbArmRunGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AbArmRunGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAbArmRunGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AbArmRun model
+   */
+  readonly fields: AbArmRunFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AbArmRun.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AbArmRunClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    snapshot<T extends AbTurnSnapshotDefaultArgs<ExtArgs> = {}>(args?: Subset<T, AbTurnSnapshotDefaultArgs<ExtArgs>>): Prisma__AbTurnSnapshotClient<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+    control_eval_results<T extends AbArmRun$control_eval_resultsArgs<ExtArgs> = {}>(args?: Subset<T, AbArmRun$control_eval_resultsArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+    treatment_eval_results<T extends AbArmRun$treatment_eval_resultsArgs<ExtArgs> = {}>(args?: Subset<T, AbArmRun$treatment_eval_resultsArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AbArmRun model
+   */
+  interface AbArmRunFieldRefs {
+    readonly id: FieldRef<"AbArmRun", 'String'>
+    readonly snapshot_id: FieldRef<"AbArmRun", 'String'>
+    readonly arm: FieldRef<"AbArmRun", 'String'>
+    readonly project_or_namespace: FieldRef<"AbArmRun", 'String'>
+    readonly runner_name: FieldRef<"AbArmRun", 'String'>
+    readonly model_name: FieldRef<"AbArmRun", 'String'>
+    readonly input_summary: FieldRef<"AbArmRun", 'Json'>
+    readonly output_artifact: FieldRef<"AbArmRun", 'Json'>
+    readonly memory_context: FieldRef<"AbArmRun", 'Json'>
+    readonly failure: FieldRef<"AbArmRun", 'Json'>
+    readonly started_at: FieldRef<"AbArmRun", 'DateTime'>
+    readonly completed_at: FieldRef<"AbArmRun", 'DateTime'>
+    readonly status: FieldRef<"AbArmRun", 'String'>
+    readonly created_at: FieldRef<"AbArmRun", 'DateTime'>
+    readonly updated_at: FieldRef<"AbArmRun", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * AbArmRun findUnique
+   */
+  export type AbArmRunFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+    /**
+     * Filter, which AbArmRun to fetch.
+     */
+    where: AbArmRunWhereUniqueInput
+  }
+
+  /**
+   * AbArmRun findUniqueOrThrow
+   */
+  export type AbArmRunFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+    /**
+     * Filter, which AbArmRun to fetch.
+     */
+    where: AbArmRunWhereUniqueInput
+  }
+
+  /**
+   * AbArmRun findFirst
+   */
+  export type AbArmRunFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+    /**
+     * Filter, which AbArmRun to fetch.
+     */
+    where?: AbArmRunWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbArmRuns to fetch.
+     */
+    orderBy?: AbArmRunOrderByWithRelationInput | AbArmRunOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AbArmRuns.
+     */
+    cursor?: AbArmRunWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbArmRuns from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbArmRuns.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AbArmRuns.
+     */
+    distinct?: AbArmRunScalarFieldEnum | AbArmRunScalarFieldEnum[]
+  }
+
+  /**
+   * AbArmRun findFirstOrThrow
+   */
+  export type AbArmRunFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+    /**
+     * Filter, which AbArmRun to fetch.
+     */
+    where?: AbArmRunWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbArmRuns to fetch.
+     */
+    orderBy?: AbArmRunOrderByWithRelationInput | AbArmRunOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AbArmRuns.
+     */
+    cursor?: AbArmRunWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbArmRuns from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbArmRuns.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AbArmRuns.
+     */
+    distinct?: AbArmRunScalarFieldEnum | AbArmRunScalarFieldEnum[]
+  }
+
+  /**
+   * AbArmRun findMany
+   */
+  export type AbArmRunFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+    /**
+     * Filter, which AbArmRuns to fetch.
+     */
+    where?: AbArmRunWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbArmRuns to fetch.
+     */
+    orderBy?: AbArmRunOrderByWithRelationInput | AbArmRunOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing AbArmRuns.
+     */
+    cursor?: AbArmRunWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbArmRuns from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbArmRuns.
+     */
+    skip?: number
+    distinct?: AbArmRunScalarFieldEnum | AbArmRunScalarFieldEnum[]
+  }
+
+  /**
+   * AbArmRun create
+   */
+  export type AbArmRunCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+    /**
+     * The data needed to create a AbArmRun.
+     */
+    data: XOR<AbArmRunCreateInput, AbArmRunUncheckedCreateInput>
+  }
+
+  /**
+   * AbArmRun createMany
+   */
+  export type AbArmRunCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AbArmRuns.
+     */
+    data: AbArmRunCreateManyInput | AbArmRunCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AbArmRun createManyAndReturn
+   */
+  export type AbArmRunCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * The data used to create many AbArmRuns.
+     */
+    data: AbArmRunCreateManyInput | AbArmRunCreateManyInput[]
+    skipDuplicates?: boolean
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunIncludeCreateManyAndReturn<ExtArgs> | null
+  }
+
+  /**
+   * AbArmRun update
+   */
+  export type AbArmRunUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+    /**
+     * The data needed to update a AbArmRun.
+     */
+    data: XOR<AbArmRunUpdateInput, AbArmRunUncheckedUpdateInput>
+    /**
+     * Choose, which AbArmRun to update.
+     */
+    where: AbArmRunWhereUniqueInput
+  }
+
+  /**
+   * AbArmRun updateMany
+   */
+  export type AbArmRunUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AbArmRuns.
+     */
+    data: XOR<AbArmRunUpdateManyMutationInput, AbArmRunUncheckedUpdateManyInput>
+    /**
+     * Filter which AbArmRuns to update
+     */
+    where?: AbArmRunWhereInput
+    /**
+     * Limit how many AbArmRuns to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AbArmRun updateManyAndReturn
+   */
+  export type AbArmRunUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * The data used to update AbArmRuns.
+     */
+    data: XOR<AbArmRunUpdateManyMutationInput, AbArmRunUncheckedUpdateManyInput>
+    /**
+     * Filter which AbArmRuns to update
+     */
+    where?: AbArmRunWhereInput
+    /**
+     * Limit how many AbArmRuns to update.
+     */
+    limit?: number
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunIncludeUpdateManyAndReturn<ExtArgs> | null
+  }
+
+  /**
+   * AbArmRun upsert
+   */
+  export type AbArmRunUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+    /**
+     * The filter to search for the AbArmRun to update in case it exists.
+     */
+    where: AbArmRunWhereUniqueInput
+    /**
+     * In case the AbArmRun found by the `where` argument doesn't exist, create a new AbArmRun with this data.
+     */
+    create: XOR<AbArmRunCreateInput, AbArmRunUncheckedCreateInput>
+    /**
+     * In case the AbArmRun was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AbArmRunUpdateInput, AbArmRunUncheckedUpdateInput>
+  }
+
+  /**
+   * AbArmRun delete
+   */
+  export type AbArmRunDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+    /**
+     * Filter which AbArmRun to delete.
+     */
+    where: AbArmRunWhereUniqueInput
+  }
+
+  /**
+   * AbArmRun deleteMany
+   */
+  export type AbArmRunDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AbArmRuns to delete
+     */
+    where?: AbArmRunWhereInput
+    /**
+     * Limit how many AbArmRuns to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AbArmRun.control_eval_results
+   */
+  export type AbArmRun$control_eval_resultsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
+    where?: AbEvalResultWhereInput
+    orderBy?: AbEvalResultOrderByWithRelationInput | AbEvalResultOrderByWithRelationInput[]
+    cursor?: AbEvalResultWhereUniqueInput
+    take?: number
+    skip?: number
+    distinct?: AbEvalResultScalarFieldEnum | AbEvalResultScalarFieldEnum[]
+  }
+
+  /**
+   * AbArmRun.treatment_eval_results
+   */
+  export type AbArmRun$treatment_eval_resultsArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
+    where?: AbEvalResultWhereInput
+    orderBy?: AbEvalResultOrderByWithRelationInput | AbEvalResultOrderByWithRelationInput[]
+    cursor?: AbEvalResultWhereUniqueInput
+    take?: number
+    skip?: number
+    distinct?: AbEvalResultScalarFieldEnum | AbEvalResultScalarFieldEnum[]
+  }
+
+  /**
+   * AbArmRun without action
+   */
+  export type AbArmRunDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+  }
+
+
+  /**
+   * Model AbMemoryStreamItem
+   */
+
+  export type AggregateAbMemoryStreamItem = {
+    _count: AbMemoryStreamItemCountAggregateOutputType | null
+    _avg: AbMemoryStreamItemAvgAggregateOutputType | null
+    _sum: AbMemoryStreamItemSumAggregateOutputType | null
+    _min: AbMemoryStreamItemMinAggregateOutputType | null
+    _max: AbMemoryStreamItemMaxAggregateOutputType | null
+  }
+
+  export type AbMemoryStreamItemAvgAggregateOutputType = {
+    importance: number | null
+    confidence: number | null
+  }
+
+  export type AbMemoryStreamItemSumAggregateOutputType = {
+    importance: number | null
+    confidence: number | null
+  }
+
+  export type AbMemoryStreamItemMinAggregateOutputType = {
+    id: string | null
+    namespace: string | null
+    arm: string | null
+    type: string | null
+    subtype: string | null
+    content: string | null
+    retrieval_text: string | null
+    embedding_text: string | null
+    importance: number | null
+    confidence: number | null
+    status: string | null
+    ttl_expires_at: Date | null
+    fulfilled_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AbMemoryStreamItemMaxAggregateOutputType = {
+    id: string | null
+    namespace: string | null
+    arm: string | null
+    type: string | null
+    subtype: string | null
+    content: string | null
+    retrieval_text: string | null
+    embedding_text: string | null
+    importance: number | null
+    confidence: number | null
+    status: string | null
+    ttl_expires_at: Date | null
+    fulfilled_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AbMemoryStreamItemCountAggregateOutputType = {
+    id: number
+    namespace: number
+    arm: number
+    type: number
+    subtype: number
+    content: number
+    retrieval_text: number
+    embedding_text: number
+    importance: number
+    confidence: number
+    status: number
+    source_event_refs: number
+    provenance: number
+    ttl_expires_at: number
+    fulfilled_at: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type AbMemoryStreamItemAvgAggregateInputType = {
+    importance?: true
+    confidence?: true
+  }
+
+  export type AbMemoryStreamItemSumAggregateInputType = {
+    importance?: true
+    confidence?: true
+  }
+
+  export type AbMemoryStreamItemMinAggregateInputType = {
+    id?: true
+    namespace?: true
+    arm?: true
+    type?: true
+    subtype?: true
+    content?: true
+    retrieval_text?: true
+    embedding_text?: true
+    importance?: true
+    confidence?: true
+    status?: true
+    ttl_expires_at?: true
+    fulfilled_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AbMemoryStreamItemMaxAggregateInputType = {
+    id?: true
+    namespace?: true
+    arm?: true
+    type?: true
+    subtype?: true
+    content?: true
+    retrieval_text?: true
+    embedding_text?: true
+    importance?: true
+    confidence?: true
+    status?: true
+    ttl_expires_at?: true
+    fulfilled_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AbMemoryStreamItemCountAggregateInputType = {
+    id?: true
+    namespace?: true
+    arm?: true
+    type?: true
+    subtype?: true
+    content?: true
+    retrieval_text?: true
+    embedding_text?: true
+    importance?: true
+    confidence?: true
+    status?: true
+    source_event_refs?: true
+    provenance?: true
+    ttl_expires_at?: true
+    fulfilled_at?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type AbMemoryStreamItemAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AbMemoryStreamItem to aggregate.
+     */
+    where?: AbMemoryStreamItemWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbMemoryStreamItems to fetch.
+     */
+    orderBy?: AbMemoryStreamItemOrderByWithRelationInput | AbMemoryStreamItemOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: AbMemoryStreamItemWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbMemoryStreamItems from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbMemoryStreamItems.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned AbMemoryStreamItems
+    **/
+    _count?: true | AbMemoryStreamItemCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: AbMemoryStreamItemAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: AbMemoryStreamItemSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: AbMemoryStreamItemMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: AbMemoryStreamItemMaxAggregateInputType
+  }
+
+  export type GetAbMemoryStreamItemAggregateType<T extends AbMemoryStreamItemAggregateArgs> = {
+        [P in keyof T & keyof AggregateAbMemoryStreamItem]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAbMemoryStreamItem[P]>
+      : GetScalarType<T[P], AggregateAbMemoryStreamItem[P]>
+  }
+
+
+
+
+  export type AbMemoryStreamItemGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AbMemoryStreamItemWhereInput
+    orderBy?: AbMemoryStreamItemOrderByWithAggregationInput | AbMemoryStreamItemOrderByWithAggregationInput[]
+    by: AbMemoryStreamItemScalarFieldEnum[] | AbMemoryStreamItemScalarFieldEnum
+    having?: AbMemoryStreamItemScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AbMemoryStreamItemCountAggregateInputType | true
+    _avg?: AbMemoryStreamItemAvgAggregateInputType
+    _sum?: AbMemoryStreamItemSumAggregateInputType
+    _min?: AbMemoryStreamItemMinAggregateInputType
+    _max?: AbMemoryStreamItemMaxAggregateInputType
+  }
+
+  export type AbMemoryStreamItemGroupByOutputType = {
+    id: string
+    namespace: string
+    arm: string
+    type: string
+    subtype: string | null
+    content: string
+    retrieval_text: string | null
+    embedding_text: string | null
+    importance: number
+    confidence: number
+    status: string
+    source_event_refs: JsonValue
+    provenance: JsonValue
+    ttl_expires_at: Date | null
+    fulfilled_at: Date | null
+    created_at: Date
+    updated_at: Date
+    _count: AbMemoryStreamItemCountAggregateOutputType | null
+    _avg: AbMemoryStreamItemAvgAggregateOutputType | null
+    _sum: AbMemoryStreamItemSumAggregateOutputType | null
+    _min: AbMemoryStreamItemMinAggregateOutputType | null
+    _max: AbMemoryStreamItemMaxAggregateOutputType | null
+  }
+
+  type GetAbMemoryStreamItemGroupByPayload<T extends AbMemoryStreamItemGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AbMemoryStreamItemGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AbMemoryStreamItemGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AbMemoryStreamItemGroupByOutputType[P]>
+            : GetScalarType<T[P], AbMemoryStreamItemGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AbMemoryStreamItemSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    namespace?: boolean
+    arm?: boolean
+    type?: boolean
+    subtype?: boolean
+    content?: boolean
+    retrieval_text?: boolean
+    embedding_text?: boolean
+    importance?: boolean
+    confidence?: boolean
+    status?: boolean
+    source_event_refs?: boolean
+    provenance?: boolean
+    ttl_expires_at?: boolean
+    fulfilled_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["abMemoryStreamItem"]>
+
+  export type AbMemoryStreamItemSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    namespace?: boolean
+    arm?: boolean
+    type?: boolean
+    subtype?: boolean
+    content?: boolean
+    retrieval_text?: boolean
+    embedding_text?: boolean
+    importance?: boolean
+    confidence?: boolean
+    status?: boolean
+    source_event_refs?: boolean
+    provenance?: boolean
+    ttl_expires_at?: boolean
+    fulfilled_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["abMemoryStreamItem"]>
+
+  export type AbMemoryStreamItemSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    namespace?: boolean
+    arm?: boolean
+    type?: boolean
+    subtype?: boolean
+    content?: boolean
+    retrieval_text?: boolean
+    embedding_text?: boolean
+    importance?: boolean
+    confidence?: boolean
+    status?: boolean
+    source_event_refs?: boolean
+    provenance?: boolean
+    ttl_expires_at?: boolean
+    fulfilled_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["abMemoryStreamItem"]>
+
+  export type AbMemoryStreamItemSelectScalar = {
+    id?: boolean
+    namespace?: boolean
+    arm?: boolean
+    type?: boolean
+    subtype?: boolean
+    content?: boolean
+    retrieval_text?: boolean
+    embedding_text?: boolean
+    importance?: boolean
+    confidence?: boolean
+    status?: boolean
+    source_event_refs?: boolean
+    provenance?: boolean
+    ttl_expires_at?: boolean
+    fulfilled_at?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type AbMemoryStreamItemOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "namespace" | "arm" | "type" | "subtype" | "content" | "retrieval_text" | "embedding_text" | "importance" | "confidence" | "status" | "source_event_refs" | "provenance" | "ttl_expires_at" | "fulfilled_at" | "created_at" | "updated_at", ExtArgs["result"]["abMemoryStreamItem"]>
+
+  export type $AbMemoryStreamItemPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AbMemoryStreamItem"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      namespace: string
+      arm: string
+      type: string
+      subtype: string | null
+      content: string
+      retrieval_text: string | null
+      embedding_text: string | null
+      importance: number
+      confidence: number
+      status: string
+      source_event_refs: Prisma.JsonValue
+      provenance: Prisma.JsonValue
+      ttl_expires_at: Date | null
+      fulfilled_at: Date | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["abMemoryStreamItem"]>
+    composites: {}
+  }
+
+  type AbMemoryStreamItemGetPayload<S extends boolean | null | undefined | AbMemoryStreamItemDefaultArgs> = $Result.GetResult<Prisma.$AbMemoryStreamItemPayload, S>
+
+  type AbMemoryStreamItemCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AbMemoryStreamItemFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AbMemoryStreamItemCountAggregateInputType | true
+    }
+
+  export interface AbMemoryStreamItemDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AbMemoryStreamItem'], meta: { name: 'AbMemoryStreamItem' } }
+    /**
+     * Find zero or one AbMemoryStreamItem that matches the filter.
+     * @param {AbMemoryStreamItemFindUniqueArgs} args - Arguments to find a AbMemoryStreamItem
+     * @example
+     * // Get one AbMemoryStreamItem
+     * const abMemoryStreamItem = await prisma.abMemoryStreamItem.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AbMemoryStreamItemFindUniqueArgs>(args: SelectSubset<T, AbMemoryStreamItemFindUniqueArgs<ExtArgs>>): Prisma__AbMemoryStreamItemClient<$Result.GetResult<Prisma.$AbMemoryStreamItemPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AbMemoryStreamItem that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AbMemoryStreamItemFindUniqueOrThrowArgs} args - Arguments to find a AbMemoryStreamItem
+     * @example
+     * // Get one AbMemoryStreamItem
+     * const abMemoryStreamItem = await prisma.abMemoryStreamItem.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AbMemoryStreamItemFindUniqueOrThrowArgs>(args: SelectSubset<T, AbMemoryStreamItemFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AbMemoryStreamItemClient<$Result.GetResult<Prisma.$AbMemoryStreamItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AbMemoryStreamItem that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbMemoryStreamItemFindFirstArgs} args - Arguments to find a AbMemoryStreamItem
+     * @example
+     * // Get one AbMemoryStreamItem
+     * const abMemoryStreamItem = await prisma.abMemoryStreamItem.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AbMemoryStreamItemFindFirstArgs>(args?: SelectSubset<T, AbMemoryStreamItemFindFirstArgs<ExtArgs>>): Prisma__AbMemoryStreamItemClient<$Result.GetResult<Prisma.$AbMemoryStreamItemPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AbMemoryStreamItem that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbMemoryStreamItemFindFirstOrThrowArgs} args - Arguments to find a AbMemoryStreamItem
+     * @example
+     * // Get one AbMemoryStreamItem
+     * const abMemoryStreamItem = await prisma.abMemoryStreamItem.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AbMemoryStreamItemFindFirstOrThrowArgs>(args?: SelectSubset<T, AbMemoryStreamItemFindFirstOrThrowArgs<ExtArgs>>): Prisma__AbMemoryStreamItemClient<$Result.GetResult<Prisma.$AbMemoryStreamItemPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AbMemoryStreamItems that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbMemoryStreamItemFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AbMemoryStreamItems
+     * const abMemoryStreamItems = await prisma.abMemoryStreamItem.findMany()
+     * 
+     * // Get first 10 AbMemoryStreamItems
+     * const abMemoryStreamItems = await prisma.abMemoryStreamItem.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const abMemoryStreamItemWithIdOnly = await prisma.abMemoryStreamItem.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends AbMemoryStreamItemFindManyArgs>(args?: SelectSubset<T, AbMemoryStreamItemFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbMemoryStreamItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AbMemoryStreamItem.
+     * @param {AbMemoryStreamItemCreateArgs} args - Arguments to create a AbMemoryStreamItem.
+     * @example
+     * // Create one AbMemoryStreamItem
+     * const AbMemoryStreamItem = await prisma.abMemoryStreamItem.create({
+     *   data: {
+     *     // ... data to create a AbMemoryStreamItem
+     *   }
+     * })
+     * 
+     */
+    create<T extends AbMemoryStreamItemCreateArgs>(args: SelectSubset<T, AbMemoryStreamItemCreateArgs<ExtArgs>>): Prisma__AbMemoryStreamItemClient<$Result.GetResult<Prisma.$AbMemoryStreamItemPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AbMemoryStreamItems.
+     * @param {AbMemoryStreamItemCreateManyArgs} args - Arguments to create many AbMemoryStreamItems.
+     * @example
+     * // Create many AbMemoryStreamItems
+     * const abMemoryStreamItem = await prisma.abMemoryStreamItem.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends AbMemoryStreamItemCreateManyArgs>(args?: SelectSubset<T, AbMemoryStreamItemCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AbMemoryStreamItems and returns the data saved in the database.
+     * @param {AbMemoryStreamItemCreateManyAndReturnArgs} args - Arguments to create many AbMemoryStreamItems.
+     * @example
+     * // Create many AbMemoryStreamItems
+     * const abMemoryStreamItem = await prisma.abMemoryStreamItem.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many AbMemoryStreamItems and only return the `id`
+     * const abMemoryStreamItemWithIdOnly = await prisma.abMemoryStreamItem.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends AbMemoryStreamItemCreateManyAndReturnArgs>(args?: SelectSubset<T, AbMemoryStreamItemCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbMemoryStreamItemPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AbMemoryStreamItem.
+     * @param {AbMemoryStreamItemDeleteArgs} args - Arguments to delete one AbMemoryStreamItem.
+     * @example
+     * // Delete one AbMemoryStreamItem
+     * const AbMemoryStreamItem = await prisma.abMemoryStreamItem.delete({
+     *   where: {
+     *     // ... filter to delete one AbMemoryStreamItem
+     *   }
+     * })
+     * 
+     */
+    delete<T extends AbMemoryStreamItemDeleteArgs>(args: SelectSubset<T, AbMemoryStreamItemDeleteArgs<ExtArgs>>): Prisma__AbMemoryStreamItemClient<$Result.GetResult<Prisma.$AbMemoryStreamItemPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AbMemoryStreamItem.
+     * @param {AbMemoryStreamItemUpdateArgs} args - Arguments to update one AbMemoryStreamItem.
+     * @example
+     * // Update one AbMemoryStreamItem
+     * const abMemoryStreamItem = await prisma.abMemoryStreamItem.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends AbMemoryStreamItemUpdateArgs>(args: SelectSubset<T, AbMemoryStreamItemUpdateArgs<ExtArgs>>): Prisma__AbMemoryStreamItemClient<$Result.GetResult<Prisma.$AbMemoryStreamItemPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AbMemoryStreamItems.
+     * @param {AbMemoryStreamItemDeleteManyArgs} args - Arguments to filter AbMemoryStreamItems to delete.
+     * @example
+     * // Delete a few AbMemoryStreamItems
+     * const { count } = await prisma.abMemoryStreamItem.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends AbMemoryStreamItemDeleteManyArgs>(args?: SelectSubset<T, AbMemoryStreamItemDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AbMemoryStreamItems.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbMemoryStreamItemUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AbMemoryStreamItems
+     * const abMemoryStreamItem = await prisma.abMemoryStreamItem.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends AbMemoryStreamItemUpdateManyArgs>(args: SelectSubset<T, AbMemoryStreamItemUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AbMemoryStreamItems and returns the data updated in the database.
+     * @param {AbMemoryStreamItemUpdateManyAndReturnArgs} args - Arguments to update many AbMemoryStreamItems.
+     * @example
+     * // Update many AbMemoryStreamItems
+     * const abMemoryStreamItem = await prisma.abMemoryStreamItem.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more AbMemoryStreamItems and only return the `id`
+     * const abMemoryStreamItemWithIdOnly = await prisma.abMemoryStreamItem.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends AbMemoryStreamItemUpdateManyAndReturnArgs>(args: SelectSubset<T, AbMemoryStreamItemUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbMemoryStreamItemPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AbMemoryStreamItem.
+     * @param {AbMemoryStreamItemUpsertArgs} args - Arguments to update or create a AbMemoryStreamItem.
+     * @example
+     * // Update or create a AbMemoryStreamItem
+     * const abMemoryStreamItem = await prisma.abMemoryStreamItem.upsert({
+     *   create: {
+     *     // ... data to create a AbMemoryStreamItem
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AbMemoryStreamItem we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AbMemoryStreamItemUpsertArgs>(args: SelectSubset<T, AbMemoryStreamItemUpsertArgs<ExtArgs>>): Prisma__AbMemoryStreamItemClient<$Result.GetResult<Prisma.$AbMemoryStreamItemPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AbMemoryStreamItems.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbMemoryStreamItemCountArgs} args - Arguments to filter AbMemoryStreamItems to count.
+     * @example
+     * // Count the number of AbMemoryStreamItems
+     * const count = await prisma.abMemoryStreamItem.count({
+     *   where: {
+     *     // ... the filter for the AbMemoryStreamItems we want to count
+     *   }
+     * })
+    **/
+    count<T extends AbMemoryStreamItemCountArgs>(
+      args?: Subset<T, AbMemoryStreamItemCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AbMemoryStreamItemCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AbMemoryStreamItem.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbMemoryStreamItemAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AbMemoryStreamItemAggregateArgs>(args: Subset<T, AbMemoryStreamItemAggregateArgs>): Prisma.PrismaPromise<GetAbMemoryStreamItemAggregateType<T>>
+
+    /**
+     * Group by AbMemoryStreamItem.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbMemoryStreamItemGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends AbMemoryStreamItemGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AbMemoryStreamItemGroupByArgs['orderBy'] }
+        : { orderBy?: AbMemoryStreamItemGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AbMemoryStreamItemGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAbMemoryStreamItemGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AbMemoryStreamItem model
+   */
+  readonly fields: AbMemoryStreamItemFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AbMemoryStreamItem.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AbMemoryStreamItemClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AbMemoryStreamItem model
+   */
+  interface AbMemoryStreamItemFieldRefs {
+    readonly id: FieldRef<"AbMemoryStreamItem", 'String'>
+    readonly namespace: FieldRef<"AbMemoryStreamItem", 'String'>
+    readonly arm: FieldRef<"AbMemoryStreamItem", 'String'>
+    readonly type: FieldRef<"AbMemoryStreamItem", 'String'>
+    readonly subtype: FieldRef<"AbMemoryStreamItem", 'String'>
+    readonly content: FieldRef<"AbMemoryStreamItem", 'String'>
+    readonly retrieval_text: FieldRef<"AbMemoryStreamItem", 'String'>
+    readonly embedding_text: FieldRef<"AbMemoryStreamItem", 'String'>
+    readonly importance: FieldRef<"AbMemoryStreamItem", 'Float'>
+    readonly confidence: FieldRef<"AbMemoryStreamItem", 'Float'>
+    readonly status: FieldRef<"AbMemoryStreamItem", 'String'>
+    readonly source_event_refs: FieldRef<"AbMemoryStreamItem", 'Json'>
+    readonly provenance: FieldRef<"AbMemoryStreamItem", 'Json'>
+    readonly ttl_expires_at: FieldRef<"AbMemoryStreamItem", 'DateTime'>
+    readonly fulfilled_at: FieldRef<"AbMemoryStreamItem", 'DateTime'>
+    readonly created_at: FieldRef<"AbMemoryStreamItem", 'DateTime'>
+    readonly updated_at: FieldRef<"AbMemoryStreamItem", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * AbMemoryStreamItem findUnique
+   */
+  export type AbMemoryStreamItemFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbMemoryStreamItem
+     */
+    select?: AbMemoryStreamItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbMemoryStreamItem
+     */
+    omit?: AbMemoryStreamItemOmit<ExtArgs> | null
+    /**
+     * Filter, which AbMemoryStreamItem to fetch.
+     */
+    where: AbMemoryStreamItemWhereUniqueInput
+  }
+
+  /**
+   * AbMemoryStreamItem findUniqueOrThrow
+   */
+  export type AbMemoryStreamItemFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbMemoryStreamItem
+     */
+    select?: AbMemoryStreamItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbMemoryStreamItem
+     */
+    omit?: AbMemoryStreamItemOmit<ExtArgs> | null
+    /**
+     * Filter, which AbMemoryStreamItem to fetch.
+     */
+    where: AbMemoryStreamItemWhereUniqueInput
+  }
+
+  /**
+   * AbMemoryStreamItem findFirst
+   */
+  export type AbMemoryStreamItemFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbMemoryStreamItem
+     */
+    select?: AbMemoryStreamItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbMemoryStreamItem
+     */
+    omit?: AbMemoryStreamItemOmit<ExtArgs> | null
+    /**
+     * Filter, which AbMemoryStreamItem to fetch.
+     */
+    where?: AbMemoryStreamItemWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbMemoryStreamItems to fetch.
+     */
+    orderBy?: AbMemoryStreamItemOrderByWithRelationInput | AbMemoryStreamItemOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AbMemoryStreamItems.
+     */
+    cursor?: AbMemoryStreamItemWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbMemoryStreamItems from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbMemoryStreamItems.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AbMemoryStreamItems.
+     */
+    distinct?: AbMemoryStreamItemScalarFieldEnum | AbMemoryStreamItemScalarFieldEnum[]
+  }
+
+  /**
+   * AbMemoryStreamItem findFirstOrThrow
+   */
+  export type AbMemoryStreamItemFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbMemoryStreamItem
+     */
+    select?: AbMemoryStreamItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbMemoryStreamItem
+     */
+    omit?: AbMemoryStreamItemOmit<ExtArgs> | null
+    /**
+     * Filter, which AbMemoryStreamItem to fetch.
+     */
+    where?: AbMemoryStreamItemWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbMemoryStreamItems to fetch.
+     */
+    orderBy?: AbMemoryStreamItemOrderByWithRelationInput | AbMemoryStreamItemOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AbMemoryStreamItems.
+     */
+    cursor?: AbMemoryStreamItemWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbMemoryStreamItems from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbMemoryStreamItems.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AbMemoryStreamItems.
+     */
+    distinct?: AbMemoryStreamItemScalarFieldEnum | AbMemoryStreamItemScalarFieldEnum[]
+  }
+
+  /**
+   * AbMemoryStreamItem findMany
+   */
+  export type AbMemoryStreamItemFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbMemoryStreamItem
+     */
+    select?: AbMemoryStreamItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbMemoryStreamItem
+     */
+    omit?: AbMemoryStreamItemOmit<ExtArgs> | null
+    /**
+     * Filter, which AbMemoryStreamItems to fetch.
+     */
+    where?: AbMemoryStreamItemWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbMemoryStreamItems to fetch.
+     */
+    orderBy?: AbMemoryStreamItemOrderByWithRelationInput | AbMemoryStreamItemOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing AbMemoryStreamItems.
+     */
+    cursor?: AbMemoryStreamItemWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbMemoryStreamItems from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbMemoryStreamItems.
+     */
+    skip?: number
+    distinct?: AbMemoryStreamItemScalarFieldEnum | AbMemoryStreamItemScalarFieldEnum[]
+  }
+
+  /**
+   * AbMemoryStreamItem create
+   */
+  export type AbMemoryStreamItemCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbMemoryStreamItem
+     */
+    select?: AbMemoryStreamItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbMemoryStreamItem
+     */
+    omit?: AbMemoryStreamItemOmit<ExtArgs> | null
+    /**
+     * The data needed to create a AbMemoryStreamItem.
+     */
+    data: XOR<AbMemoryStreamItemCreateInput, AbMemoryStreamItemUncheckedCreateInput>
+  }
+
+  /**
+   * AbMemoryStreamItem createMany
+   */
+  export type AbMemoryStreamItemCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AbMemoryStreamItems.
+     */
+    data: AbMemoryStreamItemCreateManyInput | AbMemoryStreamItemCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AbMemoryStreamItem createManyAndReturn
+   */
+  export type AbMemoryStreamItemCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbMemoryStreamItem
+     */
+    select?: AbMemoryStreamItemSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbMemoryStreamItem
+     */
+    omit?: AbMemoryStreamItemOmit<ExtArgs> | null
+    /**
+     * The data used to create many AbMemoryStreamItems.
+     */
+    data: AbMemoryStreamItemCreateManyInput | AbMemoryStreamItemCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AbMemoryStreamItem update
+   */
+  export type AbMemoryStreamItemUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbMemoryStreamItem
+     */
+    select?: AbMemoryStreamItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbMemoryStreamItem
+     */
+    omit?: AbMemoryStreamItemOmit<ExtArgs> | null
+    /**
+     * The data needed to update a AbMemoryStreamItem.
+     */
+    data: XOR<AbMemoryStreamItemUpdateInput, AbMemoryStreamItemUncheckedUpdateInput>
+    /**
+     * Choose, which AbMemoryStreamItem to update.
+     */
+    where: AbMemoryStreamItemWhereUniqueInput
+  }
+
+  /**
+   * AbMemoryStreamItem updateMany
+   */
+  export type AbMemoryStreamItemUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AbMemoryStreamItems.
+     */
+    data: XOR<AbMemoryStreamItemUpdateManyMutationInput, AbMemoryStreamItemUncheckedUpdateManyInput>
+    /**
+     * Filter which AbMemoryStreamItems to update
+     */
+    where?: AbMemoryStreamItemWhereInput
+    /**
+     * Limit how many AbMemoryStreamItems to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AbMemoryStreamItem updateManyAndReturn
+   */
+  export type AbMemoryStreamItemUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbMemoryStreamItem
+     */
+    select?: AbMemoryStreamItemSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbMemoryStreamItem
+     */
+    omit?: AbMemoryStreamItemOmit<ExtArgs> | null
+    /**
+     * The data used to update AbMemoryStreamItems.
+     */
+    data: XOR<AbMemoryStreamItemUpdateManyMutationInput, AbMemoryStreamItemUncheckedUpdateManyInput>
+    /**
+     * Filter which AbMemoryStreamItems to update
+     */
+    where?: AbMemoryStreamItemWhereInput
+    /**
+     * Limit how many AbMemoryStreamItems to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AbMemoryStreamItem upsert
+   */
+  export type AbMemoryStreamItemUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbMemoryStreamItem
+     */
+    select?: AbMemoryStreamItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbMemoryStreamItem
+     */
+    omit?: AbMemoryStreamItemOmit<ExtArgs> | null
+    /**
+     * The filter to search for the AbMemoryStreamItem to update in case it exists.
+     */
+    where: AbMemoryStreamItemWhereUniqueInput
+    /**
+     * In case the AbMemoryStreamItem found by the `where` argument doesn't exist, create a new AbMemoryStreamItem with this data.
+     */
+    create: XOR<AbMemoryStreamItemCreateInput, AbMemoryStreamItemUncheckedCreateInput>
+    /**
+     * In case the AbMemoryStreamItem was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AbMemoryStreamItemUpdateInput, AbMemoryStreamItemUncheckedUpdateInput>
+  }
+
+  /**
+   * AbMemoryStreamItem delete
+   */
+  export type AbMemoryStreamItemDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbMemoryStreamItem
+     */
+    select?: AbMemoryStreamItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbMemoryStreamItem
+     */
+    omit?: AbMemoryStreamItemOmit<ExtArgs> | null
+    /**
+     * Filter which AbMemoryStreamItem to delete.
+     */
+    where: AbMemoryStreamItemWhereUniqueInput
+  }
+
+  /**
+   * AbMemoryStreamItem deleteMany
+   */
+  export type AbMemoryStreamItemDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AbMemoryStreamItems to delete
+     */
+    where?: AbMemoryStreamItemWhereInput
+    /**
+     * Limit how many AbMemoryStreamItems to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AbMemoryStreamItem without action
+   */
+  export type AbMemoryStreamItemDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbMemoryStreamItem
+     */
+    select?: AbMemoryStreamItemSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbMemoryStreamItem
+     */
+    omit?: AbMemoryStreamItemOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model AbEvalResult
+   */
+
+  export type AggregateAbEvalResult = {
+    _count: AbEvalResultCountAggregateOutputType | null
+    _min: AbEvalResultMinAggregateOutputType | null
+    _max: AbEvalResultMaxAggregateOutputType | null
+  }
+
+  export type AbEvalResultMinAggregateOutputType = {
+    id: string | null
+    snapshot_id: string | null
+    control_arm_run_id: string | null
+    treatment_arm_run_id: string | null
+    label: string | null
+    reviewer_notes: string | null
+    fixture_id: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AbEvalResultMaxAggregateOutputType = {
+    id: string | null
+    snapshot_id: string | null
+    control_arm_run_id: string | null
+    treatment_arm_run_id: string | null
+    label: string | null
+    reviewer_notes: string | null
+    fixture_id: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AbEvalResultCountAggregateOutputType = {
+    id: number
+    snapshot_id: number
+    control_arm_run_id: number
+    treatment_arm_run_id: number
+    label: number
+    dimensions: number
+    reviewer_notes: number
+    isolation_check: number
+    fixture_id: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type AbEvalResultMinAggregateInputType = {
+    id?: true
+    snapshot_id?: true
+    control_arm_run_id?: true
+    treatment_arm_run_id?: true
+    label?: true
+    reviewer_notes?: true
+    fixture_id?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AbEvalResultMaxAggregateInputType = {
+    id?: true
+    snapshot_id?: true
+    control_arm_run_id?: true
+    treatment_arm_run_id?: true
+    label?: true
+    reviewer_notes?: true
+    fixture_id?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AbEvalResultCountAggregateInputType = {
+    id?: true
+    snapshot_id?: true
+    control_arm_run_id?: true
+    treatment_arm_run_id?: true
+    label?: true
+    dimensions?: true
+    reviewer_notes?: true
+    isolation_check?: true
+    fixture_id?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type AbEvalResultAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AbEvalResult to aggregate.
+     */
+    where?: AbEvalResultWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbEvalResults to fetch.
+     */
+    orderBy?: AbEvalResultOrderByWithRelationInput | AbEvalResultOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: AbEvalResultWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbEvalResults from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbEvalResults.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned AbEvalResults
+    **/
+    _count?: true | AbEvalResultCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: AbEvalResultMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: AbEvalResultMaxAggregateInputType
+  }
+
+  export type GetAbEvalResultAggregateType<T extends AbEvalResultAggregateArgs> = {
+        [P in keyof T & keyof AggregateAbEvalResult]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAbEvalResult[P]>
+      : GetScalarType<T[P], AggregateAbEvalResult[P]>
+  }
+
+
+
+
+  export type AbEvalResultGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AbEvalResultWhereInput
+    orderBy?: AbEvalResultOrderByWithAggregationInput | AbEvalResultOrderByWithAggregationInput[]
+    by: AbEvalResultScalarFieldEnum[] | AbEvalResultScalarFieldEnum
+    having?: AbEvalResultScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AbEvalResultCountAggregateInputType | true
+    _min?: AbEvalResultMinAggregateInputType
+    _max?: AbEvalResultMaxAggregateInputType
+  }
+
+  export type AbEvalResultGroupByOutputType = {
+    id: string
+    snapshot_id: string
+    control_arm_run_id: string | null
+    treatment_arm_run_id: string | null
+    label: string
+    dimensions: JsonValue
+    reviewer_notes: string | null
+    isolation_check: JsonValue
+    fixture_id: string | null
+    created_at: Date
+    updated_at: Date
+    _count: AbEvalResultCountAggregateOutputType | null
+    _min: AbEvalResultMinAggregateOutputType | null
+    _max: AbEvalResultMaxAggregateOutputType | null
+  }
+
+  type GetAbEvalResultGroupByPayload<T extends AbEvalResultGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AbEvalResultGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AbEvalResultGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AbEvalResultGroupByOutputType[P]>
+            : GetScalarType<T[P], AbEvalResultGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AbEvalResultSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    snapshot_id?: boolean
+    control_arm_run_id?: boolean
+    treatment_arm_run_id?: boolean
+    label?: boolean
+    dimensions?: boolean
+    reviewer_notes?: boolean
+    isolation_check?: boolean
+    fixture_id?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+    snapshot?: boolean | AbTurnSnapshotDefaultArgs<ExtArgs>
+    control_arm_run?: boolean | AbEvalResult$control_arm_runArgs<ExtArgs>
+    treatment_arm_run?: boolean | AbEvalResult$treatment_arm_runArgs<ExtArgs>
+  }, ExtArgs["result"]["abEvalResult"]>
+
+  export type AbEvalResultSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    snapshot_id?: boolean
+    control_arm_run_id?: boolean
+    treatment_arm_run_id?: boolean
+    label?: boolean
+    dimensions?: boolean
+    reviewer_notes?: boolean
+    isolation_check?: boolean
+    fixture_id?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+    snapshot?: boolean | AbTurnSnapshotDefaultArgs<ExtArgs>
+    control_arm_run?: boolean | AbEvalResult$control_arm_runArgs<ExtArgs>
+    treatment_arm_run?: boolean | AbEvalResult$treatment_arm_runArgs<ExtArgs>
+  }, ExtArgs["result"]["abEvalResult"]>
+
+  export type AbEvalResultSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    snapshot_id?: boolean
+    control_arm_run_id?: boolean
+    treatment_arm_run_id?: boolean
+    label?: boolean
+    dimensions?: boolean
+    reviewer_notes?: boolean
+    isolation_check?: boolean
+    fixture_id?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+    snapshot?: boolean | AbTurnSnapshotDefaultArgs<ExtArgs>
+    control_arm_run?: boolean | AbEvalResult$control_arm_runArgs<ExtArgs>
+    treatment_arm_run?: boolean | AbEvalResult$treatment_arm_runArgs<ExtArgs>
+  }, ExtArgs["result"]["abEvalResult"]>
+
+  export type AbEvalResultSelectScalar = {
+    id?: boolean
+    snapshot_id?: boolean
+    control_arm_run_id?: boolean
+    treatment_arm_run_id?: boolean
+    label?: boolean
+    dimensions?: boolean
+    reviewer_notes?: boolean
+    isolation_check?: boolean
+    fixture_id?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type AbEvalResultOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "snapshot_id" | "control_arm_run_id" | "treatment_arm_run_id" | "label" | "dimensions" | "reviewer_notes" | "isolation_check" | "fixture_id" | "created_at" | "updated_at", ExtArgs["result"]["abEvalResult"]>
+  export type AbEvalResultInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    snapshot?: boolean | AbTurnSnapshotDefaultArgs<ExtArgs>
+    control_arm_run?: boolean | AbEvalResult$control_arm_runArgs<ExtArgs>
+    treatment_arm_run?: boolean | AbEvalResult$treatment_arm_runArgs<ExtArgs>
+  }
+  export type AbEvalResultIncludeCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    snapshot?: boolean | AbTurnSnapshotDefaultArgs<ExtArgs>
+    control_arm_run?: boolean | AbEvalResult$control_arm_runArgs<ExtArgs>
+    treatment_arm_run?: boolean | AbEvalResult$treatment_arm_runArgs<ExtArgs>
+  }
+  export type AbEvalResultIncludeUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    snapshot?: boolean | AbTurnSnapshotDefaultArgs<ExtArgs>
+    control_arm_run?: boolean | AbEvalResult$control_arm_runArgs<ExtArgs>
+    treatment_arm_run?: boolean | AbEvalResult$treatment_arm_runArgs<ExtArgs>
+  }
+
+  export type $AbEvalResultPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AbEvalResult"
+    objects: {
+      snapshot: Prisma.$AbTurnSnapshotPayload<ExtArgs>
+      control_arm_run: Prisma.$AbArmRunPayload<ExtArgs> | null
+      treatment_arm_run: Prisma.$AbArmRunPayload<ExtArgs> | null
+    }
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      snapshot_id: string
+      control_arm_run_id: string | null
+      treatment_arm_run_id: string | null
+      label: string
+      dimensions: Prisma.JsonValue
+      reviewer_notes: string | null
+      isolation_check: Prisma.JsonValue
+      fixture_id: string | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["abEvalResult"]>
+    composites: {}
+  }
+
+  type AbEvalResultGetPayload<S extends boolean | null | undefined | AbEvalResultDefaultArgs> = $Result.GetResult<Prisma.$AbEvalResultPayload, S>
+
+  type AbEvalResultCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AbEvalResultFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AbEvalResultCountAggregateInputType | true
+    }
+
+  export interface AbEvalResultDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AbEvalResult'], meta: { name: 'AbEvalResult' } }
+    /**
+     * Find zero or one AbEvalResult that matches the filter.
+     * @param {AbEvalResultFindUniqueArgs} args - Arguments to find a AbEvalResult
+     * @example
+     * // Get one AbEvalResult
+     * const abEvalResult = await prisma.abEvalResult.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AbEvalResultFindUniqueArgs>(args: SelectSubset<T, AbEvalResultFindUniqueArgs<ExtArgs>>): Prisma__AbEvalResultClient<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AbEvalResult that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AbEvalResultFindUniqueOrThrowArgs} args - Arguments to find a AbEvalResult
+     * @example
+     * // Get one AbEvalResult
+     * const abEvalResult = await prisma.abEvalResult.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AbEvalResultFindUniqueOrThrowArgs>(args: SelectSubset<T, AbEvalResultFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AbEvalResultClient<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AbEvalResult that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbEvalResultFindFirstArgs} args - Arguments to find a AbEvalResult
+     * @example
+     * // Get one AbEvalResult
+     * const abEvalResult = await prisma.abEvalResult.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AbEvalResultFindFirstArgs>(args?: SelectSubset<T, AbEvalResultFindFirstArgs<ExtArgs>>): Prisma__AbEvalResultClient<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AbEvalResult that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbEvalResultFindFirstOrThrowArgs} args - Arguments to find a AbEvalResult
+     * @example
+     * // Get one AbEvalResult
+     * const abEvalResult = await prisma.abEvalResult.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AbEvalResultFindFirstOrThrowArgs>(args?: SelectSubset<T, AbEvalResultFindFirstOrThrowArgs<ExtArgs>>): Prisma__AbEvalResultClient<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AbEvalResults that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbEvalResultFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AbEvalResults
+     * const abEvalResults = await prisma.abEvalResult.findMany()
+     * 
+     * // Get first 10 AbEvalResults
+     * const abEvalResults = await prisma.abEvalResult.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const abEvalResultWithIdOnly = await prisma.abEvalResult.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends AbEvalResultFindManyArgs>(args?: SelectSubset<T, AbEvalResultFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AbEvalResult.
+     * @param {AbEvalResultCreateArgs} args - Arguments to create a AbEvalResult.
+     * @example
+     * // Create one AbEvalResult
+     * const AbEvalResult = await prisma.abEvalResult.create({
+     *   data: {
+     *     // ... data to create a AbEvalResult
+     *   }
+     * })
+     * 
+     */
+    create<T extends AbEvalResultCreateArgs>(args: SelectSubset<T, AbEvalResultCreateArgs<ExtArgs>>): Prisma__AbEvalResultClient<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AbEvalResults.
+     * @param {AbEvalResultCreateManyArgs} args - Arguments to create many AbEvalResults.
+     * @example
+     * // Create many AbEvalResults
+     * const abEvalResult = await prisma.abEvalResult.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends AbEvalResultCreateManyArgs>(args?: SelectSubset<T, AbEvalResultCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AbEvalResults and returns the data saved in the database.
+     * @param {AbEvalResultCreateManyAndReturnArgs} args - Arguments to create many AbEvalResults.
+     * @example
+     * // Create many AbEvalResults
+     * const abEvalResult = await prisma.abEvalResult.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many AbEvalResults and only return the `id`
+     * const abEvalResultWithIdOnly = await prisma.abEvalResult.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends AbEvalResultCreateManyAndReturnArgs>(args?: SelectSubset<T, AbEvalResultCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AbEvalResult.
+     * @param {AbEvalResultDeleteArgs} args - Arguments to delete one AbEvalResult.
+     * @example
+     * // Delete one AbEvalResult
+     * const AbEvalResult = await prisma.abEvalResult.delete({
+     *   where: {
+     *     // ... filter to delete one AbEvalResult
+     *   }
+     * })
+     * 
+     */
+    delete<T extends AbEvalResultDeleteArgs>(args: SelectSubset<T, AbEvalResultDeleteArgs<ExtArgs>>): Prisma__AbEvalResultClient<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AbEvalResult.
+     * @param {AbEvalResultUpdateArgs} args - Arguments to update one AbEvalResult.
+     * @example
+     * // Update one AbEvalResult
+     * const abEvalResult = await prisma.abEvalResult.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends AbEvalResultUpdateArgs>(args: SelectSubset<T, AbEvalResultUpdateArgs<ExtArgs>>): Prisma__AbEvalResultClient<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AbEvalResults.
+     * @param {AbEvalResultDeleteManyArgs} args - Arguments to filter AbEvalResults to delete.
+     * @example
+     * // Delete a few AbEvalResults
+     * const { count } = await prisma.abEvalResult.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends AbEvalResultDeleteManyArgs>(args?: SelectSubset<T, AbEvalResultDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AbEvalResults.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbEvalResultUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AbEvalResults
+     * const abEvalResult = await prisma.abEvalResult.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends AbEvalResultUpdateManyArgs>(args: SelectSubset<T, AbEvalResultUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AbEvalResults and returns the data updated in the database.
+     * @param {AbEvalResultUpdateManyAndReturnArgs} args - Arguments to update many AbEvalResults.
+     * @example
+     * // Update many AbEvalResults
+     * const abEvalResult = await prisma.abEvalResult.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more AbEvalResults and only return the `id`
+     * const abEvalResultWithIdOnly = await prisma.abEvalResult.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends AbEvalResultUpdateManyAndReturnArgs>(args: SelectSubset<T, AbEvalResultUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AbEvalResult.
+     * @param {AbEvalResultUpsertArgs} args - Arguments to update or create a AbEvalResult.
+     * @example
+     * // Update or create a AbEvalResult
+     * const abEvalResult = await prisma.abEvalResult.upsert({
+     *   create: {
+     *     // ... data to create a AbEvalResult
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AbEvalResult we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AbEvalResultUpsertArgs>(args: SelectSubset<T, AbEvalResultUpsertArgs<ExtArgs>>): Prisma__AbEvalResultClient<$Result.GetResult<Prisma.$AbEvalResultPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AbEvalResults.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbEvalResultCountArgs} args - Arguments to filter AbEvalResults to count.
+     * @example
+     * // Count the number of AbEvalResults
+     * const count = await prisma.abEvalResult.count({
+     *   where: {
+     *     // ... the filter for the AbEvalResults we want to count
+     *   }
+     * })
+    **/
+    count<T extends AbEvalResultCountArgs>(
+      args?: Subset<T, AbEvalResultCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AbEvalResultCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AbEvalResult.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbEvalResultAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AbEvalResultAggregateArgs>(args: Subset<T, AbEvalResultAggregateArgs>): Prisma.PrismaPromise<GetAbEvalResultAggregateType<T>>
+
+    /**
+     * Group by AbEvalResult.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AbEvalResultGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends AbEvalResultGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AbEvalResultGroupByArgs['orderBy'] }
+        : { orderBy?: AbEvalResultGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AbEvalResultGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAbEvalResultGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AbEvalResult model
+   */
+  readonly fields: AbEvalResultFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AbEvalResult.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AbEvalResultClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    snapshot<T extends AbTurnSnapshotDefaultArgs<ExtArgs> = {}>(args?: Subset<T, AbTurnSnapshotDefaultArgs<ExtArgs>>): Prisma__AbTurnSnapshotClient<$Result.GetResult<Prisma.$AbTurnSnapshotPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+    control_arm_run<T extends AbEvalResult$control_arm_runArgs<ExtArgs> = {}>(args?: Subset<T, AbEvalResult$control_arm_runArgs<ExtArgs>>): Prisma__AbArmRunClient<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+    treatment_arm_run<T extends AbEvalResult$treatment_arm_runArgs<ExtArgs> = {}>(args?: Subset<T, AbEvalResult$treatment_arm_runArgs<ExtArgs>>): Prisma__AbArmRunClient<$Result.GetResult<Prisma.$AbArmRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AbEvalResult model
+   */
+  interface AbEvalResultFieldRefs {
+    readonly id: FieldRef<"AbEvalResult", 'String'>
+    readonly snapshot_id: FieldRef<"AbEvalResult", 'String'>
+    readonly control_arm_run_id: FieldRef<"AbEvalResult", 'String'>
+    readonly treatment_arm_run_id: FieldRef<"AbEvalResult", 'String'>
+    readonly label: FieldRef<"AbEvalResult", 'String'>
+    readonly dimensions: FieldRef<"AbEvalResult", 'Json'>
+    readonly reviewer_notes: FieldRef<"AbEvalResult", 'String'>
+    readonly isolation_check: FieldRef<"AbEvalResult", 'Json'>
+    readonly fixture_id: FieldRef<"AbEvalResult", 'String'>
+    readonly created_at: FieldRef<"AbEvalResult", 'DateTime'>
+    readonly updated_at: FieldRef<"AbEvalResult", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * AbEvalResult findUnique
+   */
+  export type AbEvalResultFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
+    /**
+     * Filter, which AbEvalResult to fetch.
+     */
+    where: AbEvalResultWhereUniqueInput
+  }
+
+  /**
+   * AbEvalResult findUniqueOrThrow
+   */
+  export type AbEvalResultFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
+    /**
+     * Filter, which AbEvalResult to fetch.
+     */
+    where: AbEvalResultWhereUniqueInput
+  }
+
+  /**
+   * AbEvalResult findFirst
+   */
+  export type AbEvalResultFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
+    /**
+     * Filter, which AbEvalResult to fetch.
+     */
+    where?: AbEvalResultWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbEvalResults to fetch.
+     */
+    orderBy?: AbEvalResultOrderByWithRelationInput | AbEvalResultOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AbEvalResults.
+     */
+    cursor?: AbEvalResultWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbEvalResults from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbEvalResults.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AbEvalResults.
+     */
+    distinct?: AbEvalResultScalarFieldEnum | AbEvalResultScalarFieldEnum[]
+  }
+
+  /**
+   * AbEvalResult findFirstOrThrow
+   */
+  export type AbEvalResultFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
+    /**
+     * Filter, which AbEvalResult to fetch.
+     */
+    where?: AbEvalResultWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbEvalResults to fetch.
+     */
+    orderBy?: AbEvalResultOrderByWithRelationInput | AbEvalResultOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AbEvalResults.
+     */
+    cursor?: AbEvalResultWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbEvalResults from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbEvalResults.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AbEvalResults.
+     */
+    distinct?: AbEvalResultScalarFieldEnum | AbEvalResultScalarFieldEnum[]
+  }
+
+  /**
+   * AbEvalResult findMany
+   */
+  export type AbEvalResultFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
+    /**
+     * Filter, which AbEvalResults to fetch.
+     */
+    where?: AbEvalResultWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AbEvalResults to fetch.
+     */
+    orderBy?: AbEvalResultOrderByWithRelationInput | AbEvalResultOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing AbEvalResults.
+     */
+    cursor?: AbEvalResultWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AbEvalResults from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AbEvalResults.
+     */
+    skip?: number
+    distinct?: AbEvalResultScalarFieldEnum | AbEvalResultScalarFieldEnum[]
+  }
+
+  /**
+   * AbEvalResult create
+   */
+  export type AbEvalResultCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
+    /**
+     * The data needed to create a AbEvalResult.
+     */
+    data: XOR<AbEvalResultCreateInput, AbEvalResultUncheckedCreateInput>
+  }
+
+  /**
+   * AbEvalResult createMany
+   */
+  export type AbEvalResultCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AbEvalResults.
+     */
+    data: AbEvalResultCreateManyInput | AbEvalResultCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AbEvalResult createManyAndReturn
+   */
+  export type AbEvalResultCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * The data used to create many AbEvalResults.
+     */
+    data: AbEvalResultCreateManyInput | AbEvalResultCreateManyInput[]
+    skipDuplicates?: boolean
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultIncludeCreateManyAndReturn<ExtArgs> | null
+  }
+
+  /**
+   * AbEvalResult update
+   */
+  export type AbEvalResultUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
+    /**
+     * The data needed to update a AbEvalResult.
+     */
+    data: XOR<AbEvalResultUpdateInput, AbEvalResultUncheckedUpdateInput>
+    /**
+     * Choose, which AbEvalResult to update.
+     */
+    where: AbEvalResultWhereUniqueInput
+  }
+
+  /**
+   * AbEvalResult updateMany
+   */
+  export type AbEvalResultUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AbEvalResults.
+     */
+    data: XOR<AbEvalResultUpdateManyMutationInput, AbEvalResultUncheckedUpdateManyInput>
+    /**
+     * Filter which AbEvalResults to update
+     */
+    where?: AbEvalResultWhereInput
+    /**
+     * Limit how many AbEvalResults to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AbEvalResult updateManyAndReturn
+   */
+  export type AbEvalResultUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * The data used to update AbEvalResults.
+     */
+    data: XOR<AbEvalResultUpdateManyMutationInput, AbEvalResultUncheckedUpdateManyInput>
+    /**
+     * Filter which AbEvalResults to update
+     */
+    where?: AbEvalResultWhereInput
+    /**
+     * Limit how many AbEvalResults to update.
+     */
+    limit?: number
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultIncludeUpdateManyAndReturn<ExtArgs> | null
+  }
+
+  /**
+   * AbEvalResult upsert
+   */
+  export type AbEvalResultUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
+    /**
+     * The filter to search for the AbEvalResult to update in case it exists.
+     */
+    where: AbEvalResultWhereUniqueInput
+    /**
+     * In case the AbEvalResult found by the `where` argument doesn't exist, create a new AbEvalResult with this data.
+     */
+    create: XOR<AbEvalResultCreateInput, AbEvalResultUncheckedCreateInput>
+    /**
+     * In case the AbEvalResult was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AbEvalResultUpdateInput, AbEvalResultUncheckedUpdateInput>
+  }
+
+  /**
+   * AbEvalResult delete
+   */
+  export type AbEvalResultDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
+    /**
+     * Filter which AbEvalResult to delete.
+     */
+    where: AbEvalResultWhereUniqueInput
+  }
+
+  /**
+   * AbEvalResult deleteMany
+   */
+  export type AbEvalResultDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AbEvalResults to delete
+     */
+    where?: AbEvalResultWhereInput
+    /**
+     * Limit how many AbEvalResults to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AbEvalResult.control_arm_run
+   */
+  export type AbEvalResult$control_arm_runArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+    where?: AbArmRunWhereInput
+  }
+
+  /**
+   * AbEvalResult.treatment_arm_run
+   */
+  export type AbEvalResult$treatment_arm_runArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbArmRun
+     */
+    select?: AbArmRunSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbArmRun
+     */
+    omit?: AbArmRunOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbArmRunInclude<ExtArgs> | null
+    where?: AbArmRunWhereInput
+  }
+
+  /**
+   * AbEvalResult without action
+   */
+  export type AbEvalResultDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AbEvalResult
+     */
+    select?: AbEvalResultSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AbEvalResult
+     */
+    omit?: AbEvalResultOmit<ExtArgs> | null
+    /**
+     * Choose, which related nodes to fetch as well
+     */
+    include?: AbEvalResultInclude<ExtArgs> | null
   }
 
 
@@ -45055,6 +50374,94 @@ export namespace Prisma {
   export type AgentTaskArtifactScalarFieldEnum = (typeof AgentTaskArtifactScalarFieldEnum)[keyof typeof AgentTaskArtifactScalarFieldEnum]
 
 
+  export const AbTurnSnapshotScalarFieldEnum: {
+    id: 'id',
+    source_key: 'source_key',
+    trace_id: 'trace_id',
+    run_id: 'run_id',
+    session_key: 'session_key',
+    chat_type: 'chat_type',
+    peer_id: 'peer_id',
+    sender_id: 'sender_id',
+    queue_message_ids: 'queue_message_ids',
+    provider_event_ids: 'provider_event_ids',
+    scene: 'scene',
+    memory_stream_view: 'memory_stream_view',
+    retrieval_policy: 'retrieval_policy',
+    runtime_config: 'runtime_config',
+    capture_status: 'capture_status',
+    control_status: 'control_status',
+    treatment_status: 'treatment_status',
+    eval_status: 'eval_status',
+    capture_error: 'capture_error',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type AbTurnSnapshotScalarFieldEnum = (typeof AbTurnSnapshotScalarFieldEnum)[keyof typeof AbTurnSnapshotScalarFieldEnum]
+
+
+  export const AbArmRunScalarFieldEnum: {
+    id: 'id',
+    snapshot_id: 'snapshot_id',
+    arm: 'arm',
+    project_or_namespace: 'project_or_namespace',
+    runner_name: 'runner_name',
+    model_name: 'model_name',
+    input_summary: 'input_summary',
+    output_artifact: 'output_artifact',
+    memory_context: 'memory_context',
+    failure: 'failure',
+    started_at: 'started_at',
+    completed_at: 'completed_at',
+    status: 'status',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type AbArmRunScalarFieldEnum = (typeof AbArmRunScalarFieldEnum)[keyof typeof AbArmRunScalarFieldEnum]
+
+
+  export const AbMemoryStreamItemScalarFieldEnum: {
+    id: 'id',
+    namespace: 'namespace',
+    arm: 'arm',
+    type: 'type',
+    subtype: 'subtype',
+    content: 'content',
+    retrieval_text: 'retrieval_text',
+    embedding_text: 'embedding_text',
+    importance: 'importance',
+    confidence: 'confidence',
+    status: 'status',
+    source_event_refs: 'source_event_refs',
+    provenance: 'provenance',
+    ttl_expires_at: 'ttl_expires_at',
+    fulfilled_at: 'fulfilled_at',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type AbMemoryStreamItemScalarFieldEnum = (typeof AbMemoryStreamItemScalarFieldEnum)[keyof typeof AbMemoryStreamItemScalarFieldEnum]
+
+
+  export const AbEvalResultScalarFieldEnum: {
+    id: 'id',
+    snapshot_id: 'snapshot_id',
+    control_arm_run_id: 'control_arm_run_id',
+    treatment_arm_run_id: 'treatment_arm_run_id',
+    label: 'label',
+    dimensions: 'dimensions',
+    reviewer_notes: 'reviewer_notes',
+    isolation_check: 'isolation_check',
+    fixture_id: 'fixture_id',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type AbEvalResultScalarFieldEnum = (typeof AbEvalResultScalarFieldEnum)[keyof typeof AbEvalResultScalarFieldEnum]
+
+
   export const RelationshipLedgerEventScalarFieldEnum: {
     id: 'id',
     group_id: 'group_id',
@@ -47192,6 +52599,461 @@ export namespace Prisma {
     revised_prompt?: StringNullableWithAggregatesFilter<"AgentTaskArtifact"> | string | null
     metadata?: JsonNullableWithAggregatesFilter<"AgentTaskArtifact">
     created_at?: DateTimeWithAggregatesFilter<"AgentTaskArtifact"> | Date | string
+  }
+
+  export type AbTurnSnapshotWhereInput = {
+    AND?: AbTurnSnapshotWhereInput | AbTurnSnapshotWhereInput[]
+    OR?: AbTurnSnapshotWhereInput[]
+    NOT?: AbTurnSnapshotWhereInput | AbTurnSnapshotWhereInput[]
+    id?: StringFilter<"AbTurnSnapshot"> | string
+    source_key?: StringFilter<"AbTurnSnapshot"> | string
+    trace_id?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    run_id?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    session_key?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    chat_type?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    peer_id?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    sender_id?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    queue_message_ids?: JsonFilter<"AbTurnSnapshot">
+    provider_event_ids?: JsonFilter<"AbTurnSnapshot">
+    scene?: JsonFilter<"AbTurnSnapshot">
+    memory_stream_view?: JsonFilter<"AbTurnSnapshot">
+    retrieval_policy?: JsonFilter<"AbTurnSnapshot">
+    runtime_config?: JsonFilter<"AbTurnSnapshot">
+    capture_status?: StringFilter<"AbTurnSnapshot"> | string
+    control_status?: StringFilter<"AbTurnSnapshot"> | string
+    treatment_status?: StringFilter<"AbTurnSnapshot"> | string
+    eval_status?: StringFilter<"AbTurnSnapshot"> | string
+    capture_error?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    created_at?: DateTimeFilter<"AbTurnSnapshot"> | Date | string
+    updated_at?: DateTimeFilter<"AbTurnSnapshot"> | Date | string
+    arm_runs?: AbArmRunListRelationFilter
+    eval_results?: AbEvalResultListRelationFilter
+  }
+
+  export type AbTurnSnapshotOrderByWithRelationInput = {
+    id?: SortOrder
+    source_key?: SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    session_key?: SortOrderInput | SortOrder
+    chat_type?: SortOrderInput | SortOrder
+    peer_id?: SortOrderInput | SortOrder
+    sender_id?: SortOrderInput | SortOrder
+    queue_message_ids?: SortOrder
+    provider_event_ids?: SortOrder
+    scene?: SortOrder
+    memory_stream_view?: SortOrder
+    retrieval_policy?: SortOrder
+    runtime_config?: SortOrder
+    capture_status?: SortOrder
+    control_status?: SortOrder
+    treatment_status?: SortOrder
+    eval_status?: SortOrder
+    capture_error?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    arm_runs?: AbArmRunOrderByRelationAggregateInput
+    eval_results?: AbEvalResultOrderByRelationAggregateInput
+  }
+
+  export type AbTurnSnapshotWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    source_key?: string
+    AND?: AbTurnSnapshotWhereInput | AbTurnSnapshotWhereInput[]
+    OR?: AbTurnSnapshotWhereInput[]
+    NOT?: AbTurnSnapshotWhereInput | AbTurnSnapshotWhereInput[]
+    trace_id?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    run_id?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    session_key?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    chat_type?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    peer_id?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    sender_id?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    queue_message_ids?: JsonFilter<"AbTurnSnapshot">
+    provider_event_ids?: JsonFilter<"AbTurnSnapshot">
+    scene?: JsonFilter<"AbTurnSnapshot">
+    memory_stream_view?: JsonFilter<"AbTurnSnapshot">
+    retrieval_policy?: JsonFilter<"AbTurnSnapshot">
+    runtime_config?: JsonFilter<"AbTurnSnapshot">
+    capture_status?: StringFilter<"AbTurnSnapshot"> | string
+    control_status?: StringFilter<"AbTurnSnapshot"> | string
+    treatment_status?: StringFilter<"AbTurnSnapshot"> | string
+    eval_status?: StringFilter<"AbTurnSnapshot"> | string
+    capture_error?: StringNullableFilter<"AbTurnSnapshot"> | string | null
+    created_at?: DateTimeFilter<"AbTurnSnapshot"> | Date | string
+    updated_at?: DateTimeFilter<"AbTurnSnapshot"> | Date | string
+    arm_runs?: AbArmRunListRelationFilter
+    eval_results?: AbEvalResultListRelationFilter
+  }, "id" | "source_key">
+
+  export type AbTurnSnapshotOrderByWithAggregationInput = {
+    id?: SortOrder
+    source_key?: SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    session_key?: SortOrderInput | SortOrder
+    chat_type?: SortOrderInput | SortOrder
+    peer_id?: SortOrderInput | SortOrder
+    sender_id?: SortOrderInput | SortOrder
+    queue_message_ids?: SortOrder
+    provider_event_ids?: SortOrder
+    scene?: SortOrder
+    memory_stream_view?: SortOrder
+    retrieval_policy?: SortOrder
+    runtime_config?: SortOrder
+    capture_status?: SortOrder
+    control_status?: SortOrder
+    treatment_status?: SortOrder
+    eval_status?: SortOrder
+    capture_error?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: AbTurnSnapshotCountOrderByAggregateInput
+    _max?: AbTurnSnapshotMaxOrderByAggregateInput
+    _min?: AbTurnSnapshotMinOrderByAggregateInput
+  }
+
+  export type AbTurnSnapshotScalarWhereWithAggregatesInput = {
+    AND?: AbTurnSnapshotScalarWhereWithAggregatesInput | AbTurnSnapshotScalarWhereWithAggregatesInput[]
+    OR?: AbTurnSnapshotScalarWhereWithAggregatesInput[]
+    NOT?: AbTurnSnapshotScalarWhereWithAggregatesInput | AbTurnSnapshotScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"AbTurnSnapshot"> | string
+    source_key?: StringWithAggregatesFilter<"AbTurnSnapshot"> | string
+    trace_id?: StringNullableWithAggregatesFilter<"AbTurnSnapshot"> | string | null
+    run_id?: StringNullableWithAggregatesFilter<"AbTurnSnapshot"> | string | null
+    session_key?: StringNullableWithAggregatesFilter<"AbTurnSnapshot"> | string | null
+    chat_type?: StringNullableWithAggregatesFilter<"AbTurnSnapshot"> | string | null
+    peer_id?: StringNullableWithAggregatesFilter<"AbTurnSnapshot"> | string | null
+    sender_id?: StringNullableWithAggregatesFilter<"AbTurnSnapshot"> | string | null
+    queue_message_ids?: JsonWithAggregatesFilter<"AbTurnSnapshot">
+    provider_event_ids?: JsonWithAggregatesFilter<"AbTurnSnapshot">
+    scene?: JsonWithAggregatesFilter<"AbTurnSnapshot">
+    memory_stream_view?: JsonWithAggregatesFilter<"AbTurnSnapshot">
+    retrieval_policy?: JsonWithAggregatesFilter<"AbTurnSnapshot">
+    runtime_config?: JsonWithAggregatesFilter<"AbTurnSnapshot">
+    capture_status?: StringWithAggregatesFilter<"AbTurnSnapshot"> | string
+    control_status?: StringWithAggregatesFilter<"AbTurnSnapshot"> | string
+    treatment_status?: StringWithAggregatesFilter<"AbTurnSnapshot"> | string
+    eval_status?: StringWithAggregatesFilter<"AbTurnSnapshot"> | string
+    capture_error?: StringNullableWithAggregatesFilter<"AbTurnSnapshot"> | string | null
+    created_at?: DateTimeWithAggregatesFilter<"AbTurnSnapshot"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"AbTurnSnapshot"> | Date | string
+  }
+
+  export type AbArmRunWhereInput = {
+    AND?: AbArmRunWhereInput | AbArmRunWhereInput[]
+    OR?: AbArmRunWhereInput[]
+    NOT?: AbArmRunWhereInput | AbArmRunWhereInput[]
+    id?: StringFilter<"AbArmRun"> | string
+    snapshot_id?: StringFilter<"AbArmRun"> | string
+    arm?: StringFilter<"AbArmRun"> | string
+    project_or_namespace?: StringNullableFilter<"AbArmRun"> | string | null
+    runner_name?: StringNullableFilter<"AbArmRun"> | string | null
+    model_name?: StringNullableFilter<"AbArmRun"> | string | null
+    input_summary?: JsonFilter<"AbArmRun">
+    output_artifact?: JsonFilter<"AbArmRun">
+    memory_context?: JsonFilter<"AbArmRun">
+    failure?: JsonNullableFilter<"AbArmRun">
+    started_at?: DateTimeNullableFilter<"AbArmRun"> | Date | string | null
+    completed_at?: DateTimeNullableFilter<"AbArmRun"> | Date | string | null
+    status?: StringFilter<"AbArmRun"> | string
+    created_at?: DateTimeFilter<"AbArmRun"> | Date | string
+    updated_at?: DateTimeFilter<"AbArmRun"> | Date | string
+    snapshot?: XOR<AbTurnSnapshotScalarRelationFilter, AbTurnSnapshotWhereInput>
+    control_eval_results?: AbEvalResultListRelationFilter
+    treatment_eval_results?: AbEvalResultListRelationFilter
+  }
+
+  export type AbArmRunOrderByWithRelationInput = {
+    id?: SortOrder
+    snapshot_id?: SortOrder
+    arm?: SortOrder
+    project_or_namespace?: SortOrderInput | SortOrder
+    runner_name?: SortOrderInput | SortOrder
+    model_name?: SortOrderInput | SortOrder
+    input_summary?: SortOrder
+    output_artifact?: SortOrder
+    memory_context?: SortOrder
+    failure?: SortOrderInput | SortOrder
+    started_at?: SortOrderInput | SortOrder
+    completed_at?: SortOrderInput | SortOrder
+    status?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    snapshot?: AbTurnSnapshotOrderByWithRelationInput
+    control_eval_results?: AbEvalResultOrderByRelationAggregateInput
+    treatment_eval_results?: AbEvalResultOrderByRelationAggregateInput
+  }
+
+  export type AbArmRunWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    snapshot_id_arm?: AbArmRunSnapshot_idArmCompoundUniqueInput
+    AND?: AbArmRunWhereInput | AbArmRunWhereInput[]
+    OR?: AbArmRunWhereInput[]
+    NOT?: AbArmRunWhereInput | AbArmRunWhereInput[]
+    snapshot_id?: StringFilter<"AbArmRun"> | string
+    arm?: StringFilter<"AbArmRun"> | string
+    project_or_namespace?: StringNullableFilter<"AbArmRun"> | string | null
+    runner_name?: StringNullableFilter<"AbArmRun"> | string | null
+    model_name?: StringNullableFilter<"AbArmRun"> | string | null
+    input_summary?: JsonFilter<"AbArmRun">
+    output_artifact?: JsonFilter<"AbArmRun">
+    memory_context?: JsonFilter<"AbArmRun">
+    failure?: JsonNullableFilter<"AbArmRun">
+    started_at?: DateTimeNullableFilter<"AbArmRun"> | Date | string | null
+    completed_at?: DateTimeNullableFilter<"AbArmRun"> | Date | string | null
+    status?: StringFilter<"AbArmRun"> | string
+    created_at?: DateTimeFilter<"AbArmRun"> | Date | string
+    updated_at?: DateTimeFilter<"AbArmRun"> | Date | string
+    snapshot?: XOR<AbTurnSnapshotScalarRelationFilter, AbTurnSnapshotWhereInput>
+    control_eval_results?: AbEvalResultListRelationFilter
+    treatment_eval_results?: AbEvalResultListRelationFilter
+  }, "id" | "snapshot_id_arm">
+
+  export type AbArmRunOrderByWithAggregationInput = {
+    id?: SortOrder
+    snapshot_id?: SortOrder
+    arm?: SortOrder
+    project_or_namespace?: SortOrderInput | SortOrder
+    runner_name?: SortOrderInput | SortOrder
+    model_name?: SortOrderInput | SortOrder
+    input_summary?: SortOrder
+    output_artifact?: SortOrder
+    memory_context?: SortOrder
+    failure?: SortOrderInput | SortOrder
+    started_at?: SortOrderInput | SortOrder
+    completed_at?: SortOrderInput | SortOrder
+    status?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: AbArmRunCountOrderByAggregateInput
+    _max?: AbArmRunMaxOrderByAggregateInput
+    _min?: AbArmRunMinOrderByAggregateInput
+  }
+
+  export type AbArmRunScalarWhereWithAggregatesInput = {
+    AND?: AbArmRunScalarWhereWithAggregatesInput | AbArmRunScalarWhereWithAggregatesInput[]
+    OR?: AbArmRunScalarWhereWithAggregatesInput[]
+    NOT?: AbArmRunScalarWhereWithAggregatesInput | AbArmRunScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"AbArmRun"> | string
+    snapshot_id?: StringWithAggregatesFilter<"AbArmRun"> | string
+    arm?: StringWithAggregatesFilter<"AbArmRun"> | string
+    project_or_namespace?: StringNullableWithAggregatesFilter<"AbArmRun"> | string | null
+    runner_name?: StringNullableWithAggregatesFilter<"AbArmRun"> | string | null
+    model_name?: StringNullableWithAggregatesFilter<"AbArmRun"> | string | null
+    input_summary?: JsonWithAggregatesFilter<"AbArmRun">
+    output_artifact?: JsonWithAggregatesFilter<"AbArmRun">
+    memory_context?: JsonWithAggregatesFilter<"AbArmRun">
+    failure?: JsonNullableWithAggregatesFilter<"AbArmRun">
+    started_at?: DateTimeNullableWithAggregatesFilter<"AbArmRun"> | Date | string | null
+    completed_at?: DateTimeNullableWithAggregatesFilter<"AbArmRun"> | Date | string | null
+    status?: StringWithAggregatesFilter<"AbArmRun"> | string
+    created_at?: DateTimeWithAggregatesFilter<"AbArmRun"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"AbArmRun"> | Date | string
+  }
+
+  export type AbMemoryStreamItemWhereInput = {
+    AND?: AbMemoryStreamItemWhereInput | AbMemoryStreamItemWhereInput[]
+    OR?: AbMemoryStreamItemWhereInput[]
+    NOT?: AbMemoryStreamItemWhereInput | AbMemoryStreamItemWhereInput[]
+    id?: StringFilter<"AbMemoryStreamItem"> | string
+    namespace?: StringFilter<"AbMemoryStreamItem"> | string
+    arm?: StringFilter<"AbMemoryStreamItem"> | string
+    type?: StringFilter<"AbMemoryStreamItem"> | string
+    subtype?: StringNullableFilter<"AbMemoryStreamItem"> | string | null
+    content?: StringFilter<"AbMemoryStreamItem"> | string
+    retrieval_text?: StringNullableFilter<"AbMemoryStreamItem"> | string | null
+    embedding_text?: StringNullableFilter<"AbMemoryStreamItem"> | string | null
+    importance?: FloatFilter<"AbMemoryStreamItem"> | number
+    confidence?: FloatFilter<"AbMemoryStreamItem"> | number
+    status?: StringFilter<"AbMemoryStreamItem"> | string
+    source_event_refs?: JsonFilter<"AbMemoryStreamItem">
+    provenance?: JsonFilter<"AbMemoryStreamItem">
+    ttl_expires_at?: DateTimeNullableFilter<"AbMemoryStreamItem"> | Date | string | null
+    fulfilled_at?: DateTimeNullableFilter<"AbMemoryStreamItem"> | Date | string | null
+    created_at?: DateTimeFilter<"AbMemoryStreamItem"> | Date | string
+    updated_at?: DateTimeFilter<"AbMemoryStreamItem"> | Date | string
+  }
+
+  export type AbMemoryStreamItemOrderByWithRelationInput = {
+    id?: SortOrder
+    namespace?: SortOrder
+    arm?: SortOrder
+    type?: SortOrder
+    subtype?: SortOrderInput | SortOrder
+    content?: SortOrder
+    retrieval_text?: SortOrderInput | SortOrder
+    embedding_text?: SortOrderInput | SortOrder
+    importance?: SortOrder
+    confidence?: SortOrder
+    status?: SortOrder
+    source_event_refs?: SortOrder
+    provenance?: SortOrder
+    ttl_expires_at?: SortOrderInput | SortOrder
+    fulfilled_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AbMemoryStreamItemWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    AND?: AbMemoryStreamItemWhereInput | AbMemoryStreamItemWhereInput[]
+    OR?: AbMemoryStreamItemWhereInput[]
+    NOT?: AbMemoryStreamItemWhereInput | AbMemoryStreamItemWhereInput[]
+    namespace?: StringFilter<"AbMemoryStreamItem"> | string
+    arm?: StringFilter<"AbMemoryStreamItem"> | string
+    type?: StringFilter<"AbMemoryStreamItem"> | string
+    subtype?: StringNullableFilter<"AbMemoryStreamItem"> | string | null
+    content?: StringFilter<"AbMemoryStreamItem"> | string
+    retrieval_text?: StringNullableFilter<"AbMemoryStreamItem"> | string | null
+    embedding_text?: StringNullableFilter<"AbMemoryStreamItem"> | string | null
+    importance?: FloatFilter<"AbMemoryStreamItem"> | number
+    confidence?: FloatFilter<"AbMemoryStreamItem"> | number
+    status?: StringFilter<"AbMemoryStreamItem"> | string
+    source_event_refs?: JsonFilter<"AbMemoryStreamItem">
+    provenance?: JsonFilter<"AbMemoryStreamItem">
+    ttl_expires_at?: DateTimeNullableFilter<"AbMemoryStreamItem"> | Date | string | null
+    fulfilled_at?: DateTimeNullableFilter<"AbMemoryStreamItem"> | Date | string | null
+    created_at?: DateTimeFilter<"AbMemoryStreamItem"> | Date | string
+    updated_at?: DateTimeFilter<"AbMemoryStreamItem"> | Date | string
+  }, "id">
+
+  export type AbMemoryStreamItemOrderByWithAggregationInput = {
+    id?: SortOrder
+    namespace?: SortOrder
+    arm?: SortOrder
+    type?: SortOrder
+    subtype?: SortOrderInput | SortOrder
+    content?: SortOrder
+    retrieval_text?: SortOrderInput | SortOrder
+    embedding_text?: SortOrderInput | SortOrder
+    importance?: SortOrder
+    confidence?: SortOrder
+    status?: SortOrder
+    source_event_refs?: SortOrder
+    provenance?: SortOrder
+    ttl_expires_at?: SortOrderInput | SortOrder
+    fulfilled_at?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: AbMemoryStreamItemCountOrderByAggregateInput
+    _avg?: AbMemoryStreamItemAvgOrderByAggregateInput
+    _max?: AbMemoryStreamItemMaxOrderByAggregateInput
+    _min?: AbMemoryStreamItemMinOrderByAggregateInput
+    _sum?: AbMemoryStreamItemSumOrderByAggregateInput
+  }
+
+  export type AbMemoryStreamItemScalarWhereWithAggregatesInput = {
+    AND?: AbMemoryStreamItemScalarWhereWithAggregatesInput | AbMemoryStreamItemScalarWhereWithAggregatesInput[]
+    OR?: AbMemoryStreamItemScalarWhereWithAggregatesInput[]
+    NOT?: AbMemoryStreamItemScalarWhereWithAggregatesInput | AbMemoryStreamItemScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"AbMemoryStreamItem"> | string
+    namespace?: StringWithAggregatesFilter<"AbMemoryStreamItem"> | string
+    arm?: StringWithAggregatesFilter<"AbMemoryStreamItem"> | string
+    type?: StringWithAggregatesFilter<"AbMemoryStreamItem"> | string
+    subtype?: StringNullableWithAggregatesFilter<"AbMemoryStreamItem"> | string | null
+    content?: StringWithAggregatesFilter<"AbMemoryStreamItem"> | string
+    retrieval_text?: StringNullableWithAggregatesFilter<"AbMemoryStreamItem"> | string | null
+    embedding_text?: StringNullableWithAggregatesFilter<"AbMemoryStreamItem"> | string | null
+    importance?: FloatWithAggregatesFilter<"AbMemoryStreamItem"> | number
+    confidence?: FloatWithAggregatesFilter<"AbMemoryStreamItem"> | number
+    status?: StringWithAggregatesFilter<"AbMemoryStreamItem"> | string
+    source_event_refs?: JsonWithAggregatesFilter<"AbMemoryStreamItem">
+    provenance?: JsonWithAggregatesFilter<"AbMemoryStreamItem">
+    ttl_expires_at?: DateTimeNullableWithAggregatesFilter<"AbMemoryStreamItem"> | Date | string | null
+    fulfilled_at?: DateTimeNullableWithAggregatesFilter<"AbMemoryStreamItem"> | Date | string | null
+    created_at?: DateTimeWithAggregatesFilter<"AbMemoryStreamItem"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"AbMemoryStreamItem"> | Date | string
+  }
+
+  export type AbEvalResultWhereInput = {
+    AND?: AbEvalResultWhereInput | AbEvalResultWhereInput[]
+    OR?: AbEvalResultWhereInput[]
+    NOT?: AbEvalResultWhereInput | AbEvalResultWhereInput[]
+    id?: StringFilter<"AbEvalResult"> | string
+    snapshot_id?: StringFilter<"AbEvalResult"> | string
+    control_arm_run_id?: StringNullableFilter<"AbEvalResult"> | string | null
+    treatment_arm_run_id?: StringNullableFilter<"AbEvalResult"> | string | null
+    label?: StringFilter<"AbEvalResult"> | string
+    dimensions?: JsonFilter<"AbEvalResult">
+    reviewer_notes?: StringNullableFilter<"AbEvalResult"> | string | null
+    isolation_check?: JsonFilter<"AbEvalResult">
+    fixture_id?: StringNullableFilter<"AbEvalResult"> | string | null
+    created_at?: DateTimeFilter<"AbEvalResult"> | Date | string
+    updated_at?: DateTimeFilter<"AbEvalResult"> | Date | string
+    snapshot?: XOR<AbTurnSnapshotScalarRelationFilter, AbTurnSnapshotWhereInput>
+    control_arm_run?: XOR<AbArmRunNullableScalarRelationFilter, AbArmRunWhereInput> | null
+    treatment_arm_run?: XOR<AbArmRunNullableScalarRelationFilter, AbArmRunWhereInput> | null
+  }
+
+  export type AbEvalResultOrderByWithRelationInput = {
+    id?: SortOrder
+    snapshot_id?: SortOrder
+    control_arm_run_id?: SortOrderInput | SortOrder
+    treatment_arm_run_id?: SortOrderInput | SortOrder
+    label?: SortOrder
+    dimensions?: SortOrder
+    reviewer_notes?: SortOrderInput | SortOrder
+    isolation_check?: SortOrder
+    fixture_id?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    snapshot?: AbTurnSnapshotOrderByWithRelationInput
+    control_arm_run?: AbArmRunOrderByWithRelationInput
+    treatment_arm_run?: AbArmRunOrderByWithRelationInput
+  }
+
+  export type AbEvalResultWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    AND?: AbEvalResultWhereInput | AbEvalResultWhereInput[]
+    OR?: AbEvalResultWhereInput[]
+    NOT?: AbEvalResultWhereInput | AbEvalResultWhereInput[]
+    snapshot_id?: StringFilter<"AbEvalResult"> | string
+    control_arm_run_id?: StringNullableFilter<"AbEvalResult"> | string | null
+    treatment_arm_run_id?: StringNullableFilter<"AbEvalResult"> | string | null
+    label?: StringFilter<"AbEvalResult"> | string
+    dimensions?: JsonFilter<"AbEvalResult">
+    reviewer_notes?: StringNullableFilter<"AbEvalResult"> | string | null
+    isolation_check?: JsonFilter<"AbEvalResult">
+    fixture_id?: StringNullableFilter<"AbEvalResult"> | string | null
+    created_at?: DateTimeFilter<"AbEvalResult"> | Date | string
+    updated_at?: DateTimeFilter<"AbEvalResult"> | Date | string
+    snapshot?: XOR<AbTurnSnapshotScalarRelationFilter, AbTurnSnapshotWhereInput>
+    control_arm_run?: XOR<AbArmRunNullableScalarRelationFilter, AbArmRunWhereInput> | null
+    treatment_arm_run?: XOR<AbArmRunNullableScalarRelationFilter, AbArmRunWhereInput> | null
+  }, "id">
+
+  export type AbEvalResultOrderByWithAggregationInput = {
+    id?: SortOrder
+    snapshot_id?: SortOrder
+    control_arm_run_id?: SortOrderInput | SortOrder
+    treatment_arm_run_id?: SortOrderInput | SortOrder
+    label?: SortOrder
+    dimensions?: SortOrder
+    reviewer_notes?: SortOrderInput | SortOrder
+    isolation_check?: SortOrder
+    fixture_id?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: AbEvalResultCountOrderByAggregateInput
+    _max?: AbEvalResultMaxOrderByAggregateInput
+    _min?: AbEvalResultMinOrderByAggregateInput
+  }
+
+  export type AbEvalResultScalarWhereWithAggregatesInput = {
+    AND?: AbEvalResultScalarWhereWithAggregatesInput | AbEvalResultScalarWhereWithAggregatesInput[]
+    OR?: AbEvalResultScalarWhereWithAggregatesInput[]
+    NOT?: AbEvalResultScalarWhereWithAggregatesInput | AbEvalResultScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"AbEvalResult"> | string
+    snapshot_id?: StringWithAggregatesFilter<"AbEvalResult"> | string
+    control_arm_run_id?: StringNullableWithAggregatesFilter<"AbEvalResult"> | string | null
+    treatment_arm_run_id?: StringNullableWithAggregatesFilter<"AbEvalResult"> | string | null
+    label?: StringWithAggregatesFilter<"AbEvalResult"> | string
+    dimensions?: JsonWithAggregatesFilter<"AbEvalResult">
+    reviewer_notes?: StringNullableWithAggregatesFilter<"AbEvalResult"> | string | null
+    isolation_check?: JsonWithAggregatesFilter<"AbEvalResult">
+    fixture_id?: StringNullableWithAggregatesFilter<"AbEvalResult"> | string | null
+    created_at?: DateTimeWithAggregatesFilter<"AbEvalResult"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"AbEvalResult"> | Date | string
   }
 
   export type RelationshipLedgerEventWhereInput = {
@@ -51439,6 +57301,550 @@ export namespace Prisma {
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
+  export type AbTurnSnapshotCreateInput = {
+    id: string
+    source_key: string
+    trace_id?: string | null
+    run_id?: string | null
+    session_key?: string | null
+    chat_type?: string | null
+    peer_id?: string | null
+    sender_id?: string | null
+    queue_message_ids: JsonNullValueInput | InputJsonValue
+    provider_event_ids: JsonNullValueInput | InputJsonValue
+    scene: JsonNullValueInput | InputJsonValue
+    memory_stream_view: JsonNullValueInput | InputJsonValue
+    retrieval_policy: JsonNullValueInput | InputJsonValue
+    runtime_config: JsonNullValueInput | InputJsonValue
+    capture_status?: string
+    control_status?: string
+    treatment_status?: string
+    eval_status?: string
+    capture_error?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    arm_runs?: AbArmRunCreateNestedManyWithoutSnapshotInput
+    eval_results?: AbEvalResultCreateNestedManyWithoutSnapshotInput
+  }
+
+  export type AbTurnSnapshotUncheckedCreateInput = {
+    id: string
+    source_key: string
+    trace_id?: string | null
+    run_id?: string | null
+    session_key?: string | null
+    chat_type?: string | null
+    peer_id?: string | null
+    sender_id?: string | null
+    queue_message_ids: JsonNullValueInput | InputJsonValue
+    provider_event_ids: JsonNullValueInput | InputJsonValue
+    scene: JsonNullValueInput | InputJsonValue
+    memory_stream_view: JsonNullValueInput | InputJsonValue
+    retrieval_policy: JsonNullValueInput | InputJsonValue
+    runtime_config: JsonNullValueInput | InputJsonValue
+    capture_status?: string
+    control_status?: string
+    treatment_status?: string
+    eval_status?: string
+    capture_error?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    arm_runs?: AbArmRunUncheckedCreateNestedManyWithoutSnapshotInput
+    eval_results?: AbEvalResultUncheckedCreateNestedManyWithoutSnapshotInput
+  }
+
+  export type AbTurnSnapshotUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source_key?: StringFieldUpdateOperationsInput | string
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: NullableStringFieldUpdateOperationsInput | string | null
+    chat_type?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    queue_message_ids?: JsonNullValueInput | InputJsonValue
+    provider_event_ids?: JsonNullValueInput | InputJsonValue
+    scene?: JsonNullValueInput | InputJsonValue
+    memory_stream_view?: JsonNullValueInput | InputJsonValue
+    retrieval_policy?: JsonNullValueInput | InputJsonValue
+    runtime_config?: JsonNullValueInput | InputJsonValue
+    capture_status?: StringFieldUpdateOperationsInput | string
+    control_status?: StringFieldUpdateOperationsInput | string
+    treatment_status?: StringFieldUpdateOperationsInput | string
+    eval_status?: StringFieldUpdateOperationsInput | string
+    capture_error?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    arm_runs?: AbArmRunUpdateManyWithoutSnapshotNestedInput
+    eval_results?: AbEvalResultUpdateManyWithoutSnapshotNestedInput
+  }
+
+  export type AbTurnSnapshotUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source_key?: StringFieldUpdateOperationsInput | string
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: NullableStringFieldUpdateOperationsInput | string | null
+    chat_type?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    queue_message_ids?: JsonNullValueInput | InputJsonValue
+    provider_event_ids?: JsonNullValueInput | InputJsonValue
+    scene?: JsonNullValueInput | InputJsonValue
+    memory_stream_view?: JsonNullValueInput | InputJsonValue
+    retrieval_policy?: JsonNullValueInput | InputJsonValue
+    runtime_config?: JsonNullValueInput | InputJsonValue
+    capture_status?: StringFieldUpdateOperationsInput | string
+    control_status?: StringFieldUpdateOperationsInput | string
+    treatment_status?: StringFieldUpdateOperationsInput | string
+    eval_status?: StringFieldUpdateOperationsInput | string
+    capture_error?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    arm_runs?: AbArmRunUncheckedUpdateManyWithoutSnapshotNestedInput
+    eval_results?: AbEvalResultUncheckedUpdateManyWithoutSnapshotNestedInput
+  }
+
+  export type AbTurnSnapshotCreateManyInput = {
+    id: string
+    source_key: string
+    trace_id?: string | null
+    run_id?: string | null
+    session_key?: string | null
+    chat_type?: string | null
+    peer_id?: string | null
+    sender_id?: string | null
+    queue_message_ids: JsonNullValueInput | InputJsonValue
+    provider_event_ids: JsonNullValueInput | InputJsonValue
+    scene: JsonNullValueInput | InputJsonValue
+    memory_stream_view: JsonNullValueInput | InputJsonValue
+    retrieval_policy: JsonNullValueInput | InputJsonValue
+    runtime_config: JsonNullValueInput | InputJsonValue
+    capture_status?: string
+    control_status?: string
+    treatment_status?: string
+    eval_status?: string
+    capture_error?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbTurnSnapshotUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source_key?: StringFieldUpdateOperationsInput | string
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: NullableStringFieldUpdateOperationsInput | string | null
+    chat_type?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    queue_message_ids?: JsonNullValueInput | InputJsonValue
+    provider_event_ids?: JsonNullValueInput | InputJsonValue
+    scene?: JsonNullValueInput | InputJsonValue
+    memory_stream_view?: JsonNullValueInput | InputJsonValue
+    retrieval_policy?: JsonNullValueInput | InputJsonValue
+    runtime_config?: JsonNullValueInput | InputJsonValue
+    capture_status?: StringFieldUpdateOperationsInput | string
+    control_status?: StringFieldUpdateOperationsInput | string
+    treatment_status?: StringFieldUpdateOperationsInput | string
+    eval_status?: StringFieldUpdateOperationsInput | string
+    capture_error?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbTurnSnapshotUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source_key?: StringFieldUpdateOperationsInput | string
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: NullableStringFieldUpdateOperationsInput | string | null
+    chat_type?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    queue_message_ids?: JsonNullValueInput | InputJsonValue
+    provider_event_ids?: JsonNullValueInput | InputJsonValue
+    scene?: JsonNullValueInput | InputJsonValue
+    memory_stream_view?: JsonNullValueInput | InputJsonValue
+    retrieval_policy?: JsonNullValueInput | InputJsonValue
+    runtime_config?: JsonNullValueInput | InputJsonValue
+    capture_status?: StringFieldUpdateOperationsInput | string
+    control_status?: StringFieldUpdateOperationsInput | string
+    treatment_status?: StringFieldUpdateOperationsInput | string
+    eval_status?: StringFieldUpdateOperationsInput | string
+    capture_error?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbArmRunCreateInput = {
+    id: string
+    arm: string
+    project_or_namespace?: string | null
+    runner_name?: string | null
+    model_name?: string | null
+    input_summary: JsonNullValueInput | InputJsonValue
+    output_artifact: JsonNullValueInput | InputJsonValue
+    memory_context: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    status?: string
+    created_at?: Date | string
+    updated_at?: Date | string
+    snapshot: AbTurnSnapshotCreateNestedOneWithoutArm_runsInput
+    control_eval_results?: AbEvalResultCreateNestedManyWithoutControl_arm_runInput
+    treatment_eval_results?: AbEvalResultCreateNestedManyWithoutTreatment_arm_runInput
+  }
+
+  export type AbArmRunUncheckedCreateInput = {
+    id: string
+    snapshot_id: string
+    arm: string
+    project_or_namespace?: string | null
+    runner_name?: string | null
+    model_name?: string | null
+    input_summary: JsonNullValueInput | InputJsonValue
+    output_artifact: JsonNullValueInput | InputJsonValue
+    memory_context: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    status?: string
+    created_at?: Date | string
+    updated_at?: Date | string
+    control_eval_results?: AbEvalResultUncheckedCreateNestedManyWithoutControl_arm_runInput
+    treatment_eval_results?: AbEvalResultUncheckedCreateNestedManyWithoutTreatment_arm_runInput
+  }
+
+  export type AbArmRunUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    project_or_namespace?: NullableStringFieldUpdateOperationsInput | string | null
+    runner_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    input_summary?: JsonNullValueInput | InputJsonValue
+    output_artifact?: JsonNullValueInput | InputJsonValue
+    memory_context?: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    snapshot?: AbTurnSnapshotUpdateOneRequiredWithoutArm_runsNestedInput
+    control_eval_results?: AbEvalResultUpdateManyWithoutControl_arm_runNestedInput
+    treatment_eval_results?: AbEvalResultUpdateManyWithoutTreatment_arm_runNestedInput
+  }
+
+  export type AbArmRunUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    snapshot_id?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    project_or_namespace?: NullableStringFieldUpdateOperationsInput | string | null
+    runner_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    input_summary?: JsonNullValueInput | InputJsonValue
+    output_artifact?: JsonNullValueInput | InputJsonValue
+    memory_context?: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    control_eval_results?: AbEvalResultUncheckedUpdateManyWithoutControl_arm_runNestedInput
+    treatment_eval_results?: AbEvalResultUncheckedUpdateManyWithoutTreatment_arm_runNestedInput
+  }
+
+  export type AbArmRunCreateManyInput = {
+    id: string
+    snapshot_id: string
+    arm: string
+    project_or_namespace?: string | null
+    runner_name?: string | null
+    model_name?: string | null
+    input_summary: JsonNullValueInput | InputJsonValue
+    output_artifact: JsonNullValueInput | InputJsonValue
+    memory_context: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    status?: string
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbArmRunUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    project_or_namespace?: NullableStringFieldUpdateOperationsInput | string | null
+    runner_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    input_summary?: JsonNullValueInput | InputJsonValue
+    output_artifact?: JsonNullValueInput | InputJsonValue
+    memory_context?: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbArmRunUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    snapshot_id?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    project_or_namespace?: NullableStringFieldUpdateOperationsInput | string | null
+    runner_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    input_summary?: JsonNullValueInput | InputJsonValue
+    output_artifact?: JsonNullValueInput | InputJsonValue
+    memory_context?: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbMemoryStreamItemCreateInput = {
+    id: string
+    namespace: string
+    arm: string
+    type: string
+    subtype?: string | null
+    content: string
+    retrieval_text?: string | null
+    embedding_text?: string | null
+    importance?: number
+    confidence?: number
+    status?: string
+    source_event_refs: JsonNullValueInput | InputJsonValue
+    provenance: JsonNullValueInput | InputJsonValue
+    ttl_expires_at?: Date | string | null
+    fulfilled_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbMemoryStreamItemUncheckedCreateInput = {
+    id: string
+    namespace: string
+    arm: string
+    type: string
+    subtype?: string | null
+    content: string
+    retrieval_text?: string | null
+    embedding_text?: string | null
+    importance?: number
+    confidence?: number
+    status?: string
+    source_event_refs: JsonNullValueInput | InputJsonValue
+    provenance: JsonNullValueInput | InputJsonValue
+    ttl_expires_at?: Date | string | null
+    fulfilled_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbMemoryStreamItemUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    namespace?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    type?: StringFieldUpdateOperationsInput | string
+    subtype?: NullableStringFieldUpdateOperationsInput | string | null
+    content?: StringFieldUpdateOperationsInput | string
+    retrieval_text?: NullableStringFieldUpdateOperationsInput | string | null
+    embedding_text?: NullableStringFieldUpdateOperationsInput | string | null
+    importance?: FloatFieldUpdateOperationsInput | number
+    confidence?: FloatFieldUpdateOperationsInput | number
+    status?: StringFieldUpdateOperationsInput | string
+    source_event_refs?: JsonNullValueInput | InputJsonValue
+    provenance?: JsonNullValueInput | InputJsonValue
+    ttl_expires_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    fulfilled_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbMemoryStreamItemUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    namespace?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    type?: StringFieldUpdateOperationsInput | string
+    subtype?: NullableStringFieldUpdateOperationsInput | string | null
+    content?: StringFieldUpdateOperationsInput | string
+    retrieval_text?: NullableStringFieldUpdateOperationsInput | string | null
+    embedding_text?: NullableStringFieldUpdateOperationsInput | string | null
+    importance?: FloatFieldUpdateOperationsInput | number
+    confidence?: FloatFieldUpdateOperationsInput | number
+    status?: StringFieldUpdateOperationsInput | string
+    source_event_refs?: JsonNullValueInput | InputJsonValue
+    provenance?: JsonNullValueInput | InputJsonValue
+    ttl_expires_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    fulfilled_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbMemoryStreamItemCreateManyInput = {
+    id: string
+    namespace: string
+    arm: string
+    type: string
+    subtype?: string | null
+    content: string
+    retrieval_text?: string | null
+    embedding_text?: string | null
+    importance?: number
+    confidence?: number
+    status?: string
+    source_event_refs: JsonNullValueInput | InputJsonValue
+    provenance: JsonNullValueInput | InputJsonValue
+    ttl_expires_at?: Date | string | null
+    fulfilled_at?: Date | string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbMemoryStreamItemUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    namespace?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    type?: StringFieldUpdateOperationsInput | string
+    subtype?: NullableStringFieldUpdateOperationsInput | string | null
+    content?: StringFieldUpdateOperationsInput | string
+    retrieval_text?: NullableStringFieldUpdateOperationsInput | string | null
+    embedding_text?: NullableStringFieldUpdateOperationsInput | string | null
+    importance?: FloatFieldUpdateOperationsInput | number
+    confidence?: FloatFieldUpdateOperationsInput | number
+    status?: StringFieldUpdateOperationsInput | string
+    source_event_refs?: JsonNullValueInput | InputJsonValue
+    provenance?: JsonNullValueInput | InputJsonValue
+    ttl_expires_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    fulfilled_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbMemoryStreamItemUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    namespace?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    type?: StringFieldUpdateOperationsInput | string
+    subtype?: NullableStringFieldUpdateOperationsInput | string | null
+    content?: StringFieldUpdateOperationsInput | string
+    retrieval_text?: NullableStringFieldUpdateOperationsInput | string | null
+    embedding_text?: NullableStringFieldUpdateOperationsInput | string | null
+    importance?: FloatFieldUpdateOperationsInput | number
+    confidence?: FloatFieldUpdateOperationsInput | number
+    status?: StringFieldUpdateOperationsInput | string
+    source_event_refs?: JsonNullValueInput | InputJsonValue
+    provenance?: JsonNullValueInput | InputJsonValue
+    ttl_expires_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    fulfilled_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbEvalResultCreateInput = {
+    id: string
+    label: string
+    dimensions: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: string | null
+    isolation_check: JsonNullValueInput | InputJsonValue
+    fixture_id?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    snapshot: AbTurnSnapshotCreateNestedOneWithoutEval_resultsInput
+    control_arm_run?: AbArmRunCreateNestedOneWithoutControl_eval_resultsInput
+    treatment_arm_run?: AbArmRunCreateNestedOneWithoutTreatment_eval_resultsInput
+  }
+
+  export type AbEvalResultUncheckedCreateInput = {
+    id: string
+    snapshot_id: string
+    control_arm_run_id?: string | null
+    treatment_arm_run_id?: string | null
+    label: string
+    dimensions: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: string | null
+    isolation_check: JsonNullValueInput | InputJsonValue
+    fixture_id?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbEvalResultUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    snapshot?: AbTurnSnapshotUpdateOneRequiredWithoutEval_resultsNestedInput
+    control_arm_run?: AbArmRunUpdateOneWithoutControl_eval_resultsNestedInput
+    treatment_arm_run?: AbArmRunUpdateOneWithoutTreatment_eval_resultsNestedInput
+  }
+
+  export type AbEvalResultUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    snapshot_id?: StringFieldUpdateOperationsInput | string
+    control_arm_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    treatment_arm_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbEvalResultCreateManyInput = {
+    id: string
+    snapshot_id: string
+    control_arm_run_id?: string | null
+    treatment_arm_run_id?: string | null
+    label: string
+    dimensions: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: string | null
+    isolation_check: JsonNullValueInput | InputJsonValue
+    fixture_id?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbEvalResultUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbEvalResultUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    snapshot_id?: StringFieldUpdateOperationsInput | string
+    control_arm_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    treatment_arm_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
   export type RelationshipLedgerEventCreateInput = {
     id?: bigint | number
     group_id?: bigint | number | null
@@ -55616,6 +62022,142 @@ export namespace Prisma {
     bytes?: SortOrder
   }
 
+  export type AbArmRunListRelationFilter = {
+    every?: AbArmRunWhereInput
+    some?: AbArmRunWhereInput
+    none?: AbArmRunWhereInput
+  }
+
+  export type AbEvalResultListRelationFilter = {
+    every?: AbEvalResultWhereInput
+    some?: AbEvalResultWhereInput
+    none?: AbEvalResultWhereInput
+  }
+
+  export type AbArmRunOrderByRelationAggregateInput = {
+    _count?: SortOrder
+  }
+
+  export type AbEvalResultOrderByRelationAggregateInput = {
+    _count?: SortOrder
+  }
+
+  export type AbTurnSnapshotCountOrderByAggregateInput = {
+    id?: SortOrder
+    source_key?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrder
+    sender_id?: SortOrder
+    queue_message_ids?: SortOrder
+    provider_event_ids?: SortOrder
+    scene?: SortOrder
+    memory_stream_view?: SortOrder
+    retrieval_policy?: SortOrder
+    runtime_config?: SortOrder
+    capture_status?: SortOrder
+    control_status?: SortOrder
+    treatment_status?: SortOrder
+    eval_status?: SortOrder
+    capture_error?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AbTurnSnapshotMaxOrderByAggregateInput = {
+    id?: SortOrder
+    source_key?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrder
+    sender_id?: SortOrder
+    capture_status?: SortOrder
+    control_status?: SortOrder
+    treatment_status?: SortOrder
+    eval_status?: SortOrder
+    capture_error?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AbTurnSnapshotMinOrderByAggregateInput = {
+    id?: SortOrder
+    source_key?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    session_key?: SortOrder
+    chat_type?: SortOrder
+    peer_id?: SortOrder
+    sender_id?: SortOrder
+    capture_status?: SortOrder
+    control_status?: SortOrder
+    treatment_status?: SortOrder
+    eval_status?: SortOrder
+    capture_error?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AbTurnSnapshotScalarRelationFilter = {
+    is?: AbTurnSnapshotWhereInput
+    isNot?: AbTurnSnapshotWhereInput
+  }
+
+  export type AbArmRunSnapshot_idArmCompoundUniqueInput = {
+    snapshot_id: string
+    arm: string
+  }
+
+  export type AbArmRunCountOrderByAggregateInput = {
+    id?: SortOrder
+    snapshot_id?: SortOrder
+    arm?: SortOrder
+    project_or_namespace?: SortOrder
+    runner_name?: SortOrder
+    model_name?: SortOrder
+    input_summary?: SortOrder
+    output_artifact?: SortOrder
+    memory_context?: SortOrder
+    failure?: SortOrder
+    started_at?: SortOrder
+    completed_at?: SortOrder
+    status?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AbArmRunMaxOrderByAggregateInput = {
+    id?: SortOrder
+    snapshot_id?: SortOrder
+    arm?: SortOrder
+    project_or_namespace?: SortOrder
+    runner_name?: SortOrder
+    model_name?: SortOrder
+    started_at?: SortOrder
+    completed_at?: SortOrder
+    status?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AbArmRunMinOrderByAggregateInput = {
+    id?: SortOrder
+    snapshot_id?: SortOrder
+    arm?: SortOrder
+    project_or_namespace?: SortOrder
+    runner_name?: SortOrder
+    model_name?: SortOrder
+    started_at?: SortOrder
+    completed_at?: SortOrder
+    status?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
   export type FloatFilter<$PrismaModel = never> = {
     equals?: number | FloatFieldRefInput<$PrismaModel>
     in?: number[] | ListFloatFieldRefInput<$PrismaModel>
@@ -55625,6 +62167,131 @@ export namespace Prisma {
     gt?: number | FloatFieldRefInput<$PrismaModel>
     gte?: number | FloatFieldRefInput<$PrismaModel>
     not?: NestedFloatFilter<$PrismaModel> | number
+  }
+
+  export type AbMemoryStreamItemCountOrderByAggregateInput = {
+    id?: SortOrder
+    namespace?: SortOrder
+    arm?: SortOrder
+    type?: SortOrder
+    subtype?: SortOrder
+    content?: SortOrder
+    retrieval_text?: SortOrder
+    embedding_text?: SortOrder
+    importance?: SortOrder
+    confidence?: SortOrder
+    status?: SortOrder
+    source_event_refs?: SortOrder
+    provenance?: SortOrder
+    ttl_expires_at?: SortOrder
+    fulfilled_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AbMemoryStreamItemAvgOrderByAggregateInput = {
+    importance?: SortOrder
+    confidence?: SortOrder
+  }
+
+  export type AbMemoryStreamItemMaxOrderByAggregateInput = {
+    id?: SortOrder
+    namespace?: SortOrder
+    arm?: SortOrder
+    type?: SortOrder
+    subtype?: SortOrder
+    content?: SortOrder
+    retrieval_text?: SortOrder
+    embedding_text?: SortOrder
+    importance?: SortOrder
+    confidence?: SortOrder
+    status?: SortOrder
+    ttl_expires_at?: SortOrder
+    fulfilled_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AbMemoryStreamItemMinOrderByAggregateInput = {
+    id?: SortOrder
+    namespace?: SortOrder
+    arm?: SortOrder
+    type?: SortOrder
+    subtype?: SortOrder
+    content?: SortOrder
+    retrieval_text?: SortOrder
+    embedding_text?: SortOrder
+    importance?: SortOrder
+    confidence?: SortOrder
+    status?: SortOrder
+    ttl_expires_at?: SortOrder
+    fulfilled_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AbMemoryStreamItemSumOrderByAggregateInput = {
+    importance?: SortOrder
+    confidence?: SortOrder
+  }
+
+  export type FloatWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel>
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatWithAggregatesFilter<$PrismaModel> | number
+    _count?: NestedIntFilter<$PrismaModel>
+    _avg?: NestedFloatFilter<$PrismaModel>
+    _sum?: NestedFloatFilter<$PrismaModel>
+    _min?: NestedFloatFilter<$PrismaModel>
+    _max?: NestedFloatFilter<$PrismaModel>
+  }
+
+  export type AbArmRunNullableScalarRelationFilter = {
+    is?: AbArmRunWhereInput | null
+    isNot?: AbArmRunWhereInput | null
+  }
+
+  export type AbEvalResultCountOrderByAggregateInput = {
+    id?: SortOrder
+    snapshot_id?: SortOrder
+    control_arm_run_id?: SortOrder
+    treatment_arm_run_id?: SortOrder
+    label?: SortOrder
+    dimensions?: SortOrder
+    reviewer_notes?: SortOrder
+    isolation_check?: SortOrder
+    fixture_id?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AbEvalResultMaxOrderByAggregateInput = {
+    id?: SortOrder
+    snapshot_id?: SortOrder
+    control_arm_run_id?: SortOrder
+    treatment_arm_run_id?: SortOrder
+    label?: SortOrder
+    reviewer_notes?: SortOrder
+    fixture_id?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AbEvalResultMinOrderByAggregateInput = {
+    id?: SortOrder
+    snapshot_id?: SortOrder
+    control_arm_run_id?: SortOrder
+    treatment_arm_run_id?: SortOrder
+    label?: SortOrder
+    reviewer_notes?: SortOrder
+    fixture_id?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
   }
 
   export type RelationshipLedgerEventCountOrderByAggregateInput = {
@@ -55680,22 +62347,6 @@ export namespace Prisma {
     group_id?: SortOrder
     target_user_id?: SortOrder
     event_weight?: SortOrder
-  }
-
-  export type FloatWithAggregatesFilter<$PrismaModel = never> = {
-    equals?: number | FloatFieldRefInput<$PrismaModel>
-    in?: number[] | ListFloatFieldRefInput<$PrismaModel>
-    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel>
-    lt?: number | FloatFieldRefInput<$PrismaModel>
-    lte?: number | FloatFieldRefInput<$PrismaModel>
-    gt?: number | FloatFieldRefInput<$PrismaModel>
-    gte?: number | FloatFieldRefInput<$PrismaModel>
-    not?: NestedFloatWithAggregatesFilter<$PrismaModel> | number
-    _count?: NestedIntFilter<$PrismaModel>
-    _avg?: NestedFloatFilter<$PrismaModel>
-    _sum?: NestedFloatFilter<$PrismaModel>
-    _min?: NestedFloatFilter<$PrismaModel>
-    _max?: NestedFloatFilter<$PrismaModel>
   }
 
   export type RelationshipMemoryJobCountOrderByAggregateInput = {
@@ -57345,12 +63996,240 @@ export namespace Prisma {
     update?: XOR<XOR<AgentTaskUpdateToOneWithWhereWithoutArtifactsInput, AgentTaskUpdateWithoutArtifactsInput>, AgentTaskUncheckedUpdateWithoutArtifactsInput>
   }
 
+  export type AbArmRunCreateNestedManyWithoutSnapshotInput = {
+    create?: XOR<AbArmRunCreateWithoutSnapshotInput, AbArmRunUncheckedCreateWithoutSnapshotInput> | AbArmRunCreateWithoutSnapshotInput[] | AbArmRunUncheckedCreateWithoutSnapshotInput[]
+    connectOrCreate?: AbArmRunCreateOrConnectWithoutSnapshotInput | AbArmRunCreateOrConnectWithoutSnapshotInput[]
+    createMany?: AbArmRunCreateManySnapshotInputEnvelope
+    connect?: AbArmRunWhereUniqueInput | AbArmRunWhereUniqueInput[]
+  }
+
+  export type AbEvalResultCreateNestedManyWithoutSnapshotInput = {
+    create?: XOR<AbEvalResultCreateWithoutSnapshotInput, AbEvalResultUncheckedCreateWithoutSnapshotInput> | AbEvalResultCreateWithoutSnapshotInput[] | AbEvalResultUncheckedCreateWithoutSnapshotInput[]
+    connectOrCreate?: AbEvalResultCreateOrConnectWithoutSnapshotInput | AbEvalResultCreateOrConnectWithoutSnapshotInput[]
+    createMany?: AbEvalResultCreateManySnapshotInputEnvelope
+    connect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+  }
+
+  export type AbArmRunUncheckedCreateNestedManyWithoutSnapshotInput = {
+    create?: XOR<AbArmRunCreateWithoutSnapshotInput, AbArmRunUncheckedCreateWithoutSnapshotInput> | AbArmRunCreateWithoutSnapshotInput[] | AbArmRunUncheckedCreateWithoutSnapshotInput[]
+    connectOrCreate?: AbArmRunCreateOrConnectWithoutSnapshotInput | AbArmRunCreateOrConnectWithoutSnapshotInput[]
+    createMany?: AbArmRunCreateManySnapshotInputEnvelope
+    connect?: AbArmRunWhereUniqueInput | AbArmRunWhereUniqueInput[]
+  }
+
+  export type AbEvalResultUncheckedCreateNestedManyWithoutSnapshotInput = {
+    create?: XOR<AbEvalResultCreateWithoutSnapshotInput, AbEvalResultUncheckedCreateWithoutSnapshotInput> | AbEvalResultCreateWithoutSnapshotInput[] | AbEvalResultUncheckedCreateWithoutSnapshotInput[]
+    connectOrCreate?: AbEvalResultCreateOrConnectWithoutSnapshotInput | AbEvalResultCreateOrConnectWithoutSnapshotInput[]
+    createMany?: AbEvalResultCreateManySnapshotInputEnvelope
+    connect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+  }
+
+  export type AbArmRunUpdateManyWithoutSnapshotNestedInput = {
+    create?: XOR<AbArmRunCreateWithoutSnapshotInput, AbArmRunUncheckedCreateWithoutSnapshotInput> | AbArmRunCreateWithoutSnapshotInput[] | AbArmRunUncheckedCreateWithoutSnapshotInput[]
+    connectOrCreate?: AbArmRunCreateOrConnectWithoutSnapshotInput | AbArmRunCreateOrConnectWithoutSnapshotInput[]
+    upsert?: AbArmRunUpsertWithWhereUniqueWithoutSnapshotInput | AbArmRunUpsertWithWhereUniqueWithoutSnapshotInput[]
+    createMany?: AbArmRunCreateManySnapshotInputEnvelope
+    set?: AbArmRunWhereUniqueInput | AbArmRunWhereUniqueInput[]
+    disconnect?: AbArmRunWhereUniqueInput | AbArmRunWhereUniqueInput[]
+    delete?: AbArmRunWhereUniqueInput | AbArmRunWhereUniqueInput[]
+    connect?: AbArmRunWhereUniqueInput | AbArmRunWhereUniqueInput[]
+    update?: AbArmRunUpdateWithWhereUniqueWithoutSnapshotInput | AbArmRunUpdateWithWhereUniqueWithoutSnapshotInput[]
+    updateMany?: AbArmRunUpdateManyWithWhereWithoutSnapshotInput | AbArmRunUpdateManyWithWhereWithoutSnapshotInput[]
+    deleteMany?: AbArmRunScalarWhereInput | AbArmRunScalarWhereInput[]
+  }
+
+  export type AbEvalResultUpdateManyWithoutSnapshotNestedInput = {
+    create?: XOR<AbEvalResultCreateWithoutSnapshotInput, AbEvalResultUncheckedCreateWithoutSnapshotInput> | AbEvalResultCreateWithoutSnapshotInput[] | AbEvalResultUncheckedCreateWithoutSnapshotInput[]
+    connectOrCreate?: AbEvalResultCreateOrConnectWithoutSnapshotInput | AbEvalResultCreateOrConnectWithoutSnapshotInput[]
+    upsert?: AbEvalResultUpsertWithWhereUniqueWithoutSnapshotInput | AbEvalResultUpsertWithWhereUniqueWithoutSnapshotInput[]
+    createMany?: AbEvalResultCreateManySnapshotInputEnvelope
+    set?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    disconnect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    delete?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    connect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    update?: AbEvalResultUpdateWithWhereUniqueWithoutSnapshotInput | AbEvalResultUpdateWithWhereUniqueWithoutSnapshotInput[]
+    updateMany?: AbEvalResultUpdateManyWithWhereWithoutSnapshotInput | AbEvalResultUpdateManyWithWhereWithoutSnapshotInput[]
+    deleteMany?: AbEvalResultScalarWhereInput | AbEvalResultScalarWhereInput[]
+  }
+
+  export type AbArmRunUncheckedUpdateManyWithoutSnapshotNestedInput = {
+    create?: XOR<AbArmRunCreateWithoutSnapshotInput, AbArmRunUncheckedCreateWithoutSnapshotInput> | AbArmRunCreateWithoutSnapshotInput[] | AbArmRunUncheckedCreateWithoutSnapshotInput[]
+    connectOrCreate?: AbArmRunCreateOrConnectWithoutSnapshotInput | AbArmRunCreateOrConnectWithoutSnapshotInput[]
+    upsert?: AbArmRunUpsertWithWhereUniqueWithoutSnapshotInput | AbArmRunUpsertWithWhereUniqueWithoutSnapshotInput[]
+    createMany?: AbArmRunCreateManySnapshotInputEnvelope
+    set?: AbArmRunWhereUniqueInput | AbArmRunWhereUniqueInput[]
+    disconnect?: AbArmRunWhereUniqueInput | AbArmRunWhereUniqueInput[]
+    delete?: AbArmRunWhereUniqueInput | AbArmRunWhereUniqueInput[]
+    connect?: AbArmRunWhereUniqueInput | AbArmRunWhereUniqueInput[]
+    update?: AbArmRunUpdateWithWhereUniqueWithoutSnapshotInput | AbArmRunUpdateWithWhereUniqueWithoutSnapshotInput[]
+    updateMany?: AbArmRunUpdateManyWithWhereWithoutSnapshotInput | AbArmRunUpdateManyWithWhereWithoutSnapshotInput[]
+    deleteMany?: AbArmRunScalarWhereInput | AbArmRunScalarWhereInput[]
+  }
+
+  export type AbEvalResultUncheckedUpdateManyWithoutSnapshotNestedInput = {
+    create?: XOR<AbEvalResultCreateWithoutSnapshotInput, AbEvalResultUncheckedCreateWithoutSnapshotInput> | AbEvalResultCreateWithoutSnapshotInput[] | AbEvalResultUncheckedCreateWithoutSnapshotInput[]
+    connectOrCreate?: AbEvalResultCreateOrConnectWithoutSnapshotInput | AbEvalResultCreateOrConnectWithoutSnapshotInput[]
+    upsert?: AbEvalResultUpsertWithWhereUniqueWithoutSnapshotInput | AbEvalResultUpsertWithWhereUniqueWithoutSnapshotInput[]
+    createMany?: AbEvalResultCreateManySnapshotInputEnvelope
+    set?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    disconnect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    delete?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    connect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    update?: AbEvalResultUpdateWithWhereUniqueWithoutSnapshotInput | AbEvalResultUpdateWithWhereUniqueWithoutSnapshotInput[]
+    updateMany?: AbEvalResultUpdateManyWithWhereWithoutSnapshotInput | AbEvalResultUpdateManyWithWhereWithoutSnapshotInput[]
+    deleteMany?: AbEvalResultScalarWhereInput | AbEvalResultScalarWhereInput[]
+  }
+
+  export type AbTurnSnapshotCreateNestedOneWithoutArm_runsInput = {
+    create?: XOR<AbTurnSnapshotCreateWithoutArm_runsInput, AbTurnSnapshotUncheckedCreateWithoutArm_runsInput>
+    connectOrCreate?: AbTurnSnapshotCreateOrConnectWithoutArm_runsInput
+    connect?: AbTurnSnapshotWhereUniqueInput
+  }
+
+  export type AbEvalResultCreateNestedManyWithoutControl_arm_runInput = {
+    create?: XOR<AbEvalResultCreateWithoutControl_arm_runInput, AbEvalResultUncheckedCreateWithoutControl_arm_runInput> | AbEvalResultCreateWithoutControl_arm_runInput[] | AbEvalResultUncheckedCreateWithoutControl_arm_runInput[]
+    connectOrCreate?: AbEvalResultCreateOrConnectWithoutControl_arm_runInput | AbEvalResultCreateOrConnectWithoutControl_arm_runInput[]
+    createMany?: AbEvalResultCreateManyControl_arm_runInputEnvelope
+    connect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+  }
+
+  export type AbEvalResultCreateNestedManyWithoutTreatment_arm_runInput = {
+    create?: XOR<AbEvalResultCreateWithoutTreatment_arm_runInput, AbEvalResultUncheckedCreateWithoutTreatment_arm_runInput> | AbEvalResultCreateWithoutTreatment_arm_runInput[] | AbEvalResultUncheckedCreateWithoutTreatment_arm_runInput[]
+    connectOrCreate?: AbEvalResultCreateOrConnectWithoutTreatment_arm_runInput | AbEvalResultCreateOrConnectWithoutTreatment_arm_runInput[]
+    createMany?: AbEvalResultCreateManyTreatment_arm_runInputEnvelope
+    connect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+  }
+
+  export type AbEvalResultUncheckedCreateNestedManyWithoutControl_arm_runInput = {
+    create?: XOR<AbEvalResultCreateWithoutControl_arm_runInput, AbEvalResultUncheckedCreateWithoutControl_arm_runInput> | AbEvalResultCreateWithoutControl_arm_runInput[] | AbEvalResultUncheckedCreateWithoutControl_arm_runInput[]
+    connectOrCreate?: AbEvalResultCreateOrConnectWithoutControl_arm_runInput | AbEvalResultCreateOrConnectWithoutControl_arm_runInput[]
+    createMany?: AbEvalResultCreateManyControl_arm_runInputEnvelope
+    connect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+  }
+
+  export type AbEvalResultUncheckedCreateNestedManyWithoutTreatment_arm_runInput = {
+    create?: XOR<AbEvalResultCreateWithoutTreatment_arm_runInput, AbEvalResultUncheckedCreateWithoutTreatment_arm_runInput> | AbEvalResultCreateWithoutTreatment_arm_runInput[] | AbEvalResultUncheckedCreateWithoutTreatment_arm_runInput[]
+    connectOrCreate?: AbEvalResultCreateOrConnectWithoutTreatment_arm_runInput | AbEvalResultCreateOrConnectWithoutTreatment_arm_runInput[]
+    createMany?: AbEvalResultCreateManyTreatment_arm_runInputEnvelope
+    connect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+  }
+
+  export type AbTurnSnapshotUpdateOneRequiredWithoutArm_runsNestedInput = {
+    create?: XOR<AbTurnSnapshotCreateWithoutArm_runsInput, AbTurnSnapshotUncheckedCreateWithoutArm_runsInput>
+    connectOrCreate?: AbTurnSnapshotCreateOrConnectWithoutArm_runsInput
+    upsert?: AbTurnSnapshotUpsertWithoutArm_runsInput
+    connect?: AbTurnSnapshotWhereUniqueInput
+    update?: XOR<XOR<AbTurnSnapshotUpdateToOneWithWhereWithoutArm_runsInput, AbTurnSnapshotUpdateWithoutArm_runsInput>, AbTurnSnapshotUncheckedUpdateWithoutArm_runsInput>
+  }
+
+  export type AbEvalResultUpdateManyWithoutControl_arm_runNestedInput = {
+    create?: XOR<AbEvalResultCreateWithoutControl_arm_runInput, AbEvalResultUncheckedCreateWithoutControl_arm_runInput> | AbEvalResultCreateWithoutControl_arm_runInput[] | AbEvalResultUncheckedCreateWithoutControl_arm_runInput[]
+    connectOrCreate?: AbEvalResultCreateOrConnectWithoutControl_arm_runInput | AbEvalResultCreateOrConnectWithoutControl_arm_runInput[]
+    upsert?: AbEvalResultUpsertWithWhereUniqueWithoutControl_arm_runInput | AbEvalResultUpsertWithWhereUniqueWithoutControl_arm_runInput[]
+    createMany?: AbEvalResultCreateManyControl_arm_runInputEnvelope
+    set?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    disconnect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    delete?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    connect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    update?: AbEvalResultUpdateWithWhereUniqueWithoutControl_arm_runInput | AbEvalResultUpdateWithWhereUniqueWithoutControl_arm_runInput[]
+    updateMany?: AbEvalResultUpdateManyWithWhereWithoutControl_arm_runInput | AbEvalResultUpdateManyWithWhereWithoutControl_arm_runInput[]
+    deleteMany?: AbEvalResultScalarWhereInput | AbEvalResultScalarWhereInput[]
+  }
+
+  export type AbEvalResultUpdateManyWithoutTreatment_arm_runNestedInput = {
+    create?: XOR<AbEvalResultCreateWithoutTreatment_arm_runInput, AbEvalResultUncheckedCreateWithoutTreatment_arm_runInput> | AbEvalResultCreateWithoutTreatment_arm_runInput[] | AbEvalResultUncheckedCreateWithoutTreatment_arm_runInput[]
+    connectOrCreate?: AbEvalResultCreateOrConnectWithoutTreatment_arm_runInput | AbEvalResultCreateOrConnectWithoutTreatment_arm_runInput[]
+    upsert?: AbEvalResultUpsertWithWhereUniqueWithoutTreatment_arm_runInput | AbEvalResultUpsertWithWhereUniqueWithoutTreatment_arm_runInput[]
+    createMany?: AbEvalResultCreateManyTreatment_arm_runInputEnvelope
+    set?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    disconnect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    delete?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    connect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    update?: AbEvalResultUpdateWithWhereUniqueWithoutTreatment_arm_runInput | AbEvalResultUpdateWithWhereUniqueWithoutTreatment_arm_runInput[]
+    updateMany?: AbEvalResultUpdateManyWithWhereWithoutTreatment_arm_runInput | AbEvalResultUpdateManyWithWhereWithoutTreatment_arm_runInput[]
+    deleteMany?: AbEvalResultScalarWhereInput | AbEvalResultScalarWhereInput[]
+  }
+
+  export type AbEvalResultUncheckedUpdateManyWithoutControl_arm_runNestedInput = {
+    create?: XOR<AbEvalResultCreateWithoutControl_arm_runInput, AbEvalResultUncheckedCreateWithoutControl_arm_runInput> | AbEvalResultCreateWithoutControl_arm_runInput[] | AbEvalResultUncheckedCreateWithoutControl_arm_runInput[]
+    connectOrCreate?: AbEvalResultCreateOrConnectWithoutControl_arm_runInput | AbEvalResultCreateOrConnectWithoutControl_arm_runInput[]
+    upsert?: AbEvalResultUpsertWithWhereUniqueWithoutControl_arm_runInput | AbEvalResultUpsertWithWhereUniqueWithoutControl_arm_runInput[]
+    createMany?: AbEvalResultCreateManyControl_arm_runInputEnvelope
+    set?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    disconnect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    delete?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    connect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    update?: AbEvalResultUpdateWithWhereUniqueWithoutControl_arm_runInput | AbEvalResultUpdateWithWhereUniqueWithoutControl_arm_runInput[]
+    updateMany?: AbEvalResultUpdateManyWithWhereWithoutControl_arm_runInput | AbEvalResultUpdateManyWithWhereWithoutControl_arm_runInput[]
+    deleteMany?: AbEvalResultScalarWhereInput | AbEvalResultScalarWhereInput[]
+  }
+
+  export type AbEvalResultUncheckedUpdateManyWithoutTreatment_arm_runNestedInput = {
+    create?: XOR<AbEvalResultCreateWithoutTreatment_arm_runInput, AbEvalResultUncheckedCreateWithoutTreatment_arm_runInput> | AbEvalResultCreateWithoutTreatment_arm_runInput[] | AbEvalResultUncheckedCreateWithoutTreatment_arm_runInput[]
+    connectOrCreate?: AbEvalResultCreateOrConnectWithoutTreatment_arm_runInput | AbEvalResultCreateOrConnectWithoutTreatment_arm_runInput[]
+    upsert?: AbEvalResultUpsertWithWhereUniqueWithoutTreatment_arm_runInput | AbEvalResultUpsertWithWhereUniqueWithoutTreatment_arm_runInput[]
+    createMany?: AbEvalResultCreateManyTreatment_arm_runInputEnvelope
+    set?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    disconnect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    delete?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    connect?: AbEvalResultWhereUniqueInput | AbEvalResultWhereUniqueInput[]
+    update?: AbEvalResultUpdateWithWhereUniqueWithoutTreatment_arm_runInput | AbEvalResultUpdateWithWhereUniqueWithoutTreatment_arm_runInput[]
+    updateMany?: AbEvalResultUpdateManyWithWhereWithoutTreatment_arm_runInput | AbEvalResultUpdateManyWithWhereWithoutTreatment_arm_runInput[]
+    deleteMany?: AbEvalResultScalarWhereInput | AbEvalResultScalarWhereInput[]
+  }
+
   export type FloatFieldUpdateOperationsInput = {
     set?: number
     increment?: number
     decrement?: number
     multiply?: number
     divide?: number
+  }
+
+  export type AbTurnSnapshotCreateNestedOneWithoutEval_resultsInput = {
+    create?: XOR<AbTurnSnapshotCreateWithoutEval_resultsInput, AbTurnSnapshotUncheckedCreateWithoutEval_resultsInput>
+    connectOrCreate?: AbTurnSnapshotCreateOrConnectWithoutEval_resultsInput
+    connect?: AbTurnSnapshotWhereUniqueInput
+  }
+
+  export type AbArmRunCreateNestedOneWithoutControl_eval_resultsInput = {
+    create?: XOR<AbArmRunCreateWithoutControl_eval_resultsInput, AbArmRunUncheckedCreateWithoutControl_eval_resultsInput>
+    connectOrCreate?: AbArmRunCreateOrConnectWithoutControl_eval_resultsInput
+    connect?: AbArmRunWhereUniqueInput
+  }
+
+  export type AbArmRunCreateNestedOneWithoutTreatment_eval_resultsInput = {
+    create?: XOR<AbArmRunCreateWithoutTreatment_eval_resultsInput, AbArmRunUncheckedCreateWithoutTreatment_eval_resultsInput>
+    connectOrCreate?: AbArmRunCreateOrConnectWithoutTreatment_eval_resultsInput
+    connect?: AbArmRunWhereUniqueInput
+  }
+
+  export type AbTurnSnapshotUpdateOneRequiredWithoutEval_resultsNestedInput = {
+    create?: XOR<AbTurnSnapshotCreateWithoutEval_resultsInput, AbTurnSnapshotUncheckedCreateWithoutEval_resultsInput>
+    connectOrCreate?: AbTurnSnapshotCreateOrConnectWithoutEval_resultsInput
+    upsert?: AbTurnSnapshotUpsertWithoutEval_resultsInput
+    connect?: AbTurnSnapshotWhereUniqueInput
+    update?: XOR<XOR<AbTurnSnapshotUpdateToOneWithWhereWithoutEval_resultsInput, AbTurnSnapshotUpdateWithoutEval_resultsInput>, AbTurnSnapshotUncheckedUpdateWithoutEval_resultsInput>
+  }
+
+  export type AbArmRunUpdateOneWithoutControl_eval_resultsNestedInput = {
+    create?: XOR<AbArmRunCreateWithoutControl_eval_resultsInput, AbArmRunUncheckedCreateWithoutControl_eval_resultsInput>
+    connectOrCreate?: AbArmRunCreateOrConnectWithoutControl_eval_resultsInput
+    upsert?: AbArmRunUpsertWithoutControl_eval_resultsInput
+    disconnect?: AbArmRunWhereInput | boolean
+    delete?: AbArmRunWhereInput | boolean
+    connect?: AbArmRunWhereUniqueInput
+    update?: XOR<XOR<AbArmRunUpdateToOneWithWhereWithoutControl_eval_resultsInput, AbArmRunUpdateWithoutControl_eval_resultsInput>, AbArmRunUncheckedUpdateWithoutControl_eval_resultsInput>
+  }
+
+  export type AbArmRunUpdateOneWithoutTreatment_eval_resultsNestedInput = {
+    create?: XOR<AbArmRunCreateWithoutTreatment_eval_resultsInput, AbArmRunUncheckedCreateWithoutTreatment_eval_resultsInput>
+    connectOrCreate?: AbArmRunCreateOrConnectWithoutTreatment_eval_resultsInput
+    upsert?: AbArmRunUpsertWithoutTreatment_eval_resultsInput
+    disconnect?: AbArmRunWhereInput | boolean
+    delete?: AbArmRunWhereInput | boolean
+    connect?: AbArmRunWhereUniqueInput
+    update?: XOR<XOR<AbArmRunUpdateToOneWithWhereWithoutTreatment_eval_resultsInput, AbArmRunUpdateWithoutTreatment_eval_resultsInput>, AbArmRunUncheckedUpdateWithoutTreatment_eval_resultsInput>
   }
 
   export type NestedBigIntFilter<$PrismaModel = never> = {
@@ -58217,6 +65096,680 @@ export namespace Prisma {
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
+  export type AbArmRunCreateWithoutSnapshotInput = {
+    id: string
+    arm: string
+    project_or_namespace?: string | null
+    runner_name?: string | null
+    model_name?: string | null
+    input_summary: JsonNullValueInput | InputJsonValue
+    output_artifact: JsonNullValueInput | InputJsonValue
+    memory_context: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    status?: string
+    created_at?: Date | string
+    updated_at?: Date | string
+    control_eval_results?: AbEvalResultCreateNestedManyWithoutControl_arm_runInput
+    treatment_eval_results?: AbEvalResultCreateNestedManyWithoutTreatment_arm_runInput
+  }
+
+  export type AbArmRunUncheckedCreateWithoutSnapshotInput = {
+    id: string
+    arm: string
+    project_or_namespace?: string | null
+    runner_name?: string | null
+    model_name?: string | null
+    input_summary: JsonNullValueInput | InputJsonValue
+    output_artifact: JsonNullValueInput | InputJsonValue
+    memory_context: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    status?: string
+    created_at?: Date | string
+    updated_at?: Date | string
+    control_eval_results?: AbEvalResultUncheckedCreateNestedManyWithoutControl_arm_runInput
+    treatment_eval_results?: AbEvalResultUncheckedCreateNestedManyWithoutTreatment_arm_runInput
+  }
+
+  export type AbArmRunCreateOrConnectWithoutSnapshotInput = {
+    where: AbArmRunWhereUniqueInput
+    create: XOR<AbArmRunCreateWithoutSnapshotInput, AbArmRunUncheckedCreateWithoutSnapshotInput>
+  }
+
+  export type AbArmRunCreateManySnapshotInputEnvelope = {
+    data: AbArmRunCreateManySnapshotInput | AbArmRunCreateManySnapshotInput[]
+    skipDuplicates?: boolean
+  }
+
+  export type AbEvalResultCreateWithoutSnapshotInput = {
+    id: string
+    label: string
+    dimensions: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: string | null
+    isolation_check: JsonNullValueInput | InputJsonValue
+    fixture_id?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    control_arm_run?: AbArmRunCreateNestedOneWithoutControl_eval_resultsInput
+    treatment_arm_run?: AbArmRunCreateNestedOneWithoutTreatment_eval_resultsInput
+  }
+
+  export type AbEvalResultUncheckedCreateWithoutSnapshotInput = {
+    id: string
+    control_arm_run_id?: string | null
+    treatment_arm_run_id?: string | null
+    label: string
+    dimensions: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: string | null
+    isolation_check: JsonNullValueInput | InputJsonValue
+    fixture_id?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbEvalResultCreateOrConnectWithoutSnapshotInput = {
+    where: AbEvalResultWhereUniqueInput
+    create: XOR<AbEvalResultCreateWithoutSnapshotInput, AbEvalResultUncheckedCreateWithoutSnapshotInput>
+  }
+
+  export type AbEvalResultCreateManySnapshotInputEnvelope = {
+    data: AbEvalResultCreateManySnapshotInput | AbEvalResultCreateManySnapshotInput[]
+    skipDuplicates?: boolean
+  }
+
+  export type AbArmRunUpsertWithWhereUniqueWithoutSnapshotInput = {
+    where: AbArmRunWhereUniqueInput
+    update: XOR<AbArmRunUpdateWithoutSnapshotInput, AbArmRunUncheckedUpdateWithoutSnapshotInput>
+    create: XOR<AbArmRunCreateWithoutSnapshotInput, AbArmRunUncheckedCreateWithoutSnapshotInput>
+  }
+
+  export type AbArmRunUpdateWithWhereUniqueWithoutSnapshotInput = {
+    where: AbArmRunWhereUniqueInput
+    data: XOR<AbArmRunUpdateWithoutSnapshotInput, AbArmRunUncheckedUpdateWithoutSnapshotInput>
+  }
+
+  export type AbArmRunUpdateManyWithWhereWithoutSnapshotInput = {
+    where: AbArmRunScalarWhereInput
+    data: XOR<AbArmRunUpdateManyMutationInput, AbArmRunUncheckedUpdateManyWithoutSnapshotInput>
+  }
+
+  export type AbArmRunScalarWhereInput = {
+    AND?: AbArmRunScalarWhereInput | AbArmRunScalarWhereInput[]
+    OR?: AbArmRunScalarWhereInput[]
+    NOT?: AbArmRunScalarWhereInput | AbArmRunScalarWhereInput[]
+    id?: StringFilter<"AbArmRun"> | string
+    snapshot_id?: StringFilter<"AbArmRun"> | string
+    arm?: StringFilter<"AbArmRun"> | string
+    project_or_namespace?: StringNullableFilter<"AbArmRun"> | string | null
+    runner_name?: StringNullableFilter<"AbArmRun"> | string | null
+    model_name?: StringNullableFilter<"AbArmRun"> | string | null
+    input_summary?: JsonFilter<"AbArmRun">
+    output_artifact?: JsonFilter<"AbArmRun">
+    memory_context?: JsonFilter<"AbArmRun">
+    failure?: JsonNullableFilter<"AbArmRun">
+    started_at?: DateTimeNullableFilter<"AbArmRun"> | Date | string | null
+    completed_at?: DateTimeNullableFilter<"AbArmRun"> | Date | string | null
+    status?: StringFilter<"AbArmRun"> | string
+    created_at?: DateTimeFilter<"AbArmRun"> | Date | string
+    updated_at?: DateTimeFilter<"AbArmRun"> | Date | string
+  }
+
+  export type AbEvalResultUpsertWithWhereUniqueWithoutSnapshotInput = {
+    where: AbEvalResultWhereUniqueInput
+    update: XOR<AbEvalResultUpdateWithoutSnapshotInput, AbEvalResultUncheckedUpdateWithoutSnapshotInput>
+    create: XOR<AbEvalResultCreateWithoutSnapshotInput, AbEvalResultUncheckedCreateWithoutSnapshotInput>
+  }
+
+  export type AbEvalResultUpdateWithWhereUniqueWithoutSnapshotInput = {
+    where: AbEvalResultWhereUniqueInput
+    data: XOR<AbEvalResultUpdateWithoutSnapshotInput, AbEvalResultUncheckedUpdateWithoutSnapshotInput>
+  }
+
+  export type AbEvalResultUpdateManyWithWhereWithoutSnapshotInput = {
+    where: AbEvalResultScalarWhereInput
+    data: XOR<AbEvalResultUpdateManyMutationInput, AbEvalResultUncheckedUpdateManyWithoutSnapshotInput>
+  }
+
+  export type AbEvalResultScalarWhereInput = {
+    AND?: AbEvalResultScalarWhereInput | AbEvalResultScalarWhereInput[]
+    OR?: AbEvalResultScalarWhereInput[]
+    NOT?: AbEvalResultScalarWhereInput | AbEvalResultScalarWhereInput[]
+    id?: StringFilter<"AbEvalResult"> | string
+    snapshot_id?: StringFilter<"AbEvalResult"> | string
+    control_arm_run_id?: StringNullableFilter<"AbEvalResult"> | string | null
+    treatment_arm_run_id?: StringNullableFilter<"AbEvalResult"> | string | null
+    label?: StringFilter<"AbEvalResult"> | string
+    dimensions?: JsonFilter<"AbEvalResult">
+    reviewer_notes?: StringNullableFilter<"AbEvalResult"> | string | null
+    isolation_check?: JsonFilter<"AbEvalResult">
+    fixture_id?: StringNullableFilter<"AbEvalResult"> | string | null
+    created_at?: DateTimeFilter<"AbEvalResult"> | Date | string
+    updated_at?: DateTimeFilter<"AbEvalResult"> | Date | string
+  }
+
+  export type AbTurnSnapshotCreateWithoutArm_runsInput = {
+    id: string
+    source_key: string
+    trace_id?: string | null
+    run_id?: string | null
+    session_key?: string | null
+    chat_type?: string | null
+    peer_id?: string | null
+    sender_id?: string | null
+    queue_message_ids: JsonNullValueInput | InputJsonValue
+    provider_event_ids: JsonNullValueInput | InputJsonValue
+    scene: JsonNullValueInput | InputJsonValue
+    memory_stream_view: JsonNullValueInput | InputJsonValue
+    retrieval_policy: JsonNullValueInput | InputJsonValue
+    runtime_config: JsonNullValueInput | InputJsonValue
+    capture_status?: string
+    control_status?: string
+    treatment_status?: string
+    eval_status?: string
+    capture_error?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    eval_results?: AbEvalResultCreateNestedManyWithoutSnapshotInput
+  }
+
+  export type AbTurnSnapshotUncheckedCreateWithoutArm_runsInput = {
+    id: string
+    source_key: string
+    trace_id?: string | null
+    run_id?: string | null
+    session_key?: string | null
+    chat_type?: string | null
+    peer_id?: string | null
+    sender_id?: string | null
+    queue_message_ids: JsonNullValueInput | InputJsonValue
+    provider_event_ids: JsonNullValueInput | InputJsonValue
+    scene: JsonNullValueInput | InputJsonValue
+    memory_stream_view: JsonNullValueInput | InputJsonValue
+    retrieval_policy: JsonNullValueInput | InputJsonValue
+    runtime_config: JsonNullValueInput | InputJsonValue
+    capture_status?: string
+    control_status?: string
+    treatment_status?: string
+    eval_status?: string
+    capture_error?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    eval_results?: AbEvalResultUncheckedCreateNestedManyWithoutSnapshotInput
+  }
+
+  export type AbTurnSnapshotCreateOrConnectWithoutArm_runsInput = {
+    where: AbTurnSnapshotWhereUniqueInput
+    create: XOR<AbTurnSnapshotCreateWithoutArm_runsInput, AbTurnSnapshotUncheckedCreateWithoutArm_runsInput>
+  }
+
+  export type AbEvalResultCreateWithoutControl_arm_runInput = {
+    id: string
+    label: string
+    dimensions: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: string | null
+    isolation_check: JsonNullValueInput | InputJsonValue
+    fixture_id?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    snapshot: AbTurnSnapshotCreateNestedOneWithoutEval_resultsInput
+    treatment_arm_run?: AbArmRunCreateNestedOneWithoutTreatment_eval_resultsInput
+  }
+
+  export type AbEvalResultUncheckedCreateWithoutControl_arm_runInput = {
+    id: string
+    snapshot_id: string
+    treatment_arm_run_id?: string | null
+    label: string
+    dimensions: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: string | null
+    isolation_check: JsonNullValueInput | InputJsonValue
+    fixture_id?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbEvalResultCreateOrConnectWithoutControl_arm_runInput = {
+    where: AbEvalResultWhereUniqueInput
+    create: XOR<AbEvalResultCreateWithoutControl_arm_runInput, AbEvalResultUncheckedCreateWithoutControl_arm_runInput>
+  }
+
+  export type AbEvalResultCreateManyControl_arm_runInputEnvelope = {
+    data: AbEvalResultCreateManyControl_arm_runInput | AbEvalResultCreateManyControl_arm_runInput[]
+    skipDuplicates?: boolean
+  }
+
+  export type AbEvalResultCreateWithoutTreatment_arm_runInput = {
+    id: string
+    label: string
+    dimensions: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: string | null
+    isolation_check: JsonNullValueInput | InputJsonValue
+    fixture_id?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    snapshot: AbTurnSnapshotCreateNestedOneWithoutEval_resultsInput
+    control_arm_run?: AbArmRunCreateNestedOneWithoutControl_eval_resultsInput
+  }
+
+  export type AbEvalResultUncheckedCreateWithoutTreatment_arm_runInput = {
+    id: string
+    snapshot_id: string
+    control_arm_run_id?: string | null
+    label: string
+    dimensions: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: string | null
+    isolation_check: JsonNullValueInput | InputJsonValue
+    fixture_id?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbEvalResultCreateOrConnectWithoutTreatment_arm_runInput = {
+    where: AbEvalResultWhereUniqueInput
+    create: XOR<AbEvalResultCreateWithoutTreatment_arm_runInput, AbEvalResultUncheckedCreateWithoutTreatment_arm_runInput>
+  }
+
+  export type AbEvalResultCreateManyTreatment_arm_runInputEnvelope = {
+    data: AbEvalResultCreateManyTreatment_arm_runInput | AbEvalResultCreateManyTreatment_arm_runInput[]
+    skipDuplicates?: boolean
+  }
+
+  export type AbTurnSnapshotUpsertWithoutArm_runsInput = {
+    update: XOR<AbTurnSnapshotUpdateWithoutArm_runsInput, AbTurnSnapshotUncheckedUpdateWithoutArm_runsInput>
+    create: XOR<AbTurnSnapshotCreateWithoutArm_runsInput, AbTurnSnapshotUncheckedCreateWithoutArm_runsInput>
+    where?: AbTurnSnapshotWhereInput
+  }
+
+  export type AbTurnSnapshotUpdateToOneWithWhereWithoutArm_runsInput = {
+    where?: AbTurnSnapshotWhereInput
+    data: XOR<AbTurnSnapshotUpdateWithoutArm_runsInput, AbTurnSnapshotUncheckedUpdateWithoutArm_runsInput>
+  }
+
+  export type AbTurnSnapshotUpdateWithoutArm_runsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source_key?: StringFieldUpdateOperationsInput | string
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: NullableStringFieldUpdateOperationsInput | string | null
+    chat_type?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    queue_message_ids?: JsonNullValueInput | InputJsonValue
+    provider_event_ids?: JsonNullValueInput | InputJsonValue
+    scene?: JsonNullValueInput | InputJsonValue
+    memory_stream_view?: JsonNullValueInput | InputJsonValue
+    retrieval_policy?: JsonNullValueInput | InputJsonValue
+    runtime_config?: JsonNullValueInput | InputJsonValue
+    capture_status?: StringFieldUpdateOperationsInput | string
+    control_status?: StringFieldUpdateOperationsInput | string
+    treatment_status?: StringFieldUpdateOperationsInput | string
+    eval_status?: StringFieldUpdateOperationsInput | string
+    capture_error?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    eval_results?: AbEvalResultUpdateManyWithoutSnapshotNestedInput
+  }
+
+  export type AbTurnSnapshotUncheckedUpdateWithoutArm_runsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source_key?: StringFieldUpdateOperationsInput | string
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: NullableStringFieldUpdateOperationsInput | string | null
+    chat_type?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    queue_message_ids?: JsonNullValueInput | InputJsonValue
+    provider_event_ids?: JsonNullValueInput | InputJsonValue
+    scene?: JsonNullValueInput | InputJsonValue
+    memory_stream_view?: JsonNullValueInput | InputJsonValue
+    retrieval_policy?: JsonNullValueInput | InputJsonValue
+    runtime_config?: JsonNullValueInput | InputJsonValue
+    capture_status?: StringFieldUpdateOperationsInput | string
+    control_status?: StringFieldUpdateOperationsInput | string
+    treatment_status?: StringFieldUpdateOperationsInput | string
+    eval_status?: StringFieldUpdateOperationsInput | string
+    capture_error?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    eval_results?: AbEvalResultUncheckedUpdateManyWithoutSnapshotNestedInput
+  }
+
+  export type AbEvalResultUpsertWithWhereUniqueWithoutControl_arm_runInput = {
+    where: AbEvalResultWhereUniqueInput
+    update: XOR<AbEvalResultUpdateWithoutControl_arm_runInput, AbEvalResultUncheckedUpdateWithoutControl_arm_runInput>
+    create: XOR<AbEvalResultCreateWithoutControl_arm_runInput, AbEvalResultUncheckedCreateWithoutControl_arm_runInput>
+  }
+
+  export type AbEvalResultUpdateWithWhereUniqueWithoutControl_arm_runInput = {
+    where: AbEvalResultWhereUniqueInput
+    data: XOR<AbEvalResultUpdateWithoutControl_arm_runInput, AbEvalResultUncheckedUpdateWithoutControl_arm_runInput>
+  }
+
+  export type AbEvalResultUpdateManyWithWhereWithoutControl_arm_runInput = {
+    where: AbEvalResultScalarWhereInput
+    data: XOR<AbEvalResultUpdateManyMutationInput, AbEvalResultUncheckedUpdateManyWithoutControl_arm_runInput>
+  }
+
+  export type AbEvalResultUpsertWithWhereUniqueWithoutTreatment_arm_runInput = {
+    where: AbEvalResultWhereUniqueInput
+    update: XOR<AbEvalResultUpdateWithoutTreatment_arm_runInput, AbEvalResultUncheckedUpdateWithoutTreatment_arm_runInput>
+    create: XOR<AbEvalResultCreateWithoutTreatment_arm_runInput, AbEvalResultUncheckedCreateWithoutTreatment_arm_runInput>
+  }
+
+  export type AbEvalResultUpdateWithWhereUniqueWithoutTreatment_arm_runInput = {
+    where: AbEvalResultWhereUniqueInput
+    data: XOR<AbEvalResultUpdateWithoutTreatment_arm_runInput, AbEvalResultUncheckedUpdateWithoutTreatment_arm_runInput>
+  }
+
+  export type AbEvalResultUpdateManyWithWhereWithoutTreatment_arm_runInput = {
+    where: AbEvalResultScalarWhereInput
+    data: XOR<AbEvalResultUpdateManyMutationInput, AbEvalResultUncheckedUpdateManyWithoutTreatment_arm_runInput>
+  }
+
+  export type AbTurnSnapshotCreateWithoutEval_resultsInput = {
+    id: string
+    source_key: string
+    trace_id?: string | null
+    run_id?: string | null
+    session_key?: string | null
+    chat_type?: string | null
+    peer_id?: string | null
+    sender_id?: string | null
+    queue_message_ids: JsonNullValueInput | InputJsonValue
+    provider_event_ids: JsonNullValueInput | InputJsonValue
+    scene: JsonNullValueInput | InputJsonValue
+    memory_stream_view: JsonNullValueInput | InputJsonValue
+    retrieval_policy: JsonNullValueInput | InputJsonValue
+    runtime_config: JsonNullValueInput | InputJsonValue
+    capture_status?: string
+    control_status?: string
+    treatment_status?: string
+    eval_status?: string
+    capture_error?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    arm_runs?: AbArmRunCreateNestedManyWithoutSnapshotInput
+  }
+
+  export type AbTurnSnapshotUncheckedCreateWithoutEval_resultsInput = {
+    id: string
+    source_key: string
+    trace_id?: string | null
+    run_id?: string | null
+    session_key?: string | null
+    chat_type?: string | null
+    peer_id?: string | null
+    sender_id?: string | null
+    queue_message_ids: JsonNullValueInput | InputJsonValue
+    provider_event_ids: JsonNullValueInput | InputJsonValue
+    scene: JsonNullValueInput | InputJsonValue
+    memory_stream_view: JsonNullValueInput | InputJsonValue
+    retrieval_policy: JsonNullValueInput | InputJsonValue
+    runtime_config: JsonNullValueInput | InputJsonValue
+    capture_status?: string
+    control_status?: string
+    treatment_status?: string
+    eval_status?: string
+    capture_error?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+    arm_runs?: AbArmRunUncheckedCreateNestedManyWithoutSnapshotInput
+  }
+
+  export type AbTurnSnapshotCreateOrConnectWithoutEval_resultsInput = {
+    where: AbTurnSnapshotWhereUniqueInput
+    create: XOR<AbTurnSnapshotCreateWithoutEval_resultsInput, AbTurnSnapshotUncheckedCreateWithoutEval_resultsInput>
+  }
+
+  export type AbArmRunCreateWithoutControl_eval_resultsInput = {
+    id: string
+    arm: string
+    project_or_namespace?: string | null
+    runner_name?: string | null
+    model_name?: string | null
+    input_summary: JsonNullValueInput | InputJsonValue
+    output_artifact: JsonNullValueInput | InputJsonValue
+    memory_context: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    status?: string
+    created_at?: Date | string
+    updated_at?: Date | string
+    snapshot: AbTurnSnapshotCreateNestedOneWithoutArm_runsInput
+    treatment_eval_results?: AbEvalResultCreateNestedManyWithoutTreatment_arm_runInput
+  }
+
+  export type AbArmRunUncheckedCreateWithoutControl_eval_resultsInput = {
+    id: string
+    snapshot_id: string
+    arm: string
+    project_or_namespace?: string | null
+    runner_name?: string | null
+    model_name?: string | null
+    input_summary: JsonNullValueInput | InputJsonValue
+    output_artifact: JsonNullValueInput | InputJsonValue
+    memory_context: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    status?: string
+    created_at?: Date | string
+    updated_at?: Date | string
+    treatment_eval_results?: AbEvalResultUncheckedCreateNestedManyWithoutTreatment_arm_runInput
+  }
+
+  export type AbArmRunCreateOrConnectWithoutControl_eval_resultsInput = {
+    where: AbArmRunWhereUniqueInput
+    create: XOR<AbArmRunCreateWithoutControl_eval_resultsInput, AbArmRunUncheckedCreateWithoutControl_eval_resultsInput>
+  }
+
+  export type AbArmRunCreateWithoutTreatment_eval_resultsInput = {
+    id: string
+    arm: string
+    project_or_namespace?: string | null
+    runner_name?: string | null
+    model_name?: string | null
+    input_summary: JsonNullValueInput | InputJsonValue
+    output_artifact: JsonNullValueInput | InputJsonValue
+    memory_context: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    status?: string
+    created_at?: Date | string
+    updated_at?: Date | string
+    snapshot: AbTurnSnapshotCreateNestedOneWithoutArm_runsInput
+    control_eval_results?: AbEvalResultCreateNestedManyWithoutControl_arm_runInput
+  }
+
+  export type AbArmRunUncheckedCreateWithoutTreatment_eval_resultsInput = {
+    id: string
+    snapshot_id: string
+    arm: string
+    project_or_namespace?: string | null
+    runner_name?: string | null
+    model_name?: string | null
+    input_summary: JsonNullValueInput | InputJsonValue
+    output_artifact: JsonNullValueInput | InputJsonValue
+    memory_context: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    status?: string
+    created_at?: Date | string
+    updated_at?: Date | string
+    control_eval_results?: AbEvalResultUncheckedCreateNestedManyWithoutControl_arm_runInput
+  }
+
+  export type AbArmRunCreateOrConnectWithoutTreatment_eval_resultsInput = {
+    where: AbArmRunWhereUniqueInput
+    create: XOR<AbArmRunCreateWithoutTreatment_eval_resultsInput, AbArmRunUncheckedCreateWithoutTreatment_eval_resultsInput>
+  }
+
+  export type AbTurnSnapshotUpsertWithoutEval_resultsInput = {
+    update: XOR<AbTurnSnapshotUpdateWithoutEval_resultsInput, AbTurnSnapshotUncheckedUpdateWithoutEval_resultsInput>
+    create: XOR<AbTurnSnapshotCreateWithoutEval_resultsInput, AbTurnSnapshotUncheckedCreateWithoutEval_resultsInput>
+    where?: AbTurnSnapshotWhereInput
+  }
+
+  export type AbTurnSnapshotUpdateToOneWithWhereWithoutEval_resultsInput = {
+    where?: AbTurnSnapshotWhereInput
+    data: XOR<AbTurnSnapshotUpdateWithoutEval_resultsInput, AbTurnSnapshotUncheckedUpdateWithoutEval_resultsInput>
+  }
+
+  export type AbTurnSnapshotUpdateWithoutEval_resultsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source_key?: StringFieldUpdateOperationsInput | string
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: NullableStringFieldUpdateOperationsInput | string | null
+    chat_type?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    queue_message_ids?: JsonNullValueInput | InputJsonValue
+    provider_event_ids?: JsonNullValueInput | InputJsonValue
+    scene?: JsonNullValueInput | InputJsonValue
+    memory_stream_view?: JsonNullValueInput | InputJsonValue
+    retrieval_policy?: JsonNullValueInput | InputJsonValue
+    runtime_config?: JsonNullValueInput | InputJsonValue
+    capture_status?: StringFieldUpdateOperationsInput | string
+    control_status?: StringFieldUpdateOperationsInput | string
+    treatment_status?: StringFieldUpdateOperationsInput | string
+    eval_status?: StringFieldUpdateOperationsInput | string
+    capture_error?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    arm_runs?: AbArmRunUpdateManyWithoutSnapshotNestedInput
+  }
+
+  export type AbTurnSnapshotUncheckedUpdateWithoutEval_resultsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    source_key?: StringFieldUpdateOperationsInput | string
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    session_key?: NullableStringFieldUpdateOperationsInput | string | null
+    chat_type?: NullableStringFieldUpdateOperationsInput | string | null
+    peer_id?: NullableStringFieldUpdateOperationsInput | string | null
+    sender_id?: NullableStringFieldUpdateOperationsInput | string | null
+    queue_message_ids?: JsonNullValueInput | InputJsonValue
+    provider_event_ids?: JsonNullValueInput | InputJsonValue
+    scene?: JsonNullValueInput | InputJsonValue
+    memory_stream_view?: JsonNullValueInput | InputJsonValue
+    retrieval_policy?: JsonNullValueInput | InputJsonValue
+    runtime_config?: JsonNullValueInput | InputJsonValue
+    capture_status?: StringFieldUpdateOperationsInput | string
+    control_status?: StringFieldUpdateOperationsInput | string
+    treatment_status?: StringFieldUpdateOperationsInput | string
+    eval_status?: StringFieldUpdateOperationsInput | string
+    capture_error?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    arm_runs?: AbArmRunUncheckedUpdateManyWithoutSnapshotNestedInput
+  }
+
+  export type AbArmRunUpsertWithoutControl_eval_resultsInput = {
+    update: XOR<AbArmRunUpdateWithoutControl_eval_resultsInput, AbArmRunUncheckedUpdateWithoutControl_eval_resultsInput>
+    create: XOR<AbArmRunCreateWithoutControl_eval_resultsInput, AbArmRunUncheckedCreateWithoutControl_eval_resultsInput>
+    where?: AbArmRunWhereInput
+  }
+
+  export type AbArmRunUpdateToOneWithWhereWithoutControl_eval_resultsInput = {
+    where?: AbArmRunWhereInput
+    data: XOR<AbArmRunUpdateWithoutControl_eval_resultsInput, AbArmRunUncheckedUpdateWithoutControl_eval_resultsInput>
+  }
+
+  export type AbArmRunUpdateWithoutControl_eval_resultsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    project_or_namespace?: NullableStringFieldUpdateOperationsInput | string | null
+    runner_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    input_summary?: JsonNullValueInput | InputJsonValue
+    output_artifact?: JsonNullValueInput | InputJsonValue
+    memory_context?: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    snapshot?: AbTurnSnapshotUpdateOneRequiredWithoutArm_runsNestedInput
+    treatment_eval_results?: AbEvalResultUpdateManyWithoutTreatment_arm_runNestedInput
+  }
+
+  export type AbArmRunUncheckedUpdateWithoutControl_eval_resultsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    snapshot_id?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    project_or_namespace?: NullableStringFieldUpdateOperationsInput | string | null
+    runner_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    input_summary?: JsonNullValueInput | InputJsonValue
+    output_artifact?: JsonNullValueInput | InputJsonValue
+    memory_context?: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    treatment_eval_results?: AbEvalResultUncheckedUpdateManyWithoutTreatment_arm_runNestedInput
+  }
+
+  export type AbArmRunUpsertWithoutTreatment_eval_resultsInput = {
+    update: XOR<AbArmRunUpdateWithoutTreatment_eval_resultsInput, AbArmRunUncheckedUpdateWithoutTreatment_eval_resultsInput>
+    create: XOR<AbArmRunCreateWithoutTreatment_eval_resultsInput, AbArmRunUncheckedCreateWithoutTreatment_eval_resultsInput>
+    where?: AbArmRunWhereInput
+  }
+
+  export type AbArmRunUpdateToOneWithWhereWithoutTreatment_eval_resultsInput = {
+    where?: AbArmRunWhereInput
+    data: XOR<AbArmRunUpdateWithoutTreatment_eval_resultsInput, AbArmRunUncheckedUpdateWithoutTreatment_eval_resultsInput>
+  }
+
+  export type AbArmRunUpdateWithoutTreatment_eval_resultsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    project_or_namespace?: NullableStringFieldUpdateOperationsInput | string | null
+    runner_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    input_summary?: JsonNullValueInput | InputJsonValue
+    output_artifact?: JsonNullValueInput | InputJsonValue
+    memory_context?: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    snapshot?: AbTurnSnapshotUpdateOneRequiredWithoutArm_runsNestedInput
+    control_eval_results?: AbEvalResultUpdateManyWithoutControl_arm_runNestedInput
+  }
+
+  export type AbArmRunUncheckedUpdateWithoutTreatment_eval_resultsInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    snapshot_id?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    project_or_namespace?: NullableStringFieldUpdateOperationsInput | string | null
+    runner_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    input_summary?: JsonNullValueInput | InputJsonValue
+    output_artifact?: JsonNullValueInput | InputJsonValue
+    memory_context?: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    control_eval_results?: AbEvalResultUncheckedUpdateManyWithoutControl_arm_runNestedInput
+  }
+
   export type ImageLabArtifactCreateManyRunInput = {
     id: string
     kind?: string
@@ -58371,6 +65924,234 @@ export namespace Prisma {
     revised_prompt?: NullableStringFieldUpdateOperationsInput | string | null
     metadata?: NullableJsonNullValueInput | InputJsonValue
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbArmRunCreateManySnapshotInput = {
+    id: string
+    arm: string
+    project_or_namespace?: string | null
+    runner_name?: string | null
+    model_name?: string | null
+    input_summary: JsonNullValueInput | InputJsonValue
+    output_artifact: JsonNullValueInput | InputJsonValue
+    memory_context: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: Date | string | null
+    completed_at?: Date | string | null
+    status?: string
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbEvalResultCreateManySnapshotInput = {
+    id: string
+    control_arm_run_id?: string | null
+    treatment_arm_run_id?: string | null
+    label: string
+    dimensions: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: string | null
+    isolation_check: JsonNullValueInput | InputJsonValue
+    fixture_id?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbArmRunUpdateWithoutSnapshotInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    project_or_namespace?: NullableStringFieldUpdateOperationsInput | string | null
+    runner_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    input_summary?: JsonNullValueInput | InputJsonValue
+    output_artifact?: JsonNullValueInput | InputJsonValue
+    memory_context?: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    control_eval_results?: AbEvalResultUpdateManyWithoutControl_arm_runNestedInput
+    treatment_eval_results?: AbEvalResultUpdateManyWithoutTreatment_arm_runNestedInput
+  }
+
+  export type AbArmRunUncheckedUpdateWithoutSnapshotInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    project_or_namespace?: NullableStringFieldUpdateOperationsInput | string | null
+    runner_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    input_summary?: JsonNullValueInput | InputJsonValue
+    output_artifact?: JsonNullValueInput | InputJsonValue
+    memory_context?: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    control_eval_results?: AbEvalResultUncheckedUpdateManyWithoutControl_arm_runNestedInput
+    treatment_eval_results?: AbEvalResultUncheckedUpdateManyWithoutTreatment_arm_runNestedInput
+  }
+
+  export type AbArmRunUncheckedUpdateManyWithoutSnapshotInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    arm?: StringFieldUpdateOperationsInput | string
+    project_or_namespace?: NullableStringFieldUpdateOperationsInput | string | null
+    runner_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    input_summary?: JsonNullValueInput | InputJsonValue
+    output_artifact?: JsonNullValueInput | InputJsonValue
+    memory_context?: JsonNullValueInput | InputJsonValue
+    failure?: NullableJsonNullValueInput | InputJsonValue
+    started_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    status?: StringFieldUpdateOperationsInput | string
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbEvalResultUpdateWithoutSnapshotInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    control_arm_run?: AbArmRunUpdateOneWithoutControl_eval_resultsNestedInput
+    treatment_arm_run?: AbArmRunUpdateOneWithoutTreatment_eval_resultsNestedInput
+  }
+
+  export type AbEvalResultUncheckedUpdateWithoutSnapshotInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    control_arm_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    treatment_arm_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbEvalResultUncheckedUpdateManyWithoutSnapshotInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    control_arm_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    treatment_arm_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbEvalResultCreateManyControl_arm_runInput = {
+    id: string
+    snapshot_id: string
+    treatment_arm_run_id?: string | null
+    label: string
+    dimensions: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: string | null
+    isolation_check: JsonNullValueInput | InputJsonValue
+    fixture_id?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbEvalResultCreateManyTreatment_arm_runInput = {
+    id: string
+    snapshot_id: string
+    control_arm_run_id?: string | null
+    label: string
+    dimensions: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: string | null
+    isolation_check: JsonNullValueInput | InputJsonValue
+    fixture_id?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AbEvalResultUpdateWithoutControl_arm_runInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    snapshot?: AbTurnSnapshotUpdateOneRequiredWithoutEval_resultsNestedInput
+    treatment_arm_run?: AbArmRunUpdateOneWithoutTreatment_eval_resultsNestedInput
+  }
+
+  export type AbEvalResultUncheckedUpdateWithoutControl_arm_runInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    snapshot_id?: StringFieldUpdateOperationsInput | string
+    treatment_arm_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbEvalResultUncheckedUpdateManyWithoutControl_arm_runInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    snapshot_id?: StringFieldUpdateOperationsInput | string
+    treatment_arm_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbEvalResultUpdateWithoutTreatment_arm_runInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    snapshot?: AbTurnSnapshotUpdateOneRequiredWithoutEval_resultsNestedInput
+    control_arm_run?: AbArmRunUpdateOneWithoutControl_eval_resultsNestedInput
+  }
+
+  export type AbEvalResultUncheckedUpdateWithoutTreatment_arm_runInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    snapshot_id?: StringFieldUpdateOperationsInput | string
+    control_arm_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AbEvalResultUncheckedUpdateManyWithoutTreatment_arm_runInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    snapshot_id?: StringFieldUpdateOperationsInput | string
+    control_arm_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    label?: StringFieldUpdateOperationsInput | string
+    dimensions?: JsonNullValueInput | InputJsonValue
+    reviewer_notes?: NullableStringFieldUpdateOperationsInput | string | null
+    isolation_check?: JsonNullValueInput | InputJsonValue
+    fixture_id?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
 

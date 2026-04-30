@@ -3,7 +3,10 @@ import {
   AgentRunDetail,
   AgentRunListItem,
   AgentRunSessionSummary,
+  AbTraceDetailDto,
+  AbTraceSummaryDto,
   ConversationTraceData,
+  PaginatedResponse,
   TraceSpanDetailData,
   SessionConversationItemRecord,
   SessionRelationshipMemoryData
@@ -45,10 +48,18 @@ export function useRunSessions(search: string) {
   });
 }
 
-export function useSessionRuns(sessionKey: string | null) {
-  return useQuery<AgentRunListItem[]>({
-    queryKey: ['session-runs', sessionKey],
-    queryFn: () => fetchJson<AgentRunListItem[]>(`/api/runs/sessions/${encodeURIComponent(sessionKey || '')}`),
+export function useSessionRuns(sessionKey: string | null, page = 1, limit = 30) {
+  return useQuery<PaginatedResponse<AgentRunListItem>>({
+    queryKey: ['session-runs', sessionKey, page, limit],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+      });
+      return fetchJson<PaginatedResponse<AgentRunListItem>>(
+        `/api/runs/sessions/${encodeURIComponent(sessionKey || '')}?${params.toString()}`
+      );
+    },
     enabled: Boolean(sessionKey),
     staleTime: 10000,
   });
@@ -78,6 +89,24 @@ export function useRunTrace(runId: string, autoRefreshEnabled = true) {
     queryFn: () => fetchJson<ConversationTraceData>(`/api/runs/${runId}/trace`),
     enabled: Boolean(runId),
     refetchInterval: autoRefreshEnabled ? 30000 : false,
+  });
+}
+
+export function useRunAbTraceSummaries(runId: string | null, autoRefreshEnabled = true) {
+  return useQuery<AbTraceSummaryDto[]>({
+    queryKey: ['run-ab-trace-summaries', runId],
+    queryFn: () => fetchJson<AbTraceSummaryDto[]>(`/api/runs/${runId}/ab-trace`),
+    enabled: Boolean(runId),
+    refetchInterval: autoRefreshEnabled ? 30000 : false,
+  });
+}
+
+export function useRunAbTraceDetail(runId: string | null, snapshotId: string | null) {
+  return useQuery<AbTraceDetailDto>({
+    queryKey: ['run-ab-trace-detail', runId, snapshotId],
+    queryFn: () => fetchJson<AbTraceDetailDto>(`/api/runs/${runId}/ab-trace/${encodeURIComponent(snapshotId || '')}/detail`),
+    enabled: Boolean(runId && snapshotId),
+    staleTime: 30000,
   });
 }
 

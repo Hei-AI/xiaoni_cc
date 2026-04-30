@@ -27,6 +27,7 @@ export interface NormalizedOAuthCredential {
   accountId?: string;
   projectId?: string;
   email?: string;
+  idToken?: string;
 }
 
 type LoadOAuthCredentialOptions = {
@@ -154,7 +155,8 @@ export async function persistOAuthCredential(
       ...(credential.expires ? { expires: credential.expires } : {}),
       ...(credential.accountId ? { accountId: credential.accountId } : {}),
       ...(credential.projectId ? { projectId: credential.projectId } : {}),
-      ...(credential.email ? { email: credential.email } : {})
+      ...(credential.email ? { email: credential.email } : {}),
+      ...(credential.idToken ? { idToken: credential.idToken } : {})
     };
   } else if (source.format === 'codex-auth') {
     payload.tokens = {
@@ -162,8 +164,11 @@ export async function persistOAuthCredential(
       ...(credential.access ? { access_token: credential.access } : {}),
       ...(credential.refresh ? { refresh_token: credential.refresh } : {}),
       ...(credential.expires ? { expires_at: credential.expires } : {}),
-      ...(credential.accountId ? { account_id: credential.accountId } : {})
+      ...(credential.accountId ? { account_id: credential.accountId } : {}),
+      ...(credential.idToken ? { id_token: credential.idToken } : {})
     };
+    payload.auth_mode = 'chatgpt';
+    payload.OPENAI_API_KEY = null;
     payload.last_refresh = new Date().toISOString();
   } else if (source.format === 'gemini-cli-native') {
     payload = {
@@ -181,7 +186,8 @@ export async function persistOAuthCredential(
       ...(credential.expires ? { expires: credential.expires } : {}),
       ...(credential.accountId ? { accountId: credential.accountId } : {}),
       ...(credential.projectId ? { projectId: credential.projectId } : {}),
-      ...(credential.email ? { email: credential.email } : {})
+      ...(credential.email ? { email: credential.email } : {}),
+      ...(credential.idToken ? { idToken: credential.idToken } : {})
     };
   }
 
@@ -199,7 +205,8 @@ function normalizeCredentialRecord(input: any): NormalizedOAuthCredential {
     expires: normalizeExpiry(input.expires, input.expires_at, input.expiry, input.expiresAt, input.expiry_date),
     accountId: readString(input.accountId, input.account_id),
     projectId: readString(input.projectId, input.project_id),
-    email: readString(input.email)
+    email: readString(input.email),
+    idToken: readString(input.idToken, input.id_token)
   };
 }
 

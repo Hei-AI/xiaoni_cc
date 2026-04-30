@@ -77,11 +77,13 @@ function summarizeRunDecision(status: string, noReply?: boolean, reason?: string
 
 export const ConversationsPage: React.FC = () => {
   const navigate = useNavigate();
+  const runsPageSize = 30;
   const [searchTerm, setSearchTerm] = React.useState('');
   const [debouncedSearch, setDebouncedSearch] = React.useState('');
   const [selectedSessionKey, setSelectedSessionKey] = React.useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
+  const [runsPage, setRunsPage] = React.useState(1);
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(searchTerm), 300);
@@ -90,8 +92,9 @@ export const ConversationsPage: React.FC = () => {
 
   const sessionsQuery = useRunSessions(debouncedSearch);
   const sessions = sessionsQuery.data?.data || [];
-  const sessionRunsQuery = useSessionRuns(selectedSessionKey);
-  const runs = sessionRunsQuery.data || [];
+  const sessionRunsQuery = useSessionRuns(selectedSessionKey, runsPage, runsPageSize);
+  const runsPageData = sessionRunsQuery.data;
+  const runs = runsPageData?.items || [];
   const runDetailQuery = useRunDetail(selectedRunId, detailOpen);
   const selectedRun = runDetailQuery.data;
   const selectedSession = React.useMemo(
@@ -106,6 +109,7 @@ export const ConversationsPage: React.FC = () => {
   React.useEffect(() => {
     if (!sessions.length) {
       setSelectedSessionKey(null);
+      setRunsPage(1);
       setDetailOpen(false);
       return;
     }
@@ -113,6 +117,12 @@ export const ConversationsPage: React.FC = () => {
       setSelectedSessionKey(sessions[0].session_key);
     }
   }, [selectedSessionKey, sessions]);
+
+  React.useEffect(() => {
+    setRunsPage(1);
+    setSelectedRunId(null);
+    setDetailOpen(false);
+  }, [selectedSessionKey]);
 
   React.useEffect(() => {
     if (!runs.length) {
@@ -125,8 +135,21 @@ export const ConversationsPage: React.FC = () => {
     }
   }, [runs, selectedRunId]);
 
+  React.useEffect(() => {
+    if (!runsPageData) {
+      return;
+    }
+    if (runsPage > runsPageData.total_pages) {
+      setRunsPage(runsPageData.total_pages);
+    }
+  }, [runsPage, runsPageData]);
+
   const sessionsLoading = sessionsQuery.isLoading || sessionsQuery.isFetching;
   const runsLoading = sessionsLoading || sessionRunsQuery.isLoading || (Boolean(selectedSessionKey) && sessionRunsQuery.isFetching);
+  const totalRunPages = runsPageData?.total_pages || 1;
+  const totalRuns = runsPageData?.total || 0;
+  const pageStart = totalRuns === 0 ? 0 : (runsPage - 1) * runsPageSize + 1;
+  const pageEnd = totalRuns === 0 ? 0 : Math.min(totalRuns, (runsPage - 1) * runsPageSize + runs.length);
 
   const openRunDetail = React.useCallback((runId: string) => {
     setSelectedRunId(runId);
@@ -317,6 +340,19 @@ export const ConversationsPage: React.FC = () => {
             title="Runs"
             description="按时间扫每次处理结果。需要细节时再打开抽屉或 Trace。"
             contentClassName="pt-3"
+            action={!runsLoading && selectedSessionKey ? (
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setRunsPage((value) => Math.max(1, value - 1))} disabled={runsPage === 1}>
+                  上一页
+                </Button>
+                <StatusPill tone="info">
+                  {runsPage} / {totalRunPages}
+                </StatusPill>
+                <Button variant="outline" size="sm" onClick={() => setRunsPage((value) => Math.min(totalRunPages, value + 1))} disabled={runsPage >= totalRunPages}>
+                  下一页
+                </Button>
+              </div>
+            ) : undefined}
           >
             <div className="space-y-3">
               {sessionRunsQuery.error ? (
@@ -330,67 +366,73 @@ export const ConversationsPage: React.FC = () => {
               ) : runs.length === 0 ? (
                 <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无 runs" description="这个会话还没有 agent run。" />
               ) : (
-                runs.map((run) => {
-                  const isSelected = selectedRunId === run.id;
-                  return (
-                    <div
-                      key={run.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setSelectedRunId(run.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          setSelectedRunId(run.id);
-                        }
-                      }}
-                      className={cn(
-                        'rounded-3xl border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-primary/30',
-                        isSelected
-                          ? 'border-primary/60 bg-[linear-gradient(180deg,rgba(244,240,227,0.78),rgba(255,255,255,0.98))] shadow-sm'
-                          : 'border-border bg-card hover:bg-muted/30'
-                      )}
-                    >
-                      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="text-sm font-semibold text-foreground">{formatTimestamp(run.started_at || run.created_at)}</div>
-                            <StatusPill tone={toneForRun(run.status, run.no_reply)}>
-                              {formatStatusLabel(run.status, run.no_reply)}
-                            </StatusPill>
-                            {run.termination_reason ? <Badge variant="outline">{run.termination_reason}</Badge> : null}
+                <>
+                  <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                    <div>当前只加载这一页，避免首屏把整段历史一次性拉满。</div>
+                    <div>{pageStart}-{pageEnd} / {totalRuns}</div>
+                  </div>
+                  {runs.map((run) => {
+                    const isSelected = selectedRunId === run.id;
+                    return (
+                      <div
+                        key={run.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedRunId(run.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            setSelectedRunId(run.id);
+                          }
+                        }}
+                        className={cn(
+                          'rounded-3xl border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-primary/30',
+                          isSelected
+                            ? 'border-primary/60 bg-[linear-gradient(180deg,rgba(244,240,227,0.78),rgba(255,255,255,0.98))] shadow-sm'
+                            : 'border-border bg-card hover:bg-muted/30'
+                        )}
+                      >
+                        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-semibold text-foreground">{formatTimestamp(run.started_at || run.created_at)}</div>
+                              <StatusPill tone={toneForRun(run.status, run.no_reply)}>
+                                {formatStatusLabel(run.status, run.no_reply)}
+                              </StatusPill>
+                              {run.termination_reason ? <Badge variant="outline">{run.termination_reason}</Badge> : null}
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">{run.id}</div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <Badge variant="outline">{run.input_message_count} 条输入</Badge>
+                              <Badge variant="outline">{run.total_turns} turns</Badge>
+                              <Badge variant="outline">{run.llm_calls_count} 次 LLM</Badge>
+                              <Badge variant="outline">In {formatTokenCount(run.input_tokens_total)}</Badge>
+                              <Badge variant="outline">Out {formatTokenCount(run.output_tokens_total)}</Badge>
+                              <Badge variant="outline">Cache {formatTokenCount(run.cached_input_tokens_total)}</Badge>
+                            </div>
                           </div>
-                          <div className="mt-1 text-xs text-muted-foreground">{run.id}</div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Badge variant="outline">{run.input_message_count} 条输入</Badge>
-                            <Badge variant="outline">{run.total_turns} turns</Badge>
-                            <Badge variant="outline">{run.llm_calls_count} 次 LLM</Badge>
-                            <Badge variant="outline">In {formatTokenCount(run.input_tokens_total)}</Badge>
-                            <Badge variant="outline">Out {formatTokenCount(run.output_tokens_total)}</Badge>
-                            <Badge variant="outline">Cache {formatTokenCount(run.cached_input_tokens_total)}</Badge>
+                          <div className="flex flex-wrap gap-2 xl:justify-end">
+                            <Button variant={isSelected ? 'default' : 'outline'} size="sm" onClick={(event) => { event.stopPropagation(); setSelectedRunId(run.id); }}>
+                              {isSelected ? '当前 Run' : '设为当前'}
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={(event) => { event.stopPropagation(); openRunDetail(run.id); }}>
+                              <PanelRightOpen className="mr-2 h-4 w-4" />
+                              详情抽屉
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); navigate(`/runs/${run.id}/trace`); }}>
+                              Trace
+                              <ArrowRight className="ml-1 h-4 w-4" />
+                            </Button>
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-2 xl:justify-end">
-                          <Button variant={isSelected ? 'default' : 'outline'} size="sm" onClick={(event) => { event.stopPropagation(); setSelectedRunId(run.id); }}>
-                            {isSelected ? '当前 Run' : '设为当前'}
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={(event) => { event.stopPropagation(); openRunDetail(run.id); }}>
-                            <PanelRightOpen className="mr-2 h-4 w-4" />
-                            详情抽屉
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); navigate(`/runs/${run.id}/trace`); }}>
-                            Trace
-                            <ArrowRight className="ml-1 h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
 
-                      <div className="mt-4 text-sm leading-6 text-foreground/85">
-                        {run.final_response || run.finish_outcome || run.error_message || '未产生最终回复'}
+                        <div className="mt-4 text-sm leading-6 text-foreground/85">
+                          {run.final_response || run.finish_outcome || run.error_message || '未产生最终回复'}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                </>
               )}
             </div>
           </SectionPanel>

@@ -13,6 +13,7 @@ import {
   type OAuthCredentialSource
 } from './oauth-credentials';
 import { OpenAIProvider } from './openai-provider';
+import { codexAccountManager } from '../codex-account-manager';
 
 const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
@@ -128,12 +129,40 @@ export class CodexProvider extends OpenAIProvider {
       );
     } catch (error: any) {
       const status = error?.response?.status || error?.status;
+      const message = this.extractErrorMessage(error);
+      if (this.isQuotaExceededError(status, message)) {
+        const switched = await codexAccountManager.handleQuotaExceeded(accountId, message).catch(() => null);
+        if (switched?.switched) {
+          const nextResolved = await this.resolveCredential(false);
+          if (nextResolved.credential?.access && nextResolved.credential.access !== apiKey) {
+            this.codexLogger.warn('Retrying Codex request after active auth file switched to a backup account', {
+              previousAccountId: accountId,
+              nextAccountId: switched.nextAccountId
+            });
+            return await this.fetchAndAssembleCodexResponse(
+              baseUrl,
+              responsesPath,
+              payload,
+              nextResolved.credential.access,
+              this.extractAccountId(nextResolved.credential.access),
+              timeoutMs,
+              traceHeaders
+            );
+          }
+        }
+      }
       if (status !== 401 && status !== 403) {
+        if (accountId) {
+          await codexAccountManager.recordProviderEvent(accountId, 'error', message).catch(() => undefined);
+        }
         throw error;
       }
 
       const { credential } = await this.resolveCredential(true);
       if (!credential?.access || credential.access === apiKey) {
+        if (accountId) {
+          await codexAccountManager.recordProviderEvent(accountId, 'auth_error', message).catch(() => undefined);
+        }
         throw error;
       }
 
@@ -185,6 +214,10 @@ export class CodexProvider extends OpenAIProvider {
 
       if (!response.ok) {
         const errorData = await response.text().catch(() => '');
+        if (accountId) {
+          const eventKind = this.isQuotaExceededError(response.status, errorData) ? 'quota_exceeded' : 'error';
+          await codexAccountManager.recordProviderEvent(accountId, eventKind, errorData).catch(() => undefined);
+        }
         const error = new Error(
           `Codex API error (${response.status} ${response.statusText}): ${errorData}`
         ) as Error & {
@@ -203,7 +236,11 @@ export class CodexProvider extends OpenAIProvider {
       }
 
       const bodyText = await response.text();
-      return this.parseCodexSsePayload(bodyText);
+      const parsed = this.parseCodexSsePayload(bodyText);
+      if (accountId) {
+        await codexAccountManager.recordProviderEvent(accountId, 'success').catch(() => undefined);
+      }
+      return parsed;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -573,5 +610,25 @@ export class CodexProvider extends OpenAIProvider {
     } catch {
       return null;
     }
+  }
+
+  private isQuotaExceededError(status?: number, message?: string | null) {
+    if (status === 429) {
+      return true;
+    }
+    return /usage_limit_reached|too many requests|quota/i.test(message || '');
+  }
+
+  private extractErrorMessage(error: any) {
+    if (typeof error?.message === 'string' && error.message.trim()) {
+      return error.message;
+    }
+    if (typeof error?.response?.data?.error?.message === 'string') {
+      return error.response.data.error.message;
+    }
+    if (typeof error?.response?.data === 'string') {
+      return error.response.data;
+    }
+    return 'Codex request failed';
   }
 }

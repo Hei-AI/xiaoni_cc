@@ -2354,6 +2354,7 @@ export class AgentLoopService {
       historyCount = history.length;
 
       runtimePrompt = await this.promptResolver.resolveForQueueMessage(payload);
+      await this.ensureRuntimeIdentityRoot(payload, runtimePrompt);
       runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(payload);
       let loopContinuation: OpenResponseInputItem[] = [];
       budgetPlan = await this.buildContextBudgetPlan({
@@ -2886,6 +2887,47 @@ export class AgentLoopService {
         error: error instanceof Error ? error.message : String(error)
       });
       return [];
+    }
+  }
+
+  private async ensureRuntimeIdentityRoot(
+    queueMessage: QueueMessageRecord['payload'],
+    runtimePrompt: ResolvedAgentRuntimePrompt
+  ) {
+    const snapshot = typeof runtimePrompt.identityGenesisSnapshot === 'string'
+      ? runtimePrompt.identityGenesisSnapshot.trim()
+      : runtimePrompt.systemPrompt.trim();
+    if (!snapshot) {
+      return;
+    }
+
+    const ensureRoot = (this.store as RuntimeStore & {
+      ensureXiaoniIdentityRoot?: RuntimeStore['ensureXiaoniIdentityRoot'];
+    }).ensureXiaoniIdentityRoot;
+    if (typeof ensureRoot !== 'function') {
+      return;
+    }
+
+    try {
+      await ensureRoot.call(this.store, {
+        identityKey: XIAONI_IDENTITY_KEY,
+        sourcePromptId: runtimePrompt.promptId,
+        systemInstructionSnapshot: snapshot,
+        createdBy: 'agent-service',
+        metadata: {
+          prompt_name: runtimePrompt.promptName,
+          prompt_source: runtimePrompt.source,
+          trace_id: queueMessage.traceId,
+          run_id: queueMessage.runId,
+          canonical_identity_key: XIAONI_IDENTITY_KEY
+        }
+      });
+    } catch (error) {
+      moduleLogger.warn('Failed to ensure Xiaoni identity root', {
+        traceId: queueMessage.traceId,
+        promptId: runtimePrompt.promptId,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 

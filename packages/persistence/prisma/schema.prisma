@@ -325,6 +325,112 @@ model AgentTaskArtifact {
   @@map("agent_task_artifacts")
 }
 
+model AbTurnSnapshot {
+  id                 String         @id @db.VarChar(64)
+  source_key         String         @unique(map: "uniq_ab_turn_snapshots_source_key") @db.VarChar(191)
+  trace_id           String?        @db.VarChar(128)
+  run_id             String?        @db.VarChar(128)
+  session_key        String?        @db.VarChar(191)
+  chat_type          String?        @db.VarChar(16)
+  peer_id            String?        @db.VarChar(191)
+  sender_id          String?        @db.VarChar(191)
+  queue_message_ids  Json
+  provider_event_ids Json
+  scene              Json
+  memory_stream_view Json
+  retrieval_policy   Json
+  runtime_config     Json
+  capture_status     String         @default("created") @db.VarChar(32)
+  control_status     String         @default("pending") @db.VarChar(32)
+  treatment_status   String         @default("pending") @db.VarChar(32)
+  eval_status        String         @default("pending") @db.VarChar(32)
+  capture_error      String?
+  created_at         DateTime       @default(now()) @db.Timestamp(3)
+  updated_at         DateTime       @updatedAt @db.Timestamp(3)
+  arm_runs           AbArmRun[]
+  eval_results       AbEvalResult[]
+
+  @@index([trace_id], map: "idx_ab_turn_snapshots_trace")
+  @@index([run_id], map: "idx_ab_turn_snapshots_run")
+  @@index([session_key, created_at], map: "idx_ab_turn_snapshots_session_created")
+  @@index([treatment_status, created_at], map: "idx_ab_turn_snapshots_treatment_created")
+  @@map("ab_turn_snapshots")
+}
+
+model AbArmRun {
+  id                     String         @id @db.VarChar(64)
+  snapshot_id            String         @db.VarChar(64)
+  arm                    String         @db.VarChar(32)
+  project_or_namespace   String?        @db.VarChar(191)
+  runner_name            String?        @db.VarChar(191)
+  model_name             String?        @db.VarChar(191)
+  input_summary          Json
+  output_artifact        Json
+  memory_context         Json
+  failure                Json?
+  started_at             DateTime?      @db.Timestamp(3)
+  completed_at           DateTime?      @db.Timestamp(3)
+  status                 String         @default("pending") @db.VarChar(32)
+  created_at             DateTime       @default(now()) @db.Timestamp(3)
+  updated_at             DateTime       @updatedAt @db.Timestamp(3)
+  snapshot               AbTurnSnapshot @relation(fields: [snapshot_id], references: [id], onDelete: Cascade)
+  control_eval_results   AbEvalResult[] @relation("AbEvalControlArmRun")
+  treatment_eval_results AbEvalResult[] @relation("AbEvalTreatmentArmRun")
+
+  @@unique([snapshot_id, arm], map: "uniq_ab_arm_runs_snapshot_arm")
+  @@index([arm, status, created_at], map: "idx_ab_arm_runs_arm_status_created")
+  @@index([model_name, created_at], map: "idx_ab_arm_runs_model_created")
+  @@map("ab_arm_runs")
+}
+
+model AbMemoryStreamItem {
+  id                String    @id @db.VarChar(64)
+  namespace         String    @db.VarChar(191)
+  arm               String    @db.VarChar(32)
+  type              String    @db.VarChar(32)
+  subtype           String?   @db.VarChar(64)
+  content           String
+  retrieval_text    String?
+  embedding_text    String?
+  importance        Float     @default(0)
+  confidence        Float     @default(0)
+  status            String    @default("active") @db.VarChar(32)
+  source_event_refs Json
+  provenance        Json
+  ttl_expires_at    DateTime? @db.Timestamp(3)
+  fulfilled_at      DateTime? @db.Timestamp(3)
+  created_at        DateTime  @default(now()) @db.Timestamp(3)
+  updated_at        DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([namespace, type, status, updated_at], map: "idx_ab_memory_items_namespace_type_status_updated")
+  @@index([arm, namespace, type, status, updated_at], map: "idx_ab_memory_items_arm_namespace_type_status_updated")
+  @@index([namespace, ttl_expires_at], map: "idx_ab_memory_items_namespace_ttl")
+  @@index([namespace, subtype, updated_at], map: "idx_ab_memory_items_namespace_subtype_updated")
+  @@map("ab_memory_stream_items")
+}
+
+model AbEvalResult {
+  id                   String         @id @db.VarChar(64)
+  snapshot_id          String         @db.VarChar(64)
+  control_arm_run_id   String?        @db.VarChar(64)
+  treatment_arm_run_id String?        @db.VarChar(64)
+  label                String         @db.VarChar(32)
+  dimensions           Json
+  reviewer_notes       String?
+  isolation_check      Json
+  fixture_id           String?        @db.VarChar(191)
+  created_at           DateTime       @default(now()) @db.Timestamp(3)
+  updated_at           DateTime       @updatedAt @db.Timestamp(3)
+  snapshot             AbTurnSnapshot @relation(fields: [snapshot_id], references: [id], onDelete: Cascade)
+  control_arm_run      AbArmRun?      @relation("AbEvalControlArmRun", fields: [control_arm_run_id], references: [id], onDelete: SetNull)
+  treatment_arm_run    AbArmRun?      @relation("AbEvalTreatmentArmRun", fields: [treatment_arm_run_id], references: [id], onDelete: SetNull)
+
+  @@index([snapshot_id], map: "idx_ab_eval_results_snapshot")
+  @@index([label, created_at], map: "idx_ab_eval_results_label_created")
+  @@index([fixture_id], map: "idx_ab_eval_results_fixture")
+  @@map("ab_eval_results")
+}
+
 model RelationshipLedgerEvent {
   id                  BigInt    @id @default(autoincrement()) @db.BigInt
   group_id            BigInt?   @db.BigInt
