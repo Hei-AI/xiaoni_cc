@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Install mitmproxy CA certificate into the container trust store (idempotent)
 # Intended to run at container startup before applications begin outbound TLS traffic.
 #
@@ -7,9 +7,9 @@
 #   MITMPROXY_CA_NAME   - Target filename without extension (default: mitmproxy)
 #   SKIP_CA_INSTALL     - If set to 1, skip installation
 
-set -euo pipefail
+set -eu
 
-if [[ "${SKIP_CA_INSTALL:-0}" == "1" ]]; then
+if [ "${SKIP_CA_INSTALL:-0}" = "1" ]; then
   echo "[install-ca] SKIP_CA_INSTALL=1, skipping certificate installation"
   exit 0
 fi
@@ -19,7 +19,7 @@ CA_NAME="${MITMPROXY_CA_NAME:-mitmproxy}"
 TARGET_DIR="/usr/local/share/ca-certificates"
 TARGET_FILE="$TARGET_DIR/${CA_NAME}.crt"
 
-if [[ ! -f "$SRC" ]]; then
+if [ ! -f "$SRC" ]; then
   echo "[install-ca] Certificate not found at $SRC, skipping"
   exit 0
 fi

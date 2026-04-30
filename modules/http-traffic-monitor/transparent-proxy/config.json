@@ -7,5 +7,13 @@
   "log_level": "info",
   "fake_ip_range": "198.18.0.0/15",
   "enable_http2": true,
-  "enable_showhost": true
+  "enable_showhost": true,
+  "host_output_bypass_hosts": [
+    "developers.openai.com",
+    "ab.chatgpt.com"
+  ],
+  "ignore_hosts": [
+    "^developers\\.openai\\.com:443$",
+    "^ab\\.chatgpt\\.com:443$"
+  ]
 }

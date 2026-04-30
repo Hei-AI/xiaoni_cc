@@ -11,6 +11,7 @@ import subprocess
 import signal
 import time
 import json
+import socket
 from pathlib import Path
 from typing import Optional, List, Dict
 import click
@@ -38,7 +39,8 @@ DEFAULT_CONFIG = {
     "enable_http2": True,
     "enable_showhost": True,
     "enable_host_output_intercept": True,
-    "host_output_uid": os.getuid()
+    "host_output_uid": os.getuid(),
+    "host_output_bypass_hosts": []
 }
 
 
@@ -309,6 +311,11 @@ class MitmproxyManager:
         if self.config.get("enable_http2", True):
             base_cmd.extend(["--set", "http2=true"])
 
+        ignore_hosts = self.config.get("ignore_hosts", [])
+        for pattern in ignore_hosts:
+            if pattern:
+                base_cmd.extend(["--ignore-hosts", str(pattern)])
+
         # 添加上游代理配置
         if upstream_proxy:
             base_cmd.extend(["--set", f"upstream_http={upstream_proxy}"])
@@ -436,6 +443,7 @@ class MitmproxyManager:
         sudo_pwd = self.config['sudo_password']
         host_output_uid = int(self.config.get('host_output_uid', os.getuid()))
         enable_host_output_intercept = bool(self.config.get('enable_host_output_intercept', True))
+        host_output_bypass_hosts = list(self.config.get('host_output_bypass_hosts', []))
 
         try:
             # 启用IP转发
@@ -455,6 +463,7 @@ class MitmproxyManager:
                  "-j", "REDIRECT", "--to-ports", str(listen_port)])
 
             if enable_host_output_intercept:
+                self._remove_host_output_bypass_rules(sudo_pwd, host_output_uid, host_output_bypass_hosts)
                 self._remove_iptables_rule(sudo_pwd, "nat", "OUTPUT",
                     ["-m", "owner", "--uid-owner", str(host_output_uid), "-m", "addrtype", "!", "--dst-type", "LOCAL",
                      "-p", "tcp", "--dport", "80", "-j", "REDIRECT", "--to-ports", str(listen_port)])
@@ -475,6 +484,7 @@ class MitmproxyManager:
                  "-j", "REDIRECT", "--to-ports", str(listen_port)])
 
             if enable_host_output_intercept:
+                self._add_host_output_bypass_rules(sudo_pwd, host_output_uid, host_output_bypass_hosts)
                 Colors.info(f"配置Host UID {host_output_uid} 的HTTP/HTTPS OUTPUT重定向...")
                 self._add_iptables_rule(sudo_pwd, "nat", "OUTPUT",
                     ["-m", "owner", "--uid-owner", str(host_output_uid), "-m", "addrtype", "!", "--dst-type", "LOCAL",
@@ -510,6 +520,7 @@ class MitmproxyManager:
         sudo_pwd = self.config['sudo_password']
         host_output_uid = int(self.config.get('host_output_uid', os.getuid()))
         enable_host_output_intercept = bool(self.config.get('enable_host_output_intercept', True))
+        host_output_bypass_hosts = list(self.config.get('host_output_bypass_hosts', []))
 
         try:
             # 清理旧网段残留规则，防止历史规则影响当前网络
@@ -530,6 +541,7 @@ class MitmproxyManager:
                  "-j", "REDIRECT", "--to-ports", str(listen_port)])
 
             if enable_host_output_intercept:
+                self._remove_host_output_bypass_rules(sudo_pwd, host_output_uid, host_output_bypass_hosts)
                 Colors.info(f"清理Host UID {host_output_uid} 的OUTPUT重定向规则...")
                 self._remove_iptables_rule(sudo_pwd, "nat", "OUTPUT",
                     ["-m", "owner", "--uid-owner", str(host_output_uid), "-m", "addrtype", "!", "--dst-type", "LOCAL",
@@ -582,6 +594,14 @@ class MitmproxyManager:
         else:
             Colors.info(f"规则已存在: iptables -t {table} -C {chain} {' '.join(rule)}")
 
+    def _insert_iptables_rule(self, password: str, table: str, chain: str, rule: List[str], position: int = 1):
+        """插入iptables规则（如果不存在）"""
+        if not self._check_iptables_rule(password, table, chain, rule):
+            self._sudo_run(password, ["iptables", "-t", table, "-I", chain, str(position)] + rule)
+            Colors.info(f"已插入规则: iptables -t {table} -I {chain} {position} {' '.join(rule)}")
+        else:
+            Colors.info(f"规则已存在: iptables -t {table} -C {chain} {' '.join(rule)}")
+
     def _remove_iptables_rule(self, password: str, table: str, chain: str, rule: List[str]):
         """删除iptables规则（如果存在）"""
         count = 0
@@ -591,6 +611,52 @@ class MitmproxyManager:
             count += 1
             if count > 10:
                 raise Exception("删除规则失败（循环次数过多）")
+
+    def _resolve_host_output_bypass_ips(self, host: str) -> List[str]:
+        try:
+            infos = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+        except OSError as error:
+            Colors.warn(f"无法解析Host OUTPUT bypass主机 {host}: {error}")
+            return []
+
+        ips: List[str] = []
+        seen = set()
+        for info in infos:
+            ip = info[4][0]
+            if ":" in ip or ip in seen:
+                continue
+            seen.add(ip)
+            ips.append(ip)
+        return ips
+
+    def _host_output_bypass_rule(self, host_output_uid: int, ip: str) -> List[str]:
+        return [
+            "-m", "owner", "--uid-owner", str(host_output_uid),
+            "-p", "tcp",
+            "-d", ip,
+            "--dport", "443",
+            "-j", "RETURN"
+        ]
+
+    def _add_host_output_bypass_rules(self, password: str, host_output_uid: int, hosts: List[str]):
+        if not hosts:
+            return
+        Colors.info(f"配置Host OUTPUT helper bypass: {', '.join(hosts)}")
+        for host in hosts:
+            ips = self._resolve_host_output_bypass_ips(host)
+            if not ips:
+                Colors.warn(f"Host OUTPUT bypass主机未解析到IPv4地址: {host}")
+                continue
+            for ip in ips:
+                self._insert_iptables_rule(password, "nat", "OUTPUT", self._host_output_bypass_rule(host_output_uid, ip), position=1)
+
+    def _remove_host_output_bypass_rules(self, password: str, host_output_uid: int, hosts: List[str]):
+        if not hosts:
+            return
+        for host in hosts:
+            ips = self._resolve_host_output_bypass_ips(host)
+            for ip in ips:
+                self._remove_iptables_rule(password, "nat", "OUTPUT", self._host_output_bypass_rule(host_output_uid, ip))
 
     def _cleanup_stale_redirect_rules(self, password: str, listen_port: int, current_cidr: Optional[str], chain: str):
         """清理旧网段残留的HTTP/HTTPS重定向规则"""

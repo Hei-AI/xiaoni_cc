@@ -64,6 +64,9 @@ COPY modules/provider-service/package.json modules/provider-service/package-lock
 COPY --from=prod-deps /app/packages/persistence /app/packages/persistence
 COPY --from=prod-deps /app/modules/provider-service/node_modules ./node_modules
 COPY --from=build /app/modules/provider-service/dist ./dist
+COPY modules/http-traffic-monitor/transparent-proxy/install-ca-from-volume.sh /usr/local/bin/install-ca-from-volume.sh
+COPY modules/provider-service/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/install-ca-from-volume.sh /app/docker-entrypoint.sh
 
 ENV NODE_ENV=production
 ENV HTTP_PORT=8091
@@ -74,4 +77,4 @@ EXPOSE 8090
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
   CMD node -e "const port=process.env.HTTP_PORT||'8091';fetch('http://127.0.0.1:' + port + '/health',{cache:'no-store'}).then(res=>{if(!res.ok){process.exit(1);}return res.text();}).then(()=>process.exit(0)).catch(()=>process.exit(1));"
 
-CMD ["node", "dist/index.js"]
+ENTRYPOINT ["/bin/sh", "/app/docker-entrypoint.sh"]

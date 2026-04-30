@@ -131,6 +131,56 @@ docker exec qqbot-provider-service curl https://www.google.com
 tail -f logs/qqbot-traffic/mitmproxy-*.log
 ```
 
+### Host Codex / MCP trust
+
+透明 MITM 不只影响容器，也可能影响宿主机上的 Codex CLI 和远端 MCP 连接。
+当 `openaiDeveloperDocs`、`codex_apps` 或其他 host-side Codex helper 在启动时出现
+TLS/MCP 告警时，先补 trust chain，不要先做粗暴绕过：
+
+```bash
+cd /home/liahua/IdeaProject/qq_bot
+scripts/codex-with-mitm-trust.sh mcp get openaiDeveloperDocs
+scripts/codex-with-mitm-trust.sh exec "Use openaiDeveloperDocs to summarize the Responses API."
+```
+
+这个 wrapper 会把 `~/.mitmproxy/mitmproxy-ca-cert.pem` 同时导出到
+`SSL_CERT_FILE`、`REQUESTS_CA_BUNDLE`、`CURL_CA_BUNDLE`、`GIT_SSL_CAINFO`、
+`NODE_EXTRA_CA_CERTS`。只有在确认 helper runtime 仍然不接受 CA 之后，才考虑
+最小范围 bypass，而且不能影响主 Codex 流量观测。
+
+如果 wrapper 仍然报 Codex websocket / MCP 证书错误，再检查是否发生了证书漂移：
+
+```bash
+scripts/check-mitmproxy-ca-drift.sh
+scripts/install-mitmproxy-ca-system.sh
+```
+
+典型症状是：
+
+- `node` / `curl` 直连 HTTPS 报 `unable to verify the first certificate`
+- `codex` 报 `invalid peer certificate: BadSignature`
+
+这通常不是“MITM 不可用”，而是系统信任库里保留了旧的 `mitmproxy.crt`，和当前
+`~/.mitmproxy/mitmproxy-ca-cert.pem` 已经不是同一张证书。
+
+当前这台机器的 helper-only bypass 也已经收口到
+`modules/http-traffic-monitor/transparent-proxy/config.json`：
+
+- `host_output_bypass_hosts`: 通过 Host OUTPUT 的 `RETURN` 规则绕过 MITM
+- `ignore_hosts`: 给 mitmproxy 额外一层 helper host 忽略提示
+
+默认只包含：
+
+- `developers.openai.com`
+- `ab.chatgpt.com`
+
+原因是这两个 host 与主 Codex `chatgpt.com/backend-api/codex/responses` 主链分离，
+可以安全跳过而不损失主 usage-limit / websocket 观测。
+
+不要把 `chatgpt.com` 整体加入 bypass。`codex_apps` 当前仍会对
+`https://chatgpt.com/backend-api/wham/apps` 报启动 warning，但它与主 Codex
+websocket 共用 host；如果在网络层直接豁免整个 `chatgpt.com`，会一起丢掉主链观测。
+
 ## 📊 日志格式
 
 ### JSONL流量日志
