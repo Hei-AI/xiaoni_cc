@@ -208,3 +208,53 @@ test('CodexAccountManager removes active account and clears projected auth when 
     global.fetch = originalFetch;
   }
 });
+
+test('CodexAccountManager syncs refreshed active credentials back into the managed account store', async () => {
+  const { manager, storeDir } = await createTempManager();
+  const session = await manager.createLoginSession();
+  const originalFetch = global.fetch;
+  const initialAccess = makeJwt({
+    email: 'sync@example.com',
+    'https://api.openai.com/auth': {
+      chatgpt_account_id: 'acct_sync'
+    }
+  });
+
+  global.fetch = (async () => new Response(JSON.stringify({
+    access_token: initialAccess,
+    refresh_token: 'refresh_initial',
+    expires_in: 3600,
+    id_token: makeJwt({ email: 'sync@example.com' })
+  }), { status: 200 })) as typeof fetch;
+
+  try {
+    const created = await manager.completeLogin({
+      callbackUrl: `http://localhost:1455/auth/callback?code=code_sync&state=${session.state}`
+    });
+
+    const refreshedAccess = makeJwt({
+      email: 'sync@example.com',
+      'https://api.openai.com/auth': {
+        chatgpt_account_id: 'acct_sync'
+      }
+    });
+    const refreshedExpiry = Date.now() + 7200_000;
+
+    await manager.syncActiveCredential({
+      access: refreshedAccess,
+      refresh: 'refresh_updated',
+      expires: refreshedExpiry,
+      accountId: 'acct_sync'
+    });
+
+    const stored = JSON.parse(await fs.readFile(
+      path.join(storeDir, 'accounts', `${created.id}.json`),
+      'utf8'
+    ));
+    assert.equal(stored.access, refreshedAccess);
+    assert.equal(stored.refresh, 'refresh_updated');
+    assert.equal(stored.expires, refreshedExpiry);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

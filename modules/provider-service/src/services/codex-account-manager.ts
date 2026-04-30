@@ -10,7 +10,10 @@ import {
   extractCodexAccountId,
   refreshCodexOAuthCredential,
 } from './llm-provider/codex-oauth';
-import { persistOAuthCredential } from './llm-provider/oauth-credentials';
+import {
+  persistOAuthCredential,
+  type NormalizedOAuthCredential
+} from './llm-provider/oauth-credentials';
 import { codexRateLimitService } from './codex-rate-limit-service';
 
 type StoredCodexAccount = {
@@ -374,6 +377,53 @@ export class CodexAccountManager {
       await this.activateAccount(id);
     }
     return sanitizeAccount(account, await this.readActiveAccountId());
+  }
+
+  async syncActiveCredential(credential: NormalizedOAuthCredential) {
+    const activeAccountId = await this.readActiveAccountId();
+    if (!activeAccountId) {
+      return null;
+    }
+
+    const account = await this.readAccount(activeAccountId);
+    if (!account) {
+      return null;
+    }
+
+    let changed = false;
+
+    if (credential.access && credential.access !== account.access) {
+      account.access = credential.access;
+      changed = true;
+    }
+    if (credential.refresh && credential.refresh !== account.refresh) {
+      account.refresh = credential.refresh;
+      changed = true;
+    }
+    if (credential.expires && credential.expires !== account.expires) {
+      account.expires = credential.expires;
+      changed = true;
+    }
+    if (credential.accountId && credential.accountId !== account.accountId) {
+      account.accountId = credential.accountId;
+      changed = true;
+    }
+    if (credential.email && credential.email !== account.email) {
+      account.email = credential.email;
+      changed = true;
+    }
+    if (credential.idToken && credential.idToken !== account.idToken) {
+      account.idToken = credential.idToken;
+      changed = true;
+    }
+
+    if (!changed) {
+      return sanitizeAccount(account, activeAccountId);
+    }
+
+    account.updatedAt = new Date().toISOString();
+    await this.writeAccount(account);
+    return sanitizeAccount(account, activeAccountId);
   }
 
   async removeAccount(id: string) {

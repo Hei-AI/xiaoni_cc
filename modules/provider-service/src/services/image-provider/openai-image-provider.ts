@@ -1,4 +1,6 @@
 import { fetch, File, FormData } from 'undici';
+import os from 'os';
+import path from 'path';
 import { aiConfig } from '../../config';
 import { logger } from '../../utils/logger';
 import {
@@ -6,6 +8,7 @@ import {
   extractCodexAccountId,
   resolveCodexOAuthCredential
 } from '../llm-provider/codex-oauth';
+import { codexAccountManager } from '../codex-account-manager';
 import {
   ImageEditRequest,
   ImageGenerateRequest,
@@ -51,6 +54,8 @@ type CodexImageError = {
   message: string;
   code?: string;
 };
+
+const ACTIVE_CODEX_AUTH_PATH = path.join(os.homedir(), '.codex', 'auth.json');
 
 export class OpenAIImageProvider {
   private readonly openAiApiKey?: string;
@@ -422,12 +427,20 @@ export class OpenAIImageProvider {
       throw new ImageProviderError('Missing OPENAI_API_KEY for image provider', 503);
     }
 
-    const { credential } = await resolveCodexOAuthCredential(aiConfig, forceRefresh);
+    const { credential, source } = await resolveCodexOAuthCredential(aiConfig, forceRefresh);
     if (!credential?.access) {
       throw new ImageProviderError(
         'Missing image provider credentials. Provide OPENAI_API_KEY or Codex OAuth credentials at /root/.codex/auth.json.',
         503
       );
+    }
+
+    if (source?.format === 'codex-auth' && source.path === ACTIVE_CODEX_AUTH_PATH) {
+      await codexAccountManager.syncActiveCredential(credential).catch((error) => {
+        this.moduleLogger.warn('Failed to sync Codex image credential back to managed account store', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
     }
 
     return {

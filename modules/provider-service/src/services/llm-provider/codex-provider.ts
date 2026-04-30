@@ -18,6 +18,7 @@ import { codexAccountManager } from '../codex-account-manager';
 const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const CODEX_JWT_CLAIM_PATH = 'https://api.openai.com/auth';
+const ACTIVE_CODEX_AUTH_PATH = path.join(os.homedir(), '.codex', 'auth.json');
 
 export class CodexProvider extends OpenAIProvider {
   readonly id = 'codex' as const;
@@ -521,8 +522,10 @@ export class CodexProvider extends OpenAIProvider {
 
     const needsRefresh = forceRefresh || !credential.access || isOAuthCredentialExpired(credential);
     if (needsRefresh && credential.refresh) {
+      const refreshed = await this.refreshCredential(credential, resolved.source);
+      await this.syncManagedActiveCredential(refreshed, resolved.source);
       return {
-        credential: await this.refreshCredential(credential, resolved.source),
+        credential: refreshed,
         source: resolved.source
       };
     }
@@ -530,6 +533,8 @@ export class CodexProvider extends OpenAIProvider {
     if (!credential.accountId && credential.access) {
       credential.accountId = this.extractAccountId(credential.access) || undefined;
     }
+
+    await this.syncManagedActiveCredential(credential, resolved.source);
 
     return resolved;
   }
@@ -579,6 +584,21 @@ export class CodexProvider extends OpenAIProvider {
 
     await persistOAuthCredential(source, refreshed);
     return refreshed;
+  }
+
+  private async syncManagedActiveCredential(
+    credential: NormalizedOAuthCredential,
+    source?: OAuthCredentialSource
+  ) {
+    if (!source || source.format !== 'codex-auth' || source.path !== ACTIVE_CODEX_AUTH_PATH) {
+      return;
+    }
+
+    await codexAccountManager.syncActiveCredential(credential).catch((error) => {
+      this.codexLogger.warn('Failed to sync refreshed Codex credential back to managed account store', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
   }
 
   private extractAccountId(accessToken: string): string | null {
