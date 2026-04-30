@@ -36,7 +36,9 @@ DEFAULT_CONFIG = {
     "log_level": "info",
     "fake_ip_range": "198.18.0.0/15",
     "enable_http2": True,
-    "enable_showhost": True
+    "enable_showhost": True,
+    "enable_host_output_intercept": True,
+    "host_output_uid": os.getuid()
 }
 
 
@@ -83,6 +85,17 @@ class MitmproxyManager:
                 Colors.warn("使用默认配置")
                 return DEFAULT_CONFIG
         return DEFAULT_CONFIG
+
+    def get_runtime_home(self) -> Path:
+        """获取真实用户的HOME目录，即使mitmproxy以root运行。"""
+        sudo_user = os.environ.get('SUDO_USER')
+        if sudo_user:
+            try:
+                import pwd
+                return Path(pwd.getpwnam(sudo_user).pw_dir)
+            except Exception:
+                pass
+        return Path.home()
 
     def save_config(self):
         """保存配置到文件"""
@@ -234,15 +247,18 @@ class MitmproxyManager:
         proxy_host, proxy_port = self._parse_proxy_address(upstream_proxy)
 
         # 构建完整的环境变量
+        runtime_home = self.get_runtime_home()
         env = os.environ.copy()
         env.update({
-            "PATH": f"{Path.home()}/.local/bin:{env.get('PATH', '')}",
+            "PATH": f"{runtime_home}/.local/bin:{env.get('PATH', '')}",
             "MITMPROXY_DIR": str(self.mitmproxy_dir),
             "UPSTREAM_HTTP": upstream_proxy,
             "TRAFFIC_LOG_DIR": str(log_dir),
             "FAKE_IP_RANGE": self.config.get("fake_ip_range", "198.18.0.0/15"),
             "HTTP_PROXY": upstream_proxy,
             "HTTPS_PROXY": upstream_proxy,
+            "CODEX_POOL_STORE_DIR": str(runtime_home / ".qqbot-local" / "codex-accounts"),
+            "CODEX_ACTIVE_AUTH_PATH": str(runtime_home / ".codex" / "auth.json"),
         })
 
         # 添加解析后的代理地址（给addon.py使用）
@@ -266,17 +282,17 @@ class MitmproxyManager:
         # 查找mitmdump完整路径（支持sudo环境）
         mitmdump_path = self._find_mitmdump()
 
-        cmd = [
+        base_cmd = [
             mitmdump_path,
             "--mode", "transparent",
         ]
 
         # 可选参数 --showhost 必须在 --mode transparent 之后
         if self.config.get("enable_showhost", True):
-            cmd.append("--showhost")
+            base_cmd.append("--showhost")
 
         # 添加其余参数
-        cmd.extend([
+        base_cmd.extend([
             "--listen-host", "0.0.0.0",
             "--listen-port", str(listen_port),
             "--set", f"confdir={self.mitmproxy_dir}",
@@ -291,14 +307,16 @@ class MitmproxyManager:
         ])
 
         if self.config.get("enable_http2", True):
-            cmd.extend(["--set", "http2=true"])
+            base_cmd.extend(["--set", "http2=true"])
 
         # 添加上游代理配置
         if upstream_proxy:
-            cmd.extend(["--set", f"upstream_http={upstream_proxy}"])
-            cmd.extend(["--set", f"upstream_https={upstream_proxy}"])
+            base_cmd.extend(["--set", f"upstream_http={upstream_proxy}"])
+            base_cmd.extend(["--set", f"upstream_https={upstream_proxy}"])
 
-        Colors.info(f"启动命令: {' '.join(cmd[:5])}...")
+        cmd = ["sudo", "-S", "env"] + [f"{key}={value}" for key, value in env.items()] + base_cmd
+
+        Colors.info(f"启动命令: {' '.join(base_cmd[:5])} (via sudo root)...")
 
         try:
             if daemon:
@@ -307,20 +325,25 @@ class MitmproxyManager:
 
                 with open(log_file, 'w', encoding='utf-8') as log_f:
                     proc = subprocess.Popen(
-                        cmd, env=env,
+                        cmd,
+                        stdin=subprocess.PIPE,
                         stdout=log_f,
                         stderr=subprocess.STDOUT,
-                        start_new_session=True
+                        start_new_session=True,
+                        text=True
                     )
+                    proc.stdin.write(f"{self.config['sudo_password']}\n")
+                    proc.stdin.flush()
+                    proc.stdin.close()
 
                 # 保存PID
-                self.pid_file.write_text(str(proc.pid))
+                time.sleep(2)
+                pid = self.get_pid()
+                self.pid_file.write_text(str(pid or proc.pid))
 
                 # 等待启动
-                time.sleep(2)
-
                 if self.is_running():
-                    Colors.success(f"mitmproxy已启动, PID: {proc.pid}")
+                    Colors.success(f"mitmproxy已启动, PID: {pid or proc.pid}")
                     Colors.info(f"监听端口: {listen_port}")
                     Colors.info(f"日志目录: {log_dir}")
 
@@ -334,7 +357,7 @@ class MitmproxyManager:
                     return False
             else:
                 # 前台启动 - 直接显示输出
-                subprocess.run(cmd, env=env)
+                subprocess.run(cmd, input=f"{self.config['sudo_password']}\n", text=True)
                 return True
 
         except Exception as e:
@@ -411,13 +434,17 @@ class MitmproxyManager:
 
         listen_port = self.config['listen_port']
         sudo_pwd = self.config['sudo_password']
+        host_output_uid = int(self.config.get('host_output_uid', os.getuid()))
+        enable_host_output_intercept = bool(self.config.get('enable_host_output_intercept', True))
 
         try:
             # 启用IP转发
             self._sudo_run(sudo_pwd, ["sysctl", "-w", "net.ipv4.ip_forward=1"])
 
             # 清理旧网段残留规则，避免网段迁移后出现重复条目
-            self._cleanup_stale_redirect_rules(sudo_pwd, listen_port, cidr)
+            self._cleanup_stale_redirect_rules(sudo_pwd, listen_port, cidr, "PREROUTING")
+            if enable_host_output_intercept:
+                self._cleanup_stale_redirect_rules(sudo_pwd, listen_port, None, "OUTPUT")
 
             # 清理旧规则（如果存在）
             self._remove_iptables_rule(sudo_pwd, "nat", "PREROUTING",
@@ -426,6 +453,14 @@ class MitmproxyManager:
             self._remove_iptables_rule(sudo_pwd, "nat", "PREROUTING",
                 ["-s", cidr, "-p", "tcp", "--dport", "443",
                  "-j", "REDIRECT", "--to-ports", str(listen_port)])
+
+            if enable_host_output_intercept:
+                self._remove_iptables_rule(sudo_pwd, "nat", "OUTPUT",
+                    ["-m", "owner", "--uid-owner", str(host_output_uid), "-m", "addrtype", "!", "--dst-type", "LOCAL",
+                     "-p", "tcp", "--dport", "80", "-j", "REDIRECT", "--to-ports", str(listen_port)])
+                self._remove_iptables_rule(sudo_pwd, "nat", "OUTPUT",
+                    ["-m", "owner", "--uid-owner", str(host_output_uid), "-m", "addrtype", "!", "--dst-type", "LOCAL",
+                     "-p", "tcp", "--dport", "443", "-j", "REDIRECT", "--to-ports", str(listen_port)])
 
             # 添加HTTP重定向规则
             Colors.info("配置HTTP(80)流量重定向...")
@@ -438,6 +473,15 @@ class MitmproxyManager:
             self._add_iptables_rule(sudo_pwd, "nat", "PREROUTING",
                 ["-s", cidr, "-p", "tcp", "--dport", "443",
                  "-j", "REDIRECT", "--to-ports", str(listen_port)])
+
+            if enable_host_output_intercept:
+                Colors.info(f"配置Host UID {host_output_uid} 的HTTP/HTTPS OUTPUT重定向...")
+                self._add_iptables_rule(sudo_pwd, "nat", "OUTPUT",
+                    ["-m", "owner", "--uid-owner", str(host_output_uid), "-m", "addrtype", "!", "--dst-type", "LOCAL",
+                     "-p", "tcp", "--dport", "80", "-j", "REDIRECT", "--to-ports", str(listen_port)])
+                self._add_iptables_rule(sudo_pwd, "nat", "OUTPUT",
+                    ["-m", "owner", "--uid-owner", str(host_output_uid), "-m", "addrtype", "!", "--dst-type", "LOCAL",
+                     "-p", "tcp", "--dport", "443", "-j", "REDIRECT", "--to-ports", str(listen_port)])
 
             # 检查并添加MASQUERADE规则
             if not self._check_iptables_rule(sudo_pwd, "nat", "POSTROUTING",
@@ -464,10 +508,14 @@ class MitmproxyManager:
 
         listen_port = self.config['listen_port']
         sudo_pwd = self.config['sudo_password']
+        host_output_uid = int(self.config.get('host_output_uid', os.getuid()))
+        enable_host_output_intercept = bool(self.config.get('enable_host_output_intercept', True))
 
         try:
             # 清理旧网段残留规则，防止历史规则影响当前网络
-            self._cleanup_stale_redirect_rules(sudo_pwd, listen_port, cidr)
+            self._cleanup_stale_redirect_rules(sudo_pwd, listen_port, cidr, "PREROUTING")
+            if enable_host_output_intercept:
+                self._cleanup_stale_redirect_rules(sudo_pwd, listen_port, None, "OUTPUT")
 
             # 删除HTTP重定向规则
             Colors.info("清理HTTP(80)重定向规则...")
@@ -480,6 +528,15 @@ class MitmproxyManager:
             self._remove_iptables_rule(sudo_pwd, "nat", "PREROUTING",
                 ["-s", cidr, "-p", "tcp", "--dport", "443",
                  "-j", "REDIRECT", "--to-ports", str(listen_port)])
+
+            if enable_host_output_intercept:
+                Colors.info(f"清理Host UID {host_output_uid} 的OUTPUT重定向规则...")
+                self._remove_iptables_rule(sudo_pwd, "nat", "OUTPUT",
+                    ["-m", "owner", "--uid-owner", str(host_output_uid), "-m", "addrtype", "!", "--dst-type", "LOCAL",
+                     "-p", "tcp", "--dport", "80", "-j", "REDIRECT", "--to-ports", str(listen_port)])
+                self._remove_iptables_rule(sudo_pwd, "nat", "OUTPUT",
+                    ["-m", "owner", "--uid-owner", str(host_output_uid), "-m", "addrtype", "!", "--dst-type", "LOCAL",
+                     "-p", "tcp", "--dport", "443", "-j", "REDIRECT", "--to-ports", str(listen_port)])
 
             Colors.success("iptables规则已清理")
 
@@ -535,10 +592,10 @@ class MitmproxyManager:
             if count > 10:
                 raise Exception("删除规则失败（循环次数过多）")
 
-    def _cleanup_stale_redirect_rules(self, password: str, listen_port: int, current_cidr: Optional[str]):
+    def _cleanup_stale_redirect_rules(self, password: str, listen_port: int, current_cidr: Optional[str], chain: str):
         """清理旧网段残留的HTTP/HTTPS重定向规则"""
         try:
-            output = self._sudo_run(password, ["iptables", "-t", "nat", "-S", "PREROUTING"])
+            output = self._sudo_run(password, ["iptables", "-t", "nat", "-S", chain])
         except Exception as e:
             Colors.warn(f"无法读取iptables规则: {e}")
             return
@@ -548,7 +605,7 @@ class MitmproxyManager:
                 continue
 
             tokens = line.split()
-            if len(tokens) < 3 or tokens[0] != "-A" or tokens[1] != "PREROUTING":
+            if len(tokens) < 3 or tokens[0] != "-A" or tokens[1] != chain:
                 continue
 
             # 跳过当前CIDR对应的规则
@@ -564,8 +621,8 @@ class MitmproxyManager:
 
             rule_spec = tokens[2:]
             try:
-                self._sudo_run(password, ["iptables", "-t", "nat", "-D", "PREROUTING"] + rule_spec)
-                Colors.info(f"已清理过期规则: iptables -t nat -D PREROUTING {' '.join(rule_spec)}")
+                self._sudo_run(password, ["iptables", "-t", "nat", "-D", chain] + rule_spec)
+                Colors.info(f"已清理过期规则: iptables -t nat -D {chain} {' '.join(rule_spec)}")
             except Exception as err:
                 Colors.warn(f"删除旧规则失败: {err}")
 
@@ -589,8 +646,10 @@ class MitmproxyManager:
         cidr = self.get_docker_network_cidr()
         if cidr:
             click.echo(f"  网络CIDR: {cidr}")
-        click.echo(f"  上游代理: {self.get_upstream_proxy()}")
-        click.echo(f"  数据目录: {self.mitmproxy_dir}")
+            click.echo(f"  上游代理: {self.get_upstream_proxy()}")
+            click.echo(f"  数据目录: {self.mitmproxy_dir}")
+            click.echo(f"  Host OUTPUT拦截: {'开启' if self.config.get('enable_host_output_intercept', True) else '关闭'}")
+            click.echo(f"  Host OUTPUT UID: {self.config.get('host_output_uid', os.getuid())}")
 
         # iptables状态
         cidr = self.get_docker_network_cidr()
@@ -605,9 +664,17 @@ class MitmproxyManager:
             https_exists = self._check_iptables_rule(sudo_pwd, "nat", "PREROUTING",
                 ["-s", cidr, "-p", "tcp", "--dport", "443",
                  "-j", "REDIRECT", "--to-ports", str(listen_port)])
+            host_http_exists = self._check_iptables_rule(sudo_pwd, "nat", "OUTPUT",
+                ["-m", "owner", "--uid-owner", str(self.config.get('host_output_uid', os.getuid())), "-m", "addrtype", "!", "--dst-type", "LOCAL",
+                 "-p", "tcp", "--dport", "80", "-j", "REDIRECT", "--to-ports", str(listen_port)])
+            host_https_exists = self._check_iptables_rule(sudo_pwd, "nat", "OUTPUT",
+                ["-m", "owner", "--uid-owner", str(self.config.get('host_output_uid', os.getuid())), "-m", "addrtype", "!", "--dst-type", "LOCAL",
+                 "-p", "tcp", "--dport", "443", "-j", "REDIRECT", "--to-ports", str(listen_port)])
 
             click.echo(f"  HTTP(80)重定向: {'✅ 已配置' if http_exists else '❌ 未配置'}")
             click.echo(f"  HTTPS(443)重定向: {'✅ 已配置' if https_exists else '❌ 未配置'}")
+            click.echo(f"  Host HTTP(80) OUTPUT重定向: {'✅ 已配置' if host_http_exists else '❌ 未配置'}")
+            click.echo(f"  Host HTTPS(443) OUTPUT重定向: {'✅ 已配置' if host_https_exists else '❌ 未配置'}")
 
         click.echo("=" * 50)
 
