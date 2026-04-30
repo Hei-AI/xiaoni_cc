@@ -37,6 +37,11 @@ function formatPercent(value: number | null | undefined) {
   return `${Math.max(0, Math.min(100, value)).toFixed(0)}%`;
 }
 
+function remainingPercent(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(100, 100 - value));
+}
+
 function describeWindow(minutes: number | null | undefined) {
   if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) return '—';
   if (minutes % (60 * 24 * 7) === 0) return `${minutes / (60 * 24 * 7)}w`;
@@ -48,6 +53,7 @@ function describeWindow(minutes: number | null | undefined) {
 function statusTone(status: CodexAccountRow['status']) {
   if (status === 'ready') return 'default';
   if (status === 'cooldown') return 'secondary';
+  if (status === 'reauth_required') return 'destructive';
   if (status === 'expired') return 'destructive';
   return 'outline';
 }
@@ -233,6 +239,8 @@ export function CodexPoolPage() {
             {accounts.map((account) => {
               const fiveHour = account.rateLimits?.primary || null;
               const weekly = account.rateLimits?.secondary || null;
+              const fiveHourLeft = remainingPercent(fiveHour?.usedPercent);
+              const weeklyLeft = remainingPercent(weekly?.usedPercent);
               return (
                 <Card key={account.id} className="border-border/80 bg-card/95">
                   <CardHeader className="space-y-3">
@@ -249,24 +257,30 @@ export function CodexPoolPage() {
                     <div className="grid grid-cols-2 gap-3">
                       <div className="rounded-lg border border-border/70 bg-muted/30 p-3">
                         <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">5h limit</div>
-                        <div className="mt-2 text-xl font-semibold text-foreground">{formatPercent(fiveHour?.usedPercent)}</div>
-                        <Progress className="mt-2 h-2" value={fiveHour?.usedPercent || 0} />
+                        <div className="mt-2 text-xl font-semibold text-foreground">{formatPercent(fiveHourLeft)}</div>
+                        <Progress className="mt-2 h-2" value={fiveHourLeft || 0} />
                         <div className="mt-2 text-xs text-muted-foreground">
                           window {describeWindow(fiveHour?.windowDurationMins)}
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
                           refresh {formatTime(fiveHour?.resetsAt || null)}
                         </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          used {formatPercent(fiveHour?.usedPercent)}
+                        </div>
                       </div>
                       <div className="rounded-lg border border-border/70 bg-muted/30 p-3">
-                        <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Week usage</div>
-                        <div className="mt-2 text-xl font-semibold text-foreground">{formatPercent(weekly?.usedPercent)}</div>
-                        <Progress className="mt-2 h-2" value={weekly?.usedPercent || 0} />
+                        <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Weekly limit</div>
+                        <div className="mt-2 text-xl font-semibold text-foreground">{formatPercent(weeklyLeft)}</div>
+                        <Progress className="mt-2 h-2" value={weeklyLeft || 0} />
                         <div className="mt-2 text-xs text-muted-foreground">
                           window {describeWindow(weekly?.windowDurationMins)}
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
                           refresh {formatTime(weekly?.resetsAt || null)}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          used {formatPercent(weekly?.usedPercent)}
                         </div>
                       </div>
                     </div>
@@ -294,6 +308,7 @@ export function CodexPoolPage() {
                         <div className="text-[11px] uppercase tracking-[0.14em]">Recent</div>
                         <div className="mt-1">used {formatTime(account.lastUsedAt)}</div>
                         <div>activated {formatTime(account.lastActivatedAt)}</div>
+                        <div>refresh ok {formatTime(account.lastRefreshSucceededAt)}</div>
                       </div>
                     </div>
                     <div className="rounded-lg border border-border/70 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
@@ -302,8 +317,15 @@ export function CodexPoolPage() {
                         <span>checked {formatTime(account.rateLimits?.checkedAt || null)}</span>
                       </div>
                       <div className="mt-1">expires {formatTime(account.expiresAt)}</div>
+                      <div className="mt-1">refresh tried {formatTime(account.lastRefreshAttemptAt)}</div>
                       {account.cooldownUntil ? <div className="mt-1">cooldown until {formatTime(account.cooldownUntil)}</div> : null}
+                      {account.refreshFailureAt ? <div className="mt-1">refresh failed {formatTime(account.refreshFailureAt)}</div> : null}
                       {account.lastError ? <div className="mt-1 text-destructive">{account.lastError}</div> : null}
+                      {account.status === 'reauth_required' ? (
+                        <div className="mt-1 text-destructive">
+                          refresh token 已失效，后台 sweep 不会再自动重试。请点“重新登录”。
+                        </div>
+                      ) : null}
                       {!account.rateLimits ? (
                         <div className="mt-1 text-amber-600">
                           当前拿不到 quota。通常是 access token 已失效，先点“重新登录”，不行再移除后重新入池。

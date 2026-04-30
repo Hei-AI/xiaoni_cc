@@ -3,7 +3,7 @@ export type CodexAccountRow = {
   email: string | null;
   accountId: string | null;
   enabled: boolean;
-  status: 'ready' | 'cooldown' | 'expired' | 'disabled';
+  status: 'ready' | 'cooldown' | 'expired' | 'disabled' | 'reauth_required';
   isActive: boolean;
   expiresAt: string;
   cooldownUntil: string | null;
@@ -11,6 +11,10 @@ export type CodexAccountRow = {
   updatedAt: string;
   lastActivatedAt: string | null;
   lastUsedAt: string | null;
+  lastRefreshAttemptAt: string | null;
+  lastRefreshSucceededAt: string | null;
+  refreshFailureCode: string | null;
+  refreshFailureAt: string | null;
   lastError: string | null;
   stats: {
     successCount: number;

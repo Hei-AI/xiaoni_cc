@@ -258,3 +258,112 @@ test('CodexAccountManager syncs refreshed active credentials back into the manag
     global.fetch = originalFetch;
   }
 });
+
+test('CodexAccountManager selects inactive enabled backup accounts for background refresh when near expiry', async () => {
+  const { manager } = await createTempManager();
+  const originalFetch = global.fetch;
+  const now = Date.now();
+  const firstSession = await manager.createLoginSession();
+  const secondSession = await manager.createLoginSession();
+  const firstAccess = makeJwt({
+    email: 'active@example.com',
+    'https://api.openai.com/auth': {
+      chatgpt_account_id: 'acct_active'
+    }
+  });
+  const secondAccess = makeJwt({
+    email: 'backup@example.com',
+    'https://api.openai.com/auth': {
+      chatgpt_account_id: 'acct_backup'
+    }
+  });
+  const tokenResponses = [
+    {
+      access_token: firstAccess,
+      refresh_token: 'refresh_active',
+      expires_in: 3600,
+      id_token: makeJwt({ email: 'active@example.com' })
+    },
+    {
+      access_token: secondAccess,
+      refresh_token: 'refresh_backup',
+      expires_in: 3600,
+      id_token: makeJwt({ email: 'backup@example.com' })
+    }
+  ];
+
+  global.fetch = (async () => new Response(JSON.stringify(tokenResponses.shift()), { status: 200 })) as typeof fetch;
+
+  try {
+    const active = await manager.completeLogin({
+      callbackUrl: `http://localhost:1455/auth/callback?code=code_active&state=${firstSession.state}`
+    });
+    const backup = await manager.completeLogin({
+      callbackUrl: `http://localhost:1455/auth/callback?code=code_backup&state=${secondSession.state}`
+    });
+
+    await manager.activateAccount(active.id);
+
+    const backupFile = path.join((manager as any).accountsDir, `${backup.id}.json`);
+    const storedBackup = JSON.parse(await fs.readFile(backupFile, 'utf8'));
+    storedBackup.expires = now + (5 * 60 * 1000);
+    await fs.writeFile(backupFile, `${JSON.stringify(storedBackup, null, 2)}\n`, 'utf8');
+
+    const candidates = await manager.listAccountsNeedingRefresh({
+      nowMs: now,
+      refreshThresholdMs: 30 * 60 * 1000
+    });
+
+    assert.equal(candidates.some((item) => item.id === backup.id), true);
+    assert.equal(candidates.some((item) => item.id === active.id), false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('CodexAccountManager marks refresh-token auth failures as reauth required', async () => {
+  const { manager, storeDir } = await createTempManager();
+  const session = await manager.createLoginSession();
+  const originalFetch = global.fetch;
+  const accessToken = makeJwt({
+    email: 'expired@example.com',
+    'https://api.openai.com/auth': {
+      chatgpt_account_id: 'acct_expired'
+    }
+  });
+
+  global.fetch = (async () => new Response(JSON.stringify({
+    access_token: accessToken,
+    refresh_token: 'refresh_expired',
+    expires_in: 3600,
+    id_token: makeJwt({ email: 'expired@example.com' })
+  }), { status: 200 })) as typeof fetch;
+
+  try {
+    const created = await manager.completeLogin({
+      callbackUrl: `http://localhost:1455/auth/callback?code=code_expired&state=${session.state}`
+    });
+
+    global.fetch = (async () => new Response(JSON.stringify({
+      error: 'invalid_grant',
+      error_description: 'refresh_token_reused'
+    }), { status: 400 })) as typeof fetch;
+
+    await assert.rejects(() => manager.refreshAccount(created.id, {
+      trigger: 'background-sweep'
+    }));
+
+    const stored = JSON.parse(await fs.readFile(
+      path.join(storeDir, 'accounts', `${created.id}.json`),
+      'utf8'
+    ));
+    assert.equal(stored.refreshFailureCode, 'reauth_required');
+    assert.equal(typeof stored.refreshFailureAt, 'string');
+
+    const accounts = await manager.listAccounts();
+    assert.equal(accounts[0]?.status, 'reauth_required');
+    assert.equal(accounts[0]?.refreshFailureCode, 'reauth_required');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

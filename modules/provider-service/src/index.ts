@@ -10,7 +10,7 @@ import {
   ensureTopicLabSchema,
   upsertAgentMediaAssets,
 } from '@qq-bot/persistence';
-import { aiConfig, relationshipMemoryConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
+import { aiConfig, codexAccountRefreshConfig, relationshipMemoryConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
 import { NapcatClient } from './services/napcat-client';
@@ -35,6 +35,7 @@ import TopicProjectionExecutorService from './services/topic-projection-executor
 import TopicReviewMaterializationService from './services/topic-review-materialization-service';
 import { GroupParticipationService } from './services/group-participation-service';
 import { codexAccountManager } from './services/codex-account-manager';
+import { CodexAccountRefreshSweeper } from './services/codex-account-refresh-sweeper';
 import { ImagePromptAssistantService, ImageProviderError, OpenAIImageProvider } from './services/image-provider';
 import {
   buildSimpleQueueSimulationContext,
@@ -59,6 +60,12 @@ const inboxService = new InboundInboxService();
 const chatPolicyService = new ChatPolicyService();
 const recentMessageCache = new RecentMessageCache();
 const groupParticipationService = new GroupParticipationService({ embeddingService });
+const codexAccountRefreshSweeper = new CodexAccountRefreshSweeper({
+  manager: codexAccountManager,
+  enabled: codexAccountRefreshConfig.enabled,
+  intervalMs: codexAccountRefreshConfig.intervalMs,
+  refreshThresholdMs: codexAccountRefreshConfig.refreshThresholdMs
+});
 const conversationStoreService = new ConversationStoreService();
 const transcriptSnapshotService = new TranscriptSnapshotService();
 const relationshipLedgerService = new RelationshipLedgerService({
@@ -1818,6 +1825,7 @@ async function startServer() {
   await conversationStoreService.initialize();
   await transcriptSnapshotService.initialize();
   await runtimeStoreService.initialize();
+  codexAccountRefreshSweeper.start();
 
   app.listen(serverConfig.port, serverConfig.host, () => {
     moduleLogger.info('Provider service started', {
@@ -1829,6 +1837,11 @@ async function startServer() {
 
 async function shutdown(signal: string) {
   moduleLogger.info('Shutting down provider service', { signal });
+  await codexAccountRefreshSweeper.stop().catch((error) => {
+    moduleLogger.warn('Failed to stop Codex account refresh sweeper cleanly', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
   await inboxService.close().catch((error) => {
     moduleLogger.warn('Failed to close inbox service cleanly', {
       error: error instanceof Error ? error.message : String(error)

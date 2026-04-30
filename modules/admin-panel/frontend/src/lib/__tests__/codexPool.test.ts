@@ -52,6 +52,10 @@ describe('codexPool helpers', () => {
             updatedAt: new Date().toISOString(),
             lastActivatedAt: null,
             lastUsedAt: null,
+            lastRefreshAttemptAt: null,
+            lastRefreshSucceededAt: null,
+            refreshFailureCode: null,
+            refreshFailureAt: null,
             lastError: null,
             stats: {
               successCount: 0,

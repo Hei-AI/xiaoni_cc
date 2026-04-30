@@ -31,6 +31,10 @@ type StoredCodexAccount = {
   lastUsedAt?: string;
   cooldownUntil?: string;
   lastError?: string;
+  lastRefreshAttemptAt?: string;
+  lastRefreshSucceededAt?: string;
+  refreshFailureCode?: string;
+  refreshFailureAt?: string;
   stats?: {
     successCount: number;
     errorCount: number;
@@ -49,6 +53,7 @@ type LoginSessionRecord = {
 };
 
 type ProviderEventKind = 'success' | 'error' | 'quota_exceeded' | 'auth_error';
+type RefreshTrigger = 'manual' | 'background-sweep';
 
 const moduleLogger = logger.createModuleLogger('codex-account-manager');
 const DEFAULT_STORE_DIR = process.env.CODEX_ACCOUNT_STORE_DIR || path.join(os.homedir(), '.qqbot-local', 'codex-accounts');
@@ -74,13 +79,7 @@ function parseOptionalIso(value?: string) {
 function sanitizeAccount(record: StoredCodexAccount, activeAccountId: string | null) {
   const cooldownUntilMs = parseOptionalIso(record.cooldownUntil);
   const now = Date.now();
-  const status = !record.enabled
-    ? 'disabled'
-    : cooldownUntilMs && cooldownUntilMs > now
-      ? 'cooldown'
-      : record.expires <= now
-        ? 'expired'
-        : 'ready';
+  const status = resolveAccountStatus(record, now);
 
   return {
     id: record.id,
@@ -95,6 +94,10 @@ function sanitizeAccount(record: StoredCodexAccount, activeAccountId: string | n
     updatedAt: record.updatedAt,
     lastActivatedAt: record.lastActivatedAt || null,
     lastUsedAt: record.lastUsedAt || null,
+    lastRefreshAttemptAt: record.lastRefreshAttemptAt || null,
+    lastRefreshSucceededAt: record.lastRefreshSucceededAt || null,
+    refreshFailureCode: record.refreshFailureCode || null,
+    refreshFailureAt: record.refreshFailureAt || null,
     lastError: record.lastError || null,
     stats: {
       successCount: record.stats?.successCount || 0,
@@ -114,6 +117,49 @@ function sanitizeAccount(record: StoredCodexAccount, activeAccountId: string | n
       } | null;
       checkedAt: string;
     }
+  };
+}
+
+function resolveAccountStatus(record: StoredCodexAccount, now = Date.now()) {
+  const cooldownUntilMs = parseOptionalIso(record.cooldownUntil);
+  if (!record.enabled) {
+    return 'disabled';
+  }
+  if (record.refreshFailureCode) {
+    return 'reauth_required';
+  }
+  if (cooldownUntilMs && cooldownUntilMs > now) {
+    return 'cooldown';
+  }
+  if (record.expires <= now) {
+    return 'expired';
+  }
+  return 'ready';
+}
+
+function classifyRefreshFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes('invalid_grant') ||
+    normalized.includes('invalid grant') ||
+    normalized.includes('refresh_token_reused') ||
+    normalized.includes('token is invalid') ||
+    normalized.includes('token has expired') ||
+    normalized.includes('revoked') ||
+    normalized.includes('reuse detected')
+  ) {
+    return {
+      code: 'reauth_required',
+      terminal: true,
+      message
+    };
+  }
+
+  return {
+    code: 'refresh_failed',
+    terminal: false,
+    message
   };
 }
 
@@ -281,7 +327,11 @@ export class CodexAccountManager {
           expires: credential.expires || (Date.now() + 3600_000),
           updatedAt: nowIso,
           cooldownUntil: undefined,
-          lastError: undefined
+          lastError: undefined,
+          refreshFailureCode: undefined,
+          refreshFailureAt: undefined,
+          lastRefreshAttemptAt: undefined,
+          lastRefreshSucceededAt: undefined
         }
       : {
           id: crypto.randomUUID(),
@@ -316,6 +366,9 @@ export class CodexAccountManager {
     const account = await this.requireAccount(id);
     account.enabled = enabled;
     account.updatedAt = new Date().toISOString();
+    if (!enabled) {
+      account.cooldownUntil = undefined;
+    }
     if (!enabled && (await this.readActiveAccountId()) === id) {
       await this.clearActiveAccount();
     }
@@ -354,29 +407,54 @@ export class CodexAccountManager {
     return sanitizeAccount(account, account.id);
   }
 
-  async refreshAccount(id: string) {
+  async refreshAccount(id: string, options?: { trigger?: RefreshTrigger }) {
     const account = await this.requireAccount(id);
-    const refreshed = await refreshCodexOAuthCredential({
-      access: account.access,
-      refresh: account.refresh,
-      expires: account.expires,
-      accountId: account.accountId,
-      email: account.email,
-      idToken: account.idToken
-    });
-    account.access = refreshed.access || account.access;
-    account.refresh = refreshed.refresh || account.refresh;
-    account.expires = refreshed.expires || account.expires;
-    account.accountId = refreshed.accountId || account.accountId;
-    account.email = refreshed.email || account.email;
-    account.idToken = refreshed.idToken || account.idToken;
-    account.updatedAt = new Date().toISOString();
-    await this.writeAccount(account);
+    const nowIso = new Date().toISOString();
+    account.lastRefreshAttemptAt = nowIso;
 
-    if ((await this.readActiveAccountId()) === id) {
-      await this.activateAccount(id);
+    try {
+      const refreshed = await refreshCodexOAuthCredential({
+        access: account.access,
+        refresh: account.refresh,
+        expires: account.expires,
+        accountId: account.accountId,
+        email: account.email,
+        idToken: account.idToken
+      });
+      account.access = refreshed.access || account.access;
+      account.refresh = refreshed.refresh || account.refresh;
+      account.expires = refreshed.expires || account.expires;
+      account.accountId = refreshed.accountId || account.accountId;
+      account.email = refreshed.email || account.email;
+      account.idToken = refreshed.idToken || account.idToken;
+      account.lastRefreshSucceededAt = nowIso;
+      account.refreshFailureCode = undefined;
+      account.refreshFailureAt = undefined;
+      account.lastError = undefined;
+      account.updatedAt = nowIso;
+      await this.writeAccount(account);
+
+      if ((await this.readActiveAccountId()) === id) {
+        await this.activateAccount(id);
+      }
+      return sanitizeAccount(account, await this.readActiveAccountId());
+    } catch (error) {
+      const failure = classifyRefreshFailure(error);
+      account.refreshFailureCode = failure.code;
+      account.refreshFailureAt = nowIso;
+      account.lastError = failure.message;
+      account.updatedAt = nowIso;
+      await this.writeAccount(account);
+      moduleLogger.warn('Failed to refresh Codex account', {
+        accountId: account.id,
+        providerAccountId: account.accountId || null,
+        trigger: options?.trigger || 'manual',
+        refreshFailureCode: failure.code,
+        terminal: failure.terminal,
+        error: failure.message
+      });
+      throw error;
     }
-    return sanitizeAccount(account, await this.readActiveAccountId());
   }
 
   async syncActiveCredential(credential: NormalizedOAuthCredential) {
@@ -465,6 +543,10 @@ export class CodexAccountManager {
     if (kind === 'success') {
       account.stats.successCount += 1;
       account.lastError = undefined;
+      if (account.refreshFailureCode === 'refresh_failed') {
+        account.refreshFailureCode = undefined;
+        account.refreshFailureAt = undefined;
+      }
     } else if (kind === 'quota_exceeded') {
       account.stats.errorCount += 1;
       account.stats.quotaExceededCount += 1;
@@ -506,6 +588,21 @@ export class CodexAccountManager {
       previousAccountId: current.id,
       nextAccountId: next.id
     };
+  }
+
+  async listAccountsNeedingRefresh(options?: { refreshThresholdMs?: number; nowMs?: number }) {
+    const accounts = await this.listStoredAccounts();
+    const nowMs = options?.nowMs || Date.now();
+    const refreshThresholdMs = Math.max(0, options?.refreshThresholdMs || 0);
+    return accounts.filter((item) => {
+      if (!item.enabled || !item.refresh) {
+        return false;
+      }
+      if (resolveAccountStatus(item, nowMs) === 'reauth_required') {
+        return false;
+      }
+      return item.expires <= nowMs + refreshThresholdMs;
+    });
   }
 
   private parseCallbackInput(input: { callbackUrl?: string; code?: string; state?: string }) {
