@@ -26,6 +26,13 @@ import {
   markFeedbackReflectionsHit,
   listRelationshipMemoryOverrides,
   upsertFeedbackLearningState,
+  ensureRelationshipTrustSchema,
+  getRelationshipTrustLevel,
+  upsertRelationshipTrust,
+  ensureAgentSessionStateSchema,
+  getAgentSessionState as getAgentSessionStatePersistence,
+  upsertAgentSessionState as upsertAgentSessionStatePersistence,
+  incrementRelationshipTrust,
   serializeTimestampForApi,
   type SqlAdapter
 } from '@qq-bot/persistence';
@@ -132,6 +139,9 @@ export type SessionReadCutoffState = {
   lastContextWindowTokens: number | null;
   lastTargetBudgetTokens: number | null;
   lastHardBudgetTokens: number | null;
+  contextSummary: string | null;
+  pendingProactiveShare: string | null;
+  pendingProactiveShareAge: number;
   updatedAt: string | null;
 };
 
@@ -1425,9 +1435,11 @@ export class RuntimeStore {
   async initialize() {
     await this.ensureSchema();
     await ensureFeedbackReflectionSchema(databaseConfig);
+    await ensureRelationshipTrustSchema(databaseConfig);
     await ensureIdentityLineageSchema(databaseConfig);
     await ensureAgentMediaSchema(databaseConfig);
     await ensureAgentTaskSchema(databaseConfig);
+    await ensureAgentSessionStateSchema(databaseConfig);
   }
 
   async close() {
@@ -2144,6 +2156,9 @@ export class RuntimeStore {
       last_context_window_tokens: number | null;
       last_target_budget_tokens: number | null;
       last_hard_budget_tokens: number | null;
+      context_summary: string | null;
+      pending_proactive_share: string | null;
+      pending_proactive_share_age: number | null;
       updated_at: string | Date | null;
     }>(
       `
@@ -2153,6 +2168,9 @@ export class RuntimeStore {
           last_context_window_tokens,
           last_target_budget_tokens,
           last_hard_budget_tokens,
+          context_summary,
+          pending_proactive_share,
+          pending_proactive_share_age,
           updated_at
         FROM agent_session_context_windows
         WHERE session_key = ?
@@ -2172,6 +2190,9 @@ export class RuntimeStore {
       lastContextWindowTokens: row.last_context_window_tokens === null ? null : Number(row.last_context_window_tokens),
       lastTargetBudgetTokens: row.last_target_budget_tokens === null ? null : Number(row.last_target_budget_tokens),
       lastHardBudgetTokens: row.last_hard_budget_tokens === null ? null : Number(row.last_hard_budget_tokens),
+      contextSummary: row.context_summary ?? null,
+      pendingProactiveShare: row.pending_proactive_share ?? null,
+      pendingProactiveShareAge: row.pending_proactive_share_age === null ? 0 : Number(row.pending_proactive_share_age),
       updatedAt: toIso(row.updated_at)
     };
   }
@@ -2212,6 +2233,38 @@ export class RuntimeStore {
     );
   }
 
+  async upsertProactiveShareState(sessionKey: string, share: string | null, age: number) {
+    await this.sql.execute(
+      `
+        INSERT INTO agent_session_context_windows (session_key, pending_proactive_share, pending_proactive_share_age, updated_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT (session_key)
+        DO UPDATE SET
+          pending_proactive_share = EXCLUDED.pending_proactive_share,
+          pending_proactive_share_age = EXCLUDED.pending_proactive_share_age,
+          updated_at = CURRENT_TIMESTAMP
+      `,
+      [sessionKey, share, age]
+    );
+  }
+
+  async upsertSessionContextSummary(params: {
+    sessionKey: string;
+    contextSummary: string;
+  }) {
+    await this.sql.execute(
+      `
+        INSERT INTO agent_session_context_windows (session_key, context_summary, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT (session_key)
+        DO UPDATE SET
+          context_summary = EXCLUDED.context_summary,
+          updated_at = CURRENT_TIMESTAMP
+      `,
+      [params.sessionKey, params.contextSummary]
+    );
+  }
+
   async loadSessionReplayState(params: {
     userId: number;
     groupId?: number | null;
@@ -2245,6 +2298,69 @@ export class RuntimeStore {
         ? Number(snapshot.summarized_through_conversation_id)
         : null
     };
+  }
+
+  async getSpeakerTrustLevel(identityKey: string, speakerQq: number): Promise<'L1' | 'L2' | 'L3' | 'L4'> {
+    try {
+      return await getRelationshipTrustLevel(identityKey, speakerQq, databaseConfig);
+    } catch {
+      return 'L1';
+    }
+  }
+
+  async updateSpeakerTrustLevel(identityKey: string, speakerQq: number, trustScore: number, level: 'L1' | 'L2' | 'L3' | 'L4') {
+    try {
+      await upsertRelationshipTrust({ identityKey, speakerQq, trustScore, level }, databaseConfig);
+    } catch {
+      // Non-fatal — trust update failure doesn't block the main flow
+    }
+  }
+
+  async getSessionEmotionalState(sessionKey: string): Promise<{ dopamine: 'low' | 'medium' | 'high'; stress: 'low' | 'medium' | 'high' } | null> {
+    try {
+      return await getAgentSessionStatePersistence(sessionKey, databaseConfig);
+    } catch {
+      return null;
+    }
+  }
+
+  async updateSessionEmotionalState(sessionKey: string, dopamine: 'low' | 'medium' | 'high', stress: 'low' | 'medium' | 'high') {
+    try {
+      await upsertAgentSessionStatePersistence({ sessionKey, dopamine, stress }, databaseConfig);
+    } catch {
+      // Non-fatal — state update failure doesn't block the main flow
+    }
+  }
+
+  async incrementSpeakerTrustLevel(identityKey: string, speakerQq: number, delta: number) {
+    try {
+      await incrementRelationshipTrust({ identityKey, speakerQq, delta }, databaseConfig);
+    } catch {
+      // Non-fatal — trust increment failure doesn't block the main flow
+    }
+  }
+
+  async getRecentGroupActivity(sessionKey: string): Promise<{ activeSenderCount: number; recentMessageCount: number }> {
+    try {
+      const rows = await this.sql.query<{ active_sender_count: string; recent_msg_count: string }>(
+        `
+          SELECT
+            COUNT(DISTINCT sender_id)::text AS active_sender_count,
+            COUNT(*) FILTER (WHERE received_at > NOW() - INTERVAL '5 minutes')::text AS recent_msg_count
+          FROM agent_inbound_messages
+          WHERE session_key = ?
+            AND received_at > NOW() - INTERVAL '10 minutes'
+        `,
+        [sessionKey]
+      );
+      const row = rows[0];
+      return {
+        activeSenderCount: parseInt(row?.active_sender_count || '0', 10),
+        recentMessageCount: parseInt(row?.recent_msg_count || '0', 10)
+      };
+    } catch {
+      return { activeSenderCount: 0, recentMessageCount: 0 };
+    }
   }
 
   async listRelevantFeedbackReflections(params: {
@@ -3411,6 +3527,9 @@ export class RuntimeStore {
           last_context_window_tokens INTEGER,
           last_target_budget_tokens INTEGER,
           last_hard_budget_tokens INTEGER,
+          context_summary TEXT,
+          pending_proactive_share TEXT,
+          pending_proactive_share_age INTEGER DEFAULT 0,
           updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `,
@@ -3513,6 +3632,8 @@ export class RuntimeStore {
       'CREATE INDEX IF NOT EXISTS idx_agent_batch_items_batch_position ON agent_message_batch_items (batch_id, position)',
       'CREATE INDEX IF NOT EXISTS idx_conversation_items_conversation_group_item ON conversation_items (conversation_id, group_index, item_index, id)',
       'CREATE INDEX IF NOT EXISTS idx_conversation_items_session_created ON conversation_items (session_key, created_at, id)',
+      `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS pending_proactive_share TEXT`,
+      `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS pending_proactive_share_age INTEGER DEFAULT 0`,
       'CREATE INDEX IF NOT EXISTS idx_agent_session_context_windows_updated ON agent_session_context_windows (updated_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_llm_jobs_trace_created ON llm_jobs (trace_id, created_at, id)',
       'CREATE INDEX IF NOT EXISTS idx_tool_execution_logs_trace_started ON tool_execution_logs (trace_id, started_at, completed_at, id)',

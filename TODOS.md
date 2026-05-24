@@ -7,6 +7,16 @@ still affect what we should build next.
 
 The queue is ordered by what it blocks:
 
+- P0-00: fix host-side Codex MCP startup warnings under transparent MITM.
+  Account failover now works for both HTTP and WebSocket Codex traffic, but
+  `codex_apps` and `openaiDeveloperDocs` still fail TLS/MCP startup when host
+  Codex traffic is intercepted. We need to finish the trust-chain story:
+  verify the mitmproxy CA is accepted by the relevant runtimes, and only if
+  that is insufficient, add the narrowest possible bypass for non-failover
+  helper traffic without weakening Codex usage-limit observability.
+- P0-0: add a background refresh sweep for all enabled Codex pool accounts.
+  Active-account refresh on use is now verified, but inactive accounts still do
+  not renew until they are selected.
 - P0-A: fix user-visible group-chat behavior first. This is the current social
   product risk.
 - P0-B: finish Identity Lineage Phase 1, but split it into independent substrate
@@ -21,6 +31,48 @@ Identity continuity does not make every older TODO disappear. It does make one
 thing clear: relationship, memory, self-evolution, and feedback items should stop
 growing as separate little systems. New long-lived behavior should attach to the
 identity lineage substrate once Phase 1 exists.
+
+## P0-0 - Background refresh sweep for Codex pool accounts
+
+Status: newly promoted from QA follow-up; highest-priority Codex pool
+operational gap.
+
+What:
+
+Add a background refresh loop for every enabled Codex pool account, not just
+the currently active one. The job should periodically use each account's
+`refresh_token` to renew `access_token` / `expires`, persist the result back to
+the account store, and surface refresh failures distinctly from quota failures.
+
+Why:
+
+Current behavior is only "refresh on use" for the active account. That is good
+enough for the account currently serving traffic, but it leaves the rest of the
+pool to age out silently. When a backup account is selected later, it may
+already be stale or revoked, which defeats the point of having a warm standby
+pool.
+
+Done means:
+
+1. Add a provider-service background sweep for all enabled accounts with valid
+   `refresh_token`.
+2. Persist refreshed `access / refresh / expires` back into
+   `~/.qqbot-local/codex-accounts/accounts/*.json`.
+3. Distinguish refresh failure states such as revoked/invalidated token from
+   quota exhaustion in account status and logs.
+4. Keep the active projected auth coherent if the swept account is also the
+   active account.
+5. Verify with a forced-expiry QA pass on both the active account and one
+   inactive backup account.
+
+Deferred verification note, 2026-05-01:
+
+- Add one explicit QA pass for "verification account hits usage/account limit
+  and `codex-pool` rotates to the next account" after a stable reproducible
+  setup exists.
+- Do not block current A/B experiment work on this right now. The pool warmup,
+  failover, and trust-chain tasks can continue, but this specific limit-trigger
+  verification is parked until it becomes testable again.
 
 ## Dependency map, 2026-04-28
 
@@ -190,6 +242,21 @@ Done means:
   speech.
 - Operators can inspect why the system considered the scene worth replying to.
 
+AB follow-up note, 2026-05-01:
+
+- Arm mapping is now explicitly decided: `A` means the formal production chain
+  on `GPT-5.4`, and `B` means the experiment arm on `GPT-5.4-mini`.
+- Do not invert this naming later. If current runtime env or snapshot metadata
+  still reflect `gpt-5.4-mini` as the main path, treat that as migration work
+  still to be done rather than redefining the experiment labels.
+- Wait for the next round of live A/B data before judging whether the current
+  runtime-gateway path is actually producing snapshots continuously in the main
+  chain.
+- Once fresh data lands, verify three things in one pass: whether
+  `ab_turn_snapshots` has new live rows, whether `treatment_status` moves past
+  `pending`, and whether the run trace page shows real snapshot-backed A/B
+  detail instead of only seeded acceptance fixtures.
+
 First evidence pass, 2026-04-28:
 
 - Local trace artifacts exist under `tmp/trace-debug/`:
@@ -262,6 +329,63 @@ Live behavior pass, 2026-04-28 15:00:
   avoiding fixed openers. This suggests the first fix should inspect runtime
   projection and activation narrowing before treating model routing as the main
   answer.
+
+Live behavior pass, 2026-05-23 18:51 — group 1019235326:
+
+Four consecutive messages from 在车底喝茶 (sender 2294133947) surfaced three
+structural issues distinct from the 哈哈/确实 problem. All four runs hit the
+same `xiaoni` identity key and activated the same 4 accepted facts in the same
+order regardless of message type.
+
+Issue A — Social act recognition gap:
+Bot treats every input as a proposition requiring an answer, instead of first
+identifying the social function of the message. Concrete failures:
+
+- `@小腻 你知道雪鸮` → bot: "知道，雪鸮挺有特点的。" / human: "咋了?" or emoji
+- `@小腻 你对我是由敌意么` → bot: "没有敌意啦，真要有我就不会这么好好回你了。"
+  / human: "何出此言" or surprise emoji
+- `你后台说你不想回复我的消息` → bot: "没有不想回你，是前面有几条我没接顺" / human:
+  "哪有这种事儿" or deflect with emoji
+
+Pattern: topic-openers, emotional check-ins, and accusations all need a
+"confirm intent first" reflex before any substantive reply. Bot currently skips
+that step and jumps straight to answering.
+
+Issue B — `no_reply` wrong trigger:
+Bot silenced on `你有它的图么` with internal reasoning: "我没图可交，先沉默最稳."
+Silence because "I cannot fulfill the resource request" is wrong. The `no_reply`
+path should fire only when the message does not warrant any response at all.
+Unable to help → say so briefly ("没有耶" / "你没手么?"), not silence.
+This one silence caused the user to suspect hostility and generated three
+follow-up messages.
+
+Issue C — Fact retrieval is not context-sensitive:
+All 4 runs (casual opener, resource request, emotional confrontation, accusation)
+activated the same 4 accepted facts in the same rank order. Embedding similarity
+alone does not distinguish social register or conversational context. The wrong
+facts in context likely degrade response naturalness across all four cases.
+
+Also observed — duplicate speak on every reply run:
+Runs 1, 3, 4 all show total_turns=4 with a `blocked_transition` at turn 4:
+the agent commits a reply at turn 2–3, then calls `speak_in_group` again with
+the identical content, which is caught by duplicate suppression. This is a
+consistent loop behavior: something in the agent loop is triggering a second
+outbound call after delivery is already committed. Does not affect visible
+output (the duplicate is suppressed), but burns one extra LLM call per reply run
+and produces misleading `finish_outcome = blocked_transition` in DB for
+successful runs.
+
+Implementation candidates from this pass:
+- Persona/seed facts: add social-act recognition patterns — topic-opener
+  ("你知道X" in group = reply "咋了"), emotional-check-in ("你有敌意么" = reply
+  "何出此言"), can't-fulfill-request (reply brief, not silence).
+- `no_reply` tool instructions: make "doesn't warrant a response" vs "can't
+  fulfill" distinction explicit in the tool description / system prompt.
+- Fact retrieval: investigate adding conversation-type or emotional-register
+  metadata to the embedding query so social context affects which facts are
+  retrieved, not just topic similarity.
+- Duplicate speak: trace why the agent calls `speak_in_group` twice per run
+  and eliminate the redundant call.
 
 Depends on / blocked by:
 
@@ -428,6 +552,35 @@ Dependency split:
   - Accepting more social lessons as active facts before projection is narrowed.
   - Treating the current feedback-reflection vertical slice as Phase 1 complete.
 
+## P2 - Provider-service: handle non-text OneBot message segment types
+
+Status: partially implemented as of 2026-05-22.
+
+What:
+
+provider-service `agent-im-input-adapter` currently drops several OneBot segment
+types silently. Known missing types:
+
+- `json` — QQ mini-app / rich card (e.g. B站视频卡片, QQ小程序). Contains a
+  JSON string in `data.data` with title, description, and URL. Should be
+  rendered as `[卡片] <desc> <url>` in body text.
+- Nested `forward` inside a forwarded message — `expandForwardSegments` only
+  expands one level. Inner `forward` segments are logged as `[forward]` and not
+  expanded.
+- `json` inside `expandForwardSegments` — the forward expander also only picks
+  up `text` segments; `json` cards in forwarded messages are silently dropped.
+
+`json` support was implemented 2026-05-22. Nested forward and other types
+(xml, share, etc.) remain unhandled.
+
+Done means:
+
+- `json` cards render as `[卡片] <desc> <url>` in body text (done).
+- Nested `forward` inside forwarded messages is recursively expanded or noted
+  as `[嵌套转发]`.
+- `xml` / `share` segment types are evaluated and handled or explicitly noted
+  as unsupported.
+
 ## Retired Constraint - Do not build a standalone pre-agent gate
 
 Status: retired as standalone TODO; active architectural constraint only.
@@ -511,6 +664,79 @@ Follow-up work:
   `pending -> ready`.
 - Add operator checks for failed or stale snapshot rows before relying on
   compaction for long-session performance.
+
+## P0-A follow-up - 小腻 v2 认知帧：已实现，待激活的关键路径
+
+Status: 全部实装完成（2026-05-24），101/101 tests 通过，待 docker 部署验证。
+
+### 已完成
+
+- Layer 1 system prompt 重写为 v3 涌现模型（四层：感受基底/关系深度/此刻状态/社交解码）
+- `developer` role 注入：world_narrative + current_relationship（L1-L4）
+- `emit_unread_meaning` schema 扩展：social_act_type（6类）+ topic_context
+- `relationship_trust` 表建立，`getSpeakerTrustLevel()` 接口实装
+- agent-service 101/101 tests passing
+- Docker 部署健康
+
+### current_state 工具（已实装）
+
+实装完成（2026-05-24）：
+
+- `agent_session_state(session_key, dopamine, stress, updated_at)` 表已建
+- `getSessionEmotionalState` / `updateSessionEmotionalState` 已接入 runtime-store
+- `buildDeveloperContextBlock()` 每轮注入 `<current_state>` 块（默认 medium/low）
+- feedback_writer: praise → dopamine=high，critique/correction → stress=high 写回
+
+**待验证**：同一消息 dopamine=high vs low 产生可观测不同回应（需线上流量观察）。
+
+### trust 写回（已实装）
+
+实装完成（2026-05-24）：
+
+- `incrementRelationshipTrust` 原子增量函数已加入 persistence 层
+- feedback_writer 触发规则：
+  - `praise` + `from_user` scope → trust +2.0，dopamine → high
+  - `interaction_outcome` + `from_user` scope → trust +0.5
+  - 满分 10.0，CASE 自动升级 L1→L2（≥2）→L3（≥5）→L4（≥8）
+
+**待观察**：线上流量中 trust 是否按预期积累，L2/L3 升级是否发生。
+
+### 群场效应维度（已实装）
+
+实装完成（2026-05-24）：
+
+- `getRecentGroupActivity(sessionKey)` 已加入 runtime-store，查 `agent_inbound_messages`
+- `buildDeveloperContextBlock()` 每轮注入 `<current_scene>` 块
+  - 活跃人数（近10分钟）：DISTINCT sender_id 数量
+  - 消息密度（近5分钟）：<3=low / 3-10=medium / >10=high
+- 只在 group chat（sessionKey ≠ senderId）时触发，private chat 不注入
+
+### L4 描述行为化（已实装）
+
+实装完成（2026-05-24）：
+
+- `config.ts` xiaoniPersonaLayers.L4 已改为行为描述
+- system prompt 对应行也已同步更新
+
+### 待建立：A/B replay 因果验证
+
+设计哲学层面，Claude + Codex 一致认为在宣称"涌现 works"之前，
+需要因果验证：同一 scene，只改 trust/current_state/social_act_type，
+输出是否按预期单调变化。
+
+基础设施需求：
+- 能够 replay 一条历史消息，固定其他变量，只改状态参数
+- 现有 traffic replay 功能是基础，需要加 state override 参数
+
+Done means（整个 v2 认知帧完成）：
+- [x] current_state 注入实现，每轮注入 dopamine/stress 到 developer block
+- [x] trust write-back 路径通：feedback_writer → relationship_trust 更新
+- [x] agent-service tests 全部通过（101/101）
+- [x] L4 描述行为化
+- [x] 群场效应 current_scene 注入
+- [ ] docker 部署验证（`docker compose build agent-service && up -d && ps + logs`）
+- [ ] 线上流量观察：同一消息 dopamine=high/low 产生可观测不同回应
+- [ ] A/B replay 因果验证基础设施（独立任务）
 
 ## Retired Constraint - Fold deferred relationship-ledger event expansion into identity lineage
 

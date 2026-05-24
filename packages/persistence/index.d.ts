@@ -225,6 +225,7 @@ export type FeedbackReflectionInput = {
   evidenceWeight?: number;
   stabilityScore?: number;
   isActive?: boolean;
+  isSeed?: boolean | null;
   summaryText: string;
   retrievalText?: string | null;
   embeddingText?: string | null;
@@ -1042,3 +1043,18 @@ export function listAbMemoryStreamItems(
 export function markAbMemoryPlanFulfilled(id: string, params?: { status?: string; fulfilledAt?: string | Date; fulfilled_at?: string | Date }, config?: DatabaseUrlConfig): Promise<any>;
 export function createAbEvalResult(input: AbEvalResultInput, config?: DatabaseUrlConfig): Promise<any>;
 export function getAbExperimentTrace(snapshotId: string, config?: DatabaseUrlConfig): Promise<any | null>;
+
+export type RelationshipTrustLevel = 'L1' | 'L2' | 'L3' | 'L4';
+export function ensureRelationshipTrustSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function getRelationshipTrustLevel(identityKey: string, speakerQq: number | bigint | string, config?: DatabaseUrlConfig): Promise<RelationshipTrustLevel>;
+export function upsertRelationshipTrust(input: { identityKey: string; speakerQq: number | bigint | string; trustScore: number; level: RelationshipTrustLevel }, config?: DatabaseUrlConfig): Promise<void>;
+export function incrementRelationshipTrust(input: { identityKey: string; speakerQq: number; delta: number }, config?: Record<string, unknown>): Promise<void>;
+
+// agent-session-state
+export interface AgentSessionState {
+  dopamine: 'low' | 'medium' | 'high';
+  stress: 'low' | 'medium' | 'high';
+}
+export function ensureAgentSessionStateSchema(config?: Record<string, unknown>): Promise<void>;
+export function getAgentSessionState(sessionKey: string, config?: Record<string, unknown>): Promise<AgentSessionState | null>;
+export function upsertAgentSessionState(input: { sessionKey: string; dopamine: 'low' | 'medium' | 'high'; stress: 'low' | 'medium' | 'high' }, config?: Record<string, unknown>): Promise<void>;
