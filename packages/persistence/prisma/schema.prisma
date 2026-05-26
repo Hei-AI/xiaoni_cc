@@ -8,6 +8,127 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model AgentQueueMessage {
+  id                    BigInt    @id @default(autoincrement()) @db.BigInt
+  trace_id              String    @db.VarChar(128)
+  batch_id              String?   @db.VarChar(128)
+  run_id                String?   @db.VarChar(128)
+  source                String    @db.VarChar(32)
+  message_sid           String    @db.VarChar(191)
+  dedupe_key            String    @unique @db.VarChar(255)
+  chat_type             String    @db.VarChar(16)
+  session_key           String    @db.VarChar(191)
+  peer_id               String    @db.VarChar(191)
+  peer_name             String?   @db.VarChar(255)
+  sender_id             String    @db.VarChar(191)
+  sender_name           String?   @db.VarChar(255)
+  account_id            String    @db.VarChar(191)
+  body_for_agent        String
+  raw_payload           Json      @default("{}")
+  inbound_context       Json      @default("{}")
+  payload               Json      @default("{}")
+  status                String    @default("pending") @db.VarChar(16)
+  attempts              Int       @default(0)
+  max_attempts          Int       @default(3)
+  available_at          DateTime  @default(now()) @db.Timestamp(3)
+  locked_at             DateTime? @db.Timestamp(3)
+  locked_by             String?   @db.VarChar(128)
+  processing_started_at DateTime? @db.Timestamp(3)
+  completed_at          DateTime? @db.Timestamp(3)
+  conversation_id       BigInt?   @db.BigInt
+  error_message         String?
+  result                Json?
+  created_at            DateTime  @default(now()) @db.Timestamp(3)
+  updated_at            DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([status, available_at, id], map: "idx_agent_queue_pending_available")
+  @@index([session_key, status, available_at, id], map: "idx_agent_queue_session_pending")
+  @@index([trace_id, created_at, id], map: "idx_agent_queue_trace_created")
+  @@map("agent_queue_messages")
+}
+
+model AgentSessionLifeState {
+  identity_key                   String                   @id @db.VarChar(191)
+  last_active_at                 DateTime?                @db.Timestamp(3)
+  last_boredom_reset_at          DateTime?                @db.Timestamp(3)
+  last_sleep_at                  DateTime?                @db.Timestamp(3)
+  service_started_at             DateTime?                @db.Timestamp(3)
+  last_presence_tick_enqueued_at DateTime?                @db.Timestamp(3)
+  last_proactive_at              DateTime?                @db.Timestamp(3)
+  last_user_message_at           DateTime?                @db.Timestamp(3)
+  daily_proactive_count          Int                      @default(0)
+  daily_proactive_date           DateTime?                @db.Timestamp(3)
+  updated_at                     DateTime                 @updatedAt @db.Timestamp(3)
+  group_states                   AgentSessionGroupState[]
+
+  @@map("agent_session_life_states")
+}
+
+model AgentSessionGroupState {
+  session_key          String                @id @db.VarChar(191)
+  identity_key         String                @db.VarChar(191)
+  last_spoke_at        DateTime?             @db.Timestamp(3)
+  last_user_message_at DateTime?             @db.Timestamp(3)
+  updated_at           DateTime              @updatedAt @db.Timestamp(3)
+  life_state           AgentSessionLifeState @relation(fields: [identity_key], references: [identity_key], onDelete: Cascade)
+
+  @@index([identity_key], map: "idx_agent_session_group_states_identity")
+  @@map("agent_session_group_states")
+}
+
+model AgentSharePoolItem {
+  id             Int                   @id @default(autoincrement())
+  identity_key   String                @db.VarChar(191)
+  content        String
+  source_kind    String                @db.VarChar(32)
+  boundary_label String                @default("safe") @db.VarChar(32)
+  source_wording String                @db.VarChar(32)
+  effort_cost    Int
+  base_heat      Float                 @default(1.0)
+  created_at     DateTime              @default(now()) @db.Timestamp(3)
+  metadata       Json                  @default("{}")
+  usages         AgentShareItemUsage[]
+
+  @@index([identity_key, created_at, id], map: "idx_agent_share_pool_identity_created")
+  @@map("agent_share_pool_items")
+}
+
+model AgentShareItemUsage {
+  id                 Int                @id @default(autoincrement())
+  item_id            Int
+  identity_key       String             @db.VarChar(191)
+  target_session_key String             @db.VarChar(191)
+  target_group_id    BigInt?            @db.BigInt
+  run_id             String?            @db.VarChar(128)
+  trace_id           String?            @db.VarChar(128)
+  used_at            DateTime           @default(now()) @db.Timestamp(3)
+  outcome            String?            @db.VarChar(32)
+  item               AgentSharePoolItem @relation(fields: [item_id], references: [id], onDelete: Cascade)
+
+  @@unique([item_id, target_session_key], map: "uniq_agent_share_item_usage_item_session")
+  @@index([identity_key, target_session_key], map: "idx_agent_share_item_usage_identity_session")
+  @@map("agent_share_item_usages")
+}
+
+model AgentPresenceStateSidecar {
+  id                  Int      @id @default(autoincrement())
+  run_id              String   @db.VarChar(128)
+  trace_id            String?  @db.VarChar(128)
+  identity_key        String   @db.VarChar(191)
+  target_session_key  String?  @db.VarChar(191)
+  source_items        Json
+  recall_scores       Json
+  boundary_judgments  Json
+  compression_mapping Json
+  final_context_block String
+  model_action_outcome String? @db.VarChar(32)
+  created_at          DateTime @default(now()) @db.Timestamp(3)
+
+  @@index([run_id], map: "idx_agent_presence_sidecars_run")
+  @@index([identity_key, created_at], map: "idx_agent_presence_sidecars_identity_created")
+  @@map("agent_presence_state_sidecars")
+}
+
 model GroupChatSetting {
   group_id           BigInt    @id @db.BigInt
   group_name         String?
@@ -606,6 +727,7 @@ model AgentFeedbackReflection {
   evidence_weight         Float     @default(0)
   stability_score         Float     @default(0)
   is_active               Boolean   @default(true)
+  is_seed                 Boolean?
   summary_text            String
   retrieval_text          String?
   embedding_text          String?

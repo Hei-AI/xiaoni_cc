@@ -14,8 +14,10 @@ const taskWorkerService = new AgentTaskWorkerService();
 let stopping = false;
 let workerTimer: NodeJS.Timeout | null = null;
 let taskWorkerTimer: NodeJS.Timeout | null = null;
+let presenceTickTimer: NodeJS.Timeout | null = null;
 let workerBusy = false;
 let taskWorkerBusy = false;
+let presenceTickBusy = false;
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -25,6 +27,7 @@ app.get('/health', async (_req, res) => {
     service: 'agent-service',
     worker_busy: workerBusy,
     task_worker_busy: taskWorkerBusy,
+    presence_tick_busy: presenceTickBusy,
     timestamp: new Date().toISOString()
   });
 });
@@ -99,6 +102,43 @@ function scheduleNextTaskPoll(delayMs: number) {
   }, delayMs);
 }
 
+async function runPresenceTickOnce() {
+  if (stopping || presenceTickBusy) {
+    scheduleNextPresenceTick(agentConfig.presenceTickIntervalMs);
+    return;
+  }
+
+  presenceTickBusy = true;
+  try {
+    const result = await store.enqueuePresenceTick();
+    if (result.enqueued) {
+      moduleLogger.info('Presence tick enqueued', {
+        queue_id: result.queueId,
+        target_session_key: result.targetSessionKey
+      });
+    }
+  } catch (error) {
+    moduleLogger.error('Presence tick failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  } finally {
+    presenceTickBusy = false;
+    scheduleNextPresenceTick(agentConfig.presenceTickIntervalMs);
+  }
+}
+
+function scheduleNextPresenceTick(delayMs: number) {
+  if (stopping || !agentConfig.presenceTickEnabled) {
+    return;
+  }
+  if (presenceTickTimer) {
+    clearTimeout(presenceTickTimer);
+  }
+  presenceTickTimer = setTimeout(() => {
+    void runPresenceTickOnce();
+  }, delayMs);
+}
+
 async function shutdown(signal: string) {
   if (stopping) {
     return;
@@ -111,6 +151,10 @@ async function shutdown(signal: string) {
   if (taskWorkerTimer) {
     clearTimeout(taskWorkerTimer);
     taskWorkerTimer = null;
+  }
+  if (presenceTickTimer) {
+    clearTimeout(presenceTickTimer);
+    presenceTickTimer = null;
   }
   moduleLogger.info('Shutting down agent service', { signal });
   await store.close().catch(() => undefined);
@@ -127,6 +171,7 @@ async function start() {
   });
   scheduleNext(200);
   scheduleNextTaskPoll(500);
+  scheduleNextPresenceTick(agentConfig.presenceTickIntervalMs);
 }
 
 process.on('SIGINT', () => {

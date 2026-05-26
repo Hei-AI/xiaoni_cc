@@ -540,6 +540,134 @@ test('rankFeedbackReflectionsForRecall dedupes the same learning key and scope',
   assert.deepEqual(ranked.map((item) => item.reflection.id), [12]);
 });
 
+test('rankFeedbackReflectionsForRecall boosts self_model_update with invitation_curiosity hint', () => {
+  const base = {
+    sessionKey: 'qq:group:101',
+    groupId: 101,
+    sourceUserId: 999,
+    sourceUserName: 'Other',
+    scopeType: 'group_self' as const,
+    learningScope: 'group_self',
+    feedbackKind: 'neutral',
+    confidence: 'medium' as const,
+    importanceScore: 0.5,
+    evidenceWeight: 0.5,
+    stabilityScore: 0.5,
+    summaryText: 'test',
+    retrievalText: '',
+    embeddingText: '',
+    sourceMessageIds: [],
+    sourceEpisodeIds: [],
+    sourceConversationId: null,
+    supersedesReflectionId: null,
+    conflictGroupKey: null,
+    metadata: {},
+    lastHitAt: null,
+    hitCount: 0,
+    updatedAt: null
+  };
+
+  const selfModelReflection = { ...base, id: 1, learningKey: 'self.a', reflectionType: 'self_model_update' as const };
+  const socialLessonReflection = { ...base, id: 2, learningKey: 'social.b', reflectionType: 'social_lesson' as const };
+  const reflections = [selfModelReflection, socialLessonReflection];
+  const embeddingScores = new Map([[1, 0.5], [2, 0.5]]);
+  const sharedParams = { reflections, learningStates: [], queryText: '', currentUserId: 100, recentUserIds: [], embeddingScores, limit: 5 };
+
+  const withHint = rankFeedbackReflectionsForRecall({ ...sharedParams, socialActTypeHint: 'invitation_curiosity' });
+  assert.equal(withHint[0]?.reflection.id, 1, 'self_model_update ranks first with invitation_curiosity hint');
+
+  const withoutHint = rankFeedbackReflectionsForRecall({ ...sharedParams, socialActTypeHint: null });
+  assert.equal(withoutHint[0]?.reflection.id, 2, 'without hint, id tiebreaker puts id=2 first');
+});
+
+test('rankFeedbackReflectionsForRecall boosts social_lesson with relationship_probe hint', () => {
+  const base = {
+    sessionKey: 'qq:group:101',
+    groupId: 101,
+    sourceUserId: 999,
+    sourceUserName: 'Other',
+    scopeType: 'group_self' as const,
+    learningScope: 'group_self',
+    feedbackKind: 'neutral',
+    confidence: 'medium' as const,
+    importanceScore: 0.5,
+    evidenceWeight: 0.5,
+    stabilityScore: 0.5,
+    summaryText: 'test',
+    retrievalText: '',
+    embeddingText: '',
+    sourceMessageIds: [],
+    sourceEpisodeIds: [],
+    sourceConversationId: null,
+    supersedesReflectionId: null,
+    conflictGroupKey: null,
+    metadata: {},
+    lastHitAt: null,
+    hitCount: 0,
+    updatedAt: null
+  };
+
+  const socialLessonReflection = { ...base, id: 3, learningKey: 'social.c', reflectionType: 'social_lesson' as const };
+  const selfModelReflection = { ...base, id: 4, learningKey: 'self.d', reflectionType: 'self_model_update' as const };
+  const reflections = [socialLessonReflection, selfModelReflection];
+  const embeddingScores = new Map([[3, 0.5], [4, 0.5]]);
+  const sharedParams = { reflections, learningStates: [], queryText: '', currentUserId: 100, recentUserIds: [], embeddingScores, limit: 5 };
+
+  const withHint = rankFeedbackReflectionsForRecall({ ...sharedParams, socialActTypeHint: 'relationship_probe' });
+  assert.equal(withHint[0]?.reflection.id, 3, 'social_lesson ranks first with relationship_probe hint');
+
+  const withoutHint = rankFeedbackReflectionsForRecall({ ...sharedParams, socialActTypeHint: null });
+  assert.equal(withoutHint[0]?.reflection.id, 4, 'without hint, id tiebreaker puts id=4 first');
+});
+
+test('rankFeedbackReflectionsForRecall hint boost only applies to eligible reflections', () => {
+  const base = {
+    sessionKey: 'qq:group:101',
+    groupId: 101,
+    sourceUserId: 999,
+    sourceUserName: 'Other',
+    scopeType: 'group_self' as const,
+    learningScope: 'group_self',
+    feedbackKind: 'neutral',
+    confidence: 'medium' as const,
+    importanceScore: 0.5,
+    evidenceWeight: 0.5,
+    stabilityScore: 0.5,
+    summaryText: 'test',
+    retrievalText: '',
+    embeddingText: '',
+    sourceMessageIds: [],
+    sourceEpisodeIds: [],
+    sourceConversationId: null,
+    supersedesReflectionId: null,
+    conflictGroupKey: null,
+    metadata: {},
+    lastHitAt: null,
+    hitCount: 0,
+    updatedAt: null
+  };
+
+  // id=5 has embedding 0.08 — after normalization (0.08/0.5 = 0.16) stays below 0.2 threshold
+  // id=6 has embedding 0.5 — above threshold
+  const ineligible = { ...base, id: 5, learningKey: 'self.e', reflectionType: 'self_model_update' as const };
+  const eligible = { ...base, id: 6, learningKey: 'social.f', reflectionType: 'social_lesson' as const };
+  const embeddingScores = new Map([[5, 0.08], [6, 0.5]]);
+
+  const ranked = rankFeedbackReflectionsForRecall({
+    reflections: [ineligible, eligible],
+    learningStates: [],
+    queryText: '',
+    currentUserId: 100,
+    recentUserIds: [],
+    embeddingScores,
+    limit: 5,
+    socialActTypeHint: 'invitation_curiosity'
+  });
+
+  assert.equal(ranked.length, 1, 'ineligible reflection filtered out even with hint');
+  assert.equal(ranked[0]?.reflection.id, 6);
+});
+
 test('parseRelationshipRagSelection keeps only allowed card ids per scope', () => {
   const selection = parseRelationshipRagSelection({
     text: JSON.stringify({

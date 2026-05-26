@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig } from '../config';
 import { logger } from '../utils/logger';
+import type { UnreadMeaningSocialActType } from '../types/social-act-type';
 import {
   AgentToolCall,
   ConversationTranscriptItem,
@@ -23,6 +24,7 @@ import {
 import {
   RuntimeStore,
   type RuntimeAcceptedIdentityFact,
+  type RuntimePresenceContext,
   type SessionReadCutoffState
 } from './runtime-store';
 import { resolveModelContextPolicy } from './model-context-policy';
@@ -206,13 +208,6 @@ type ContextBudgetPlan = {
   pendingProactiveShareAge: number;
 };
 
-type UnreadMeaningSocialActType =
-  | 'invitation_curiosity'
-  | 'emotional_release'
-  | 'relationship_probe'
-  | 'concrete_request'
-  | 'yes_no_reaction'
-  | 'casual_remark';
 
 type UnreadMeaningTopicContext = {
   hasTopic: boolean;
@@ -246,6 +241,7 @@ type LongTermLearningRecall = {
   topicHint: string;
   includeCurrentSender: boolean;
   desiredRecallCount: number;
+  socialActTypeHint: UnreadMeaningSocialActType | null;
 };
 
 type FeedbackReflectionCandidate = {
@@ -335,7 +331,7 @@ const HISTORY_COMPACT_KEEP = 80;
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
 const CONTEXT_SUMMARY_SUBAGENT_TYPE = 'context_summary_writer';
-const XIAONI_IDENTITY_KEY = 'xiaoni';
+export const XIAONI_IDENTITY_KEY = 'xiaoni';
 const RUNTIME_IDENTITY_FACT_LIMIT = 4;
 
 const TOOL_NAMES = {
@@ -644,6 +640,10 @@ const LONG_TERM_RECALL_TOOL = {
           type: 'integer',
           minimum: 1,
           maximum: 3
+        },
+        social_act_type_hint: {
+          type: 'string',
+          enum: ['invitation_curiosity', 'emotional_release', 'relationship_probe', 'concrete_request', 'yes_no_reaction', 'casual_remark']
         }
       },
       required: ['reason', 'topic_hint', 'include_current_sender', 'desired_recall_count'],
@@ -1995,11 +1995,21 @@ function parseLongTermLearningRecall(value: unknown): LongTermLearningRecall | n
     return null;
   }
 
+  const socialActTypeValues: UnreadMeaningSocialActType[] = [
+    'invitation_curiosity', 'emotional_release', 'relationship_probe',
+    'concrete_request', 'yes_no_reaction', 'casual_remark'
+  ];
+  const rawHint = record.social_act_type_hint ?? record.socialActTypeHint;
+  const socialActTypeHint: UnreadMeaningSocialActType | null = socialActTypeValues.includes(rawHint as UnreadMeaningSocialActType)
+    ? (rawHint as UnreadMeaningSocialActType)
+    : null;
+
   return {
     reason,
     topicHint,
     includeCurrentSender,
-    desiredRecallCount: Math.max(1, Math.min(desiredRecallCount, 3))
+    desiredRecallCount: Math.max(1, Math.min(desiredRecallCount, 3)),
+    socialActTypeHint
   };
 }
 
@@ -2520,7 +2530,8 @@ export class AgentLoopService {
 
   async processQueueMessage(queueMessage: QueueMessageRecord) {
     const startedAt = Date.now();
-    const payload = queueMessage.payload;
+    const activeQueueMessage = materializePresenceTickQueueMessage(queueMessage);
+    const payload = activeQueueMessage.payload;
     const inboundContext = payload.inboundContext;
     const sessionIds = resolveSessionTargets(payload);
     const jobId = await this.store.createLlmJob({
@@ -2546,6 +2557,7 @@ export class AgentLoopService {
     let storedFeedbackReflectionIds: number[] = [];
     let unreadMeaningArtifact: Record<string, unknown> | null = null;
     let innerReactionArtifact: Record<string, unknown> | null = null;
+    let presenceContext: RuntimePresenceContext | null = null;
     let runtimeIdentityFacts: RuntimeIdentityFactProjection[] = [];
     const contextBudgetTurns: ContextBudgetTurnRecord[] = [];
     let budgetPlan: ContextBudgetPlan = {
@@ -2589,6 +2601,19 @@ export class AgentLoopService {
     });
 
     try {
+      if (!isPresenceTickPayload(payload)) {
+        const recorder = (this.store as RuntimeStore & {
+          recordPresenceUserMessage?: RuntimeStore['recordPresenceUserMessage'];
+        }).recordPresenceUserMessage;
+        if (typeof recorder === 'function') {
+          await recorder.call(this.store, payload).catch((error) => {
+            moduleLogger.warn('Failed to record presence user-message anchor', {
+              traceId: payload.traceId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          });
+        }
+      }
       const history = await this.store.listRecentTurns({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
@@ -2599,7 +2624,25 @@ export class AgentLoopService {
       runtimePrompt = await this.promptResolver.resolveForQueueMessage(payload);
       await this.ensureRuntimeIdentityRoot(payload, runtimePrompt);
       runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(payload);
-      const developerContextBlock = await this.buildDeveloperContextBlock(payload);
+      const baseDeveloperContextBlock = await this.buildDeveloperContextBlock(payload);
+      {
+        const presenceLoader = (this.store as RuntimeStore & {
+          buildPresenceContext?: RuntimeStore['buildPresenceContext'];
+        }).buildPresenceContext;
+        presenceContext = typeof presenceLoader === 'function'
+          ? await presenceLoader.call(this.store, payload).catch((error) => {
+              moduleLogger.warn('Failed to build presence context', {
+                traceId: payload.traceId,
+                error: error instanceof Error ? error.message : String(error)
+              });
+              return null;
+            })
+          : null;
+      }
+      const developerContextBlock = [
+        baseDeveloperContextBlock,
+        presenceContext?.block || null
+      ].filter((part): part is string => Boolean(part && part.trim())).join('\n\n') || null;
       let loopContinuation: OpenResponseInputItem[] = [];
       budgetPlan = await this.buildContextBudgetPlan({
         history,
@@ -2975,22 +3018,38 @@ export class AgentLoopService {
           termination_reason: termination.terminationReason
         }
       });
-      {
-        const priorShare = budgetPlan.pendingProactiveShare;
-        const priorAge = budgetPlan.pendingProactiveShareAge;
-        let nextShare: string | null;
-        let nextAge: number;
-        if (persistedPendingShare !== null) {
-          nextShare = persistedPendingShare;
-          nextAge = 0;
-        } else if (priorShare !== null && priorAge + 1 < 3) {
-          nextShare = priorShare;
-          nextAge = priorAge + 1;
-        } else {
-          nextShare = null;
-          nextAge = 0;
+      const presenceOutcome = isPresenceTickPayload(payload)
+        ? (sentMessages.length > 0 ? 'shared' : 'lurked')
+        : (sentMessages.length > 0 ? 'replied' : 'silent');
+      if (presenceContext) {
+        const sidecarRecorder = (this.store as RuntimeStore & {
+          recordPresenceSidecar?: RuntimeStore['recordPresenceSidecar'];
+        }).recordPresenceSidecar;
+        if (typeof sidecarRecorder === 'function') {
+          await sidecarRecorder.call(this.store, {
+            queueMessage: payload,
+            presenceContext,
+            outcome: presenceOutcome
+          }).catch((error) => {
+            moduleLogger.warn('Failed to record presence sidecar', {
+              traceId: payload.traceId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          });
         }
-        await this.store.upsertProactiveShareState(payload.sessionKey, nextShare, nextAge);
+      }
+      if (isPresenceTickPayload(payload)) {
+        const proactiveRecorder = (this.store as RuntimeStore & {
+          recordPresenceProactiveCompletion?: RuntimeStore['recordPresenceProactiveCompletion'];
+        }).recordPresenceProactiveCompletion;
+        if (typeof proactiveRecorder === 'function') {
+          await proactiveRecorder.call(this.store, payload, presenceOutcome).catch((error) => {
+            moduleLogger.warn('Failed to record presence proactive completion', {
+              traceId: payload.traceId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          });
+        }
       }
       await this.store.completeAgentRun(queueMessage.id, {
         status: 'completed',
@@ -3104,6 +3163,23 @@ export class AgentLoopService {
       });
       await this.store.attachConversationIdToTrace(payload.traceId, conversationId);
       await this.store.failQueueMessage(queueMessage.id, message, conversationId);
+      if (presenceContext) {
+        const sidecarRecorder = (this.store as RuntimeStore & {
+          recordPresenceSidecar?: RuntimeStore['recordPresenceSidecar'];
+        }).recordPresenceSidecar;
+        if (typeof sidecarRecorder === 'function') {
+          await sidecarRecorder.call(this.store, {
+            queueMessage: payload,
+            presenceContext,
+            outcome: sentMessages.length > 0 ? 'replied' : 'silent'
+          }).catch((sidecarError) => {
+            moduleLogger.warn('Failed to record failed-run presence sidecar', {
+              traceId: payload.traceId,
+              error: sidecarError instanceof Error ? sidecarError.message : String(sidecarError)
+            });
+          });
+        }
+      }
       await this.store.completeAgentRun(queueMessage.id, {
         status: 'failed',
         terminationReason: termination.terminationReason,
@@ -3151,8 +3227,8 @@ export class AgentLoopService {
       parts.push(`<world_narrative>\n${agentConfig.worldNarrative.trim()}\n</world_narrative>`);
     }
 
-    const speakerQq = typeof queueMessage.senderId === 'number' && Number.isFinite(queueMessage.senderId)
-      ? queueMessage.senderId
+    const speakerQq = queueMessage.senderId != null && Number.isFinite(Number(queueMessage.senderId))
+      ? Number(queueMessage.senderId)
       : null;
     const speakerName = (queueMessage.inboundContext as { SenderName?: string })?.SenderName?.trim() || null;
 
@@ -3163,7 +3239,7 @@ export class AgentLoopService {
 
       let trustLevel: 'L1' | 'L2' | 'L3' | 'L4' = 'L1';
       if (typeof trustLoader === 'function') {
-        trustLevel = await trustLoader.call(this.store, queueMessage.sessionKey, speakerQq).catch(() => 'L1' as const);
+        trustLevel = await trustLoader.call(this.store, XIAONI_IDENTITY_KEY, speakerQq).catch(() => 'L1' as const);
       }
 
       const personaText = agentConfig.xiaoniPersonaLayers[trustLevel];
@@ -3188,20 +3264,6 @@ export class AgentLoopService {
           `<current_scene>\n活跃人数（近10分钟）：${activity.activeSenderCount}\n消息密度（近5分钟）：${density}（${activity.recentMessageCount}条）\n</current_scene>`
         );
       }
-    }
-
-    // inject current_state
-    const stateLoader = (this.store as RuntimeStore & {
-      getSessionEmotionalState?: RuntimeStore['getSessionEmotionalState'];
-    }).getSessionEmotionalState;
-
-    if (typeof stateLoader === 'function') {
-      const sessionState = await stateLoader.call(this.store, queueMessage.sessionKey).catch(() => null);
-      const dopamine = sessionState?.dopamine ?? 'medium';
-      const stress = sessionState?.stress ?? 'low';
-      parts.push(
-        `<current_state>\n多巴胺水平：${dopamine}\n压力值：${stress}\n</current_state>`
-      );
     }
 
     return parts.length > 0 ? parts.join('\n\n') : null;
@@ -3882,14 +3944,14 @@ export class AgentLoopService {
         if (episode.scopeType === 'from_user' && fbSpeakerQq !== null && fbSpeakerQq > 0) {
           if (episode.eventKind === 'praise') {
             if (typeof trustUpdater === 'function') {
-              void trustUpdater.call(this.store, fbSessionKey, fbSpeakerQq, 2.0);
+              void trustUpdater.call(this.store, XIAONI_IDENTITY_KEY, fbSpeakerQq, 2.0);
             }
             if (typeof stateUpdater === 'function') {
               void stateUpdater.call(this.store, fbSessionKey, 'high', 'low');
             }
           } else if (episode.eventKind === 'interaction_outcome') {
             if (typeof trustUpdater === 'function') {
-              void trustUpdater.call(this.store, fbSessionKey, fbSpeakerQq, 0.5);
+              void trustUpdater.call(this.store, XIAONI_IDENTITY_KEY, fbSpeakerQq, 0.5);
             }
           }
         }
@@ -4364,7 +4426,8 @@ export class AgentLoopService {
           currentUserId: parseOptionalInteger(queueMessage.senderId) || 0,
           recentUserIds: recall.includeCurrentSender ? resolveRecentRelatedUserIds(queueMessage) : [],
           queryText,
-          limit: recall.desiredRecallCount
+          limit: recall.desiredRecallCount,
+          socialActTypeHint: recall.socialActTypeHint
         }).catch(() => []);
 
         return {
@@ -4624,6 +4687,7 @@ export class AgentLoopService {
       if (!response.ok || payload.success === false) {
         throw new Error(payload.error || `${TOOL_NAMES.privateReply} failed with ${response.status}`);
       }
+      await this.recordPresenceAssistantAction(queueMessage);
       return {
         message_type: 'private',
         sent_messages: messages,
@@ -4663,6 +4727,7 @@ export class AgentLoopService {
     if (!response.ok || payload.success === false) {
       throw new Error(payload.error || `${TOOL_NAMES.groupReply} failed with ${response.status}`);
     }
+    await this.recordPresenceAssistantAction(queueMessage);
     return {
       message_type: 'group',
       mention_user_ids: selectedMentionUserIds,
@@ -4673,6 +4738,21 @@ export class AgentLoopService {
       delivery: payload.data || null
     };
   }
+
+  private async recordPresenceAssistantAction(queueMessage: QueueMessageRecord['payload']) {
+    const recorder = (this.store as RuntimeStore & {
+      recordPresenceAssistantAction?: RuntimeStore['recordPresenceAssistantAction'];
+    }).recordPresenceAssistantAction;
+    if (typeof recorder !== 'function') {
+      return;
+    }
+    await recorder.call(this.store, queueMessage).catch((error) => {
+      moduleLogger.warn('Failed to record presence assistant-action anchor', {
+        traceId: queueMessage.traceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
 }
 
 function applyReadCutoff(history: ConversationTurn[], cutoffState: SessionReadCutoffState | null) {
@@ -4681,6 +4761,62 @@ function applyReadCutoff(history: ConversationTurn[], cutoffState: SessionReadCu
     return history.slice();
   }
   return history.filter((turn) => turn.id > readCutoffAfterConversationId);
+}
+
+function isPresenceTickPayload(queueMessage: QueueMessageRecord['payload']) {
+  return queueMessage.source === 'presence_tick'
+    || queueMessage.sessionKey === 'presence_tick:xiaoni'
+    || Boolean(queueMessage.presenceTick);
+}
+
+export function materializePresenceTickQueueMessage(queueMessage: QueueMessageRecord): QueueMessageRecord {
+  const tick = queueMessage.payload.presenceTick;
+  if (!tick || queueMessage.payload.sessionKey !== 'presence_tick:xiaoni') {
+    return queueMessage;
+  }
+
+  const payload = queueMessage.payload;
+  const targetSessionKey = tick.targetSessionKey;
+  const targetPeerId = tick.targetPeerId;
+  const targetPeerName = tick.targetPeerName || undefined;
+  const inboundContext = {
+    ...payload.inboundContext,
+    SessionKey: targetSessionKey,
+    To: targetPeerId,
+    NativeChannelId: targetPeerId,
+    GroupSubject: targetPeerName || payload.inboundContext.GroupSubject,
+    Surface: 'presence_tick'
+  };
+  const messages = payload.messages.map((message) => ({
+    ...message,
+    chatType: 'group' as const,
+    sessionKey: targetSessionKey,
+    peerId: targetPeerId,
+    peerName: targetPeerName,
+    accountId: tick.targetAccountId,
+    inboundContext: {
+      ...message.inboundContext,
+      SessionKey: targetSessionKey,
+      To: targetPeerId,
+      NativeChannelId: targetPeerId,
+      GroupSubject: targetPeerName || message.inboundContext.GroupSubject,
+      Surface: 'presence_tick'
+    }
+  }));
+
+  return {
+    ...queueMessage,
+    payload: {
+      ...payload,
+      chatType: 'group',
+      sessionKey: targetSessionKey,
+      peerId: targetPeerId,
+      peerName: targetPeerName,
+      accountId: tick.targetAccountId,
+      inboundContext,
+      messages
+    }
+  };
 }
 
 function buildLoopRequestInput(params: {
@@ -4903,9 +5039,6 @@ export function buildInitialInput(
     }
   }
 
-  if (pendingProactiveShare) {
-    items.push(buildUserSceneInputItem([`[待分享]\n${pendingProactiveShare}`]));
-  }
   items.push(buildUserSceneInputItem(['[未读消息]']));
   const identityFactsText = renderRuntimeIdentityFacts(runtimeIdentityFacts);
   if (identityFactsText) {

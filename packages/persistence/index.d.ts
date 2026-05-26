@@ -1050,11 +1050,41 @@ export function getRelationshipTrustLevel(identityKey: string, speakerQq: number
 export function upsertRelationshipTrust(input: { identityKey: string; speakerQq: number | bigint | string; trustScore: number; level: RelationshipTrustLevel }, config?: DatabaseUrlConfig): Promise<void>;
 export function incrementRelationshipTrust(input: { identityKey: string; speakerQq: number; delta: number }, config?: Record<string, unknown>): Promise<void>;
 
-// agent-session-state
-export interface AgentSessionState {
-  dopamine: 'low' | 'medium' | 'high';
-  stress: 'low' | 'medium' | 'high';
-}
-export function ensureAgentSessionStateSchema(config?: Record<string, unknown>): Promise<void>;
-export function getAgentSessionState(sessionKey: string, config?: Record<string, unknown>): Promise<AgentSessionState | null>;
-export function upsertAgentSessionState(input: { sessionKey: string; dopamine: 'low' | 'medium' | 'high'; stress: 'low' | 'medium' | 'high' }, config?: Record<string, unknown>): Promise<void>;
+// agent-queue
+export type AgentQueueEnqueueInput = {
+  message?: Record<string, unknown>;
+  payload?: Record<string, unknown>;
+  availableAt?: string | Date;
+  available_at?: string | Date;
+} & Record<string, unknown>;
+export function enqueueAgentQueueMessage(input: AgentQueueEnqueueInput, config?: DatabaseUrlConfig): Promise<{
+  queueId: number;
+  traceId: string;
+  dedupeKey: string;
+  status: string;
+  attempts: number;
+  availableAt: string | null;
+  payload: Record<string, unknown>;
+}>;
+
+// agent-presence
+export type AgentSharePoolItemProjection = {
+  id: number;
+  identityKey: string;
+  content: string;
+  sourceKind: string;
+  boundaryLabel: string;
+  sourceWording: string;
+  effortCost: number;
+  baseHeat: number;
+  createdAt: string | null;
+  metadata: Record<string, unknown>;
+};
+export function ensureAgentPresenceSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function ensureAgentLifeState(identityKey: string, config?: DatabaseUrlConfig): Promise<Record<string, unknown>>;
+export function getAgentLifeState(identityKey: string, config?: DatabaseUrlConfig): Promise<Record<string, unknown> | null>;
+export function updateAgentLifeState(identityKey: string, data: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<Record<string, unknown>>;
+export function upsertAgentGroupPresenceState(input: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<Record<string, unknown>>;
+export function listAgentSharePoolItems(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentSharePoolItemProjection[]>;
+export function createAgentShareItemUsage(input: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<Record<string, unknown>>;
+export function createAgentPresenceStateSidecar(input: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<Record<string, unknown>>;

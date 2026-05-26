@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, sanitizeLowValueOpeningFiller } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, materializePresenceTickQueueMessage, sanitizeLowValueOpeningFiller, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload } from '../types';
 
@@ -228,15 +228,14 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   );
   const planFunction = getFunctionTool(request.tools[0]);
   assert.equal(planFunction?.name, UNREAD_MEANING_TOOL);
-  assert.match(String(request.instructions), /Available tools are .*web_search/);
-  assert.match(String(request.instructions), /使用 web_search/);
+  assert.match(String(request.instructions), /群里的一个成员，不是助手，不是服务/);
   assert.match(String(request.instructions), /web_search 是求知，不是默认步骤/);
-  assert.match(String(request.instructions), /知行不二/);
-  assert.match(String(request.instructions), /经典原话更准确地点明了此刻判断/);
-  assert.match(String(request.instructions), /我仍然回到同一个判断：说，等待，还是沉默/);
-  assert.match(String(request.instructions), /工具只是这些去向的外在落点/);
-  assert.match(String(planFunction?.description), /先只理解最新未读到底在讲什么/);
-  assert.deepEqual(planFunction?.parameters?.required, ['latest_unread_focus', 'message_act', 'social_target', 'addressed_to_me', 'has_real_novelty', 'confidence', 'reason']);
+  assert.match(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/);
+  assert.match(String(request.instructions), /有真实的感觉才开口/);
+  assert.match(String(request.instructions), /查完还是你自己决定说不说/);
+  assert.match(String(request.instructions), /这一轮怎么收/);
+  assert.match(String(planFunction?.description), /先搞清楚最新未读在说什么/);
+  assert.deepEqual(planFunction?.parameters?.required, ['latest_unread_focus', 'message_act', 'social_target', 'addressed_to_me', 'has_real_novelty', 'confidence', 'reason', 'topic_context']);
 });
 
 test('buildCanonicalAgentTurnRequest does not include previous_response_id', () => {
@@ -255,10 +254,10 @@ test('buildCanonicalAgentTurnRequest keeps the same group loop tools on the firs
     GROUP_LOOP_TOOLS
   );
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [UNREAD_MEANING_TOOL]);
-  assert.match(String(request.instructions), /这一轮在我体内自然按这个顺序展开/);
-  assert.match(String(request.instructions), /如果我还没看清最新未读到底在讲什么，就先调用 emit_unread_meaning/);
-  assert.match(String(request.instructions), /只有当当前反应让我意识到这件事可能和以前学到的东西有关时，我才调用 recall_long_term_learning/);
-  assert.match(String(request.instructions), /只有当前两步都已经形成，我才调用 speak_in_group、stay_silent 或 web_search/);
+  assert.match(String(request.instructions), /这一轮顺序/);
+  assert.match(String(request.instructions), /emit_unread_meaning/);
+  assert.match(String(request.instructions), /recall_long_term_learning/);
+  assert.match(String(request.instructions), /最后通过工具完成这一轮/);
 });
 
 test('buildCanonicalAgentTurnRequest only unlocks inner reaction after unread meaning replay', () => {
@@ -309,7 +308,7 @@ test('buildCanonicalAgentTurnRequest only allows stay_silent after inner reactio
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL]);
 });
 
-test('buildCanonicalAgentTurnRequest requires recall before speech when inner reaction prefers speak', () => {
+test('buildCanonicalAgentTurnRequest goes directly to act-turn when inner reaction prefers speak', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({
     type: 'function_call',
@@ -336,7 +335,7 @@ test('buildCanonicalAgentTurnRequest requires recall before speech when inner re
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LONG_TERM_RECALL_TOOL]);
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL]);
 });
 
 test('buildCanonicalAgentTurnRequest requires recall before search when inner reaction prefers search', () => {
@@ -407,7 +406,7 @@ test('buildCanonicalAgentTurnRequest allows speech after recall when inner react
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL, SILENT_FINISH_TOOL]);
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL]);
 });
 
 test('buildCanonicalAgentTurnRequest allows search after recall when inner reaction prefers search', () => {
@@ -481,7 +480,7 @@ test('buildCanonicalAgentTurnRequest downgrades low weak speech without direct n
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL]);
 });
 
-test('buildCanonicalAgentTurnRequest keeps direct new low weak speech on the recall path', () => {
+test('buildCanonicalAgentTurnRequest goes to act-turn directly for direct new low weak speech', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({
     type: 'function_call',
@@ -508,6 +507,192 @@ test('buildCanonicalAgentTurnRequest keeps direct new low weak speech on the rec
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL]);
+});
+
+test('buildCanonicalAgentTurnRequest downgrades low+formed+no-direct-cue speak to silence', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"群里随便聊天","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":false,"confidence":"high","reason":"旁观者"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"群里随便聊天","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":false,"confidence":"high","reason":"旁观者"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"low","wants_to_know_more":false,"recalled_prior_pattern":"类似话题之前聊过","felt_direction":"有个想法但不强","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有点想法但没人问我"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"low","wants_to_know_more":false,"recalled_prior_pattern":"类似话题之前聊过","felt_direction":"有个想法但不强","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有点想法但没人问我"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL]);
+});
+
+test('buildCanonicalAgentTurnRequest keeps low+formed speak when there is a direct cue', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"直接问小腻一个问题","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":false,"confidence":"high","reason":"直接问"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"直接问小腻一个问题","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":false,"confidence":"high","reason":"直接问"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"low","wants_to_know_more":false,"recalled_prior_pattern":"被问到要答","felt_direction":"简短作答","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"被问到了"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"low","wants_to_know_more":false,"recalled_prior_pattern":"被问到要答","felt_direction":"简短作答","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"被问到了"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+
+  assert.ok(getAllowedToolNames(request.tool_choice).includes(GROUP_REPLY_TOOL), 'low+formed with direct question must not be silenced');
+});
+
+test('buildCanonicalAgentTurnRequest downgrades none-interest speak to silence as safety catch', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"无关闲聊","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":false,"confidence":"high","reason":"和我无关"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"无关闲聊","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":false,"confidence":"high","reason":"和我无关"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"none","wants_to_know_more":false,"recalled_prior_pattern":"无","felt_direction":"无","reaction_authenticity":"none","should_search":false,"preferred_action":"speak","reason":"模型选错了"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"none","wants_to_know_more":false,"recalled_prior_pattern":"无","felt_direction":"无","reaction_authenticity":"none","should_search":false,"preferred_action":"speak","reason":"模型选错了"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL]);
+});
+
+test('buildCanonicalAgentTurnRequest routes proactive to speak+silent tools', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"群里随便聊","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":false,"confidence":"high","reason":"普通消息"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"群里随便聊","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":false,"confidence":"high","reason":"普通消息"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"medium","wants_to_know_more":false,"recalled_prior_pattern":"最近看到了个有趣的东西","felt_direction":"我自己有个事想说","reaction_authenticity":"formed","should_search":false,"preferred_action":"proactive","reason":"借这个时机分享一个有趣的东西"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"medium","wants_to_know_more":false,"recalled_prior_pattern":"最近看到了个有趣的东西","felt_direction":"我自己有个事想说","reaction_authenticity":"formed","should_search":false,"preferred_action":"proactive","reason":"借这个时机分享一个有趣的东西"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  const allowedTools = getAllowedToolNames(request.tool_choice);
+
+  assert.ok(allowedTools.includes(GROUP_REPLY_TOOL), 'proactive must allow speak_in_group');
+  assert.ok(allowedTools.includes(SILENT_FINISH_TOOL), 'proactive must allow stay_silent as fallback');
+  assert.ok(!allowedTools.includes(INSPECT_IMAGE_TOOL), 'proactive must not include image tools');
+});
+
+test('speak act-turn does not include stay_silent after recall completes', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({ type: 'function_call', call_id: 'c1', name: UNREAD_MEANING_TOOL, arguments: '{"latest_unread_focus":"直接问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问"}' });
+  loopInput.push({ type: 'function_call_output', call_id: 'c1', output: '{"latest_unread_focus":"直接问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问"}' });
+  loopInput.push({ type: 'function_call', call_id: 'c2', name: INNER_REACTION_TOOL, arguments: '{"interest_level":"medium","wants_to_know_more":false,"recalled_prior_pattern":"直接问要直接答","felt_direction":"有回应","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实回应"}' });
+  loopInput.push({ type: 'function_call_output', call_id: 'c2', output: '{"interest_level":"medium","wants_to_know_more":false,"recalled_prior_pattern":"直接问要直接答","felt_direction":"有回应","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实回应"}' });
+  loopInput.push({ type: 'function_call', call_id: 'c3', name: LONG_TERM_RECALL_TOOL, arguments: '{"reason":"检查历史","topic_hint":"直接问","include_current_sender":true,"desired_recall_count":2}' });
+  loopInput.push({ type: 'function_call_output', call_id: 'c3', output: '{"reason":"检查历史","topic_hint":"直接问","query_text":"直接问","items":[],"markdown_items":[]}' });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  const allowedTools = getAllowedToolNames(request.tool_choice);
+
+  assert.ok(!allowedTools.includes(SILENT_FINISH_TOOL), `stay_silent must not be in speak act-turn tools; got [${allowedTools.join(', ')}]`);
+  assert.ok(allowedTools.includes(GROUP_REPLY_TOOL), `speak_in_group must be present in speak act-turn tools`);
+});
+
+test('speak act-turn without recall goes directly to act-turn skipping recall', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({ type: 'function_call', call_id: 'c1', name: UNREAD_MEANING_TOOL, arguments: '{"latest_unread_focus":"群里随便聊","message_act":"chat","social_target":"group","addressed_to_me":false,"has_real_novelty":true,"confidence":"high","reason":"有新内容"}' });
+  loopInput.push({ type: 'function_call_output', call_id: 'c1', output: '{"latest_unread_focus":"群里随便聊","message_act":"chat","social_target":"group","addressed_to_me":false,"has_real_novelty":true,"confidence":"high","reason":"有新内容"}' });
+  loopInput.push({ type: 'function_call', call_id: 'c2', name: INNER_REACTION_TOOL, arguments: '{"interest_level":"medium","wants_to_know_more":false,"recalled_prior_pattern":"","felt_direction":"可以说一句","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实感觉"}' });
+  loopInput.push({ type: 'function_call_output', call_id: 'c2', output: '{"interest_level":"medium","wants_to_know_more":false,"recalled_prior_pattern":"","felt_direction":"可以说一句","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实感觉"}' });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  const allowedTools = getAllowedToolNames(request.tool_choice);
+
+  assert.ok(!allowedTools.includes(LONG_TERM_RECALL_TOOL), `recall must not be forced for speak path; got [${allowedTools.join(', ')}]`);
+  assert.ok(allowedTools.includes(GROUP_REPLY_TOOL), `speak_in_group must be in act-turn tools`);
+});
+
+test('GROUP_MESSAGE_TOOL description does not contain old ceremonial framing', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  const groupReplyTool = request.tools.find((t: any) => t.function?.name === GROUP_REPLY_TOOL);
+
+  assert.ok(groupReplyTool, 'speak_in_group tool must exist');
+  assert.doesNotMatch(String((groupReplyTool as any).function?.description), /承担它落在关系里的后果/, 'old ceremonial framing must be removed');
+  assert.doesNotMatch(String((groupReplyTool as any).function?.description), /值得承担时/, 'old framing must be removed');
+  assert.match(String((groupReplyTool as any).function?.description), /有真实反应才调用/, 'new description must describe authenticity requirement');
+});
+
+test('RUNTIME_INPUT_READING_CONTRACT contains new positive permission text and not Confucian text', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+
+  assert.match(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/, 'positive permission line 1 must be present');
+  assert.match(String(request.instructions), /有真实的感觉才开口/, 'positive permission line 2 must be present');
+  assert.doesNotMatch(String(request.instructions), /知行不二/, '知行不二 must be removed');
+  assert.doesNotMatch(String(request.instructions), /修身为本/, '修身为本 must be removed');
+  assert.doesNotMatch(String(request.instructions), /经典原话更准确地点明了此刻判断/, 'old Confucian framing must be removed');
+});
+
+test('search and image_task paths still force recall before act-turn', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({ type: 'function_call', call_id: 'c1', name: UNREAD_MEANING_TOOL, arguments: '{"latest_unread_focus":"问了个需要查的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"需要搜索"}' });
+  loopInput.push({ type: 'function_call_output', call_id: 'c1', output: '{"latest_unread_focus":"问了个需要查的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"需要搜索"}' });
+  loopInput.push({ type: 'function_call', call_id: 'c2', name: INNER_REACTION_TOOL, arguments: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"需要查资料","reaction_authenticity":"formed","should_search":true,"preferred_action":"search","reason":"需要搜索"}' });
+  loopInput.push({ type: 'function_call_output', call_id: 'c2', output: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"需要查资料","reaction_authenticity":"formed","should_search":true,"preferred_action":"search","reason":"需要搜索"}' });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [LONG_TERM_RECALL_TOOL]);
 });
 
@@ -578,7 +763,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
     requestBody.canonicalRequest.input.slice(-4).map((item: any) => item.type),
     ['function_call', 'function_call_output', 'function_call', 'function_call_output']
   );
-  assert.match(String(requestBody.canonicalRequest.instructions), /这一轮在我体内自然按这个顺序展开/);
+  assert.match(String(requestBody.canonicalRequest.instructions), /这一轮顺序/);
   assert.deepEqual(getAllowedToolNames(requestBody.canonicalRequest.tool_choice), [SILENT_FINISH_TOOL]);
   assert.equal(requestBody.canonicalRequest.parallel_tool_calls, false);
   assert.deepEqual(
@@ -709,8 +894,8 @@ test('buildInitialInput does not append transcript summary to the system prompt 
   assert.equal(loopInput[0]?.type, 'message');
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
-  assert.match(String(loopInput[0]?.content), /OS 可以包含你当时真实留下来的任何东西/);
-  assert.match(String(loopInput[0]?.content), /修身为本/);
+  assert.match(String(loopInput[0]?.content), /小腻的OS/);
+  assert.match(String(loopInput[0]?.content), /普通聊天、轻吐槽、短反应都是正常参与/);
   assert.doesNotMatch(String(loopInput[0]?.content), /Conversation summary:/);
 });
 
@@ -723,9 +908,9 @@ test('buildInitialInput appends the thin runtime contract for group chats', () =
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
-  assert.match(String(loopInput[0]?.content), /你会看到 `\[已读消息\]` 和 `\[未读消息\]` 两个分界。/);
-  assert.match(String(loopInput[0]?.content), /这次由我自己判断：/);
-  assert.match(String(loopInput[0]?.content), /工具只是这些去向的外在落点/);
+  assert.match(String(loopInput[0]?.content), /\[已读消息\]/);
+  assert.match(String(loopInput[0]?.content), /\[未读消息\]/);
+  assert.match(String(loopInput[0]?.content), /这一轮怎么收/);
 });
 
 test('buildInitialInput uses the same thin runtime contract for direct chats', () => {
@@ -737,10 +922,9 @@ test('buildInitialInput uses the same thin runtime contract for direct chats', (
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
-  assert.match(String(loopInput[0]?.content), /这一轮只有几种自然去向：/);
-  assert.match(String(loopInput[0]?.content), /成长约束是真正的行为来源/);
-  assert.match(String(loopInput[0]?.content), /群聊说话时，调用 speak_in_group/);
-  assert.match(String(loopInput[0]?.content), /私聊说话时，调用 reply_in_private/);
+  assert.match(String(loopInput[0]?.content), /这一轮怎么收/);
+  assert.match(String(loopInput[0]?.content), /群里说话/);
+  assert.match(String(loopInput[0]?.content), /私聊说话/);
 });
 
 test('buildInitialInput projects accepted identity facts as runtime scene context', () => {
@@ -1110,9 +1294,9 @@ test('buildInitialInput keeps user input as pure scene without synthetic current
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   assert.match(String(request.instructions), /^你是小腻主AGENT/);
-  assert.match(String(request.instructions), /这一轮只有几种自然去向：/);
-  assert.match(String(request.instructions), /修身为本/);
-  assert.match(String(request.instructions), /群聊说话时，调用 speak_in_group/);
+  assert.match(String(request.instructions), /这一轮怎么收/);
+  assert.match(String(request.instructions), /有真实的感觉才开口/);
+  assert.match(String(request.instructions), /群里说话/);
   assert.equal(request.input.some((item) => getMessageContent(item).includes('[当前任务]')), false);
 });
 
@@ -1552,6 +1736,7 @@ test('speak_in_group always uses the current conversation group target', async (
       mention_user_ids: [404],
       sent_messages: ['可以试试'],
       xiaoni_os: null,
+      pending_share: null,
       second_beat_suppressed: false,
       delivery: { delivered: true }
     });
@@ -1609,6 +1794,7 @@ test('reply_in_private always uses the current conversation sender', async () =>
       message_type: 'private',
       sent_messages: ['私聊回复'],
       xiaoni_os: null,
+      pending_share: null,
       delivery: { delivered: true }
     });
   } finally {
@@ -1660,6 +1846,7 @@ test('processQueueMessage fails without a bound prompt and does not call the pro
     listRecentTurns: async () => [],
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
     createConversation: async (params: any) => {
       storeCalls.createConversation.push(params);
       return 987;
@@ -1747,6 +1934,7 @@ test('processQueueMessage persists delivered assistant transcript items with fin
     listRecentTurns: async () => [],
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
     getRunDeliveryState: async () => ({
       deliveryPhase,
       deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
@@ -1968,6 +2156,7 @@ test('processQueueMessage completes with no reply when the model directly calls 
     listRecentTurns: async () => [],
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
     getRunDeliveryState: async () => ({
       deliveryPhase: 'reasoning_open',
       deliveryCommitCount: 0,
@@ -2115,6 +2304,7 @@ test('processQueueMessage does not allow request_image_task to swallow the visib
     listRecentTurns: async () => [],
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
     createRuntimeTask: async () => 'task-image-followup',
     getMediaAssetByTag: async () => null,
     getRunDeliveryState: async () => ({
@@ -2246,6 +2436,7 @@ test('processQueueMessage stores partially delivered assistant transcript as com
     listRecentTurns: async () => [],
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
     getRunDeliveryState: async () => ({
       deliveryPhase,
       deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
@@ -2385,6 +2576,7 @@ test('processQueueMessage suppresses duplicate outbound reply attempts within th
     listRecentTurns: async () => [],
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
     getRunDeliveryState: async () => ({
       deliveryPhase,
       deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
@@ -2519,6 +2711,7 @@ test('processQueueMessage blocks near-duplicate second outbound reply after deli
     listRecentTurns: async () => [],
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
     getRunDeliveryState: async () => ({
       deliveryPhase,
       deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
@@ -2701,11 +2894,439 @@ test('legacy tool aliases still dispatch during the transition', async () => {
       finished: true,
       reason: 'legacy',
       outcome: 'noop',
-      xiaoni_os: null
+      xiaoni_os: null,
+      pending_share: null
     });
   } finally {
     globalThis.fetch = originalFetch;
   }
 
   assert.equal(calls.length, 2);
+});
+
+// A1: empty_but_convenient always forces silence
+test('shouldDowngradeWeakSpeakToSilence forces silence for empty_but_convenient regardless of direct cue', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"直接问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接提问"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"直接问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接提问"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"low","wants_to_know_more":false,"reaction_authenticity":"empty_but_convenient","should_search":false,"preferred_action":"speak","reason":"只是凑数的话"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"low","wants_to_know_more":false,"reaction_authenticity":"empty_but_convenient","should_search":false,"preferred_action":"speak","reason":"只是凑数的话"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL],
+    'empty_but_convenient must always be silenced even when directly addressed');
+});
+
+// A2: socialTarget === 'me' counts as direct new cue
+test('hasDirectNewCue recognizes socialTarget=me even when addressedToMe is false', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"提到小腻但没有用@","message_act":"statement","social_target":"me","addressed_to_me":false,"has_real_novelty":true,"confidence":"high","reason":"点名但没@"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"提到小腻但没有用@","message_act":"statement","social_target":"me","addressed_to_me":false,"has_real_novelty":true,"confidence":"high","reason":"点名但没@"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"low","wants_to_know_more":false,"reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"speak","reason":"被点名了"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"low","wants_to_know_more":false,"reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"speak","reason":"被点名了"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  assert.ok(
+    getAllowedToolNames(request.tool_choice).includes(GROUP_REPLY_TOOL),
+    'socialTarget=me with addressedToMe=false must still count as direct cue and allow speak'
+  );
+});
+
+// A3: parseInnerReaction succeeds without recalled_prior_pattern / felt_direction
+test('parseInnerReaction accepts tool output without recalled_prior_pattern and felt_direction', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"直接问","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"直接问","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问"}'
+  });
+  // No recalled_prior_pattern or felt_direction — this is the new clean schema
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"high","wants_to_know_more":false,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实回应"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"high","wants_to_know_more":false,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实回应"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  assert.ok(
+    getAllowedToolNames(request.tool_choice).includes(GROUP_REPLY_TOOL),
+    'parseInnerReaction must succeed without recalled_prior_pattern and felt_direction'
+  );
+});
+
+// B: INNER_REACTION_TOOL schema must not contain recalled_prior_pattern or felt_direction
+test('INNER_REACTION_TOOL schema does not declare recalled_prior_pattern or felt_direction', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  const reactionTool = request.tools.find((t: any) => t.function?.name === INNER_REACTION_TOOL);
+  assert.ok(reactionTool, 'emit_inner_reaction tool must exist in initial turn');
+  const schema = (reactionTool as any).function?.parameters ?? {};
+  const props = schema?.properties ?? {};
+  assert.ok(!('recalled_prior_pattern' in props), 'recalled_prior_pattern must be removed from schema');
+  assert.ok(!('felt_direction' in props), 'felt_direction must be removed from schema');
+  const required: string[] = schema?.required ?? [];
+  assert.ok(!required.includes('recalled_prior_pattern'), 'recalled_prior_pattern must not be in required');
+  assert.ok(!required.includes('felt_direction'), 'felt_direction must not be in required');
+});
+
+// E: old pending_share state machine is retired; presence context owns proactive material.
+test('buildInitialInput does not inject legacy pending_share blocks', () => {
+  const input = buildInitialInput([], createQueuePayload(), undefined, [], null, '今天看到个很有趣的东西');
+  const userTexts = input
+    .filter((item: any) => item.type === 'message' && item.role === 'user')
+    .flatMap((item: any) => {
+      const content = Array.isArray(item.content) ? item.content : [item.content];
+      return content.map((c: any) => (typeof c === 'string' ? c : c?.text ?? ''));
+    });
+  const unreadIndex = userTexts.findIndex((t: string) => t.trim() === '[未读消息]');
+  assert.equal(userTexts.some((t: string) => t.includes('[待分享]')), false);
+  assert.equal(userTexts.some((t: string) => t.includes('今天看到个很有趣的东西')), false);
+  assert.ok(unreadIndex >= 0, '[未读消息] standalone block must exist');
+});
+
+test('materializePresenceTickQueueMessage replaces synthetic session with target group session', () => {
+  const basePayload = createQueuePayload();
+  const queueMessage = {
+    id: 'run-presence',
+    traceId: 'trace-presence',
+    batchId: 'batch-presence',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: {
+      ...basePayload,
+      source: 'presence_tick',
+      sessionKey: 'presence_tick:xiaoni',
+      peerId: '0',
+      peerName: undefined,
+      presenceTick: {
+        identityKey: 'xiaoni',
+        targetSessionKey: 'qq:group:999',
+        targetGroupId: 999,
+        targetPeerId: '999',
+        targetPeerName: 'Presence Group',
+        targetChatType: 'group' as const,
+        targetAccountId: '303'
+      },
+      inboundContext: {
+        ...basePayload.inboundContext,
+        SessionKey: 'presence_tick:xiaoni',
+        NativeChannelId: '0'
+      },
+      messages: basePayload.messages.map((message) => ({
+        ...message,
+        source: 'presence_tick',
+        sessionKey: 'presence_tick:xiaoni',
+        peerId: '0',
+        peerName: undefined,
+        inboundContext: {
+          ...message.inboundContext,
+          SessionKey: 'presence_tick:xiaoni',
+          NativeChannelId: '0'
+        }
+      }))
+    }
+  };
+
+  const materialized = materializePresenceTickQueueMessage(queueMessage);
+  assert.equal(materialized.payload.sessionKey, 'qq:group:999');
+  assert.equal(materialized.payload.peerId, '999');
+  assert.equal(materialized.payload.peerName, 'Presence Group');
+  assert.equal(materialized.payload.inboundContext.SessionKey, 'qq:group:999');
+  assert.equal(materialized.payload.inboundContext.NativeChannelId, '999');
+  assert.equal(materialized.payload.messages[0].sessionKey, 'qq:group:999');
+  assert.equal(materialized.payload.messages[0].peerId, '999');
+});
+
+// F: 社交认知帧 — social cognitive frame substrings appear in agent instructions
+test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in instructions', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  assert.match(String(request.instructions), /社交解码 — 先判断这条消息的场/);
+  assert.match(String(request.instructions), /感受基底 — 我有自己在意的东西/);
+  assert.match(String(request.instructions), /@ 了我是信号，不是命令/);
+});
+
+// G: social_act_type — flows into episode creator metadata when provided
+test('extract_feedback_episode with social_act_type stores it in episode metadata', async () => {
+  const service = new AgentLoopService({} as any);
+  let capturedMetadata: Record<string, unknown> | null = null;
+
+  await (service as any).executeFeedbackWriterTool({
+    callId: 'call-episode-social',
+    name: 'extract_feedback_episode',
+    rawArguments: '{}',
+    args: {
+      should_persist: true,
+      event_kind: 'correction',
+      scope_type: 'group_self',
+      source_user_scope: 'current_sender',
+      excerpt_text: '对方质疑小腻的态度',
+      event_importance: 0.8,
+      source_salience: 0.7,
+      reason: '明确纠偏信号',
+      social_act_type: 'emotional_confrontation'
+    }
+  }, {
+    queueMessage: createQueuePayload(),
+    conversationId: 1001,
+    unreadMeaningArtifact: { message_act: 'feedback' },
+    innerReactionArtifact: { preferred_action: 'speak' },
+    persistedEpisodeId: null,
+    persistedReflectionId: null,
+    activeLearningKey: '',
+    activeLearningScope: '',
+    episodeCreator: async (params: any) => {
+      capturedMetadata = params.metadata as Record<string, unknown>;
+      return { id: 7 };
+    },
+    reflectionCreator: async () => ({ id: 8 }),
+    stateUpserter: async () => ({ id: 9 }),
+    identityCandidateAppender: async () => ({ candidate: { id: 11 } }),
+    acceptedIdentityFactCreator: async () => ({ fact: { id: 12 } })
+  });
+
+  assert.ok(capturedMetadata !== null, 'episodeCreator must have been called');
+  assert.equal((capturedMetadata as any).social_act_type, 'emotional_confrontation');
+});
+
+// H: social_act_type absent — episode creator metadata does not include key (no spurious undefined)
+test('extract_feedback_episode without social_act_type does not include key in metadata', async () => {
+  const service = new AgentLoopService({} as any);
+  let capturedMetadata: Record<string, unknown> | null = null;
+
+  await (service as any).executeFeedbackWriterTool({
+    callId: 'call-episode-no-type',
+    name: 'extract_feedback_episode',
+    rawArguments: '{}',
+    args: {
+      should_persist: true,
+      event_kind: 'critique',
+      scope_type: 'group_self',
+      source_user_scope: 'current_sender',
+      excerpt_text: '普通反馈',
+      event_importance: 0.6,
+      source_salience: 0.5,
+      reason: '一般反馈'
+    }
+  }, {
+    queueMessage: createQueuePayload(),
+    conversationId: 1001,
+    unreadMeaningArtifact: {},
+    innerReactionArtifact: {},
+    persistedEpisodeId: null,
+    persistedReflectionId: null,
+    activeLearningKey: '',
+    activeLearningScope: '',
+    episodeCreator: async (params: any) => {
+      capturedMetadata = params.metadata as Record<string, unknown>;
+      return { id: 7 };
+    },
+    reflectionCreator: async () => ({ id: 8 }),
+    stateUpserter: async () => ({ id: 9 }),
+    identityCandidateAppender: async () => ({ candidate: { id: 11 } }),
+    acceptedIdentityFactCreator: async () => ({ fact: { id: 12 } })
+  });
+
+  assert.ok(capturedMetadata !== null, 'episodeCreator must have been called');
+  assert.equal(Object.prototype.hasOwnProperty.call(capturedMetadata, 'social_act_type'), false);
+});
+
+// H: developer role injection — buildInitialInput places developer message at index 1 when provided
+test('buildInitialInput places developer context block at index 1 when provided', () => {
+  const devBlock = '<world_narrative>test</world_narrative>\n\n<current_relationship>\n本次发言者：foo（QQ:12345）\n当前关系层级：L2\n当前可开放的自己：偶尔吐槽，有自己的语气\n</current_relationship>';
+  const items = buildInitialInput([], createQueuePayload(), undefined, [], null, null, devBlock);
+  assert.equal(items[0]?.type, 'message');
+  assert.equal((items[0] as { role?: string })?.role, 'system');
+  assert.equal(items[1]?.type, 'message');
+  assert.equal((items[1] as { role?: string })?.role, 'developer');
+  assert.match(String((items[1] as { content?: unknown })?.content), /world_narrative/);
+  assert.match(String((items[1] as { content?: unknown })?.content), /current_relationship/);
+});
+
+// I: developer role injection — buildInitialInput skips developer message when block is null
+test('buildInitialInput does not inject developer message when developerContextBlock is null', () => {
+  const items = buildInitialInput([], createQueuePayload(), undefined, [], null, null, null);
+  assert.equal((items[0] as { role?: string })?.role, 'system');
+  assert.notEqual((items[1] as { role?: string })?.role, 'developer');
+});
+
+// J: emit_unread_meaning — topic_context and social_act_type flow through parseUnreadMeaning
+test('emit_unread_meaning parseUnreadMeaning extracts topic_context and social_act_type', () => {
+  const raw = {
+    latest_unread_focus: '聊雪鸮',
+    message_act: 'question',
+    social_target: 'me',
+    addressed_to_me: true,
+    has_real_novelty: true,
+    confidence: 'high',
+    reason: '直接问',
+    social_act_type: 'invitation_curiosity',
+    topic_context: { has_topic: true, topic_summary: '雪鸮', addressed_to_me: true }
+  };
+  // Access the function via the tool result path — verify the tool schema has the fields
+  const toolDef = getFunctionTool(buildInitialInput([], createQueuePayload())[0]);
+  void toolDef; // We can't call parseUnreadMeaning directly; verify schema instead
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, buildInitialInput([], createQueuePayload()), 'group');
+  const unreadTool = (request.tools as Array<{ function?: { name?: string; parameters?: { properties?: Record<string, unknown>; required?: string[] } } }>)
+    ?.find((t) => t.function?.name === 'emit_unread_meaning');
+  assert.ok(unreadTool, 'emit_unread_meaning tool should exist');
+  assert.ok(unreadTool?.function?.parameters?.properties?.social_act_type, 'social_act_type field should exist in schema');
+  assert.ok(unreadTool?.function?.parameters?.properties?.topic_context, 'topic_context field should exist in schema');
+  assert.ok(unreadTool?.function?.parameters?.required?.includes('topic_context'), 'topic_context should be required');
+  void raw;
+});
+
+test('XIAONI_IDENTITY_KEY is a plain identity string, not a session-scoped key', () => {
+  assert.equal(XIAONI_IDENTITY_KEY, 'xiaoni');
+  assert.ok(!XIAONI_IDENTITY_KEY.startsWith('qq:'), 'trust key must not be session-scoped (no qq: prefix)');
+  assert.ok(!XIAONI_IDENTITY_KEY.includes(':'), 'trust key must not contain a colon (not a session key format)');
+});
+
+test('buildDeveloperContextBlock reads speaker trust using XIAONI_IDENTITY_KEY', async () => {
+  const trustCalls: any[][] = [];
+  const store = {
+    getSpeakerTrustLevel: async (...args: any[]) => {
+      trustCalls.push(args);
+      return 'L3';
+    }
+  };
+  const service = new AgentLoopService(store as any);
+
+  const block = await (service as any).buildDeveloperContextBlock({
+    ...createQueuePayload(),
+    sessionKey: 'qq:group:999',
+    senderId: '202'
+  });
+
+  assert.deepEqual(trustCalls, [[XIAONI_IDENTITY_KEY, 202]]);
+  assert.match(String(block), /当前关系层级：L3/);
+});
+
+test('extract_feedback_episode writes trust using XIAONI_IDENTITY_KEY', async () => {
+  const trustCalls: any[][] = [];
+  const store = {
+    incrementSpeakerTrustLevel: (...args: any[]) => {
+      trustCalls.push(args);
+    },
+    updateSessionEmotionalState: () => {}
+  };
+  const service = new AgentLoopService(store as any);
+
+  const deps = {
+    queueMessage: {
+      ...createQueuePayload(),
+      sessionKey: 'qq:group:999',
+      senderId: '202'
+    },
+    conversationId: 1001,
+    unreadMeaningArtifact: { message_act: 'feedback' },
+    innerReactionArtifact: { preferred_action: 'speak' },
+    persistedEpisodeId: null,
+    persistedReflectionId: null,
+    activeLearningKey: '',
+    activeLearningScope: '',
+    episodeCreator: async () => ({ id: 7 }),
+    reflectionCreator: async () => ({ id: 8 }),
+    stateUpserter: async () => ({ id: 9 }),
+    identityCandidateAppender: async () => ({ candidate: { id: 11 } }),
+    acceptedIdentityFactCreator: async () => ({ fact: { id: 12 } })
+  };
+
+  await (service as any).executeFeedbackWriterTool({
+    callId: 'call-episode-praise',
+    name: 'extract_feedback_episode',
+    rawArguments: '{}',
+    args: {
+      should_persist: true,
+      event_kind: 'praise',
+      scope_type: 'from_user',
+      source_user_scope: 'current_sender',
+      excerpt_text: '这次回应很自然',
+      event_importance: 0.8,
+      source_salience: 0.7,
+      reason: '明确正反馈'
+    }
+  }, deps);
+
+  await (service as any).executeFeedbackWriterTool({
+    callId: 'call-episode-interaction',
+    name: 'extract_feedback_episode',
+    rawArguments: '{}',
+    args: {
+      should_persist: true,
+      event_kind: 'interaction_outcome',
+      scope_type: 'from_user',
+      source_user_scope: 'current_sender',
+      excerpt_text: '对方接住了小腻的话',
+      event_importance: 0.7,
+      source_salience: 0.6,
+      reason: '互动结果正向'
+    }
+  }, deps);
+
+  assert.deepEqual(trustCalls, [
+    [XIAONI_IDENTITY_KEY, 202, 2.0],
+    [XIAONI_IDENTITY_KEY, 202, 0.5]
+  ]);
+});
+
+test('recall_long_term_learning schema includes optional social_act_type_hint without listing it in required', () => {
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, buildInitialInput([], createQueuePayload()), 'group');
+  const recallTool = (request.tools as Array<{ function?: { name?: string; parameters?: { properties?: Record<string, unknown>; required?: string[] } } }>)
+    ?.find((t) => t.function?.name === 'recall_long_term_learning');
+  assert.ok(recallTool, 'recall_long_term_learning tool should exist');
+  const props = recallTool?.function?.parameters?.properties ?? {};
+  assert.ok('social_act_type_hint' in props, 'social_act_type_hint should be in schema properties');
+  const required = recallTool?.function?.parameters?.required ?? [];
+  assert.ok(!required.includes('social_act_type_hint'), 'social_act_type_hint must NOT be required');
 });

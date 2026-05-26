@@ -8,6 +8,7 @@ import {
   createAcceptedIdentityFact,
   ensureAgentMediaSchema,
   ensureAgentTaskSchema,
+  ensureAgentPresenceSchema,
   ensureIdentityLineageSchema,
   ensureXiaoniIdentityRoot,
   ensureFeedbackReflectionSchema,
@@ -29,15 +30,28 @@ import {
   ensureRelationshipTrustSchema,
   getRelationshipTrustLevel,
   upsertRelationshipTrust,
-  ensureAgentSessionStateSchema,
-  getAgentSessionState as getAgentSessionStatePersistence,
-  upsertAgentSessionState as upsertAgentSessionStatePersistence,
+  ensureAgentLifeState,
+  getAgentLifeState,
+  updateAgentLifeState,
+  upsertAgentGroupPresenceState,
+  listAgentSharePoolItems,
+  createAgentShareItemUsage,
+  createAgentPresenceStateSidecar,
+  enqueueAgentQueueMessage,
   incrementRelationshipTrust,
   serializeTimestampForApi,
   type SqlAdapter
 } from '@qq-bot/persistence';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig, databaseConfig } from '../config';
+import {
+  buildPresenceContextBlock,
+  deriveLifeState,
+  scoreSharePoolItem,
+  shouldFirePresenceTick,
+  type PresenceSharePoolItem
+} from './presence-context';
+import type { UnreadMeaningSocialActType } from '../types/social-act-type';
 import {
   ConversationTranscriptItem,
   ConversationTranscriptPhase,
@@ -231,6 +245,14 @@ export type RuntimeFeedbackEpisode = {
   sourceSalience: number;
   metadata: Record<string, unknown>;
   updatedAt: string | null;
+};
+
+export type RuntimePresenceContext = {
+  block: string;
+  sourceItems: PresenceSharePoolItem[];
+  recallScores: Record<string, unknown>[];
+  boundaryJudgments: Record<string, unknown>[];
+  compressionMapping: Record<string, unknown>;
 };
 
 export type RuntimeFeedbackLearningState = {
@@ -1046,6 +1068,7 @@ export function rankFeedbackReflectionsForRecall(params: {
   recentUserIds: number[];
   embeddingScores?: Map<number, number>;
   limit: number;
+  socialActTypeHint?: UnreadMeaningSocialActType | null;
 }) {
   const reflectionById = new Map(params.reflections.map((reflection) => [reflection.id, reflection]));
   const supersededIds = new Set(
@@ -1082,6 +1105,12 @@ export function rankFeedbackReflectionsForRecall(params: {
       const freshnessScore = reflection.updatedAt ? computeLastHitBoost(reflection.updatedAt) * 0.08 : 0;
       const hitPenalty = Math.min(reflection.hitCount * 0.03, 0.24);
       const conflictPenalty = learningState?.stateType === 'conflicted' ? 0.08 : 0;
+      const actHintScore = (() => {
+        if (!params.socialActTypeHint) return 0;
+        if (params.socialActTypeHint === 'invitation_curiosity' && reflection.reflectionType === 'self_model_update') return 0.08;
+        if (params.socialActTypeHint === 'relationship_probe' && reflection.reflectionType === 'social_lesson') return 0.06;
+        return 0;
+      })();
       return {
         reflection,
         learningState,
@@ -1095,6 +1124,7 @@ export function rankFeedbackReflectionsForRecall(params: {
           + evidenceScore * 0.1
           + sourceScore
           + freshnessScore
+          + actHintScore
           - hitPenalty
           - conflictPenalty
       } satisfies FeedbackReflectionScore;
@@ -1169,6 +1199,12 @@ function mapAgentRunDeliveryState(row?: Partial<AgentRunDeliveryStateRow> | null
 
 function buildBatchSummary(rows: QueueRow[]) {
   return rows.map((row, index) => `#${index + 1} ${row.sender_name || row.sender_id}: ${row.body_for_agent}`).join('\n');
+}
+
+function isPresenceTickPayload(queueMessage: QueueMessagePayload) {
+  return queueMessage.source === 'presence_tick'
+    || queueMessage.sessionKey === 'presence_tick:xiaoni'
+    || Boolean((queueMessage as QueueMessagePayload & { presenceTick?: unknown }).presenceTick);
 }
 
 function buildTranscriptSessionId(userId: number, groupId?: number | null) {
@@ -1439,11 +1475,259 @@ export class RuntimeStore {
     await ensureIdentityLineageSchema(databaseConfig);
     await ensureAgentMediaSchema(databaseConfig);
     await ensureAgentTaskSchema(databaseConfig);
-    await ensureAgentSessionStateSchema(databaseConfig);
+    await ensureAgentPresenceSchema(databaseConfig);
+    await ensureAgentLifeState('xiaoni', databaseConfig);
   }
 
   async close() {
     await this.sql.close();
+  }
+
+  async enqueuePresenceTick() {
+    const targetGroupId = Number(agentConfig.presenceTickTargetGroupId);
+    if (!agentConfig.presenceTickEnabled || !Number.isFinite(targetGroupId) || targetGroupId <= 0) {
+      return { enqueued: false, reason: 'disabled_or_missing_target' };
+    }
+
+    const now = new Date();
+    const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
+    const state = deriveLifeState({
+      now,
+      serviceStartedAt: life.service_started_at as Date | string | null,
+      lastBoredomResetAt: life.last_boredom_reset_at as Date | string | null,
+      lastSleepAt: life.last_sleep_at as Date | string | null,
+      lastPresenceTickEnqueuedAt: life.last_presence_tick_enqueued_at as Date | string | null,
+      lastProactiveAt: life.last_proactive_at as Date | string | null,
+      lastUserMessageAt: life.last_user_message_at as Date | string | null,
+      dailyProactiveCount: Number(life.daily_proactive_count || 0)
+    }, {
+      cooldownMs: agentConfig.presenceTickCooldownMs,
+      startupGraceMs: agentConfig.presenceTickStartupGraceMs
+    });
+    const decision = shouldFirePresenceTick(state);
+    if (!decision.shouldEnqueue) {
+      return { enqueued: false, reason: decision.reason };
+    }
+
+    const targetRows = await this.sql.query<{ group_id: number | string; group_name: string | null; is_enabled: number | string | null }>(
+      'SELECT group_id, group_name, is_enabled FROM group_chat_settings WHERE group_id = ? LIMIT 1',
+      [targetGroupId]
+    );
+    const target = targetRows[0] || null;
+    if (target && Number(target.is_enabled ?? 1) === 0) {
+      return { enqueued: false, reason: 'target_group_disabled' };
+    }
+
+    const targetSessionKey = `qq:group:${targetGroupId}`;
+    const messageSid = `presence_tick:${now.getTime()}`;
+    const dedupeKey = `presence_tick:xiaoni:${Math.floor(now.getTime() / agentConfig.presenceTickCooldownMs)}`;
+    const inboundContext: FinalizedInboundContext = {
+      Body: 'presence_tick',
+      BodyForAgent: '小腻主动打开群看了一眼；当前没有新的群友消息触发。',
+      BodyForCommands: 'presence_tick',
+      RawBody: 'presence_tick',
+      CommandBody: 'presence_tick',
+      From: agentConfig.botAccountId,
+      To: String(targetGroupId),
+      SessionKey: 'presence_tick:xiaoni',
+      AccountId: agentConfig.botAccountId,
+      MessageSid: messageSid,
+      ChatType: 'group',
+      GroupSubject: target?.group_name || undefined,
+      SenderName: 'presence_tick',
+      SenderId: agentConfig.botAccountId,
+      Timestamp: Math.floor(now.getTime() / 1000),
+      Provider: 'agent-service',
+      Surface: 'presence_tick',
+      WasMentioned: false,
+      NativeChannelId: String(targetGroupId),
+      CommandAuthorized: false
+    };
+    const message = {
+      traceId: `presence_${now.getTime()}_${uuidv4().slice(0, 8)}`,
+      source: 'presence_tick',
+      messageId: 0,
+      messageSid,
+      dedupeKey,
+      chatType: 'group' as const,
+      sessionKey: 'presence_tick:xiaoni',
+      peerId: String(targetGroupId),
+      peerName: target?.group_name || undefined,
+      senderId: agentConfig.botAccountId,
+      senderName: 'presence_tick',
+      accountId: agentConfig.botAccountId,
+      bodyForAgent: '小腻主动打开群看了一眼；当前没有新的群友消息触发。',
+      rawBody: 'presence_tick',
+      commandBody: 'presence_tick',
+      wasMentioned: false,
+      receivedAt: now.toISOString(),
+      messageTimestamp: now.toISOString(),
+      rawPayload: {
+        kind: 'presence_tick',
+        target_group_id: targetGroupId,
+        target_session_key: targetSessionKey
+      },
+      inboundContext,
+      presenceTick: {
+        identityKey: 'xiaoni',
+        targetSessionKey,
+        targetGroupId,
+        targetPeerId: String(targetGroupId),
+        targetPeerName: target?.group_name || null,
+        targetChatType: 'group',
+        targetAccountId: agentConfig.botAccountId
+      }
+    };
+
+    await updateAgentLifeState('xiaoni', {
+      last_presence_tick_enqueued_at: now,
+      last_active_at: now
+    }, databaseConfig);
+    await upsertAgentGroupPresenceState({
+      identityKey: 'xiaoni',
+      sessionKey: targetSessionKey
+    }, databaseConfig);
+
+    const result = await enqueueAgentQueueMessage({
+      message,
+      payload: message,
+      availableAt: now
+    }, databaseConfig);
+    return {
+      enqueued: result.status === 'pending',
+      reason: result.status,
+      queueId: result.queueId,
+      targetSessionKey
+    };
+  }
+
+  async recordPresenceUserMessage(queueMessage: QueueMessagePayload) {
+    const now = new Date();
+    await updateAgentLifeState('xiaoni', {
+      last_user_message_at: now,
+      last_boredom_reset_at: now
+    }, databaseConfig);
+    if (queueMessage.chatType === 'group') {
+      await upsertAgentGroupPresenceState({
+        identityKey: 'xiaoni',
+        sessionKey: queueMessage.sessionKey,
+        lastUserMessageAt: now
+      }, databaseConfig);
+    }
+  }
+
+  async recordPresenceAssistantAction(queueMessage: QueueMessagePayload) {
+    const now = new Date();
+    await updateAgentLifeState('xiaoni', {
+      last_active_at: now,
+      last_boredom_reset_at: now
+    }, databaseConfig);
+    if (queueMessage.chatType === 'group') {
+      await upsertAgentGroupPresenceState({
+        identityKey: 'xiaoni',
+        sessionKey: queueMessage.sessionKey,
+        lastSpokeAt: now
+      }, databaseConfig);
+    }
+  }
+
+  async recordPresenceProactiveCompletion(queueMessage: QueueMessagePayload, outcome: string) {
+    const now = new Date();
+    const currentDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    await updateAgentLifeState('xiaoni', {
+      last_proactive_at: now,
+      daily_proactive_date: currentDate,
+      daily_proactive_count: { increment: 1 }
+    }, databaseConfig);
+    if (queueMessage.chatType === 'group') {
+      await upsertAgentGroupPresenceState({
+        identityKey: 'xiaoni',
+        sessionKey: queueMessage.sessionKey,
+        ...(outcome === 'shared' || outcome === 'replied' ? { lastSpokeAt: now } : {})
+      }, databaseConfig);
+    }
+  }
+
+  async buildPresenceContext(queueMessage: QueueMessagePayload): Promise<RuntimePresenceContext> {
+    const now = new Date();
+    const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
+    const state = deriveLifeState({
+      now,
+      serviceStartedAt: life.service_started_at as Date | string | null,
+      lastBoredomResetAt: life.last_boredom_reset_at as Date | string | null,
+      lastSleepAt: life.last_sleep_at as Date | string | null,
+      lastPresenceTickEnqueuedAt: life.last_presence_tick_enqueued_at as Date | string | null,
+      lastProactiveAt: life.last_proactive_at as Date | string | null,
+      lastUserMessageAt: life.last_user_message_at as Date | string | null,
+      dailyProactiveCount: Number(life.daily_proactive_count || 0)
+    }, {
+      cooldownMs: agentConfig.presenceTickCooldownMs,
+      startupGraceMs: agentConfig.presenceTickStartupGraceMs
+    });
+    const items = await listAgentSharePoolItems({
+      identityKey: 'xiaoni',
+      targetSessionKey: queueMessage.sessionKey,
+      limit: 8
+    }, databaseConfig) as PresenceSharePoolItem[];
+    const scored = items
+      .map((item) => ({ item, score: scoreSharePoolItem(item, now) }))
+      .sort((left, right) => right.score.finalScore - left.score.finalScore);
+    const selectedItems = scored.slice(0, 3).map((entry) => entry.item);
+    const recallScores = scored.map((entry) => entry.score);
+    return {
+      block: buildPresenceContextBlock({
+        state,
+        items: selectedItems,
+        scores: recallScores,
+        isPresenceTick: isPresenceTickPayload(queueMessage)
+      }),
+      sourceItems: selectedItems,
+      recallScores,
+      boundaryJudgments: selectedItems.map((item) => ({
+        item_id: item.id,
+        boundary_label: item.boundaryLabel,
+        source_wording: item.sourceWording
+      })),
+      compressionMapping: {
+        selected_item_ids: selectedItems.map((item) => item.id),
+        sections: ['recent_action_trace', 'current_residue', 'current_state', 'available_material', 'action_cost', 'source_boundary']
+      }
+    };
+  }
+
+  async recordPresenceSidecar(input: {
+    queueMessage: QueueMessagePayload;
+    presenceContext: RuntimePresenceContext;
+    outcome?: string | null;
+  }) {
+    await createAgentPresenceStateSidecar({
+      runId: input.queueMessage.runId,
+      traceId: input.queueMessage.traceId,
+      identityKey: 'xiaoni',
+      targetSessionKey: input.queueMessage.sessionKey,
+      sourceItems: input.presenceContext.sourceItems.map((item) => ({
+        id: item.id,
+        content: item.content,
+        source_kind: item.sourceKind
+      })),
+      recallScores: input.presenceContext.recallScores,
+      boundaryJudgments: input.presenceContext.boundaryJudgments,
+      compressionMapping: input.presenceContext.compressionMapping,
+      finalContextBlock: input.presenceContext.block,
+      modelActionOutcome: input.outcome || null
+    }, databaseConfig);
+
+    for (const item of input.presenceContext.sourceItems) {
+      await createAgentShareItemUsage({
+        itemId: item.id,
+        identityKey: 'xiaoni',
+        targetSessionKey: input.queueMessage.sessionKey,
+        targetGroupId: input.queueMessage.chatType === 'group' ? Number(input.queueMessage.peerId) : null,
+        runId: input.queueMessage.runId,
+        traceId: input.queueMessage.traceId,
+        outcome: input.outcome || 'lurked'
+      }, databaseConfig);
+    }
   }
 
   async listMediaAssetsForQueueMessage(queueMessage: QueueMessagePayload) {
@@ -2316,17 +2600,39 @@ export class RuntimeStore {
     }
   }
 
-  async getSessionEmotionalState(sessionKey: string): Promise<{ dopamine: 'low' | 'medium' | 'high'; stress: 'low' | 'medium' | 'high' } | null> {
+  async getSessionEmotionalState(_sessionKey: string): Promise<{ dopamine: 'low' | 'medium' | 'high'; stress: 'low' | 'medium' | 'high' } | null> {
     try {
-      return await getAgentSessionStatePersistence(sessionKey, databaseConfig);
+      const now = new Date();
+      const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
+      const state = deriveLifeState({
+        now,
+        lastActiveAt: life.last_active_at as Date | string | null,
+        serviceStartedAt: life.service_started_at as Date | string | null,
+        lastBoredomResetAt: life.last_boredom_reset_at as Date | string | null,
+        lastSleepAt: life.last_sleep_at as Date | string | null,
+        lastPresenceTickEnqueuedAt: life.last_presence_tick_enqueued_at as Date | string | null,
+        lastProactiveAt: life.last_proactive_at as Date | string | null,
+        lastUserMessageAt: life.last_user_message_at as Date | string | null,
+        dailyProactiveCount: Number(life.daily_proactive_count || 0)
+      }, {
+        cooldownMs: agentConfig.presenceTickCooldownMs,
+        startupGraceMs: agentConfig.presenceTickStartupGraceMs
+      });
+      const dopamine: 'low' | 'medium' | 'high' = state.sharingDesire > 0.66 ? 'high' : state.sharingDesire < 0.33 ? 'low' : 'medium';
+      const stress: 'low' | 'medium' | 'high' = state.fatigue > 0.75 ? 'high' : state.fatigue > 0.45 ? 'medium' : 'low';
+      return { dopamine, stress };
     } catch {
       return null;
     }
   }
 
-  async updateSessionEmotionalState(sessionKey: string, dopamine: 'low' | 'medium' | 'high', stress: 'low' | 'medium' | 'high') {
+  async updateSessionEmotionalState(_sessionKey: string, dopamine: 'low' | 'medium' | 'high', stress: 'low' | 'medium' | 'high') {
     try {
-      await upsertAgentSessionStatePersistence({ sessionKey, dopamine, stress }, databaseConfig);
+      const now = new Date();
+      await updateAgentLifeState('xiaoni', {
+        ...(dopamine === 'high' || stress === 'low' ? { last_boredom_reset_at: now } : {}),
+        last_active_at: now
+      }, databaseConfig);
     } catch {
       // Non-fatal — state update failure doesn't block the main flow
     }
@@ -2370,6 +2676,7 @@ export class RuntimeStore {
     recentUserIds?: number[];
     queryText: string;
     limit?: number;
+    socialActTypeHint?: UnreadMeaningSocialActType | null;
   }): Promise<RuntimeFeedbackReflection[]> {
     const [reflectionRows, learningStateRows] = await Promise.all([
       listFeedbackReflections({
@@ -2401,7 +2708,8 @@ export class RuntimeStore {
       currentUserId: params.currentUserId,
       recentUserIds,
       embeddingScores,
-      limit: Math.max(1, Math.min(params.limit ?? 3, 3))
+      limit: Math.max(1, Math.min(params.limit ?? 3, 3)),
+      socialActTypeHint: params.socialActTypeHint
     });
     const selected = ranked.map((item) => item.reflection);
 

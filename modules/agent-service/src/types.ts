@@ -95,6 +95,15 @@ export type QueueMessagePayload = {
   rawPayload: Record<string, unknown>;
   inboundContext: FinalizedInboundContext;
   messages: QueueBatchMessage[];
+  presenceTick?: {
+    identityKey: string;
+    targetSessionKey: string;
+    targetGroupId?: number;
+    targetPeerId: string;
+    targetPeerName?: string | null;
+    targetChatType: 'group';
+    targetAccountId: string;
+  };
 };
 
 export type QueueMessageRecord = {

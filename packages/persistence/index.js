@@ -11,9 +11,10 @@ const { createTopicLabPersistence } = require('./topic-lab');
 const { createImageLabPersistence } = require('./image-lab');
 const { createAgentMediaPersistence } = require('./agent-media');
 const { createAgentTaskPersistence } = require('./agent-tasks');
+const { createAgentQueuePersistence } = require('./agent-queue');
+const { createAgentPresencePersistence } = require('./agent-presence');
 const { createAbExperimentPersistence } = require('./ab-experiment');
 const { createRelationshipTrustPersistence } = require('./relationship-trust');
-const { createAgentSessionStatePersistence } = require('./agent-session-state');
 const {
   STORAGE_TIMEZONE,
   TIMESTAMP_WITHOUT_TZ_OID,
@@ -346,16 +347,21 @@ const agentTaskPersistence = createAgentTaskPersistence({
   createSqlAdapter
 });
 
+const agentQueuePersistence = createAgentQueuePersistence({
+  getPrismaClient
+});
+
+const agentPresencePersistence = createAgentPresencePersistence({
+  getPrismaClient,
+  createSqlAdapter
+});
+
 const abExperimentPersistence = createAbExperimentPersistence({
   getPrismaClient,
   createSqlAdapter
 });
 
 const relationshipTrustPersistence = createRelationshipTrustPersistence({
-  createSqlAdapter
-});
-
-const agentSessionStatePersistence = createAgentSessionStatePersistence({
   createSqlAdapter
 });
 
@@ -377,7 +383,8 @@ module.exports = {
   ...imageLabPersistence,
   ...agentMediaPersistence,
   ...agentTaskPersistence,
+  ...agentQueuePersistence,
+  ...agentPresencePersistence,
   ...abExperimentPersistence,
-  ...relationshipTrustPersistence,
-  ...agentSessionStatePersistence
+  ...relationshipTrustPersistence
 };

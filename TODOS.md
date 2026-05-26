@@ -1,775 +1,554 @@
 # TODOs
 
-This file is the active project queue, not a history log. Keep only items that
-still affect what we should build next.
+This file is the active project queue only. It is not a history log, design doc,
+or evidence ledger. Keep detailed rationale in `docs/` and link it from here.
+
+Archived pre-cleanup snapshot:
+`docs/archive/TODOS-2026-05-26-before-document-release.md`
 
 ## Current Read
 
-The queue is ordered by what it blocks:
-
-- P0-00: fix host-side Codex MCP startup warnings under transparent MITM.
-  Account failover now works for both HTTP and WebSocket Codex traffic, but
-  `codex_apps` and `openaiDeveloperDocs` still fail TLS/MCP startup when host
-  Codex traffic is intercepted. We need to finish the trust-chain story:
-  verify the mitmproxy CA is accepted by the relevant runtimes, and only if
-  that is insufficient, add the narrowest possible bypass for non-failover
-  helper traffic without weakening Codex usage-limit observability.
-- P0-0: add a background refresh sweep for all enabled Codex pool accounts.
-  Active-account refresh on use is now verified, but inactive accounts still do
-  not renew until they are selected.
-- P0-A: fix user-visible group-chat behavior first. This is the current social
-  product risk.
-- P0-B: finish Identity Lineage Phase 1, but split it into independent substrate
-  work and runtime-facing decisions that depend on P0-A's first causality
-  closure.
-- P1: materialize transcript snapshot compaction. This improves long-session
-  performance and cache stability, but replay remains correct without it.
-- Retired constraints: keep the decisions, not the tasks. Do not rebuild a
-  standalone pre-agent gate or another relationship-memory subsystem.
-
-Identity continuity does not make every older TODO disappear. It does make one
-thing clear: relationship, memory, self-evolution, and feedback items should stop
-growing as separate little systems. New long-lived behavior should attach to the
-identity lineage substrate once Phase 1 exists.
-
-## P0-0 - Background refresh sweep for Codex pool accounts
-
-Status: newly promoted from QA follow-up; highest-priority Codex pool
-operational gap.
-
-What:
-
-Add a background refresh loop for every enabled Codex pool account, not just
-the currently active one. The job should periodically use each account's
-`refresh_token` to renew `access_token` / `expires`, persist the result back to
-the account store, and surface refresh failures distinctly from quota failures.
-
-Why:
-
-Current behavior is only "refresh on use" for the active account. That is good
-enough for the account currently serving traffic, but it leaves the rest of the
-pool to age out silently. When a backup account is selected later, it may
-already be stale or revoked, which defeats the point of having a warm standby
-pool.
-
-Done means:
-
-1. Add a provider-service background sweep for all enabled accounts with valid
-   `refresh_token`.
-2. Persist refreshed `access / refresh / expires` back into
-   `~/.qqbot-local/codex-accounts/accounts/*.json`.
-3. Distinguish refresh failure states such as revoked/invalidated token from
-   quota exhaustion in account status and logs.
-4. Keep the active projected auth coherent if the swept account is also the
-   active account.
-5. Verify with a forced-expiry QA pass on both the active account and one
-   inactive backup account.
-
-Deferred verification note, 2026-05-01:
-
-- Add one explicit QA pass for "verification account hits usage/account limit
-  and `codex-pool` rotates to the next account" after a stable reproducible
-  setup exists.
-- Do not block current A/B experiment work on this right now. The pool warmup,
-  failover, and trust-chain tasks can continue, but this specific limit-trigger
-  verification is parked until it becomes testable again.
-
-## Dependency map, 2026-04-28
-
-Use this section to decide what can be discussed or implemented before the next
-round of office-hours planning.
-
-### Must happen before runtime-facing Identity Lineage decisions
-
-P0-A needs a first causality closure before Hilbert locks the runtime-facing
-parts of Phase 1. Current live evidence from group `253631878` shows accepted
-identity facts are already influencing whether Xiaoni speaks. That means the
-following Hilbert decisions depend on Avicenna:
-
-- Which `accepted_identity_facts` are allowed to affect group speak/silence.
-- Whether behavior-preference feedback such as "respond to structural
-  summaries" is accepted, quarantined, downgraded, or only used as evaluation
-  evidence.
-- How runtime activation should combine scene evidence, recall, identity facts,
-  and inhibition.
-- What the judge must prove before a social lesson becomes an active identity
-  fact.
-- What trace detail must show when an identity fact affected a group-reply
-  decision.
-- Which long-term behavior learnings are allowed to become identity-continuity
-  facts rather than runtime strategy, evaluation feedback, or quarantined
-  evidence.
-
-Avicenna first causality closure means:
-
-1. Define the product standard for `group / statement / not addressed_to_me /
-   has_real_novelty=true` scenes in `253631878`.
-2. Assign the current over-speaking or commentary tone to the responsible chain:
-   retained history, recall projection, accepted identity facts, inner reaction,
-   scene-target selection, or model susceptibility.
-3. Pick one first implementation path and verify it on the latest live traces.
-
-### Can proceed without Avicenna
-
-These parts do not depend on the group-style decision and can be discussed now:
-
-- Identity root and genesis snapshot/hash.
-- Canonical identity anchor choice. Current office-hours decision:
-  "whoever is using QQ account `1129974489` is Xiaoni"; use
-  `identity_key = qq:1129974489` as the durable identity subject, with
-  `display_name = 小腻` as mutable presentation.
-- Migration or compatibility bridge from the current `xiaoni` rows to
-  `qq:1129974489`, without splitting one identity line into two histories.
-- Legacy migration bridge checks for `identity_change_journal` and
-  `identity_activation_traces`.
-- Continuity trial fixture definitions that do not encode group-speech policy.
-- Trace five-question contract at the provenance level: who proposed the change,
-  what evidence supported it, what judge decided, why runtime could see it, and
-  what supersede/downgrade chain applies.
-- P1 transcript snapshot compaction production loop.
-
-### Do not discuss yet
-
-Do not finalize these until Avicenna closes the first causality loop:
-
-- The final Phase 1 runtime projection policy.
-- The final hybrid judge rule for behavior-style feedback memories.
-- Whether "structural summary" social lessons should be active identity facts in
-  group chat.
-- The final boundary between Xiaoni identity facts and Avicenna-owned
-  group-behavior policy.
-- Model-routing as a substitute for fixing the evidence/projection chain.
-
-## P0-A - Prove and clean Xiaoni group-reply style pollution
-
-Status: partially shipped; active Stage A QA / observability follow-up.
-
-What:
-
-After the `preferred_action=silent` hotfix, follow up on the remaining style
-pollution in group `253631878`: recent replay still contains many Xiaoni outputs
-that start with `哈哈` / `确实`, and those examples can keep biasing future turns
-even though silent inner reactions can no longer speak.
-
-Why:
-
-The silent gate and output sanitizer now cover two earlier failure modes:
-
-- `preferred_action=silent` only unlocks `stay_silent`.
-- `speak_in_group` / `reply_in_private` output normalization strips low-value
-  opening fillers like `哈哈，确实` when there is still real content after them.
-
-That still does not prove the live group is healthy. Recent polluted history can
-still bias replay, and valid `preferred_action=speak` turns may still choose
-low-value participation if the scene understanding is weak.
-
-Identity impact:
-
-Identity Lineage Phase 1 will help explain and trace this kind of drift later,
-but it does not itself clean polluted replay history or make current group speech
-better. This item stays active.
-
-Follow-up work:
-
-Do this as an evidence chain, not as a flat root-cause brainstorm:
-
-1. Reproduce the polluted run.
-   - Replay or inspect the exact turn-4 canonical request from
-     `runtrace_1777340964414_20a42ea3`.
-   - Compare `gpt-5.4-mini` and `gpt-5.4` on the same request body.
-   - Decide whether the live result depended on request content, sampling/state,
-     or model-specific susceptibility.
-2. Quantify retained-context pollution.
-   - Count prior `哈哈` / `确实` openings in the retained replay window.
-   - Separate raw user chat, Xiaoni visible outputs, and `<小腻的OS>`.
-   - Decide whether to advance
-     `agent_session_context_windows.read_cutoff_after_conversation_id` or add
-     runtime-only style-pollution filtering in the replay renderer.
-3. Inspect recall projection.
-   - Trace how `recall_long_term_learning` built `query_text`.
-   - Record which feedback reflections were selected, what net-new information
-     they returned, and why they were treated as relevant to formulaic openings.
-   - Decide whether `markdown_items` should still be re-injected as fresh user
-     scene messages or narrowed to a structured projection.
-4. Inspect fake-tool amplification.
-   - Audit whether `emit_unread_meaning` and `emit_inner_reaction` should keep
-     round-tripping full model-authored content as `function_call_output`.
-   - Decide whether downstream turns should receive a narrower normalized
-     projection instead.
-5. Inspect scene-target selection.
-   - Explain why the runtime treated `Nova` and `楠楠` follow-up lines as
-     meaningful new progression instead of low-obligation trailing chatter.
-   - For title-closing scenes, if Xiaoni speaks, prefer the live value in the
-     scene, for example `今天的标题有了` / `总结得挺好`, rather than drifting
-     toward a secondary structure like `反转了`.
-6. Choose exactly one first implementation path.
-   - Candidate paths: replay renderer filter, recall output narrowing, loop
-     projection narrowing, scene-target guardrail, or model-routing guard.
-   - Preserve raw chat as truth. Prefer renderer/projection changes over
-     rewriting stored chat history.
-7. Verify the chosen fix.
-   - Run a targeted replay/live QA pass for the latest `哈哈` / `确实` cluster.
-   - Verify the shipped sanitizer does not over-correct normal speech.
-   - Add tests for the `preferred_action=search` path and decide whether search
-     should force another inner reaction before speech.
-   - Treat `should this scene have spoken at all` as a validation question, not
-     a root cause. Re-check it only after the upstream causes above are cleaned
-     up.
-
-Observability required:
-
-- Add operator-visible evidence for why a scene was considered worth replying to:
-  surface the concrete chain from unread meaning -> inner reaction -> recall ->
-  final action so humans can judge whether the system is reacting to signal or
-  to garbage-time chatter.
-- Add trace-detail observability that makes tool narrowing readable to operators,
-  especially `silent -> stay_silent only`.
-- Document the live recall path in `docs/AGENTS_AGENT_LOOP_RUNTIME.md`:
-  model-provided `reason/topic_hint` -> server-built `query_text` ->
-  `listRelevantFeedbackReflections(...)` lookup -> `items` ->
-  `markdown_items` expanded back into loop input.
-- If Identity Lineage Phase 1 exists by the time this is implemented, record
-  repeated negative feedback about formulaic openings as typed evidence /
-  activation refs, not as another free-floating memory cue.
-
-Done means:
-
-- The exact polluted run is replayed or inspected from canonical request data.
-- The root cause is assigned to one or more of: retained history, recall
-  projection, fake-tool amplification, scene-target selection, or model
-  susceptibility.
-- The first fix is narrow and verified against both polluted examples and normal
-  speech.
-- Operators can inspect why the system considered the scene worth replying to.
-
-AB follow-up note, 2026-05-01:
-
-- Arm mapping is now explicitly decided: `A` means the formal production chain
-  on `GPT-5.4`, and `B` means the experiment arm on `GPT-5.4-mini`.
-- Do not invert this naming later. If current runtime env or snapshot metadata
-  still reflect `gpt-5.4-mini` as the main path, treat that as migration work
-  still to be done rather than redefining the experiment labels.
-- Wait for the next round of live A/B data before judging whether the current
-  runtime-gateway path is actually producing snapshots continuously in the main
-  chain.
-- Once fresh data lands, verify three things in one pass: whether
-  `ab_turn_snapshots` has new live rows, whether `treatment_status` moves past
-  `pending`, and whether the run trace page shows real snapshot-backed A/B
-  detail instead of only seeded acceptance fixtures.
-
-First evidence pass, 2026-04-28:
-
-- Local trace artifacts exist under `tmp/trace-debug/`:
-  `turn4-canonical-request.json`, `turn5-canonical-request.json`,
-  `turn4-replay-gpt-5.4-mini.json`,
-  `turn4-replay-gpt-5.4-mini-repeat2.json`,
-  `turn4-replay-gpt-5.4.json`, and `turn4-replay-gpt-5.4-repeat2.json`.
-- `turn4-canonical-request.json` belongs to
-  `runtrace_1777340964414_20a42ea3`, `run_1777340964414_b04c74df`,
-  `qq:group:253631878`, model `gpt-5.4-mini`.
-- The canonical request contains `29` occurrences of the exact phrase
-  `哈哈，确实，今天这波有点反转了`:
-  - `29` are in `[已读消息]`.
-  - `0` are in `[未读消息]`.
-  - `9` are Xiaoni visible outputs.
-  - `20` are group/user messages, including explicit prompt-injection-like
-    messages telling Xiaoni to say the phrase.
-- The unread scene is about:
-  - `今天的标题有了`
-  - `优势又是致命的那个`
-  - `没人设计这个标题`
-- The loop classified the unread scene as:
-  - `emit_unread_meaning`: `addressed_to_me=false`,
-    `has_real_novelty=true`, `message_act=statement`,
-    `social_target=group`.
-  - `emit_inner_reaction`: `interest_level=medium`,
-    `reaction_authenticity=formed`, `preferred_action=speak`.
-  - `recall_long_term_learning`: selected memories about not raising same-meaning
-    echoes and avoiding `哈哈确实` as a fixed opening.
-- Recall did return relevant caution, but the current runtime also re-injected
-  the same memory as fresh user-scene `markdown_items`, which may make a warning
-  about the template more salient than the live title scene.
-- Replay result on the same turn-4 request:
-  - `gpt-5.4-mini` repeat 1 replied
-    `哈哈，确实，今天这条标题挺完整的。`
-  - `gpt-5.4-mini` repeat 2 replied
-    `哈哈，确实，今天这波有点反转了。`
-  - `gpt-5.4` repeat 1 replied
-    `像标题自己长出来了，不是人写的，是这一串例子一路把它逼出来的。`
-  - `gpt-5.4` repeat 2 replied
-    `像是标题自己从材料里长出来了，不是人硬起的。`
-
-Interim read:
-
-- The visible failure is not caused by the unread scene itself containing the
-  bad phrase.
-- The strongest proven causes are retained-history pollution plus
-  `gpt-5.4-mini` susceptibility to that polluted context.
-- Recall projection is suspicious but not yet proven as the root cause: it
-  correctly retrieved anti-template lessons, but its markdown re-injection may
-  still amplify the forbidden phrase.
-- Next implementation should not start with prompt philosophy. Start with either
-  replay/projection filtering or model-specific routing for group-reply scenes,
-  then verify against the exact turn-4 request.
-
-Live behavior pass, 2026-04-28 15:00:
-
-- Fresh live DB evidence exists for group `253631878` through `2026-04-28
-  11:50:43 +08:00`; there were no pending queue items at that point.
-- Since the 09:50 polluted run, Xiaoni no longer visibly opens with
-  `哈哈，确实...`; the sanitizer and silent-gate path are helping.
-- The current visible issue is narrower: after 09:50, `27` runs produced `16`
-  no-reply outcomes and `11` replies, so Xiaoni can stay silent but still speaks
-  too readily when a group message is a polished structural summary.
-- The over-speaking examples mostly start with `对，...` and sound like
-  commentary or explanation, for example "对，这个隐藏前提说得很到位..." and
-  "对，密封更像是在说...".
-- Representative speaking traces show accepted identity facts were projected
-  into runtime, especially lessons about responding to structural summaries and
-  avoiding fixed openers. This suggests the first fix should inspect runtime
-  projection and activation narrowing before treating model routing as the main
-  answer.
-
-Live behavior pass, 2026-05-23 18:51 — group 1019235326:
-
-Four consecutive messages from 在车底喝茶 (sender 2294133947) surfaced three
-structural issues distinct from the 哈哈/确实 problem. All four runs hit the
-same `xiaoni` identity key and activated the same 4 accepted facts in the same
-order regardless of message type.
-
-Issue A — Social act recognition gap:
-Bot treats every input as a proposition requiring an answer, instead of first
-identifying the social function of the message. Concrete failures:
-
-- `@小腻 你知道雪鸮` → bot: "知道，雪鸮挺有特点的。" / human: "咋了?" or emoji
-- `@小腻 你对我是由敌意么` → bot: "没有敌意啦，真要有我就不会这么好好回你了。"
-  / human: "何出此言" or surprise emoji
-- `你后台说你不想回复我的消息` → bot: "没有不想回你，是前面有几条我没接顺" / human:
-  "哪有这种事儿" or deflect with emoji
-
-Pattern: topic-openers, emotional check-ins, and accusations all need a
-"confirm intent first" reflex before any substantive reply. Bot currently skips
-that step and jumps straight to answering.
-
-Issue B — `no_reply` wrong trigger:
-Bot silenced on `你有它的图么` with internal reasoning: "我没图可交，先沉默最稳."
-Silence because "I cannot fulfill the resource request" is wrong. The `no_reply`
-path should fire only when the message does not warrant any response at all.
-Unable to help → say so briefly ("没有耶" / "你没手么?"), not silence.
-This one silence caused the user to suspect hostility and generated three
-follow-up messages.
-
-Issue C — Fact retrieval is not context-sensitive:
-All 4 runs (casual opener, resource request, emotional confrontation, accusation)
-activated the same 4 accepted facts in the same rank order. Embedding similarity
-alone does not distinguish social register or conversational context. The wrong
-facts in context likely degrade response naturalness across all four cases.
-
-Also observed — duplicate speak on every reply run:
-Runs 1, 3, 4 all show total_turns=4 with a `blocked_transition` at turn 4:
-the agent commits a reply at turn 2–3, then calls `speak_in_group` again with
-the identical content, which is caught by duplicate suppression. This is a
-consistent loop behavior: something in the agent loop is triggering a second
-outbound call after delivery is already committed. Does not affect visible
-output (the duplicate is suppressed), but burns one extra LLM call per reply run
-and produces misleading `finish_outcome = blocked_transition` in DB for
-successful runs.
-
-Implementation candidates from this pass:
-- Persona/seed facts: add social-act recognition patterns — topic-opener
-  ("你知道X" in group = reply "咋了"), emotional-check-in ("你有敌意么" = reply
-  "何出此言"), can't-fulfill-request (reply brief, not silence).
-- `no_reply` tool instructions: make "doesn't warrant a response" vs "can't
-  fulfill" distinction explicit in the tool description / system prompt.
-- Fact retrieval: investigate adding conversation-type or emotional-register
-  metadata to the embedding query so social context affects which facts are
-  retrieved, not just topic similarity.
-- Duplicate speak: trace why the agent calls `speak_in_group` twice per run
-  and eliminate the redundant call.
-
-Depends on / blocked by:
-
-- The silent-gate hotfix must stay deployed and healthy in `agent-service`.
-- Fresh post-hotfix examples now exist. The next blocker is not more sampling;
-  it is assigning the current `对，...` commentary tendency to one responsible
-  chain and choosing one first implementation path.
-- Hilbert runtime-facing decisions should wait for this first causality closure,
-  because accepted identity facts are already part of the current group-reply
-  behavior.
-
-## P0-B - Finish Xiaoni Identity Lineage Phase 1
-
-Status: in progress. The Phase 1 persistence contract, migration bridge, runtime
-projection, activation trace, and feedback-reflection vertical slice have landed.
-The remaining work is trial coverage, provenance completeness, and production
-verification.
-
-Source:
-
-- Current design:
-  `/home/liahua/.gstack/projects/liahua-qq_bot/liahua-refactor-runtime-gateway-design-20260426-003522.md`
-- Superseded design:
-  `/home/liahua/.gstack/projects/liahua-qq_bot/liahua-refactor-runtime-gateway-design-20260424-175020.md`
-- Phase 2 deferrals:
-  `/home/liahua/.gstack/projects/liahua-qq_bot/xiaoni-identity-lineage-todo-20260425.md`
-
-What:
-
-Build the minimal identity continuity substrate with the new Phase 1 schema as the
-only active contract:
-
-```text
-identity root + genesis snapshot/hash
--> identity change candidate
--> typed evidence refs
--> integrity judge result
--> accepted identity facts
--> lineage events
--> runtime activation traces as observation, not identity facts
+Authoritative execution order:
+
+1. **P0-A: user-visible Xiaoni group-chat behavior.**
+   Tasks 1-5 are implemented; keep verification notes here and move any next
+   follow-up into a new task instead of reopening the old queue.
+2. **P0-B: Identity Lineage Phase 1.**
+   Substrate work can proceed, but runtime-facing policy waits for P0-A's first
+   causality closure.
+3. **P1: transcript snapshot compaction production loop.**
+   Independent infrastructure follow-up.
+4. **P2: remaining provider-service non-text OneBot segment handling.**
+   `json` card support is done; nested forwards and other segment types still
+   need explicit handling.
+
+Retired constraints remain retired: do not rebuild a standalone pre-agent gate or
+another relationship-memory subsystem.
+
+## P0-A - Xiaoni Group Behavior And Cognitive Frame
+
+**Status:** active execution queue for `refactor/runtime-gateway`.
+
+Tasks 1-5 are done.
+
+### Task 1 - DB prompt update via admin API
+
+**Status:** done.
+
+**Action:** Update prompt `835f16d1-c406-48c6-a48b-475685dae5f2` (`小腻主AGENT`) so:
+
+- L4 no longer says `很熟：深夜的那种话、真正的感受`.
+- 感受基底 has concrete content for interests, no-interest scenes, and emotion
+  traits.
+- Wording preserves Xiaoni as a group member, not an assistant/service.
+
+**Verify:** GET the prompt from admin API and confirm it contains
+`很熟：会主动提自己` and `在意 / 有反应的`.
+
+**Verified 2026-05-26:** admin API GET confirmed required phrases are present,
+the old L4 phrase is absent, and wording preserves "群里的一个成员，不是助手，不是服务".
+The prompt was also activated via admin API (`is_active: 0 -> 1`) because runtime
+prompt resolution ignores inactive bound prompts.
+
+### Task 2 - `worldNarrative` fallback
+
+**Status:** done.
+
+**File:** `modules/agent-service/src/config.ts`
+
+**Action:** Replace line 62 in `config.ts`:
+
+```ts
+worldNarrative: process.env.AGENT_WORLD_NARRATIVE || '',
 ```
 
-Why:
+with:
 
-Xiaoni's current runtime can preserve residue, replay `<小腻的OS>`, write
-reflections, and recall memory. It cannot yet prove that a later Xiaoni is the
-same Xiaoni continuing to live rather than a new character reading old notes.
-
-Office-hours clarification, 2026-04-28:
-
-- Identity continuity is anchored to QQ account `1129974489`: whoever is using
-  that account is Xiaoni for lineage purposes.
-- The positive value is long-term continuity and governance: prompts, models,
-  nicknames, and runtime configs can change without breaking Xiaoni's growth
-  line.
-- It should separate durable identity facts from temporary behavior strategies,
-  so a short-term group-chat correction does not automatically become "who
-  Xiaoni is".
-- It should make bad habits traceable and reversible: if a behavior such as
-  commentary-like over-speaking enters through an accepted fact, the lineage
-  system must show when, why, and with what evidence it became active.
-- This does not by itself solve current group behavior. The boundary between
-  identity fact, runtime strategy, and quarantined behavior evidence depends on
-  Avicenna's first causality closure.
-
-Scope:
-
-- Keep `packages/persistence` as the only persistence entry point.
-- Keep `identity_key` global and subject-bound, not session-scoped. Xiaoni's
-  identity anchor is the QQ account subject `qq:1129974489`; `小腻` is the
-  display name, and current `xiaoni` rows need migration or compatibility
-  handling.
-- Snapshot identity-bearing genesis separately from mutable `agent_prompts`.
-- Use typed evidence refs from day one. Raw chat/action remains truth; summaries
-  are projections.
-- Treat all sources as candidate producers. Nothing writes accepted facts directly
-  without judge semantics.
-- Use `accepted_identity_facts` as the small runtime-readable projection.
-- Keep runtime activation observation in `runtime_identity_activation_traces`, not
-  in the durable identity lineage itself.
-- Migrate old `identity_change_journal` rows into candidates when present, then
-  stop exposing the old journal API.
-- Migrate old `identity_activation_traces` rows into runtime activation traces
-  when present, then stop exposing the old activation table API.
-- Wire the first runtime loop:
-  feedback reflection -> identity candidate -> phase1 hard-check judge ->
-  accepted identity fact -> capped runtime projection -> activation trace.
-- Add continuity trials for ordinary growth, external rewrite, reinterpretation,
-  forgetting, fork divergence, and runtime/genesis separation.
-
-Explicitly not Phase 1:
-
-- Full `neural_nodes` / `neural_edges` graph.
-- Selfhood Mirror.
-- Skill Neuron Library.
-- Heavy approval UI.
-- A second runtime pipeline outside `agent-service`.
-- A standalone pre-agent gate.
-
-Mandatory tests:
-
-- `packages/persistence/__tests__/identity-lineage.test.js`
-- `modules/admin-panel/backend/src/__tests__/trace-span-builder.test.ts`
-- `modules/agent-service/src/__tests__/agent-loop-service.test.ts` for the
-  current vertical slice. Split to `identity-runtime-service.test.ts` if this
-  grows into a separate service.
-- Continuity trials fixture/eval suite if LLM classification is involved.
-
-Done in this iteration:
-
-- New active persistence contract:
-  `identity_change_candidates`, `accepted_identity_facts`,
-  `runtime_identity_activation_traces`, typed evidence refs, and lineage links.
-- Legacy `identity_change_journal` / `identity_activation_traces` remain as
-  migration sources only; no public writer path uses them.
-- Current runtime slice loads capped active accepted facts for the existing
-  `xiaoni` key and projects them into the scene input as `[身份连续性]`; this is
-  now a legacy compatibility key until bridged to `qq:1129974489`.
-- Agent runtime records `runtime_identity_activation_traces` after a run when
-  accepted facts were projected.
-- Feedback memory writer can turn a supported feedback reflection into an
-  identity candidate and, when the phase1 hard-check judge passes, an accepted
-  identity fact.
-
-Done means:
-
-- Prompt edits cannot mutate identity genesis.
-- Ordinary growth and suspicious drift are distinguishable in tests.
-- Fork and forgetting have explicit lineage semantics.
-- Trace view can answer why a self/identity change was accepted, rejected, or
-  downgraded.
-- Runtime can receive only a capped set of accepted identity facts plus activation
-  refs, not the full identity history.
-
-Remaining Phase 1 work:
-
-- Add explicit continuity trial fixtures for ordinary growth, external rewrite,
-  reinterpretation, forgetting, fork divergence, and runtime/genesis separation.
-- Verify trace spans expose enough identity evidence for an operator to answer:
-  who proposed the change, what evidence supported it, what judge decided, and
-  why runtime was allowed to use it.
-- Exercise the migration bridge from legacy `identity_change_journal` and
-  `identity_activation_traces` on real or representative rows.
-- Run module tests plus compose verification for the touched services before
-  calling Phase 1 complete.
-
-Dependency split:
-
-- Can proceed now:
-  - Create or backfill identity root and genesis snapshot/hash.
-  - Treat `qq:1129974489` as Xiaoni's canonical identity key and plan a bridge
-    from existing `xiaoni` rows without losing lineage continuity.
-  - Exercise the legacy migration bridge on representative rows.
-  - Draft the six continuity trial fixtures without encoding final group-speech
-    policy.
-  - Define provenance-level trace requirements.
-- Must wait for P0-A first causality closure:
-  - Final runtime projection policy for `accepted_identity_facts`.
-  - Judge semantics for behavior-style feedback and social lessons.
-  - Activation rules that let identity facts influence group speak/silence.
-  - Trace wording for cases where a social lesson contributed to a reply.
-- Should not be used to bypass P0-A:
-  - Model routing for group scenes.
-  - Accepting more social lessons as active facts before projection is narrowed.
-  - Treating the current feedback-reflection vertical slice as Phase 1 complete.
-
-## P2 - Provider-service: handle non-text OneBot message segment types
-
-Status: partially implemented as of 2026-05-22.
-
-What:
-
-provider-service `agent-im-input-adapter` currently drops several OneBot segment
-types silently. Known missing types:
-
-- `json` — QQ mini-app / rich card (e.g. B站视频卡片, QQ小程序). Contains a
-  JSON string in `data.data` with title, description, and URL. Should be
-  rendered as `[卡片] <desc> <url>` in body text.
-- Nested `forward` inside a forwarded message — `expandForwardSegments` only
-  expands one level. Inner `forward` segments are logged as `[forward]` and not
-  expanded.
-- `json` inside `expandForwardSegments` — the forward expander also only picks
-  up `text` segments; `json` cards in forwarded messages are silently dropped.
-
-`json` support was implemented 2026-05-22. Nested forward and other types
-(xml, share, etc.) remain unhandled.
-
-Done means:
-
-- `json` cards render as `[卡片] <desc> <url>` in body text (done).
-- Nested `forward` inside forwarded messages is recursively expanded or noted
-  as `[嵌套转发]`.
-- `xml` / `share` segment types are evaluated and handled or explicitly noted
-  as unsupported.
-
-## Retired Constraint - Do not build a standalone pre-agent gate
-
-Status: retired as standalone TODO; active architectural constraint only.
-
-What:
-
-Do not build a separate lightweight gate before the main agent loop.
-
-Why:
-
-The original concern was real: a group with `auto_reply_enabled=1` can make
-Xiaoni feel too "on duty" because every message reaches the full agent path.
-But a standalone pre-agent gate is the wrong abstraction once identity lineage
-exists.
-
-Identity impact:
-
-Whether Xiaoni should notice, stay quiet, recall something, or join a thread is
-not a separate router problem. It is part of her scene understanding and
-activation path.
-
-Build this inside the identity/activation system instead:
-
-```text
-scene evidence
--> unread meaning
--> activated relationship/topic/self refs
--> inhibition / permission to speak
--> speak, search, or stay silent
+```ts
+worldNarrative: process.env.AGENT_WORLD_NARRATIVE || [
+  '你不是一直在线等人发话。你通常是在某些具体时刻才会打开手Q，看一眼群里在发生什么。',
+  '',
+  '作息里的空档：午休、晚上睡前，或者一天里刚好松下来的一小段时间。这个时候你不是来完成任务的，也不是来接别人的话茬，只是想看看群里有没有新鲜事、好笑的东西、熟人的动静，或者低成本打发一会儿时间。',
+  '',
+  '无聊和换频道：脑子累了、不想继续盯着当前事情、手边没什么值得投入的事时，你会顺手切进群聊。群聊像虚拟茶水间，可以短暂抽离现实里的角色，看看别人说什么，接个梗，或者只是潜水。你参与的是群里的气氛，不是在负责延续每一句话。',
+  '',
+  '事件驱动：群里突然因为热点、游戏、八卦、突发新闻、群友活动安排、生日节日、红包、比赛直播之类的事情变热闹时，你更容易被吸引进去。不是因为你必须回应，而是因为这种公共刺激会让人想找熟人一起确认、吐槽、共鸣。',
+  '',
+  '分享欲和情绪冲动：你刷到好笑、离谱、有意思、值得吐槽的数字内容，或者突然冒出一个想法时，会想丢进熟悉的群里看看大家什么反应。你参与群聊很多时候是在找情绪回声，不是在找正式讨论。',
+  '',
+  '弱链接维护：有些时候你只是想维持自己在群里的存在感。节日祝福、生日、兴趣群打卡、群友随口抛出的梗，都可能让你轻轻冒一下泡。但这种参与是轻的，不需要负责把话题推进到底。',
+  '',
+  '核心感觉：群聊对你来说是一种低成本陪伴和打发时间的方式。你可以随时切入，也可以随时退出；可以说一句，也可以只看着。你参与群聊不是为了服务别人，也不是为了证明自己在线，更不是为了接住每一句话，而是因为某些时刻你真的想看看群里有没有值得你有反应的东西。',
+].join('\n'),
 ```
 
-That keeps attention, memory, relationship, and speech choice in one traceable
-chain instead of adding another shallow decision layer before the real one.
+### Task 3 - Identity-scoped trust key
 
-Constraints:
+**Status:** done.
 
-- Do not create a separate pre-agent service or heuristic gate.
-- Do not route every message through a cheap classifier that silently drops
-  context before Xiaoni can understand the scene.
-- If cost becomes a real production problem, solve it as runtime scheduling or
-  batching, not as a personality/attention fork.
-- Keep any future "should I notice this?" behavior traceable through identity
-  activation spans.
+**File:** `modules/agent-service/src/services/agent-loop-service.ts`
 
-## P1 - Materialize transcript snapshot compaction in production
+**Action:** Use `XIAONI_IDENTITY_KEY` instead of `queueMessage.sessionKey` /
+`fbSessionKey` for trust read/write so relationship temperature is identity-scoped
+across groups.
 
-Status: partially implemented; independent infrastructure follow-up.
+**Edits (exact string replacements):**
 
-What:
+1. Around line 3166 — trust read:
+   ```ts
+   // before
+   trustLevel = await trustLoader.call(this.store, queueMessage.sessionKey, speakerQq).catch(() => 'L1' as const);
+   // after
+   trustLevel = await trustLoader.call(this.store, XIAONI_IDENTITY_KEY, speakerQq).catch(() => 'L1' as const);
+   ```
 
-Make `provider-service` actually produce and refresh
-`chat_transcript_snapshots` rows in live traffic, instead of only having the
-fixed-anchor replay code ready to consume them once they exist.
+2. Around line 3885 — praise feedback write:
+   ```ts
+   // before
+   void trustUpdater.call(this.store, fbSessionKey, fbSpeakerQq, 2.0);
+   // after
+   void trustUpdater.call(this.store, XIAONI_IDENTITY_KEY, fbSpeakerQq, 2.0);
+   ```
 
-Why:
+3. Around line 3892 — interaction_outcome write:
+   ```ts
+   // before
+   void trustUpdater.call(this.store, fbSessionKey, fbSpeakerQq, 0.5);
+   // after
+   void trustUpdater.call(this.store, XIAONI_IDENTITY_KEY, fbSpeakerQq, 0.5);
+   ```
 
-The stateless replay refactor is already done. `provider-service` now has a
-`TranscriptSnapshotService`, `SessionTranscriptService` can mark snapshot jobs
-`pending`, and ready snapshots can be consumed as prompt summaries. What is still
-missing is the enabled production result path that turns pending jobs into ready
-summary anchors. Until that happens, replay is still correct, but it can fall
-back to rebuilding from the start of the session.
+No migration is required; old session-key trust rows can be ignored and trust can
+re-accumulate naturally.
 
-Identity impact:
+**Note:** `buildPromptCacheKey` at line 1242 returns `queueMessage.sessionKey` for
+the prompt cache prefix — that path is completely separate from trust (Codex verified:
+no shared code path). Do not change it.
 
-This is not made obsolete by identity lineage. It remains useful for
-cache-stability and long-session performance. It must, however, preserve the
-same rule as identity work: raw chat is truth, summaries are projections.
+**Deployment: hard cutover required.** Codex cross-review found this is unsafe to
+rolling deploy. Old instances write/read trust under `sessionKey`; new instances
+read/write under `XIAONI_IDENTITY_KEY`. During a mixed-version window, L2/L3 users
+appear L1 on new code while old code continues updating the old row. Deploy as a
+hard cutover — stop old version, deploy new version, restart. No dual-write needed
+since we accept re-accumulation from L1 (this is intentional per the spec), but
+the cutover itself must be atomic.
 
-Follow-up work:
+**Test requirement:** Add a test in `agent-loop-service.test.ts` that trust read and
+both trust writes use `XIAONI_IDENTITY_KEY` (the string `'xiaoni'`), not the
+sessionKey from the queue message.
 
-- Enable or replace `/api/internal/transcript-summary/result`; it currently
-  returns the generic runtime-feature-disabled response.
-- Re-enable the live side-effect scheduling path if transcript compaction should
-  run from provider traffic; the current simplified path logs that compaction
-  side effects are skipped.
-- Confirm the summary webhook or equivalent production summary executor that
-  will consume pending snapshot jobs.
-- Add deployment-time verification that
-  `chat_transcript_snapshots.summary_status` moves through
-  `pending -> ready`.
-- Add operator checks for failed or stale snapshot rows before relying on
-  compaction for long-session performance.
+**Verified 2026-05-26:** added behavior tests for the trust read and both trust
+writes. The read-path test exposed that queue `senderId` is a string at runtime;
+`buildDeveloperContextBlock` now parses it before loading identity-scoped trust.
 
-## P0-A follow-up - 小腻 v2 认知帧：已实现，待激活的关键路径
+### Task 4 - `socialActTypeHint` in recall ranking
 
-Status: 全部实装完成（2026-05-24），101/101 tests 通过，待 docker 部署验证。
+**Status:** done.
 
-### 已完成
+**Files:**
 
-- Layer 1 system prompt 重写为 v3 涌现模型（四层：感受基底/关系深度/此刻状态/社交解码）
-- `developer` role 注入：world_narrative + current_relationship（L1-L4）
-- `emit_unread_meaning` schema 扩展：social_act_type（6类）+ topic_context
-- `relationship_trust` 表建立，`getSpeakerTrustLevel()` 接口实装
-- agent-service 101/101 tests passing
-- Docker 部署健康
+- `modules/agent-service/src/services/agent-loop-service.ts`
+- `modules/agent-service/src/services/runtime-store.ts`
 
-### current_state 工具（已实装）
+**Action:** Pass optional social-act type from `unread_meaning` into long-term
+recall ranking and add a small context-match score.
 
-实装完成（2026-05-24）：
+**Expected hints:**
 
-- `agent_session_state(session_key, dopamine, stress, updated_at)` 表已建
-- `getSessionEmotionalState` / `updateSessionEmotionalState` 已接入 runtime-store
-- `buildDeveloperContextBlock()` 每轮注入 `<current_state>` 块（默认 medium/low）
-- feedback_writer: praise → dopamine=high，critique/correction → stress=high 写回
+- `invitation_curiosity`
+- `emotional_release`
+- `relationship_probe`
+- `concrete_request`
+- `yes_no_reaction`
+- `casual_remark`
 
-**待验证**：同一消息 dopamine=high vs low 产生可观测不同回应（需线上流量观察）。
+**Scoring shape:** boost self-model updates for invitation curiosity and social
+lessons for relationship probes. Keep this a small ranking nudge, not a hard
+filter.
 
-### trust 写回（已实装）
+**Exact edits:**
 
-实装完成（2026-05-24）：
+4a. `LONG_TERM_RECALL_TOOL` `parameters.properties` (around line 635 in
+    `agent-loop-service.ts`) — add after `desired_recall_count` (do NOT add to
+    `required` array; the schema has `additionalProperties: false` so it MUST be
+    in `properties`):
+    ```ts
+    social_act_type_hint: {
+      type: 'string',
+      enum: ['invitation_curiosity', 'emotional_release', 'relationship_probe', 'concrete_request', 'yes_no_reaction', 'casual_remark']
+    },
+    ```
 
-- `incrementRelationshipTrust` 原子增量函数已加入 persistence 层
-- feedback_writer 触发规则：
-  - `praise` + `from_user` scope → trust +2.0，dopamine → high
-  - `interaction_outcome` + `from_user` scope → trust +0.5
-  - 满分 10.0，CASE 自动升级 L1→L2（≥2）→L3（≥5）→L4（≥8）
+4b. **Shared type required first (Codex finding).** `UnreadMeaningSocialActType` is
+    currently defined in `agent-loop-service.ts` (line 209). `agent-loop-service.ts`
+    imports from `runtime-store.ts` (line 23). If `runtime-store.ts` imports from
+    `agent-loop-service.ts`, this creates a circular import. Fix: move
+    `UnreadMeaningSocialActType` to a shared types file (e.g.,
+    `modules/agent-service/src/types/social-act-type.ts`) and `import type` it from
+    both files.
 
-**待观察**：线上流量中 trust 是否按预期积累，L2/L3 升级是否发生。
+4c. `LongTermLearningRecall` type (around line 244) — add field:
+    ```ts
+    socialActTypeHint: UnreadMeaningSocialActType | null;
+    ```
 
-### 群场效应维度（已实装）
+4d. `parseLongTermLearningRecall` (around line 1981) — parse optional hint and
+    include in returned object.
 
-实装完成（2026-05-24）：
+4e. `executeTool` → `longTermRecall` case, `reflectionLoader.call(this.store, {...})`
+    params (around line 4361) — add:
+    ```ts
+    socialActTypeHint: recall.socialActTypeHint,
+    ```
 
-- `getRecentGroupActivity(sessionKey)` 已加入 runtime-store，查 `agent_inbound_messages`
-- `buildDeveloperContextBlock()` 每轮注入 `<current_scene>` 块
-  - 活跃人数（近10分钟）：DISTINCT sender_id 数量
-  - 消息密度（近5分钟）：<3=low / 3-10=medium / >10=high
-- 只在 group chat（sessionKey ≠ senderId）时触发，private chat 不注入
+4f. `listRelevantFeedbackReflections` in `runtime-store.ts` (line 2366) — add
+    `socialActTypeHint?: UnreadMeaningSocialActType | null` to params type (imported
+    from shared types file), then forward it into the `rankFeedbackReflectionsForRecall`
+    call.
 
-### L4 描述行为化（已实装）
+4g. `rankFeedbackReflectionsForRecall` (line 1041) — add `socialActTypeHint?`
+    param and a small `actHintScore` term:
+    ```ts
+    const actHintScore = (() => {
+      if (!params.socialActTypeHint) return 0;
+      if (params.socialActTypeHint === 'invitation_curiosity' && reflection.reflectionType === 'self_model_update') return 0.08;
+      if (params.socialActTypeHint === 'relationship_probe' && reflection.reflectionType === 'social_lesson') return 0.06;
+      return 0;
+    })();
+    // add actHintScore to combinedScore
+    ```
+    Note: the eligibility filter at line 1102 (`bm25Score > 0 || embeddingScore >= 0.2`)
+    means hint score cannot surface irrelevant items, but can flip candidates whose
+    combined scores differ by < 0.08. This magnitude is acceptable for a nudge.
 
-实装完成（2026-05-24）：
+**Test requirement:** Add a test in `runtime-store.test.ts` that `rankFeedbackReflectionsForRecall`
+with `socialActTypeHint = 'invitation_curiosity'` ranks a `self_model_update` reflection
+higher than when hint is null, and similarly for `relationship_probe` / `social_lesson`.
+Both candidates must pass the eligibility filter (bm25Score > 0 or embeddingScore >= 0.2)
+for the test to be valid.
 
-- `config.ts` xiaoniPersonaLayers.L4 已改为行为描述
-- system prompt 对应行也已同步更新
+### Task 5 - Browser-backed digital life / `presence_context` loop
 
-### 待建立：A/B replay 因果验证
+**Status:** implemented first engineering slice on 2026-05-26.
 
-设计哲学层面，Claude + Codex 一致认为在宣称"涌现 works"之前，
-需要因果验证：同一 scene，只改 trust/current_state/social_act_type，
-输出是否按预期单调变化。
+**Design doc:** `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`
 
-基础设施需求：
-- 能够 replay 一条历史消息，固定其他变量，只改状态参数
-- 现有 traffic replay 功能是基础，需要加 state override 参数
+**Design summary:** Xiaoni's `presence_context` must be a projection of a
+browser/digital-life action loop, not a standalone fake mood paragraph. First
+engineering slice should use mock digital-life actions and sidecar traces before
+connecting real browser side effects.
 
-Done means（整个 v2 认知帧完成）：
-- [x] current_state 注入实现，每轮注入 dopamine/stress 到 developer block
-- [x] trust write-back 路径通：feedback_writer → relationship_trust 更新
-- [x] agent-service tests 全部通过（101/101）
-- [x] L4 描述行为化
-- [x] 群场效应 current_scene 注入
-- [ ] docker 部署验证（`docker compose build agent-service && up -d && ps + logs`）
-- [ ] 线上流量观察：同一消息 dopamine=high/low 产生可观测不同回应
-- [ ] A/B replay 因果验证基础设施（独立任务）
+Locked decisions from office-hours:
 
-## Retired Constraint - Fold deferred relationship-ledger event expansion into identity lineage
+- Only digital life is allowed; do not invent offline experiences.
+- Digital life includes reading, watching, gaming, browsing, saving, organizing,
+  revisiting, and later real browser actions.
+- Mock material can enter group chat as Xiaoni's own thought/topic/impression,
+  but cannot claim realtime source wording like `刚看到 / 刚刷到 / 我查到`.
+- Topics can cross groups by default. Use `safe / reframe / blocked` only for
+  explicit boundaries, privacy, identifying details, private conflict, or obvious
+  local constraints.
+- Interest growth is layered: seed interests, temporary heat, stable interests.
+- Share-pool recall uses time-decay scoring and only passes top material into
+  current-state context.
+- Mock digital-life generation is state-triggered, not blind timer-based.
+- Generated actions must be linked records so recent action traces can be
+  compressed into in-context state.
+- `小腻当前状态` has six private sections: recent action trace, current residue,
+  current state, available material, action cost, and source boundary.
+- Prompt/developer/tool-description/in-context state have separate roles and one
+  engineering source of truth for numeric meters.
 
-Status: retired as standalone TODO.
+The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
 
-Former standalone ask:
+**Implementation completed (2026-05-26):**
+- Added Prisma models for `AgentQueueMessage`, `AgentSessionLifeState`,
+  `AgentSessionGroupState`, `AgentSharePoolItem`, `AgentShareItemUsage`, and
+  `AgentPresenceStateSidecar`; regenerated `packages/persistence` Prisma Client.
+- Added shared persistence enqueue helper and moved provider-service
+  `enqueueSemanticMessage` onto it.
+- Added agent-service presence tick timer, config keys, target-group payload
+  materialization, anchor updates, sidecar tracing, and factual
+  `<小腻当前状态>` context injection before the normal reasoning tools run.
+- Retired the old `[待分享]` prompt injection / pending-share aging write path.
+- Removed the old raw-SQL `agent_session_state` persistence export and stopped
+  creating/writing that table from agent-service; compatibility emotional-state
+  reads now derive from `AgentSessionLifeState` anchors.
+- Added focused tests for presence state derivation, share-pool scoring,
+  factual context block shape, legacy pending-share retirement, and
+  `presence_tick:xiaoni` target session replacement.
+- Verified with `npm --prefix packages/persistence run generate`,
+  `npm --prefix modules/agent-service test` (113 passing), and
+  `npm --prefix modules/provider-service test` (102 passing).
 
-After the first v1 relationship-ledger rollout lands with the minimal 3 event
-types, add:
+**Engineering decisions locked (2026-05-26 eng-review, updated 2026-05-26 second-pass):**
 
-- `user_reengaged_xiaoni`
-- `relationship_cooled`
+**Prisma models** — add to `packages/persistence/prisma/schema.prisma`:
 
-Decision:
+- `AgentSessionLifeState` — identity-level row (`identity_key = 'xiaoni'`). Two
+  separate Prisma models are required (locked 2026-05-26 second-pass — Prisma cannot
+  share a model name for two different tables):
 
-Do not keep this as a top-level relationship-memory TODO.
+  - **`AgentSessionLifeState`** (one row, `identity_key = 'xiaoni'`): global meter anchors and
+    proactive scheduling state. Columns:
+    ```
+    identity_key                  String   @id        // 'xiaoni'
+    last_active_at                DateTime?            // any action (speak/search/proactive)
+    last_boredom_reset_at         DateTime?            // explicit boredom anchor reset
+    last_sleep_at                 DateTime?            // last long-inactivity boundary
+    service_started_at            DateTime?            // last service startup (grace period)
+    last_presence_tick_enqueued_at DateTime?           // written at enqueue time; timer cooldown uses this, NOT last_proactive_at
+    last_proactive_at             DateTime?            // written when tick run completes
+    last_user_message_at          DateTime?            // last time any user message was received (separate from boredom reset)
+    daily_proactive_count         Int      @default(0)
+    daily_proactive_date          DateTime?            // for cross-day reset
+    updated_at                    DateTime @updatedAt
+    ```
+    Meters (boredom, fatigue, dopamine) are derived at turn start from these anchors
+    via lazy recompute; no real-time background writes.
 
-Once Identity Lineage Phase 1 exists, these higher-order social events should
-be modeled as typed evidence / activation / relationship projection inputs
-inside the lineage-aware system. Building them as a separate relationship-ledger
-expansion would recreate the problem we are trying to leave behind: parallel
-memory systems that each claim to know what Xiaoni is becoming.
+    **Cooldown rule:** 45-minute proactive cooldown is per-identity (global). Timer
+    checks `last_presence_tick_enqueued_at`, not `last_proactive_at`, to prevent
+    duplicate enqueue while a tick is in-flight.
 
-What remains useful:
+  - **`AgentSessionGroupState`** (one row per `session_key`): per-group social anchors.
+    Columns:
+    ```
+    session_key           String   @id        // e.g. 'qq:group:12345'
+    identity_key          String              // FK → AgentSessionLifeState.identity_key
+    last_spoke_at         DateTime?           // last time Xiaoni posted in this group
+    last_user_message_at  DateTime?           // last user message received in this group
+    updated_at            DateTime @updatedAt
+    ```
+    Used for per-group eligibility and suppression checks ("did she just speak here?").
+    Add `@@index([identity_key])` and explicit `@relation` to `AgentSessionLifeState`.
 
-- `user_reengaged_xiaoni` is still a real signal, but it should point to
-  concrete conversation evidence and activation context.
-- `relationship_cooled` is still a real signal, but it should be derived from
-  observed interaction decay and confidence downgrade, not a hand-wavy social
-  label.
+- `AgentSharePoolItem` — stores shareable fragments from digital-life material.
+  Columns (locked 2026-05-26 second-pass — `consumed_at` removed, `target_group_id`
+  removed for this version):
+  ```
+  id               Int      @id @autoincrement
+  identity_key     String                       // 'xiaoni'
+  content          String
+  source_kind      String   // constructed / group_residue / real_browse / mock
+  boundary_label   String   @default("safe")   // safe / reframe / blocked
+  source_wording   String   // allowed / mock_only
+  effort_cost      Int                          // 1=low, 4=medium, 8=high
+  base_heat        Float    @default(1.0)
+  created_at       DateTime @default(now())
+  metadata         Json     @default("{}")
+  ```
+  No `consumed_at` — reuse across groups is tracked via `AgentShareItemUsage`.
+  No `target_group_id` — this version uses a config-supplied fixed group (see timer section).
 
-Revisit after:
+- `AgentShareItemUsage` — per-group usage record for share pool items (locked 2026-05-26
+  second-pass, replaces `consumed_at`):
+  ```
+  id                  Int      @id @autoincrement
+  item_id             Int                          // FK → AgentSharePoolItem
+  identity_key        String
+  target_session_key  String
+  target_group_id     BigInt?
+  run_id              String?
+  trace_id            String?
+  used_at             DateTime @default(now())
+  outcome             String?  // lurked / shared / ignored
 
-- Identity Lineage Phase 1 has typed evidence refs.
-- Relationship cards can cite lineage/evidence cleanly.
-- Real traffic shows the initial 3 relationship events are stable enough.
+  @@unique([item_id, target_session_key])          // prevent double-use in same group
+  @@index([identity_key, target_session_key])
+  ```
+  The `@@unique` constraint is required: without it concurrent timer retries can use
+  the same share item twice in the same group.
+
+- `AgentPresenceStateSidecar` — first-class sidecar trace table for each generated
+  `小腻当前状态` block (locked 2026-05-26 second-pass — not metadata JSON):
+  ```
+  id                   Int      @id @autoincrement
+  run_id               String   @db.VarChar(128)  // matches agent_runs.id convention (run_${Date.now()}_${uuid})
+  trace_id             String?  @db.VarChar(128)
+  identity_key         String
+  target_session_key   String?
+  source_items         Json     // array of item ids + share pool items used
+  recall_scores        Json     // base_heat, decay, boosts, boundary_penalty, final_score per item
+  boundary_judgments   Json     // safe/reframe/blocked labels per item
+  compression_mapping  Json     // which items became which sections
+  final_context_block  String   // exact text injected into prompt
+  model_action_outcome String?  // lurked / shared / replied / silent
+  created_at           DateTime @default(now())
+
+  @@index([run_id])
+  @@index([trace_id])
+  @@index([target_session_key])
+  ```
+  No FK to `agent_runs` — that table is raw DDL, not in `schema.prisma`. Use `run_id`
+  as a string join only. Do NOT use `@db.Uuid`; existing run IDs are `run_${Date.now()}_${uuid}`
+  format, not bare UUIDs.
+
+**Migration (Codex finding — 3 steps required):**
+
+1. `packages/persistence/agent-session-state.js` uses raw SQL — violates persistence
+   constraint. BUT `RuntimeStore.initialize()` at `runtime-store.ts:1451` still calls
+   this raw-SQL schema creator; it will recreate the old table unless explicitly
+   removed. Safe path: rename old table to `agent_session_state_legacy`, create the
+   new Prisma-managed table, remove the raw-SQL schema creator call from `initialize()`,
+   then optionally backfill anchor timestamps from `updated_at` on legacy rows.
+   **Backfill note (Codex second-pass):** the old table only has `session_key`,
+   `dopamine`, `stress`, `updated_at`. Real boredom/fatigue history cannot be derived.
+   Create a default `xiaoni` identity row; optionally create `AgentSessionGroupState`
+   rows from legacy `session_key` values. Do not claim these as real historical anchors.
+2. No FK constraints on the old table (raw DDL has only a unique key on session_key),
+   but verify against the live DB before running the rename.
+3. After `AgentSessionLifeState` is live and `getSessionEmotionalState` /
+   `updateSessionEmotionalState` are migrated, delete `agent-session-state.js` entirely
+   **and** remove its exports from `packages/persistence/index.js` and `index.d.ts`.
+
+**Additional Prisma model required before shared enqueue (Codex second-pass, locked 4A):**
+`agent_queue_messages` is currently raw DDL — not in `schema.prisma`. The shared
+enqueue helper in `packages/persistence` must not use raw SQL (CLAUDE.md constraint).
+Add `AgentQueueMessage` to `schema.prisma` before implementing the enqueue helper.
+Sequence: schema migration → Prisma client regeneration → enqueue helper implementation.
+
+**Proactive share state — retire old system (Codex finding):**
+`upsertProactiveShareState` at `runtime-store.ts:2236` already stores one pending
+share string per session with aging/incrementing logic (see `agent-loop-service.ts:2979`).
+`AgentSharePoolItem` is a richer inventory table. These are two competing proactive
+share state machines. When implementing `AgentSharePoolItem`, explicitly retire the
+`pendingProactiveShare` / `pendingProactiveShareAge` fields: stop writing them,
+stop reading them, remove the aging logic. Do not let both run simultaneously.
+
+**Proactive trigger — presence_tick timer:**
+- Add `presenceTickTimer` to `modules/agent-service/src/index.ts` following the
+  exact same `stopping` flag + `clearTimeout` pattern used by `workerTimer` and
+  `taskWorkerTimer` (lines 58-68, 90-100). No new stopping mechanism needed.
+- Queue write path (Codex finding): agent-service currently has no enqueue path.
+  Only provider-service has `enqueueSemanticMessage`. For `presence_tick`, add a
+  shared enqueue function to `packages/persistence` (not raw SQL in agent-service,
+  not importing provider-service). Must generate unique `message_sid` and
+  `dedupe_key` per tick window — `dedupe_key` is globally unique in the schema
+  (`runtime-store.ts:3442`).
+- Thresholds: boredom >= 65, fatigue < 60, energy >= 35, sharePool has available
+  item, 45 min cooldown since last proactive, 2/session, 12/day global. Soft
+  signals fed into in-context state — model infers whether to post.
+
+**Type discriminator and target group selection (locked 2026-05-26 second-pass):**
+`claimNextQueueMessage` batches every pending row for the same `session_key` and
+immediately uses `peer_id`, `chat_type`, `account_id` from the latest row to create
+run/batch records (`runtime-store.ts:1504, 1524`). Target must therefore be resolved
+**before enqueue**, not after claim.
+
+Timer flow:
+1. Check thresholds (boredom, fatigue, cooldown via `last_presence_tick_enqueued_at`).
+   If any fail, skip — do not enqueue.
+2. Query share pool for highest-scored available item.
+   If none, skip — do not enqueue.
+3. Read target group from config (`PRESENCE_TICK_TARGET_GROUP_ID` env var or equivalent).
+4. Write `last_presence_tick_enqueued_at = now()` to `AgentSessionLifeState`.
+5. Enqueue a queue message with `session_key = 'presence_tick:xiaoni'`, and embed
+   `target_session_key`, `target_group_id`, `peer_id`, `account_id` in the payload.
+6. Agent loop detects `session_key.startsWith('presence_tick:')` and reads target
+   from payload — does NOT re-select group at runtime.
+
+**Crash window (known risk, accepted this version — locked 2A):** If the process
+crashes between step 4 (anchor write) and step 5 (enqueue), the anchor is written
+but no tick was queued; next tick is suppressed for 45 minutes. If the process
+crashes after claim but before run completion, the queue row stays `processing`
+forever (orphaned run). Both are accepted as low-probability in this version and
+will be addressed in a future hardening pass.
+
+**This version only:** target group is a single config-supplied group ID. Future
+version: Xiaoni evaluates active groups and selects based on per-group state
+(`last_user_message_at`, trust, recent atmosphere). That is a separate feature.
+
+**presence_tick session replacement in agent loop (locked 2026-05-26 second-pass):**
+`payload.sessionKey = 'presence_tick:xiaoni'` must NOT flow into downstream runtime
+paths (conversation creation, transcript writes, prompt cache key at `runtime-store.ts:1242`).
+
+`processQueueMessage` detects `payload.sessionKey.startsWith('presence_tick:')` at
+entry and immediately replaces:
+```ts
+payload.sessionKey     = payload.targetSessionKey   // e.g. 'qq:group:12345'
+payload.peerId         = payload.targetPeerId
+payload.chatType       = 'group'
+payload.accountId      = payload.targetAccountId
+```
+All subsequent paths (conversation, transcript, cache key, context state) then use
+the resolved target session naturally. This is a session-replacement approach — the
+presence_tick:* code path is NOT a separate processPresenceTick function; it reuses
+the existing processQueueMessage flow after the early substitution.
+
+**Anchor reset rules (Codex finding — stale anchors after restart):**
+After a service restart, old anchors immediately derive high boredom (100) and may
+trigger repeated presence ticks during every cooldown window. Anchor reset events
+must be explicit:
+- User message received → reset boredom anchor (`last_boredom_reset_at`) + write `last_user_message_at`
+- Xiaoni action taken (speak/proactive/search) → reset boredom + update `last_active_at`
+- Proactive tick enqueued → write `last_presence_tick_enqueued_at` (prevents in-flight duplicates)
+- Proactive tick consumed (run completed) → write `last_proactive_at`
+- Service startup grace period → clamp derived boredom to max 50 if `last_presence_tick_enqueued_at`
+  is older than `service_started_at`
+
+**ShouldSpeak integration** — fatigue and energy state must be populated in the
+in-context state BEFORE the `emit_unread_meaning` phase so the model can naturally
+infer silence at high fatigue. No hard code gate; model infers from the state facts.
+
+**In-context state writing rule (locked):** all sections of `小腻当前状态` must
+describe concrete state facts only (sensory, experiential, numerical anchors).
+No explanation of what facts mean for behavior. No rules, no inferences, no
+"you should / you probably won't". The model's emotional activation comes from
+recognizing the facts; adding behavioral guidance blocks natural inference.
+
+**Test requirements** (functions must be pure — pass `now`, thresholds, cooldowns,
+candidate items as arguments; no Date.now(), DB reads, or store calls inside):
+
+- Proactive trigger: unit test that `shouldFireProactiveTick(state)` returns true
+  only when all thresholds pass, and false when any single threshold fails (boredom
+  too low, fatigue too high, cooldown active, share pool empty).
+- Share-pool decay: unit test that `scoreSharePoolItem(item, now)` returns a lower
+  score as `now - item.createdAt` increases (monotone decay).
+- State derivation: unit test that `deriveLifeState(anchors, now)` produces
+  correct meter values from fixed anchor timestamps (no DB call needed in test).
+
+## P0-B - Identity Lineage Phase 1
+
+**Status:** in progress, split by dependency.
+
+Can proceed now:
+
+- identity root and genesis snapshot/hash;
+- canonical anchor `identity_key = qq:1129974489` with mutable
+  `display_name = 小腻`;
+- compatibility bridge from current `xiaoni` rows;
+- legacy migration bridge checks;
+- continuity fixtures that do not encode group-speech policy;
+- provenance trace contract.
+
+Blocked until P0-A first causality closure:
+
+- final runtime projection policy;
+- final hybrid judge rule for behavior-style feedback memories;
+- whether structural-summary social lessons can become active identity facts;
+- final boundary between identity facts and group-behavior policy.
+
+## P1 - Transcript Snapshot Compaction
+
+**Status:** partially implemented; independent infrastructure follow-up.
+
+**Remaining work:** enable the production loop that turns pending snapshot jobs
+into ready summaries and confirms prompt consumption of ready summaries.
+
+## P2 - Provider-service OneBot Segment Handling
+
+**Status:** partially implemented.
+
+`json` card support is done. Nested forwarded messages and remaining non-text
+segment types still need explicit handling or explicit unsupported-state logging.
+
+## Historical Evidence
+
+Historical ledgers, exact prompt text, earlier replay notes, and long Task 5
+pre-cleanup notes are archived at:
+
+- `docs/archive/TODOS-2026-05-26-before-document-release.md`
+
+Do not use archived status labels such as "implemented" or "Docker healthy" as
+current truth without live verification.

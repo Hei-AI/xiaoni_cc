@@ -121,6 +121,102 @@ exports.Prisma.TransactionIsolationLevel = makeStrictEnum({
   Serializable: 'Serializable'
 });
 
+exports.Prisma.AgentQueueMessageScalarFieldEnum = {
+  id: 'id',
+  trace_id: 'trace_id',
+  batch_id: 'batch_id',
+  run_id: 'run_id',
+  source: 'source',
+  message_sid: 'message_sid',
+  dedupe_key: 'dedupe_key',
+  chat_type: 'chat_type',
+  session_key: 'session_key',
+  peer_id: 'peer_id',
+  peer_name: 'peer_name',
+  sender_id: 'sender_id',
+  sender_name: 'sender_name',
+  account_id: 'account_id',
+  body_for_agent: 'body_for_agent',
+  raw_payload: 'raw_payload',
+  inbound_context: 'inbound_context',
+  payload: 'payload',
+  status: 'status',
+  attempts: 'attempts',
+  max_attempts: 'max_attempts',
+  available_at: 'available_at',
+  locked_at: 'locked_at',
+  locked_by: 'locked_by',
+  processing_started_at: 'processing_started_at',
+  completed_at: 'completed_at',
+  conversation_id: 'conversation_id',
+  error_message: 'error_message',
+  result: 'result',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentSessionLifeStateScalarFieldEnum = {
+  identity_key: 'identity_key',
+  last_active_at: 'last_active_at',
+  last_boredom_reset_at: 'last_boredom_reset_at',
+  last_sleep_at: 'last_sleep_at',
+  service_started_at: 'service_started_at',
+  last_presence_tick_enqueued_at: 'last_presence_tick_enqueued_at',
+  last_proactive_at: 'last_proactive_at',
+  last_user_message_at: 'last_user_message_at',
+  daily_proactive_count: 'daily_proactive_count',
+  daily_proactive_date: 'daily_proactive_date',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentSessionGroupStateScalarFieldEnum = {
+  session_key: 'session_key',
+  identity_key: 'identity_key',
+  last_spoke_at: 'last_spoke_at',
+  last_user_message_at: 'last_user_message_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentSharePoolItemScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  content: 'content',
+  source_kind: 'source_kind',
+  boundary_label: 'boundary_label',
+  source_wording: 'source_wording',
+  effort_cost: 'effort_cost',
+  base_heat: 'base_heat',
+  created_at: 'created_at',
+  metadata: 'metadata'
+};
+
+exports.Prisma.AgentShareItemUsageScalarFieldEnum = {
+  id: 'id',
+  item_id: 'item_id',
+  identity_key: 'identity_key',
+  target_session_key: 'target_session_key',
+  target_group_id: 'target_group_id',
+  run_id: 'run_id',
+  trace_id: 'trace_id',
+  used_at: 'used_at',
+  outcome: 'outcome'
+};
+
+exports.Prisma.AgentPresenceStateSidecarScalarFieldEnum = {
+  id: 'id',
+  run_id: 'run_id',
+  trace_id: 'trace_id',
+  identity_key: 'identity_key',
+  target_session_key: 'target_session_key',
+  source_items: 'source_items',
+  recall_scores: 'recall_scores',
+  boundary_judgments: 'boundary_judgments',
+  compression_mapping: 'compression_mapping',
+  final_context_block: 'final_context_block',
+  model_action_outcome: 'model_action_outcome',
+  created_at: 'created_at'
+};
+
 exports.Prisma.GroupChatSettingScalarFieldEnum = {
   group_id: 'group_id',
   group_name: 'group_name',
@@ -611,6 +707,7 @@ exports.Prisma.AgentFeedbackReflectionScalarFieldEnum = {
   evidence_weight: 'evidence_weight',
   stability_score: 'stability_score',
   is_active: 'is_active',
+  is_seed: 'is_seed',
   summary_text: 'summary_text',
   retrieval_text: 'retrieval_text',
   embedding_text: 'embedding_text',
@@ -895,19 +992,25 @@ exports.Prisma.QueryMode = {
   insensitive: 'insensitive'
 };
 
-exports.Prisma.NullsOrder = {
-  first: 'first',
-  last: 'last'
-};
-
 exports.Prisma.JsonNullValueFilter = {
   DbNull: Prisma.DbNull,
   JsonNull: Prisma.JsonNull,
   AnyNull: Prisma.AnyNull
 };
 
+exports.Prisma.NullsOrder = {
+  first: 'first',
+  last: 'last'
+};
+
 
 exports.Prisma.ModelName = {
+  AgentQueueMessage: 'AgentQueueMessage',
+  AgentSessionLifeState: 'AgentSessionLifeState',
+  AgentSessionGroupState: 'AgentSessionGroupState',
+  AgentSharePoolItem: 'AgentSharePoolItem',
+  AgentShareItemUsage: 'AgentShareItemUsage',
+  AgentPresenceStateSidecar: 'AgentPresenceStateSidecar',
   GroupChatSetting: 'GroupChatSetting',
   PrivateChatSetting: 'PrivateChatSetting',
   AgentInboundMessage: 'AgentInboundMessage',

@@ -165,6 +165,7 @@ function createFeedbackReflectionPersistence({ getPrismaClient, createSqlAdapter
             evidence_weight DOUBLE PRECISION NOT NULL DEFAULT 0,
             stability_score DOUBLE PRECISION NOT NULL DEFAULT 0,
             is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            is_seed BOOLEAN NULL,
             summary_text TEXT NOT NULL,
             retrieval_text TEXT NULL,
             embedding_text TEXT NULL,
@@ -216,6 +217,8 @@ function createFeedbackReflectionPersistence({ getPrismaClient, createSqlAdapter
       await sql.execute('ALTER TABLE agent_feedback_reflections ADD COLUMN IF NOT EXISTS source_episode_ids JSONB NOT NULL DEFAULT \'[]\'::jsonb');
       await sql.execute('ALTER TABLE agent_feedback_reflections ADD COLUMN IF NOT EXISTS supersedes_reflection_id BIGINT NULL');
       await sql.execute('ALTER TABLE agent_feedback_reflections ADD COLUMN IF NOT EXISTS conflict_group_key VARCHAR(191) NULL');
+      await sql.execute('ALTER TABLE agent_feedback_reflections ADD COLUMN IF NOT EXISTS is_seed BOOLEAN NULL');
+      await sql.execute('ALTER TABLE agent_feedback_reflections ADD COLUMN IF NOT EXISTS intimacy_level SMALLINT NULL');
 
       await sql.execute(
         'CREATE INDEX IF NOT EXISTS idx_agent_feedback_episodes_scope_updated ON agent_feedback_episodes (group_id, source_user_id, scope_type, updated_at DESC)'
@@ -298,6 +301,7 @@ function createFeedbackReflectionPersistence({ getPrismaClient, createSqlAdapter
         evidence_weight: normalizeOptionalNumber(input.evidenceWeight),
         stability_score: normalizeOptionalNumber(input.stabilityScore),
         is_active: input.isActive !== false,
+        is_seed: typeof input.isSeed === 'boolean' ? input.isSeed : null,
         summary_text: String(input.summaryText || ''),
         retrieval_text: normalizeOptionalString(input.retrievalText),
         embedding_text: normalizeOptionalString(input.embeddingText),

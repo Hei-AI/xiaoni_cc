@@ -1,31 +1,6 @@
-import { createSqlAdapter, type SqlAdapter } from '@qq-bot/persistence';
+import { createSqlAdapter, enqueueAgentQueueMessage, type SqlAdapter } from '@qq-bot/persistence';
 import { agentRunConfig, databaseConfig } from '../config';
 import { FinalizedInboundContext, InboxMessageRecord, SemanticInboundMessage } from '../types';
-
-type QueueRow = {
-  id: number;
-  trace_id: string;
-  status: string;
-  attempts: number;
-  payload: string | Record<string, unknown>;
-};
-
-function parseJson<T>(value: unknown, fallback: T): T {
-  if (value === null || value === undefined) {
-    return fallback;
-  }
-  if (typeof value === 'object') {
-    return value as T;
-  }
-  if (typeof value !== 'string') {
-    return fallback;
-  }
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
-}
 
 function toNumericConversationId(value: unknown): number | null {
   const numeric = Number(value);
@@ -57,88 +32,16 @@ export class RuntimeStoreService {
   }
 
   async enqueueSemanticMessage(message: SemanticInboundMessage) {
-    const payloadJson = JSON.stringify(message);
-    const inboundContextJson = JSON.stringify(message.inboundContext || {});
-    const rawPayloadJson = JSON.stringify(message.rawPayload || {});
     const dedupeKey = message.dedupeKey || `${message.source}:${message.messageSid}`;
-
-    try {
-      const availableAt = new Date(Date.now() + agentRunConfig.batchWindowMs).toISOString();
-      const result = await this.sql.insert(
-        `
-          INSERT INTO agent_queue_messages (
-            trace_id,
-            source,
-            message_sid,
-            dedupe_key,
-            chat_type,
-            session_key,
-            peer_id,
-            peer_name,
-            sender_id,
-            sender_name,
-            account_id,
-            body_for_agent,
-            raw_payload,
-            inbound_context,
-            payload,
-            status,
-            available_at
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, 'pending', ?)
-        `,
-        [
-          message.traceId,
-          message.source,
-          message.messageSid,
-          dedupeKey,
-          message.chatType,
-          message.sessionKey,
-          message.peerId,
-          message.peerName || null,
-          message.senderId,
-          message.senderName || null,
-          message.accountId,
-          message.bodyForAgent,
-          rawPayloadJson,
-          inboundContextJson,
-          payloadJson,
-          availableAt
-        ]
-      );
-
-      return {
-        queueId: result.insertId,
-        traceId: message.traceId,
-        dedupeKey,
-        status: 'pending',
-        availableAt
-      };
-    } catch (error: any) {
-      if (error?.code !== '23505') {
-        throw error;
-      }
-
-      const existing = await this.sql.query<QueueRow>(
-        `
-          SELECT id, trace_id, status, attempts, payload
-          FROM agent_queue_messages
-          WHERE dedupe_key = ?
-          LIMIT 1
-        `,
-        [dedupeKey]
-      );
-
-      const row = existing[0];
-      return {
-        queueId: row ? Number(row.id) : 0,
-        traceId: row?.trace_id || message.traceId,
-        dedupeKey,
-        status: row?.status || 'pending',
-        attempts: row ? Number(row.attempts || 0) : 0,
-        payload: row ? parseJson<SemanticInboundMessage>(row.payload, message) : message
-      };
-    }
+    const availableAt = new Date(Date.now() + agentRunConfig.batchWindowMs).toISOString();
+    return enqueueAgentQueueMessage({
+      message: {
+        ...message,
+        dedupeKey
+      },
+      payload: message as unknown as Record<string, unknown>,
+      availableAt
+    }, databaseConfig);
   }
 
   async logTimelineEvent(params: {
