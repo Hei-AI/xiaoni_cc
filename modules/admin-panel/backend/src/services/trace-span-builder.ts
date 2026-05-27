@@ -457,6 +457,26 @@ type ParsedCliProxyApiLogDetail = {
   response: ParsedCliProxyApiLogPart | null;
 };
 
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'cookie',
+  'set-cookie',
+  'x-api-key',
+  'api-key',
+  'openai-api-key',
+  'proxy-authorization'
+]);
+
+function redactSensitiveHeaders(headers: Record<string, string | string[]> | null | undefined): Record<string, string | string[]> | null {
+  if (!headers) {
+    return null;
+  }
+  return Object.fromEntries(Object.entries(headers).map(([key, value]) => [
+    key,
+    SENSITIVE_HEADER_NAMES.has(key.toLowerCase()) ? '[redacted]' : value
+  ]));
+}
+
 function isSafeCliProxyCorrelationId(value: string): boolean {
   return /^[A-Za-z0-9_.:-]{1,256}$/.test(value);
 }
@@ -701,7 +721,7 @@ function buildCliProxyApiSpanDetail(call: any, logger: winston.Logger): TraceSpa
 
   return {
     input: {
-      headers: request?.headers || null,
+      headers: redactSensitiveHeaders(request?.headers),
       body: request?.body ?? null,
       raw_body: request?.rawBody || null,
       method: request?.metadata?.['HTTP Method'] || 'POST',
@@ -710,7 +730,7 @@ function buildCliProxyApiSpanDetail(call: any, logger: winston.Logger): TraceSpa
     },
     output: {
       status_code: Number.isFinite(statusCode) ? statusCode : (call.error_message ? null : 200),
-      headers: response?.headers || null,
+      headers: redactSensitiveHeaders(response?.headers),
       body: response?.body ?? null,
       raw_body: response?.rawBody || null,
       body_format: inferCliProxyBodyFormat(response?.body),
@@ -2161,8 +2181,8 @@ export async function buildConversationTraceSpanDetail(
   const syntheticProviderRequest = parseSyntheticProviderRequestSpanId(spanId);
   if (syntheticProviderRequest) {
     const rows = await database.executeQuery(
-      `SELECT * FROM llm_call_logs WHERE llm_call_id = ? LIMIT 1`,
-      [syntheticProviderRequest.llmCallId]
+      `SELECT * FROM llm_call_logs WHERE llm_call_id = ? AND (conversation_id = ? OR trace_id = ?) LIMIT 1`,
+      [syntheticProviderRequest.llmCallId, conversationId, traceId]
     );
     const row = rows[0] as any;
     if (!row) {

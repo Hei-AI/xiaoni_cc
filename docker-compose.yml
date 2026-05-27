@@ -76,6 +76,8 @@ services:
     container_name: qqbot-provider-service
     ports:
       - "127.0.0.1:8091:8090"
+    env_file:
+      - /home/liahua/.qqbot-local/qqbot-compose.env
     environment:
       - HTTP_PORT=8090
       - LOG_LEVEL=info
@@ -98,9 +100,6 @@ services:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - CODEX_ACCOUNT_STORE_DIR=/root/.qqbot-local/codex-accounts
       - CODEX_BASE_URL=${CODEX_BASE_URL:-}
-      - CODEX_PROXY_BASE_URL=${CODEX_PROXY_BASE_URL:-http://host.docker.internal:8317/backend-api}
-      - CODEX_RESPONSES_PATH=${CODEX_RESPONSES_PATH:-/codex/responses}
-      - CODEX_PROXY_API_KEY=${CODEX_PROXY_API_KEY:-}
       - MODEL_PROVIDER_OVERRIDES_JSON=${MODEL_PROVIDER_OVERRIDES_JSON:-}
       - EMBEDDING_ENABLED=true
       - EMBEDDING_BASE_URL=http://qqbot-embedding-server:8080

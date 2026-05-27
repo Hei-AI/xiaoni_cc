@@ -400,7 +400,7 @@ describe('buildConversationTracePayload', () => {
       method: 'POST',
       upstream_url: 'https://chatgpt.com/backend-api/codex/responses',
       headers: {
-        Authorization: 'Bearer 1234...abcd',
+        Authorization: '[redacted]',
         'Content-Type': 'application/json',
         'OpenAI-Beta': 'responses=experimental',
       },
@@ -421,6 +421,7 @@ describe('buildConversationTracePayload', () => {
       body_source: 'cliproxyapi.request_log.api_response',
     });
     expect((detail?.output as any).raw_body).toContain('response.completed');
+    expect((detail?.input as any).headers.Authorization).toBe('[redacted]');
     expect(detail?.evidence).toMatchObject({
       source: 'cliproxyapi.request_log',
       fallback_source: 'llm_call_logs.wire_request/wire_response',
@@ -516,6 +517,25 @@ describe('buildConversationTracePayload', () => {
       source: 'llm_call_logs.wire_request/wire_response',
       llm_call_id: 'llm-call-body-only',
     });
+  });
+
+  it('does not load synthetic provider detail from another conversation', async () => {
+    const db = createDatabase({
+      llmCallRows: []
+    });
+
+    const detail = await buildConversationTraceSpanDetail(
+      db as never,
+      createLogger(),
+      'conversation-1',
+      'provider-request:wire:llm-call-other-conversation'
+    );
+
+    expect(detail).toBeNull();
+    expect((db as any).executeQuery).toHaveBeenCalledWith(
+      'SELECT * FROM llm_call_logs WHERE llm_call_id = ? AND (conversation_id = ? OR trace_id = ?) LIMIT 1',
+      ['llm-call-other-conversation', 'conversation-1', 'trace-1']
+    );
   });
 
   it('surfaces participation decision timeline metadata as readable decision spans', async () => {
