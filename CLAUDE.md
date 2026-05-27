@@ -72,7 +72,7 @@ docker compose logs -f <container>   # watch for startup errors
 ```
 modules/provider-service      OneBot/NapCat 入站、LLM provider 执行、消息模拟、embeddings、queue 写入
 modules/agent-service         主 agent loop runtime，消费 queue batch、执行多阶段判断、写 run/trace/delivery state
-modules/admin-panel/backend   运营 API，承接 runs、conversations、queue、playground、traffic replay、runtime status
+modules/admin-panel/backend   运营 API，承接 runs、conversations、queue、playground、image lab、codex pool、traffic replay、runtime status
 modules/admin-panel/frontend  React + Vite 管理端 UI，只走 admin-backend，不直连 provider-service
 modules/embedding-server      内部 embedding 服务，对外由 provider-service /v1/* 暴露，不直接对外
 modules/http-traffic-monitor  HTTP 流量查看与回放工具链
@@ -150,46 +150,46 @@ Examples of good bisection:
 
 ## gstack
 
-For all web browsing, use the `/browse` skill from gstack. **NEVER use `mcp__claude-in-chrome__*` tools.**
+For all web browsing, use the `$browse` skill from gstack. **NEVER use `mcp__claude-in-chrome__*` tools.**
 
 Available skills:
 
 | Skill | Purpose |
 |---|---|
-| `/office-hours` | Product ideas / startup diagnostic |
-| `/plan-ceo-review` | Strategy and scope review |
-| `/plan-eng-review` | Architecture review |
-| `/plan-design-review` | Design audit (report only) |
-| `/design-consultation` | Design system from scratch |
-| `/design-shotgun` | Visual design exploration |
-| `/design-html` | Design to HTML |
-| `/review` | PR / code review |
-| `/ship` | Ship workflow |
-| `/land-and-deploy` | Merge → deploy → canary verify |
-| `/canary` | Post-deploy monitoring loop |
-| `/benchmark` | Performance regression detection |
-| `/browse` | Headless browser (use for ALL web tasks) |
-| `/connect-chrome` | Connect to local Chrome |
-| `/qa` | QA with fixes |
-| `/qa-only` | QA report only, no fixes |
-| `/design-review` | Design audit + fix loop |
-| `/setup-browser-cookies` | Cookie setup for browser skills |
-| `/setup-deploy` | One-time deploy config |
-| `/setup-gbrain` | Persistent knowledge base setup |
-| `/retro` | Retrospective |
-| `/investigate` | Systematic root-cause debugging |
-| `/document-release` | Post-ship doc updates |
-| `/codex` | Multi-AI second opinion via OpenAI Codex |
-| `/cso` | OWASP Top 10 + STRIDE security audit |
-| `/autoplan` | Auto-review pipeline (CEO → design → eng) |
-| `/plan-devex-review` | Dev experience review |
-| `/devex-review` | Dev experience audit + fix loop |
-| `/careful` | Extra-careful mode for risky changes |
-| `/freeze` | Freeze files from edits |
-| `/guard` | Guard against accidental changes |
-| `/unfreeze` | Unfreeze files |
-| `/gstack-upgrade` | Upgrade gstack |
-| `/learn` | Learn a topic |
+| `$office-hours` | Product ideas / startup diagnostic |
+| `$plan-ceo-review` | Strategy and scope review |
+| `$plan-eng-review` | Architecture review |
+| `$plan-design-review` | Design audit (report only) |
+| `$design-consultation` | Design system from scratch |
+| `$design-shotgun` | Visual design exploration |
+| `$design-html` | Design to HTML |
+| `$review` | PR / code review |
+| `$ship` | Ship workflow |
+| `$land-and-deploy` | Merge -> deploy -> canary verify |
+| `$canary` | Post-deploy monitoring loop |
+| `$benchmark` | Performance regression detection |
+| `$browse` | Headless browser (use for ALL web tasks) |
+| `$connect-chrome` | Connect to local Chrome |
+| `$qa` | QA with fixes |
+| `$qa-only` | QA report only, no fixes |
+| `$design-review` | Design audit + fix loop |
+| `$setup-browser-cookies` | Cookie setup for browser skills |
+| `$setup-deploy` | One-time deploy config |
+| `$setup-gbrain` | Persistent knowledge base setup |
+| `$retro` | Retrospective |
+| `$investigate` | Systematic root-cause debugging |
+| `$document-release` | Post-ship doc updates |
+| `$codex` | Multi-AI second opinion via OpenAI Codex |
+| `$cso` | OWASP Top 10 + STRIDE security audit |
+| `$autoplan` | Auto-review pipeline (CEO -> design -> eng) |
+| `$plan-devex-review` | Dev experience review |
+| `$devex-review` | Dev experience audit + fix loop |
+| `$careful` | Extra-careful mode for risky changes |
+| `$freeze` | Freeze files from edits |
+| `$guard` | Guard against accidental changes |
+| `$unfreeze` | Unfreeze files |
+| `$gstack-upgrade` | Upgrade gstack |
+| `$learn` | Learn a topic |
 
 ## Docs Map
 
@@ -210,15 +210,15 @@ Available skills:
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
 
 Key routing rules:
-- Product ideas/brainstorming → invoke /office-hours
-- Strategy/scope → invoke /plan-ceo-review
-- Architecture → invoke /plan-eng-review
-- Design system/plan review → invoke /design-consultation or /plan-design-review
-- Full review pipeline → invoke /autoplan
-- Bugs/errors → invoke /investigate
-- QA/testing site behavior → invoke /qa or /qa-only
-- Code review/diff check → invoke /review
-- Visual polish → invoke /design-review
-- Ship/deploy/PR → invoke /ship or /land-and-deploy
-- Save progress → invoke /context-save
-- Resume context → invoke /context-restore
+- Product ideas/brainstorming -> invoke `$office-hours`
+- Strategy/scope -> invoke `$plan-ceo-review`
+- Architecture -> invoke `$plan-eng-review`
+- Design system/plan review -> invoke `$design-consultation` or `$plan-design-review`
+- Full review pipeline -> invoke `$autoplan`
+- Bugs/errors -> invoke `$investigate`
+- QA/testing site behavior -> invoke `$qa` or `$qa-only`
+- Code review/diff check -> invoke `$review`
+- Visual polish -> invoke `$design-review`
+- Ship/deploy/PR -> invoke `$ship` or `$land-and-deploy`
+- Save progress -> invoke `$context-save`
+- Resume context -> invoke `$context-restore`

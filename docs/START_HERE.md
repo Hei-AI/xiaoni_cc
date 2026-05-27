@@ -5,7 +5,7 @@
 
 ## First 5 Minutes
 - 这是 QQ Bot 的主仓，但当前保留的是“运行底座 + 管理端”，不是完整旧业务全集。
-- 默认先分清两条链：小腻行为链是 `NapCat -> provider-service -> agent-service -> provider-service -> NapCat`，管理端链是 `admin-frontend -> admin-backend`。
+- 默认先分清两条链：小腻行为链是 `NapCat -> provider-service -> agent-service -> provider-service -> NapCat`，管理端链是 `admin-frontend -> admin-backend -> provider-service / agent-service / PostgreSQL`。
 - 先信这些入口：`README.md`、`docs/INDEX.md`、`AGENTS.md`
 
 ## First 15 Minutes
@@ -21,13 +21,13 @@
 - 回到 `AGENTS.md`：确认仓库级约束和 `Done Means`
 
 ## Common Mistakes
-- 不要因为 `agent-service` 在 compose 里，就误以为它是管理端主链路入口。
+- 不要因为 `agent-service` 在 compose 里，就把它当成管理端入口；它是 QQ 行为判断和后台 runtime 入口。
 - 不要把 provider 侧 participation 继续理解成完整“是否说话”的总决策器；当前它更像硬边界和观测层，主行为判断在 `agent-service` runtime。
 - 不要再把旧的 conversation timeline 当成当前调试主入口；现在看的是 agent run workspace。
 - 完成判定统一回到 `AGENTS.md` 的 `Done Means`，不要在这里脑补另一套交付标准。
 - 不要把 `embedding-server` 当对外服务；对外是 `provider-service /v1/*`。
 - 不要默认前端直连 `provider-service`；默认是前端 -> admin backend。
-- 当前版本先跑最简单主链。`relationship memory`、`self evolution`、`topic projection`、`transcript snapshot` 相关后台能力已屏蔽，不再参与当前对话交互。
+- 当前主发言判断在 `agent-service` loop。`relationship memory`、`topic projection`、`transcript snapshot` 等能力可以作为召回、观测、评测或异步产物存在，但不要把它们当成入口层“是否说话”的总决策器。
 - 不要把“本地前端联调”和“公网 Docker 前端”当成同一条链路；本地页面调试只起本地 Vite 前端，后端仍走容器。
 - 不要再让本地前端复用 `3003`；本地联调固定走 `13003`，公网 Docker 前端继续占用 `3003`。
 - 不要再参考 `database/` 里的历史 MySQL 文档；当前真实数据库以 PostgreSQL 初始化脚本和 `packages/persistence` 为准。

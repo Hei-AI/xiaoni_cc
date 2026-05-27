@@ -32,7 +32,6 @@ DEFAULT_CONFIG = {
     "listen_port": 15001,
     "docker_network": "qq_bot_network",
     "clash_port": 7890,
-    "sudo_password": "liahua",
     "mitmproxy_script": "modules/http-traffic-monitor/mitmproxy/addon.py",
     "log_level": "info",
     "fake_ip_range": "198.18.0.0/15",
@@ -105,6 +104,21 @@ class MitmproxyManager:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(self.config, f, indent=2, ensure_ascii=False)
         Colors.success(f"配置已保存到: {CONFIG_FILE}")
+
+    def get_sudo_password(self) -> str:
+        """从环境变量、私有本机文件或旧配置读取 sudo 密码。"""
+        env_password = os.environ.get("QQBOT_MITM_SUDO_PASSWORD", "")
+        if env_password:
+            return env_password
+
+        local_password_file = Path.home() / ".qqbot-local" / "mitmproxy" / "sudo-password"
+        if local_password_file.exists():
+            try:
+                return local_password_file.read_text(encoding="utf-8").strip()
+            except OSError:
+                pass
+
+        return str(self.config.get("sudo_password", ""))
 
     def get_default_gateway(self) -> str:
         """获取WSL2默认网关IP（Windows宿主机IP）"""
@@ -321,7 +335,9 @@ class MitmproxyManager:
             base_cmd.extend(["--set", f"upstream_http={upstream_proxy}"])
             base_cmd.extend(["--set", f"upstream_https={upstream_proxy}"])
 
-        cmd = ["sudo", "-S", "env"] + [f"{key}={value}" for key, value in env.items()] + base_cmd
+        sudo_pwd = self.get_sudo_password()
+        cmd = ["sudo", "-S", "env"] if sudo_pwd else ["sudo", "-n", "env"]
+        cmd += [f"{key}={value}" for key, value in env.items()] + base_cmd
 
         Colors.info(f"启动命令: {' '.join(base_cmd[:5])} (via sudo root)...")
 
@@ -339,9 +355,11 @@ class MitmproxyManager:
                         start_new_session=True,
                         text=True
                     )
-                    proc.stdin.write(f"{self.config['sudo_password']}\n")
-                    proc.stdin.flush()
-                    proc.stdin.close()
+                    if proc.stdin:
+                        if sudo_pwd:
+                            proc.stdin.write(f"{sudo_pwd}\n")
+                            proc.stdin.flush()
+                        proc.stdin.close()
 
                 # 保存PID
                 time.sleep(2)
@@ -364,7 +382,7 @@ class MitmproxyManager:
                     return False
             else:
                 # 前台启动 - 直接显示输出
-                subprocess.run(cmd, input=f"{self.config['sudo_password']}\n", text=True)
+                subprocess.run(cmd, input=f"{sudo_pwd}\n" if sudo_pwd else None, text=True)
                 return True
 
         except Exception as e:
@@ -440,7 +458,7 @@ class MitmproxyManager:
         Colors.info(f"监听端口: {self.config['listen_port']}")
 
         listen_port = self.config['listen_port']
-        sudo_pwd = self.config['sudo_password']
+        sudo_pwd = self.get_sudo_password()
         host_output_uid = int(self.config.get('host_output_uid', os.getuid()))
         enable_host_output_intercept = bool(self.config.get('enable_host_output_intercept', True))
         host_output_bypass_hosts = list(self.config.get('host_output_bypass_hosts', []))
@@ -517,7 +535,7 @@ class MitmproxyManager:
             return True
 
         listen_port = self.config['listen_port']
-        sudo_pwd = self.config['sudo_password']
+        sudo_pwd = self.get_sudo_password()
         host_output_uid = int(self.config.get('host_output_uid', os.getuid()))
         enable_host_output_intercept = bool(self.config.get('enable_host_output_intercept', True))
         host_output_bypass_hosts = list(self.config.get('host_output_bypass_hosts', []))
@@ -565,7 +583,7 @@ class MitmproxyManager:
 
     def _sudo_run(self, password: str, cmd: List[str]):
         """执行sudo命令"""
-        full_cmd = ["sudo", "-S"] + cmd
+        full_cmd = ["sudo", "-S"] + cmd if password else ["sudo", "-n"] + cmd
         proc = subprocess.Popen(
             full_cmd,
             stdin=subprocess.PIPE,
@@ -573,7 +591,7 @@ class MitmproxyManager:
             stderr=subprocess.PIPE,
             text=True
         )
-        stdout, stderr = proc.communicate(input=f"{password}\n")
+        stdout, stderr = proc.communicate(input=f"{password}\n" if password else None)
         if proc.returncode != 0 and stderr:
             raise Exception(stderr)
         return stdout
@@ -722,7 +740,7 @@ class MitmproxyManager:
         if cidr:
             click.echo(f"\n{Fore.CYAN}iptables规则:{Style.RESET_ALL}")
             listen_port = self.config['listen_port']
-            sudo_pwd = self.config['sudo_password']
+            sudo_pwd = self.get_sudo_password()
 
             http_exists = self._check_iptables_rule(sudo_pwd, "nat", "PREROUTING",
                 ["-s", cidr, "-p", "tcp", "--dport", "80",

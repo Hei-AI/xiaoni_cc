@@ -1,4 +1,4 @@
-<!-- /autoplan restore point: /home/liahua/.gstack/projects/liahua-qq_bot/refactor-runtime-gateway-autoplan-restore-20260331-180135.md -->
+<!-- $autoplan restore point: /home/liahua/.gstack/projects/liahua-qq_bot/refactor-runtime-gateway-autoplan-restore-20260331-180135.md -->
 # Group Reply Relevance And Continuity
 
 > Status: superseded as an implementation plan.
@@ -291,7 +291,7 @@ Only `reply` enters the main loop.
 ## Verification
 - Pending.
 
-## /autoplan Intake
+## $autoplan Intake
 - Plan file: `docs/exec-plans/active/group-reply-relevance-gate.md`
 - Branch: `refactor/runtime-gateway`
 - Base branch: `main`
@@ -577,7 +577,7 @@ incoming group message
 
 **Phase 3 complete.** Codex: 0 concerns recorded in this pass. Claude primary review: 3 implementation cautions. Consensus: single-reviewer mode, no disagreements surfaced. Ready for final approval gate.
 
-## /autoplan Final Approval Gate
+## $autoplan Final Approval Gate
 
 ### Plan Summary
 - Stage 2 is now well-defined as a participation-decision system, not a vague "make her more human" blob.

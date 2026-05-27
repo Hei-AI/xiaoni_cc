@@ -25,7 +25,7 @@ python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py stop
 python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py status
 python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py logs -f
 ```
-保留的 `start-mitmproxy-daemon.sh` 等 bash 脚本仅作为调试备选；常规场景使用 Python CLI。
+常规场景使用 Python CLI 或 `transparent-proxy/mitm` 包装脚本；不要再查找旧 Bash 启停脚本。
 
 ## 3. 配置要点
 - 运行环境通常在 WSL2 Ubuntu，需提前安装 `mitmproxy`（推荐 11.x）与 Python 3.11+，再执行 `pip install -r modules/http-traffic-monitor/transparent-proxy/requirements.txt` 安装 CLI 依赖。

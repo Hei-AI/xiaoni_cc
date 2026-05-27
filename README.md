@@ -6,7 +6,7 @@
 
 - `provider-service`: NapCat / OneBot 入口、LLM provider 执行、消息模拟、embeddings、queue 入口
 - `agent-service`: 主 agent loop runtime，消费 queue batch、重建上下文、执行 agent run，并控制 delivery state
-- `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、run workspace、流量查看/回放、runtime status
+- `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、run workspace、Image Lab、Codex 账号池、流量查看/回放、runtime status
 - `admin-panel/frontend`: 管理界面
 - `postgres`: 数据存储
 - `docker-compose.napcat.yml`: NapCat 独立部署入口
@@ -38,6 +38,7 @@
 NapCat -> provider-service
                       \
                        -> agent-service
+                       -> provider-service -> NapCat
                        -> admin-backend -> admin-frontend
                        -> PostgreSQL (via admin / business data)
 ```
@@ -46,10 +47,10 @@ NapCat -> provider-service
 
 - NapCat 独立部署，不包含在主业务 compose 中。
 - 管理端默认链路是前端 -> `admin-panel/backend`。
-- `provider-service` 当前负责 provider debug、OneBot 入站、queue 写入和 timeline 记录。
-- `agent-service` 负责消费消息批次、执行 loop agent，并把 run / trace / transcript / delivery state 写回 PostgreSQL。
+- `provider-service` 当前负责 provider debug、OneBot 入站和出站、queue 写入、image provider、embeddings 和 timeline 记录。
+- `agent-service` 负责消费消息批次、执行 loop agent，并把 run / trace / transcript / delivery state / 自学习结果写回 PostgreSQL。
 - provider 侧的 participation 现在保留为硬安全边界和观测事件，主行为判断逐步收口到 `agent-service` runtime。
-- 当前版本主张先把最简单的 runtime 跑稳，transcript summary、relationship memory、self evolution、topic projection 等后台能力已屏蔽，不参与当前对话交互。
+- 当前主发言判断在 `agent-service`；relationship memory、topic projection、transcript snapshot 等后台能力可以用于观测、召回、评测或异步产物，但不要把它们当成入口层“是否说话”的总决策器。
 - 当前对话历史里的 `<小腻的OS>` 视为小腻跨轮延续下来的内部状态与成长轨迹，按历史真相保留，并随已读历史一起参与上下文窗口管理。
 - HTTP 流量监控/回放属于管理端运维工具链。
 
@@ -81,16 +82,19 @@ docker compose ps
 - Admin Frontend: `http://localhost:3003`
 - Admin Backend: `http://localhost:9080/api/health`
 - Provider Service: `http://localhost:8091/health`
+- Agent Service: `http://localhost:8092/health`
 
 ## 调试能力
 
 保留的调试面：
 
 - `provider-service` 健康检查、消息模拟、LLM 调试、简单队列接口、embeddings
-- Admin agent run workspace、会话明细、participation events、runtime status
+- Admin agent run workspace、会话明细、participation events、runtime status、agent runtime task/media 观测
 - Admin Queue Management
 - Prompt 管理 / 编辑 / 调试
 - Playground case library、Trace / Conversation 导入、Provider 请求 payload 查看
+- Image Lab 生成 / 编辑 / prompt assistant
+- Codex OAuth 账号池状态、导入、刷新与 active auth 投影
 - HTTP 流量查看与回放
 
 ## 常用命令

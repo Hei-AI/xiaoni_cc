@@ -1,8 +1,8 @@
-<!-- /autoplan restore point: /home/liahua/.gstack/projects/liahua-qq_bot/refactor-runtime-gateway-autoplan-restore-20260402-222441.md -->
+<!-- $autoplan restore point: /home/liahua/.gstack/projects/liahua-qq_bot/refactor-runtime-gateway-autoplan-restore-20260402-222441.md -->
 # 小腻关系账本与可追溯记忆卡片
 
 ## Goal
-- 继续沿当前已评审通过的 relationship memory 思路实现下去，不因为这轮 `/autoplan` 再把方向整体改窄或改轨。
+- 继续沿当前已评审通过的 relationship memory 思路实现下去，不因为这轮 `$autoplan` 再把方向整体改窄或改轨。
 - 让小腻的“关系感”继续从真实群聊里长出来，而不是靠硬编码亲密度或无限堆历史上下文。
 - 在继续推进 ledger -> cards -> runtime -> admin 这条主线的同时，把群聊/私聊里的卡片结构和观察入口做得更一致、更少歧义。
 
@@ -13,12 +13,12 @@
   - `docs/exec-plans/active/group-reply-relevance-gate.md`
   - `docs/exec-plans/active/transcript-snapshot-materialization.md`
 
-## User Decision After /autoplan
+## User Decision After $autoplan
 - 用户明确选择：继续沿当前 relationship memory 的大方向实现下去。
 - 这意味着：
   - 不把这份 plan 改写成纯 migration-only 计划
   - 不因为本轮 review 就放弃 ledger / cards / runtime / admin 这条主线
-  - `/autoplan` 提出的 canonical home、旧入口退场、状态语义、UI contract 风险，作为实施护栏保留
+  - `$autoplan` 提出的 canonical home、旧入口退场、状态语义、UI contract 风险，作为实施护栏保留
 - 简单说：
   - 主方向不变
   - 实施顺序和产品收口要吸收本轮 review 结论
@@ -248,7 +248,7 @@
   - 至少 1 个旧梗自然衰减样本
   - 至少 1 个共享梗再次激活样本
 
-## Open Questions For /plan-eng-review
+## Open Questions For $plan-eng-review
 - 第一版事件类型已经锁定为 3 类；评审重点改为这 3 类的判定边界和数据字段是否足够稳定
 - 卡片进入运行时的最佳拼装点在哪一层
 - 与现有 `group-reply-relevance-gate` 的最小耦合边界应该画在哪里
@@ -482,7 +482,7 @@
 - [ ] 确认后台能点开一张 card 看到来源消息
 - [ ] 确认一次 job 失败后 runtime 仍读取上一版 stable cards
 
-## /autoplan Intake
+## $autoplan Intake
 
 - Plan file: `docs/exec-plans/active/xiaoni-relationship-ledger-memory.md`
 - Branch: `refactor/runtime-gateway`
@@ -835,7 +835,7 @@ NapCat
 | 8 | ENG | 新增 migration/deprecation checklist 替换旧 greenfield checklist | Mechanical | P1, P2 | 这才覆盖真实 blast radius | 只加更多新接口 |
 | 9 | ENG | 测试重点改成 canonical-home、legacy contraction、status semantics | Mechanical | P1 | 当前最大风险来自语义和迁移，不是单纯 CRUD | 只测 schema / JSON parse |
 
-## /autoplan Final Approval Gate
+## $autoplan Final Approval Gate
 
 ### Plan Summary
 

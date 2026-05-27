@@ -1,4 +1,4 @@
-<!-- /autoplan restore point: /home/liahua/.gstack/projects/liahua-qq_bot/refactor-runtime-gateway-autoplan-restore-20260331-173906.md -->
+<!-- $autoplan restore point: /home/liahua/.gstack/projects/liahua-qq_bot/refactor-runtime-gateway-autoplan-restore-20260331-173906.md -->
 # Transcript Snapshot Materialization In Production
 
 ## Goal
@@ -85,7 +85,7 @@
 ## Verification
 - Pending.
 
-## /autoplan Intake
+## $autoplan Intake
 - Plan file: `docs/exec-plans/active/transcript-snapshot-materialization.md`
 - Branch: `refactor/runtime-gateway`
 - Base branch: `main`

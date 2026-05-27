@@ -93,22 +93,10 @@ alias mitm='python3 /path/to/mitmproxy_manager.py'
 
 ---
 
-## 📚 旧版Bash脚本（已弃用）
+## 现有辅助文件
 
-以下脚本仍可使用，但推荐使用上面的Python CLI工具：
+常规场景使用 `mitmproxy_manager.py` 或 `./mitm`，不要再查找旧 Bash 启停脚本。
 
-### 日常使用脚本
-- `start-mitmproxy-daemon.sh` - 一键启动mitmproxy
-- `stop-mitmproxy-daemon.sh` - 一键停止mitmproxy并清理iptables规则
-- `start-mitmproxy-with-iptables.sh` - 启动+应用iptables（一键式）
-- `stop-mitmproxy-with-cleanup.sh` - 停止+清理iptables（一键式）
-
-### iptables配置
-- `apply-iptables.sh` - 配置iptables规则
-- `apply-iptables-with-mark.sh` - 配置带mark的iptables规则
-- `remove-iptables.sh` - 清理iptables规则
-
-### 可选配置
 - `install-mitmproxy-service.sh` - systemd服务安装
 - `wsl-startup.sh` - WSL2启动脚本
 - `install-ca-from-volume.sh` - CA证书安装
@@ -142,10 +130,13 @@ alias mitm='python3 /path/to/mitmproxy_manager.py'
   "listen_port": 15001,
   "docker_network": "qq_bot_network",
   "clash_port": 7890,
-  "sudo_password": "liahua",
   "mitmproxy_script": "modules/http-traffic-monitor/mitmproxy/addon.py"
 }
 ```
+
+`sudo_password` 不应提交到仓库。需要密码时优先放在
+`/home/liahua/.qqbot-local/mitmproxy/sudo-password`，或仅对当前 shell 设置
+`QQBOT_MITM_SUDO_PASSWORD`。
 
 ---
 
@@ -179,4 +170,4 @@ python3 mitmproxy_manager.py restart
 
 ## 文档
 
-详细文档见: `docs/TRANSPARENT_PROXY_IMPLEMENTATION.md`
+上一级 `modules/http-traffic-monitor/README.md` 维护模块级说明；仓库本机状态和 CA 约定见 `docs/AGENTS_SECRETS_LOCAL_STATE.md`。

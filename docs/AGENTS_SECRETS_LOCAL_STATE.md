@@ -8,6 +8,7 @@
 ## Secrets
 - 本机敏感信息统一从 `/home/liahua/.qqbot-local/` 读取。
 - 常用位置：`/home/liahua/.qqbot-local/credentials.md`、`/home/liahua/.qqbot-local/admin-debug-auth/qqbot-admin-debug.token`、`/home/liahua/.qqbot-local/playwright/local-frontend-access.json`
+- 透明 MITM 如需 sudo 密码，放在 `/home/liahua/.qqbot-local/mitmproxy/sudo-password`，权限保持目录 `700`、文件 `600`；不要把 `sudo_password` 写回仓库内 `config.json`。
 - `.env.docker.example` 只是模板，不能回填真实密钥到受版本控制文件。
 
 ## Local Runtime State

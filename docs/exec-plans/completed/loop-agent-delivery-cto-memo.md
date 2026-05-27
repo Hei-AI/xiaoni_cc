@@ -1,4 +1,4 @@
-<!-- /autoplan restore point: /home/liahua/.gstack/projects/liahua-qq_bot/refactor-runtime-gateway-autoplan-restore-20260331-172546.md -->
+<!-- $autoplan restore point: /home/liahua/.gstack/projects/liahua-qq_bot/refactor-runtime-gateway-autoplan-restore-20260331-172546.md -->
 # CTO Review Memo: Loop Agent Repeated Delivery
 
 ## Decision Needed
@@ -140,7 +140,7 @@ Rules:
 - Treat the current patch as temporary defense in depth.
 - Schedule a focused implementation pass on runtime delivery semantics before expanding prompt or persona work in this area.
 
-## /autoplan Intake
+## $autoplan Intake
 - Plan file: `docs/exec-plans/active/loop-agent-delivery-cto-memo.md`
 - Branch: `refactor/runtime-gateway`
 - Base branch detection fell back to `main`
@@ -389,7 +389,7 @@ agent loop
 - Cross-phase themes written: yes
 - Decision audit trail non-empty: yes
 
-## /autoplan Final Approval Gate
+## $autoplan Final Approval Gate
 
 ### Plan Summary
 - The active memo picked the right architecture, but the repository has already landed almost all of it.

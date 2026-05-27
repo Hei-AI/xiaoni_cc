@@ -38,13 +38,12 @@ Internet
 http-traffic-monitor/
 ├── mitmproxy/              # mitmproxy插件
 │   ├── addon.py           # 流量拦截和日志记录
+│   ├── codex_pool.py      # Codex 账号池请求辅助
 │   └── config.yaml        # mitmproxy配置
 ├── transparent-proxy/      # 透明代理工具
-│   ├── start-mitmproxy.sh # mitmproxy启动脚本
-│   ├── apply-iptables.sh  # iptables规则配置
-│   ├── remove-iptables.sh # iptables规则清理
-│   ├── mitmproxy-data/    # mitmproxy数据目录
-│   │   └── logs/          # 流量日志和运行日志
+│   ├── mitmproxy_manager.py # 推荐入口：启动、停止、状态、iptables 管理
+│   ├── mitm               # CLI 快捷包装
+│   ├── config.json        # 运行配置
 │   └── README.md          # 透明代理说明文档
 ├── logs/                   # 历史日志归档
 ├── CLAUDE.md              # Claude Code开发指南
@@ -86,15 +85,15 @@ python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py logs
 
 该 CLI 会自动探测 Clash 网关、创建 `logs/qqbot-traffic/` 日志目录，并把必要环境变量注入 mitmproxy。
 
-#### 方法2: 传统脚本（备用）
+#### 方法2: 快捷包装（备用）
 
-仍可使用历史 bash 脚本（如 CI 临时场景）：
+同目录下保留 `mitm` 包装脚本：
 
 ```bash
 cd /home/liahua/IdeaProject/qq_bot
 
-bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh
-# 或手动 export 变量后执行 start-mitmproxy.sh &
+modules/http-traffic-monitor/transparent-proxy/mitm start --iptables
+modules/http-traffic-monitor/transparent-proxy/mitm status
 ```
 
 ### 配置iptables规则
@@ -103,8 +102,8 @@ bash modules/http-traffic-monitor/transparent-proxy/start-mitmproxy-daemon.sh
 # 自动应用重定向规则（优先使用CLI）
 python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py iptables apply
 
-# 若未配置sudo密码或需要手动操作
-sudo bash modules/http-traffic-monitor/transparent-proxy/apply-iptables.sh
+# 如需清理规则
+python3 modules/http-traffic-monitor/transparent-proxy/mitmproxy_manager.py iptables remove
 ```
 
 **验证规则**:
@@ -122,7 +121,7 @@ sudo iptables -t nat -L PREROUTING -n -v --line-numbers | grep 15001
 
 ```bash
 # HTTP测试
-docker exec qqbot-mysql curl http://www.google.com
+docker exec qqbot-provider-service curl http://www.google.com
 
 # HTTPS测试（需要CA证书）
 docker exec qqbot-provider-service curl https://www.google.com
@@ -220,7 +219,7 @@ websocket 共用 host；如果在网络层直接豁免整个 `chatgpt.com`，会
 
 - 代码位置：`modules/admin-panel/backend/src/services/traffic-log-watcher.ts`
 - 默认监听参数：容器路径 `/app/logs/traffic`（宿主机同步 `logs/qqbot-traffic/`），文件模式 `traffic-*.jsonl`。
-- 服务随 admin-backend 同步启动，无需额外脚本；如需要独立运行，可在容器内执行 `npm run watch:traffic`（若定义）。
+- 服务随 admin-backend 同步启动，无需额外脚本；当前 backend 没有独立 `watch:traffic` npm script。
 
 确保日志目录挂载到 admin-backend 容器且具备读取权限，新增流量记录即可实时追加到 `http_traffic_logs`（或相应表）中。
 
@@ -273,23 +272,13 @@ if target_ip in self.fake_ip_network:  # 198.18.0.0/15
     flow.server_conn.address = (real_host, port)  # 替换为真实域名
 ```
 
-### 透明代理脚本
+### 透明代理管理入口
 
-#### start-mitmproxy.sh
-- 自动检测Clash代理地址（Windows网关IP）
-- 配置mitmproxy透明模式
-- 加载addon.py插件
-- 设置上游代理和TLS参数
-
-#### apply-iptables.sh
-- 自动检测Docker网络CIDR (172.20.0.0/16)
-- 配置PREROUTING链重定向规则
-- 端口80/443 → 15001
-- 启用IP转发和MASQUERADE
-
-#### remove-iptables.sh
-- 清理透明代理相关的iptables规则
-- 恢复原始网络配置
+#### mitmproxy_manager.py
+- 自动检测 Clash 代理地址（Windows 网关 IP）
+- 配置 mitmproxy 透明模式并加载 `addon.py`
+- 管理 PREROUTING 重定向规则：端口 80/443 -> 15001
+- 支持 `start --iptables`、`stop --cleanup`、`status`、`logs -f`、`iptables apply/remove`
 
 ## 🔍 使用场景
 
@@ -367,9 +356,8 @@ docker exec qqbot-provider-service ls /usr/local/share/ca-certificates/
 
 ## 📖 相关文档
 
-- [TRANSPARENT_PROXY_FINAL_STATUS.md](../../docs/TRANSPARENT_PROXY_FINAL_STATUS.md) - 实现状态报告
-- [MITMPROXY_STARTUP_GUIDE.md](../../docs/MITMPROXY_STARTUP_GUIDE.md) - 手动启动指南
 - [transparent-proxy/README.md](transparent-proxy/README.md) - 透明代理工具说明
+- [docs/AGENTS_SECRETS_LOCAL_STATE.md](../../docs/AGENTS_SECRETS_LOCAL_STATE.md) - MITM CA、Codex trust chain 与本机状态约定
 
 ## 📝 注意事项
 
@@ -389,6 +377,6 @@ docker exec qqbot-provider-service ls /usr/local/share/ca-certificates/
 
 ---
 
-**版本**: 1.0.0
-**最后更新**: 2025-10-01
+**版本**: 1.1.0
+**最后更新**: 2026-05-27
 **作者**: QQ Bot Team
