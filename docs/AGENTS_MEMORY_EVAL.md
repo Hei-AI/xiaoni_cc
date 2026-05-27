@@ -41,7 +41,7 @@ node scripts/replay/export_group_samples.js --group-id 253631878 --limit 50
 - 当前消息
 - 最近消息窗口
 - summary snapshot
-- 当前 sender 相关 memory cards
+- self evolution state buckets
 - ground truth 占位字段
 
 ## Labeling Rules
@@ -85,7 +85,8 @@ node scripts/replay/create_label_template.js \
 - `ground_truth`
 - `context_for_labeler.message`
 - `context_for_labeler.recent_messages`
-- `context_for_labeler.candidate_memory_cards`
+
+关系卡片记忆已移除，标签骨架不再导出 candidate memory cards。
 
 ## Merge Labels
 

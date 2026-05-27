@@ -57,9 +57,9 @@ endif
 
 :把现场重新摆到小腻面前;
 note right
-- 已读消息
-- 当前未读消息
-- 已读历史里每一轮保留下来的 <小腻的OS>
+- role=user 的 <INPUT_MESSAGE>
+- role=assistant phase=final_answer 的 <OUTPUT_MESSAGE>
+- role=assistant phase=commentary 的 <小腻的OS> / <ACTION> / <system_reminder>
 - 已确认的身份事实
 end note
 
@@ -183,16 +183,28 @@ stop
 ```text
 system: <小腻主AGENT system prompt + Runtime contract + Single-turn tool contract>
 
-user: [已读消息]
-user: ...历史对话...
-user: <小腻的OS>...</小腻的OS>
-user: [未读消息]
-user: ...identity facts...
-user: ...media placeholder context...
-user: 2026-04-28T09:12:06.000+08:00 {楠楠(@1655827800)}
+developer: <world_narrative> / <current_relationship> / <current_scene> / presence context
+
+user:
+<INPUT_MESSAGE message_id="..." message_sid="..." timestamp="..." sender="楠楠(1655827800)" source="napcat">
 鸭叫也是一种接口
-user: 2026-04-28T09:12:15.000+08:00 {小镜(@714457117)}
+</INPUT_MESSAGE>
+
+assistant phase=final_answer:
+<OUTPUT_MESSAGE message_id="..." sender="小腻(1129974489)" source="delivery">
+小腻之前真正发出的消息
+</OUTPUT_MESSAGE>
+
+assistant phase=commentary:
+<小腻的OS>上一轮或历史轮留下来的内部延续</小腻的OS>
+
+assistant phase=commentary:
+<system_reminder>本轮只需要处理这些新入站消息：message_id=...</system_reminder>
+
+user:
+<INPUT_MESSAGE message_id="..." message_sid="..." timestamp="..." sender="小镜(714457117)" source="napcat">
 duck typing 如果它叫起来像鸭子那它就是诗
+</INPUT_MESSAGE>
 ```
 
 这里要特别纠正一个我前面图里的说法：
@@ -351,18 +363,27 @@ turn3: {"mode":"required","type":"allowed_tools","tools":[{"name":"stay_silent",
 同一个样本的 live input 前几项长这样：
 
 ```text
-[已读消息]
-2026-04-12 10:56 {漠然lc(@287944128)}
+<INPUT_MESSAGE message_id="..." timestamp="2026-04-12 10:56" sender="漠然lc(287944128)" source="napcat">
 哈哈，确实
+</INPUT_MESSAGE>
+
+<OUTPUT_MESSAGE message_id="..." sender="小腻(1129974489)" source="delivery">
+嗯，像是接住了。
+</OUTPUT_MESSAGE>
+
 <小腻的OS>
 这轮很轻，像是对方给了一个确认的回声；我把节奏收住了，没有把简单的共鸣说重。
 </小腻的OS>
 ...
-[未读消息]
-2026-04-28T09:12:06.000+08:00 {楠楠(@1655827800)}
+
+<system_reminder>本轮只需要处理这些新入站消息：message_id=...</system_reminder>
+
+<INPUT_MESSAGE message_id="..." timestamp="2026-04-28T09:12:06.000+08:00" sender="楠楠(1655827800)" source="napcat">
 鸭叫也是一种接口
-2026-04-28T09:12:15.000+08:00 {小镜(@714457117)}
+</INPUT_MESSAGE>
+<INPUT_MESSAGE message_id="..." timestamp="2026-04-28T09:12:15.000+08:00" sender="小镜(714457117)" source="napcat">
 duck typing 如果它叫起来像鸭子那它就是诗
+</INPUT_MESSAGE>
 ```
 
 这个样本最后数据库里落下来的 `finish_reason` 是：

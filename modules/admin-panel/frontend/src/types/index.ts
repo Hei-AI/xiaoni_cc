@@ -64,46 +64,6 @@ export interface PaginatedResponse<T> {
   total_pages: number;
 }
 
-export interface RelationshipMemoryOverrideRecord {
-  id: number;
-  action_type?: string | null;
-  manual_note?: string | null;
-  created_by?: string | null;
-  metadata?: Record<string, unknown>;
-  created_at?: string | null;
-}
-
-export interface RelationshipMemoryEventEvidenceRecord {
-  id: number;
-  event_type?: string | null;
-  session_key?: string | null;
-  target_user_id?: number | null;
-  source_message_ids: number[];
-  source_excerpt?: string | null;
-  event_weight: number;
-  confidence?: string | null;
-  created_at?: string | null;
-  last_reinforced_at?: string | null;
-  metadata?: Record<string, unknown>;
-}
-
-export interface RelationshipMemoryMessageEvidenceRecord {
-  id: number;
-  session_key?: string | null;
-  role?: string | null;
-  phase?: string | null;
-  source?: string | null;
-  trace_id?: string | null;
-  run_id?: string | null;
-  group_index: number;
-  item_index: number;
-  message_sid?: string | null;
-  sender_id?: string | null;
-  sender_name?: string | null;
-  content?: string | null;
-  created_at?: string | null;
-}
-
 export interface SessionConversationItemRecord {
   id: number;
   session_key?: string | null;
@@ -119,62 +79,6 @@ export interface SessionConversationItemRecord {
   sender_name?: string | null;
   content?: string | null;
   created_at?: string | null;
-}
-
-export interface RelationshipMemoryCardRecord {
-  id: number;
-  card_type?: string | null;
-  group_id?: number | null;
-  target_user_id?: number | null;
-  version: number;
-  summary_text: string;
-  actors: string[];
-  context_before?: string | null;
-  trigger?: string | null;
-  interaction?: string | null;
-  outcome?: string | null;
-  source_event_ids: number[];
-  source_message_ids: number[];
-  importance_score: number;
-  freshness_score: number;
-  decayed_score: number;
-  last_hit_at?: string | null;
-  entered_runtime: boolean;
-  metadata?: Record<string, unknown>;
-  created_at?: string | null;
-  updated_at?: string | null;
-  overrides: RelationshipMemoryOverrideRecord[];
-  evidence_events: RelationshipMemoryEventEvidenceRecord[];
-  evidence_messages: RelationshipMemoryMessageEvidenceRecord[];
-}
-
-export interface RelationshipMemoryJobRecord {
-  id: number;
-  session_key?: string | null;
-  group_id?: number | null;
-  status?: string | null;
-  trigger_reason?: string | null;
-  turn_range_start?: number | null;
-  turn_range_end?: number | null;
-  ledger_event_count: number;
-  input_message_ids: number[];
-  output_card_version?: number | null;
-  error_message?: string | null;
-  metadata?: Record<string, unknown>;
-  started_at?: string | null;
-  finished_at?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-}
-
-export interface SessionRelationshipMemoryData {
-  session_key: string;
-  normalized_session_key: string;
-  chat_type: 'group' | 'direct';
-  group_id?: number | null;
-  jobs: RelationshipMemoryJobRecord[];
-  group_cards: RelationshipMemoryCardRecord[];
-  person_cards: RelationshipMemoryCardRecord[];
 }
 
 export interface AgentRunInputMessage {

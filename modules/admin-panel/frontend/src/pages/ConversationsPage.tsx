@@ -592,7 +592,7 @@ export const ConversationsPage: React.FC = () => {
                   </div>
 
                   <div className="rounded-3xl border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
-                    当前版本已屏蔽 relationship memory / topic 等后台观察面，这里只保留 run、输入批次和最终回复。
+                    当前版本已屏蔽 topic 等后台观察面，这里只保留 run、输入批次和最终回复。
                   </div>
                 </>
               )}

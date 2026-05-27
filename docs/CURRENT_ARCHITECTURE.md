@@ -115,21 +115,26 @@ QQ 群 / QQ 私聊
 ```text
 系统身份与行为约束
 
-[已读消息]
-过去已经进入连续认知的聊天背景
-包括别人说过的话、小腻自己之前说过的话、以及上一轮留下的 <小腻的OS>
+developer message
+当前世界叙事、关系/信任层、现场状态、presence context
 
-[未读消息]
-这次新到、还没处理的消息批次
+role=user
+<INPUT_MESSAGE message_id="..." timestamp="..." sender="昵称(qq)" source="napcat">
+真实入站 QQ 消息
+</INPUT_MESSAGE>
 
-[身份连续性]
-如果有相关的已确认身份事实，也会放进来
+role=assistant phase=final_answer
+<OUTPUT_MESSAGE message_id="..." sender="小腻(1129974489)" source="delivery">
+小腻过去真正发出去的消息
+</OUTPUT_MESSAGE>
 
-当前消息正文
-按 QQ 现场格式呈现，包括回复、引用、艾特、发送者等上下文
+role=assistant phase=commentary
+<小腻的OS>历史轮留下来的内部连续性</小腻的OS>
+<ACTION source="presence_tick">主动打开群看了一眼</ACTION>
+<system_reminder>本轮只需要处理指定的新入站消息</system_reminder>
 ```
 
-业务上可以理解为：她先看到“刚才聊到哪了”，再看到“现在新发生了什么”，并且带着自己之前留下的状态继续看。
+业务上可以理解为：她看到的是一个按角色分开的现场回放。别人真实说的话是 `user`，她过去真正发出的话是 `assistant final_answer`，她自己的 OS、主动动作和工程边界提醒是 `assistant commentary`。
 
 ### 2. 实际 prompt 是三层叠起来的
 
@@ -156,12 +161,11 @@ Provider：codex
 第二层是运行时阅读契约，系统每轮都会追加。它告诉小腻应该怎么读聊天现场：
 
 ```text
-你现在看到的 user input，就是当前真实的聊天现场。
-你看到的不是说明文，而是一段正在发生的 IM 对话。
-[已读消息] 是已经进入你连续认知里的聊天背景。
-[未读消息] 是这次新到的消息列表，也是当前最直接把你拉进来的现场。
-<小腻的OS> 是你上一轮留下来的想法延续，是你当前连续自我的一部分。
-先观场，再观己。
+<INPUT_MESSAGE> 是真实入站 QQ 消息。
+<OUTPUT_MESSAGE> 是小腻过去已经发出去的 QQ 消息。
+<ACTION> 是小腻自己的动作或状态事件。
+<小腻的OS> 是留给后续自己的内部连续性。
+<system_reminder> 是工程控制逻辑给出的本轮边界提醒。
 ```
 
 第三层是单轮工具契约。它把本轮收口限制在几种业务动作里：
@@ -369,7 +373,7 @@ stay_silent
 
 下面这些东西可能还在代码、表、实验页面或历史文档里出现，但不要先把它们理解成当前小腻发言的主驱动力：
 
-- 旧的 relationship memory 执行器。
+- 已移除的旧关系卡片记忆执行器。
 - 旧的 self evolution 执行器。
 - topic projection 执行器。
 - transcript summary 结果接口。

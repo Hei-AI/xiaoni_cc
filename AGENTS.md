@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 本文件是仓库入口，不是百科全书。
-参考 OpenAI Codex best practices 与 Harness Engineering 思路：`AGENTS.md` 保持短、准、可执行，只保留高信号地图和仓库级约束；细节沉到 `docs/` 中的专项文档，仓库内文档是 system of record。
+参考 OpenAI Codex best practices 与当前 gstack 文档协作约定：`AGENTS.md` 保持短、准、可执行，只保留高信号地图和仓库级约束；细节沉到 `docs/` 中的专项文档，仓库内文档是 system of record。
 - Codex skill 名统一写成 `$skill-name` 格式；不要在仓库文档里混用 `/skill-name` 或其他写法。
 
 ## Start Here
@@ -48,8 +48,8 @@
 - 涉及 OpenAI 产品、API、模型选择或官方文档查询时，默认优先使用 `$openai-docs`
 - 当前工作站默认 Playwright MCP 直连不稳定；出现 host Chrome 连接失败、超时、附着到 `connect.html`、token 变化或路径漂移时，直接使用 `$playwright-host-chrome-bridge` 修复并校准到 `http://localhost:9978/mcp`
 - 团队协作默认共享这套 gstack 约定；新接手仓库的同学先完成 gstack 接入，再按本文件和 `docs/` 入口继续工作
-- 常用工作流只记这几个：`$autoplan`、`$plan-eng-review`、`$browse`、`$investigate`、`$review`、`$qa`、`$ship`
-- 当任务涉及 `AGENTS.md`、`docs/` 知识库结构、文档去重/裁剪、system-of-record、渐进披露或长任务协作规则时，优先使用 `$harness-engineering`
+- 常用工作流只记这几个：`$autoplan`、`$plan-eng-review`、`$browse`、`$investigate`、`$review`、`$qa`、`$ship`、`$document-release`
+- 当任务涉及 `AGENTS.md`、`docs/` 知识库结构、文档去重/裁剪、system-of-record、渐进披露或长任务协作规则时，优先使用 gstack 的 `$document-release`
 
 ## Default Commands
 - 安装：`npm run install:all`
@@ -69,4 +69,4 @@
 - 常用下一跳：`docs/AGENTS_FRONTEND.md`、`docs/AGENTS_BACKEND_DATA.md`、`docs/AGENTS_SECRETS_LOCAL_STATE.md`、`docs/AGENTS_EMBEDDINGS.md`、`docs/AGENTS_GIT_PR.md`
 - 运行时认知补充统一回 `docs/START_HERE.md` 和 `README.md`
 - 做跨模块、多阶段或需要交接的任务时，优先直接进入对应 gstack 工作流，而不是新增仓库内 plan 文件
-- 做仓库协作规范、文档治理或 gstack 使用约定调整时，额外使用 `$harness-engineering`
+- 做仓库协作规范、文档治理或 gstack 使用约定调整时，额外使用 gstack 的 `$document-release`

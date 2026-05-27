@@ -125,7 +125,7 @@ export type ConversationTranscriptRole = 'user' | 'assistant';
 
 export type ConversationTranscriptPhase = 'commentary' | 'final_answer';
 
-export type ConversationTranscriptSource = 'inbound_batch' | 'delivery' | 'legacy_user_message' | 'legacy_ai_response';
+export type ConversationTranscriptSource = 'inbound_batch' | 'presence_action' | 'delivery' | 'legacy_user_message' | 'legacy_ai_response';
 
 export type ConversationTranscriptItem = {
   id: number | null;

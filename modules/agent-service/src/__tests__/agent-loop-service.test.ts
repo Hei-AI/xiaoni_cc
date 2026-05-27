@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, materializePresenceTickQueueMessage, sanitizeLowValueOpeningFiller, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, buildToolLoopMonitorReminder, materializePresenceTickQueueMessage, sanitizeLowValueOpeningFiller, summarizeToolLoopState, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload } from '../types';
 
@@ -195,6 +195,10 @@ function getMessageContent(item: unknown) {
   return '';
 }
 
+function expectedCurrentInputMessage() {
+  return '<INPUT_MESSAGE message_id="11" message_sid="sid-1" timestamp="2026-03-28T08:00:00.000Z" sender="Alice(202)" source="napcat">\n问问@{Bob(@404)} 今天玩什么\n</INPUT_MESSAGE>';
+}
+
 test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into instructions', () => {
   const loopInput = buildInitialInput([
     {
@@ -213,8 +217,8 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
 
   assert.match(String(request.instructions), new RegExp(`^${agentConfig.systemPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(String(request.instructions), /Runtime contract:/);
-  assert.match(String(request.instructions), /\[已读消息\]/);
-  assert.match(String(request.instructions), /\[未读消息\]/);
+  assert.match(String(request.instructions), /<INPUT_MESSAGE>/);
+  assert.match(String(request.instructions), /<OUTPUT_MESSAGE>/);
   assert.doesNotMatch(String(request.instructions), /Pre-reply memory gate:/);
   assert.doesNotMatch(String(request.instructions), /Present self reconstruction:/);
   assert.equal(request.input[0]?.type, 'message');
@@ -234,7 +238,8 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.match(String(request.instructions), /有真实的感觉才开口/);
   assert.match(String(request.instructions), /查完还是你自己决定说不说/);
   assert.match(String(request.instructions), /这一轮怎么收/);
-  assert.match(String(planFunction?.description), /先搞清楚最新未读在说什么/);
+  assert.match(String(planFunction?.description), /提取当前新入站消息/);
+  assert.doesNotMatch(String(planFunction?.description), /先搞清楚/);
   assert.deepEqual(planFunction?.parameters?.required, ['latest_unread_focus', 'message_act', 'social_target', 'addressed_to_me', 'has_real_novelty', 'confidence', 'reason', 'topic_context']);
 });
 
@@ -671,7 +676,9 @@ test('GROUP_MESSAGE_TOOL description does not contain old ceremonial framing', (
   assert.ok(groupReplyTool, 'speak_in_group tool must exist');
   assert.doesNotMatch(String((groupReplyTool as any).function?.description), /承担它落在关系里的后果/, 'old ceremonial framing must be removed');
   assert.doesNotMatch(String((groupReplyTool as any).function?.description), /值得承担时/, 'old framing must be removed');
-  assert.match(String((groupReplyTool as any).function?.description), /有真实反应才调用/, 'new description must describe authenticity requirement');
+  assert.doesNotMatch(String((groupReplyTool as any).function?.description), /有真实反应才调用/, 'behavioral guidance should live in instructions');
+  assert.match(String((groupReplyTool as any).function?.description), /向当前 QQ 群发送/, 'description should describe the mechanical action');
+  assert.match(String(request.instructions), /有真实的感觉才开口/, 'authenticity guidance should live in instructions');
 });
 
 test('RUNTIME_INPUT_READING_CONTRACT contains new positive permission text and not Confucian text', () => {
@@ -754,7 +761,10 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
   assert.equal(requestBody.agent_turn, 2);
   assert.match(String(requestBody.canonicalRequest.instructions), new RegExp(`^${agentConfig.systemPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(String(requestBody.canonicalRequest.instructions), /Runtime contract:/);
-  assert.equal(requestBody.canonicalRequest.input[0].role, 'user');
+  assert.equal(
+    requestBody.canonicalRequest.input.some((item: any) => item.type === 'message' && item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE')),
+    true
+  );
   assert.equal(
     requestBody.canonicalRequest.input.some((item: any) => item.type === 'message' && item.role === 'system'),
     false
@@ -792,14 +802,15 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   }));
 
   const currentPrompt = getMessageContent(loopInput.at(-1));
-  assert.equal(getMessageContent(loopInput[1]), '[已读消息]');
-  assert.equal(getMessageContent(loopInput[2]), '[未读消息]');
+  assert.equal((loopInput[1] as any).role, 'assistant');
+  assert.match(getMessageContent(loopInput[1]), /<system_reminder>/);
   assert.doesNotMatch(currentPrompt, /Trace:/);
   assert.doesNotMatch(currentPrompt, /RunId:/);
   assert.doesNotMatch(currentPrompt, /BatchId:/);
   assert.doesNotMatch(currentPrompt, /SessionKey:/);
   assert.doesNotMatch(currentPrompt, /ToolUsage:/);
-  assert.match(currentPrompt, /2026-03-28T08:00:00.000Z \{Alice\(@202\)\}/);
+  assert.match(currentPrompt, /<INPUT_MESSAGE message_id="11"/);
+  assert.match(currentPrompt, /sender="Alice\(202\)"/);
   assert.match(currentPrompt, /问问@\{Bob\(@404\)\} 今天玩什么/);
   assert.doesNotMatch(currentPrompt, /\[mentioned bot\]/);
 });
@@ -850,7 +861,7 @@ test('buildInitialInput renders reply context in natural language format', () =>
   const loopInput = buildInitialInput([], payload);
   const currentPrompt = getMessageContent(loopInput.at(-1));
 
-  assert.match(currentPrompt, /\{Alice\(@202\)\}/);
+  assert.match(currentPrompt, /sender="Alice\(202\)"/);
   assert.match(currentPrompt, /\[回复给 \{Carol\(@505\)\}：上一条消息\]/);
   assert.match(currentPrompt, /@\{Bob\(@404\)\} 嘿/);
 });
@@ -878,12 +889,11 @@ test('buildInitialInput renders each message in a batch as its own user message 
 
   const loopInput = buildInitialInput([], payload);
   const currentTurnItems = loopInput.slice(-2);
-  assert.equal(getMessageContent(loopInput[1]), '[已读消息]');
-  assert.equal(getMessageContent(loopInput[2]), '[未读消息]');
+  assert.match(getMessageContent(loopInput[1]), /<system_reminder>/);
 
   assert.equal(currentTurnItems.length, 2);
-  assert.match(getMessageContent(currentTurnItems[0]), /\{Alice\(@202\)\}/);
-  assert.match(getMessageContent(currentTurnItems[1]), /\{Carol\(@606\)\}/);
+  assert.match(getMessageContent(currentTurnItems[0]), /sender="Alice\(202\)"/);
+  assert.match(getMessageContent(currentTurnItems[1]), /sender="Carol\(606\)"/);
 });
 
 test('buildInitialInput does not append transcript summary to the system prompt by default', () => {
@@ -908,8 +918,8 @@ test('buildInitialInput appends the thin runtime contract for group chats', () =
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
-  assert.match(String(loopInput[0]?.content), /\[已读消息\]/);
-  assert.match(String(loopInput[0]?.content), /\[未读消息\]/);
+  assert.match(String(loopInput[0]?.content), /<INPUT_MESSAGE>/);
+  assert.match(String(loopInput[0]?.content), /<system_reminder>/);
   assert.match(String(loopInput[0]?.content), /这一轮怎么收/);
 });
 
@@ -941,8 +951,9 @@ test('buildInitialInput projects accepted identity facts as runtime scene contex
     }
   ]);
 
-  assert.match(getMessageContent(loopInput.at(-2)), /\[身份连续性\]/);
-  assert.match(getMessageContent(loopInput.at(-2)), /公式化开头/);
+  const identityItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('公式化开头'));
+  assert.ok(identityItem);
+  assert.match(getMessageContent(identityItem), /\[身份连续性\]/);
   assert.match(getMessageContent(loopInput.at(-1)), /问问@\{Bob\(@404\)\} 今天玩什么/);
 });
 
@@ -1024,26 +1035,16 @@ test('buildInitialInput replays structured transcript items as scene messages', 
     }
   ], createQueuePayload());
 
-  assert.deepEqual(loopInput.slice(1, 4), [
-    {
-      type: 'message',
-      role: 'user',
-      content: [{ type: 'input_text', text: '[已读消息]' }]
-    },
-    {
-      type: 'message',
-      role: 'user',
-      content: [{ type: 'input_text', text: '#1 {Alice(@202)}: 第一条' }]
-    },
-    {
-      type: 'message',
-      role: 'user',
-      content: [
-        { type: 'input_text', text: '小腻(303)\n我先看一下' },
-        { type: 'input_text', text: '小腻(303)\n原因已经找到了' }
-      ]
-    }
-  ]);
+  assert.equal((loopInput[1] as any).role, 'user');
+  assert.match(getMessageContent(loopInput[1]), /<INPUT_MESSAGE/);
+  assert.match(getMessageContent(loopInput[1]), /#1 \{Alice\(@202\)\}: 第一条/);
+  assert.equal((loopInput[2] as any).role, 'assistant');
+  assert.equal((loopInput[2] as any).phase, 'commentary');
+  assert.match(getMessageContent(loopInput[2]), /我先看一下/);
+  assert.equal((loopInput[3] as any).role, 'assistant');
+  assert.equal((loopInput[3] as any).phase, 'final_answer');
+  assert.match(getMessageContent(loopInput[3]), /<OUTPUT_MESSAGE/);
+  assert.match(getMessageContent(loopInput[3]), /原因已经找到了/);
 });
 
 test('buildInitialInput does not replay tactical xiaoni_os for spoken multi-part replies', () => {
@@ -1093,16 +1094,13 @@ test('buildInitialInput does not replay tactical xiaoni_os for spoken multi-part
   ], createQueuePayload());
 
   const priorXiaoniItem = loopInput[1];
-  assert.equal(getMessageContent(loopInput[1]), '[已读消息]');
-  const groupedXiaoniItem = loopInput[2];
-  assert.deepEqual(
-    groupedXiaoniItem && groupedXiaoniItem.type === 'message' ? groupedXiaoniItem.content : null,
-    [
-      { type: 'input_text', text: '小腻(303)\n第一段' },
-      { type: 'input_text', text: '小腻(303)\n第二段' }
-    ]
-  );
-  assert.equal(getMessageContent(loopInput[3]), '[未读消息]');
+  assert.equal((priorXiaoniItem as any).role, 'assistant');
+  assert.equal((priorXiaoniItem as any).phase, 'commentary');
+  assert.match(getMessageContent(priorXiaoniItem), /第一段/);
+  assert.equal((loopInput[2] as any).role, 'assistant');
+  assert.equal((loopInput[2] as any).phase, 'final_answer');
+  assert.match(getMessageContent(loopInput[2]), /第二段/);
+  assert.doesNotMatch(loopInput.map(getMessageContent).join('\n'), /这轮先接一句/);
 });
 
 test('buildInitialInput omits tactical xiaoni_os from the latest spoken turn', () => {
@@ -1137,12 +1135,13 @@ test('buildInitialInput omits tactical xiaoni_os from the latest spoken turn', (
     }
   ], createQueuePayload());
 
-  assert.equal(getMessageContent(loopInput[1]), '[已读消息]');
-  const priorXiaoniItem = loopInput[2];
-  assert.match(getMessageContent(priorXiaoniItem), /小腻\(303\)\n我刚看群文件还没更新/);
+  const priorXiaoniItem = loopInput[1];
+  assert.equal((priorXiaoniItem as any).role, 'assistant');
+  assert.equal((priorXiaoniItem as any).phase, 'final_answer');
+  assert.match(getMessageContent(priorXiaoniItem), /<OUTPUT_MESSAGE/);
+  assert.match(getMessageContent(priorXiaoniItem), /我刚看群文件还没更新/);
   assert.doesNotMatch(getMessageContent(priorXiaoniItem), /<小腻的OS>/);
   assert.doesNotMatch(getMessageContent(priorXiaoniItem), /这句明显是在顺着问我/);
-  assert.equal(getMessageContent(loopInput[3]), '[未读消息]');
 });
 
 test('buildInitialInput preserves residue-like xiaoni_os on spoken turns', () => {
@@ -1177,10 +1176,11 @@ test('buildInitialInput preserves residue-like xiaoni_os on spoken turns', () =>
     }
   ], createQueuePayload());
 
-  const priorXiaoniItem = loopInput[2];
-  assert.match(getMessageContent(priorXiaoniItem), /小腻\(303\)\n这句我记下了/);
-  assert.match(getMessageContent(priorXiaoniItem), /<小腻的OS>/);
-  assert.match(getMessageContent(priorXiaoniItem), /我对她会更放松一点/);
+  const priorXiaoniItem = loopInput[1];
+  assert.match(getMessageContent(priorXiaoniItem), /这句我记下了/);
+  const osItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('<小腻的OS>'));
+  assert.ok(osItem);
+  assert.match(getMessageContent(osItem), /我对她会更放松一点/);
 });
 
 test('buildInitialInput appends standalone 小腻的OS when the latest turn was silent', () => {
@@ -1215,12 +1215,11 @@ test('buildInitialInput appends standalone 小腻的OS when the latest turn was 
     }
   ], createQueuePayload());
 
-  assert.equal(getMessageContent(loopInput[1]), '[已读消息]');
-  const standaloneOsItem = loopInput[3];
+  const standaloneOsItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('<小腻的OS>'));
+  assert.ok(standaloneOsItem);
   assert.match(getMessageContent(standaloneOsItem), /<小腻的OS>/);
   assert.match(getMessageContent(standaloneOsItem), /刚才我没有接/);
   assert.match(getMessageContent(standaloneOsItem), /我插进去会显得多余/);
-  assert.equal(getMessageContent(loopInput[4]), '[未读消息]');
 });
 
 test('buildInitialInput preserves xiaoni_os from non-latest history turns', () => {
@@ -1281,10 +1280,12 @@ test('buildInitialInput preserves xiaoni_os from non-latest history turns', () =
     }
   ], createQueuePayload());
 
-  const priorTurnItem = loopInput[2];
+  const priorTurnItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('上一轮回复'));
+  assert.ok(priorTurnItem);
   assert.match(getMessageContent(priorTurnItem), /上一轮回复/);
-  assert.match(getMessageContent(priorTurnItem), /<小腻的OS>/);
-  assert.match(getMessageContent(priorTurnItem), /上一轮留下的内在延续/);
+  const priorOsItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('上一轮留下的内在延续'));
+  assert.ok(priorOsItem);
+  assert.match(getMessageContent(priorOsItem), /<小腻的OS>/);
 });
 
 test('buildInitialInput keeps user input as pure scene without synthetic current-task text', () => {
@@ -1356,9 +1357,7 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
   assert.equal(calls[0].canonicalRequest.prompt_cache_retention, '24h');
   assert.deepEqual(calls[0].parameters, {
     model_config: {
-      providerSpecific: {
-        reasoningEffort: 'none'
-      }
+      providerSpecific: {}
     },
     advanced_config: {
       generationConfig: {
@@ -1367,6 +1366,7 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
     }
   });
   assert.equal(calls[0].canonicalRequest.model, 'gpt-5.4');
+  assert.equal(Object.prototype.hasOwnProperty.call(calls[0].canonicalRequest, 'reasoning'), false);
 });
 
 test('feedback memory subagent uses a subagent trace and cache key without changing its tools per turn', async () => {
@@ -1703,6 +1703,97 @@ test('applyToolResultToLoopInput forces a minimal visible reply after repeated s
       xiaoni_os: '这轮先轻轻接住，等图出来再回到现场。'
     }
   });
+});
+
+test('summarizeToolLoopState counts tool calls by name and phase', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'recall-1',
+    name: LONG_TERM_RECALL_TOOL,
+    arguments: '{"reason":"查一下","topic_hint":"话题","include_current_sender":true,"desired_recall_count":1}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'reply-1',
+    name: GROUP_REPLY_TOOL,
+    arguments: '{"messages":["来了"],"xiaoni_os":"接住了"}'
+  });
+
+  const state = summarizeToolLoopState(loopInput);
+
+  assert.deepEqual(state.byName[LONG_TERM_RECALL_TOOL], {
+    count: 1,
+    phase: 'commentary'
+  });
+  assert.deepEqual(state.byName[GROUP_REPLY_TOOL], {
+    count: 1,
+    phase: 'final_answer'
+  });
+  assert.deepEqual(state.byPhase, {
+    commentary: 1,
+    final_answer: 1
+  });
+  assert.equal(state.terminalToolCalled, true);
+});
+
+test('buildToolLoopMonitorReminder appends deterministic reminder for repeated commentary tools', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'recall-1',
+    name: LONG_TERM_RECALL_TOOL,
+    arguments: '{"reason":"查一下","topic_hint":"话题","include_current_sender":true,"desired_recall_count":1}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'recall-1',
+    output: '{"items":[],"markdown_items":[]}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'recall-2',
+    name: LONG_TERM_RECALL_TOOL,
+    arguments: '{"reason":"再查一下","topic_hint":"话题","include_current_sender":true,"desired_recall_count":1}'
+  });
+
+  const reminder = buildToolLoopMonitorReminder(loopInput, {
+    nextTurn: 4,
+    maxTurns: 6
+  });
+
+  assert.ok(reminder);
+  assert.equal(reminder?.type, 'message');
+  assert.equal(reminder?.role, 'assistant');
+  assert.equal((reminder as any).phase, 'commentary');
+  assert.match(getMessageContent(reminder!), /source="tool_loop_monitor"/);
+  assert.match(getMessageContent(reminder!), /recall_long_term_learningx2/);
+  assert.match(getMessageContent(reminder!), /不要继续重复/);
+
+  loopInput.push(reminder!);
+  assert.equal(buildToolLoopMonitorReminder(loopInput, {
+    nextTurn: 4,
+    maxTurns: 6
+  }), null);
+});
+
+test('buildToolLoopMonitorReminder warns before max turn without final tool', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'meaning-1',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"问题","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"问题"}'
+  });
+
+  const reminder = buildToolLoopMonitorReminder(loopInput, {
+    nextTurn: 6,
+    maxTurns: 6
+  });
+
+  assert.ok(reminder);
+  assert.match(getMessageContent(reminder!), /最后工具轮次/);
+  assert.match(getMessageContent(reminder!), /final_answer/);
 });
 
 test('speak_in_group always uses the current conversation group target', async () => {
@@ -2069,7 +2160,7 @@ test('processQueueMessage persists delivered assistant transcript items with fin
       {
         role: 'user',
         phase: null,
-        content: '2026-03-28T08:00:00.000Z {Alice(@202)}\n问问@{Bob(@404)} 今天玩什么',
+        content: expectedCurrentInputMessage(),
         groupIndex: 0,
         itemIndex: 0,
         deliveryMessageId: null
@@ -2531,7 +2622,7 @@ test('processQueueMessage stores partially delivered assistant transcript as com
       {
         role: 'user',
         phase: null,
-        content: '2026-03-28T08:00:00.000Z {Alice(@202)}\n问问@{Bob(@404)} 今天玩什么'
+        content: expectedCurrentInputMessage()
       },
       {
         role: 'assistant',
@@ -2667,7 +2758,7 @@ test('processQueueMessage suppresses duplicate outbound reply attempts within th
   assert.deepEqual(
     storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => item.content),
     [
-      '2026-03-28T08:00:00.000Z {Alice(@202)}\n问问@{Bob(@404)} 今天玩什么',
+      expectedCurrentInputMessage(),
       '同一句话'
     ]
   );
@@ -3026,10 +3117,9 @@ test('buildInitialInput does not inject legacy pending_share blocks', () => {
       const content = Array.isArray(item.content) ? item.content : [item.content];
       return content.map((c: any) => (typeof c === 'string' ? c : c?.text ?? ''));
     });
-  const unreadIndex = userTexts.findIndex((t: string) => t.trim() === '[未读消息]');
   assert.equal(userTexts.some((t: string) => t.includes('[待分享]')), false);
   assert.equal(userTexts.some((t: string) => t.includes('今天看到个很有趣的东西')), false);
-  assert.ok(unreadIndex >= 0, '[未读消息] standalone block must exist');
+  assert.equal(userTexts.some((t: string) => t.includes('<INPUT_MESSAGE')), true);
 });
 
 test('materializePresenceTickQueueMessage replaces synthetic session with target group session', () => {

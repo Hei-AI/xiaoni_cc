@@ -18,7 +18,7 @@
 - Git 提交、推送、PR：
   - `docs/AGENTS_GIT_PR.md`
 - `AGENTS.md`、`docs/` 结构、gstack 使用约定、文档治理：
-  - 使用 `$harness-engineering`
+  - 使用 gstack 的 `$document-release`
   - 再看 `AGENTS.md`
 
 ## Runtime And Operations
@@ -26,6 +26,8 @@
   - `docs/CURRENT_ARCHITECTURE.md`
 - `agent-service` loop 细版，含输入输出、工具契约、抑制路径、自学习闭环：
   - `docs/AGENTS_AGENT_LOOP_RUNTIME.md`
+- 小腻被动发言 / 主动发言阶段图、数据源和来源：
+  - `docs/XIAONI_SPEAKING_FLOW.md`
 - 小腻数字生活 / `presence_context` 设计：
   - `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`
 - 路线图：
@@ -52,6 +54,8 @@
   - `$qa`
 - 提交、PR、发版：
   - `$ship`
+- 发版后文档同步：
+  - `$document-release`
 
 ## Maintenance Rules
 - 修改代码时，如果对应文档已不再真实，顺手修正文档。

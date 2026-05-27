@@ -203,6 +203,19 @@ export function openResponseInputToOpenAIInput(
       continue;
     }
 
+    if (item.type === 'reasoning') {
+      normalizedInput.push({
+        type: 'reasoning',
+        ...(typeof item.content === 'string' && item.content.length > 0
+          ? { content: item.content }
+          : {}),
+        ...(typeof item.summary === 'string' && item.summary.length > 0
+          ? { summary: item.summary }
+          : {})
+      });
+      continue;
+    }
+
     normalizedInput.push(item);
   }
 

@@ -99,14 +99,6 @@ function parseJson(value, fallback) {
   }
 }
 
-function flattenRelationshipCards(buckets = {}) {
-  return [
-    ...(Array.isArray(buckets.group_cards) ? buckets.group_cards : []),
-    ...(Array.isArray(buckets.current_user_cards) ? buckets.current_user_cards : []),
-    ...(Array.isArray(buckets.recent_user_cards) ? buckets.recent_user_cards : [])
-  ];
-}
-
 function flattenSelfEvolutionStates(buckets = {}) {
   return [
     ...(Array.isArray(buckets.group_states) ? buckets.group_states : []),
@@ -123,7 +115,6 @@ module.exports = {
   asBoolean,
   asNumber,
   ensureDir,
-  flattenRelationshipCards,
   flattenSelfEvolutionStates,
   formatDateSlug,
   parseArgs,

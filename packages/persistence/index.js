@@ -3,7 +3,6 @@
 const { PrismaClient, Prisma } = require('./generated/client');
 const { Pool, types } = require('pg');
 const { createTrafficPersistence } = require('./traffic');
-const { createRelationshipMemoryPersistence } = require('./relationship-memory');
 const { createSelfEvolutionPersistence } = require('./self-evolution');
 const { createFeedbackReflectionPersistence } = require('./feedback-reflection');
 const { createIdentityLineagePersistence } = require('./identity-lineage');
@@ -307,11 +306,6 @@ const trafficPersistence = createTrafficPersistence({
   Prisma
 });
 
-const relationshipMemoryPersistence = createRelationshipMemoryPersistence({
-  getPrismaClient,
-  createSqlAdapter
-});
-
 const selfEvolutionPersistence = createSelfEvolutionPersistence({
   getPrismaClient,
   createSqlAdapter
@@ -375,7 +369,6 @@ module.exports = {
   resolveChatAgentPrompt,
   ...require('./time'),
   ...trafficPersistence,
-  ...relationshipMemoryPersistence,
   ...selfEvolutionPersistence,
   ...feedbackReflectionPersistence,
   ...identityLineagePersistence,

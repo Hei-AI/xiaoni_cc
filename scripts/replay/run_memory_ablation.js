@@ -3,7 +3,7 @@
 'use strict';
 
 const path = require('path');
-const { parseArgs, flattenRelationshipCards, readJsonl, writeJsonl, writeJson } = require('./common');
+const { parseArgs, readJsonl, writeJsonl, writeJson } = require('./common');
 
 const DEFAULT_STRATEGIES = [
   { id: 'no_memory', model: null },
@@ -45,19 +45,7 @@ function pickStrategyDefinitions(arg) {
 }
 
 function selectCards(sample, strategyId) {
-  const allCards = flattenRelationshipCards(sample.relationship_cards || {});
-  if (strategyId === 'no_memory' || strategyId === 'no_memory_gpt54') {
-    return [];
-  }
-  if (strategyId === 'oracle_memory' || strategyId === 'oracle_memory_gpt54') {
-    const relevantIds = new Set(
-      Array.isArray(sample.ground_truth?.relevant_memory_ids)
-        ? sample.ground_truth.relevant_memory_ids.map(Number).filter(Number.isFinite)
-        : []
-    );
-    return allCards.filter((card) => relevantIds.has(Number(card.id)));
-  }
-  return allCards;
+  return [];
 }
 
 function buildDecisionPrompt(sample, selectedCards) {
@@ -82,7 +70,7 @@ function buildDecisionPrompt(sample, selectedCards) {
       message: sample.message,
       recent_messages: sample.recent_messages,
       summary_text: sample.summary_text,
-      relationship_cards: selectedCards,
+      memory_items: selectedCards,
       topic_projection: sample.topic_projection || []
     }, null, 2)
   ].join('\n');

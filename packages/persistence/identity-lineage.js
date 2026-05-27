@@ -10,7 +10,6 @@ const SOURCE_TYPES = new Set([
   'tool_execution_log',
   'timeline_event',
   'relationship_ledger_event',
-  'relationship_memory_card',
   'agent_feedback_episode',
   'agent_feedback_reflection',
   'self_evolution_state',

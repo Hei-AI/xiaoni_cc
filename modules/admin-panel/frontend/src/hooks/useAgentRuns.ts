@@ -8,8 +8,7 @@ import {
   ConversationTraceData,
   PaginatedResponse,
   TraceSpanDetailData,
-  SessionConversationItemRecord,
-  SessionRelationshipMemoryData
+  SessionConversationItemRecord
 } from '@/types';
 
 interface ApiResponse<T> {
@@ -60,15 +59,6 @@ export function useSessionRuns(sessionKey: string | null, page = 1, limit = 30) 
         `/api/runs/sessions/${encodeURIComponent(sessionKey || '')}?${params.toString()}`
       );
     },
-    enabled: Boolean(sessionKey),
-    staleTime: 10000,
-  });
-}
-
-export function useSessionRelationshipMemory(sessionKey: string | null) {
-  return useQuery<SessionRelationshipMemoryData>({
-    queryKey: ['session-relationship-memory', sessionKey],
-    queryFn: () => fetchJson<SessionRelationshipMemoryData>(`/api/runs/sessions/${encodeURIComponent(sessionKey || '')}/relationship-memory`),
     enabled: Boolean(sessionKey),
     staleTime: 10000,
   });

@@ -23,7 +23,7 @@ Authoritative execution order:
    need explicit handling.
 
 Retired constraints remain retired: do not rebuild a standalone pre-agent gate or
-another relationship-memory subsystem.
+the removed card-memory subsystem.
 
 ## P0-A - Xiaoni Group Behavior And Cognitive Frame
 
@@ -507,6 +507,277 @@ candidate items as arguments; no Date.now(), DB reads, or store calls inside):
   score as `now - item.createdAt` increases (monotone decay).
 - State derivation: unit test that `deriveLifeState(anchors, now)` produces
   correct meter values from fixed anchor timestamps (no DB call needed in test).
+
+### Task 6 - Agent request / in-context structure v3
+
+**Status:** implemented in the main runtime path on 2026-05-27.
+
+**Context doc:** `docs/XIAONI_SPEAKING_FLOW.md`
+
+**Source:** 2026-05-27 trace review of `/runs/{runId}/trace` and
+`tmp/codex-request-body-latest.json`.
+
+**Problem:** the current main-agent request shape still mixes too many semantic
+surfaces into `user` role scene text. In particular:
+
+- 小腻历史发出去的消息被 rendered into `user` role, but should be
+  `assistant`.
+- `<小腻的OS>` is currently mixed into user scene input, but is Xiaoni's internal
+  continuity and should be assistant-side context.
+- `presence_tick` is rendered like a fake QQ message from
+  `presence_tick(@1129974489)`, but it is Xiaoni's own action/state and should be
+  assistant-side `<ACTION>`.
+- `[已读消息]` / `[未读消息]` boundaries make the transcript feel like a report
+  instead of a real multi-turn request. The next request should use the previous
+  response as prior context, like the OpenAI request body shape.
+- `[身份连续性]` is semantically unclear and currently looks like another scene
+  message. Identity continuity needs a clearer placement and label.
+- Tool descriptions carry too much behavioral/personality guidance. Stable tool
+  usage policy should live in system/developer prompt; function descriptions should
+  stay objective.
+
+**Target request shape:**
+
+```text
+# SYSTEM_PROMPT
+  Xiaoni identity/worldview
+  input tag definitions
+  phase definitions
+  stable tool-use policy
+
+# IN_CONTEXT
+## DEVELOPER
+  world_narrative
+  relationship/trust layer
+  current scene/state facts
+  stable runtime guidance
+
+## USER / ASSISTANT mixed transcript
+  role=user:
+    <INPUT_MESSAGE message_id="..." timestamp="..." sender="昵称(id)">
+    ...
+    </INPUT_MESSAGE>
+
+  role=assistant phase="commentary":
+    <ACTION timestamp="...">
+    ...
+    </ACTION>
+
+  role=assistant phase="final_answer":
+    <OUTPUT_MESSAGE message_id="..." timestamp="...">
+    ...
+    </OUTPUT_MESSAGE>
+
+  role=assistant phase="commentary":
+    <小腻的OS timestamp="...">
+    ...
+    </小腻的OS>
+```
+
+**Tag contract to explain in `SYSTEM_PROMPT`:**
+
+- `<INPUT_MESSAGE>`: real inbound QQ message. Must include timestamp,
+  `message_id`, and sender as `<昵称>(Id)`.
+- `<OUTPUT_MESSAGE>`: real outbound Xiaoni message. Must include timestamp and
+  delivery `message_id` when available.
+- `<ACTION>`: Xiaoni's own action/state event, such as opening a group, lurking,
+  looking for a topic, inspecting an image, or deciding to wait.
+- `<小腻的OS>`: Xiaoni's internal continuity for future turns; assistant-side,
+  not a user message.
+- `<图片内容>`: assistant-side image observation generated after Xiaoni inspects a
+  picture.
+- `<system_reminder>`: assistant commentary reminder appended by engineering
+  control logic, not a QQ message.
+
+**QQ message rendering rules:**
+
+- Every real inbound/outbound QQ message must carry `message_id`.
+- Every user message must identify the speaker as `<昵称>(Id)`.
+- Images inside `<INPUT_MESSAGE>` should be rendered as `pic<pic_hash>` instead
+  of a vague placeholder.
+- If Xiaoni has already inspected that image in a later turn, append an assistant
+  commentary message immediately after the relevant user context:
+  ```text
+  <图片内容 pic_hash="...">
+  ...
+  </图片内容>
+  ```
+
+**Presence / proactive rendering rule:**
+
+Do not render proactive checks as:
+
+```text
+2026-05-26T21:04:48.826Z {presence_tick(@1129974489)}
+小腻主动打开群看了一眼；当前没有新的群友消息触发。
+```
+
+Render them as assistant-side action context, for example:
+
+```json
+{
+  "role": "assistant",
+  "phase": "commentary",
+  "type": "message",
+  "content": [
+    {
+      "type": "input_text",
+      "text": "<ACTION timestamp=\"2026-05-26 20:18\">我现在有点无聊，来群里找点乐子，但是群友没人讲话，要不我来找点话题好了</ACTION>"
+    }
+  ]
+}
+```
+
+**Unread/new-work boundary replacement:**
+
+Do not use `[已读消息]` / `[未读消息]` as transcript boundaries. Instead, append a
+system reminder in assistant commentary that tells Xiaoni what range is newly
+being processed:
+
+```json
+{
+  "role": "assistant",
+  "phase": "commentary",
+  "type": "message",
+  "content": [
+    {
+      "type": "input_text",
+      "text": "<system_reminder>我上一次水群是在 <last_message_id> 之前；这次只需要处理之后出现的新消息。</system_reminder>"
+    }
+  ]
+}
+```
+
+**OpenAI/Codex request-shape references to apply:**
+
+- Preserve role separation instead of flattening everything into user messages.
+- Support assistant `phase`, especially `phase: "commentary"` for internal
+  continuation/reminders and `phase: "final_answer"` for actual outward result.
+- Do not add top-level `reasoning` or encrypted reasoning replay to the main
+  runtime path. The trace reference showed this shape, but this project keeps
+  Xiaoni runtime context explicit and inspectable instead of replaying opaque
+  provider execution state.
+- Allow assistant commentary messages between tool calls as controlled
+  system-reminder / phase-summary surfaces, rather than forcing every intermediate
+  thought into a tool call.
+
+**Tool description split:**
+
+- Define which tools are `commentary` tools and which are `final_answer` tools.
+- Commentary tools may include scene understanding, recall, image inspection,
+  web search, and internal action/reminder surfaces.
+- Final tools include actual QQ output or run-ending decisions:
+  `speak_in_group`, `reply_in_private`, `stay_silent`, and possibly
+  `request_image_task` depending on whether it is treated as an external action.
+- Move stable "when to use this tool" and "what phase comes next" guidance into
+  system/developer prompt.
+- Keep function `description` objective and close to the function's mechanical
+  purpose.
+
+**Tool-loop monitor requirement:**
+
+Add deterministic engineering monitoring inside a single run:
+
+- Count tool calls by tool name and phase.
+- If the same tool repeats unexpectedly, append assistant commentary
+  `<system_reminder>` explaining the current loop state and the expected next
+  boundary.
+- If recall/search/inspect repeats without progress, remind the model to either
+  make a final action or explicitly stay silent.
+- If no final tool is called after the allowed maximum reasoning/tool turns,
+  force or remind toward a terminal tool according to current policy.
+- Start with deterministic reminders. Do not introduce another LLM agent unless
+  the reminder needs summarization that cannot be expressed safely with rules.
+
+**Likely implementation areas:**
+
+- `modules/agent-service/src/services/agent-loop-service.ts`
+  - `buildInitialInput`
+  - `groupTranscriptItemsForScene`
+  - `buildTurnOs`
+  - `renderTranscriptBatchMessage`
+  - `renderRuntimeBatchInput`
+  - `composeSystemPrompt`
+  - tool definitions and `resolveGroupLoopToolChoice`
+- `modules/agent-service/src/services/runtime-store.ts`
+  - queue payload / message id projection
+  - media observation context
+  - presence action materialization
+- tests in `modules/agent-service/src/__tests__/agent-loop-service.test.ts`
+  and `modules/provider-service/src/services/__tests__/provider-request-contract.test.ts`
+
+**Implementation notes:**
+
+- `buildInitialInput` now emits mixed role input instead of flattening all scene
+  text into `user`.
+- Real inbound QQ messages are `role=user` `<INPUT_MESSAGE ...>`.
+- Xiaoni delivered history is `role=assistant phase="final_answer"`
+  `<OUTPUT_MESSAGE ...>`.
+- Xiaoni OS, presence actions, media observations, and engineering reminders are
+  `role=assistant phase="commentary"`.
+- The current processing boundary is an assistant `<system_reminder>`.
+- Encrypted reasoning is not used, even inside a single run. Main-agent request
+  building strips reasoning parameters before calling provider-service; provider
+  output reasoning items are ignored by the agent loop and are not replayed.
+- Tool descriptions are mechanical; workflow policy lives in the runtime prompt.
+- `summarizeToolLoopState` / `buildToolLoopMonitorReminder` add deterministic
+  loop monitoring without another LLM.
+
+**Acceptance criteria:**
+
+- A trace request JSON shows real QQ inbound messages as `role=user`
+  `<INPUT_MESSAGE ... message_id=... sender="昵称(id)">`.
+- Xiaoni outbound history appears as `role=assistant phase="final_answer"`
+  `<OUTPUT_MESSAGE ... message_id=...>`.
+- Xiaoni OS appears as `role=assistant phase="commentary"` and never as a user
+  message.
+- Presence tick appears as `role=assistant phase="commentary"` `<ACTION>`, not as
+  a fake `presence_tick` sender.
+- The current processing range is represented with assistant commentary
+  `<system_reminder>`, not `[已读消息]` / `[未读消息]`.
+- Tool definitions have objective descriptions; behavioral workflow guidance is
+  in system/developer prompt.
+- Repeated tool-call monitor can append deterministic `<system_reminder>` during a
+  run and is covered by tests.
+
+### Task 7 - Long-term learning generation trigger
+
+**Status:** todo.
+
+**Source:** 2026-05-27 review of exported
+`/home/liahua/.qqbot-local/exports/xiaoni-memory-20260527-142325/01_long_term_learning.json`.
+
+**Problem:** `agent_feedback_reflections` / `recall_long_term_learning` inventory
+looks like it is being generated per current turn. That is the wrong trigger for
+long-term experience: it turns the reflection table into a noisy pile of local
+turn reactions instead of durable lessons.
+
+**Expected model:** long-term experience should be generated when transcript /
+context compression runs, because compression is the point where recent dialogue
+is summarized into stable memory. Per-turn feedback can still produce trace or
+short-lived evaluation artifacts, but it should not blindly create active
+long-term recall reflections.
+
+**Likely implementation areas:**
+
+- `modules/agent-service/src/services/agent-loop-service.ts`
+  - feedback writer / reflection generation after each run
+  - transcript/context compression subagent path
+- `modules/agent-service/src/services/runtime-store.ts`
+  - reflection ranking and active-state lookup
+- `packages/persistence/feedback-reflection.js`
+  - reflection write APIs and learning-state updates
+
+**Acceptance criteria:**
+
+- New active `agent_feedback_reflections` are produced by compression-triggered
+  synthesis, not by every normal turn.
+- Per-turn feedback cannot spam active long-term recall rows for single-turn local
+  observations.
+- Existing recall ranking still returns a small number of durable lessons when
+  `recall_long_term_learning` is explicitly called.
+- Add tests covering that normal run feedback does not create active long-term
+  reflection rows, while compression-triggered synthesis can.
 
 ## P0-B - Identity Lineage Phase 1
 

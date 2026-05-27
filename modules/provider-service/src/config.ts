@@ -12,7 +12,6 @@ export const serverConfig = {
 export const aiConfig: AIConfig = {
   gemini_api_keys: (process.env.GEMINI_API_KEYS || '').split(',').filter(key => key.trim()),
   model_name: process.env.AI_MODEL_NAME || process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-  relationship_memory_model_name: process.env.RELATIONSHIP_MEMORY_MODEL_NAME || process.env.AI_MODEL_NAME || process.env.GEMINI_MODEL || 'gemini-2.5-flash',
   gemini_cli_access_token: process.env.GEMINI_CLI_ACCESS_TOKEN || undefined,
   gemini_cli_refresh_token: process.env.GEMINI_CLI_REFRESH_TOKEN || undefined,
   gemini_cli_project_id: process.env.GEMINI_CLI_PROJECT_ID || undefined,
@@ -66,19 +65,12 @@ export const agentRunConfig = {
   batchWindowMs: Math.max(200, Number.parseInt(process.env.AGENT_RUN_BATCH_WINDOW_MS || '4000', 10))
 };
 
-export const relationshipMemoryConfig = {
-  enabled: process.env.RELATIONSHIP_MEMORY_ENABLED !== 'false',
-  webhookUrl: process.env.RELATIONSHIP_MEMORY_WEBHOOK_URL || `http://127.0.0.1:${serverConfig.port}/api/internal/relationship-memory/execute`,
-  minNewTurns: Math.max(1, Number.parseInt(process.env.RELATIONSHIP_MEMORY_MIN_NEW_TURNS || '6', 10)),
-  minNewLedgerEvents: Math.max(1, Number.parseInt(process.env.RELATIONSHIP_MEMORY_MIN_NEW_LEDGER_EVENTS || '2', 10))
-};
-
 export const selfEvolutionConfig = {
   enabled: process.env.SELF_EVOLUTION_ENABLED !== 'false',
   webhookUrl: process.env.SELF_EVOLUTION_WEBHOOK_URL || `http://127.0.0.1:${serverConfig.port}/api/internal/self-evolution/execute`,
   minNewTurns: Math.max(1, Number.parseInt(process.env.SELF_EVOLUTION_MIN_NEW_TURNS || '6', 10)),
   minNewLedgerEvents: Math.max(1, Number.parseInt(process.env.SELF_EVOLUTION_MIN_NEW_LEDGER_EVENTS || '2', 10)),
-  modelName: process.env.SELF_EVOLUTION_MODEL_NAME || process.env.RELATIONSHIP_MEMORY_MODEL_NAME || process.env.AI_MODEL_NAME || process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  modelName: process.env.SELF_EVOLUTION_MODEL_NAME || process.env.AI_MODEL_NAME || process.env.GEMINI_MODEL || 'gemini-2.5-flash',
   timeoutMs: Math.max(1000, Number.parseInt(process.env.SELF_EVOLUTION_TIMEOUT_MS || '90000', 10))
 };
 

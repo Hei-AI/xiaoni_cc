@@ -35,7 +35,6 @@ export type OpenResponseInputItem =
   | {
       type: 'reasoning';
       content?: string;
-      encrypted_content?: string;
       summary?: string;
     }
   | {
@@ -111,7 +110,6 @@ export type OpenResponseOutputItem =
       type: 'reasoning';
       id?: string;
       content?: string;
-      encrypted_content?: string;
       summary?: string;
     }
   | {

@@ -28,26 +28,6 @@ function buildSnapshotSessionId(groupId) {
   return `group:${groupId}`;
 }
 
-function normalizeCard(row) {
-  return {
-    id: Number(row.id),
-    card_type: row.card_type,
-    target_user_id: row.target_user_id === null ? null : Number(row.target_user_id),
-    summary_text: row.summary_text,
-    actors: Array.isArray(row.actors) ? row.actors : [],
-    context_before: row.context_before || null,
-    trigger: row.trigger || null,
-    interaction: row.interaction || null,
-    outcome: row.outcome || null,
-    source_event_ids: Array.isArray(row.source_event_ids) ? row.source_event_ids.map(Number) : [],
-    source_message_ids: Array.isArray(row.source_message_ids) ? row.source_message_ids.map(Number) : [],
-    decayed_score: Number(row.decayed_score || 0),
-    retrieval_text: row.retrieval_text || null,
-    embedding_text: row.embedding_text || null,
-    metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
-  };
-}
-
 function normalizeSelfEvolutionState(row) {
   return {
     id: Number(row.id),
@@ -167,39 +147,6 @@ async function main() {
         }
       }
 
-      const cardRows = await sql.query(
-        `
-          SELECT *
-          FROM relationship_memory_cards
-          WHERE group_id = ?
-            AND is_active = TRUE
-            AND (
-              target_user_id IS NULL
-              OR target_user_id = ?
-              OR target_user_id = ANY(?::bigint[])
-            )
-          ORDER BY decayed_score DESC, updated_at DESC, id DESC
-          LIMIT 40
-        `,
-        [groupId, Number(row.sender_id), recentUserIds]
-      );
-
-      const groupCards = [];
-      const currentUserCards = [];
-      const recentUserCards = [];
-
-      for (const card of cardRows.map(normalizeCard)) {
-        if (card.target_user_id === null) {
-          groupCards.push(card);
-          continue;
-        }
-        if (card.target_user_id === Number(row.sender_id)) {
-          currentUserCards.push(card);
-          continue;
-        }
-        recentUserCards.push(card);
-      }
-
       const selfEvolutionRows = await sql.query(
         `
           SELECT *
@@ -254,11 +201,6 @@ async function main() {
         recent_messages: recentMessages,
         summary_text: snapshot?.summary_text || null,
         summarized_through_conversation_id: snapshot ? Number(snapshot.summarized_through_conversation_id) : null,
-        relationship_cards: {
-          group_cards: groupCards,
-          current_user_cards: currentUserCards,
-          recent_user_cards: recentUserCards
-        },
         self_evolution_states: {
           group_states: groupStates,
           current_user_states: currentUserStates,

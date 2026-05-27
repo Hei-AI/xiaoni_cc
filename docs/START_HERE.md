@@ -27,7 +27,7 @@
 - 完成判定统一回到 `AGENTS.md` 的 `Done Means`，不要在这里脑补另一套交付标准。
 - 不要把 `embedding-server` 当对外服务；对外是 `provider-service /v1/*`。
 - 不要默认前端直连 `provider-service`；默认是前端 -> admin backend。
-- 当前主发言判断在 `agent-service` loop。`relationship memory`、`topic projection`、`transcript snapshot` 等能力可以作为召回、观测、评测或异步产物存在，但不要把它们当成入口层“是否说话”的总决策器。
+- 当前主发言判断在 `agent-service` loop。`topic projection`、`transcript snapshot`、feedback reflection 等能力可以作为召回、观测、评测或异步产物存在，但不要把它们当成入口层“是否说话”的总决策器。
 - 不要把“本地前端联调”和“公网 Docker 前端”当成同一条链路；本地页面调试只起本地 Vite 前端，后端仍走容器。
 - 不要再让本地前端复用 `3003`；本地联调固定走 `13003`，公网 Docker 前端继续占用 `3003`。
 - 不要再参考 `database/` 里的历史 MySQL 文档；当前真实数据库以 PostgreSQL 初始化脚本和 `packages/persistence` 为准。

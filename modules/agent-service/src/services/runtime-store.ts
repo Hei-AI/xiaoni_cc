@@ -22,10 +22,7 @@ import {
   recordRuntimeIdentityActivationTrace,
   listSelfEvolutionStates,
   listChatSpaceTopics,
-  listRelationshipMemoryCards,
-  markRelationshipMemoryCardsHit,
   markFeedbackReflectionsHit,
-  listRelationshipMemoryOverrides,
   upsertFeedbackLearningState,
   ensureRelationshipTrustSchema,
   getRelationshipTrustLevel,
@@ -157,26 +154,6 @@ export type SessionReadCutoffState = {
   pendingProactiveShare: string | null;
   pendingProactiveShareAge: number;
   updatedAt: string | null;
-};
-
-export type RuntimeRelationshipMemoryCard = {
-  id: number;
-  cardType: string;
-  groupId: number | null;
-  targetUserId: number | null;
-  summaryText: string;
-  actors: string[];
-  contextBefore: string | null;
-  trigger: string | null;
-  interaction: string | null;
-  outcome: string | null;
-  sourceEventIds: number[];
-  sourceMessageIds: number[];
-  decayedScore: number;
-  retrievalText: string | null;
-  embeddingText: string | null;
-  lastHitAt: string | null;
-  metadata: Record<string, unknown>;
 };
 
 export type RuntimeSelfEvolutionState = {
@@ -326,20 +303,6 @@ export type RuntimeMemoryRagContext = {
   }>;
 };
 
-type RelationshipRetrievalContext = {
-  currentMessageText: string;
-  replyToBody?: string | null;
-  currentSenderName?: string | null;
-  recentMessageTexts: string[];
-};
-
-type RelationshipCardScore = {
-  card: RuntimeRelationshipMemoryCard;
-  bm25Score: number;
-  embeddingScore: number;
-  combinedScore: number;
-};
-
 type FeedbackReflectionScore = {
   reflection: RuntimeFeedbackReflection;
   learningState: RuntimeFeedbackLearningState | null;
@@ -359,14 +322,6 @@ type IdentityEvidenceRefParams = {
   confidence?: string;
   redactionStatus?: string;
   metadata?: Record<string, unknown>;
-};
-
-type RelationshipRagScope = 'group' | 'current_user' | 'recent_users';
-
-type RelationshipRagSelection = {
-  groupCardIds: number[];
-  currentUserCardIds: number[];
-  recentUserCardIds: number[];
 };
 
 function toIso(value: string | Date | null | undefined): string | null {
@@ -401,18 +356,6 @@ function buildSearchTokens(text: string) {
   }
 
   return Array.from(tokens);
-}
-
-function buildRelationshipRetrievalQuery(context: RelationshipRetrievalContext) {
-  return [
-    context.currentSenderName || '',
-    context.currentMessageText,
-    context.replyToBody || '',
-    ...context.recentMessageTexts
-  ]
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .join('\n');
 }
 
 function estimateBudgetLength(targetTokenBudget: number) {
@@ -644,59 +587,6 @@ function parseRuntimeTopicProjection(params: {
   };
 }
 
-function computeBm25Scores(cards: RuntimeRelationshipMemoryCard[], queryText: string) {
-  const queryTokens = buildSearchTokens(queryText);
-  if (queryTokens.length === 0 || cards.length === 0) {
-    return new Map<number, number>();
-  }
-
-  const documents = cards.map((card) => {
-    const tokens = buildSearchTokens(
-      card.retrievalText
-      || card.embeddingText
-      || card.summaryText
-    );
-    const frequencies = new Map<string, number>();
-    for (const token of tokens) {
-      frequencies.set(token, (frequencies.get(token) || 0) + 1);
-    }
-    return {
-      cardId: card.id,
-      length: Math.max(tokens.length, 1),
-      frequencies
-    };
-  });
-
-  const avgDocLength = documents.reduce((sum, document) => sum + document.length, 0) / documents.length;
-  const docFrequency = new Map<string, number>();
-  for (const token of queryTokens) {
-    const count = documents.reduce((sum, document) => sum + (document.frequencies.has(token) ? 1 : 0), 0);
-    docFrequency.set(token, count);
-  }
-
-  const scores = new Map<number, number>();
-  const k1 = 1.2;
-  const b = 0.75;
-
-  for (const document of documents) {
-    let score = 0;
-    for (const token of queryTokens) {
-      const termFrequency = document.frequencies.get(token) || 0;
-      if (!termFrequency) {
-        continue;
-      }
-      const df = docFrequency.get(token) || 0;
-      const idf = Math.log(1 + ((documents.length - df + 0.5) / (df + 0.5)));
-      const numerator = termFrequency * (k1 + 1);
-      const denominator = termFrequency + k1 * (1 - b + b * (document.length / Math.max(avgDocLength, 1)));
-      score += idf * (numerator / denominator);
-    }
-    scores.set(document.cardId, score);
-  }
-
-  return scores;
-}
-
 function normalizeScoreMap(scores: Map<number, number>) {
   let maxScore = 0;
   for (const score of scores.values()) {
@@ -750,224 +640,6 @@ function computeLastHitBoost(lastHitAt: string | null) {
     return 0.55;
   }
   return 0.15;
-}
-
-function parseJsonObjectFromText(text: string) {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fencedMatch ? fencedMatch[1].trim() : trimmed;
-  const start = candidate.indexOf('{');
-  const end = candidate.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(candidate.slice(start, end + 1));
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function normalizeRelationshipSelectionIds(value: unknown, allowedIds: Set<number>, limit: number) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const ids: number[] = [];
-  for (const item of value) {
-    const numeric = Number(item);
-    if (!Number.isFinite(numeric) || !allowedIds.has(Math.trunc(numeric))) {
-      continue;
-    }
-    const normalized = Math.trunc(numeric);
-    if (ids.includes(normalized)) {
-      continue;
-    }
-    ids.push(normalized);
-    if (ids.length >= limit) {
-      break;
-    }
-  }
-  return ids;
-}
-
-export function parseRelationshipRagSelection(params: {
-  text: string;
-  candidateIdsByScope: Record<RelationshipRagScope, number[]>;
-  limits: Record<RelationshipRagScope, number>;
-}) {
-  const parsed = parseJsonObjectFromText(params.text);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return null;
-  }
-  const hasStructuredSelection = ['group_card_ids', 'current_user_card_ids', 'recent_user_card_ids']
-    .some((key) => Object.prototype.hasOwnProperty.call(parsed, key));
-  if (!hasStructuredSelection) {
-    return null;
-  }
-
-  const groupIds = normalizeRelationshipSelectionIds(
-    parsed.group_card_ids,
-    new Set(params.candidateIdsByScope.group),
-    params.limits.group
-  );
-  const currentUserIds = normalizeRelationshipSelectionIds(
-    parsed.current_user_card_ids,
-    new Set(params.candidateIdsByScope.current_user),
-    params.limits.current_user
-  );
-  const recentUserIds = normalizeRelationshipSelectionIds(
-    parsed.recent_user_card_ids,
-    new Set(params.candidateIdsByScope.recent_users),
-    params.limits.recent_users
-  );
-
-  return {
-    groupCardIds: groupIds,
-    currentUserCardIds: currentUserIds,
-    recentUserCardIds: recentUserIds
-  } satisfies RelationshipRagSelection;
-}
-
-function buildRelationshipRagPrompt(params: {
-  queryText: string;
-  retrievalContext: RelationshipRetrievalContext;
-  candidatesByScope: Record<RelationshipRagScope, RelationshipCardScore[]>;
-  limits: Record<RelationshipRagScope, number>;
-}) {
-  const renderCandidates = (scope: RelationshipRagScope, title: string) => {
-    const items = params.candidatesByScope[scope];
-    if (items.length === 0) {
-      return `${title}: []`;
-    }
-
-    return [
-      `${title}:`,
-      ...items.map((item, index) => JSON.stringify({
-        rank: index + 1,
-        card_id: item.card.id,
-        summary_text: item.card.summaryText,
-        actors: item.card.actors,
-        target_user_id: item.card.targetUserId,
-        source_message_ids: item.card.sourceMessageIds,
-        bm25_score: Number(item.bm25Score.toFixed(4)),
-        embedding_score: Number(item.embeddingScore.toFixed(4)),
-        heuristic_score: Number(item.combinedScore.toFixed(4)),
-        retrieval_text: item.card.retrievalText || null,
-        context_before: item.card.contextBefore,
-        trigger: item.card.trigger,
-        interaction: item.card.interaction,
-        outcome: item.card.outcome
-      }))
-    ].join('\n');
-  };
-
-  return [
-    'You are selecting relationship memory cards for runtime injection.',
-    'Your job is not to summarize. Your job is to choose only the cards that are genuinely useful for replying to the current message.',
-    'Prefer cards that match the current topic, social dynamic, reply target, and ongoing joke/context.',
-    'Reject cards that are stale, generic, weakly related, or would bias the reply in the wrong direction.',
-    'Return JSON only. No markdown, no explanation outside JSON.',
-    `Selection limits: group <= ${params.limits.group}, current_user <= ${params.limits.current_user}, recent_users <= ${params.limits.recent_users}.`,
-    'Required JSON shape:',
-    '{"group_card_ids":[...],"current_user_card_ids":[...],"recent_user_card_ids":[...]}',
-    '',
-    'Current retrieval context:',
-    JSON.stringify({
-      current_message_text: params.retrievalContext.currentMessageText,
-      reply_to_body: params.retrievalContext.replyToBody || null,
-      current_sender_name: params.retrievalContext.currentSenderName || null,
-      recent_message_texts: params.retrievalContext.recentMessageTexts,
-      combined_query_text: params.queryText
-    }),
-    '',
-    renderCandidates('group', 'Group scope candidates'),
-    '',
-    renderCandidates('current_user', 'Current user scope candidates'),
-    '',
-    renderCandidates('recent_users', 'Recent users scope candidates')
-  ].join('\n');
-}
-
-export function rankRelationshipCardsForPrompt(params: {
-  cards: RuntimeRelationshipMemoryCard[];
-  queryText: string;
-  embeddingScores?: Map<number, number>;
-  limit: number;
-}) {
-  const baseCards = params.cards.slice();
-  if (baseCards.length === 0) {
-    return [] as RelationshipCardScore[];
-  }
-
-  const bm25Scores = normalizeScoreMap(computeBm25Scores(baseCards, params.queryText));
-  const embeddingScores = normalizeScoreMap(params.embeddingScores || new Map<number, number>());
-  const bm25Recall = baseCards
-    .filter((card) => (bm25Scores.get(card.id) || 0) > 0)
-    .sort((left, right) => (bm25Scores.get(right.id) || 0) - (bm25Scores.get(left.id) || 0))
-    .slice(0, Math.max(params.limit * 2, 4))
-    .map((card) => card.id);
-  const embeddingRecall = baseCards
-    .filter((card) => (embeddingScores.get(card.id) || 0) > 0)
-    .sort((left, right) => (embeddingScores.get(right.id) || 0) - (embeddingScores.get(left.id) || 0))
-    .slice(0, Math.max(params.limit * 2, 4))
-    .map((card) => card.id);
-  const recallSet = new Set<number>([...bm25Recall, ...embeddingRecall]);
-  const candidates = recallSet.size > 0
-    ? baseCards.filter((card) => recallSet.has(card.id))
-    : baseCards;
-  const maxDecayed = Math.max(...baseCards.map((card) => card.decayedScore), 1);
-
-  return candidates
-    .map((card) => {
-      const bm25Score = bm25Scores.get(card.id) || 0;
-      const embeddingScore = embeddingScores.get(card.id) || 0;
-      const decayedBoost = Math.max(0, card.decayedScore) / maxDecayed;
-      const hitBoost = computeLastHitBoost(card.lastHitAt);
-      return {
-        card,
-        bm25Score,
-        embeddingScore,
-        combinedScore: bm25Score * 0.4 + embeddingScore * 0.35 + decayedBoost * 0.2 + hitBoost * 0.05
-      };
-    })
-    .sort((left, right) => (
-      right.combinedScore - left.combinedScore
-      || right.card.decayedScore - left.card.decayedScore
-      || (right.card.lastHitAt || '').localeCompare(left.card.lastHitAt || '')
-      || right.card.id - left.card.id
-    ))
-    .slice(0, params.limit);
-}
-
-export function selectCardsInRankOrder(rankedCards: RelationshipCardScore[], selectedIds: number[] | null, limit: number) {
-  if (rankedCards.length === 0) {
-    return [] as RuntimeRelationshipMemoryCard[];
-  }
-
-  if (selectedIds === null) {
-    return rankedCards.slice(0, limit).map((item) => item.card);
-  }
-
-  const selectedSet = new Set(selectedIds);
-  if (selectedSet.size === 0) {
-    return [];
-  }
-
-  const selected = rankedCards
-    .filter((item) => selectedSet.has(item.card.id))
-    .map((item) => item.card)
-    .slice(0, limit);
-
-  return selected;
 }
 
 function clamp01(value: number) {
@@ -1233,65 +905,6 @@ function normalizeNumberArray(value: unknown): number[] {
     .map((item) => Math.trunc(item));
 }
 
-function parseRelationshipMemoryCard(record: any): RuntimeRelationshipMemoryCard {
-  return {
-    id: Number(record.id),
-    cardType: typeof record.card_type === 'string' ? record.card_type : 'person_memory',
-    groupId: record.group_id === null || typeof record.group_id === 'undefined' ? null : Number(record.group_id),
-    targetUserId: record.target_user_id === null || typeof record.target_user_id === 'undefined' ? null : Number(record.target_user_id),
-    summaryText: typeof record.summary_text === 'string' ? record.summary_text.trim() : '',
-    actors: normalizeStringArray(record.actors),
-    contextBefore: typeof record.context_before === 'string' ? record.context_before.trim() : null,
-    trigger: typeof record.trigger === 'string' ? record.trigger.trim() : null,
-    interaction: typeof record.interaction === 'string' ? record.interaction.trim() : null,
-    outcome: typeof record.outcome === 'string' ? record.outcome.trim() : null,
-    sourceEventIds: normalizeNumberArray(record.source_event_ids),
-    sourceMessageIds: normalizeNumberArray(record.source_message_ids),
-    decayedScore: Number.isFinite(Number(record.decayed_score)) ? Number(record.decayed_score) : 0,
-    retrievalText: typeof record.retrieval_text === 'string' ? record.retrieval_text.trim() : null,
-    embeddingText: typeof record.embedding_text === 'string' ? record.embedding_text.trim() : null,
-    lastHitAt: toIso(record.last_hit_at),
-    metadata: record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
-      ? record.metadata as Record<string, unknown>
-      : {}
-  };
-}
-
-async function applyRelationshipMemoryOverrides(cards: RuntimeRelationshipMemoryCard[]) {
-  const adjusted: RuntimeRelationshipMemoryCard[] = [];
-
-  for (const card of cards) {
-    const overrides = await listRelationshipMemoryOverrides(card.id, databaseConfig);
-    let archived = false;
-    let score = card.decayedScore;
-
-    for (const override of overrides) {
-      const actionType = typeof override.action_type === 'string' ? override.action_type : '';
-      if (actionType === 'archive') {
-        archived = true;
-        break;
-      }
-      if (actionType === 'pin') {
-        score += 100;
-      }
-      if (actionType === 'downrank') {
-        score -= 1;
-      }
-    }
-
-    if (archived) {
-      continue;
-    }
-
-    adjusted.push({
-      ...card,
-      decayedScore: score
-    });
-  }
-
-  return adjusted;
-}
-
 type ConversationTranscriptItemInput = {
   sessionKey: string | null;
   role: ConversationTranscriptRole;
@@ -1432,16 +1045,19 @@ function buildStructuredReplayConversationItems(params: {
     const message = isQueueReplayRow
       ? buildQueueBatchMessageFromStructuredRow(row)
       : buildQueueBatchMessageFromInboundRow(row);
+    const isPresenceAction = isQueueReplayRow && row.source === 'presence_tick';
     items.push({
       id: null,
       conversationId,
       sessionKey: row.session_key,
-      role: 'user',
-      phase: null,
-      content: renderRuntimeBatchMessage(message, items.length),
+      role: isPresenceAction ? 'assistant' : 'user',
+      phase: isPresenceAction ? 'commentary' : null,
+      content: isPresenceAction
+        ? '<ACTION source="presence_tick">我主动打开群看了一眼。</ACTION>'
+        : renderRuntimeBatchMessage(message, items.length),
       groupIndex: 0,
       itemIndex: items.length,
-      source: 'inbound_batch',
+      source: isPresenceAction ? 'presence_action' : 'inbound_batch',
       deliveryMessageId: null,
       runId: isQueueReplayRow ? row.run_id : null,
       traceId: traceId || null
@@ -2383,6 +1999,7 @@ export class RuntimeStore {
         groupIndex: Number(row.group_index),
         itemIndex: Number(row.item_index),
         source: row.source === 'delivery'
+          || row.source === 'presence_action'
           || row.source === 'legacy_user_message'
           || row.source === 'legacy_ai_response'
           ? row.source
@@ -3264,267 +2881,6 @@ export class RuntimeStore {
       currentUserStates: currentUserRows.map((row) => parseSelfEvolutionState(row as Record<string, unknown>)),
       recentUserStates: recentRowsList.flat().map((row) => parseSelfEvolutionState(row as Record<string, unknown>))
     };
-  }
-
-  private async loadRelationshipMemoryCards(params: {
-    groupId: number | null;
-    currentUserId: number;
-    recentUserIds: number[];
-    retrievalContext?: RelationshipRetrievalContext | null;
-  }): Promise<{
-    groupCards: RuntimeRelationshipMemoryCard[];
-    currentUserCards: RuntimeRelationshipMemoryCard[];
-    recentUserCards: RuntimeRelationshipMemoryCard[];
-  }> {
-    if (!params.groupId || !Number.isFinite(params.groupId)) {
-      return {
-        groupCards: [],
-        currentUserCards: [],
-        recentUserCards: []
-      };
-    }
-
-    const uniqueRecentUserIds = Array.from(new Set(
-      params.recentUserIds
-        .map((value) => Number(value))
-        .filter((value) => Number.isFinite(value) && value > 0 && value !== params.currentUserId)
-    )).slice(0, 2);
-
-    const [groupRows, currentUserRows, ...recentRowsList] = await Promise.all([
-      listRelationshipMemoryCards({
-        groupId: params.groupId,
-        targetUserId: null,
-        isActive: true,
-        limit: 18
-      }, databaseConfig),
-      listRelationshipMemoryCards({
-        groupId: params.groupId,
-        targetUserId: params.currentUserId,
-        isActive: true,
-        limit: 18
-      }, databaseConfig),
-      ...uniqueRecentUserIds.map((userId) => listRelationshipMemoryCards({
-        groupId: params.groupId as number,
-        targetUserId: userId,
-        isActive: true,
-        limit: 12
-      }, databaseConfig))
-    ]);
-
-    const groupCards = await applyRelationshipMemoryOverrides(groupRows.map(parseRelationshipMemoryCard));
-    const currentUserCards = await applyRelationshipMemoryOverrides(currentUserRows.map(parseRelationshipMemoryCard));
-    const recentUserCards = await applyRelationshipMemoryOverrides(
-      recentRowsList.flat().map(parseRelationshipMemoryCard)
-    );
-    const queryText = params.retrievalContext
-      ? buildRelationshipRetrievalQuery(params.retrievalContext)
-      : '';
-    const embeddingScores = await this.computeRelationshipEmbeddingScores(
-      [...groupCards, ...currentUserCards, ...recentUserCards],
-      queryText
-    );
-    const limits = {
-      group: 2,
-      current_user: 3,
-      recent_users: 2
-    } satisfies Record<RelationshipRagScope, number>;
-    const groupRankedCards = rankRelationshipCardsForPrompt({
-      cards: groupCards,
-      queryText,
-      embeddingScores,
-      limit: Math.max(limits.group * 3, 6)
-    });
-    const currentUserRankedCards = rankRelationshipCardsForPrompt({
-      cards: currentUserCards,
-      queryText,
-      embeddingScores,
-      limit: Math.max(limits.current_user * 3, 6)
-    });
-    const recentUserRankedCards = rankRelationshipCardsForPrompt({
-      cards: recentUserCards,
-      queryText,
-      embeddingScores,
-      limit: Math.max(limits.recent_users * 3, 6)
-    });
-    const ragSelection = params.retrievalContext
-      ? await this.selectRelationshipCardsWithLlm({
-          queryText,
-          retrievalContext: params.retrievalContext,
-          candidatesByScope: {
-            group: groupRankedCards,
-            current_user: currentUserRankedCards,
-            recent_users: recentUserRankedCards
-          },
-          limits
-        })
-      : null;
-    const selectedGroupCards = selectCardsInRankOrder(
-      groupRankedCards,
-      ragSelection ? ragSelection.groupCardIds : null,
-      limits.group
-    );
-    const selectedCurrentUserCards = selectCardsInRankOrder(
-      currentUserRankedCards,
-      ragSelection ? ragSelection.currentUserCardIds : null,
-      limits.current_user
-    );
-    const selectedRecentUserCards = selectCardsInRankOrder(
-      recentUserRankedCards,
-      ragSelection ? ragSelection.recentUserCardIds : null,
-      limits.recent_users
-    );
-    const selectedCardIds = Array.from(new Set(
-      [...selectedGroupCards, ...selectedCurrentUserCards, ...selectedRecentUserCards].map((card) => card.id)
-    ));
-    if (selectedCardIds.length > 0) {
-      await markRelationshipMemoryCardsHit(selectedCardIds, { hitAt: new Date() }, databaseConfig).catch(() => undefined);
-    }
-
-    return {
-      groupCards: selectedGroupCards,
-      currentUserCards: selectedCurrentUserCards,
-      recentUserCards: selectedRecentUserCards
-    };
-  }
-
-  private async selectRelationshipCardsWithLlm(params: {
-    queryText: string;
-    retrievalContext: RelationshipRetrievalContext;
-    candidatesByScope: Record<RelationshipRagScope, RelationshipCardScore[]>;
-    limits: Record<RelationshipRagScope, number>;
-  }) {
-    const candidateIdsByScope = {
-      group: params.candidatesByScope.group.map((item) => item.card.id),
-      current_user: params.candidatesByScope.current_user.map((item) => item.card.id),
-      recent_users: params.candidatesByScope.recent_users.map((item) => item.card.id)
-    } satisfies Record<RelationshipRagScope, number[]>;
-    const totalCandidateCount = Object.values(candidateIdsByScope).reduce((sum, ids) => sum + ids.length, 0);
-    if (!params.queryText.trim() || totalCandidateCount === 0) {
-      return null;
-    }
-
-    try {
-      const traceId = `relationship_rag_${Date.now()}_${uuidv4().slice(0, 8)}`;
-      const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          trace_id: traceId,
-          agent_turn: 0,
-          agent_type: 'relationship_memory_rag',
-          prompt_name: 'relationship_memory_rag_selector',
-          model: agentConfig.modelName,
-          parameters: {
-            temperature: 0.1,
-            maxOutputTokens: 500,
-            reasoningEffort: 'low'
-          },
-          canonicalRequest: {
-            model: agentConfig.modelName,
-            input: [{
-              type: 'message',
-              role: 'user',
-              content: buildRelationshipRagPrompt({
-                queryText: params.queryText,
-                retrievalContext: params.retrievalContext,
-                candidatesByScope: params.candidatesByScope,
-                limits: params.limits
-              })
-            }],
-            instructions: 'Return strict JSON only.',
-            tools: [],
-            tool_choice: 'none',
-            parallel_tool_calls: false,
-            max_output_tokens: 500,
-            temperature: 0.1,
-            reasoning: {
-              effort: 'low'
-            },
-            metadata: {
-              selector: 'relationship_memory_rag'
-            }
-          }
-        })
-      });
-
-      if (!response.ok) {
-        return null;
-      }
-
-      const payload = await response.json() as {
-        success?: boolean;
-        response?: string;
-        error?: string;
-      };
-      if (!payload.success || typeof payload.response !== 'string') {
-        return null;
-      }
-
-      return parseRelationshipRagSelection({
-        text: payload.response,
-        candidateIdsByScope,
-        limits: params.limits
-      });
-    } catch {
-      return null;
-    }
-  }
-
-  private async computeRelationshipEmbeddingScores(cards: RuntimeRelationshipMemoryCard[], queryText: string) {
-    const normalizedQuery = queryText.trim();
-    if (!normalizedQuery || cards.length === 0) {
-      return new Map<number, number>();
-    }
-
-    const texts = cards.map((card) => card.embeddingText || card.retrievalText || card.summaryText).filter(Boolean);
-    if (texts.length === 0) {
-      return new Map<number, number>();
-    }
-
-    try {
-      const response = await fetch(`${agentConfig.providerServiceUrl}/v1/embeddings`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          input: [normalizedQuery, ...texts]
-        })
-      });
-      if (!response.ok) {
-        return new Map<number, number>();
-      }
-      const payload = await response.json() as {
-        data?: Array<{ embedding?: number[] }>;
-      };
-      const embeddings = Array.isArray(payload.data)
-        ? payload.data.map((item) => Array.isArray(item.embedding) ? item.embedding : [])
-        : [];
-      if (embeddings.length !== texts.length + 1 || embeddings[0].length === 0) {
-        return new Map<number, number>();
-      }
-
-      const queryEmbedding = embeddings[0];
-      const scores = new Map<number, number>();
-      let embeddingIndex = 1;
-      for (const card of cards) {
-        const text = card.embeddingText || card.retrievalText || card.summaryText;
-        if (!text) {
-          continue;
-        }
-        const vector = embeddings[embeddingIndex];
-        embeddingIndex += 1;
-        if (!Array.isArray(vector) || vector.length === 0 || vector.length !== queryEmbedding.length) {
-          continue;
-        }
-        scores.set(card.id, cosineSimilarity(queryEmbedding, vector));
-      }
-      return scores;
-    } catch {
-      return new Map<number, number>();
-    }
   }
 
   async createConversation(params: {

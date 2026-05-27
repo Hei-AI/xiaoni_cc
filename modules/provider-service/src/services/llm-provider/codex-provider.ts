@@ -92,7 +92,6 @@ export class CodexProvider extends OpenAIProvider {
       text: {
         verbosity: this.resolveTextVerbosity(providerConfig)
       },
-      include: ['reasoning.encrypted_content'],
       parallel_tool_calls: typeof request.parallel_tool_calls === 'boolean'
         ? request.parallel_tool_calls
         : true
@@ -436,9 +435,6 @@ export class CodexProvider extends OpenAIProvider {
     if (item.type === 'reasoning') {
       return {
         type: 'reasoning',
-        ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
-          ? { encrypted_content: item.encrypted_content }
-          : {}),
         ...(typeof item.summary === 'string' && item.summary.length > 0
           ? { summary: item.summary }
           : {}),

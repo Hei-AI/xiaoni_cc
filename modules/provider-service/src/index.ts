@@ -5,12 +5,11 @@ import { randomUUID } from 'crypto';
 import {
   ensureAgentMediaSchema,
   ensureIdentityLineageSchema,
-  ensureRelationshipMemorySchema,
   ensureSelfEvolutionSchema,
   ensureTopicLabSchema,
   upsertAgentMediaAssets,
 } from '@qq-bot/persistence';
-import { aiConfig, codexAccountRefreshConfig, relationshipMemoryConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
+import { aiConfig, codexAccountRefreshConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
 import { NapcatClient } from './services/napcat-client';
@@ -26,8 +25,6 @@ import { ConversationStoreService } from './services/conversation-store-service'
 import { SessionTranscriptService } from './services/session-transcript-service';
 import { TranscriptSnapshotService } from './services/transcript-snapshot-service';
 import RelationshipLedgerService from './services/relationship-ledger-service';
-import RelationshipMemoryService from './services/relationship-memory-service';
-import RelationshipMemoryExecutorService from './services/relationship-memory-executor-service';
 import SelfEvolutionExecutorService from './services/self-evolution-executor-service';
 import { SelfEvolutionService } from './services/self-evolution-service';
 import TopicProjectionService from './services/topic-projection-service';
@@ -91,15 +88,6 @@ const relationshipLedgerService = new RelationshipLedgerService({
         receivedAtMs: new Date(message.receivedAt).getTime()
       }));
   }
-});
-const relationshipMemoryService = new RelationshipMemoryService({
-  enabled: relationshipMemoryConfig.enabled,
-  webhookUrl: relationshipMemoryConfig.webhookUrl,
-  minNewTurns: relationshipMemoryConfig.minNewTurns,
-  minNewLedgerEvents: relationshipMemoryConfig.minNewLedgerEvents
-});
-const relationshipMemoryExecutorService = new RelationshipMemoryExecutorService({
-  modelName: aiConfig.relationship_memory_model_name
 });
 const selfEvolutionService = new SelfEvolutionService({
   enabled: selfEvolutionConfig.enabled,
@@ -278,7 +266,7 @@ function scheduleCompactionSideEffects(inboundContext: FinalizedInboundContext) 
 
 function respondRuntimeFeatureDisabled(
   res: express.Response,
-  feature: 'transcript_summary' | 'relationship_memory' | 'self_evolution' | 'topic_projection'
+  feature: 'transcript_summary' | 'self_evolution' | 'topic_projection'
 ) {
   return res.status(410).json({
     success: false,
@@ -1297,14 +1285,6 @@ app.post('/api/internal/transcript-summary/result', async (req, res) => {
   return respondRuntimeFeatureDisabled(res, 'transcript_summary');
 });
 
-app.post('/api/internal/relationship-memory/result', async (req, res) => {
-  return respondRuntimeFeatureDisabled(res, 'relationship_memory');
-});
-
-app.post('/api/internal/relationship-memory/execute', async (req, res) => {
-  return respondRuntimeFeatureDisabled(res, 'relationship_memory');
-});
-
 app.post('/api/internal/self-evolution/execute', async (req, res) => {
   return respondRuntimeFeatureDisabled(res, 'self_evolution');
 });
@@ -1927,7 +1907,6 @@ app.get('/api/internal/embedding/health', async (_req, res) => {
 });
 
 async function startServer() {
-  await ensureRelationshipMemorySchema();
   await ensureSelfEvolutionSchema();
   await ensureIdentityLineageSchema();
   await ensureTopicLabSchema();

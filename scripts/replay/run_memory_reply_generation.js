@@ -3,7 +3,7 @@
 'use strict';
 
 const path = require('path');
-const { parseArgs, flattenRelationshipCards, flattenSelfEvolutionStates, readJsonl, writeJsonl, writeJson } = require('./common');
+const { parseArgs, flattenSelfEvolutionStates, readJsonl, writeJsonl, writeJson } = require('./common');
 
 const DEFAULT_STRATEGIES = [
   { id: 'no_memory_gpt54', model: 'gpt-5.4' },
@@ -44,19 +44,7 @@ function pickStrategyDefinitions(arg) {
 }
 
 function selectCards(sample, strategyId) {
-  const allCards = flattenRelationshipCards(sample.relationship_cards || {});
-  if (strategyId === 'no_memory_gpt54') {
-    return [];
-  }
-  if (strategyId === 'oracle_memory_gpt54') {
-    const relevantIds = new Set(
-      Array.isArray(sample.ground_truth?.relevant_memory_ids)
-        ? sample.ground_truth.relevant_memory_ids.map(Number).filter(Number.isFinite)
-        : []
-    );
-    return allCards.filter((card) => relevantIds.has(Number(card.id)));
-  }
-  return allCards;
+  return [];
 }
 
 function filterCardsByIds(cards, relevantMemoryIds) {
@@ -108,7 +96,7 @@ function buildGatePrompt(sample, selectedCards) {
       latest_message: sample.message,
       recent_messages: sample.recent_messages,
       summary_text: sample.summary_text,
-      relationship_cards: selectedCards,
+      memory_items: selectedCards,
       topic_projection: sample.topic_projection || []
     }, null, 2)
   ].join('\n');
@@ -147,7 +135,7 @@ function buildReplyPrompt(sample, selectedCards) {
       latest_message: sample.message,
       recent_messages: sample.recent_messages,
       summary_text: sample.summary_text,
-      relationship_cards: selectedCards,
+      memory_items: selectedCards,
       topic_projection: sample.topic_projection || []
     }, null, 2)
   ].join('\n');
@@ -169,7 +157,7 @@ function buildPresentSelfPrompt(sample, selectedCards, selectedSelfEvolutionStat
       recent_messages: sample.recent_messages,
       summary_text: sample.summary_text,
       gate_prediction: gatePrediction,
-      relationship_cards: selectedCards,
+      memory_items: selectedCards,
       self_evolution_states: selectedSelfEvolutionStates,
       topic_projection: sample.topic_projection || []
     }, null, 2)
@@ -429,7 +417,7 @@ function buildPresentSelfReplyPrompt(sample, selectedCards, presentSelf) {
       latest_message: sample.message,
       recent_messages: sample.recent_messages,
       summary_text: sample.summary_text,
-      relationship_cards: selectedCards
+      memory_items: selectedCards
     }, null, 2)
   ].join('\n');
 }

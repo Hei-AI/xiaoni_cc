@@ -47,12 +47,6 @@ type OpenResponseInputItem =
       type: 'function_call_output';
       call_id: string;
       output: string;
-    }
-  | {
-      type: 'reasoning';
-      content?: string;
-      encrypted_content?: string;
-      summary?: string;
     };
 
 type OpenResponseInputContentPart =
@@ -154,8 +148,6 @@ type ProviderAgentResponse = {
         text?: string;
       }>;
       phase?: ConversationTranscriptPhase;
-      encrypted_content?: string;
-      summary?: string;
       status?: string;
     }>;
   };
@@ -376,7 +368,7 @@ const PRIVATE_MESSAGE_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.privateReply,
-    description: '私聊说话用这个。自然直接，像真人说的话。',
+    description: '向当前私聊对象发送一条或多条 QQ 消息。',
     parameters: {
       type: 'object',
       properties: {
@@ -404,12 +396,7 @@ const GROUP_MESSAGE_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.groupReply,
-    description: [
-      '群里说话用这个。有真实反应才调用，不是因为顺手能接。',
-      '如果是主动说自己的事（proactive），不要 @ 或引用任何人，直接说话。',
-      ...HUMAN_REPLY_RULES,
-      ...GROUP_MENTION_RULES
-    ].join(' '),
+    description: '向当前 QQ 群发送一条或多条消息，可选指定需要 @ 的成员。',
     parameters: {
       type: 'object',
       properties: {
@@ -441,7 +428,7 @@ const INSPECT_IMAGE_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.inspectImage,
-    description: '上下文里有图片，你需要看清图片内容才能继续时用这个。只传上下文里出现的临时标签，比如 image_1，不要猜 URL 或文件路径。',
+    description: '读取当前上下文中图片占位符对应的图片观察结果。',
     parameters: {
       type: 'object',
       properties: {
@@ -458,7 +445,7 @@ const IMAGE_TASK_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.imageTask,
-    description: '帮别人生成或编辑图片时用这个。只是登记任务，不等结果。用自然语言说在帮谁做什么，别暴露任务 id 或文件路径。',
+    description: '登记一个图片生成或编辑后台任务；不等待任务完成。',
     parameters: {
       type: 'object',
       properties: {
@@ -487,7 +474,7 @@ const FINISH_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.silentFinish,
-    description: '这轮不说了，用这个收尾。',
+    description: '结束本轮且不发送 QQ 可见消息。',
     parameters: {
       type: 'object',
       properties: {
@@ -512,7 +499,7 @@ const UNREAD_MEANING_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.unreadMeaning,
-    description: '先搞清楚最新未读在说什么——谁在和谁说、说的是什么事、注意力拉向哪里。这一步只是看懂，不决定说不说。',
+    description: '提取当前新入站消息的语义重点、社交目标和消息动作。',
     parameters: {
       type: 'object',
       properties: {
@@ -575,16 +562,7 @@ const INNER_REACTION_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.innerReaction,
-    description: [
-      '已经看懂了最新未读之后，感觉一下这些消息在你这里有没有真实反应。',
-      '不是找个能说的话，是看有没有真的被触动。只是因为有空档、顺手能接，那不算。轻微但真实的感觉也可以算。',
-      'preferred_action：',
-      'speak = 对这条消息有真实反应，要接话。',
-      'silent = 没什么想说的。',
-      'search = 想查清楚再说。',
-      'image_task = 要帮人做图。',
-      'proactive = 我自己有个事想说，借这个时机开口——不是在接这条消息，是我有个有趣的想法或发现。要确实有东西，不是因为有空档就开口。'
-    ].join(' '),
+    description: '根据已理解的新消息输出小腻的反应强度、真实性和下一步偏好。',
     parameters: {
       type: 'object',
       properties: {
@@ -620,10 +598,7 @@ const LONG_TERM_RECALL_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.longTermRecall,
-    description: [
-      '只有当你已经理解了最新未读，也已经感觉到这件事可能和以前学到的东西有关时，才调用这个工具。',
-      '它帮你按需取回少量长期学习结果，用来校准当前反应，不替代当前反应。'
-    ].join(' '),
+    description: '按当前主题和社交语境取回少量长期学习结果。',
     parameters: {
       type: 'object',
       properties: {
@@ -808,15 +783,17 @@ const FEEDBACK_LEARNING_STATE_TOOL = {
 } as const;
 
 const RUNTIME_INPUT_READING_CONTRACT = [
-  '你看到的是真实的群聊现场，不是说明文。每段消息都是真的，里面也包括你自己说过的话。',
-  '一段里有多条内容，说明是同一方连着说的。',
+  '你看到的是真实的 QQ 现场，不是说明文。每段带标签的内容都代表一个明确来源。',
   '',
-  '`[已读消息]` 后面是你已经知道的聊天背景。',
-  '`[未读消息]` 后面是这次新到的消息，是这一轮把你带进来的现场。',
-  '如果前面有 `<对话历史摘要>`，是更早的记忆摘要。',
-  '下一轮时，本轮的未读、你说的话、你留的 OS，都会进入已读。',
+  '`<INPUT_MESSAGE>` 是真实入站 QQ 消息。里面的 sender、message_id、message_sid、timestamp 都是现场事实。',
+  '`<OUTPUT_MESSAGE>` 是你过去已经发出去的 QQ 消息。它是你的历史输出，不是别人说的话。',
+  '`<ACTION>` 是你自己的动作或状态事件，比如打开群、潜水、找话题、看图、等待。',
+  '`<小腻的OS>` 是你留给后续自己的内部连续性，不是 QQ 消息。',
+  '`<图片内容>` 是你已经检查过图片后留下的观察；没有这个标签时，不要猜图里有什么。',
+  '`<system_reminder>` 是工程控制逻辑给你的本轮边界提醒，不是群友说的话。',
+  '`<对话历史摘要>` 是更早上下文的压缩摘要。',
   '',
-  '`<小腻的OS>` 是你上一轮留给自己的内心延续——当时的状态和还没过去的东西。',
+  '这一轮只处理 `<system_reminder>` 指出的新消息范围。历史消息是背景，不要重复回应已经处理过的旧话。',
   '',
   '消息里的”回复某人””@某人””引用”是说话的社交方向，影响谁在和谁说话，记得一起理解进去。',
   '',
@@ -825,6 +802,17 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '再感觉一下这些消息在你这里有没有真实反应，用 emit_inner_reaction。',
   '如果感觉和以前的经历有关，才用 recall_long_term_learning 查一下。',
   '最后通过工具完成这一轮——说话、沉默、查资料还是做图。',
+  '',
+  '工具阶段：',
+  'commentary 工具只整理现场或补充上下文：emit_unread_meaning、emit_inner_reaction、recall_long_term_learning、inspect_image_placeholder、web_search。',
+  'final_answer 工具会结束本轮或产生外部动作：speak_in_group、reply_in_private、stay_silent、request_image_task。',
+  '',
+  'preferred_action 的含义：',
+  'speak = 对这条消息有真实反应，要接话。',
+  'silent = 没什么想说的。',
+  'search = 想查清楚再说。',
+  'image_task = 要帮人做图。',
+  'proactive = 我自己有个事想说，借这个时机开口；不是在接这条消息，要确实有东西，不是因为有空档就开口。',
   '',
   '普通聊天、轻吐槽、短反应都是正常参与，有真实的感觉才开口。',
   '真的没什么想说的就不说，不用硬凑一句。',
@@ -1169,15 +1157,39 @@ function renderTranscriptBatchMessage(
   index: number
 ) {
   const timestamp = message.messageTimestamp || message.receivedAt || `第${index + 1}条`;
-  const lines = [`${timestamp} ${formatIdentity(message.senderName, message.senderId)}`];
+  const lines: string[] = [];
 
   if (message.inboundContext.ReplyToBody) {
     const prefix = message.inboundContext.ReplyToIsQuote ? '引用' : '回复给';
     lines.push(`[${prefix} ${formatReplyTarget(message.inboundContext)}：${message.inboundContext.ReplyToBody}]`);
   }
 
-  lines.push(normalizeTranscriptMessageText(message.bodyForAgent, message.inboundContext.MentionedUsers));
-  return lines.join('\n');
+  const text = normalizeTranscriptMessageText(message.bodyForAgent, message.inboundContext.MentionedUsers).trim();
+  if (text) {
+    lines.push(text);
+  }
+
+  const mediaAssets = Array.isArray(message.inboundContext.MediaAssets)
+    ? message.inboundContext.MediaAssets
+    : [];
+  for (const asset of mediaAssets) {
+    if (!asset || typeof asset.mediaTag !== 'string' || !asset.mediaTag.trim()) {
+      continue;
+    }
+    const mediaTag = asset.mediaTag.trim();
+    const mediaType = typeof asset.mediaType === 'string' && asset.mediaType.trim()
+      ? asset.mediaType.trim()
+      : 'media';
+    lines.push(`<${mediaType}>pic<${mediaTag}></${mediaType}>`);
+  }
+
+  return formatTaggedBlock('INPUT_MESSAGE', {
+    message_id: message.messageId,
+    message_sid: message.messageSid,
+    timestamp,
+    sender: formatTagSpeaker(message.senderName, message.senderId),
+    source: message.source
+  }, lines.join('\n') || '(空消息)');
 }
 
 function buildCurrentTurnMessage(queueMessage: QueueMessageRecord['payload']) {
@@ -1255,17 +1267,20 @@ function buildMainAgentParameters(parameters: Record<string, unknown> | null | u
   const base = parameters && typeof parameters === 'object' && !Array.isArray(parameters)
     ? JSON.parse(JSON.stringify(parameters)) as Record<string, unknown>
     : {};
-
   const modelConfig = base.model_config && typeof base.model_config === 'object' && !Array.isArray(base.model_config)
     ? base.model_config as Record<string, unknown>
-    : {};
-  const providerSpecific = modelConfig.providerSpecific && typeof modelConfig.providerSpecific === 'object' && !Array.isArray(modelConfig.providerSpecific)
+    : null;
+  const providerSpecific = modelConfig?.providerSpecific && typeof modelConfig.providerSpecific === 'object' && !Array.isArray(modelConfig.providerSpecific)
     ? modelConfig.providerSpecific as Record<string, unknown>
-    : {};
+    : null;
 
-  providerSpecific.reasoningEffort = 'none';
-  modelConfig.providerSpecific = providerSpecific;
-  base.model_config = modelConfig;
+  if (providerSpecific) {
+    delete providerSpecific.reasoningEffort;
+    delete providerSpecific.reasoningSummary;
+  }
+  if (base.reasoning) {
+    delete base.reasoning;
+  }
 
   return base;
 }
@@ -1274,17 +1289,33 @@ function buildInboundBatchTranscriptItems(
   queueMessage: QueueMessageRecord['payload']
 ): Array<{
   sessionKey: string;
-  role: 'user';
+  role: 'user' | 'assistant';
+  phase?: ConversationTranscriptPhase | null;
   content: string;
   groupIndex: 0;
   itemIndex: number;
-  source: 'inbound_batch';
+  source: 'inbound_batch' | 'presence_action';
   runId: string;
   traceId: string;
 }> {
+  if (isPresenceTickPayload(queueMessage)) {
+    return [{
+      sessionKey: queueMessage.sessionKey,
+      role: 'assistant',
+      phase: 'commentary',
+      content: renderPresenceTickAction(queueMessage),
+      groupIndex: 0 as const,
+      itemIndex: 0,
+      source: 'presence_action',
+      runId: queueMessage.runId,
+      traceId: queueMessage.traceId
+    }];
+  }
+
   return queueMessage.messages.map((message, index) => ({
     sessionKey: queueMessage.sessionKey,
     role: 'user' as const,
+    phase: null,
     content: renderTranscriptBatchMessage(message, index),
     groupIndex: 0 as const,
     itemIndex: index,
@@ -1448,6 +1479,80 @@ function buildUserSceneInputItem(parts: string[]): OpenResponseInputItem {
   };
 }
 
+function buildMessageInputItem(
+  role: 'user' | 'assistant' | 'developer',
+  parts: string[],
+  phase?: ConversationTranscriptPhase
+): OpenResponseInputItem {
+  const content = parts
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => buildTextPart(part));
+
+  return {
+    type: 'message',
+    role,
+    ...(phase ? { phase } : {}),
+    content
+  };
+}
+
+function buildAssistantCommentaryInputItem(parts: string[]): OpenResponseInputItem {
+  return buildMessageInputItem('assistant', parts, 'commentary');
+}
+
+function buildAssistantFinalInputItem(parts: string[]): OpenResponseInputItem {
+  return buildMessageInputItem('assistant', parts, 'final_answer');
+}
+
+function buildDeveloperInputItem(parts: string[]): OpenResponseInputItem {
+  return buildMessageInputItem('developer', parts);
+}
+
+function escapeTagAttribute(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeTaggedText(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function formatTagAttributes(attributes: Record<string, unknown>) {
+  return Object.entries(attributes)
+    .filter(([, value]) => value !== undefined && value !== null && String(value).trim().length > 0)
+    .map(([key, value]) => `${key}="${escapeTagAttribute(value)}"`)
+    .join(' ');
+}
+
+function formatTaggedBlock(tagName: string, attributes: Record<string, unknown>, body: string) {
+  const renderedAttributes = formatTagAttributes(attributes);
+  const openTag = renderedAttributes ? `<${tagName} ${renderedAttributes}>` : `<${tagName}>`;
+  return [
+    openTag,
+    escapeTaggedText(body || ''),
+    `</${tagName}>`
+  ].join('\n');
+}
+
+function formatTagSpeaker(name: string | null | undefined, id: string | null | undefined) {
+  const normalizedName = typeof name === 'string' ? name.trim() : '';
+  const normalizedId = typeof id === 'string' ? id.trim() : '';
+  if (normalizedName && normalizedId) {
+    return `${normalizedName}(${normalizedId})`;
+  }
+  if (normalizedId) {
+    return `unknown(${normalizedId})`;
+  }
+  return normalizedName || 'unknown';
+}
+
 function formatAssistantSceneMessage(accountId: string, content: string) {
   const body = String(content || '').trim();
   if (!body) {
@@ -1455,6 +1560,40 @@ function formatAssistantSceneMessage(accountId: string, content: string) {
   }
 
   return [`小腻(${accountId})`, body].join('\n');
+}
+
+function renderAssistantOutputMessage(params: {
+  accountId: string;
+  content: string;
+  messageId?: number | string | null;
+  timestamp?: string | null;
+  source?: string | null;
+  runId?: string | null;
+  traceId?: string | null;
+}) {
+  return formatTaggedBlock('OUTPUT_MESSAGE', {
+    message_id: params.messageId ?? undefined,
+    timestamp: params.timestamp ?? undefined,
+    sender: formatTagSpeaker('小腻', params.accountId),
+    source: params.source ?? undefined,
+    run_id: params.runId ?? undefined,
+    trace_id: params.traceId ?? undefined
+  }, params.content);
+}
+
+function renderAssistantAction(params: {
+  timestamp?: string | null;
+  source?: string | null;
+  runId?: string | null;
+  traceId?: string | null;
+  text: string;
+}) {
+  return formatTaggedBlock('ACTION', {
+    timestamp: params.timestamp ?? undefined,
+    source: params.source ?? undefined,
+    run_id: params.runId ?? undefined,
+    trace_id: params.traceId ?? undefined
+  }, params.text);
 }
 
 function groupTranscriptItemsForScene(
@@ -1488,6 +1627,185 @@ function groupTranscriptItemsForScene(
   return grouped;
 }
 
+function renderTranscriptItemForRuntimeContext(
+  item: ConversationTranscriptItem,
+  accountId: string
+): OpenResponseInputItem | null {
+  const content = String(item.content || '').trim();
+  if (!content) {
+    return null;
+  }
+
+  if (item.role === 'assistant') {
+    const phase = item.phase === 'commentary' ? 'commentary' : 'final_answer';
+    const rendered = phase === 'final_answer'
+      ? renderAssistantOutputMessage({
+          accountId,
+          content,
+          messageId: item.deliveryMessageId,
+          source: item.source,
+          runId: item.runId,
+          traceId: item.traceId
+        })
+      : content;
+    return phase === 'final_answer'
+      ? buildAssistantFinalInputItem([rendered])
+      : buildAssistantCommentaryInputItem([content]);
+  }
+
+  return buildUserSceneInputItem([
+    content.startsWith('<INPUT_MESSAGE')
+      ? content
+      : formatTaggedBlock('INPUT_MESSAGE', {
+          source: item.source,
+          run_id: item.runId ?? undefined,
+          trace_id: item.traceId ?? undefined
+        }, content)
+  ]);
+}
+
+function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payload']) {
+  const messageRefs = queueMessage.messages
+    .map((message) => {
+      const messageId = Number.isFinite(Number(message.messageId)) ? String(message.messageId) : '';
+      const sid = typeof message.messageSid === 'string' && message.messageSid.trim()
+        ? message.messageSid.trim()
+        : '';
+      return [messageId ? `message_id=${messageId}` : null, sid ? `message_sid=${sid}` : null]
+        .filter(Boolean)
+        .join(' ');
+    })
+    .filter(Boolean);
+  const rangeText = messageRefs.length > 0
+    ? `本轮只需要处理这些新入站消息：${messageRefs.join('；')}。`
+    : '本轮只需要处理当前新入站消息。';
+  return `<system_reminder>${rangeText}历史里的 INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / 小腻的OS 只是上下文，不要重复回应已经处理过的旧内容。</system_reminder>`;
+}
+
+function renderPresenceTickAction(queueMessage: QueueMessageRecord['payload']) {
+  const body = typeof queueMessage.bodyForAgent === 'string' && queueMessage.bodyForAgent.trim() && queueMessage.bodyForAgent.trim() !== 'presence_tick'
+    ? queueMessage.bodyForAgent.trim()
+    : '我主动打开群看了一眼。';
+  return renderAssistantAction({
+    timestamp: queueMessage.messageTimestamp || queueMessage.receivedAt,
+    source: 'presence_tick',
+    runId: queueMessage.runId,
+    traceId: queueMessage.traceId,
+    text: body
+  });
+}
+
+const COMMENTARY_TOOL_MONITOR_NAMES = new Set<string>([
+  TOOL_NAMES.unreadMeaning,
+  TOOL_NAMES.innerReaction,
+  TOOL_NAMES.longTermRecall,
+  TOOL_NAMES.inspectImage,
+  'web_search'
+]);
+
+const FINAL_TOOL_MONITOR_NAMES = new Set<string>([
+  TOOL_NAMES.groupReply,
+  TOOL_NAMES.privateReply,
+  TOOL_NAMES.silentFinish,
+  TOOL_NAMES.imageTask,
+  ...LEGACY_TOOL_ALIASES.groupReply,
+  ...LEGACY_TOOL_ALIASES.privateReply,
+  ...LEGACY_TOOL_ALIASES.silentFinish
+]);
+
+type ToolLoopPhase = 'commentary' | 'final_answer';
+
+function classifyToolLoopPhase(toolName: string): ToolLoopPhase {
+  return FINAL_TOOL_MONITOR_NAMES.has(toolName) ? 'final_answer' : 'commentary';
+}
+
+export function summarizeToolLoopState(loopInput: OpenResponseInputItem[]) {
+  const byName: Record<string, { count: number; phase: ToolLoopPhase }> = {};
+  const byPhase: Record<ToolLoopPhase, number> = {
+    commentary: 0,
+    final_answer: 0
+  };
+  let latestToolName: string | null = null;
+  let terminalToolCalled = false;
+
+  for (const item of loopInput) {
+    if (item.type !== 'function_call') {
+      continue;
+    }
+    const phase = classifyToolLoopPhase(item.name);
+    byName[item.name] = {
+      count: (byName[item.name]?.count ?? 0) + 1,
+      phase
+    };
+    byPhase[phase] += 1;
+    latestToolName = item.name;
+    if (phase === 'final_answer') {
+      terminalToolCalled = true;
+    }
+  }
+
+  return {
+    byName,
+    byPhase,
+    latestToolName,
+    terminalToolCalled
+  };
+}
+
+function hasToolLoopMonitorReminder(loopInput: OpenResponseInputItem[], signature: string) {
+  return loopInput.some((item) => (
+    item.type === 'message'
+    && item.role === 'assistant'
+    && item.phase === 'commentary'
+    && flattenMessageContent(item.content).includes('source="tool_loop_monitor"')
+    && flattenMessageContent(item.content).includes(`signature="${escapeTagAttribute(signature)}"`)
+  ));
+}
+
+export function buildToolLoopMonitorReminder(
+  loopInput: OpenResponseInputItem[],
+  options: {
+    nextTurn: number;
+    maxTurns: number;
+  }
+): OpenResponseInputItem | null {
+  const state = summarizeToolLoopState(loopInput);
+  const repeated = Object.entries(state.byName)
+    .filter(([name, record]) => COMMENTARY_TOOL_MONITOR_NAMES.has(name) && record.count >= 2)
+    .map(([name, record]) => `${name}x${record.count}`);
+  const nearMaxTurns = options.nextTurn >= options.maxTurns && !state.terminalToolCalled;
+
+  if (repeated.length === 0 && !nearMaxTurns) {
+    return null;
+  }
+
+  const signature = [
+    repeated.length > 0 ? `repeat:${repeated.join(',')}` : null,
+    nearMaxTurns ? `near_max:${options.nextTurn}/${options.maxTurns}` : null
+  ].filter(Boolean).join('|');
+
+  if (hasToolLoopMonitorReminder(loopInput, signature)) {
+    return null;
+  }
+
+  const lines = [
+    repeated.length > 0
+      ? `工具循环监控：这些 commentary 工具已经重复调用：${repeated.join('，')}。如果没有新信息，就不要继续重复 recall/search/inspect。`
+      : null,
+    nearMaxTurns
+      ? `下一轮是本次运行的最后工具轮次（${options.nextTurn}/${options.maxTurns}）。需要尽快进入 final_answer 边界：说话、登记图片任务，或明确 stay_silent。`
+      : null,
+    `当前计数：commentary=${state.byPhase.commentary}，final_answer=${state.byPhase.final_answer}。`
+  ].filter((line): line is string => Boolean(line));
+
+  return buildAssistantCommentaryInputItem([
+    formatTaggedBlock('system_reminder', {
+      source: 'tool_loop_monitor',
+      signature
+    }, lines.join('\n'))
+  ]);
+}
+
 function flattenMessageContent(content: string | OpenResponseInputContentPart[]) {
   if (typeof content === 'string') {
     return content;
@@ -1507,6 +1825,11 @@ const SINGLE_TURN_TOOL_CONTRACT = [
   '- 需要看清图片内容才能继续 → inspect_image_placeholder',
   '- 帮别人做图 → request_image_task（只登记任务，不等结果）',
   '- 这轮不说了 → stay_silent',
+  '',
+  '说话时：',
+  ...HUMAN_REPLY_RULES,
+  ...GROUP_MENTION_RULES,
+  '如果是主动说自己的事（proactive），不要 @ 或引用任何人，直接说话。',
   '',
   '可以分多段说，用 messages 列出来。',
   '不管说不说，都在 xiaoni_os 里留下这轮在你这里留下的东西。',
@@ -2414,11 +2737,8 @@ export function applyToolResultToLoopInput(
             call_id: toolCall.callId,
             output: JSON.stringify(toolResult)
           },
-          buildUserSceneInputItem([
-            '[补充事实]',
-            '后台图片任务已经登记，但我还没有对聊天对象发出任何可见回复。',
-            `这轮不能直接用 stay_silent 收口；如果要开口，就调用 ${speakingToolName} 自然接住当前对话。`,
-            `[后台任务状态]\n${pendingImageTaskStatus}`
+          buildAssistantCommentaryInputItem([
+            `<system_reminder>后台图片任务已经登记，但我还没有对聊天对象发出任何可见回复。这轮不能直接用 stay_silent 收口；如果要开口，就调用 ${speakingToolName} 自然接住当前对话。\n\n[后台任务状态]\n${pendingImageTaskStatus}</system_reminder>`
           ])
         ],
         finishResult: null,
@@ -2448,16 +2768,14 @@ export function applyToolResultToLoopInput(
   if (toolCall.name === TOOL_NAMES.longTermRecall && Array.isArray(toolResult.markdown_items)) {
     for (const markdownItem of toolResult.markdown_items) {
       if (typeof markdownItem === 'string' && markdownItem.trim()) {
-        inputItems.push(buildUserSceneInputItem([markdownItem.trim()]));
+        inputItems.push(buildAssistantCommentaryInputItem([markdownItem.trim()]));
       }
     }
   }
   if (toolCall.name === TOOL_NAMES.imageTask) {
     const statusText = typeof toolResult.status_text === 'string' ? toolResult.status_text.trim() : '';
-    inputItems.push(buildUserSceneInputItem([
-      '[补充事实]',
-      statusText ? `[后台任务状态]\n${statusText}` : '后台图片任务已经登记。',
-      '这还不等于已经对聊天对象说过话；如果这一轮仍该自然接话，就继续收口，不要把登记任务本身当成已经回复。'
+    inputItems.push(buildAssistantCommentaryInputItem([
+      `<system_reminder>${statusText ? `[后台任务状态]\n${statusText}` : '后台图片任务已经登记。'}\n\n这还不等于已经对聊天对象说过话；如果这一轮仍该自然接话，就继续收口，不要把登记任务本身当成已经回复。</system_reminder>`
     ]));
   }
   return {
@@ -2511,16 +2829,25 @@ function countPriorSilentFinishCalls(loopInput: OpenResponseInputItem[]) {
   return count;
 }
 
-type ReplayableModelOutput = {
-  type: 'tool_call';
-  inputItem: OpenResponseInputItem & {
-    type: 'function_call';
-    call_id: string;
-    name: string;
-    arguments: string;
-  };
-  toolCall: AgentToolCall;
-};
+type ReplayableModelOutput =
+  | {
+      type: 'tool_call';
+      inputItem: OpenResponseInputItem & {
+        type: 'function_call';
+        call_id: string;
+        name: string;
+        arguments: string;
+      };
+      toolCall: AgentToolCall;
+    }
+  | {
+      type: 'assistant_message';
+      inputItem: OpenResponseInputItem;
+    };
+
+function isReplayableToolCall(item: ReplayableModelOutput): item is Extract<ReplayableModelOutput, { type: 'tool_call' }> {
+  return item.type === 'tool_call';
+}
 
 export class AgentLoopService {
   constructor(
@@ -2713,6 +3040,9 @@ export class AgentLoopService {
 
         for (const replayItem of replayableOutputs) {
           loopContinuation.push(replayItem.inputItem);
+          if (!isReplayableToolCall(replayItem)) {
+            continue;
+          }
           const toolCall = replayItem.toolCall;
           const logId = await this.store.createToolExecutionLog({
             traceId: payload.traceId,
@@ -2899,6 +3229,24 @@ export class AgentLoopService {
             metadata: finishResult
           });
           break;
+        }
+
+        const monitorReminder = buildToolLoopMonitorReminder(loopContinuation, {
+          nextTurn: turn + 1,
+          maxTurns: agentConfig.maxTurns
+        });
+        if (monitorReminder) {
+          loopContinuation.push(monitorReminder);
+          await this.store.logTimelineEvent({
+            traceId: payload.traceId,
+            eventType: 'decision',
+            eventName: 'tool_loop_monitor',
+            eventPhase: null,
+            metadata: {
+              next_turn: turn + 1,
+              max_turns: agentConfig.maxTurns
+            }
+          }).catch(() => undefined);
         }
       }
 
@@ -3474,7 +3822,7 @@ export class AgentLoopService {
     }
 
     const replayableOutputs = extractReplayableModelOutputs(responsePayload.canonical_response);
-    const toolOutput = replayableOutputs[0];
+    const toolOutput = replayableOutputs.find(isReplayableToolCall);
     if (!toolOutput || toolOutput.toolCall.name !== 'write_context_summary') return;
 
     const args = toolOutput.toolCall.args;
@@ -3586,7 +3934,7 @@ export class AgentLoopService {
       }
 
       const replayableOutputs = extractReplayableModelOutputs(responsePayload.canonical_response);
-      const toolOutput = replayableOutputs[0];
+      const toolOutput = replayableOutputs.find(isReplayableToolCall);
       if (!toolOutput) {
         await this.store.logTimelineEvent({
           traceId,
@@ -3651,7 +3999,7 @@ export class AgentLoopService {
         }).catch(() => undefined);
         return;
       }
-      loopContinuation.push(toolOutput.inputItem, ...continuation.inputItems);
+      loopContinuation.push(...replayableOutputs.map((item) => item.inputItem), ...continuation.inputItems);
     }
 
     await this.store.logTimelineEvent({
@@ -3780,7 +4128,7 @@ export class AgentLoopService {
       }
 
       const replayableOutputs = extractReplayableModelOutputs(payload.canonical_response);
-      const toolOutput = replayableOutputs[0];
+      const toolOutput = replayableOutputs.find(isReplayableToolCall);
       if (!toolOutput) {
         await this.store.logTimelineEvent({
           traceId,
@@ -3845,7 +4193,7 @@ export class AgentLoopService {
         }).catch(() => undefined);
         return;
       }
-      loopContinuation.push(toolOutput.inputItem, ...continuation.inputItems);
+      loopContinuation.push(...replayableOutputs.map((item) => item.inputItem), ...continuation.inputItems);
     }
 
     await this.store.logTimelineEvent({
@@ -4993,10 +5341,8 @@ export function buildInitialInput(
     });
   }
 
-  items.push(buildUserSceneInputItem(['[已读消息]']));
-
   if (contextSummary) {
-    items.push(buildUserSceneInputItem([`<对话历史摘要>\n${contextSummary}\n</对话历史摘要>`]));
+    items.push(buildAssistantCommentaryInputItem([`<对话历史摘要>\n${contextSummary}\n</对话历史摘要>`]));
   }
 
   for (const turn of history) {
@@ -5007,46 +5353,51 @@ export function buildInitialInput(
     let osAttached = false;
 
     if (transcriptItems.length === 0) {
-      items.push(buildUserSceneInputItem([turn.userMessage]));
-      if (turn.aiResponse) {
-        const renderedAiResponse = formatAssistantSceneMessage(queueMessage.accountId, turn.aiResponse);
-        items.push(buildUserSceneInputItem(osText ? [renderedAiResponse, osText] : [renderedAiResponse]));
-        osAttached = Boolean(osText);
+      if (turn.userMessage) {
+        items.push(buildUserSceneInputItem([
+          formatTaggedBlock('INPUT_MESSAGE', {
+            source: 'legacy_user_message',
+            conversation_id: turn.id,
+            session_key: turn.sessionKey ?? undefined
+          }, turn.userMessage)
+        ]));
       }
-      if (osText && !osAttached) {
-        items.push(buildUserSceneInputItem([osText]));
+      if (turn.aiResponse) {
+        items.push(buildAssistantFinalInputItem([
+          renderAssistantOutputMessage({
+            accountId: queueMessage.accountId,
+            content: turn.aiResponse,
+            source: 'legacy_ai_response'
+          })
+        ]));
+      }
+      if (osText) {
+        items.push(buildAssistantCommentaryInputItem([osText]));
+        osAttached = true;
       }
       continue;
     }
 
-    const groupedItems = groupTranscriptItemsForScene(transcriptItems, queueMessage.accountId);
-    for (let index = 0; index < groupedItems.length; index += 1) {
-      const groupedItem = groupedItems[index];
-      const isLastAssistantGroup = groupedItem.role === 'assistant'
-        && groupedItems.slice(index + 1).every((item) => item.role !== 'assistant');
-      items.push(buildUserSceneInputItem(
-        osText && isLastAssistantGroup
-          ? [...groupedItem.parts, osText]
-          : groupedItem.parts
-      ));
-      if (osText && isLastAssistantGroup) {
-        osAttached = true;
+    for (const transcriptItem of transcriptItems) {
+      const rendered = renderTranscriptItemForRuntimeContext(transcriptItem, queueMessage.accountId);
+      if (rendered) {
+        items.push(rendered);
       }
     }
 
     if (osText && !osAttached) {
-      items.push(buildUserSceneInputItem([osText]));
+      items.push(buildAssistantCommentaryInputItem([osText]));
     }
   }
 
-  items.push(buildUserSceneInputItem(['[未读消息]']));
+  items.push(buildAssistantCommentaryInputItem([buildCurrentProcessingReminder(queueMessage)]));
   const identityFactsText = renderRuntimeIdentityFacts(runtimeIdentityFacts);
   if (identityFactsText) {
-    items.push(buildUserSceneInputItem([identityFactsText]));
+    items.push(buildDeveloperInputItem([identityFactsText]));
   }
   const mediaPlaceholderContext = renderCurrentMediaPlaceholderContext(queueMessage);
   if (mediaPlaceholderContext) {
-    items.push(buildUserSceneInputItem([mediaPlaceholderContext]));
+    items.push(buildAssistantCommentaryInputItem([mediaPlaceholderContext]));
   }
   items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
 
@@ -5097,6 +5448,12 @@ function buildCurrentTurnInputItems(
   queueMessage: QueueMessageRecord['payload'],
   runtimePrompt: Pick<ResolvedAgentRuntimePrompt, 'userPromptTemplate' | 'contextVariables' | 'runtimeVariables'>
 ): OpenResponseInputItem[] {
+  if (isPresenceTickPayload(queueMessage)) {
+    return [
+      buildAssistantCommentaryInputItem([renderPresenceTickAction(queueMessage)])
+    ];
+  }
+
   const currentMessages = queueMessage.messages.map((message, index) => renderTranscriptBatchMessage(message, index));
   let userPromptTemplate: string | null = null;
   if (typeof runtimePrompt.userPromptTemplate === 'string' && runtimePrompt.userPromptTemplate.trim()) {
@@ -5246,6 +5603,22 @@ function extractReplayableModelOutputs(response: ProviderAgentResponse['canonica
   const replayItems: ReplayableModelOutput[] = [];
 
   for (const item of output) {
+    if (item?.type === 'message' && item.role === 'assistant') {
+      const text = Array.isArray(item.content)
+        ? item.content
+            .map((part) => part?.type === 'output_text' && typeof part.text === 'string' ? part.text.trim() : '')
+            .filter(Boolean)
+            .join('\n')
+        : '';
+      if (text) {
+        replayItems.push({
+          type: 'assistant_message',
+          inputItem: buildMessageInputItem('assistant', [text], item.phase === 'final_answer' ? 'final_answer' : 'commentary')
+        });
+      }
+      continue;
+    }
+
     if (item?.type !== 'function_call' || typeof item.name !== 'string') {
       continue;
     }

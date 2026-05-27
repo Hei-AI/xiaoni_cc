@@ -140,6 +140,7 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'previous_response_id'), false);
   assert.equal(payload.prompt_cache_key, 'qq:group:101');
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'include'), false);
   assert.equal(payload.tools[1]?.type, 'web_search');
   assert.equal(payload.tools[1]?.search_context_size, 'medium');
   assert.equal(payload.tools[1]?.external_web_access, true);
@@ -262,7 +263,7 @@ test('Gemini CLI provider rejects structured allowed_tools tool_choice', () => {
   );
 });
 
-test('Codex provider preserves reasoning items from SSE output', () => {
+test('Codex provider does not preserve encrypted reasoning from SSE output', () => {
   const provider = new TestCodexProvider({} as any);
   const parsed = (provider as any).parseCodexSsePayload([
     'event: response.output_item.done',
@@ -277,7 +278,6 @@ test('Codex provider preserves reasoning items from SSE output', () => {
 
   assert.deepEqual(parsed.output[0], {
     type: 'reasoning',
-    encrypted_content: 'enc',
     summary: 'done'
   });
   assert.equal(parsed.output[1]?.type, 'message');
