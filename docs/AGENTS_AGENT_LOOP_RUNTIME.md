@@ -731,18 +731,20 @@ emit_unread_meaning
 
 代码：
 
-- 调度：`agent-loop-service.ts:2682-2691`
-- 子 agent 总控：`agent-loop-service.ts:2938-3130`
-- 三步写入：`agent-loop-service.ts:3156-3397`
+- 触发调度：`AgentLoopService.processQueueMessage` 在 `evictedTurns.length > 0` 时调度 context compression memory writer 和 context summary writer
+- durable lesson writer：`runContextCompressionMemoryWriter`
+- summary writer：`runContextSummaryWriter`
+- per-turn feedback writer：`runFeedbackMemorySubagent` 只记录 disabled timeline，不调用 provider
 
 闭环是异步跑的：
 
 ```text
 主 loop 完成
-  -> scheduleFeedbackMemorySubagent
-  -> extract_feedback_episode
-  -> synthesize_feedback_reflection
-  -> update_learning_state
+  -> 如果有 evictedTurns:
+     -> scheduleContextCompressionMemoryWriter
+     -> synthesize_feedback_reflection
+     -> update_learning_state
+     -> scheduleContextSummaryWriter
 ```
 
 如果 reflection 被判成 identity 级别，还会继续：
@@ -751,6 +753,10 @@ emit_unread_meaning
 appendIdentityChangeCandidate
 -> createAcceptedIdentityFact
 ```
+
+per-turn `feedback_memory_writer` 现在只保留 timeline start/end，不再调用 provider 写入长期学习；结束原因是 `disabled_feedback_episode_tool_removed`。
+
+真正的 durable reflection 只在上下文压缩时由 `context_compression_memory_writer` 生成。它审视即将移出窗口的一批历史，如果没有值得长期保留的内容就不调用工具；如果有，只写一条最重要的 reflection，再更新同题 learning state。
 
 这条闭环不会直接把这一轮“沉默”改成“说话”，但会影响以后 recall 时能召回什么经验。
 
@@ -785,8 +791,9 @@ component "provider-service\n入站/出站网关" as provider
 component "agent-service\n主 loop" as agent
 database "agent_queue_messages" as queue
 database "conversation_items\nagent_runs\ntool_execution_logs" as runtime_db
-database "feedback episodes\nfeedback reflections\nlearning state" as learning_db
-component "feedback_memory_writer\n异步子 agent" as subagent
+database "feedback reflections\nlearning state" as learning_db
+component "context_compression_memory_writer\n异步子 agent" as subagent
+component "context_summary_writer\n异步摘要 writer" as summary
 
 napcat --> provider : QQ 新消息
 provider --> queue : 允许自动回复时入队
@@ -795,9 +802,11 @@ agent --> runtime_db : 写主链运行记录
 agent --> provider : 需要发言时调用出站发送
 provider --> napcat : 发回 QQ
 
-agent --> subagent : 主 loop 结束后异步调度\n带上本轮结果 / unread meaning / inner reaction / xiaoni_os
-subagent --> provider : 继续调用同一个 LLM 执行三步学习写入
-subagent --> learning_db : episode / reflection / learning_state
+agent --> subagent : 有历史被压缩时异步调度\n带上即将移出窗口的 turns
+subagent --> provider : 调用同一个 LLM 判断是否生成 durable reflection
+subagent --> learning_db : reflection / learning_state
+agent --> summary : 有历史被压缩时异步调度\n生成会话摘要
+summary --> runtime_db : session context summary
 learning_db --> agent : 以后 recall 时被取回
 @enduml
 ```
@@ -805,6 +814,6 @@ learning_db --> agent : 以后 recall 时被取回
 这张图里要看的核心是：
 
 - 主 loop 负责“这轮说不说”
-- 异步子 agent 负责“这轮之后学不学”
+- 压缩子 agent 负责“旧上下文被移出前，有没有值得沉淀成长期学习的内容”
 - 学到的东西不会回头改写这一轮结果
 - 但会进长期学习库，影响以后 recall 命中什么

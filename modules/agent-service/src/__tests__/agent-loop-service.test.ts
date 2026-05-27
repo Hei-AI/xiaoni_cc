@@ -115,6 +115,61 @@ function createQueuePayload(): QueueMessagePayload {
   };
 }
 
+function createConversationTurn(overrides: Partial<{
+  id: number;
+  userId: number;
+  groupId: number | null;
+  batchId: number | null;
+  sessionKey: string | null;
+  userMessage: string;
+  aiResponse: string | null;
+  userDeliveryMessageId: number | null;
+  assistantDeliveryMessageId: number | null;
+}> = {}) {
+  const id = overrides.id ?? 10;
+  const sessionKey = overrides.sessionKey ?? 'qq:group:101';
+  return {
+    id,
+    userId: overrides.userId ?? 202,
+    groupId: typeof overrides.groupId === 'undefined' ? 101 : overrides.groupId,
+    batchId: typeof overrides.batchId === 'undefined' ? null : overrides.batchId,
+    sessionKey,
+    userMessage: overrides.userMessage ?? '别公式化接话',
+    aiResponse: typeof overrides.aiResponse === 'undefined' ? '收到' : overrides.aiResponse,
+    items: [
+      {
+        id: id * 10 + 1,
+        conversationId: id,
+        sessionKey,
+        role: 'user' as const,
+        phase: null,
+        content: overrides.userMessage ?? '别公式化接话',
+        groupIndex: 0,
+        itemIndex: 0,
+        source: 'inbound_batch' as const,
+        deliveryMessageId: typeof overrides.userDeliveryMessageId === 'undefined' ? 201 : overrides.userDeliveryMessageId,
+        runId: null,
+        traceId: `trace-${id}`
+      },
+      {
+        id: id * 10 + 2,
+        conversationId: id,
+        sessionKey,
+        role: 'assistant' as const,
+        phase: 'final_answer' as const,
+        content: typeof overrides.aiResponse === 'undefined' ? '收到' : (overrides.aiResponse ?? ''),
+        groupIndex: 0,
+        itemIndex: 1,
+        source: 'delivery' as const,
+        deliveryMessageId: typeof overrides.assistantDeliveryMessageId === 'undefined' ? 901 : overrides.assistantDeliveryMessageId,
+        runId: 'run-old',
+        traceId: `trace-${id}`
+      }
+    ],
+    rawResponse: {}
+  };
+}
+
 function createDirectQueuePayload(): QueueMessagePayload {
   const payload = createQueuePayload();
   return {
@@ -1595,7 +1650,7 @@ test('context summary writer is engineering-triggered JSON output, not a tool ca
     await (service as any).runContextSummaryWriter({
       queueMessage: createQueuePayload(),
       conversationId: 1001,
-      evictedTurns: [{ id: 10, userMessage: '别公式化接话', aiResponse: '收到' }],
+      evictedTurns: [createConversationTurn()],
       existingSummary: null,
       runtimePrompt: createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' })
     });
@@ -1614,11 +1669,11 @@ test('context summary writer is engineering-triggered JSON output, not a tool ca
 
 test('context compression memory writer can synthesize durable reflections', async () => {
   const calls: Array<any> = [];
-  let reflectionWrites = 0;
+  const reflectionWrites: Array<any> = [];
   const store = {
     logTimelineEvent: async () => undefined,
-    createFeedbackReflection: async () => {
-      reflectionWrites += 1;
+    createFeedbackReflection: async (params: any) => {
+      reflectionWrites.push(params);
       return { id: 2 };
     },
     upsertFeedbackLearningState: async () => ({ id: 3 })
@@ -1667,7 +1722,10 @@ test('context compression memory writer can synthesize durable reflections', asy
     await (service as any).runContextCompressionMemoryWriter({
       queueMessage: createQueuePayload(),
       conversationId: 1001,
-      evictedTurns: [{ id: 10, userMessage: '别公式化接话', aiResponse: '收到' }],
+      evictedTurns: [createConversationTurn({
+        id: 10,
+        userDeliveryMessageId: 201
+      })],
       runtimePrompt: createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' })
     });
   } finally {
@@ -1679,7 +1737,78 @@ test('context compression memory writer can synthesize durable reflections', asy
     calls[0].canonicalRequest.tools.map((tool: any) => getToolName(tool)),
     ['synthesize_feedback_reflection', 'update_learning_state']
   );
-  assert.equal(reflectionWrites, 1);
+  assert.equal(reflectionWrites.length, 1);
+  assert.deepEqual(reflectionWrites[0].sourceMessageIds, [201]);
+  assert.equal(reflectionWrites[0].sourceConversationId, 10);
+  assert.deepEqual(reflectionWrites[0].metadata.evicted_turn_ids, [10]);
+  assert.equal(reflectionWrites[0].metadata.writer_source, 'context_compression_memory_writer');
+  assert.notDeepEqual(reflectionWrites[0].sourceMessageIds, [11]);
+});
+
+test('context compression identity lineage uses compression writer provenance', async () => {
+  const service = new AgentLoopService({} as any);
+  const reflectionWrites: any[] = [];
+  const identityCandidates: any[] = [];
+  const acceptedFacts: any[] = [];
+
+  await (service as any).executeFeedbackWriterTool({
+    callId: 'call-reflection',
+    name: 'synthesize_feedback_reflection',
+    rawArguments: '{}',
+    args: {
+      learning_key: 'style.opening_filler',
+      learning_scope: 'group_self',
+      reflection_type: 'self_model_update',
+      feedback_kind: 'negative',
+      confidence: 'high',
+      importance_score: 0.8,
+      evidence_weight: 0.75,
+      stability_score: 0.7,
+      summary_text: '小腻要避免用“哈哈，确实”作为默认开场，因为这会显得像公式化接话。',
+      retrieval_text: '不要用哈哈确实这类公式化开头。',
+      embedding_text: '公式化开头 哈哈 确实',
+      supersede_latest: false,
+      conflict_group_key: null,
+      reason: '这是明确负反馈。'
+    }
+  }, {
+    queueMessage: createQueuePayload(),
+    conversationId: 1001,
+    evidence: {
+      sourceMessageIds: [201],
+      sourceConversationId: 10,
+      sourceUserId: 202,
+      sourceUserName: null,
+      metadata: {
+        evicted_turn_ids: [10],
+        evidence_source: 'context_compression_evicted_turns'
+      },
+      writerSource: 'context_compression_memory_writer'
+    },
+    persistedReflectionId: null,
+    activeLearningKey: '',
+    activeLearningScope: '',
+    reflectionCreator: async (params: any) => {
+      reflectionWrites.push(params);
+      return { id: 8 };
+    },
+    stateUpserter: async () => ({ id: 9 }),
+    identityCandidateAppender: async (params: any) => {
+      identityCandidates.push(params);
+      return { candidate: { id: 11 } };
+    },
+    acceptedIdentityFactCreator: async (params: any) => {
+      acceptedFacts.push(params);
+      return { fact: { id: 12 } };
+    },
+    mode: 'durable_lessons'
+  });
+
+  assert.equal(reflectionWrites[0].metadata.writer_source, 'context_compression_memory_writer');
+  assert.equal(identityCandidates[0].proposedBy, 'context_compression_memory_writer');
+  assert.equal(identityCandidates[0].evidenceRefs[0].conversationId, 10);
+  assert.equal(acceptedFacts[0].lineageMetadata.source, 'context_compression_memory_writer');
+  assert.equal(acceptedFacts[0].evidenceRefs[0].conversationId, 10);
 });
 
 test('feedback reflection writes an identity candidate and accepted fact when hard-check passes', async () => {
@@ -1734,11 +1863,13 @@ test('feedback reflection writes an identity candidate and accepted fact when ha
   assert.equal(identityCandidates[0].identityKey, 'xiaoni');
   assert.equal(identityCandidates[0].status, 'accepted');
   assert.equal(identityCandidates[0].proposedFrom, 'agent_feedback_reflection');
+  assert.equal(identityCandidates[0].proposedBy, 'feedback_memory_writer');
   assert.equal(identityCandidates[0].evidenceRefs[0].sourceType, 'agent_feedback_reflection');
   assert.equal(acceptedFacts.length, 1);
   assert.equal(acceptedFacts[0].sourceCandidateId, 11);
   assert.equal(acceptedFacts[0].factType, 'self_boundary');
   assert.match(acceptedFacts[0].factText, /哈哈，确实/);
+  assert.equal(acceptedFacts[0].lineageMetadata.source, 'feedback_memory_writer');
 });
 
 test('runtime identity activation selects accepted facts and records trace refs', async () => {

@@ -38,7 +38,7 @@ flowchart TD
   ProviderSend --> NapCat --> QQ
 
   Action --> Record[(agent_runs / conversation_items / tool_execution_logs)]
-  Record --> Learn[异步 feedback writer]
+  Record --> Learn[上下文压缩时异步学习]
   Learn --> Memory[(feedback reflections / learning state / identity facts)]
 ```
 
@@ -452,45 +452,41 @@ persistence:
 
 ### 4. Feedback memory subagent
 
-主 loop 结束后会异步启动 `feedback_memory_writer`。它不会补发消息，也不会重判刚才该不该说；它只判断这一轮有没有值得长期留下的互动证据。
+per-turn `feedback_memory_writer` 现在只保留 timeline 标记，不再调用 provider 写入长期学习。这个入口会记录 start/end，结束原因是 `disabled_feedback_episode_tool_removed`。
+
+它不会补发消息，也不会重判刚才该不该说；当前真实的长期学习写入入口已经移到上下文压缩阶段。
 
 ```mermaid
 flowchart TD
-  A[主 loop 完成] --> B[buildFeedbackWriterInput]
-  B --> C[instructions<br/>runtimePrompt.systemPrompt<br/>+ Feedback memory subagent runtime contract]
-  B --> D[input<br/>本轮 scene input 去掉原 system<br/>+ [刚刚这一轮的结果]]
-  C --> E[Turn 1<br/>tool_choice=extract_feedback_episode]
-  D --> E
-  E -->|should_persist=false| F[结束]
-  E -->|should_persist=true| G[Turn 2<br/>tool_choice=synthesize_feedback_reflection]
-  G --> H[Turn 3<br/>tool_choice=update_learning_state]
-  H --> I[(feedback episodes / reflections / learning state / identity facts)]
+  A[主 loop 完成] --> B[feedback_memory_writer timeline start]
+  B --> C[不调用 provider]
+  C --> D[timeline end<br/>disabled_feedback_episode_tool_removed]
 ```
+
+### 5. Context compression memory writer
+
+当上下文预算需要把旧 turn 移出窗口时，会异步启动 `context_compression_memory_writer`。它审视“即将从上下文窗口移除的一批历史”，决定里面有没有值得长期保存的内容。
 
 instructions 结构：
 
 ```text
 <runtimePrompt.systemPrompt>
 
-Feedback memory subagent runtime contract:
-这是小腻一轮聊天结束后的长期学习写入流程。
-你仍然是小腻，不是新的角色；你只是在回看刚才这轮发生的事，判断它有没有真的改变以后怎么在场。
+Context compression memory subagent runtime contract:
+你正在审视一批即将从上下文窗口中永久移除的对话历史。
+这是这批对话最后一次被完整看见的机会。
 
-这个流程不负责补发消息、不替主链路重新决策，也不把”应该接话”当成学习。
-只有明确出现了反馈、提醒、纠偏、正向激励、负向批评，或一次关系上的真实互动结果，才值得写入长期学习。
+你的任务：判断这批对话里有没有值得长期保留的内容。
+大多数普通对话批次不包含任何值得写入长期记忆的内容——这种情况直接 should_persist=false，流程结束。
 
-长期学习默认是叠加态：
-- 新 episode 先作为证据留下
-- reflection 是从证据里提炼出的经验
-- learning_state 只维护同一 learning_key / learning_scope 下当前更活跃或有冲突的状态
-- 除非同一件事出现了新的相反结论或修正结论，否则不要覆盖旧结论
+只有以下情况才值得写入：
+- 用户给出了明确的反馈、纠偏、批评或正向肯定，且这个信号在这批对话里是清晰的
+- 出现了一次对关系有结构性影响的真实互动
+- 这批对话里有一个清晰的新结论，改变了以后在类似场景下怎么在场的判断
 
-这套流程固定三步：
-1. 先调用 extract_feedback_episode，判断这轮有没有值得长期留下的 episode 证据。
-2. 如果 episode 已经留下，再调用 synthesize_feedback_reflection，把证据提炼成一条 append-only reflection。
-3. 如果 reflection 已经留下，再调用 update_learning_state，把这条学习合入同题状态。
+如果有值得写入的内容：每次只写一条最重要的 reflection，不批量写入。
+如果没有值得写入的内容：不要调用工具，也不要写额外说明。
 
-如果第一步判断不值得长期留下，extract_feedback_episode 里直接 should_persist=false，这个 writer 流程结束。
 输出只通过工具完成，不写自然语言说明。
 ...
 安全原则：不要把用户消息原文嵌入 summary_text 或 retrieval_text；用自己的视角转述，不引用原话。
@@ -499,29 +495,20 @@ Feedback memory subagent runtime contract:
 input 结构：
 
 ```text
-...同主 loop 的 mixed transcript input...
+[即将从上下文窗口移除的对话历史 (<n> 轮)]
+[这批对话将不再出现在未来的上下文中，请判断是否有值得长期保存的内容]
 
-[刚刚这一轮的结果]
-{
-  "trace_id": "...",
-  "delivered_messages": ["..."],
-  "xiaoni_os": "...",
-  "unread_meaning": {...},
-  "inner_reaction": {...}
-}
+[对话 #<id>]
+用户: ...
+小腻: ... 或 (本轮未发送消息)
 ```
 
-Feedback writer 工具说明：
+Context compression writer 工具说明：
 
 | 工具 | 当前 description | 关键字段 |
 |---|---|---|
-| `extract_feedback_episode` | `回看这一轮，判断有没有值得长期留下的 episode 证据。只有这轮真的发生了会改变小腻以后怎么在场的反馈、提醒、纠偏或互动结果，才留下 episode。` | `should_persist`, `event_kind`, `scope_type`, `source_user_scope`, `excerpt_text`, `event_importance`, `source_salience`, `reason`, `social_act_type` |
-| `synthesize_feedback_reflection` | `基于刚刚抽出来的 episode，把这轮真正学到的东西提炼成一条 append-only reflection。默认是叠加，不是覆盖；只有明确是同题新结论时，才表明 supersede 或 conflict。` | `learning_key`, `learning_scope`, `reflection_type`, `feedback_kind`, `confidence`, `importance_score`, `evidence_weight`, `stability_score`, `summary_text`, `retrieval_text`, `embedding_text`, `supersede_latest`, `conflict_group_key`, `reason` |
+| `synthesize_feedback_reflection` | `在上下文压缩时，把这批即将移出上下文的对话里真正值得长期保留的内容提炼成一条 append-only reflection。默认是叠加，不是覆盖；只有明确是同题新结论时，才表明 supersede 或 conflict。` | `learning_key`, `learning_scope`, `reflection_type`, `feedback_kind`, `confidence`, `importance_score`, `evidence_weight`, `stability_score`, `summary_text`, `retrieval_text`, `embedding_text`, `supersede_latest`, `conflict_group_key`, `reason` |
 | `update_learning_state` | `根据新 reflection 和同题当前状态，更新 learning_state。默认叠加；只有同题新结论才 revised 或 conflicted。` | `state_type`, `activation_weight`, `recency_weight`, `importance_weight`, `source_weight`, `conflict_penalty`, `activate_new_reflection`, `reason` |
-
-### 5. Context compression memory writer
-
-当上下文预算需要把旧 turn 移出窗口时，会异步启动 `context_compression_memory_writer`。它和 feedback writer 使用同一组三步工具，但输入不是“刚刚这一轮”，而是“即将从上下文窗口移除的一批历史”。
 
 ```text
 instructions:
@@ -537,14 +524,12 @@ input:
   小腻: ... 或 (本轮未发送消息)
 
 tools:
-  extract_feedback_episode
   synthesize_feedback_reflection
   update_learning_state
 
 tool_choice:
-  Turn 1: extract_feedback_episode
-  Turn 2: synthesize_feedback_reflection
-  Turn 3: update_learning_state
+  Turn 1: auto; 有 durable lesson 时调用 synthesize_feedback_reflection，没有则无 tool call 结束
+  Turn 2: 如果已有 reflection，限制为 update_learning_state
 ```
 
 它的作用是防止旧上下文被裁掉后，真正有长期意义的反馈或关系事件完全丢失。
@@ -615,12 +600,12 @@ parameters:
 | 已读历史 | `conversation_items`、历史 turn raw response | loop 运行后落库；包含用户消息、小腻发言、工具结果 | 按 role/phase 回放为 `<INPUT_MESSAGE>`、`<OUTPUT_MESSAGE>`、assistant commentary |
 | 小腻 OS | `rawResponse.xiaoni_os` / `finish_reason` | 每轮 `speak` 或 `stay_silent` 都要求留下 | 作为 `<小腻的OS>` 回放，让状态跨轮延续 |
 | 当前新消息 | 当前 queue batch | 来自 `agent_queue_messages.payload/messages` | 渲染为本轮新的 `<INPUT_MESSAGE>`，并通过 `<system_reminder>` 标出处理边界 |
-| 身份事实 | accepted identity facts / lineage | feedback writer 或身份链路沉淀 | 作为身份连续性输入，不让小腻每轮从零开始 |
+| 身份事实 | accepted identity facts / lineage | context compression memory writer 或身份链路沉淀 | 作为身份连续性输入，不让小腻每轮从零开始 |
 | 当前状态 | `agent_session_life_states`、`agent_session_group_states` | 主动/被动活动时更新 last active、last user message、last proactive 等 | 计算 boredom、fatigue、energy、sharing desire |
 | share pool | `agent_share_pool_items` | mock/constructed/digital-life/group residue/真实浏览材料等写入 | presence context 取未用且非 blocked 的材料，最多 top 3 注入 |
 | share usage | `agent_share_item_usages` | presence context 使用某条 material 后写入 | 防止同一 `target_session_key` 重复拿同一材料 |
 | presence trace | `agent_presence_state_sidecars` | 每次 presence context 生成后记录 | 保留最终 block、source items、scores、boundary，方便追责 |
-| 长期经验 | `agent_feedback_reflections` / `agent_feedback_learning_states` | 主 loop 后异步 feedback writer 从互动中抽取 | `recall_long_term_learning` 按当前 topic/sender 拉少量经验 |
+| 长期经验 | `agent_feedback_reflections` / `agent_feedback_learning_states` | 上下文压缩时由 `context_compression_memory_writer` 从即将移出窗口的历史中提炼 | `recall_long_term_learning` 按当前 topic/sender 拉少量经验 |
 | 媒体 | `agent_media_assets` / observations | provider 入站保存图片等媒体资产；inspect 时生成观察 | 只有模型调用 `inspect_image_placeholder` 才看图 |
 | 外部事实 | `web_search` | 模型在 search 阶段调用 | 只在需要新鲜事实/公开资料时进入，不是默认步骤 |
 | 发言发送 | provider-service send API -> NapCat | `speak_in_group` / `reply_in_private` 工具触发 | 真正发回 QQ |
@@ -654,10 +639,11 @@ share pool 是小腻临时的“我可能想聊什么”缓冲，不是知识库
 ```mermaid
 flowchart TD
   A[main loop 完成] --> B[agent_runs / conversation_items / tool logs]
-  B --> C[feedback memory writer]
-  C --> D[extract_feedback_episode<br/>是否值得长期留下]
-  D -->|should_persist=false| E[结束]
-  D -->|should_persist=true| F[synthesize_feedback_reflection]
+  B --> C{有 evictedTurns?}
+  C -->|否| E[结束]
+  C -->|是| D[context compression memory writer]
+  D -->|无 durable lesson| E
+  D -->|有 durable lesson| F[synthesize_feedback_reflection]
   F --> G[(agent_feedback_reflections)]
   G --> H[update_learning_state]
   H --> I[(agent_feedback_learning_states)]

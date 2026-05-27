@@ -294,6 +294,15 @@ type FeedbackLearningStateCandidate = {
 
 type FeedbackWriterMode = 'episode_only' | 'durable_lessons';
 
+type FeedbackWriterEvidence = {
+  sourceMessageIds: number[];
+  sourceConversationId: number | null;
+  sourceUserId: number | null;
+  sourceUserName: string | null;
+  metadata: Record<string, unknown>;
+  writerSource: typeof FEEDBACK_MEMORY_SUBAGENT_TYPE | typeof CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE;
+};
+
 type FeedbackMemorySubagentParams = {
   queueMessage: QueueMessageRecord['payload'];
   conversationId: number;
@@ -1869,6 +1878,58 @@ function buildContextCompressionFeedbackWriterInput(params: {
     },
     buildUserSceneInputItem([[header, ...turnLines].join('\n\n')])
   ];
+}
+
+function uniquePositiveNumbers(values: unknown[]): number[] {
+  const seen = new Set<number>();
+  const result: number[] = [];
+  for (const value of values) {
+    const normalized = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(normalized) || normalized <= 0 || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function buildQueueMessageFeedbackWriterEvidence(
+  queueMessage: QueueMessageRecord['payload'],
+  conversationId: number
+): FeedbackWriterEvidence {
+  return {
+    sourceMessageIds: uniquePositiveNumbers(queueMessage.messages.map((message) => message.messageId)),
+    sourceConversationId: conversationId,
+    sourceUserId: parseOptionalInteger(queueMessage.senderId),
+    sourceUserName: typeof queueMessage.senderName === 'string' ? queueMessage.senderName : null,
+    metadata: {},
+    writerSource: FEEDBACK_MEMORY_SUBAGENT_TYPE
+  };
+}
+
+function buildContextCompressionFeedbackWriterEvidence(params: {
+  evictedTurns: ConversationTurn[];
+}): FeedbackWriterEvidence {
+  const evictedTurnIds = uniquePositiveNumbers(params.evictedTurns.map((turn) => turn.id));
+  const sourceMessageIds = uniquePositiveNumbers(params.evictedTurns.flatMap((turn) => (
+    (Array.isArray(turn.items) ? turn.items : [])
+      .filter((item) => item.role === 'user')
+      .map((item) => item.deliveryMessageId)
+  )));
+  const sourceUserIds = uniquePositiveNumbers(params.evictedTurns.map((turn) => turn.userId));
+
+  return {
+    sourceMessageIds,
+    sourceConversationId: evictedTurnIds.length === 1 ? evictedTurnIds[0]! : null,
+    sourceUserId: sourceUserIds.length === 1 ? sourceUserIds[0]! : null,
+    sourceUserName: null,
+    metadata: {
+      evicted_turn_ids: evictedTurnIds,
+      evidence_source: 'context_compression_evicted_turns'
+    },
+    writerSource: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE
+  };
 }
 
 const CONTEXT_SUMMARY_WRITER_CONTRACT = [
@@ -3734,6 +3795,9 @@ export class AgentLoopService {
       queueMessage: params.queueMessage,
       subagentType: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE
     });
+    const evidence = buildContextCompressionFeedbackWriterEvidence({
+      evictedTurns: params.evictedTurns
+    });
     let loopContinuation: OpenResponseInputItem[] = [];
     let persistedReflectionId: number | null = null;
     let activeLearningKey = '';
@@ -3808,6 +3872,7 @@ export class AgentLoopService {
       const toolResult = await this.executeFeedbackWriterTool(toolOutput.toolCall, {
         queueMessage: params.queueMessage,
         conversationId: params.conversationId,
+        evidence,
         persistedReflectionId,
         activeLearningKey,
         activeLearningScope,
@@ -3923,6 +3988,7 @@ export class AgentLoopService {
     deps: {
       queueMessage: QueueMessageRecord['payload'];
       conversationId: number;
+      evidence?: FeedbackWriterEvidence;
       persistedReflectionId: number | null;
       activeLearningKey: string;
       activeLearningScope: string;
@@ -3934,9 +4000,7 @@ export class AgentLoopService {
       mode: FeedbackWriterMode;
     }
   ) {
-    const sourceMessageIds = deps.queueMessage.messages
-      .map((message) => Number(message.messageId))
-      .filter((value) => Number.isFinite(value) && value > 0);
+    const evidence = deps.evidence ?? buildQueueMessageFeedbackWriterEvidence(deps.queueMessage, deps.conversationId);
     const groupId = Number.isFinite(Number(deps.queueMessage.peerId)) ? Number(deps.queueMessage.peerId) : null;
 
     switch (toolCall.name) {
@@ -3960,8 +4024,8 @@ export class AgentLoopService {
         const storedReflection = await deps.reflectionCreator.call(this.store, {
           sessionKey: deps.queueMessage.sessionKey,
           groupId,
-          sourceUserId: parseOptionalInteger(deps.queueMessage.senderId),
-          sourceUserName: typeof deps.queueMessage.senderName === 'string' ? deps.queueMessage.senderName : null,
+          sourceUserId: evidence.sourceUserId,
+          sourceUserName: evidence.sourceUserName,
           scopeType: 'group_self',
           learningKey: reflection.learningKey,
           learningScope: reflection.learningScope,
@@ -3974,14 +4038,16 @@ export class AgentLoopService {
           summaryText: reflection.summaryText,
           retrievalText: reflection.retrievalText,
           embeddingText: reflection.embeddingText,
-          sourceMessageIds,
+          sourceMessageIds: evidence.sourceMessageIds,
           sourceEpisodeIds: [],
-          sourceConversationId: deps.conversationId,
+          sourceConversationId: evidence.sourceConversationId,
           supersedesReflectionId: reflection.supersedeLatest ? (currentState?.latestReflectionId ?? null) : null,
           conflictGroupKey: reflection.conflictGroupKey,
           metadata: {
             trace_id: deps.queueMessage.traceId,
-            synthesis_reason: reflection.reason
+            synthesis_reason: reflection.reason,
+            writer_source: evidence.writerSource,
+            ...evidence.metadata
           }
         });
         let identityCandidateId: number | null = null;
@@ -3991,7 +4057,7 @@ export class AgentLoopService {
           const candidateResult = await deps.identityCandidateAppender.call(this.store, {
             identityKey: XIAONI_IDENTITY_KEY,
             candidateType: 'natural_growth',
-            proposedBy: 'feedback_memory_writer',
+            proposedBy: evidence.writerSource,
             proposedFrom: 'agent_feedback_reflection',
             claimText: reflection.summaryText,
             afterSummary: reflection.retrievalText,
@@ -4019,7 +4085,7 @@ export class AgentLoopService {
                 sourceId: String(storedReflection.id),
                 traceId: deps.queueMessage.traceId,
                 runId: deps.queueMessage.runId,
-                conversationId: deps.conversationId,
+                conversationId: evidence.sourceConversationId,
                 confidence: reflection.confidence
               }
             ],
@@ -4063,12 +4129,12 @@ export class AgentLoopService {
                 sourceId: String(storedReflection.id),
                 traceId: deps.queueMessage.traceId,
                 runId: deps.queueMessage.runId,
-                conversationId: deps.conversationId,
+                conversationId: evidence.sourceConversationId,
                 confidence: reflection.confidence
               }
             ],
             lineageMetadata: {
-              source: 'feedback_memory_writer',
+              source: evidence.writerSource,
               judge_reason: identityJudge.reason
             }
           }).catch((error) => {
