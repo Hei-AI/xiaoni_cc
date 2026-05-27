@@ -920,9 +920,10 @@ test('buildInitialInput renders stable batch context without exposing runtime id
     systemPrompt: '你是小腻主AGENT'
   }));
 
-  const currentPrompt = getMessageContent(loopInput.at(-1));
-  assert.equal((loopInput[1] as any).role, 'assistant');
-  assert.match(getMessageContent(loopInput[1]), /<system_reminder>/);
+  const currentPrompt = getMessageContent(loopInput[1]);
+  assert.equal((loopInput[1] as any).role, 'user');
+  assert.equal((loopInput.at(-1) as any).role, 'assistant');
+  assert.match(getMessageContent(loopInput.at(-1)), /<system_reminder>/);
   assert.doesNotMatch(currentPrompt, /Trace:/);
   assert.doesNotMatch(currentPrompt, /RunId:/);
   assert.doesNotMatch(currentPrompt, /BatchId:/);
@@ -978,7 +979,7 @@ test('buildInitialInput renders reply context in natural language format', () =>
   };
 
   const loopInput = buildInitialInput([], payload);
-  const currentPrompt = getMessageContent(loopInput.at(-1));
+  const currentPrompt = getMessageContent(loopInput[1]);
 
   assert.match(currentPrompt, /sender="Alice\(202\)"/);
   assert.match(currentPrompt, /\[回复给 \{Carol\(@505\)\}：上一条消息\]/);
@@ -1007,8 +1008,8 @@ test('buildInitialInput renders each message in a batch as its own user message 
   });
 
   const loopInput = buildInitialInput([], payload);
-  const currentTurnItems = loopInput.slice(-2);
-  assert.match(getMessageContent(loopInput[1]), /<system_reminder>/);
+  const currentTurnItems = loopInput.slice(1, -1);
+  assert.match(getMessageContent(loopInput.at(-1)), /<system_reminder>/);
 
   assert.equal(currentTurnItems.length, 2);
   assert.match(getMessageContent(currentTurnItems[0]), /sender="Alice\(202\)"/);
@@ -1073,7 +1074,69 @@ test('buildInitialInput projects accepted identity facts as runtime scene contex
   const identityItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('公式化开头'));
   assert.ok(identityItem);
   assert.match(getMessageContent(identityItem), /\[身份连续性\]/);
-  assert.match(getMessageContent(loopInput.at(-1)), /问问@\{Bob\(@404\)\} 今天玩什么/);
+  assert.match(getMessageContent(loopInput[1]), /问问@\{Bob\(@404\)\} 今天玩什么/);
+  assert.match(getMessageContent(loopInput.at(-2)), /<system_reminder>/);
+  assert.equal(loopInput.at(-1), identityItem);
+});
+
+test('buildInitialInput keeps current batch before reminder and identity continuity', () => {
+  const payload = createQueuePayload();
+  payload.messages.push({
+    ...payload.messages[0],
+    queueMessageId: 2,
+    messageId: 12,
+    messageSid: 'sid-2',
+    senderId: '606',
+    senderName: 'Carol',
+    bodyForAgent: '第二条',
+    rawBody: '第二条',
+    wasMentioned: false,
+    inboundContext: {
+      ...payload.messages[0].inboundContext,
+      Body: '第二条',
+      BodyForAgent: '第二条',
+      BodyForCommands: '第二条',
+      MentionedUsers: []
+    }
+  });
+
+  const loopInput = buildInitialInput([
+    {
+      ...createConversationTurn({ id: 1, aiResponse: '上一轮回复' }),
+      rawResponse: {
+        xiaoni_os: '上一轮留下的内在延续。'
+      }
+    }
+  ], payload, createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }), [
+    {
+      id: 91,
+      factKey: 'feedback.opening-style',
+      factText: '小腻收到过明确反馈：不要用公式化开头。',
+      factType: 'social_lesson',
+      confidence: 'high',
+      activationTags: ['接话']
+    }
+  ]);
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  const rendered = request.input.map(getMessageContent);
+
+  const osIndex = rendered.findIndex((content) => content.includes('上一轮留下的内在延续'));
+  const firstCurrentIndex = rendered.findIndex((content) => content.includes('message_id="11"'));
+  const secondCurrentIndex = rendered.findIndex((content) => content.includes('message_id="12"'));
+  const reminderIndex = rendered.findIndex((content) => content.includes('<system_reminder>本轮只需要处理这些新入站消息'));
+  const identityIndex = rendered.findIndex((content) => content.includes('[身份连续性]'));
+
+  assert.ok(osIndex !== -1);
+  assert.ok(firstCurrentIndex !== -1);
+  assert.ok(secondCurrentIndex !== -1);
+  assert.ok(reminderIndex !== -1);
+  assert.ok(identityIndex !== -1);
+  assert.ok(osIndex < firstCurrentIndex);
+  assert.ok(firstCurrentIndex < secondCurrentIndex);
+  assert.ok(secondCurrentIndex < reminderIndex);
+  assert.ok(reminderIndex < identityIndex);
 });
 
 test('buildInitialInput applies bound user prompt template to the current message block', () => {
@@ -1089,7 +1152,7 @@ test('buildInitialInput applies bound user prompt template to the current messag
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
-  const currentMessage = loopInput.at(-1);
+  const currentMessage = loopInput[1];
   assert.equal(currentMessage?.type, 'message');
   assert.equal(currentMessage?.role, 'user');
   assert.match(getMessageContent(currentMessage), /群上下文如下：/);

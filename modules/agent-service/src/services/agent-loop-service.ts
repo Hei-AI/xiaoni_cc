@@ -5084,16 +5084,16 @@ export function buildInitialInput(
     }
   }
 
+  items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
+  const mediaPlaceholderContext = renderCurrentMediaPlaceholderContext(queueMessage);
+  if (mediaPlaceholderContext) {
+    items.push(buildAssistantCommentaryInputItem([mediaPlaceholderContext]));
+  }
   items.push(buildAssistantCommentaryInputItem([buildCurrentProcessingReminder(queueMessage)]));
   const identityFactsText = renderRuntimeIdentityFacts(runtimeIdentityFacts);
   if (identityFactsText) {
     items.push(buildDeveloperInputItem([identityFactsText]));
   }
-  const mediaPlaceholderContext = renderCurrentMediaPlaceholderContext(queueMessage);
-  if (mediaPlaceholderContext) {
-    items.push(buildAssistantCommentaryInputItem([mediaPlaceholderContext]));
-  }
-  items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
 
   return items;
 }

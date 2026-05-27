@@ -73,6 +73,7 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
+tmp/
 **/qq-log*
 models/embedding-server/
 .gstack/
