@@ -8,12 +8,14 @@
 ## Secrets
 - 本机敏感信息统一从 `/home/liahua/.qqbot-local/` 读取。
 - 常用位置：`/home/liahua/.qqbot-local/credentials.md`、`/home/liahua/.qqbot-local/admin-debug-auth/qqbot-admin-debug.token`、`/home/liahua/.qqbot-local/playwright/local-frontend-access.json`
+- `provider-service` 的 compose 配置会额外读取 `/home/liahua/.qqbot-local/qqbot-compose.env`。Codex proxy / provider 这类本机真实配置应放这里，不要回填到 `docker-compose.yml` 或 `.env.docker.example`。
 - 透明 MITM 如需 sudo 密码，放在 `/home/liahua/.qqbot-local/mitmproxy/sudo-password`，权限保持目录 `700`、文件 `600`；不要把 `sudo_password` 写回仓库内 `config.json`。
 - `.env.docker.example` 只是模板，不能回填真实密钥到受版本控制文件。
 
 ## Local Runtime State
 - NapCat 配置保留在 `resource/napcat_config/`。
 - 运行态数据、登录二维码、截图不提交。
+- CLIProxyAPI request detail 调试默认从宿主机 `/home/liahua/IdeaProject/CLIProxyAPI/logs` 只读挂载进 admin-backend 的 `/app/cliproxyapi-logs`，对应容器环境变量是 `CLIPROXY_REQUEST_LOG_DIR`。
 - 透明 MITM 的 active 宿主机根证书以 `modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem` 为准；不要默认把 `~/.mitmproxy/mitmproxy-ca-cert.pem` 当成当前运行中的 transparent proxy 真相源。
 - 如果 host-side Codex / MCP 在透明 MITM 下出现 TLS 或 MCP 启动告警，优先使用
   `scripts/codex-with-mitm-trust.sh ...` 启动 Codex，让 helper runtime 统一回到系统

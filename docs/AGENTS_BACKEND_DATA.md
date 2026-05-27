@@ -23,6 +23,8 @@
 - 当前管理端后端以 run-centric 视角为准：优先看 `run-routes`、chat settings、playground、traffic replay、runtime status`
 - `agent_runs` 现在已经承载 delivery state，例如 `delivery_phase`、`delivery_commit_count`、`blocked_delivery_attempt_count`；不要再把重复回复问题只当成 prompt 文案问题排查。
 - 私聊和群聊设置里已有 `transcript_compact_offset`，它会直接影响 transcript compact 后保留多少尾部对话继续原样重放。
+- Trace span builder 现在有两层 provider 请求证据：优先挂接 MITM / traffic log 命中的真实 provider request；如果没有命中但 `llm_call_logs` 里有 `wire_request` / `wire_response`，会合成 `provider-request:wire:<llm_call_id>` span。
+- 合成 provider span 的 detail 可以再从 `CLIPROXY_REQUEST_LOG_DIR` 指向的 CLIProxyAPI 请求日志补全真实上游 request / response；日志匹配只信 `x-llm-call-id` header，敏感 header 会脱敏。
 
 ## Agent Runtime Contracts
 - loop agent 每一轮必须保持同一份 instructions 和同一份 tools 定义；不要为了表达“这一轮做什么”逐轮改 prompt 或改 tools 列表。

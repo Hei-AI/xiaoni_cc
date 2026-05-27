@@ -236,17 +236,17 @@ input:
     role=assistant phase=commentary <ACTION ...>...</ACTION>
     <小腻的OS>...</小腻的OS>
 
+  user message:
+    current queue batch, rendered with timestamp/sender/reply/quote/@
+
+  optional assistant commentary:
+    media placeholder context
+
   assistant commentary:
     <system_reminder>本轮只需要处理这些新入站消息：...</system_reminder>
 
   optional developer message:
     <小腻已确认身份事实>...</小腻已确认身份事实>
-
-  optional user message:
-    media placeholder context
-
-  user message:
-    current queue batch, rendered with timestamp/sender/reply/quote/@
 
 tools:
   group chat:
@@ -543,9 +543,9 @@ flowchart TD
   A[evicted turns] --> B[context_summary_writer]
   B --> C[instructions<br/>CONTEXT_SUMMARY_WRITER_CONTRACT]
   B --> D[input<br/>existing_summary + new_messages<br/>或 messages_to_summarize]
-  C --> E[tool_choice=required]
+  C --> E[assistant JSON output]
   D --> E
-  E --> F[write_context_summary]
+  E --> F[parse has_content / summary_text]
   F --> G[(session context summary)]
   G --> H[未来 buildInitialInput<br/><对话历史摘要>]
 ```
@@ -576,17 +576,17 @@ instructions：
 ## 对小腻的反馈
 
 字数控制在 2000 字以内，宁可漏掉不重要的，不要堆砌无关内容。
-只通过 write_context_summary 工具输出，不写额外说明。
+只输出一个 JSON 对象，不要调用工具，不要写额外说明。
+JSON 格式：{"has_content": boolean, "summary_text": "Markdown 摘要；has_content=false 时为空字符串"}
 ```
 
-tool：
+输出解析：
 
 ```text
-name: write_context_summary
-description: 输出生成的对话摘要。如果这批对话没有值得保留的内容，输出 has_content=false。
-parameters:
+context_summary_writer 不再暴露 write_context_summary 工具。
+工程侧读取 assistant message，解析 JSON：
   has_content: boolean
-  summary_text: Markdown string, has_content=false 时为空字符串
+  summary_text: Markdown string
 ```
 
 ## 数据源清单

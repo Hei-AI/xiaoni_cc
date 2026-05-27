@@ -93,6 +93,7 @@ docker compose ps
 - Admin Queue Management
 - Prompt 管理 / 编辑 / 调试
 - Playground case library、Trace / Conversation 导入、Provider 请求 payload 查看
+- Trace 里没有 MITM 命中的真实流量时，会从 `llm_call_logs.wire_request/wire_response` 合成 `provider.request` span；配置了 CLIProxyAPI 请求日志目录时，span detail 会优先展示真实上游 request / response，并脱敏敏感 header
 - Image Lab 生成 / 编辑 / prompt assistant
 - Codex OAuth 账号池状态、导入、刷新与 active auth 投影
 - HTTP 流量查看与回放
@@ -124,6 +125,7 @@ python3 scripts/start_modules.py status
 
 - `scripts/module_pids.json` 是本地 `start_modules.py` 写出的 PID 状态，不提交。
 - NapCat 登录二维码和各类截图文件属于登录/排障产物，不提交。
+- 临时探针、compact memory 导出和 smoke 产物放在 `tmp/`，不提交。
 
 ## 文档
 

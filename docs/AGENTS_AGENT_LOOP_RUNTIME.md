@@ -169,7 +169,7 @@ stop
 
 ### 1. buildInitialInput
 
-代码：`modules/agent-service/src/services/agent-loop-service.ts:4031-4166`
+代码：`modules/agent-service/src/services/agent-loop-service.ts` 的 `buildInitialInput`
 
 输入：
 
@@ -198,13 +198,19 @@ assistant phase=final_answer:
 assistant phase=commentary:
 <小腻的OS>上一轮或历史轮留下来的内部延续</小腻的OS>
 
-assistant phase=commentary:
-<system_reminder>本轮只需要处理这些新入站消息：message_id=...</system_reminder>
-
 user:
 <INPUT_MESSAGE message_id="..." message_sid="..." timestamp="..." sender="小镜(714457117)" source="napcat">
 duck typing 如果它叫起来像鸭子那它就是诗
 </INPUT_MESSAGE>
+
+assistant phase=commentary:
+[当前媒体占位符] ...  # optional
+
+assistant phase=commentary:
+<system_reminder>本轮只需要处理这些新入站消息：message_id=...</system_reminder>
+
+developer:
+[身份连续性] ...  # optional accepted identity facts
 ```
 
 这里要特别纠正一个我前面图里的说法：
