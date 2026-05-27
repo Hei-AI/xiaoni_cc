@@ -106,15 +106,7 @@ export class CodexProvider extends OpenAIProvider {
     }
 
     if (Array.isArray(request.tools) && request.tools.length > 0) {
-      payload.tools = request.tools.map((tool: any) => {
-        const serialized = this.serializeToolDefinition(tool);
-        return serialized.type === 'function'
-          ? {
-              ...serialized,
-              strict: null
-            }
-          : serialized;
-      });
+      payload.tools = request.tools.map((tool: any) => this.serializeToolDefinition(tool));
       payload.tool_choice = this.serializeToolChoice(request.tool_choice || 'auto');
     }
 
@@ -122,12 +114,18 @@ export class CodexProvider extends OpenAIProvider {
     const reasoningEffort =
       providerSpecific.reasoningEffort ||
       request?.reasoning?.effort;
-    if (typeof reasoningEffort === 'string') {
+    const reasoningSummary = providerSpecific.reasoningSummary || request?.reasoning?.summary || 'auto';
+    if (typeof reasoningEffort === 'string' || typeof reasoningSummary === 'string') {
       payload.reasoning = {
-        effort: this.normalizeReasoningEffort(resolvedModel, reasoningEffort),
-        summary: providerSpecific.reasoningSummary || 'auto'
+        ...(typeof reasoningEffort === 'string'
+          ? { effort: this.normalizeReasoningEffort(resolvedModel, reasoningEffort) }
+          : {}),
+        summary: reasoningSummary
       };
     }
+    const include = new Set(Array.isArray(request.include) ? request.include.filter((item: unknown) => typeof item === 'string') : []);
+    include.add('reasoning.encrypted_content');
+    payload.include = Array.from(include);
 
     return payload;
   }
@@ -437,9 +435,14 @@ export class CodexProvider extends OpenAIProvider {
         type: 'reasoning',
         ...(typeof item.summary === 'string' && item.summary.length > 0
           ? { summary: item.summary }
+          : Array.isArray(item.summary) && item.summary.length > 0
+          ? { summary: item.summary }
           : {}),
         ...(typeof item.content === 'string' && item.content.length > 0
           ? { content: item.content }
+          : {}),
+        ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
+          ? { encrypted_content: item.encrypted_content }
           : {})
       };
     }

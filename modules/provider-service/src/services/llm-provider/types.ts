@@ -35,7 +35,8 @@ export type OpenResponseInputItem =
   | {
       type: 'reasoning';
       content?: string;
-      summary?: string;
+      summary?: string | Array<Record<string, any>>;
+      encrypted_content?: string;
     }
   | {
       type: 'item_reference';
@@ -48,6 +49,7 @@ export type OpenResponseToolDefinition = {
     name: string;
     description?: string;
     parameters?: Record<string, any>;
+    strict?: boolean;
   };
 } | {
   type: 'web_search' | 'web_search_preview';
@@ -110,7 +112,8 @@ export type OpenResponseOutputItem =
       type: 'reasoning';
       id?: string;
       content?: string;
-      summary?: string;
+      summary?: string | Array<Record<string, any>>;
+      encrypted_content?: string;
     }
   | {
       type: 'web_search_call';

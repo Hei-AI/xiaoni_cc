@@ -29,6 +29,51 @@ type OpenAIProviderOptions = {
   defaultHeaders?: Record<string, string>;
 };
 
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function withNullableType(schema: Record<string, any>): Record<string, any> {
+  const next = { ...schema };
+  if (Array.isArray(next.type)) {
+    next.type = next.type.includes('null') ? next.type : [...next.type, 'null'];
+  } else if (typeof next.type === 'string') {
+    next.type = next.type === 'null' ? next.type : [next.type, 'null'];
+  }
+  if (Array.isArray(next.enum) && !next.enum.includes(null)) {
+    next.enum = [...next.enum, null];
+  }
+  return next;
+}
+
+function normalizeStrictJsonSchema(schema: unknown, options: { optional?: boolean } = {}): unknown {
+  if (!isPlainObject(schema)) {
+    return schema;
+  }
+
+  const normalized: Record<string, any> = { ...schema };
+  if (isPlainObject(normalized.properties)) {
+    const originalRequired = new Set(Array.isArray(normalized.required) ? normalized.required : []);
+    const properties: Record<string, any> = {};
+    for (const [key, value] of Object.entries(normalized.properties)) {
+      properties[key] = normalizeStrictJsonSchema(value, { optional: !originalRequired.has(key) });
+    }
+    normalized.properties = properties;
+    normalized.required = Object.keys(properties);
+    normalized.additionalProperties = false;
+  }
+
+  if (isPlainObject(normalized.items)) {
+    normalized.items = normalizeStrictJsonSchema(normalized.items);
+  }
+
+  return options.optional ? withNullableType(normalized) : normalized;
+}
+
+function normalizeFunctionToolStrictMode(tool: NonNullable<OpenResponseCreateRequest['tools']>[number]): boolean | undefined {
+  return tool.type === 'function' ? tool.function.strict ?? true : undefined;
+}
+
 export class OpenAIProvider implements LLMProvider {
   readonly id: LLMProviderId;
   protected readonly apiKey?: string;
@@ -193,10 +238,19 @@ export class OpenAIProvider implements LLMProvider {
 
     const providerSpecific = providerConfig?.model?.providerSpecific || {};
     const reasoningEffort = providerSpecific.reasoningEffort || request.reasoning?.effort;
-    if (typeof reasoningEffort === 'string') {
-      payload.reasoning = { ...(request.reasoning || {}), effort: reasoningEffort };
+    const reasoningSummary = providerSpecific.reasoningSummary || request.reasoning?.summary;
+    if (typeof reasoningEffort === 'string' || typeof reasoningSummary === 'string') {
+      payload.reasoning = {
+        ...(request.reasoning || {}),
+        ...(typeof reasoningEffort === 'string' ? { effort: reasoningEffort } : {}),
+        ...(typeof reasoningSummary === 'string' ? { summary: reasoningSummary } : {})
+      };
     } else if (request.reasoning) {
       payload.reasoning = request.reasoning;
+    }
+
+    if (Array.isArray(request.include) && request.include.length > 0) {
+      payload.include = Array.from(new Set(request.include.filter((item) => typeof item === 'string' && item.trim())));
     }
 
     if (request.metadata) {
@@ -251,11 +305,14 @@ export class OpenAIProvider implements LLMProvider {
 
   protected serializeToolDefinition(tool: NonNullable<OpenResponseCreateRequest['tools']>[number]): Record<string, any> {
     if (tool.type === 'function') {
+      const strict = normalizeFunctionToolStrictMode(tool);
+      const parameters = tool.function.parameters || { type: 'object', properties: {} };
       return {
         type: 'function',
         name: tool.function.name,
         description: tool.function.description,
-        parameters: tool.function.parameters || { type: 'object', properties: {} }
+        parameters: strict === true ? normalizeStrictJsonSchema(parameters) : parameters,
+        ...(typeof strict === 'boolean' ? { strict } : {})
       };
     }
 

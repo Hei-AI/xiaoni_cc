@@ -47,6 +47,12 @@ type OpenResponseInputItem =
       type: 'function_call_output';
       call_id: string;
       output: string;
+    }
+  | {
+      type: 'reasoning';
+      content?: string;
+      summary?: string | Array<Record<string, unknown>>;
+      encrypted_content?: string;
     };
 
 type OpenResponseInputContentPart =
@@ -143,10 +149,12 @@ type ProviderAgentResponse = {
       role?: 'assistant' | 'user' | 'system';
       name?: string;
       arguments?: string;
-      content?: Array<{
+      content?: string | Array<{
         type?: string;
         text?: string;
       }>;
+      summary?: string | Array<Record<string, unknown>>;
+      encrypted_content?: string;
       phase?: ConversationTranscriptPhase;
       status?: string;
     }>;
@@ -2843,6 +2851,15 @@ type ReplayableModelOutput =
   | {
       type: 'assistant_message';
       inputItem: OpenResponseInputItem;
+    }
+  | {
+      type: 'reasoning';
+      inputItem: {
+        type: 'reasoning';
+        content?: string;
+        summary?: string | Array<Record<string, unknown>>;
+        encrypted_content?: string;
+      };
     };
 
 function isReplayableToolCall(item: ReplayableModelOutput): item is Extract<ReplayableModelOutput, { type: 'tool_call' }> {
@@ -5603,6 +5620,30 @@ function extractReplayableModelOutputs(response: ProviderAgentResponse['canonica
   const replayItems: ReplayableModelOutput[] = [];
 
   for (const item of output) {
+    if (item?.type === 'reasoning') {
+      const reasoningItem: Extract<ReplayableModelOutput, { type: 'reasoning' }>['inputItem'] = {
+        type: 'reasoning',
+        ...(typeof item.content === 'string' && item.content.length > 0
+          ? { content: item.content }
+          : {}),
+        ...(typeof item.summary === 'string' && item.summary.length > 0
+          ? { summary: item.summary }
+          : Array.isArray(item.summary) && item.summary.length > 0
+          ? { summary: item.summary }
+          : {}),
+        ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
+          ? { encrypted_content: item.encrypted_content }
+          : {})
+      };
+      if (reasoningItem.content || reasoningItem.summary || reasoningItem.encrypted_content) {
+        replayItems.push({
+          type: 'reasoning',
+          inputItem: reasoningItem
+        });
+      }
+      continue;
+    }
+
     if (item?.type === 'message' && item.role === 'assistant') {
       const text = Array.isArray(item.content)
         ? item.content

@@ -796,6 +796,59 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
   assert.equal(Object.prototype.hasOwnProperty.call(requestBody.canonicalRequest, 'previous_response_id'), false);
 });
 
+test('executeAgentTurn forwards encrypted reasoning input items to provider-service', async () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'reasoning',
+    summary: [{ type: 'summary_text', text: 'understood unread meaning' }],
+    encrypted_content: 'enc-meaning'
+  } as any);
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-plan',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"直接问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问小腻","topic_context":{"has_topic":true,"topic_summary":"直接问小腻","addressed_to_me":true}}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-plan',
+    output: '{"latest_unread_focus":"直接问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问小腻","topic_context":{"has_topic":true,"topic_summary":"直接问小腻","addressed_to_me":true}}'
+  });
+
+  const service = new AgentLoopService({} as any);
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ body: any }> = [];
+
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    calls.push({
+      body: JSON.parse(String(init?.body || '{}'))
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        llm_call_id: 'llm-1',
+        canonical_response: {
+          output: []
+        }
+      })
+    } as any;
+  }) as typeof fetch;
+
+  try {
+    await (service as any).executeAgentTurn(loopInput, createQueuePayload(), 'trace-1', 2, createRuntimePrompt());
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const requestInput = calls[0].body.canonicalRequest.input;
+  assert.ok(requestInput.some((item: any) => (
+    item.type === 'reasoning'
+    && item.encrypted_content === 'enc-meaning'
+    && item.summary?.[0]?.text === 'understood unread meaning'
+  )));
+});
+
 test('buildInitialInput renders stable batch context without exposing runtime ids', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'

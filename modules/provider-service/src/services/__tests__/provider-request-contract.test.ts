@@ -50,8 +50,11 @@ const TOOL_DEFINITIONS: OpenResponseToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          reason: { type: 'string' }
-        }
+          reason: { type: 'string' },
+          note: { type: 'string' }
+        },
+        required: ['reason'],
+        additionalProperties: false
       }
     }
   },
@@ -111,6 +114,9 @@ test('OpenAI provider keeps canonical instructions top-level and preserves paral
   assert.equal(payload.tools[1]?.type, 'web_search');
   assert.equal(payload.tools[1]?.search_context_size, 'medium');
   assert.equal(payload.tools[1]?.external_web_access, true);
+  assert.equal(payload.tools[0]?.strict, true);
+  assert.deepEqual(payload.tools[0]?.parameters?.required, ['reason', 'note']);
+  assert.deepEqual(payload.tools[0]?.parameters?.properties?.note?.type, ['string', 'null']);
 });
 
 test('OpenAI provider serializes allowed_tools without changing the tool list', () => {
@@ -140,10 +146,14 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'previous_response_id'), false);
   assert.equal(payload.prompt_cache_key, 'qq:group:101');
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'include'), false);
   assert.equal(payload.tools[1]?.type, 'web_search');
   assert.equal(payload.tools[1]?.search_context_size, 'medium');
   assert.equal(payload.tools[1]?.external_web_access, true);
+  assert.equal(payload.tools[0]?.strict, true);
+  assert.deepEqual(payload.tools[0]?.parameters?.required, ['reason', 'note']);
+  assert.deepEqual(payload.tools[0]?.parameters?.properties?.note?.type, ['string', 'null']);
+  assert.deepEqual(payload.reasoning, { summary: 'auto' });
+  assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
 });
 
 test('Codex provider serializes allowed_tools without changing the tool list', () => {
@@ -157,6 +167,24 @@ test('Codex provider serializes allowed_tools without changing the tool list', (
       { type: 'function', name: 'finish' }
     ]
   });
+});
+
+test('Codex provider preserves explicit reasoning settings and include values', () => {
+  const provider = new TestCodexProvider({} as any);
+  const payload = provider.buildPayload({
+    ...createCanonicalRequest(),
+    reasoning: {
+      effort: 'high',
+      summary: 'detailed'
+    },
+    include: ['reasoning.encrypted_content', 'file_search_call.results']
+  });
+
+  assert.deepEqual(payload.reasoning, {
+    effort: 'high',
+    summary: 'detailed'
+  });
+  assert.deepEqual(payload.include, ['reasoning.encrypted_content', 'file_search_call.results']);
 });
 
 test('Codex provider defaults proxy-key mode to CLIProxyAPI Codex direct route', async () => {
@@ -263,11 +291,11 @@ test('Gemini CLI provider rejects structured allowed_tools tool_choice', () => {
   );
 });
 
-test('Codex provider does not preserve encrypted reasoning from SSE output', () => {
+test('Codex provider preserves reasoning summary and encrypted content from SSE output', () => {
   const provider = new TestCodexProvider({} as any);
   const parsed = (provider as any).parseCodexSsePayload([
     'event: response.output_item.done',
-    'data: {"type":"response.output_item.done","item":{"type":"reasoning","encrypted_content":"enc","summary":"done"}}',
+    'data: {"type":"response.output_item.done","item":{"type":"reasoning","encrypted_content":"enc","summary":[{"type":"summary_text","text":"done"}]}}',
     '',
     'event: response.output_item.done',
     'data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}}',
@@ -278,7 +306,11 @@ test('Codex provider does not preserve encrypted reasoning from SSE output', () 
 
   assert.deepEqual(parsed.output[0], {
     type: 'reasoning',
-    summary: 'done'
+    summary: [{
+      type: 'summary_text',
+      text: 'done'
+    }],
+    encrypted_content: 'enc'
   });
   assert.equal(parsed.output[1]?.type, 'message');
   assert.equal(parsed.output_text, 'hello');
