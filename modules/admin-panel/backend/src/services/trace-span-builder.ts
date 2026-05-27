@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import winston from 'winston';
 import {
   getTrafficLogById,
@@ -394,6 +396,339 @@ function buildPlaygroundSnapshot(call: any, spanId: string) {
     requestFormatVersion: call.request_format_version || null,
     wireProviderFormat: call.wire_provider_format || null,
     effectiveUnifiedConfig: call.effective_unified_config || null
+  };
+}
+
+function hasCapturedWirePayload(call: any): boolean {
+  return Boolean(call.llm_call_id)
+    && call.wire_request !== null
+    && call.wire_request !== undefined
+    && call.wire_response !== null
+    && call.wire_response !== undefined;
+}
+
+function buildSyntheticProviderRequestSpanId(call: any): string {
+  return `provider-request:wire:${call.llm_call_id}`;
+}
+
+function parseSyntheticProviderRequestSpanId(spanId: string): { llmCallId: string } | null {
+  if (!spanId.startsWith('provider-request:wire:')) {
+    return null;
+  }
+
+  const rawId = spanId.slice('provider-request:wire:'.length);
+  if (!rawId) {
+    return null;
+  }
+
+  return { llmCallId: rawId };
+}
+
+function syntheticProviderHost(call: any): string {
+  if (call.model_provider === 'codex') {
+    return 'CLIProxyAPI';
+  }
+  return call.model_provider || 'provider';
+}
+
+function syntheticProviderPath(call: any): string {
+  const format = typeof call.wire_provider_format === 'string' ? call.wire_provider_format : '';
+  if (format.includes('/responses')) {
+    return '/responses';
+  }
+  return format || 'wire_payload';
+}
+
+type CliProxyApiLogSection = {
+  title: string;
+  body: string;
+};
+
+type ParsedCliProxyApiLogPart = {
+  metadata: Record<string, string>;
+  headers: Record<string, string | string[]>;
+  rawBody: string;
+  body: unknown;
+};
+
+type ParsedCliProxyApiLogDetail = {
+  logFile: string;
+  request: ParsedCliProxyApiLogPart | null;
+  response: ParsedCliProxyApiLogPart | null;
+};
+
+function isSafeCliProxyCorrelationId(value: string): boolean {
+  return /^[A-Za-z0-9_.:-]{1,256}$/.test(value);
+}
+
+function cliProxyRequestLogDir(): string | null {
+  const configured = (process.env.CLIPROXY_REQUEST_LOG_DIR || '').trim();
+  if (!configured) {
+    return null;
+  }
+  const resolved = path.resolve(configured);
+  try {
+    const stat = fs.statSync(resolved);
+    return stat.isDirectory() ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+function cliProxyLogScanLimit(): number {
+  const parsed = Number.parseInt(process.env.CLIPROXY_REQUEST_LOG_SCAN_LIMIT || '500', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 500;
+}
+
+function splitCliProxyApiLogSections(content: string): CliProxyApiLogSection[] {
+  const normalized = content.replace(/\r\n/g, '\n');
+  const matches = Array.from(normalized.matchAll(/^=== ([^=\n]+?) ===\n/gm));
+  if (matches.length === 0) {
+    return [];
+  }
+
+  return matches.map((match, index) => {
+    const start = (match.index || 0) + match[0].length;
+    const end = index + 1 < matches.length ? matches[index + 1].index || normalized.length : normalized.length;
+    return {
+      title: match[1].trim(),
+      body: normalized.slice(start, end)
+    };
+  });
+}
+
+function parseCliProxyMetadata(block: string): Record<string, string> {
+  const metadata: Record<string, string> = {};
+  block.split('\n').forEach((line) => {
+    const match = line.match(/^([^:\n]+):\s*(.*)$/);
+    if (!match) {
+      return;
+    }
+    const key = match[1].trim();
+    if (!key) {
+      return;
+    }
+    metadata[key] = match[2].trim();
+  });
+  return metadata;
+}
+
+function parseCliProxyHeaders(block: string): Record<string, string | string[]> {
+  const headers: Record<string, string | string[]> = {};
+  block.split('\n').forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed === '<none>') {
+      return;
+    }
+    const match = line.match(/^([^:\n]+):\s*(.*)$/);
+    if (!match) {
+      return;
+    }
+    const key = match[1].trim();
+    const value = match[2].trim();
+    if (!key) {
+      return;
+    }
+    const existing = headers[key];
+    if (existing === undefined) {
+      headers[key] = value;
+    } else if (Array.isArray(existing)) {
+      existing.push(value);
+    } else {
+      headers[key] = [existing, value];
+    }
+  });
+  return headers;
+}
+
+function cliProxyHeadersContainLlmCallId(headers: Record<string, string | string[]>, llmCallId: string): boolean {
+  const expected = llmCallId.trim();
+  return Object.entries(headers).some(([key, value]) => {
+    if (key.toLowerCase() !== 'x-llm-call-id') {
+      return false;
+    }
+    const values = Array.isArray(value) ? value : [value];
+    return values.some((headerValue) => headerValue.trim() === expected);
+  });
+}
+
+function cliProxyLogHasLlmCallHeader(content: string, llmCallId: string): boolean {
+  const sections = splitCliProxyApiLogSections(content);
+  for (const section of sections) {
+    if (section.title === 'HEADERS' && cliProxyHeadersContainLlmCallId(parseCliProxyHeaders(section.body), llmCallId)) {
+      return true;
+    }
+    if (/^API REQUEST(?:\s+\d+)?$/.test(section.title)) {
+      const requestPart = parseCliProxyApiLogPart(section.body);
+      if (cliProxyHeadersContainLlmCallId(requestPart.headers, llmCallId)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function parseCliProxyBody(rawBody: string): unknown {
+  const body = rawBody.trim();
+  if (!body || body === '<empty>') {
+    return null;
+  }
+  if (body.startsWith('{') || body.startsWith('[')) {
+    try {
+      return JSON.parse(body);
+    } catch {
+      return rawBody.trimEnd();
+    }
+  }
+  return rawBody.trimEnd();
+}
+
+function parseCliProxyApiLogPart(sectionBody: string): ParsedCliProxyApiLogPart {
+  const normalized = sectionBody.replace(/\r\n/g, '\n');
+  const headersMarker = '\nHeaders:\n';
+  const bodyMarker = '\nBody:\n';
+  const headersIndex = normalized.indexOf(headersMarker);
+
+  if (headersIndex === -1) {
+    return {
+      metadata: parseCliProxyMetadata(normalized),
+      headers: {},
+      rawBody: '',
+      body: null
+    };
+  }
+
+  const metadataText = normalized.slice(0, headersIndex);
+  const afterHeaders = normalized.slice(headersIndex + headersMarker.length);
+  const bodyIndex = afterHeaders.indexOf(bodyMarker);
+  const headersText = bodyIndex === -1 ? afterHeaders : afterHeaders.slice(0, bodyIndex);
+  const rawBody = bodyIndex === -1 ? '' : afterHeaders.slice(bodyIndex + bodyMarker.length).trimEnd();
+
+  return {
+    metadata: parseCliProxyMetadata(metadataText),
+    headers: parseCliProxyHeaders(headersText),
+    rawBody,
+    body: parseCliProxyBody(rawBody)
+  };
+}
+
+function inferCliProxyBodyFormat(body: unknown): string {
+  if (body === null || body === undefined) {
+    return 'empty';
+  }
+  if (typeof body !== 'string') {
+    return 'json';
+  }
+  const trimmed = body.trimStart();
+  if (trimmed.startsWith('event:') || trimmed.startsWith('data:')) {
+    return 'sse';
+  }
+  return 'text';
+}
+
+function parseCliProxyApiRequestLog(content: string, logFile: string): ParsedCliProxyApiLogDetail | null {
+  const sections = splitCliProxyApiLogSections(content);
+  const requestSections = sections.filter((section) => /^API REQUEST(?:\s+\d+)?$/.test(section.title));
+  const responseSections = sections.filter((section) => /^API RESPONSE(?:\s+\d+)?$/.test(section.title));
+  const requestSection = requestSections.length > 0 ? requestSections[requestSections.length - 1] : null;
+  const responseSection = responseSections.length > 0 ? responseSections[responseSections.length - 1] : null;
+
+  if (!requestSection && !responseSection) {
+    return null;
+  }
+
+  return {
+    logFile,
+    request: requestSection ? parseCliProxyApiLogPart(requestSection.body) : null,
+    response: responseSection ? parseCliProxyApiLogPart(responseSection.body) : null
+  };
+}
+
+function findCliProxyApiRequestLog(llmCallId: string | null | undefined, logger: winston.Logger): ParsedCliProxyApiLogDetail | null {
+  const trimmed = typeof llmCallId === 'string' ? llmCallId.trim() : '';
+  if (!trimmed || !isSafeCliProxyCorrelationId(trimmed)) {
+    return null;
+  }
+  const logDir = cliProxyRequestLogDir();
+  if (!logDir) {
+    return null;
+  }
+
+  try {
+    const files = fs.readdirSync(logDir)
+      .filter((name) => name.endsWith('.log'))
+      .map((name) => {
+        const fullPath = path.join(logDir, name);
+        const stat = fs.statSync(fullPath);
+        return { name, fullPath, mtimeMs: stat.mtimeMs, size: stat.size };
+      })
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      .slice(0, cliProxyLogScanLimit());
+
+    for (const file of files) {
+      if (file.size <= 0) {
+        continue;
+      }
+      const content = fs.readFileSync(file.fullPath, 'utf8');
+      if (!cliProxyLogHasLlmCallHeader(content, trimmed)) {
+        continue;
+      }
+      const parsed = parseCliProxyApiRequestLog(content, file.name);
+      if (parsed) {
+        return parsed;
+      }
+    }
+  } catch (error) {
+    logger.warn('Failed to read CLIProxyAPI request logs for trace detail', {
+      error: error instanceof Error ? error.message : String(error),
+      llmCallId: trimmed,
+      logDir
+    });
+  }
+
+  return null;
+}
+
+function buildCliProxyApiSpanDetail(call: any, logger: winston.Logger): TraceSpanDetailDto | null {
+  const log = findCliProxyApiRequestLog(call.llm_call_id, logger);
+  if (!log) {
+    return null;
+  }
+
+  const request = log.request;
+  const response = log.response;
+  const statusCode = response?.metadata?.Status ? Number.parseInt(response.metadata.Status, 10) : (call.error_message ? null : 200);
+
+  return {
+    input: {
+      headers: request?.headers || null,
+      body: request?.body ?? null,
+      raw_body: request?.rawBody || null,
+      method: request?.metadata?.['HTTP Method'] || 'POST',
+      upstream_url: request?.metadata?.['Upstream URL'] || null,
+      body_source: 'cliproxyapi.request_log.api_request'
+    },
+    output: {
+      status_code: Number.isFinite(statusCode) ? statusCode : (call.error_message ? null : 200),
+      headers: response?.headers || null,
+      body: response?.body ?? null,
+      raw_body: response?.rawBody || null,
+      body_format: inferCliProxyBodyFormat(response?.body),
+      body_source: 'cliproxyapi.request_log.api_response',
+      error_message: call.error_message
+    },
+    evidence: {
+      synthetic: true,
+      source: 'cliproxyapi.request_log',
+      fallback_source: 'llm_call_logs.wire_request/wire_response',
+      log_file: log.logFile,
+      llm_call_id: call.llm_call_id || null,
+      model_provider: call.model_provider || null,
+      wire_provider_format: call.wire_provider_format || null,
+      request_format_version: call.request_format_version || null,
+      request_timestamp: call.started_at,
+      response_timestamp: call.completed_at
+    }
   };
 }
 
@@ -1288,6 +1623,8 @@ export async function buildConversationTracePayload(
     const playgroundSnapshot = buildPlaygroundSnapshot(call, spanId);
     const providerStatuses = summarizeProviderStatuses(call.provider_requests);
     const providerHosts = summarizeProviderHosts(call.provider_requests);
+    const hasSyntheticProviderRequest = httpLogs.length === 0 && call.provider_requests.length === 0 && hasCapturedWirePayload(call);
+    const providerRequestCount = call.provider_requests.length + (hasSyntheticProviderRequest ? 1 : 0);
     if (call.llm_call_id) {
       llmSpanIdByCallId.set(call.llm_call_id, spanId);
     }
@@ -1314,9 +1651,9 @@ export async function buildConversationTracePayload(
         'usage.input_tokens': call.input_tokens,
         'usage.output_tokens': call.output_tokens,
         'trace.agent_turn': call.agent_turn,
-        'provider.request_count': call.provider_requests.length,
-        'provider.hosts': providerHosts,
-        'provider.statuses': providerStatuses,
+        'provider.request_count': providerRequestCount,
+        'provider.hosts': hasSyntheticProviderRequest ? [syntheticProviderHost(call)] : providerHosts,
+        'provider.statuses': hasSyntheticProviderRequest ? [call.status] : providerStatuses,
         'playground.capability': playgroundCapability
       },
       input: {
@@ -1345,6 +1682,14 @@ export async function buildConversationTracePayload(
           duration_ms: log.duration_ms,
           api_type: log.api_type
         })),
+        synthetic_provider_request: hasSyntheticProviderRequest
+          ? {
+              span_id: buildSyntheticProviderRequestSpanId(call),
+              source: 'llm_call_logs.wire_request/wire_response',
+              llm_call_id: call.llm_call_id || null,
+              wire_provider_format: call.wire_provider_format || null
+            }
+          : null,
         playground_capability: playgroundCapability,
         playground_source_snapshot: playgroundSnapshot
       },
@@ -1353,6 +1698,68 @@ export async function buildConversationTracePayload(
       confidence: call.started_at && call.completed_at ? 'observed' : 'derived',
       source_ref: call.id
     }));
+
+    if (hasSyntheticProviderRequest) {
+      spanRecords.push(createSpan({
+        span_id: buildSyntheticProviderRequestSpanId(call),
+        parent_span_id: spanId,
+        trace_id: traceId,
+        conversation_id: call.conversation_id || conversationId,
+        name: 'provider.request',
+        kind: 'client',
+        status_code: call.status,
+        status_message: call.error_message || null,
+        started_at: call.started_at,
+        ended_at: call.completed_at,
+        duration_ms: call.duration_ms,
+        summary: `POST ${syntheticProviderHost(call)}${syntheticProviderPath(call)} -> ${call.status}`,
+        attributes: {
+          'semantic.role': 'provider_request',
+          'semantic.display_name': `POST ${syntheticProviderHost(call)}`,
+          'http.method': 'POST',
+          'http.url': null,
+          'http.host': syntheticProviderHost(call),
+          'http.path': syntheticProviderPath(call),
+          'http.status_code': call.error_message ? null : 200,
+          'trace.llm_call_id': call.llm_call_id || null,
+          'trace.agent_turn': call.agent_turn,
+          'provider.api_type': call.wire_provider_format || call.model_provider || null,
+          'provider.traffic_log_id': null,
+          'provider.synthetic_source': 'llm_call_logs.wire_payload'
+        },
+        input: {
+          headers: null,
+          body: maybeTrimLargeField(call.wire_request, 'wire_request', { truncateLargeFields: true })
+        },
+        output: {
+          status_code: call.error_message ? null : 200,
+          headers: null,
+          body: maybeTrimLargeField(call.wire_response, 'wire_response', { truncateLargeFields: true }),
+          raw_body: null,
+          body_format: 'json',
+          body_source: 'llm_call_logs.wire_response',
+          error_message: call.error_message
+        },
+        evidence: {
+          synthetic: true,
+          source: 'llm_call_logs.wire_request/wire_response',
+          llm_call_id: call.llm_call_id || null,
+          model_provider: call.model_provider || null,
+          wire_provider_format: call.wire_provider_format || null,
+          request_format_version: call.request_format_version || null,
+          request_body: maybeTrimLargeField(call.wire_request, 'wire_request', { truncateLargeFields: true }),
+          response_body: maybeTrimLargeField(call.wire_response, 'wire_response', { truncateLargeFields: true }),
+          duration_ms: call.duration_ms,
+          request_timestamp: call.started_at,
+          response_timestamp: call.completed_at
+        },
+        events: [],
+        links: [],
+        confidence: 'observed',
+        source_ref: call.llm_call_id || call.id
+      }));
+      return;
+    }
 
     if (call.provider_requests.length === 0) {
       return;
@@ -1747,6 +2154,52 @@ export async function buildConversationTraceSpanDetail(
         })),
         playground_capability: playgroundCapability,
         playground_source_snapshot: playgroundSnapshot
+      }
+    };
+  }
+
+  const syntheticProviderRequest = parseSyntheticProviderRequestSpanId(spanId);
+  if (syntheticProviderRequest) {
+    const rows = await database.executeQuery(
+      `SELECT * FROM llm_call_logs WHERE llm_call_id = ? LIMIT 1`,
+      [syntheticProviderRequest.llmCallId]
+    );
+    const row = rows[0] as any;
+    if (!row) {
+      return null;
+    }
+    const call = normalizeLlmCall(row);
+    const cliProxyDetail = buildCliProxyApiSpanDetail(call, logger);
+    if (cliProxyDetail) {
+      return cliProxyDetail;
+    }
+
+    return {
+      input: {
+        headers: null,
+        body: call.wire_request
+      },
+      output: {
+        status_code: call.error_message ? null : 200,
+        headers: null,
+        body: call.wire_response,
+        raw_body: null,
+        body_format: 'json',
+        body_source: 'llm_call_logs.wire_response',
+        error_message: call.error_message
+      },
+      evidence: {
+        synthetic: true,
+        source: 'llm_call_logs.wire_request/wire_response',
+        llm_call_id: call.llm_call_id || null,
+        model_provider: call.model_provider || null,
+        wire_provider_format: call.wire_provider_format || null,
+        request_format_version: call.request_format_version || null,
+        request_body: call.wire_request,
+        response_body: call.wire_response,
+        duration_ms: call.duration_ms,
+        request_timestamp: call.started_at,
+        response_timestamp: call.completed_at
       }
     };
   }

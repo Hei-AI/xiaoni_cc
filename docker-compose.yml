@@ -198,12 +198,14 @@ services:
       - ADMIN_PORT=9080
       - HTTP_PORT=9080
       - PROVIDER_SERVICE_URL=http://qqbot-provider-service:8090
+      - CLIPROXY_REQUEST_LOG_DIR=/app/cliproxyapi-logs
       - LOG_LEVEL=info
       # 透明代理模式：使用iptables拦截，无需配置HTTP_PROXY
       - NODE_TLS_REJECT_UNAUTHORIZED=0
     volumes:
       - ./logs/admin-backend:/app/logs
       - ./logs/qqbot-traffic:/app/logs/traffic:ro
+      - ${CLIPROXY_REQUEST_LOG_HOST_DIR:-/home/liahua/IdeaProject/CLIProxyAPI/logs}:/app/cliproxyapi-logs:ro
       - ./modules/admin-panel/backend/resources/uploads:/app/resources/uploads
       - ./modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
     extra_hosts:

@@ -1,6 +1,9 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import winston from 'winston';
 import { listRuntimeIdentityActivationTraces, listIdentityEvidenceRefs, listTraceTrafficLogs } from '@qq-bot/persistence';
-import { buildConversationTracePayload } from '../services/trace-span-builder';
+import { buildConversationTracePayload, buildConversationTraceSpanDetail } from '../services/trace-span-builder';
 
 jest.mock('@qq-bot/persistence', () => ({
   listRuntimeIdentityActivationTraces: jest.fn(),
@@ -88,6 +91,8 @@ function createDatabase(overrides?: {
 describe('buildConversationTracePayload', () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    delete process.env.CLIPROXY_REQUEST_LOG_DIR;
+    delete process.env.CLIPROXY_REQUEST_LOG_SCAN_LIMIT;
     (listRuntimeIdentityActivationTraces as jest.Mock).mockResolvedValue([]);
     (listIdentityEvidenceRefs as jest.Mock).mockResolvedValue([]);
   });
@@ -174,6 +179,343 @@ describe('buildConversationTracePayload', () => {
     });
     expect(spans.some((span) => span.name === 'provider.exchange')).toBe(false);
     expect(spans.some((span) => span.span_id === 'http:101')).toBe(false);
+  });
+
+  it('derives provider.request spans from captured wire payloads when mitm traffic is absent', async () => {
+    const db = createDatabase({
+      llmCallRows: [
+        {
+          id: 12,
+          llm_call_id: 'llm-call-wire',
+          trace_id: 'trace-1',
+          conversation_id: 'conversation-1',
+          agent_turn: 1,
+          call_sequence: 1,
+          started_at: '2026-03-28T10:00:01.000Z',
+          completed_at: '2026-03-28T10:00:03.000Z',
+          status: 'completed',
+          model_name: 'gpt-5.4-mini',
+          model_provider: 'codex',
+          agent_type: 'chat_bot',
+          prompt_template: 'agent_loop_v1',
+          canonical_request: JSON.stringify({ model: 'gpt-5.4-mini' }),
+          wire_request: JSON.stringify({ model: 'gpt-5.4-mini', input: [{ role: 'user', content: 'hello' }] }),
+          canonical_response: JSON.stringify({ output_text: '' }),
+          wire_response: JSON.stringify({ id: 'resp_1', output: [{ type: 'function_call', name: 'stay_silent' }] }),
+          effective_unified_config: JSON.stringify({ model: { provider: 'codex', name: 'gpt-5.4-mini' } }),
+          processed_response: '',
+          input_tokens: 10,
+          output_tokens: 20,
+          token_usage: JSON.stringify({ input_tokens: 10, output_tokens: 20 }),
+          processing_time_ms: 2000,
+          request_format_version: 'openresponse/v1',
+          wire_provider_format: 'codex/responses',
+        },
+      ],
+    });
+
+    (listTraceTrafficLogs as jest.Mock).mockResolvedValue([]);
+
+    const payload = await buildConversationTracePayload(db as never, createLogger(), 'conversation-1');
+    const generationSpan = payload!.spans.find((span) => span.span_id === 'llm-call:llm-call-wire');
+    const providerSpan = payload!.spans.find((span) => span.span_id === 'provider-request:wire:llm-call-wire');
+
+    expect(generationSpan?.attributes['provider.request_count']).toBe(1);
+    expect(generationSpan?.evidence).toMatchObject({
+      synthetic_provider_request: expect.objectContaining({
+        span_id: 'provider-request:wire:llm-call-wire',
+        source: 'llm_call_logs.wire_request/wire_response',
+      }),
+    });
+    expect(providerSpan).toMatchObject({
+      parent_span_id: 'llm-call:llm-call-wire',
+      attributes: expect.objectContaining({
+        'semantic.role': 'provider_request',
+        'http.host': 'CLIProxyAPI',
+        'provider.synthetic_source': 'llm_call_logs.wire_payload',
+      }),
+      input: expect.objectContaining({
+        body: expect.objectContaining({
+          input: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      output: expect.objectContaining({
+        body_source: 'llm_call_logs.wire_response',
+        body: expect.objectContaining({
+          id: 'resp_1',
+        }),
+      }),
+      evidence: expect.objectContaining({
+        synthetic: true,
+        llm_call_id: 'llm-call-wire',
+      }),
+    });
+  });
+
+  it('loads full synthetic provider payloads from llm_call_logs for span detail', async () => {
+    const db = createDatabase({
+      llmCallRows: [
+        {
+          id: 13,
+          llm_call_id: 'llm-call-detail',
+          trace_id: 'trace-1',
+          conversation_id: 'conversation-1',
+          agent_turn: 1,
+          call_sequence: 1,
+          started_at: '2026-03-28T10:00:01.000Z',
+          completed_at: '2026-03-28T10:00:03.000Z',
+          status: 'completed',
+          model_name: 'gpt-5.4-mini',
+          model_provider: 'codex',
+          agent_type: 'chat_bot',
+          prompt_template: 'agent_loop_v1',
+          canonical_request: JSON.stringify({ model: 'gpt-5.4-mini' }),
+          wire_request: JSON.stringify({ prompt: 'x'.repeat(40000) }),
+          canonical_response: JSON.stringify({ output_text: '' }),
+          wire_response: JSON.stringify({ output: [{ type: 'function_call', arguments: '{"ok":true}' }] }),
+          effective_unified_config: JSON.stringify({ model: { provider: 'codex', name: 'gpt-5.4-mini' } }),
+          processed_response: '',
+          input_tokens: 10,
+          output_tokens: 20,
+          token_usage: JSON.stringify({ input_tokens: 10, output_tokens: 20 }),
+          processing_time_ms: 2000,
+          request_format_version: 'openresponse/v1',
+          wire_provider_format: 'codex/responses',
+        },
+      ],
+    });
+
+    const detail = await buildConversationTraceSpanDetail(
+      db as never,
+      createLogger(),
+      'conversation-1',
+      'provider-request:wire:llm-call-detail'
+    );
+
+    expect((detail?.input as any).body.prompt).toHaveLength(40000);
+    expect(detail?.output).toMatchObject({
+      body_source: 'llm_call_logs.wire_response',
+      body: {
+        output: [{ type: 'function_call', arguments: '{"ok":true}' }],
+      },
+    });
+    expect(detail?.evidence).toMatchObject({
+      synthetic: true,
+      source: 'llm_call_logs.wire_request/wire_response',
+      llm_call_id: 'llm-call-detail',
+    });
+  });
+
+  it('loads real upstream CLIProxyAPI request and response logs for synthetic provider detail', async () => {
+    const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cliproxy-log-'));
+    process.env.CLIPROXY_REQUEST_LOG_DIR = logDir;
+
+    fs.writeFileSync(path.join(logDir, 'v1-responses-2026-03-28T100002-abcd1234.log'), [
+      '=== REQUEST INFO ===',
+      'URL: /backend-api/codex/responses',
+      'Method: POST',
+      '',
+      '=== HEADERS ===',
+      'x-llm-call-id: llm-call-log',
+      '',
+      '=== REQUEST BODY ===',
+      '{"model":"client-side"}',
+      '',
+      '=== API REQUEST 1 ===',
+      'Timestamp: 2026-03-28T10:00:01.000Z',
+      'Upstream URL: https://chatgpt.com/backend-api/codex/responses',
+      'HTTP Method: POST',
+      'Auth: provider=codex, type=oauth',
+      '',
+      'Headers:',
+      'Authorization: Bearer 1234...abcd',
+      'Content-Type: application/json',
+      'OpenAI-Beta: responses=experimental',
+      '',
+      'Body:',
+      '{"model":"gpt-5.4-mini","stream":true,"input":[{"role":"user","content":"hello"}]}',
+      '',
+      '=== API RESPONSE 1 ===',
+      'Timestamp: 2026-03-28T10:00:03.000Z',
+      '',
+      'Status: 200',
+      'Headers:',
+      'Content-Type: text/event-stream',
+      'Openai-Request-Id: req_real_1',
+      '',
+      'Body:',
+      'event: response.output_item.done',
+      'data: {"type":"response.output_item.done","item":{"type":"function_call","name":"emit_unread_meaning"}}',
+      '',
+      'event: response.completed',
+      'data: {"type":"response.completed","response":{"status":"completed"}}',
+      '',
+      '=== RESPONSE ===',
+      'Status: 200',
+      'Content-Type: text/event-stream',
+      '',
+      'data: downstream'
+    ].join('\n'));
+
+    const db = createDatabase({
+      llmCallRows: [
+        {
+          id: 14,
+          llm_call_id: 'llm-call-log',
+          trace_id: 'trace-1',
+          conversation_id: 'conversation-1',
+          agent_turn: 1,
+          call_sequence: 1,
+          started_at: '2026-03-28T10:00:01.000Z',
+          completed_at: '2026-03-28T10:00:03.000Z',
+          status: 'completed',
+          model_name: 'gpt-5.4-mini',
+          model_provider: 'codex',
+          agent_type: 'chat_bot',
+          prompt_template: 'agent_loop_v1',
+          canonical_request: JSON.stringify({ model: 'gpt-5.4-mini' }),
+          wire_request: JSON.stringify({ model: 'stored-wire-request' }),
+          canonical_response: JSON.stringify({ output_text: '' }),
+          wire_response: JSON.stringify({ output: [{ type: 'function_call', name: 'stored_wire' }] }),
+          effective_unified_config: JSON.stringify({ model: { provider: 'codex', name: 'gpt-5.4-mini' } }),
+          processed_response: '',
+          input_tokens: 10,
+          output_tokens: 20,
+          token_usage: JSON.stringify({ input_tokens: 10, output_tokens: 20 }),
+          processing_time_ms: 2000,
+          request_format_version: 'openresponse/v1',
+          wire_provider_format: 'codex/responses',
+        },
+      ],
+    });
+
+    const detail = await buildConversationTraceSpanDetail(
+      db as never,
+      createLogger(),
+      'conversation-1',
+      'provider-request:wire:llm-call-log'
+    );
+
+    expect(detail?.input).toMatchObject({
+      method: 'POST',
+      upstream_url: 'https://chatgpt.com/backend-api/codex/responses',
+      headers: {
+        Authorization: 'Bearer 1234...abcd',
+        'Content-Type': 'application/json',
+        'OpenAI-Beta': 'responses=experimental',
+      },
+      body: {
+        model: 'gpt-5.4-mini',
+        stream: true,
+        input: [{ role: 'user', content: 'hello' }],
+      },
+      body_source: 'cliproxyapi.request_log.api_request',
+    });
+    expect(detail?.output).toMatchObject({
+      status_code: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Openai-Request-Id': 'req_real_1',
+      },
+      body_format: 'sse',
+      body_source: 'cliproxyapi.request_log.api_response',
+    });
+    expect((detail?.output as any).raw_body).toContain('response.completed');
+    expect(detail?.evidence).toMatchObject({
+      source: 'cliproxyapi.request_log',
+      fallback_source: 'llm_call_logs.wire_request/wire_response',
+      log_file: 'v1-responses-2026-03-28T100002-abcd1234.log',
+      llm_call_id: 'llm-call-log',
+    });
+  });
+
+  it('ignores CLIProxyAPI logs that only mention the llm call id in the request body', async () => {
+    const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cliproxy-log-'));
+    process.env.CLIPROXY_REQUEST_LOG_DIR = logDir;
+
+    fs.writeFileSync(path.join(logDir, 'v1-responses-2026-03-28T100004-decoy.log'), [
+      '=== REQUEST INFO ===',
+      'URL: /backend-api/codex/responses',
+      'Method: POST',
+      '',
+      '=== HEADERS ===',
+      'x-llm-call-id: another-call',
+      '',
+      '=== REQUEST BODY ===',
+      'This prompt mentions a different trace line:',
+      'x-llm-call-id: llm-call-body-only',
+      '',
+      '=== API REQUEST 1 ===',
+      'Timestamp: 2026-03-28T10:00:04.000Z',
+      'Upstream URL: https://chatgpt.com/backend-api/codex/responses',
+      'HTTP Method: POST',
+      '',
+      'Headers:',
+      'Content-Type: application/json',
+      '',
+      'Body:',
+      '{"model":"wrong-log","message":"x-llm-call-id: llm-call-body-only"}',
+      '',
+      '=== API RESPONSE 1 ===',
+      'Timestamp: 2026-03-28T10:00:05.000Z',
+      '',
+      'Status: 200',
+      'Headers:',
+      'Content-Type: application/json',
+      '',
+      'Body:',
+      '{"id":"wrong-response"}'
+    ].join('\n'));
+
+    const db = createDatabase({
+      llmCallRows: [
+        {
+          id: 15,
+          llm_call_id: 'llm-call-body-only',
+          trace_id: 'trace-1',
+          conversation_id: 'conversation-1',
+          agent_turn: 1,
+          call_sequence: 1,
+          started_at: '2026-03-28T10:00:01.000Z',
+          completed_at: '2026-03-28T10:00:03.000Z',
+          status: 'completed',
+          model_name: 'gpt-5.4-mini',
+          model_provider: 'codex',
+          agent_type: 'chat_bot',
+          prompt_template: 'agent_loop_v1',
+          canonical_request: JSON.stringify({ model: 'gpt-5.4-mini' }),
+          wire_request: JSON.stringify({ model: 'stored-wire-request' }),
+          canonical_response: JSON.stringify({ output_text: '' }),
+          wire_response: JSON.stringify({ output: [{ type: 'function_call', name: 'stored_wire' }] }),
+          effective_unified_config: JSON.stringify({ model: { provider: 'codex', name: 'gpt-5.4-mini' } }),
+          processed_response: '',
+          input_tokens: 10,
+          output_tokens: 20,
+          token_usage: JSON.stringify({ input_tokens: 10, output_tokens: 20 }),
+          processing_time_ms: 2000,
+          request_format_version: 'openresponse/v1',
+          wire_provider_format: 'codex/responses',
+        },
+      ],
+    });
+
+    const detail = await buildConversationTraceSpanDetail(
+      db as never,
+      createLogger(),
+      'conversation-1',
+      'provider-request:wire:llm-call-body-only'
+    );
+
+    expect(detail?.output).toMatchObject({
+      body_source: 'llm_call_logs.wire_response',
+      body: {
+        output: [{ type: 'function_call', name: 'stored_wire' }],
+      },
+    });
+    expect(detail?.evidence).toMatchObject({
+      source: 'llm_call_logs.wire_request/wire_response',
+      llm_call_id: 'llm-call-body-only',
+    });
   });
 
   it('surfaces participation decision timeline metadata as readable decision spans', async () => {
