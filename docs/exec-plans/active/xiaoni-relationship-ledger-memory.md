@@ -486,7 +486,7 @@
 
 - Plan file: `docs/exec-plans/active/xiaoni-relationship-ledger-memory.md`
 - Branch: `refactor/runtime-gateway`
-- Base branch: `master`
+- Base branch: `refactor/runtime-gateway` (current remote default)
 - UI scope: yes
 - Design doc found: `/home/liahua/.gstack/projects/liahua-qq_bot/liahua-refactor-runtime-gateway-design-20260402-164452.md`
 - Review mode: `SELECTIVE_EXPANSION`
