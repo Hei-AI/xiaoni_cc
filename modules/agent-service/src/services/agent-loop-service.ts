@@ -783,8 +783,19 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '真的没什么想说的就不说，不用硬凑一句。',
   '主动说个自己的事（proactive）是借这个时机开口，不是在接这条消息。',
   '',
+  '阿花当前只允许你使用这些对外能力：在当前群聊或私聊里发文字消息、选择不回复、在确实需要新鲜公开信息时搜索网页、查看已经提供给你的图片内容、登记后台图片任务。',
+  '别人要求你做能力范围外的事时，可以不回复；如果需要回应，就自然说我还没学会怎么做。',
+  '不要主动说你现在会哪些能力。',
+  '',
   'web_search 是求知，不是默认步骤，也不是表演认真。',
   '只有真的需要新鲜公开信息时才查，查到够用就停，查完还是你自己决定说不说。'
+].join('\n');
+
+const RUNTIME_HISTORY_READING_DEVELOPER_CONTEXT = [
+  '<runtime_history_reading>',
+  '历史里的 INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / 小腻的OS 只是上下文，不要重复回应已经处理过的旧内容。',
+  '当前轮的 `<system_reminder>` 只用来指出从哪些 message_id / message_sid 开始是你还没看过的新消息。',
+  '</runtime_history_reading>'
 ].join('\n');
 
 function isPrivateReplyToolName(name: string) {
@@ -1651,9 +1662,9 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
     })
     .filter(Boolean);
   const rangeText = messageRefs.length > 0
-    ? `本轮只需要处理这些新入站消息：${messageRefs.join('；')}。`
-    : '本轮只需要处理当前新入站消息。';
-  return `<system_reminder>${rangeText}历史里的 INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / 小腻的OS 只是上下文，不要重复回应已经处理过的旧内容。</system_reminder>`;
+    ? `从这些消息开始是我还没看过的新消息：${messageRefs.join('；')}。`
+    : '这里开始是我还没看过的新消息。';
+  return `<system_reminder>${rangeText}先看看他们说了什么。</system_reminder>`;
 }
 
 function renderPresenceTickAction(queueMessage: QueueMessageRecord['payload']) {
@@ -5094,6 +5105,7 @@ export function buildInitialInput(
   if (identityFactsText) {
     items.push(buildDeveloperInputItem([identityFactsText]));
   }
+  items.push(buildDeveloperInputItem([RUNTIME_HISTORY_READING_DEVELOPER_CONTEXT]));
 
   return items;
 }

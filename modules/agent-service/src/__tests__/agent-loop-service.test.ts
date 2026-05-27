@@ -753,9 +753,14 @@ test('RUNTIME_INPUT_READING_CONTRACT contains new positive permission text and n
 
   assert.match(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/, 'positive permission line 1 must be present');
   assert.match(String(request.instructions), /有真实的感觉才开口/, 'positive permission line 2 must be present');
+  assert.match(String(request.instructions), /阿花当前只允许你使用这些对外能力/, 'capability boundary must be present');
+  assert.match(String(request.instructions), /我还没学会怎么做/, 'out-of-scope response guidance must be present');
+  assert.match(String(request.instructions), /不要主动说你现在会哪些能力/, 'do not advertise capability boundary must be present');
   assert.doesNotMatch(String(request.instructions), /知行不二/, '知行不二 must be removed');
   assert.doesNotMatch(String(request.instructions), /修身为本/, '修身为本 must be removed');
   assert.doesNotMatch(String(request.instructions), /经典原话更准确地点明了此刻判断/, 'old Confucian framing must be removed');
+  assert.doesNotMatch(String(request.instructions), /权限清单/, 'do not introduce explicit system wording');
+  assert.doesNotMatch(String(request.instructions), /后台链路/, 'do not introduce explicit system wording');
 });
 
 test('search and image_task paths still force recall before act-turn', () => {
@@ -922,8 +927,8 @@ test('buildInitialInput renders stable batch context without exposing runtime id
 
   const currentPrompt = getMessageContent(loopInput[1]);
   assert.equal((loopInput[1] as any).role, 'user');
-  assert.equal((loopInput.at(-1) as any).role, 'assistant');
-  assert.match(getMessageContent(loopInput.at(-1)), /<system_reminder>/);
+  const reminderItem = loopInput.find((item: any) => item.role === 'assistant' && getMessageContent(item).includes('<system_reminder>'));
+  assert.equal((reminderItem as any)?.role, 'assistant');
   assert.doesNotMatch(currentPrompt, /Trace:/);
   assert.doesNotMatch(currentPrompt, /RunId:/);
   assert.doesNotMatch(currentPrompt, /BatchId:/);
@@ -1008,8 +1013,8 @@ test('buildInitialInput renders each message in a batch as its own user message 
   });
 
   const loopInput = buildInitialInput([], payload);
-  const currentTurnItems = loopInput.slice(1, -1);
-  assert.match(getMessageContent(loopInput.at(-1)), /<system_reminder>/);
+  const currentTurnItems = loopInput.slice(1, -2);
+  assert.match(getMessageContent(loopInput.at(-2)), /<system_reminder>/);
 
   assert.equal(currentTurnItems.length, 2);
   assert.match(getMessageContent(currentTurnItems[0]), /sender="Alice\(202\)"/);
@@ -1075,8 +1080,9 @@ test('buildInitialInput projects accepted identity facts as runtime scene contex
   assert.ok(identityItem);
   assert.match(getMessageContent(identityItem), /\[身份连续性\]/);
   assert.match(getMessageContent(loopInput[1]), /问问@\{Bob\(@404\)\} 今天玩什么/);
-  assert.match(getMessageContent(loopInput.at(-2)), /<system_reminder>/);
-  assert.equal(loopInput.at(-1), identityItem);
+  assert.match(getMessageContent(loopInput.at(-3)), /<system_reminder>/);
+  assert.equal(loopInput.at(-2), identityItem);
+  assert.match(getMessageContent(loopInput.at(-1)), /<runtime_history_reading>/);
 });
 
 test('buildInitialInput keeps current batch before reminder and identity continuity', () => {
@@ -1125,18 +1131,21 @@ test('buildInitialInput keeps current batch before reminder and identity continu
   const osIndex = rendered.findIndex((content) => content.includes('上一轮留下的内在延续'));
   const firstCurrentIndex = rendered.findIndex((content) => content.includes('message_id="11"'));
   const secondCurrentIndex = rendered.findIndex((content) => content.includes('message_id="12"'));
-  const reminderIndex = rendered.findIndex((content) => content.includes('<system_reminder>本轮只需要处理这些新入站消息'));
+  const reminderIndex = rendered.findIndex((content) => content.includes('<system_reminder>从这些消息开始是我还没看过的新消息'));
   const identityIndex = rendered.findIndex((content) => content.includes('[身份连续性]'));
+  const historyReadingIndex = rendered.findIndex((content) => content.includes('<runtime_history_reading>'));
 
   assert.ok(osIndex !== -1);
   assert.ok(firstCurrentIndex !== -1);
   assert.ok(secondCurrentIndex !== -1);
   assert.ok(reminderIndex !== -1);
   assert.ok(identityIndex !== -1);
+  assert.ok(historyReadingIndex !== -1);
   assert.ok(osIndex < firstCurrentIndex);
   assert.ok(firstCurrentIndex < secondCurrentIndex);
   assert.ok(secondCurrentIndex < reminderIndex);
   assert.ok(reminderIndex < identityIndex);
+  assert.ok(identityIndex < historyReadingIndex);
 });
 
 test('buildInitialInput applies bound user prompt template to the current message block', () => {
