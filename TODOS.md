@@ -11,14 +11,17 @@ Archived pre-cleanup snapshot:
 Authoritative execution order:
 
 1. **P0-A: user-visible Xiaoni group-chat behavior.**
-   Tasks 1-5 are implemented; keep verification notes here and move any next
+   Tasks 1-7 are implemented; keep verification notes here and move any next
    follow-up into a new task instead of reopening the old queue.
 2. **P0-B: Identity Lineage Phase 1.**
    Substrate work can proceed, but runtime-facing policy waits for P0-A's first
    causality closure.
-3. **P1: transcript snapshot compaction production loop.**
+3. **P0-C: runtime data readiness and cleanup.**
+   Data audit found real input/config/schema gaps; resolve before treating live
+   proactive/runtime data as clean current truth.
+4. **P1: transcript snapshot compaction production loop.**
    Independent infrastructure follow-up.
-4. **P2: remaining provider-service non-text OneBot segment handling.**
+5. **P2: remaining provider-service non-text OneBot segment handling.**
    `json` card support is done; nested forwards and other segment types still
    need explicit handling.
 
@@ -742,7 +745,7 @@ Add deterministic engineering monitoring inside a single run:
 
 ### Task 7 - Long-term learning generation trigger
 
-**Status:** todo.
+**Status:** implemented and Docker-verified in agent-service on 2026-05-27.
 
 **Source:** 2026-05-27 review of exported
 `/home/liahua/.qqbot-local/exports/xiaoni-memory-20260527-142325/01_long_term_learning.json`.
@@ -778,6 +781,142 @@ long-term recall reflections.
   `recall_long_term_learning` is explicitly called.
 - Add tests covering that normal run feedback does not create active long-term
   reflection rows, while compression-triggered synthesis can.
+
+**Implementation notes (2026-05-27):**
+
+- Normal `feedback_memory_writer` is disabled after removing the
+  `extract_feedback_episode` tool; per-turn runs no longer write hidden feedback
+  episode evidence.
+- `context_compression_memory_writer` is the only path allowed to synthesize
+  durable feedback reflections / learning state, and it now starts directly with
+  `synthesize_feedback_reflection` instead of an episode tool call.
+- `write_context_summary` was removed as a model tool. Engineering still triggers
+  summary generation when compact evicts turns, but the summary writer now returns
+  a strict assistant JSON payload that engineering parses and persists.
+- Verified with `npm --prefix modules/agent-service test -- --test-reporter=spec`
+  on 2026-05-27.
+- Docker-verified with `docker compose build --no-cache agent-service`,
+  `docker compose up -d agent-service`, `docker compose ps`, and
+  `docker compose logs --tail=120 agent-service` on 2026-05-27.
+
+### Task 8 - In-context feedback attention contract
+
+**Status:** todo.
+
+**Source:** 2026-05-27 design review after Task 7 implementation.
+
+**Problem:** current and compacted feedback should already be available through
+normal context channels:
+
+- If the turn has not been compacted, the feedback is still in the visible
+  conversation context.
+- If the turn has been compacted, the summary / durable long-term recall path is
+  the right place for it to re-enter the model.
+
+That means a per-turn `feedback_episode` evidence row is not obviously needed as
+another memory source unless it has a concrete runtime consumer. The clearer
+possible gap is prompt-level: the main runtime contract does not strongly tell
+Xiaoni to notice direct feedback, criticism, praise, or correction in the current
+context and let it calibrate the immediate response.
+
+**Action:**
+
+- Add a small runtime prompt contract/test that makes direct in-context feedback
+  a first-class behavior signal for the current turn.
+- Make clear that feedback visible in current context should be handled from
+  context, not re-derived from a hidden feedback episode table.
+- If trust/emotional-state side effects are still wanted for praise/critique,
+  move them to an explicit runtime path instead of reintroducing a hidden
+  feedback episode tool.
+
+**Acceptance criteria:**
+
+- Current-context feedback, critique, correction, and praise are explicitly
+  called out in the runtime reading contract as behavior-calibration signals.
+- Tests cover that the composed runtime prompt contains this feedback-attention
+  instruction.
+- Per-turn feedback episodes remain removed/gated; no parallel hidden source of
+  facts is reintroduced for material the model should read from context,
+  summary, or durable recall.
+
+## P0-C - Runtime Data Readiness And Cleanup
+
+**Status:** todo.
+
+**Source:** `$office-hours` data readiness audit,
+`~/.gstack/projects/qq_bot/liahua-refactor-runtime-gateway-design-20260527-101118.md`.
+
+**Problem:** the current runtime data is mostly structurally linked, but the audit
+found real gaps in live input policy, presence state, prompt binding, compaction
+data, legacy/test classification, and schema ownership. These should be handled as
+an explicit readiness pass instead of being left as operator folklore.
+
+**Action:**
+
+1. Decide the `253631878` participation policy.
+   - Current state: `PRESENCE_TICK_TARGET_GROUP_ID=253631878`, but
+     `group_chat_settings.auto_reply_enabled=0` and
+     `continuous_learning_enabled=0`.
+   - Decide whether proactive `presence_tick` may target this group while normal
+     auto-reply is disabled.
+   - If yes, encode it as an explicit data flag such as `proactive_enabled` or an
+     equivalent persisted policy. If no, disable the presence target or enable
+     normal auto-reply consistently.
+
+2. Add a dry-run cleanup/classification report before mutating data.
+   - Report the stuck 2026-04-12 `processing` queue/run/batch and mark it
+     failed/stale only after explicit approval; do not replay automatically.
+   - Classify failed provider/auth/network incident rows so current operational
+     views do not treat historical Codex 502 / 429 / auth / network failures as
+     current product state.
+   - Mark empty legacy tables as legacy in docs first, then drop only after
+     confirming no live code path references them.
+   - Classify disabled/test chat settings (`QA fresh ignore`, offset tests,
+     smoke users, numeric test users) so admin views separate test/legacy targets
+     from real runtime targets.
+
+3. Fix prompt binding completeness.
+   - Add `agent_prompt_id` for the two enabled auto-reply private chats missing a
+     prompt binding, or disable auto-reply for those chats.
+   - Keep group prompt binding behavior unchanged unless the audit is re-run and
+     finds a group-side gap.
+
+4. Backfill presence foundation data with source honesty.
+   - Add sleep/awake anchors, energy/fatigue history, short-term heat / durable
+     interest candidates, and real or explicitly mocked digital action logs.
+   - Ensure share pool items carry source wording and boundary labels, especially
+     `mock_only` vs real source language.
+   - Do not let QQ-visible wording imply real browsing when the underlying item is
+     seed/mock/constructed material.
+
+5. Close the summary/compaction half-state.
+   - Current cutoff markers exist without `chat_transcript_snapshots`.
+   - Either start writing ready transcript snapshots and prove prompt consumption,
+     or explicitly remove that dependency from the runtime contract.
+   - Coordinate with P1, which owns the production compaction loop.
+
+6. Move runtime schema ownership into persistence.
+   - Runtime-created tables/columns must be represented in
+     `packages/persistence/prisma/schema.prisma` and migrations.
+   - Runtime `CREATE TABLE IF NOT EXISTS` should not remain the long-term schema
+     mechanism.
+   - Add a schema drift check or audit command so Prisma schema, runtime DDL, and
+     live DB differences are visible.
+
+**Acceptance criteria:**
+
+- `253631878` has an explicit presence-vs-auto-reply policy recorded in data and
+  docs.
+- Dry-run cleanup output lists stale processing, failed incident, empty legacy,
+  and disabled/test rows without deleting anything by default.
+- Zero enabled auto-reply chats are missing a valid `agent_prompt_id`, unless
+  fallback behavior is explicitly documented and tested.
+- Presence data has explicit anchors/action-log/share-pool source labels and does
+  not blur mock material into real-source language.
+- Current runtime/admin views separate current, legacy, test, seed/mock, and
+  incident data.
+- Schema drift between Prisma, runtime DDL, and live DB is either eliminated or
+  documented with an owner and follow-up.
 
 ## P0-B - Identity Lineage Phase 1
 

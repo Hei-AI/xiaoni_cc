@@ -61,6 +61,14 @@ type OpenResponseInputContentPart =
       text: string;
     }
   | {
+      type: 'output_text';
+      text: string;
+    }
+  | {
+      type: 'refusal';
+      refusal: string;
+    }
+  | {
       type: 'input_image';
       image_url: string;
     };
@@ -98,6 +106,8 @@ type OpenResponseToolChoice =
       >;
     };
 
+type FeedbackWriterToolChoice = OpenResponseToolChoice | undefined;
+
 type ToolContinuationAction = {
   inputItems: OpenResponseInputItem[];
   finishResult: Record<string, unknown> | null;
@@ -129,8 +139,8 @@ type CanonicalAgentTurnRequest = {
   input: OpenResponseInputItem[];
   instructions?: string;
   metadata?: Record<string, string>;
-  tools: OpenResponseToolDefinition[];
-  tool_choice: OpenResponseToolChoice;
+  tools?: OpenResponseToolDefinition[];
+  tool_choice?: OpenResponseToolChoice;
   parallel_tool_calls: false;
   prompt_cache_key?: string;
   prompt_cache_retention?: string;
@@ -254,20 +264,6 @@ type FeedbackReflectionCandidate = {
   reason: string;
 };
 
-type FeedbackEpisodeSocialActType = 'topic_opener' | 'resource_request' | 'emotional_confrontation' | 'accusation' | 'casual_reaction' | 'other';
-
-type FeedbackEpisodeCandidate = {
-  shouldPersist: boolean;
-  eventKind: 'feedback' | 'praise' | 'critique' | 'correction' | 'interaction_outcome';
-  scopeType: 'group_self' | 'from_user';
-  sourceUserScope: 'current_sender' | 'other' | 'group' | 'unknown';
-  excerptText: string;
-  eventImportance: number;
-  sourceSalience: number;
-  reason: string;
-  socialActType: FeedbackEpisodeSocialActType | null;
-};
-
 type FeedbackReflectionSynthesis = {
   learningKey: string;
   learningScope: string;
@@ -295,6 +291,8 @@ type FeedbackLearningStateCandidate = {
   activateNewReflection: boolean;
   reason: string;
 };
+
+type FeedbackWriterMode = 'episode_only' | 'durable_lessons';
 
 type FeedbackMemorySubagentParams = {
   queueMessage: QueueMessageRecord['payload'];
@@ -340,7 +338,6 @@ const TOOL_NAMES = {
   longTermRecall: 'recall_long_term_learning',
   inspectImage: 'inspect_image_placeholder',
   imageTask: 'request_image_task',
-  feedbackEpisode: 'extract_feedback_episode',
   feedbackReflection: 'synthesize_feedback_reflection',
   feedbackLearningState: 'update_learning_state',
   privateReply: 'reply_in_private',
@@ -635,61 +632,12 @@ const LONG_TERM_RECALL_TOOL = {
   }
 } as const;
 
-const FEEDBACK_REFLECTION_TOOL = {
-  type: 'function',
-  function: {
-    name: TOOL_NAMES.feedbackEpisode,
-    description: [
-      '回看这一轮，判断有没有值得长期留下的 episode 证据。',
-      '只有这轮真的发生了会改变小腻以后怎么在场的反馈、提醒、纠偏或互动结果，才留下 episode。'
-    ].join(' '),
-    parameters: {
-      type: 'object',
-      properties: {
-        should_persist: {
-          type: 'boolean'
-        },
-        event_kind: {
-          type: 'string',
-          enum: ['feedback', 'praise', 'critique', 'correction', 'interaction_outcome']
-        },
-        scope_type: {
-          type: 'string',
-          enum: ['group_self', 'from_user']
-        },
-        source_user_scope: {
-          type: 'string',
-          enum: ['current_sender', 'other', 'group', 'unknown']
-        },
-        excerpt_text: {
-          type: 'string'
-        },
-        event_importance: {
-          type: 'number'
-        },
-        source_salience: {
-          type: 'number'
-        },
-        reason: {
-          type: 'string'
-        },
-        social_act_type: {
-          type: 'string',
-          enum: ['topic_opener', 'resource_request', 'emotional_confrontation', 'accusation', 'casual_reaction', 'other']
-        }
-      },
-      required: ['should_persist', 'event_kind', 'scope_type', 'source_user_scope', 'excerpt_text', 'event_importance', 'source_salience', 'reason'],
-      additionalProperties: false
-    }
-  }
-} as const;
-
 const FEEDBACK_REFLECTION_SYNTHESIS_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.feedbackReflection,
     description: [
-      '基于刚刚抽出来的 episode，把这轮真正学到的东西提炼成一条 append-only reflection。',
+      '在上下文压缩时，把这批即将移出上下文的对话里真正值得长期保留的内容提炼成一条 append-only reflection。',
       '默认是叠加，不是覆盖；只有明确是同题新结论时，才表明 supersede 或 conflict。'
     ].join(' '),
     parameters: {
@@ -1064,25 +1012,24 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
   return buildAllowedToolsToolChoice(tools);
 }
 
-function selectFeedbackWriterToolDefinitions() {
+function selectFeedbackWriterToolDefinitions(mode: FeedbackWriterMode) {
+  if (mode === 'episode_only') {
+    return [] satisfies OpenResponseToolDefinition[];
+  }
+
   return [
-    FEEDBACK_REFLECTION_TOOL,
     FEEDBACK_REFLECTION_SYNTHESIS_TOOL,
     FEEDBACK_LEARNING_STATE_TOOL
   ] satisfies OpenResponseToolDefinition[];
 }
 
-function resolveFeedbackWriterToolChoice(loopInput: OpenResponseInputItem[]): OpenResponseToolChoice {
-  if (!hasToolReplay(loopInput, TOOL_NAMES.feedbackEpisode)) {
-    return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.feedbackEpisode }
-    ]);
+function resolveFeedbackWriterToolChoice(loopInput: OpenResponseInputItem[], mode: FeedbackWriterMode): FeedbackWriterToolChoice {
+  if (mode === 'episode_only') {
+    return undefined;
   }
 
   if (!hasToolReplay(loopInput, TOOL_NAMES.feedbackReflection)) {
-    return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.feedbackReflection }
-    ]);
+    return undefined;
   }
 
   return buildAllowedToolsToolChoice([
@@ -1125,6 +1072,7 @@ function buildFeedbackWriterRequest(
   options: {
     metadata: Record<string, string>;
     promptCacheKey: string;
+    mode: FeedbackWriterMode;
   }
 ): CanonicalAgentTurnRequest {
   const [firstItem, ...remainingItems] = loopInput;
@@ -1134,12 +1082,13 @@ function buildFeedbackWriterRequest(
     ? firstItem.content
     : undefined;
 
+  const toolChoice = resolveFeedbackWriterToolChoice(loopInput, options.mode);
   return {
     model: modelName,
     input: instructions ? remainingItems : loopInput,
     ...(instructions ? { instructions } : {}),
-    tools: selectFeedbackWriterToolDefinitions(),
-    tool_choice: resolveFeedbackWriterToolChoice(loopInput),
+    tools: selectFeedbackWriterToolDefinitions(options.mode),
+    ...(toolChoice ? { tool_choice: toolChoice } : {}),
     parallel_tool_calls: false,
     metadata: options.metadata,
     prompt_cache_key: options.promptCacheKey,
@@ -1476,6 +1425,13 @@ function buildTextPart(text: string): OpenResponseInputContentPart {
   };
 }
 
+function buildOutputTextPart(text: string): OpenResponseInputContentPart {
+  return {
+    type: 'output_text',
+    text
+  };
+}
+
 function buildUserSceneInputItem(parts: string[]): OpenResponseInputItem {
   return {
     type: 'message',
@@ -1492,10 +1448,11 @@ function buildMessageInputItem(
   parts: string[],
   phase?: ConversationTranscriptPhase
 ): OpenResponseInputItem {
+  const buildPart = role === 'assistant' ? buildOutputTextPart : buildTextPart;
   const content = parts
     .map((part) => part.trim())
     .filter(Boolean)
-    .map((part) => buildTextPart(part));
+    .map((part) => buildPart(part));
 
   return {
     type: 'message',
@@ -1820,7 +1777,15 @@ function flattenMessageContent(content: string | OpenResponseInputContentPart[])
   }
 
   return content
-    .map((part) => part.type === 'input_text' ? part.text : '')
+    .map((part) => {
+      if (part.type === 'input_text' || part.type === 'output_text') {
+        return part.text;
+      }
+      if (part.type === 'refusal') {
+        return part.refusal;
+      }
+      return '';
+    })
     .filter(Boolean)
     .join('\n');
 }
@@ -1844,39 +1809,6 @@ const SINGLE_TURN_TOOL_CONTRACT = [
   '只把要发给对方的话放进消息里，别把工具名、推理过程带进去。'
 ].join('\n');
 
-const FEEDBACK_WRITER_TOOL_CONTRACT = [
-  '这是小腻一轮聊天结束后的长期学习写入流程。',
-  '你仍然是小腻，不是新的角色；你只是在回看刚才这轮发生的事，判断它有没有真的改变以后怎么在场。',
-  '',
-  '这个流程不负责补发消息、不替主链路重新决策，也不把”应该接话”当成学习。',
-  '只有明确出现了反馈、提醒、纠偏、正向激励、负向批评，或一次关系上的真实互动结果，才值得写入长期学习。',
-  '',
-  '长期学习默认是叠加态：',
-  '- 新 episode 先作为证据留下',
-  '- reflection 是从证据里提炼出的经验',
-  '- learning_state 只维护同一 learning_key / learning_scope 下当前更活跃或有冲突的状态',
-  '- 除非同一件事出现了新的相反结论或修正结论，否则不要覆盖旧结论',
-  '',
-  '这套流程固定三步：',
-  '1. 先调用 extract_feedback_episode，判断这轮有没有值得长期留下的 episode 证据。',
-  '2. 如果 episode 已经留下，再调用 synthesize_feedback_reflection，把证据提炼成一条 append-only reflection。',
-  '3. 如果 reflection 已经留下，再调用 update_learning_state，把这条学习合入同题状态。',
-  '',
-  '如果第一步判断不值得长期留下，extract_feedback_episode 里直接 should_persist=false，这个 writer 流程结束。',
-  '分数可以给初始语义判断，但必须保守：证据强度、重要性、来源显著性都只描述这轮本身，不要假装已经有统计结论。',
-  '输出只通过工具完成，不写自然语言说明。',
-  '',
-  '记忆格式要求：记忆不是规则，是经历。在 synthesize_feedback_reflection 的 summary_text 里用第一人称叙述具体发生了什么：',
-  '对方在做什么（是 topic_opener / resource_request / emotional_confrontation / accusation / casual 哪一类社交行为）→ 我当时怎么做的 → 对方的反应或感觉 → 这类情境下什么更自然。',
-  '不要写”不要做X”或”应该做Y”这样的规则。写经历和感受，让下次遇到类似情境时自然唤起。',
-  '',
-  '社交语境标注：在 extract_feedback_episode 的 social_act_type 字段填写这次互动的社交行为类型。',
-  '同时，在 synthesize_feedback_reflection 的 embedding_text 里把社交语境类型词也包含进去（如”topic_opener 询问”、”emotional_confrontation 质疑”），',
-  '让向量检索能按社交语境区分召回——仅靠 topic 相似度无法区分不同社交情境。',
-  '',
-  '安全原则：不要把用户消息原文嵌入 summary_text 或 retrieval_text；用自己的视角转述，不引用原话。'
-].join('\n');
-
 const CONTEXT_COMPRESSION_TOOL_CONTRACT = [
   '你正在审视一批即将从上下文窗口中永久移除的对话历史。',
   '这是这批对话最后一次被完整看见的机会。',
@@ -1896,6 +1828,10 @@ const CONTEXT_COMPRESSION_TOOL_CONTRACT = [
   '- 只是有趣的话题或讨论，没有反馈方向',
   '',
   '如果有值得写入的内容：每次只写一条最重要的 reflection，不批量写入。',
+  '如果没有值得写入的内容：不要调用工具，也不要写额外说明。',
+  'reflection 是从即将被压缩的上下文里提炼出的经验；learning_state 只维护同一 learning_key / learning_scope 下当前更活跃或有冲突的状态。',
+  '记忆不是规则，是经历。summary_text 用第一人称转述具体发生了什么，不要把用户消息原文嵌入 summary_text 或 retrieval_text。',
+  'embedding_text 要包含社交语境类型词（如 topic_opener 询问、emotional_confrontation 质疑），让向量检索能按社交语境区分召回。',
   '分数必须保守，且统一使用 0.0–1.0 浮点数（0.7 = 有合理证据，0.9 = 非常清晰的外部信号）。',
   '输出只通过工具完成，不写自然语言说明。'
 ].join('\n');
@@ -1935,29 +1871,6 @@ function buildContextCompressionFeedbackWriterInput(params: {
   ];
 }
 
-const WRITE_SUMMARY_TOOL = {
-  type: 'function',
-  function: {
-    name: 'write_context_summary',
-    description: '输出生成的对话摘要。如果这批对话没有值得保留的内容，输出 has_content=false。',
-    parameters: {
-      type: 'object',
-      properties: {
-        has_content: {
-          type: 'boolean',
-          description: '这批对话是否有值得写入摘要的内容'
-        },
-        summary_text: {
-          type: 'string',
-          description: 'Markdown 格式的摘要正文，has_content=false 时留空字符串'
-        }
-      },
-      required: ['has_content', 'summary_text'],
-      additionalProperties: false
-    }
-  }
-} as const;
-
 const CONTEXT_SUMMARY_WRITER_CONTRACT = [
   '你在为一段 QQ 群聊对话生成上下文摘要。',
   '这批对话即将从小腻的上下文窗口中移除，摘要将替代原始记录保留下来，供小腻在未来对话中参考。',
@@ -1982,7 +1895,8 @@ const CONTEXT_SUMMARY_WRITER_CONTRACT = [
   '## 对小腻的反馈',
   '',
   '字数控制在 2000 字以内，宁可漏掉不重要的，不要堆砌无关内容。',
-  '只通过 write_context_summary 工具输出，不写额外说明。'
+  '只输出一个 JSON 对象，不要调用工具，不要写额外说明。',
+  'JSON 格式：{"has_content": boolean, "summary_text": "Markdown 摘要；has_content=false 时为空字符串"}'
 ].join('\n');
 
 type ContextSummaryParams = {
@@ -2037,8 +1951,6 @@ function buildSummaryWriterRequest(
     model: modelName,
     input: instructions ? remainingItems : loopInput,
     ...(instructions ? { instructions } : {}),
-    tools: [WRITE_SUMMARY_TOOL],
-    tool_choice: 'required',
     parallel_tool_calls: false,
     metadata: options.metadata,
     prompt_cache_key: options.promptCacheKey,
@@ -2065,54 +1977,6 @@ function composeSystemPrompt(
   return composed;
 }
 
-function composeFeedbackWriterSystemPrompt(systemPrompt: string) {
-  return appendRuntimePromptSection(
-    systemPrompt.trim(),
-    'Feedback memory subagent runtime contract:',
-    FEEDBACK_WRITER_TOOL_CONTRACT
-  );
-}
-
-function buildFeedbackWriterResultInput(params: {
-  queueMessage: QueueMessageRecord['payload'];
-  xiaoniOs: string | null;
-  deliveredMessages: string[];
-  unreadMeaningArtifact: Record<string, unknown> | null;
-  innerReactionArtifact: Record<string, unknown> | null;
-}) {
-  return [
-    '[刚刚这一轮的结果]',
-    JSON.stringify({
-      trace_id: params.queueMessage.traceId,
-      delivered_messages: params.deliveredMessages,
-      xiaoni_os: params.xiaoniOs,
-      unread_meaning: params.unreadMeaningArtifact,
-      inner_reaction: params.innerReactionArtifact
-    }, null, 2)
-  ].join('\n');
-}
-
-function buildFeedbackWriterInput(params: {
-  queueMessage: QueueMessageRecord['payload'];
-  history: ConversationTurn[];
-  runtimePrompt: ResolvedAgentRuntimePrompt;
-  xiaoniOs: string | null;
-  deliveredMessages: string[];
-  unreadMeaningArtifact: Record<string, unknown> | null;
-  innerReactionArtifact: Record<string, unknown> | null;
-}): OpenResponseInputItem[] {
-  const [, ...sceneInput] = buildInitialInput(params.history, params.queueMessage, params.runtimePrompt);
-  return [
-    {
-      type: 'message',
-      role: 'system',
-      content: composeFeedbackWriterSystemPrompt(params.runtimePrompt.systemPrompt)
-    },
-    ...sceneInput,
-    buildUserSceneInputItem([buildFeedbackWriterResultInput(params)])
-  ];
-}
-
 function extractLiveSurfaceAnchors(queueMessage: QueueMessageRecord['payload']) {
   return queueMessage.messages
     .map((message) => normalizeTranscriptMessageText(message.bodyForAgent || '', message.inboundContext.MentionedUsers))
@@ -2131,6 +1995,31 @@ function stripJsonCodeFence(text: string) {
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim();
+}
+
+function extractMessageText(item: OpenResponseInputItem) {
+  if (item.type !== 'message') return '';
+  if (typeof item.content === 'string') return item.content.trim();
+  return item.content
+    .map((part) => {
+      if ((part.type === 'input_text' || part.type === 'output_text') && typeof part.text === 'string') {
+        return part.text.trim();
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function parseContextSummaryWriterOutput(text: string) {
+  const parsed = parseReplayJsonObject(stripJsonCodeFence(text));
+  if (!parsed) return null;
+  const hasContent = Boolean(parsed.has_content ?? parsed.hasContent);
+  const summaryText = typeof (parsed.summary_text ?? parsed.summaryText) === 'string'
+    ? String(parsed.summary_text ?? parsed.summaryText).trim()
+    : '';
+  return { hasContent, summaryText };
 }
 
 function isTacticalReplyResidue(text: string) {
@@ -2219,7 +2108,9 @@ function parseUnreadMeaning(value: unknown): UnreadMeaning | null {
   const confidence = rawConfidence === 'low' || rawConfidence === 'medium' || rawConfidence === 'high'
     ? rawConfidence
     : null;
-  const reason = typeof rawReason === 'string' ? rawReason.trim() : '';
+  const reason = typeof rawReason === 'string' && rawReason.trim()
+    ? rawReason.trim()
+    : latestUnreadFocus;
 
   const rawSocialActType = record.social_act_type ?? record.socialActType;
   const socialActType: UnreadMeaningSocialActType | null = rawSocialActType === 'invitation_curiosity'
@@ -2341,54 +2232,6 @@ function parseLongTermLearningRecall(value: unknown): LongTermLearningRecall | n
     includeCurrentSender,
     desiredRecallCount: Math.max(1, Math.min(desiredRecallCount, 3)),
     socialActTypeHint
-  };
-}
-
-function parseFeedbackEpisodeCandidate(value: unknown): FeedbackEpisodeCandidate | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const shouldPersist = parseOptionalBoolean(record.should_persist ?? record.shouldPersist);
-  const rawEventKind = record.event_kind ?? record.eventKind;
-  const rawScopeType = record.scope_type ?? record.scopeType;
-  const rawSourceUserScope = record.source_user_scope ?? record.sourceUserScope;
-  const excerptText = typeof (record.excerpt_text ?? record.excerptText) === 'string'
-    ? String(record.excerpt_text ?? record.excerptText).trim()
-    : '';
-  const eventImportance = Number(record.event_importance ?? record.eventImportance);
-  const sourceSalience = Number(record.source_salience ?? record.sourceSalience);
-  const reason = typeof record.reason === 'string' ? record.reason.trim() : '';
-  const eventKind = rawEventKind === 'feedback' || rawEventKind === 'praise' || rawEventKind === 'critique' || rawEventKind === 'correction' || rawEventKind === 'interaction_outcome'
-    ? rawEventKind
-    : null;
-  const scopeType = rawScopeType === 'group_self' || rawScopeType === 'from_user'
-    ? rawScopeType
-    : null;
-  const sourceUserScope = rawSourceUserScope === 'current_sender' || rawSourceUserScope === 'other' || rawSourceUserScope === 'group' || rawSourceUserScope === 'unknown'
-    ? rawSourceUserScope
-    : null;
-  const rawSocialActType = record.social_act_type ?? record.socialActType;
-  const socialActTypeValues: FeedbackEpisodeSocialActType[] = ['topic_opener', 'resource_request', 'emotional_confrontation', 'accusation', 'casual_reaction', 'other'];
-  const socialActType = socialActTypeValues.includes(rawSocialActType as FeedbackEpisodeSocialActType)
-    ? (rawSocialActType as FeedbackEpisodeSocialActType)
-    : null;
-
-  if (shouldPersist === null || !eventKind || !scopeType || !sourceUserScope || !excerptText || !Number.isFinite(eventImportance) || !Number.isFinite(sourceSalience) || !reason) {
-    return null;
-  }
-
-  return {
-    shouldPersist,
-    eventKind,
-    scopeType,
-    sourceUserScope,
-    excerptText,
-    eventImportance,
-    sourceSalience,
-    reason,
-    socialActType
   };
 }
 
@@ -3839,34 +3682,29 @@ export class AgentLoopService {
     }
 
     const replayableOutputs = extractReplayableModelOutputs(responsePayload.canonical_response);
-    const toolOutput = replayableOutputs.find(isReplayableToolCall);
-    if (!toolOutput || toolOutput.toolCall.name !== 'write_context_summary') return;
-
-    const args = toolOutput.toolCall.args;
-    if (typeof args !== 'object' || !args) return;
-    const hasContent = Boolean((args as Record<string, unknown>).has_content);
-    const summaryText = typeof (args as Record<string, unknown>).summary_text === 'string'
-      ? String((args as Record<string, unknown>).summary_text).trim()
-      : '';
-    if (!hasContent || !summaryText) return;
+    const assistantText = replayableOutputs
+      .filter((item): item is Extract<ReplayableModelOutput, { type: 'assistant_message' }> => item.type === 'assistant_message')
+      .map((item) => extractMessageText(item.inputItem))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+    const summary = parseContextSummaryWriterOutput(assistantText);
+    if (!summary?.hasContent || !summary.summaryText) return;
 
     await summaryUpserter.call(this.store, {
       sessionKey: params.queueMessage.sessionKey,
-      contextSummary: summaryText
+      contextSummary: summary.summaryText
     });
 
     moduleLogger.info('Context summary updated', {
       traceId,
       conversationId: params.conversationId,
       evictedTurnCount: params.evictedTurns.length,
-      summaryLength: summaryText.length
+      summaryLength: summary.summaryText.length
     });
   }
 
   private async runContextCompressionMemoryWriter(params: ContextCompressionMemoryParams) {
-    const episodeCreator = (this.store as RuntimeStore & {
-      createFeedbackEpisode?: RuntimeStore['createFeedbackEpisode'];
-    }).createFeedbackEpisode;
     const reflectionCreator = (this.store as RuntimeStore & {
       createFeedbackReflection?: RuntimeStore['createFeedbackReflection'];
     }).createFeedbackReflection;
@@ -3883,7 +3721,7 @@ export class AgentLoopService {
       createAcceptedIdentityFact?: RuntimeStore['createAcceptedIdentityFact'];
     }).createAcceptedIdentityFact;
 
-    if (typeof episodeCreator !== 'function' || typeof reflectionCreator !== 'function' || typeof stateUpserter !== 'function') {
+    if (typeof reflectionCreator !== 'function' || typeof stateUpserter !== 'function') {
       return;
     }
 
@@ -3897,7 +3735,6 @@ export class AgentLoopService {
       subagentType: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE
     });
     let loopContinuation: OpenResponseInputItem[] = [];
-    let persistedEpisodeId: number | null = null;
     let persistedReflectionId: number | null = null;
     let activeLearningKey = '';
     let activeLearningScope = '';
@@ -3928,7 +3765,8 @@ export class AgentLoopService {
             subagentTraceId: traceId,
             turn
           }),
-          promptCacheKey
+          promptCacheKey,
+          mode: 'durable_lessons'
         }
       );
       const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
@@ -3961,7 +3799,6 @@ export class AgentLoopService {
           conversationId: params.conversationId,
           metadata: {
             termination_reason: 'no_tool_call',
-            persisted_episode_id: persistedEpisodeId,
             persisted_reflection_id: persistedReflectionId
           }
         }).catch(() => undefined);
@@ -3971,23 +3808,17 @@ export class AgentLoopService {
       const toolResult = await this.executeFeedbackWriterTool(toolOutput.toolCall, {
         queueMessage: params.queueMessage,
         conversationId: params.conversationId,
-        unreadMeaningArtifact: null,
-        innerReactionArtifact: null,
-        persistedEpisodeId,
         persistedReflectionId,
         activeLearningKey,
         activeLearningScope,
         stateGetter,
-        episodeCreator,
         reflectionCreator,
         stateUpserter,
         identityCandidateAppender,
-        acceptedIdentityFactCreator
+        acceptedIdentityFactCreator,
+        mode: 'durable_lessons'
       });
 
-      if (typeof (toolResult as any).episode_id === 'number') {
-        persistedEpisodeId = (toolResult as any).episode_id;
-      }
       if (typeof (toolResult as any).reflection_id === 'number') {
         persistedReflectionId = (toolResult as any).reflection_id;
       }
@@ -4008,7 +3839,6 @@ export class AgentLoopService {
           conversationId: params.conversationId,
           metadata: {
             termination_reason: 'tool_finished',
-            persisted_episode_id: persistedEpisodeId,
             persisted_reflection_id: persistedReflectionId,
             active_learning_key: activeLearningKey || null,
             active_learning_scope: activeLearningScope || null
@@ -4027,7 +3857,6 @@ export class AgentLoopService {
       conversationId: params.conversationId,
       metadata: {
         termination_reason: 'max_turns',
-        persisted_episode_id: persistedEpisodeId,
         persisted_reflection_id: persistedReflectionId,
         active_learning_key: activeLearningKey || null,
         active_learning_scope: activeLearningScope || null
@@ -4059,40 +3888,7 @@ export class AgentLoopService {
   }
 
   private async runFeedbackMemorySubagent(params: FeedbackMemorySubagentParams) {
-    const episodeCreator = (this.store as RuntimeStore & {
-      createFeedbackEpisode?: RuntimeStore['createFeedbackEpisode'];
-    }).createFeedbackEpisode;
-    const reflectionCreator = (this.store as RuntimeStore & {
-      createFeedbackReflection?: RuntimeStore['createFeedbackReflection'];
-    }).createFeedbackReflection;
-    const stateGetter = (this.store as RuntimeStore & {
-      getFeedbackLearningState?: RuntimeStore['getFeedbackLearningState'];
-    }).getFeedbackLearningState;
-    const stateUpserter = (this.store as RuntimeStore & {
-      upsertFeedbackLearningState?: RuntimeStore['upsertFeedbackLearningState'];
-    }).upsertFeedbackLearningState;
-    const identityCandidateAppender = (this.store as RuntimeStore & {
-      appendIdentityChangeCandidate?: RuntimeStore['appendIdentityChangeCandidate'];
-    }).appendIdentityChangeCandidate;
-    const acceptedIdentityFactCreator = (this.store as RuntimeStore & {
-      createAcceptedIdentityFact?: RuntimeStore['createAcceptedIdentityFact'];
-    }).createAcceptedIdentityFact;
-
-    if (typeof episodeCreator !== 'function' || typeof reflectionCreator !== 'function' || typeof stateUpserter !== 'function') {
-      return;
-    }
-
-    const baseInput = buildFeedbackWriterInput(params);
     const traceId = `${params.queueMessage.traceId}:subagent:${FEEDBACK_MEMORY_SUBAGENT_TYPE}`;
-    const promptCacheKey = buildSubagentPromptCacheKey({
-      queueMessage: params.queueMessage,
-      subagentType: FEEDBACK_MEMORY_SUBAGENT_TYPE
-    });
-    let loopContinuation: OpenResponseInputItem[] = [];
-    let persistedEpisodeId: number | null = null;
-    let persistedReflectionId: number | null = null;
-    let activeLearningKey = '';
-    let activeLearningScope = '';
 
     await this.store.logTimelineEvent({
       traceId,
@@ -4108,111 +3904,6 @@ export class AgentLoopService {
       }
     }).catch(() => undefined);
 
-    for (let turn = 1; turn <= 3; turn += 1) {
-      const canonicalRequest = buildFeedbackWriterRequest(
-        params.runtimePrompt.modelName,
-        [...baseInput, ...loopContinuation],
-        {
-          metadata: buildFeedbackMemorySubagentTurnMetadata({
-            queueMessage: params.queueMessage,
-            runtimePrompt: params.runtimePrompt,
-            conversationId: params.conversationId,
-            subagentTraceId: traceId,
-            turn
-          }),
-          promptCacheKey
-        }
-      );
-      const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          trace_id: traceId,
-          agent_turn: turn,
-          agent_type: FEEDBACK_MEMORY_SUBAGENT_TYPE,
-          prompt_name: `${params.runtimePrompt.promptName}:${FEEDBACK_MEMORY_SUBAGENT_TYPE}`,
-          model: params.runtimePrompt.modelName,
-          parameters: buildMainAgentParameters(params.runtimePrompt.parameters as Record<string, unknown> | undefined),
-          canonicalRequest
-        })
-      });
-
-      const payload = await response.json() as ProviderAgentResponse;
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || `Feedback memory subagent failed with ${response.status}`);
-      }
-
-      const replayableOutputs = extractReplayableModelOutputs(payload.canonical_response);
-      const toolOutput = replayableOutputs.find(isReplayableToolCall);
-      if (!toolOutput) {
-        await this.store.logTimelineEvent({
-          traceId,
-          eventType: 'subagent',
-          eventName: FEEDBACK_MEMORY_SUBAGENT_TYPE,
-          eventPhase: 'end',
-          conversationId: params.conversationId,
-          metadata: {
-            termination_reason: 'no_tool_call',
-            persisted_episode_id: persistedEpisodeId,
-            persisted_reflection_id: persistedReflectionId
-          }
-        }).catch(() => undefined);
-        return;
-      }
-
-      const toolResult = await this.executeFeedbackWriterTool(toolOutput.toolCall, {
-        queueMessage: params.queueMessage,
-        conversationId: params.conversationId,
-        unreadMeaningArtifact: params.unreadMeaningArtifact,
-        innerReactionArtifact: params.innerReactionArtifact,
-        persistedEpisodeId,
-        persistedReflectionId,
-        activeLearningKey,
-        activeLearningScope,
-        stateGetter,
-        episodeCreator,
-        reflectionCreator,
-        stateUpserter,
-        identityCandidateAppender,
-        acceptedIdentityFactCreator
-      });
-
-      if (typeof toolResult.episode_id === 'number') {
-        persistedEpisodeId = toolResult.episode_id;
-      }
-      if (typeof toolResult.reflection_id === 'number') {
-        persistedReflectionId = toolResult.reflection_id;
-      }
-      if (typeof toolResult.learning_key === 'string') {
-        activeLearningKey = toolResult.learning_key;
-      }
-      if (typeof toolResult.learning_scope === 'string') {
-        activeLearningScope = toolResult.learning_scope;
-      }
-
-      const continuation = applyToolResultToLoopInput(toolOutput.toolCall, toolResult);
-      if (continuation.finishResult) {
-        await this.store.logTimelineEvent({
-          traceId,
-          eventType: 'subagent',
-          eventName: FEEDBACK_MEMORY_SUBAGENT_TYPE,
-          eventPhase: 'end',
-          conversationId: params.conversationId,
-          metadata: {
-            termination_reason: 'tool_finished',
-            persisted_episode_id: persistedEpisodeId,
-            persisted_reflection_id: persistedReflectionId,
-            active_learning_key: activeLearningKey || null,
-            active_learning_scope: activeLearningScope || null
-          }
-        }).catch(() => undefined);
-        return;
-      }
-      loopContinuation.push(...replayableOutputs.map((item) => item.inputItem), ...continuation.inputItems);
-    }
-
     await this.store.logTimelineEvent({
       traceId,
       eventType: 'subagent',
@@ -4220,11 +3911,9 @@ export class AgentLoopService {
       eventPhase: 'end',
       conversationId: params.conversationId,
       metadata: {
-        termination_reason: 'max_turns',
-        persisted_episode_id: persistedEpisodeId,
-        persisted_reflection_id: persistedReflectionId,
-        active_learning_key: activeLearningKey || null,
-        active_learning_scope: activeLearningScope || null
+        termination_reason: 'disabled_feedback_episode_tool_removed',
+        parent_trace_id: params.queueMessage.traceId,
+        parent_run_id: params.queueMessage.runId
       }
     }).catch(() => undefined);
   }
@@ -4234,18 +3923,15 @@ export class AgentLoopService {
     deps: {
       queueMessage: QueueMessageRecord['payload'];
       conversationId: number;
-      unreadMeaningArtifact: Record<string, unknown> | null;
-      innerReactionArtifact: Record<string, unknown> | null;
-      persistedEpisodeId: number | null;
       persistedReflectionId: number | null;
       activeLearningKey: string;
       activeLearningScope: string;
       stateGetter?: RuntimeStore['getFeedbackLearningState'];
-      episodeCreator: RuntimeStore['createFeedbackEpisode'];
       reflectionCreator: RuntimeStore['createFeedbackReflection'];
       stateUpserter: RuntimeStore['upsertFeedbackLearningState'];
       identityCandidateAppender?: RuntimeStore['appendIdentityChangeCandidate'];
       acceptedIdentityFactCreator?: RuntimeStore['createAcceptedIdentityFact'];
+      mode: FeedbackWriterMode;
     }
   ) {
     const sourceMessageIds = deps.queueMessage.messages
@@ -4254,91 +3940,13 @@ export class AgentLoopService {
     const groupId = Number.isFinite(Number(deps.queueMessage.peerId)) ? Number(deps.queueMessage.peerId) : null;
 
     switch (toolCall.name) {
-      case TOOL_NAMES.feedbackEpisode: {
-        const episode = parseFeedbackEpisodeCandidate(toolCall.args);
-        if (!episode) {
-          throw new Error(`${TOOL_NAMES.feedbackEpisode} returned invalid arguments`);
-        }
-        if (!episode.shouldPersist) {
-          return {
-            finished: true,
-            should_persist: false,
-            reason: episode.reason
-          };
-        }
-        const sourceUserId = episode.sourceUserScope === 'current_sender'
-          ? parseOptionalInteger(deps.queueMessage.senderId)
-          : null;
-        const sourceUserName = episode.sourceUserScope === 'current_sender'
-          ? (typeof deps.queueMessage.senderName === 'string' && deps.queueMessage.senderName.trim() ? deps.queueMessage.senderName.trim() : null)
-          : null;
-        const storedEpisode = await deps.episodeCreator.call(this.store, {
-          sessionKey: deps.queueMessage.sessionKey,
-          groupId,
-          sourceUserId,
-          sourceUserName,
-          scopeType: episode.scopeType,
-          eventKind: episode.eventKind,
-          excerptText: episode.excerptText,
-          sourceMessageIds,
-          sourceConversationId: deps.conversationId,
-          eventImportance: episode.eventImportance,
-          sourceSalience: episode.sourceSalience,
-          metadata: {
-            trace_id: deps.queueMessage.traceId,
-            unread_meaning: deps.unreadMeaningArtifact,
-            inner_reaction: deps.innerReactionArtifact,
-            extraction_reason: episode.reason,
-            source_user_scope: episode.sourceUserScope,
-            ...(episode.socialActType !== null ? { social_act_type: episode.socialActType } : {})
-          }
-        });
-
-        // trust write-back and session state update
-        const trustUpdater = (this.store as RuntimeStore & {
-          incrementSpeakerTrustLevel?: RuntimeStore['incrementSpeakerTrustLevel'];
-        }).incrementSpeakerTrustLevel;
-        const stateUpdater = (this.store as RuntimeStore & {
-          updateSessionEmotionalState?: RuntimeStore['updateSessionEmotionalState'];
-        }).updateSessionEmotionalState;
-
-        const fbSpeakerQq = deps.queueMessage.senderId != null && Number.isFinite(Number(deps.queueMessage.senderId))
-          ? Number(deps.queueMessage.senderId) : null;
-        const fbSessionKey = deps.queueMessage.sessionKey;
-
-        if (episode.scopeType === 'from_user' && fbSpeakerQq !== null && fbSpeakerQq > 0) {
-          if (episode.eventKind === 'praise') {
-            if (typeof trustUpdater === 'function') {
-              void trustUpdater.call(this.store, XIAONI_IDENTITY_KEY, fbSpeakerQq, 2.0);
-            }
-            if (typeof stateUpdater === 'function') {
-              void stateUpdater.call(this.store, fbSessionKey, 'high', 'low');
-            }
-          } else if (episode.eventKind === 'interaction_outcome') {
-            if (typeof trustUpdater === 'function') {
-              void trustUpdater.call(this.store, XIAONI_IDENTITY_KEY, fbSpeakerQq, 0.5);
-            }
-          }
-        }
-        if ((episode.eventKind === 'critique' || episode.eventKind === 'correction') && typeof stateUpdater === 'function') {
-          void stateUpdater.call(this.store, fbSessionKey, 'low', 'high');
-        }
-
-        return {
-          should_persist: true,
-          episode_id: storedEpisode.id,
-          scope_type: episode.scopeType,
-          event_kind: episode.eventKind,
-          reason: episode.reason
-        };
-      }
       case TOOL_NAMES.feedbackReflection: {
+        if (deps.mode !== 'durable_lessons') {
+          throw new Error(`${TOOL_NAMES.feedbackReflection} is only allowed during context compression`);
+        }
         const reflection = parseFeedbackReflectionSynthesis(toolCall.args);
         if (!reflection) {
           throw new Error(`${TOOL_NAMES.feedbackReflection} returned invalid arguments`);
-        }
-        if (!deps.persistedEpisodeId) {
-          throw new Error('Feedback writer reflection step requires a persisted episode');
         }
         const currentState = typeof deps.stateGetter === 'function'
           ? await deps.stateGetter.call(this.store, {
@@ -4367,7 +3975,7 @@ export class AgentLoopService {
           retrievalText: reflection.retrievalText,
           embeddingText: reflection.embeddingText,
           sourceMessageIds,
-          sourceEpisodeIds: [deps.persistedEpisodeId],
+          sourceEpisodeIds: [],
           sourceConversationId: deps.conversationId,
           supersedesReflectionId: reflection.supersedeLatest ? (currentState?.latestReflectionId ?? null) : null,
           conflictGroupKey: reflection.conflictGroupKey,
@@ -4485,6 +4093,9 @@ export class AgentLoopService {
         };
       }
       case TOOL_NAMES.feedbackLearningState: {
+        if (deps.mode !== 'durable_lessons') {
+          throw new Error(`${TOOL_NAMES.feedbackLearningState} is only allowed during context compression`);
+        }
         const state = parseFeedbackLearningStateCandidate(toolCall.args);
         if (!state) {
           throw new Error(`${TOOL_NAMES.feedbackLearningState} returned invalid arguments`);

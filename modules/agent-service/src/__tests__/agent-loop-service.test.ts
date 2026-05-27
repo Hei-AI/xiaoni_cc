@@ -187,7 +187,18 @@ function getMessageContent(item: unknown) {
 
   if (Array.isArray(content)) {
     return content
-      .map((part) => part && typeof part === 'object' && part.type === 'input_text' ? String(part.text || '') : '')
+      .map((part) => {
+        if (!part || typeof part !== 'object') {
+          return '';
+        }
+        if (part.type === 'input_text' || part.type === 'output_text') {
+          return String(part.text || '');
+        }
+        if (part.type === 'refusal') {
+          return String(part.refusal || '');
+        }
+        return '';
+      })
       .filter(Boolean)
       .join('\n');
   }
@@ -227,10 +238,10 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [UNREAD_MEANING_TOOL]);
   assert.equal(request.parallel_tool_calls, false);
   assert.deepEqual(
-    request.tools.map((tool) => getToolName(tool)),
+    (request.tools ?? []).map((tool) => getToolName(tool)),
     GROUP_LOOP_TOOLS
   );
-  const planFunction = getFunctionTool(request.tools[0]);
+  const planFunction = getFunctionTool((request.tools ?? [])[0]);
   assert.equal(planFunction?.name, UNREAD_MEANING_TOOL);
   assert.match(String(request.instructions), /群里的一个成员，不是助手，不是服务/);
   assert.match(String(request.instructions), /web_search 是求知，不是默认步骤/);
@@ -255,7 +266,7 @@ test('buildCanonicalAgentTurnRequest keeps the same group loop tools on the firs
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
   assert.deepEqual(
-    request.tools.map((tool: any) => getToolName(tool)),
+    (request.tools ?? []).map((tool: any) => getToolName(tool)),
     GROUP_LOOP_TOOLS
   );
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [UNREAD_MEANING_TOOL]);
@@ -671,7 +682,7 @@ test('speak act-turn without recall goes directly to act-turn skipping recall', 
 test('GROUP_MESSAGE_TOOL description does not contain old ceremonial framing', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  const groupReplyTool = request.tools.find((t: any) => t.function?.name === GROUP_REPLY_TOOL);
+  const groupReplyTool = (request.tools ?? []).find((t: any) => t.function?.name === GROUP_REPLY_TOOL);
 
   assert.ok(groupReplyTool, 'speak_in_group tool must exist');
   assert.doesNotMatch(String((groupReplyTool as any).function?.description), /承担它落在关系里的后果/, 'old ceremonial framing must be removed');
@@ -1341,6 +1352,60 @@ test('buildInitialInput preserves xiaoni_os from non-latest history turns', () =
   assert.match(getMessageContent(priorOsItem), /<小腻的OS>/);
 });
 
+test('buildInitialInput replays assistant history with output_text content parts', () => {
+  const loopInput = buildInitialInput([
+    {
+      id: 1,
+      userId: 202,
+      groupId: 101,
+      batchId: null,
+      sessionKey: 'qq:group:101',
+      userMessage: '上一轮用户消息',
+      aiResponse: '上一轮回复',
+      rawResponse: {},
+      items: [
+        {
+          id: 11,
+          conversationId: 1,
+          sessionKey: 'qq:group:101',
+          role: 'user',
+          phase: null,
+          content: '上一轮用户消息',
+          groupIndex: 0,
+          itemIndex: 0,
+          source: 'inbound_batch',
+          deliveryMessageId: null,
+          runId: 'run-user',
+          traceId: 'trace-user'
+        },
+        {
+          id: 12,
+          conversationId: 1,
+          sessionKey: 'qq:group:101',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: '上一轮回复',
+          groupIndex: 1,
+          itemIndex: 0,
+          source: 'delivery',
+          deliveryMessageId: 901,
+          runId: 'run-assistant',
+          traceId: 'trace-assistant'
+        }
+      ]
+    }
+  ], createQueuePayload());
+
+  const assistantItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('上一轮回复')) as any;
+  assert.ok(assistantItem);
+  assert.equal(assistantItem.content[0]?.type, 'output_text');
+  assert.equal(assistantItem.content[0]?.text.includes('<OUTPUT_MESSAGE'), true);
+
+  const userItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'user' && getMessageContent(item).includes('上一轮用户消息')) as any;
+  assert.ok(userItem);
+  assert.equal(userItem.content[0]?.type, 'input_text');
+});
+
 test('buildInitialInput keeps user input as pure scene without synthetic current-task text', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'
@@ -1422,30 +1487,18 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
   assert.equal(Object.prototype.hasOwnProperty.call(calls[0].canonicalRequest, 'reasoning'), false);
 });
 
-test('feedback memory subagent uses a subagent trace and cache key without changing its tools per turn', async () => {
+test('feedback memory subagent is disabled after extract_feedback_episode tool removal', async () => {
   const calls: Array<any> = [];
   const timelineEvents: Array<any> = [];
   const store = {
-    logTimelineEvent: async (event: any) => { timelineEvents.push(event); },
-    createFeedbackEpisode: async () => ({ id: 1 }),
-    createFeedbackReflection: async () => ({ id: 2 }),
-    upsertFeedbackLearningState: async () => ({ id: 3 })
+    logTimelineEvent: async (event: any) => { timelineEvents.push(event); }
   };
   const service = new AgentLoopService(store as any);
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
     calls.push(JSON.parse(String(init?.body || '{}')));
-    return {
-      ok: true,
-      json: async () => ({
-        success: true,
-        llm_call_id: 'llm-feedback-subagent',
-        canonical_response: {
-          output: []
-        }
-      })
-    } as any;
+    throw new Error('feedback memory subagent should not call provider');
   }) as typeof fetch;
 
   try {
@@ -1466,36 +1519,167 @@ test('feedback memory subagent uses a subagent trace and cache key without chang
     globalThis.fetch = originalFetch;
   }
 
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].trace_id, 'trace-1:subagent:feedback_memory_writer');
-  assert.equal(calls[0].agent_type, 'feedback_memory_writer');
-  assert.equal(calls[0].prompt_name, '小腻主AGENT:feedback_memory_writer');
-  assert.equal(calls[0].canonicalRequest.prompt_cache_key, 'qq:group:101:subagent:feedback_memory_writer');
-  assert.equal(calls[0].canonicalRequest.prompt_cache_retention, '24h');
-  assert.deepEqual(calls[0].canonicalRequest.metadata, {
-    trace_id: 'trace-1:subagent:feedback_memory_writer',
-    parent_trace_id: 'trace-1',
-    parent_run_id: 'run-1',
-    parent_conversation_id: '1001',
-    batch_id: 'batch-1',
-    session_key: 'qq:group:101',
-    session_id: 'qq:group:101',
-    turn_id: 'run-1:feedback_memory:1',
-    sandbox: 'none',
-    chat_type: 'group',
-    prompt_name: '小腻主AGENT',
-    subagent_type: 'feedback_memory_writer',
-    parent_agent_type: 'chat_bot',
-    prompt_id: 'prompt-1'
-  });
-  assert.deepEqual(
-    calls[0].canonicalRequest.tools.map((tool: any) => getToolName(tool)),
-    ['extract_feedback_episode', 'synthesize_feedback_reflection', 'update_learning_state']
-  );
-  assert.deepEqual(getAllowedToolNames(calls[0].canonicalRequest.tool_choice), ['extract_feedback_episode']);
+  assert.equal(calls.length, 0);
   assert.equal(timelineEvents[0]?.eventType, 'subagent');
   assert.equal(timelineEvents[0]?.eventPhase, 'start');
-  assert.equal(timelineEvents.at(-1)?.metadata?.termination_reason, 'no_tool_call');
+  assert.equal(timelineEvents.at(-1)?.metadata?.termination_reason, 'disabled_feedback_episode_tool_removed');
+});
+
+test('normal feedback memory subagent does not write hidden episode evidence', async () => {
+  const calls: Array<any> = [];
+  let reflectionWrites = 0;
+  const store = {
+    logTimelineEvent: async () => undefined,
+    createFeedbackReflection: async () => {
+      reflectionWrites += 1;
+      return { id: 2 };
+    },
+    upsertFeedbackLearningState: async () => ({ id: 3 })
+  };
+  const service = new AgentLoopService(store as any);
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    calls.push(JSON.parse(String(init?.body || '{}')));
+    throw new Error('feedback memory subagent should not call provider');
+  }) as typeof fetch;
+
+  try {
+    await (service as any).runFeedbackMemorySubagent({
+      queueMessage: createQueuePayload(),
+      conversationId: 1001,
+      history: [],
+      runtimePrompt: createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' }),
+      xiaoniOs: '这轮被纠偏了。',
+      deliveredMessages: ['收到。'],
+      unreadMeaningArtifact: { message_act: 'feedback' },
+      innerReactionArtifact: { preferred_action: 'speak' }
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(calls.length, 0);
+  assert.equal(reflectionWrites, 0);
+});
+
+test('context summary writer is engineering-triggered JSON output, not a tool call', async () => {
+  const calls: Array<any> = [];
+  const summaries: Array<any> = [];
+  const service = new AgentLoopService({
+    upsertSessionContextSummary: async (params: any) => { summaries.push(params); }
+  } as any);
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    calls.push(JSON.parse(String(init?.body || '{}')));
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        canonical_response: {
+          output: [{
+            type: 'message',
+            role: 'assistant',
+            content: [{
+              type: 'output_text',
+              text: JSON.stringify({ has_content: true, summary_text: '## 最近话题\n小腻被提醒别公式化接话。' })
+            }]
+          }]
+        }
+      })
+    } as any;
+  }) as typeof fetch;
+
+  try {
+    await (service as any).runContextSummaryWriter({
+      queueMessage: createQueuePayload(),
+      conversationId: 1001,
+      evictedTurns: [{ id: 10, userMessage: '别公式化接话', aiResponse: '收到' }],
+      existingSummary: null,
+      runtimePrompt: createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' })
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(calls.length, 1);
+  assert.equal(Object.prototype.hasOwnProperty.call(calls[0].canonicalRequest, 'tools'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(calls[0].canonicalRequest, 'tool_choice'), false);
+  assert.deepEqual(summaries, [{
+    sessionKey: 'qq:group:101',
+    contextSummary: '## 最近话题\n小腻被提醒别公式化接话。'
+  }]);
+});
+
+test('context compression memory writer can synthesize durable reflections', async () => {
+  const calls: Array<any> = [];
+  let reflectionWrites = 0;
+  const store = {
+    logTimelineEvent: async () => undefined,
+    createFeedbackReflection: async () => {
+      reflectionWrites += 1;
+      return { id: 2 };
+    },
+    upsertFeedbackLearningState: async () => ({ id: 3 })
+  };
+  const service = new AgentLoopService(store as any);
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    calls.push(JSON.parse(String(init?.body || '{}')));
+    const turn = calls.length;
+    if (turn === 1) {
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          canonical_response: {
+            output: [{
+              type: 'function_call',
+              call_id: 'call-reflection',
+              name: 'synthesize_feedback_reflection',
+              arguments: JSON.stringify({
+                learning_key: 'style.no_formulaic_reply',
+                learning_scope: 'group_self',
+                reflection_type: 'self_model_update',
+                feedback_kind: 'negative',
+                confidence: 'high',
+                importance_score: 0.8,
+                evidence_weight: 0.8,
+                stability_score: 0.7,
+                summary_text: '我在被明确纠偏后意识到，公式化接话会破坏在场感。',
+                retrieval_text: '公式化接话会破坏在场感。',
+                embedding_text: 'correction 公式化 接话 在场感',
+                supersede_latest: false,
+                conflict_group_key: null,
+                reason: '压缩触发时生成 durable reflection'
+              })
+            }]
+          }
+        })
+      } as any;
+    }
+    return { ok: true, json: async () => ({ success: true, canonical_response: { output: [] } }) } as any;
+  }) as typeof fetch;
+
+  try {
+    await (service as any).runContextCompressionMemoryWriter({
+      queueMessage: createQueuePayload(),
+      conversationId: 1001,
+      evictedTurns: [{ id: 10, userMessage: '别公式化接话', aiResponse: '收到' }],
+      runtimePrompt: createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' })
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(calls[0].agent_type, 'context_compression_memory_writer');
+  assert.deepEqual(
+    calls[0].canonicalRequest.tools.map((tool: any) => getToolName(tool)),
+    ['synthesize_feedback_reflection', 'update_learning_state']
+  );
+  assert.equal(reflectionWrites, 1);
 });
 
 test('feedback reflection writes an identity candidate and accepted fact when hard-check passes', async () => {
@@ -1526,13 +1710,9 @@ test('feedback reflection writes an identity candidate and accepted fact when ha
   }, {
     queueMessage: createQueuePayload(),
     conversationId: 1001,
-    unreadMeaningArtifact: { message_act: 'feedback' },
-    innerReactionArtifact: { preferred_action: 'speak' },
-    persistedEpisodeId: 7,
     persistedReflectionId: null,
     activeLearningKey: '',
     activeLearningScope: '',
-    episodeCreator: async () => ({ id: 7 }),
     reflectionCreator: async () => ({ id: 8 }),
     stateUpserter: async () => ({ id: 9 }),
     identityCandidateAppender: async (params: any) => {
@@ -1542,7 +1722,8 @@ test('feedback reflection writes an identity candidate and accepted fact when ha
     acceptedIdentityFactCreator: async (params: any) => {
       acceptedFacts.push(params);
       return { fact: { id: 12 } };
-    }
+    },
+    mode: 'durable_lessons'
   });
 
   assert.equal(result.reflection_id, 8);
@@ -3150,7 +3331,7 @@ test('parseInnerReaction accepts tool output without recalled_prior_pattern and 
 test('INNER_REACTION_TOOL schema does not declare recalled_prior_pattern or felt_direction', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  const reactionTool = request.tools.find((t: any) => t.function?.name === INNER_REACTION_TOOL);
+  const reactionTool = (request.tools ?? []).find((t: any) => t.function?.name === INNER_REACTION_TOOL);
   assert.ok(reactionTool, 'emit_inner_reaction tool must exist in initial turn');
   const schema = (reactionTool as any).function?.parameters ?? {};
   const props = schema?.properties ?? {};
@@ -3239,91 +3420,6 @@ test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in in
   assert.match(String(request.instructions), /@ 了我是信号，不是命令/);
 });
 
-// G: social_act_type — flows into episode creator metadata when provided
-test('extract_feedback_episode with social_act_type stores it in episode metadata', async () => {
-  const service = new AgentLoopService({} as any);
-  let capturedMetadata: Record<string, unknown> | null = null;
-
-  await (service as any).executeFeedbackWriterTool({
-    callId: 'call-episode-social',
-    name: 'extract_feedback_episode',
-    rawArguments: '{}',
-    args: {
-      should_persist: true,
-      event_kind: 'correction',
-      scope_type: 'group_self',
-      source_user_scope: 'current_sender',
-      excerpt_text: '对方质疑小腻的态度',
-      event_importance: 0.8,
-      source_salience: 0.7,
-      reason: '明确纠偏信号',
-      social_act_type: 'emotional_confrontation'
-    }
-  }, {
-    queueMessage: createQueuePayload(),
-    conversationId: 1001,
-    unreadMeaningArtifact: { message_act: 'feedback' },
-    innerReactionArtifact: { preferred_action: 'speak' },
-    persistedEpisodeId: null,
-    persistedReflectionId: null,
-    activeLearningKey: '',
-    activeLearningScope: '',
-    episodeCreator: async (params: any) => {
-      capturedMetadata = params.metadata as Record<string, unknown>;
-      return { id: 7 };
-    },
-    reflectionCreator: async () => ({ id: 8 }),
-    stateUpserter: async () => ({ id: 9 }),
-    identityCandidateAppender: async () => ({ candidate: { id: 11 } }),
-    acceptedIdentityFactCreator: async () => ({ fact: { id: 12 } })
-  });
-
-  assert.ok(capturedMetadata !== null, 'episodeCreator must have been called');
-  assert.equal((capturedMetadata as any).social_act_type, 'emotional_confrontation');
-});
-
-// H: social_act_type absent — episode creator metadata does not include key (no spurious undefined)
-test('extract_feedback_episode without social_act_type does not include key in metadata', async () => {
-  const service = new AgentLoopService({} as any);
-  let capturedMetadata: Record<string, unknown> | null = null;
-
-  await (service as any).executeFeedbackWriterTool({
-    callId: 'call-episode-no-type',
-    name: 'extract_feedback_episode',
-    rawArguments: '{}',
-    args: {
-      should_persist: true,
-      event_kind: 'critique',
-      scope_type: 'group_self',
-      source_user_scope: 'current_sender',
-      excerpt_text: '普通反馈',
-      event_importance: 0.6,
-      source_salience: 0.5,
-      reason: '一般反馈'
-    }
-  }, {
-    queueMessage: createQueuePayload(),
-    conversationId: 1001,
-    unreadMeaningArtifact: {},
-    innerReactionArtifact: {},
-    persistedEpisodeId: null,
-    persistedReflectionId: null,
-    activeLearningKey: '',
-    activeLearningScope: '',
-    episodeCreator: async (params: any) => {
-      capturedMetadata = params.metadata as Record<string, unknown>;
-      return { id: 7 };
-    },
-    reflectionCreator: async () => ({ id: 8 }),
-    stateUpserter: async () => ({ id: 9 }),
-    identityCandidateAppender: async () => ({ candidate: { id: 11 } }),
-    acceptedIdentityFactCreator: async () => ({ fact: { id: 12 } })
-  });
-
-  assert.ok(capturedMetadata !== null, 'episodeCreator must have been called');
-  assert.equal(Object.prototype.hasOwnProperty.call(capturedMetadata, 'social_act_type'), false);
-});
-
 // H: developer role injection — buildInitialInput places developer message at index 1 when provided
 test('buildInitialInput places developer context block at index 1 when provided', () => {
   const devBlock = '<world_narrative>test</world_narrative>\n\n<current_relationship>\n本次发言者：foo（QQ:12345）\n当前关系层级：L2\n当前可开放的自己：偶尔吐槽，有自己的语气\n</current_relationship>';
@@ -3369,6 +3465,35 @@ test('emit_unread_meaning parseUnreadMeaning extracts topic_context and social_a
   void raw;
 });
 
+test('emit_unread_meaning tolerates missing reason by falling back to latest_unread_focus', async () => {
+  const service = new AgentLoopService({} as any);
+  const result = await (service as any).executeTool({
+    name: UNREAD_MEANING_TOOL,
+    args: {
+      latest_unread_focus: '直接@小腻给了一个轻松发言窗口',
+      message_act: 'statement',
+      social_target: 'me',
+      addressed_to_me: true,
+      has_real_novelty: true,
+      confidence: 'high',
+      social_act_type: 'casual_remark',
+      topic_context: {
+        has_topic: true,
+        topic_summary: '群里成员评价与是否要直接说话',
+        addressed_to_me: true
+      }
+    }
+  }, createQueuePayload());
+
+  assert.equal(result.reason, '直接@小腻给了一个轻松发言窗口');
+  assert.equal(result.message_act, 'statement');
+  assert.deepEqual(result.topic_context, {
+    hasTopic: true,
+    topicSummary: '群里成员评价与是否要直接说话',
+    addressedToMe: true
+  });
+});
+
 test('XIAONI_IDENTITY_KEY is a plain identity string, not a session-scoped key', () => {
   assert.equal(XIAONI_IDENTITY_KEY, 'xiaoni');
   assert.ok(!XIAONI_IDENTITY_KEY.startsWith('qq:'), 'trust key must not be session-scoped (no qq: prefix)');
@@ -3393,74 +3518,6 @@ test('buildDeveloperContextBlock reads speaker trust using XIAONI_IDENTITY_KEY',
 
   assert.deepEqual(trustCalls, [[XIAONI_IDENTITY_KEY, 202]]);
   assert.match(String(block), /当前关系层级：L3/);
-});
-
-test('extract_feedback_episode writes trust using XIAONI_IDENTITY_KEY', async () => {
-  const trustCalls: any[][] = [];
-  const store = {
-    incrementSpeakerTrustLevel: (...args: any[]) => {
-      trustCalls.push(args);
-    },
-    updateSessionEmotionalState: () => {}
-  };
-  const service = new AgentLoopService(store as any);
-
-  const deps = {
-    queueMessage: {
-      ...createQueuePayload(),
-      sessionKey: 'qq:group:999',
-      senderId: '202'
-    },
-    conversationId: 1001,
-    unreadMeaningArtifact: { message_act: 'feedback' },
-    innerReactionArtifact: { preferred_action: 'speak' },
-    persistedEpisodeId: null,
-    persistedReflectionId: null,
-    activeLearningKey: '',
-    activeLearningScope: '',
-    episodeCreator: async () => ({ id: 7 }),
-    reflectionCreator: async () => ({ id: 8 }),
-    stateUpserter: async () => ({ id: 9 }),
-    identityCandidateAppender: async () => ({ candidate: { id: 11 } }),
-    acceptedIdentityFactCreator: async () => ({ fact: { id: 12 } })
-  };
-
-  await (service as any).executeFeedbackWriterTool({
-    callId: 'call-episode-praise',
-    name: 'extract_feedback_episode',
-    rawArguments: '{}',
-    args: {
-      should_persist: true,
-      event_kind: 'praise',
-      scope_type: 'from_user',
-      source_user_scope: 'current_sender',
-      excerpt_text: '这次回应很自然',
-      event_importance: 0.8,
-      source_salience: 0.7,
-      reason: '明确正反馈'
-    }
-  }, deps);
-
-  await (service as any).executeFeedbackWriterTool({
-    callId: 'call-episode-interaction',
-    name: 'extract_feedback_episode',
-    rawArguments: '{}',
-    args: {
-      should_persist: true,
-      event_kind: 'interaction_outcome',
-      scope_type: 'from_user',
-      source_user_scope: 'current_sender',
-      excerpt_text: '对方接住了小腻的话',
-      event_importance: 0.7,
-      source_salience: 0.6,
-      reason: '互动结果正向'
-    }
-  }, deps);
-
-  assert.deepEqual(trustCalls, [
-    [XIAONI_IDENTITY_KEY, 202, 2.0],
-    [XIAONI_IDENTITY_KEY, 202, 0.5]
-  ]);
 });
 
 test('recall_long_term_learning schema includes optional social_act_type_hint without listing it in required', () => {
