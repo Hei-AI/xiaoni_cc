@@ -39,6 +39,7 @@ services:
       test: ["CMD-SHELL", "pg_isready -U qqbot_user -d qqbot_db"]
       timeout: 20s
       retries: 10
+    restart: unless-stopped
 
   # Local Embedding API Service
   embedding-server:
@@ -125,7 +126,7 @@ services:
       - ${HOME}/.codex:/root/.codex
       - ${HOME}/.qqbot-local/codex-accounts:/root/.qqbot-local/codex-accounts
       - ${HOME}/.gemini:/root/.gemini
-      - ${HOME}/.mitmproxy/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
+      - ./modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
     networks:
       - qq_bot_network
 
@@ -174,7 +175,7 @@ services:
       - qq_bot_network
     volumes:
       - ./logs/agent-service:/app/logs
-      - ${HOME}/.mitmproxy/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
+      - ./modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
 
   # Admin Panel Backend
   admin-backend:
@@ -205,7 +206,7 @@ services:
       - ./logs/admin-backend:/app/logs
       - ./logs/qqbot-traffic:/app/logs/traffic:ro
       - ./modules/admin-panel/backend/resources/uploads:/app/resources/uploads
-      - ${HOME}/.mitmproxy/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
+      - ./modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

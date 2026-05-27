@@ -17,6 +17,28 @@ class TestCodexProvider extends CodexProvider {
   buildPayload(request: OpenResponseCreateRequest) {
     return this.buildResponsesPayload(request);
   }
+
+  transportDefaults() {
+    return {
+      baseUrl: this.baseUrl,
+      responsesPath: this.responsesPath
+    };
+  }
+
+  resolveApiKeyForTest() {
+    return this.resolveApiKey();
+  }
+
+  postForTest(payload: Record<string, any>, traceHeaders: Record<string, string> = {}) {
+    return this.postResponses(
+      this.baseUrl,
+      this.responsesPath,
+      payload,
+      'ignored-direct-token',
+      1000,
+      traceHeaders
+    );
+  }
 }
 
 const TOOL_DEFINITIONS: OpenResponseToolDefinition[] = [
@@ -134,6 +156,97 @@ test('Codex provider serializes allowed_tools without changing the tool list', (
       { type: 'function', name: 'finish' }
     ]
   });
+});
+
+test('Codex provider defaults proxy-key mode to CLIProxyAPI Codex direct route', async () => {
+  const previousEnv = {
+    CODEX_BASE_URL: process.env.CODEX_BASE_URL,
+    CODEX_PROXY_BASE_URL: process.env.CODEX_PROXY_BASE_URL,
+    CODEX_PROXY_API_KEY: process.env.CODEX_PROXY_API_KEY
+  };
+
+  try {
+    delete process.env.CODEX_BASE_URL;
+    delete process.env.CODEX_PROXY_BASE_URL;
+    delete process.env.CODEX_PROXY_API_KEY;
+
+    const provider = new TestCodexProvider({
+      codex_proxy_api_key: 'proxy-key',
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5.4-mini'
+    });
+
+    assert.deepEqual(provider.transportDefaults(), {
+      baseUrl: 'http://host.docker.internal:8317/backend-api',
+      responsesPath: '/codex/responses'
+    });
+    assert.equal(await provider.resolveApiKeyForTest(), 'proxy-key');
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('Codex provider sends CLIProxyAPI proxy requests as SSE and assembles the response', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init: any }> = [];
+
+  try {
+    (globalThis as any).fetch = async (url: string, init: any) => {
+      calls.push({ url, init });
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => [
+          'event: response.output_text.delta',
+          'data: {"type":"response.output_text.delta","delta":"hello"}',
+          '',
+          'event: response.completed',
+          'data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}',
+          ''
+        ].join('\n')
+      };
+    };
+
+    const provider = new TestCodexProvider({
+      codex_base_url: 'http://proxy.test/backend-api',
+      codex_proxy_api_key: 'proxy-key',
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5.4-mini'
+    });
+
+    const response = await provider.postForTest({
+      model: 'gpt-5.4-mini',
+      stream: true,
+      input: [{ type: 'message', role: 'user', content: 'ping' }]
+    }, {
+      session_id: 'qq:group:101',
+      'x-codex-turn-metadata': '{"session_id":"qq:group:101"}'
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, 'http://proxy.test/backend-api/codex/responses');
+    assert.equal(calls[0]?.init?.headers?.Authorization, 'Bearer proxy-key');
+    assert.equal(calls[0]?.init?.headers?.Accept, 'text/event-stream');
+    assert.equal(calls[0]?.init?.headers?.['Content-Type'], 'application/json');
+    assert.equal(calls[0]?.init?.headers?.session_id, 'qq:group:101');
+    assert.equal(calls[0]?.init?.headers?.['chatgpt-account-id'], undefined);
+    assert.equal(JSON.parse(calls[0]?.init?.body).stream, true);
+    assert.equal(response.output_text, 'hello');
+    assert.equal(response.usage.total_tokens, 4);
+  } finally {
+    (globalThis as any).fetch = previousFetch;
+  }
 });
 
 test('Gemini CLI provider rejects structured allowed_tools tool_choice', () => {

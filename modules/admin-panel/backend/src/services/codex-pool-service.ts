@@ -52,9 +52,18 @@ export async function completeCodexLogin(body: {
   });
 }
 
-export async function activateCodexAccount(accountId: string) {
-  return requestProvider(`/api/internal/codex-accounts/${encodeURIComponent(accountId)}/activate`, {
-    method: 'POST'
+export async function importCodexAccount(body: {
+  rawInput: string;
+  refreshToken?: string;
+  replaceAccountId?: string;
+  refreshEnabled?: boolean;
+}) {
+  return requestProvider('/api/internal/codex-accounts/import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
   });
 }
 
@@ -62,6 +71,10 @@ export async function refreshCodexAccount(accountId: string) {
   return requestProvider(`/api/internal/codex-accounts/${encodeURIComponent(accountId)}/refresh`, {
     method: 'POST'
   });
+}
+
+export async function exportCodexAccountAuth(accountId: string) {
+  return requestProvider(`/api/internal/codex-accounts/${encodeURIComponent(accountId)}/auth-export`);
 }
 
 export async function setCodexAccountEnabled(accountId: string, enabled: boolean) {

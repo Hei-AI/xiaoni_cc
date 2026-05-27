@@ -26,12 +26,16 @@
   - `docs/CURRENT_ARCHITECTURE.md`
 - `agent-service` loop 细版，含输入输出、工具契约、抑制路径、自学习闭环：
   - `docs/AGENTS_AGENT_LOOP_RUNTIME.md`
+- 小腻数字生活 / `presence_context` 设计：
+  - `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`
 - 路线图：
   - `docs/ROADMAP.md`
 - 执行计划归档与当前候选：
   - `docs/exec-plans/README.md`
   - `docs/exec-plans/active/`
   - `docs/exec-plans/completed/`
+- 历史快照归档：
+  - `docs/archive/`
 - 脚本入口：
   - `scripts/README.md`
 

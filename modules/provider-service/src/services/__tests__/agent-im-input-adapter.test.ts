@@ -239,3 +239,97 @@ test('returns null for unsupported post types', () => {
 
   assert.equal(inboundContext, null);
 });
+
+test('renders xml segment with title and url as card text', () => {
+  const ctx = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'private',
+      self_id: Number(BOT_ID),
+      user_id: 85178516,
+      message_id: 2001,
+      message: [{ type: 'xml', data: { data: '<xml><title>周杰伦 - 晴天</title><url>https://music.163.com/song/186016</url></xml>' } }]
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+  assert.ok(ctx);
+  assert.equal(ctx.BodyForAgent, '[卡片] 周杰伦 - 晴天 https://music.163.com/song/186016');
+});
+
+test('renders xml segment without url', () => {
+  const ctx = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'private',
+      self_id: Number(BOT_ID),
+      user_id: 85178516,
+      message_id: 2002,
+      message: [{ type: 'xml', data: { data: '<xml><title>位置分享</title></xml>' } }]
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+  assert.ok(ctx);
+  assert.equal(ctx.BodyForAgent, '[卡片] 位置分享');
+});
+
+test('renders xml segment with empty data as fallback', () => {
+  const ctx = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'private',
+      self_id: Number(BOT_ID),
+      user_id: 85178516,
+      message_id: 2003,
+      message: [{ type: 'xml', data: { data: '' } }]
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+  assert.equal(ctx, null);
+});
+
+test('renders share segment with title and url as link text', () => {
+  const ctx = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'private',
+      self_id: Number(BOT_ID),
+      user_id: 85178516,
+      message_id: 2004,
+      message: [{ type: 'share', data: { title: '看这篇文章', url: 'https://example.com/article' } }]
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+  assert.ok(ctx);
+  assert.equal(ctx.BodyForAgent, '[链接] 看这篇文章 https://example.com/article');
+});
+
+test('renders share segment with url only', () => {
+  const ctx = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'private',
+      self_id: Number(BOT_ID),
+      user_id: 85178516,
+      message_id: 2005,
+      message: [{ type: 'share', data: { url: 'https://example.com' } }]
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+  assert.ok(ctx);
+  assert.equal(ctx.BodyForAgent, '[链接] https://example.com');
+});
+
+test('returns null for share segment with no url and no title', () => {
+  const ctx = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'private',
+      self_id: Number(BOT_ID),
+      user_id: 85178516,
+      message_id: 2006,
+      message: [{ type: 'share', data: {} }]
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+  assert.equal(ctx, null);
+});

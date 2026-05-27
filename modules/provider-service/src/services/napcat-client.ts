@@ -10,6 +10,18 @@ type NapcatActionResponse<T> = {
   wording?: string;
 };
 
+export type ForwardMessageSegment = {
+  type?: string;
+  data?: Record<string, unknown>;
+};
+
+export type ForwardMessageItem = {
+  sender?: { nickname?: string; user_id?: number | string };
+  time?: number;
+  content?: ForwardMessageSegment[];
+  message?: ForwardMessageSegment[];
+};
+
 function normalizeMentionUserId(value: string | number) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -130,6 +142,11 @@ export class NapcatClient {
     return this.callAction('get_file', {
       file_id: fileId
     });
+  }
+
+  async getForwardMessage(id: string): Promise<ForwardMessageItem[]> {
+    const result = await this.callAction<{ messages?: ForwardMessageItem[] }>('get_forward_msg', { id });
+    return result?.messages ?? [];
   }
 
   private async callAction<T>(action: string, params: Record<string, unknown>): Promise<T> {

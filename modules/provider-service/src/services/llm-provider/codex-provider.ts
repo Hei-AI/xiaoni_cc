@@ -19,6 +19,27 @@ const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const CODEX_JWT_CLAIM_PATH = 'https://api.openai.com/auth';
 const ACTIVE_CODEX_AUTH_PATH = path.join(os.homedir(), '.codex', 'auth.json');
+const DIRECT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
+const CLIPROXYAPI_CODEX_BASE_URL = 'http://host.docker.internal:8317/backend-api';
+
+function resolveCodexProxyApiKey(aiConfig: AIConfig): string | undefined {
+  return aiConfig.codex_proxy_api_key
+    || process.env.CODEX_PROXY_API_KEY
+    || undefined;
+}
+
+function resolveCodexBaseUrl(aiConfig: AIConfig): string {
+  const explicitBaseUrl = aiConfig.codex_base_url || process.env.CODEX_BASE_URL;
+  if (explicitBaseUrl) {
+    return explicitBaseUrl;
+  }
+
+  if (resolveCodexProxyApiKey(aiConfig)) {
+    return process.env.CODEX_PROXY_BASE_URL || CLIPROXYAPI_CODEX_BASE_URL;
+  }
+
+  return DIRECT_CODEX_BASE_URL;
+}
 
 export class CodexProvider extends OpenAIProvider {
   readonly id = 'codex' as const;
@@ -29,7 +50,7 @@ export class CodexProvider extends OpenAIProvider {
     super(aiConfig, {
       id: 'codex',
       apiKey: aiConfig.codex_access_token || process.env.CODEX_OAUTH_ACCESS_TOKEN || '',
-      baseUrl: aiConfig.codex_base_url || process.env.CODEX_BASE_URL || 'https://chatgpt.com/backend-api',
+      baseUrl: resolveCodexBaseUrl(aiConfig),
       responsesPath: aiConfig.codex_responses_path || process.env.CODEX_RESPONSES_PATH || '/codex/responses',
       defaultHeaders: {
         Origin: 'https://chatgpt.com',
@@ -42,6 +63,10 @@ export class CodexProvider extends OpenAIProvider {
   }
 
   protected override async resolveApiKey(): Promise<string> {
+    const proxyApiKey = resolveCodexProxyApiKey(this.aiConfig);
+    if (proxyApiKey) {
+      return proxyApiKey;
+    }
     const { credential } = await this.resolveCredential();
     if (!credential?.access) {
       throw new Error(
@@ -116,6 +141,19 @@ export class CodexProvider extends OpenAIProvider {
     timeoutMs?: number,
     traceHeaders: Record<string, string> = {}
   ): Promise<any> {
+    const proxyApiKey = resolveCodexProxyApiKey(this.aiConfig);
+    if (proxyApiKey) {
+      return await this.fetchAndAssembleCodexResponse(
+        baseUrl,
+        responsesPath,
+        payload,
+        proxyApiKey,
+        null,
+        timeoutMs,
+        traceHeaders
+      );
+    }
+
     const accountId = this.extractAccountId(apiKey);
 
     try {

@@ -13,12 +13,14 @@
 ## Local Runtime State
 - NapCat 配置保留在 `resource/napcat_config/`。
 - 运行态数据、登录二维码、截图不提交。
-- 透明 MITM 的宿主机根证书默认在 `~/.mitmproxy/mitmproxy-ca-cert.pem`。
+- 透明 MITM 的 active 宿主机根证书以 `modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem` 为准；不要默认把 `~/.mitmproxy/mitmproxy-ca-cert.pem` 当成当前运行中的 transparent proxy 真相源。
 - 如果 host-side Codex / MCP 在透明 MITM 下出现 TLS 或 MCP 启动告警，优先使用
-  `scripts/codex-with-mitm-trust.sh ...` 启动 Codex，把同一份 CA 显式注入
-  `SSL_CERT_FILE`、`REQUESTS_CA_BUNDLE`、`NODE_EXTRA_CA_CERTS`；不要先靠全局跳过 TLS 校验。
+  `scripts/codex-with-mitm-trust.sh ...` 启动 Codex，让 helper runtime 统一回到系统
+  CA bundle，并先校验系统 trust store 是否已经和 active transparent MITM CA 对齐；
+  不要先靠全局跳过 TLS 校验。
 - 如果 `scripts/check-mitmproxy-ca-drift.sh` 报 `STATUS: DRIFT`，说明宿主机当前
-  mitmproxy 正在使用的新 CA 与系统信任库里的旧 `mitmproxy.crt` 不一致。此时
+  mitmproxy `confdir` 里的 active CA 与系统信任库里的 `mitmproxy-current.crt`
+  或遗留 `mitmproxy.crt` 不一致。此时
   仅靠 env 注入通常修不好 Codex websocket / MCP，应该先执行
   `scripts/install-mitmproxy-ca-system.sh` 更新系统信任库。
 

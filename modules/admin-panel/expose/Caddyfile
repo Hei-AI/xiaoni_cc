@@ -1,5 +1,6 @@
 :80 {
     encode gzip
+    log
 
     route {
         basic_auth * {

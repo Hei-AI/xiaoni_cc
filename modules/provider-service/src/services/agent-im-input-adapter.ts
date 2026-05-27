@@ -259,6 +259,44 @@ function renderEmojiPlaceholder(data?: Record<string, unknown>) {
     || '[Emoji]';
 }
 
+function renderJsonCardText(segment: OneBotMessageSegment): string | null {
+  const raw = asString(segment.data?.data);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    const detail = sanitizeRawRecord(parsed?.meta?.detail_1);
+    const desc = asNonEmptyString(detail?.desc)
+      || asNonEmptyString(detail?.title)
+      || asNonEmptyString(parsed?.prompt);
+    const rawUrl = asNonEmptyString(detail?.qqdocurl) || asNonEmptyString(detail?.url);
+    const url = rawUrl?.split('?')[0];
+    if (!desc && !url) return '[卡片]';
+    return url ? `[卡片] ${desc ?? ''} ${url}`.trim() : `[卡片] ${desc}`;
+  } catch {
+    const prompt = asNonEmptyString(segment.data?.prompt);
+    return prompt ? `[卡片] ${prompt}` : '[卡片]';
+  }
+}
+
+function renderXmlCardText(segment: OneBotMessageSegment): string | null {
+  const raw = asString(segment.data?.data);
+  if (!raw) return null;
+  const title = /<title[^>]*>([^<]+)<\/title>/i.exec(raw)?.[1]?.trim();
+  const url = /<url[^>]*>([^<]+)<\/url>/i.exec(raw)?.[1]?.trim();
+  const desc = /<des[^>]*>([^<]+)<\/des>/i.exec(raw)?.[1]?.trim();
+  const label = title || desc;
+  if (!label && !url) return '[卡片]';
+  return url ? `[卡片] ${label ?? ''} ${url}`.trim() : `[卡片] ${label}`;
+}
+
+function renderShareText(segment: OneBotMessageSegment): string | null {
+  const data = sanitizeRawRecord(segment.data) || {};
+  const title = asNonEmptyString(data.title) || asNonEmptyString(data.content);
+  const url = asNonEmptyString(data.url);
+  if (!title && !url) return null;
+  return url ? `[链接] ${title ?? ''} ${url}`.trim() : `[链接] ${title}`;
+}
+
 function renderMediaFromSegment(segment: OneBotMessageSegment): RenderedMedia | null {
   const data = sanitizeRawRecord(segment.data) || {};
   const fileName = asNonEmptyString(data.file) || asNonEmptyString(data.name);
@@ -372,6 +410,30 @@ function renderFromSegments(
         pushText(rawParts, emojiText);
         if (emojiText !== '[Emoji]') {
           pushText(commandParts, emojiText);
+        }
+        break;
+      }
+      case 'json': {
+        const cardText = renderJsonCardText(segment);
+        if (cardText) {
+          pushText(rawParts, cardText);
+          pushText(commandParts, cardText);
+        }
+        break;
+      }
+      case 'xml': {
+        const xmlText = renderXmlCardText(segment);
+        if (xmlText) {
+          pushText(rawParts, xmlText);
+          pushText(commandParts, xmlText);
+        }
+        break;
+      }
+      case 'share': {
+        const shareText = renderShareText(segment);
+        if (shareText) {
+          pushText(rawParts, shareText);
+          pushText(commandParts, shareText);
         }
         break;
       }

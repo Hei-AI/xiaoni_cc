@@ -76,3 +76,15 @@ coverage/
 **/qq-log*
 models/embedding-server/
 .gstack/
+
+# Local agent/runtime state
+.context/
+lb_proxy.db
+database/postgres_data/
+
+# Local debug exports
+tmp/codex-request-body-latest*.json
+tmp/forward-*.md
+tmp/transcript-compact-*.json
+tmp/transcript-compact-*.txt
+tmp/xiaoni-memory-export-*.json

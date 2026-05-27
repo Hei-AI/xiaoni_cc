@@ -121,6 +121,83 @@ test('CodexAccountManager switches to a backup account after quota exhaustion', 
   }
 });
 
+test('CodexAccountManager prefers lower priorityOrder during quota failover', async () => {
+  const { manager, storeDir } = await createTempManager();
+  const originalFetch = global.fetch;
+
+  const firstSession = await manager.createLoginSession();
+  const secondSession = await manager.createLoginSession();
+  const thirdSession = await manager.createLoginSession();
+  const tokenResponses = [
+    {
+      access_token: makeJwt({
+        email: 'active@example.com',
+        'https://api.openai.com/auth': {
+          chatgpt_account_id: 'acct_active_priority'
+        }
+      }),
+      refresh_token: 'refresh_active_priority',
+      expires_in: 3600,
+      id_token: makeJwt({ email: 'active@example.com' })
+    },
+    {
+      access_token: makeJwt({
+        email: 'low@example.com',
+        'https://api.openai.com/auth': {
+          chatgpt_account_id: 'acct_low_priority'
+        }
+      }),
+      refresh_token: 'refresh_low_priority',
+      expires_in: 3600,
+      id_token: makeJwt({ email: 'low@example.com' })
+    },
+    {
+      access_token: makeJwt({
+        email: 'high@example.com',
+        'https://api.openai.com/auth': {
+          chatgpt_account_id: 'acct_high_priority'
+        }
+      }),
+      refresh_token: 'refresh_high_priority',
+      expires_in: 3600,
+      id_token: makeJwt({ email: 'high@example.com' })
+    }
+  ];
+
+  global.fetch = (async () => new Response(JSON.stringify(tokenResponses.shift()), { status: 200 })) as typeof fetch;
+
+  try {
+    const active = await manager.completeLogin({
+      callbackUrl: `http://localhost:1455/auth/callback?code=code_active&state=${firstSession.state}`
+    });
+    const lowPriority = await manager.completeLogin({
+      callbackUrl: `http://localhost:1455/auth/callback?code=code_low&state=${secondSession.state}`
+    });
+    const highPriority = await manager.completeLogin({
+      callbackUrl: `http://localhost:1455/auth/callback?code=code_high&state=${thirdSession.state}`
+    });
+
+    await manager.reorderAccounts([active.id, highPriority.id, lowPriority.id]);
+    const switched = await manager.handleQuotaExceeded('acct_active_priority', 'usage_limit_reached');
+
+    assert.equal(switched.switched, true);
+    assert.equal(switched.nextAccountId, highPriority.id);
+
+    const storedHighPriority = JSON.parse(await fs.readFile(
+      path.join(storeDir, 'accounts', `${highPriority.id}.json`),
+      'utf8'
+    ));
+    const storedLowPriority = JSON.parse(await fs.readFile(
+      path.join(storeDir, 'accounts', `${lowPriority.id}.json`),
+      'utf8'
+    ));
+    assert.equal(storedHighPriority.priorityOrder, 1);
+    assert.equal(storedLowPriority.priorityOrder, 2);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('CodexAccountManager relogin replaces an existing account in place', async () => {
   const { manager } = await createTempManager();
   const originalFetch = global.fetch;
@@ -259,6 +336,42 @@ test('CodexAccountManager syncs refreshed active credentials back into the manag
   }
 });
 
+test('CodexAccountManager exports auth.json payload for any managed account', async () => {
+  const { manager } = await createTempManager();
+  const session = await manager.createLoginSession();
+  const accessToken = makeJwt({
+    email: 'export@example.com',
+    'https://api.openai.com/auth': {
+      chatgpt_account_id: 'acct_export'
+    }
+  });
+  const idToken = makeJwt({ email: 'export@example.com' });
+  const originalFetch = global.fetch;
+  global.fetch = (async () => new Response(JSON.stringify({
+    access_token: accessToken,
+    refresh_token: 'refresh_export',
+    expires_in: 3600,
+    id_token: idToken
+  }), { status: 200 })) as typeof fetch;
+
+  try {
+    const created = await manager.completeLogin({
+      callbackUrl: `http://localhost:1455/auth/callback?code=code_export&state=${session.state}`
+    });
+
+    const exported = await manager.exportAccountAuth(created.id);
+    assert.equal(exported.auth_mode, 'chatgpt');
+    assert.equal(exported.OPENAI_API_KEY, null);
+    assert.equal(exported.tokens.access_token, accessToken);
+    assert.equal(exported.tokens.refresh_token, 'refresh_export');
+    assert.equal(exported.tokens.account_id, 'acct_export');
+    assert.equal(exported.tokens.id_token, idToken);
+    assert.equal(typeof exported.last_refresh, 'string');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('CodexAccountManager selects inactive enabled backup accounts for background refresh when near expiry', async () => {
   const { manager } = await createTempManager();
   const originalFetch = global.fetch;
@@ -363,6 +476,214 @@ test('CodexAccountManager marks refresh-token auth failures as reauth required',
     const accounts = await manager.listAccounts();
     assert.equal(accounts[0]?.status, 'reauth_required');
     assert.equal(accounts[0]?.refreshFailureCode, 'reauth_required');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('CodexAccountManager imports session JSON with a manually supplied refresh token', async () => {
+  const { manager, activeAuthPath } = await createTempManager();
+  const accessToken = makeJwt({
+    email: 'import@example.com',
+    exp: Math.floor((Date.now() + 3600_000) / 1000),
+    'https://api.openai.com/auth': {
+      chatgpt_account_id: 'acct_import'
+    }
+  });
+
+  const originalFetch = global.fetch;
+  global.fetch = (async () => new Response([
+    'event: response.output_item.done',
+    'data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}}',
+    'event: response.completed',
+    'data: {"type":"response.completed","response":{"status":"completed"}}',
+    ''
+  ].join('\n'), {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream'
+    }
+  })) as typeof fetch;
+
+  try {
+    const result = await manager.importAccount({
+    rawInput: JSON.stringify({
+      user: { email: 'import@example.com' },
+      accessToken,
+      sessionToken: 'session-token',
+      account: {
+        id: 'acct_import'
+      }
+    }),
+    refreshToken: 'rt__manual_import'
+    });
+    const imported = result.account;
+
+    assert.equal(imported.accountId, 'acct_import');
+    assert.equal(imported.email, 'import@example.com');
+    assert.equal(imported.isActive, true);
+    assert.equal(imported.refreshEnabled, false);
+    assert.deepEqual(result.importTest, {
+      success: true,
+      provider: 'codex-direct',
+      model: 'gpt-5.4-mini',
+      durationMs: result.importTest.durationMs,
+      response: 'hi',
+      error: null,
+      statusCode: 200
+    });
+
+    const candidates = await manager.listAccountsNeedingRefresh({
+      nowMs: Date.now(),
+      refreshThresholdMs: 24 * 60 * 60 * 1000
+    });
+    assert.equal(candidates.some((item) => item.accountId === 'acct_import'), false);
+
+    const projected = JSON.parse(await fs.readFile(activeAuthPath, 'utf8'));
+    assert.equal(projected.tokens.access_token, accessToken);
+    assert.equal(projected.tokens.refresh_token, 'rt__manual_import');
+    assert.equal(projected.tokens.account_id, 'acct_import');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('CodexAccountManager keeps same-workspace imports separate when emails differ', async () => {
+  const { manager } = await createTempManager();
+  const sharedWorkspaceAccountId = 'acct_workspace_shared';
+  const originalFetch = global.fetch;
+
+  global.fetch = (async () => new Response([
+    'event: response.output_item.done',
+    'data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}}',
+    'event: response.completed',
+    'data: {"type":"response.completed","response":{"status":"completed"}}',
+    ''
+  ].join('\n'), {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream'
+    }
+  })) as typeof fetch;
+
+  try {
+    const first = await manager.importAccount({
+      rawInput: JSON.stringify({
+        user: { email: 'workspace-member-1@example.com' },
+        accessToken: makeJwt({
+          email: 'workspace-member-1@example.com',
+          exp: Math.floor((Date.now() + 3600_000) / 1000),
+          'https://api.openai.com/auth': {
+            chatgpt_account_id: sharedWorkspaceAccountId
+          }
+        }),
+        account: {
+          id: sharedWorkspaceAccountId
+        }
+      })
+    });
+
+    const second = await manager.importAccount({
+      rawInput: JSON.stringify({
+        user: { email: 'workspace-member-2@example.com' },
+        accessToken: makeJwt({
+          email: 'workspace-member-2@example.com',
+          exp: Math.floor((Date.now() + 3600_000) / 1000),
+          'https://api.openai.com/auth': {
+            chatgpt_account_id: sharedWorkspaceAccountId
+          }
+        }),
+        account: {
+          id: sharedWorkspaceAccountId
+        }
+      })
+    });
+
+    assert.notEqual(first.account.id, second.account.id);
+
+    const accounts = await manager.listAccounts();
+    const sharedWorkspaceAccounts = accounts.filter((item) => item.accountId === sharedWorkspaceAccountId);
+    assert.equal(sharedWorkspaceAccounts.length, 2);
+    assert.deepEqual(
+      sharedWorkspaceAccounts.map((item) => item.email).sort(),
+      ['workspace-member-1@example.com', 'workspace-member-2@example.com']
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('CodexAccountManager only refreshes imported accounts when explicitly enabled', async () => {
+  const { manager } = await createTempManager();
+  const accessToken = makeJwt({
+    email: 'refreshable@example.com',
+    exp: Math.floor((Date.now() + 3600_000) / 1000),
+    'https://api.openai.com/auth': {
+      chatgpt_account_id: 'acct_refreshable'
+    }
+  });
+
+  const originalFetch = global.fetch;
+  global.fetch = (async () => new Response([
+    'event: response.output_item.done',
+    'data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}}',
+    'event: response.completed',
+    'data: {"type":"response.completed","response":{"status":"completed"}}',
+    ''
+  ].join('\n'), {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream'
+    }
+  })) as typeof fetch;
+
+  try {
+    const result = await manager.importAccount({
+    rawInput: JSON.stringify({
+      user: { email: 'refreshable@example.com' },
+      accessToken
+    }),
+    refreshToken: 'rt__usable',
+    refreshEnabled: true
+    });
+    const imported = result.account;
+
+    assert.equal(imported.refreshEnabled, true);
+    const candidates = await manager.listAccountsNeedingRefresh({
+      nowMs: Date.now(),
+      refreshThresholdMs: 24 * 60 * 60 * 1000
+    });
+    assert.equal(candidates.some((item) => item.accountId === 'acct_refreshable'), true);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('CodexAccountManager keeps imported account when direct probe fails', async () => {
+  const { manager } = await createTempManager();
+  const originalFetch = global.fetch;
+  const accessToken = makeJwt({
+    email: 'probe-fail@example.com',
+    exp: Math.floor((Date.now() + 3600_000) / 1000),
+    'https://api.openai.com/auth': {
+      chatgpt_account_id: 'acct_probe_fail'
+    }
+  });
+
+  global.fetch = (async () => new Response('{"error":"invalid"}', { status: 401, statusText: 'Unauthorized' })) as typeof fetch;
+
+  try {
+    const result = await manager.importAccount({
+      rawInput: JSON.stringify({
+        user: { email: 'probe-fail@example.com' },
+        accessToken
+      })
+    });
+
+    assert.equal(result.account.email, 'probe-fail@example.com');
+    assert.equal(result.importTest.success, false);
+    assert.equal(result.importTest.statusCode, 401);
+    assert.match(result.importTest.error || '', /Codex API error/);
   } finally {
     global.fetch = originalFetch;
   }

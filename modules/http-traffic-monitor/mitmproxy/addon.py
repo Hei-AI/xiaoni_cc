@@ -173,6 +173,11 @@ class HTTPTrafficLogger:
                     'description': 'HTTP traffic monitoring logs'
                 }
                 f.write(ujson.dumps(header) + '\n')
+            # Allow non-root processes (e.g. lb_proxy running as UID 1000) to append
+            try:
+                os.chmod(log_file_path, 0o666)
+            except OSError:
+                pass
 
         self.current_log_file = log_file_path
         logger.info(f"日志文件初始化: {log_file_path}")

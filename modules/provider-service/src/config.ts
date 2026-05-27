@@ -35,6 +35,7 @@ export const aiConfig: AIConfig = {
   codex_base_url: process.env.CODEX_BASE_URL || undefined,
   codex_oauth_path: process.env.CODEX_OAUTH_PATH || undefined,
   codex_responses_path: process.env.CODEX_RESPONSES_PATH || undefined,
+  codex_proxy_api_key: process.env.CODEX_PROXY_API_KEY || undefined,
   authorized_user_id: Number.parseInt(process.env.AUTHORIZED_USER_ID || '85178516', 10),
   bot_qq_number: Number.parseInt(process.env.BOT_QQ_NUMBER || '1129974489', 10)
 };

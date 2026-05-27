@@ -7,6 +7,7 @@ import {
   CODEX_AUTHORIZE_URL,
   CODEX_CLIENT_ID,
   exchangeCodexAuthorizationCode,
+  extractEmailFromJwt,
   extractCodexAccountId,
   refreshCodexOAuthCredential,
 } from './llm-provider/codex-oauth';
@@ -21,8 +22,10 @@ type StoredCodexAccount = {
   email?: string;
   accountId?: string;
   idToken?: string;
+  priorityOrder?: number;
   access: string;
   refresh: string;
+  refreshEnabled?: boolean;
   expires: number;
   enabled: boolean;
   createdAt: string;
@@ -54,11 +57,33 @@ type LoginSessionRecord = {
 
 type ProviderEventKind = 'success' | 'error' | 'quota_exceeded' | 'auth_error';
 type RefreshTrigger = 'manual' | 'background-sweep';
+type ImportCodexAccountInput = {
+  rawInput: string;
+  refreshToken?: string;
+  replaceAccountId?: string;
+  refreshEnabled?: boolean;
+};
+
+type CodexImportProbeResult = {
+  success: boolean;
+  provider: 'codex-direct';
+  model: string;
+  durationMs: number;
+  response: string | null;
+  error: string | null;
+  statusCode: number | null;
+};
 
 const moduleLogger = logger.createModuleLogger('codex-account-manager');
 const DEFAULT_STORE_DIR = process.env.CODEX_ACCOUNT_STORE_DIR || path.join(os.homedir(), '.qqbot-local', 'codex-accounts');
 const DEFAULT_REDIRECT_URI = process.env.CODEX_ACCOUNT_REDIRECT_URI || 'http://localhost:1455/auth/callback';
 const DEFAULT_COOLDOWN_MS = Math.max(60_000, Number.parseInt(process.env.CODEX_ACCOUNT_COOLDOWN_MS || `${30 * 60 * 1000}`, 10));
+const DIRECT_CODEX_BASE_URL = (process.env.CODEX_DIRECT_BASE_URL || 'https://chatgpt.com/backend-api').replace(/\/+$/, '');
+const DIRECT_CODEX_RESPONSES_PATH = (() => {
+  const value = process.env.CODEX_DIRECT_RESPONSES_PATH || '/codex/responses';
+  return value.startsWith('/') ? value : `/${value}`;
+})();
+const IMPORT_TEST_MODEL = process.env.CODEX_IMPORT_TEST_MODEL || 'gpt-5.4-mini';
 
 function toBase64Url(buffer: Buffer) {
   return buffer
@@ -85,7 +110,9 @@ function sanitizeAccount(record: StoredCodexAccount, activeAccountId: string | n
     id: record.id,
     email: record.email || null,
     accountId: record.accountId || null,
+    priorityOrder: Number.isFinite(record.priorityOrder) ? Number(record.priorityOrder) : 0,
     enabled: record.enabled,
+    refreshEnabled: isRefreshEnabled(record),
     status,
     isActive: activeAccountId === record.id,
     expiresAt: new Date(record.expires).toISOString(),
@@ -118,6 +145,10 @@ function sanitizeAccount(record: StoredCodexAccount, activeAccountId: string | n
       checkedAt: string;
     }
   };
+}
+
+function isRefreshEnabled(record: Pick<StoredCodexAccount, 'refresh' | 'refreshEnabled'>) {
+  return Boolean(record.refresh) && record.refreshEnabled !== false;
 }
 
 function resolveAccountStatus(record: StoredCodexAccount, now = Date.now()) {
@@ -163,6 +194,198 @@ function classifyRefreshFailure(error: unknown) {
   };
 }
 
+function buildCodexAuthPayload(record: Pick<StoredCodexAccount, 'access' | 'refresh' | 'expires' | 'accountId' | 'idToken'>) {
+  return {
+    OPENAI_API_KEY: null,
+    auth_mode: 'chatgpt',
+    last_refresh: new Date().toISOString(),
+    tokens: {
+      access_token: record.access,
+      refresh_token: record.refresh,
+      expires_at: record.expires,
+      ...(record.accountId ? { account_id: record.accountId } : {}),
+      ...(record.idToken ? { id_token: record.idToken } : {})
+    }
+  };
+}
+
+function decodeJwtPayload(token: string): Record<string, any> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3 || !parts[1]) {
+      return null;
+    }
+    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+    const decoded = Buffer.from(`${normalized}${padding}`, 'base64').toString('utf8');
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeTimestamp(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 1_000_000_000_000 ? value : value * 1000;
+  }
+  if (typeof value !== 'string' || !value.trim()) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const parsed = Number.parseInt(trimmed, 10);
+    return Number.isFinite(parsed) ? (parsed > 1_000_000_000_000 ? parsed : parsed * 1000) : null;
+  }
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readFirstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function normalizeImportPayload(rawInput: string, refreshTokenOverride?: string) {
+  let parsed: any;
+  try {
+    parsed = JSON.parse(rawInput);
+  } catch (error) {
+    throw new Error(`Invalid import JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  const record = Array.isArray(parsed) ? parsed[0] : parsed;
+  if (!record || typeof record !== 'object') {
+    throw new Error('Import payload must be a JSON object.');
+  }
+
+  const accessToken = readFirstString(
+    record.accessToken,
+    record.access_token,
+    record.tokens?.accessToken,
+    record.tokens?.access_token,
+    record.token?.accessToken,
+    record.token?.access_token,
+    record.credentials?.accessToken,
+    record.credentials?.access_token
+  );
+  if (!accessToken) {
+    throw new Error('Import payload is missing access token.');
+  }
+
+  const idToken = readFirstString(
+    record.idToken,
+    record.id_token,
+    record.tokens?.idToken,
+    record.tokens?.id_token,
+    record.token?.idToken,
+    record.token?.id_token,
+    record.credentials?.id_token
+  );
+  const payload = decodeJwtPayload(accessToken);
+  const auth = payload?.['https://api.openai.com/auth'];
+  const email = readFirstString(
+    record.user?.email,
+    record.email,
+    record.meta?.label,
+    record.label,
+    record.credentials?.email,
+    extractEmailFromJwt(idToken || accessToken),
+    payload?.email
+  );
+  const accountId = readFirstString(
+    record.account?.id,
+    record.accountId,
+    record.account_id,
+    record.tokens?.accountId,
+    record.tokens?.account_id,
+    record.chatgptAccountId,
+    record.chatgpt_account_id,
+    record.providerSpecificData?.chatgptAccountId,
+    record.providerSpecificData?.chatgpt_account_id,
+    record.credentials?.chatgpt_account_id,
+    auth?.chatgpt_account_id,
+    extractCodexAccountId(accessToken)
+  );
+  const refreshToken = readFirstString(
+    refreshTokenOverride,
+    record.refreshToken,
+    record.refresh_token,
+    record.tokens?.refreshToken,
+    record.tokens?.refresh_token,
+    record.token?.refreshToken,
+    record.token?.refresh_token,
+    record.credentials?.refresh_token
+  ) || '';
+  const expires = normalizeTimestamp(
+    record.expiresAt ?? record.expires_at ?? record.expires ?? record.expiry ?? record.expiry_date ?? record.expired
+  ) || (
+    typeof payload?.exp === 'number'
+      ? payload.exp * 1000
+      : Date.now() + 3600_000
+  );
+
+  return {
+    access: accessToken,
+    refresh: refreshToken,
+    expires,
+    accountId,
+    email,
+    idToken
+  };
+}
+
+function parseCodexProbeText(payload: string) {
+  const events = payload
+    .split(/\r?\n\r?\n/)
+    .flatMap((block) =>
+      block
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trim())
+        .filter((line) => line.length > 0 && line !== '[DONE]')
+    )
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean) as any[];
+
+  let outputText = '';
+  let messageText = '';
+
+  for (const event of events) {
+    const type = typeof event?.type === 'string' ? event.type : '';
+    if (!type) {
+      continue;
+    }
+    if (type === 'error') {
+      throw new Error(event?.message || event?.code || 'Codex SSE error');
+    }
+    if (type === 'response.failed') {
+      throw new Error(event?.response?.error?.message || 'Codex response failed');
+    }
+    if (type === 'response.output_text.delta' && typeof event?.delta === 'string') {
+      outputText += event.delta;
+      continue;
+    }
+    if (type === 'response.output_item.done' && event?.item?.type === 'message' && Array.isArray(event.item.content)) {
+      messageText += event.item.content
+        .filter((part: any) => part?.type === 'output_text' && typeof part?.text === 'string')
+        .map((part: any) => part.text)
+        .join('');
+    }
+  }
+
+  return (messageText || outputText || '').trim();
+}
+
 export class CodexAccountManager {
   private readonly storeDir: string;
   private readonly accountsDir: string;
@@ -195,7 +418,7 @@ export class CodexAccountManager {
   }
 
   async listAccounts() {
-    await this.ensureStore();
+    await this.ensureConsistentPriorities();
     const activeAccountId = await this.readActiveAccountId();
     const activeCredential = await this.readActiveAuthCredential();
     const files = await fs.readdir(this.accountsDir).catch(() => []);
@@ -213,18 +436,7 @@ export class CodexAccountManager {
         const sanitized = sanitizeAccount(parsed, activeAccountId) as ReturnType<typeof sanitizeAccount> & {
           __authPayload?: Record<string, unknown>;
         };
-        sanitized.__authPayload = {
-          OPENAI_API_KEY: null,
-          auth_mode: 'chatgpt',
-          last_refresh: new Date().toISOString(),
-          tokens: {
-            access_token: parsed.access,
-            refresh_token: parsed.refresh,
-            expires_at: parsed.expires,
-            ...(parsed.accountId ? { account_id: parsed.accountId } : {}),
-            ...(parsed.idToken ? { id_token: parsed.idToken } : {})
-          }
-        };
+        sanitized.__authPayload = buildCodexAuthPayload(parsed);
         records.push(sanitized);
       } catch {
         continue;
@@ -232,6 +444,7 @@ export class CodexAccountManager {
     }
     const sorted = records.sort((left, right) => {
       if (left.isActive !== right.isActive) return left.isActive ? -1 : 1;
+      if (left.priorityOrder !== right.priorityOrder) return left.priorityOrder - right.priorityOrder;
       return right.updatedAt.localeCompare(left.updatedAt);
     });
     await Promise.all(sorted.map(async (record) => {
@@ -324,6 +537,7 @@ export class CodexAccountManager {
           idToken: credential.idToken,
           access,
           refresh: credential.refresh || '',
+          refreshEnabled: Boolean(credential.refresh),
           expires: credential.expires || (Date.now() + 3600_000),
           updatedAt: nowIso,
           cooldownUntil: undefined,
@@ -340,6 +554,7 @@ export class CodexAccountManager {
           idToken: credential.idToken,
           access,
           refresh: credential.refresh || '',
+          refreshEnabled: Boolean(credential.refresh),
           expires: credential.expires || (Date.now() + 3600_000),
           enabled: true,
           createdAt: nowIso,
@@ -360,6 +575,69 @@ export class CodexAccountManager {
     }
 
     return sanitizeAccount(account, await this.readActiveAccountId());
+  }
+
+  async importAccount(input: ImportCodexAccountInput) {
+    await this.ensureStore();
+    const normalized = normalizeImportPayload(input.rawInput, input.refreshToken);
+    const nowIso = new Date().toISOString();
+    const replacing = input.replaceAccountId ? await this.readAccount(input.replaceAccountId) : null;
+    const existing = !replacing
+      ? await this.findExistingImportedAccount(normalized.accountId, normalized.email)
+      : null;
+    const target = replacing || existing;
+
+    const account: StoredCodexAccount = target
+      ? {
+          ...target,
+          email: normalized.email || target.email,
+          accountId: normalized.accountId || target.accountId,
+          idToken: normalized.idToken || target.idToken,
+          access: normalized.access,
+          refresh: normalized.refresh,
+          refreshEnabled: input.refreshEnabled === true && Boolean(normalized.refresh),
+          expires: normalized.expires,
+          enabled: true,
+          updatedAt: nowIso,
+          cooldownUntil: undefined,
+          lastError: undefined,
+          refreshFailureCode: undefined,
+          refreshFailureAt: undefined,
+          lastRefreshAttemptAt: undefined,
+          lastRefreshSucceededAt: undefined
+        }
+      : {
+          id: crypto.randomUUID(),
+          email: normalized.email,
+          accountId: normalized.accountId,
+          idToken: normalized.idToken,
+          access: normalized.access,
+          refresh: normalized.refresh,
+          refreshEnabled: input.refreshEnabled === true && Boolean(normalized.refresh),
+          expires: normalized.expires,
+          enabled: true,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          stats: {
+            successCount: 0,
+            errorCount: 0,
+            quotaExceededCount: 0
+          }
+        };
+
+    await this.writeAccount(account);
+
+    const active = await this.readActiveAccountId();
+    if (!active || active === account.id) {
+      await this.activateAccount(account.id);
+    }
+
+    const importTest = await this.probeImportedAccount(account);
+
+    return {
+      account: sanitizeAccount(account, await this.readActiveAccountId()),
+      importTest
+    };
   }
 
   async setAccountEnabled(id: string, enabled: boolean) {
@@ -409,6 +687,9 @@ export class CodexAccountManager {
 
   async refreshAccount(id: string, options?: { trigger?: RefreshTrigger }) {
     const account = await this.requireAccount(id);
+    if (!isRefreshEnabled(account)) {
+      throw new Error('Refresh is disabled for this account. Re-import and explicitly enable refresh if this token is known-good.');
+    }
     const nowIso = new Date().toISOString();
     account.lastRefreshAttemptAt = nowIso;
 
@@ -502,6 +783,118 @@ export class CodexAccountManager {
     account.updatedAt = new Date().toISOString();
     await this.writeAccount(account);
     return sanitizeAccount(account, activeAccountId);
+  }
+
+  async exportAccountAuth(id: string) {
+    const account = await this.requireAccount(id);
+    return buildCodexAuthPayload(account);
+  }
+
+  async reorderAccounts(orderedIds: string[]) {
+    const accounts = await this.listStoredAccounts();
+    const requestedIds = orderedIds.map((value) => value.trim()).filter((value) => value.length > 0);
+    const knownIds = new Set(accounts.map((account) => account.id));
+
+    if (requestedIds.length !== accounts.length || new Set(requestedIds).size !== requestedIds.length) {
+      throw new Error('Account reorder payload must include every managed account exactly once.');
+    }
+
+    for (const id of requestedIds) {
+      if (!knownIds.has(id)) {
+        throw new Error(`Unknown Codex account in reorder payload: ${id}`);
+      }
+    }
+
+    const orderIndex = new Map(requestedIds.map((id, index) => [id, index]));
+    await Promise.all(accounts.map(async (account) => {
+      const nextOrder = orderIndex.get(account.id);
+      if (!Number.isFinite(nextOrder)) {
+        return;
+      }
+      account.priorityOrder = Number(nextOrder);
+      account.updatedAt = new Date().toISOString();
+      await this.writeAccount(account);
+    }));
+
+    return this.listAccounts();
+  }
+
+  private async probeImportedAccount(account: Pick<StoredCodexAccount, 'access' | 'accountId'>): Promise<CodexImportProbeResult> {
+    const startedAt = Date.now();
+    const payload = {
+      model: IMPORT_TEST_MODEL,
+      store: false,
+      stream: true,
+      instructions: 'You are a helpful assistant.',
+      input: [
+        {
+          type: 'message',
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: 'hi'
+            }
+          ]
+        }
+      ],
+      text: {
+        verbosity: 'low'
+      },
+      include: ['reasoning.encrypted_content'],
+      parallel_tool_calls: false
+    };
+
+    try {
+      const response = await fetch(`${DIRECT_CODEX_BASE_URL}${DIRECT_CODEX_RESPONSES_PATH}`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: {
+          Authorization: `Bearer ${account.access}`,
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          'User-Agent': 'codex_cli_rs/0.117.0 (linux x64) xterm-256color (codex-tui; 0.117.0)',
+          Origin: 'https://chatgpt.com',
+          Referer: 'https://chatgpt.com/',
+          originator: 'codex_cli_rs',
+          'OpenAI-Beta': 'responses=experimental',
+          ...(account.accountId ? { 'chatgpt-account-id': account.accountId } : {})
+        }
+      });
+
+      const bodyText = await response.text().catch(() => '');
+      if (!response.ok) {
+        return {
+          success: false,
+          provider: 'codex-direct',
+          model: IMPORT_TEST_MODEL,
+          durationMs: Date.now() - startedAt,
+          response: null,
+          error: `Codex API error (${response.status} ${response.statusText}): ${bodyText}`,
+          statusCode: response.status
+        };
+      }
+
+      return {
+        success: true,
+        provider: 'codex-direct',
+        model: IMPORT_TEST_MODEL,
+        durationMs: Date.now() - startedAt,
+        response: parseCodexProbeText(bodyText) || null,
+        error: null,
+        statusCode: response.status
+      };
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'codex-direct',
+        model: IMPORT_TEST_MODEL,
+        durationMs: Date.now() - startedAt,
+        response: null,
+        error: error instanceof Error ? error.message : String(error),
+        statusCode: null
+      };
+    }
   }
 
   async removeAccount(id: string) {
@@ -598,6 +991,9 @@ export class CodexAccountManager {
       if (!item.enabled || !item.refresh) {
         return false;
       }
+      if (!isRefreshEnabled(item)) {
+        return false;
+      }
       if (resolveAccountStatus(item, nowMs) === 'reauth_required') {
         return false;
       }
@@ -686,6 +1082,25 @@ export class CodexAccountManager {
     return accounts.find((item) => item.accountId === accountId) || null;
   }
 
+  private async findExistingImportedAccount(accountId?: string, email?: string) {
+    const accounts = await this.listStoredAccounts();
+    if (email) {
+      const byEmail = accounts.find((item) => item.email === email);
+      if (byEmail) {
+        return byEmail;
+      }
+    }
+    if (accountId) {
+      const byAccountId = accounts.find((item) =>
+        item.accountId === accountId && (!email || !item.email || item.email === email)
+      );
+      if (byAccountId) {
+        return byAccountId;
+      }
+    }
+    return null;
+  }
+
   private async pickNextReadyAccount(excludingId: string) {
     const accounts = await this.listStoredAccounts();
     const now = Date.now();
@@ -696,6 +1111,11 @@ export class CodexAccountManager {
       return !cooldownUntilMs || cooldownUntilMs <= now;
     });
     ready.sort((left, right) => {
+      const leftPriority = Number.isFinite(left.priorityOrder) ? Number(left.priorityOrder) : Number.MAX_SAFE_INTEGER;
+      const rightPriority = Number.isFinite(right.priorityOrder) ? Number(right.priorityOrder) : Number.MAX_SAFE_INTEGER;
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
       const leftScore = Date.parse(left.lastActivatedAt || left.createdAt);
       const rightScore = Date.parse(right.lastActivatedAt || right.createdAt);
       return leftScore - rightScore;
@@ -704,7 +1124,7 @@ export class CodexAccountManager {
   }
 
   private async listStoredAccounts() {
-    await this.ensureStore();
+    await this.ensureConsistentPriorities();
     const files = await fs.readdir(this.accountsDir).catch(() => []);
     const accounts: StoredCodexAccount[] = [];
     for (const file of files) {
@@ -718,6 +1138,37 @@ export class CodexAccountManager {
       }
     }
     return accounts;
+  }
+
+  private async ensureConsistentPriorities() {
+    await this.ensureStore();
+    await this.withLock('priority-order', async () => {
+      const files = await fs.readdir(this.accountsDir).catch(() => []);
+      const accounts: StoredCodexAccount[] = [];
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        const raw = await fs.readFile(path.join(this.accountsDir, file), 'utf8').catch(() => null);
+        if (!raw) continue;
+        try {
+          accounts.push(JSON.parse(raw) as StoredCodexAccount);
+        } catch {
+          continue;
+        }
+      }
+
+      const withPriority = accounts.filter((account) => Number.isFinite(account.priorityOrder));
+      if (withPriority.length === accounts.length) {
+        return;
+      }
+
+      accounts
+        .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+        .forEach((account, index) => {
+          account.priorityOrder = index;
+        });
+
+      await Promise.all(accounts.map((account) => this.writeAccount(account)));
+    });
   }
 
   private async withLock<T>(name: string, fn: () => Promise<T>) {

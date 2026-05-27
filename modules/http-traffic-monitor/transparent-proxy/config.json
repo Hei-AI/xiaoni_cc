@@ -8,6 +8,7 @@
   "fake_ip_range": "198.18.0.0/15",
   "enable_http2": true,
   "enable_showhost": true,
+  "enable_host_output_intercept": false,
   "host_output_bypass_hosts": [
     "developers.openai.com",
     "ab.chatgpt.com"

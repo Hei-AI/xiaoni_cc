@@ -1,4 +1,11 @@
-import { createCodexLoginSession, fetchCodexAccounts, fetchCodexPoolStatus, removeCodexAccount } from '../codexPool';
+import {
+  createCodexLoginSession,
+  exportCodexAccountAuth,
+  fetchCodexAccounts,
+  fetchCodexPoolStatus,
+  importCodexAccount,
+  removeCodexAccount
+} from '../codexPool';
 
 describe('codexPool helpers', () => {
   const originalFetch = global.fetch;
@@ -43,7 +50,9 @@ describe('codexPool helpers', () => {
             id: 'acct-1',
             email: 'user@example.com',
             accountId: 'acct_provider_1',
+            priorityOrder: 0,
             enabled: true,
+            refreshEnabled: true,
             status: 'ready',
             isActive: true,
             expiresAt: new Date().toISOString(),
@@ -155,5 +164,88 @@ describe('codexPool helpers', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/codex-pool/accounts/acct-1', expect.objectContaining({
       method: 'DELETE'
     }));
+  });
+
+  it('imports a session payload via POST', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          account: {
+            id: 'acct-1'
+          },
+          importTest: {
+            success: true,
+            provider: 'codex-direct',
+            model: 'gpt-5.4-mini',
+            durationMs: 123,
+            response: 'hi',
+            error: null,
+            statusCode: 200
+          }
+        }
+      })
+    } as Response);
+    global.fetch = fetchMock as typeof fetch;
+
+    await importCodexAccount({
+      rawInput: '{"accessToken":"abc"}',
+      refreshToken: 'rt__manual',
+      refreshEnabled: false
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/codex-pool/import', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        rawInput: '{"accessToken":"abc"}',
+        refreshToken: 'rt__manual',
+        refreshEnabled: false
+      })
+    }));
+    await expect(importCodexAccount({
+      rawInput: '{"accessToken":"abc"}',
+      refreshToken: 'rt__manual',
+      refreshEnabled: false
+    })).resolves.toMatchObject({
+      success: true,
+      data: {
+        account: {
+          id: 'acct-1'
+        },
+        importTest: {
+          success: true
+        }
+      }
+    });
+  });
+
+  it('loads auth export payload for a specific account', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          auth_mode: 'chatgpt',
+          OPENAI_API_KEY: null,
+          last_refresh: new Date().toISOString(),
+          tokens: {
+            access_token: 'access-token',
+            refresh_token: 'refresh-token',
+            expires_at: Date.now()
+          }
+        }
+      })
+    } as Response);
+    global.fetch = fetchMock as typeof fetch;
+
+    await expect(exportCodexAccountAuth('acct-1')).resolves.toMatchObject({
+      success: true,
+      data: {
+        auth_mode: 'chatgpt'
+      }
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/codex-pool/accounts/acct-1/auth-export', undefined);
   });
 });

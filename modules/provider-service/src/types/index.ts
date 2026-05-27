@@ -26,6 +26,7 @@ export interface AIConfig {
   codex_base_url?: string;
   codex_oauth_path?: string;
   codex_responses_path?: string;
+  codex_proxy_api_key?: string;
   authorized_user_id: number;
   bot_qq_number: number;
 }

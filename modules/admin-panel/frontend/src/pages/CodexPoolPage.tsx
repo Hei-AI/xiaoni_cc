@@ -1,23 +1,26 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Clock3, ExternalLink, KeyRound, RefreshCw, ServerCog, ShieldCheck } from 'lucide-react';
+import { Clock3, Copy, ExternalLink, KeyRound, RefreshCw, ServerCog, ShieldCheck } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { PageHeader, PageHeaderBadge } from '@/components/console/PageHeader';
 import { PageShell } from '@/components/console/PageShell';
 import { SectionPanel } from '@/components/console/SectionPanel';
 import {
-  activateCodexAccount,
   CodexAccountRow,
   completeCodexLogin,
   createCodexLoginSession,
+  exportCodexAccountAuth,
   fetchCodexAccounts,
   fetchCodexPoolStatus,
+  importCodexAccount,
   removeCodexAccount,
   refreshCodexAccount,
   setCodexAccountEnabled,
@@ -61,6 +64,9 @@ function statusTone(status: CodexAccountRow['status']) {
 export function CodexPoolPage() {
   const queryClient = useQueryClient();
   const [callbackUrl, setCallbackUrl] = useState('');
+  const [importPayload, setImportPayload] = useState('');
+  const [importRefreshToken, setImportRefreshToken] = useState('');
+  const [importRefreshEnabled, setImportRefreshEnabled] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
 
   const statusQuery = useQuery<CodexPoolStatusResponse>({
@@ -98,10 +104,25 @@ export function CodexPoolPage() {
     }
   });
 
-  const activateMutation = useMutation({
-    mutationFn: async (accountId: string) => activateCodexAccount(accountId),
-    onSuccess: async () => {
-      setFlash('激活账号已切换，`codex-provider` 将继续读取 `.codex/auth.json`。');
+  const importMutation = useMutation({
+    mutationFn: async () => importCodexAccount({
+      rawInput: importPayload.trim(),
+      refreshToken: importRefreshToken.trim() || undefined,
+      refreshEnabled: importRefreshEnabled
+    }),
+    onSuccess: async (response) => {
+      setImportPayload('');
+      setImportRefreshToken('');
+      setImportRefreshEnabled(false);
+      const imported = response.data?.account;
+      const importTest = response.data?.importTest;
+      const baseMessage = `账号已导入 ${imported?.email || imported?.accountId || imported?.id || ''}。${imported?.refreshEnabled ? '已允许参与 refresh。' : '默认不会参与 refresh。'}`;
+      const testMessage = importTest
+        ? (importTest.success
+          ? `导入后直连探测成功，返回：${importTest.response || '空响应'}。`
+          : `导入后直连探测失败：${importTest.error || 'unknown error'}。`)
+        : '';
+      setFlash([baseMessage, testMessage].filter(Boolean).join(' '));
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['codexPoolStatus'] }),
         queryClient.invalidateQueries({ queryKey: ['codexAccounts'] })
@@ -141,10 +162,22 @@ export function CodexPoolPage() {
     }
   });
 
+  const exportAuthMutation = useMutation({
+    mutationFn: async (accountId: string) => exportCodexAccountAuth(accountId),
+    onSuccess: async (response, accountId) => {
+      const payload = response.data;
+      if (!payload) {
+        throw new Error('导出的 auth.json 为空。');
+      }
+      await navigator.clipboard.writeText(`${JSON.stringify(payload, null, 2)}\n`);
+      const account = accounts.find((item) => item.id === accountId);
+      setFlash(`已复制 ${account?.email || account?.accountId || accountId} 的 auth.json。`);
+    }
+  });
+
   const status = statusQuery.data?.data;
   const accounts = useMemo(() => accountsQuery.data?.data || status?.accounts || [], [accountsQuery.data, status]);
   const busyAccountId =
-    activateMutation.variables ||
     refreshMutation.variables ||
     removeMutation.variables ||
     enabledMutation.variables?.accountId ||
@@ -155,8 +188,9 @@ export function CodexPoolPage() {
     (accountsQuery.error instanceof Error && accountsQuery.error.message) ||
     (loginSessionMutation.error instanceof Error && loginSessionMutation.error.message) ||
     (completeLoginMutation.error instanceof Error && completeLoginMutation.error.message) ||
-    (activateMutation.error instanceof Error && activateMutation.error.message) ||
+    (importMutation.error instanceof Error && importMutation.error.message) ||
     (refreshMutation.error instanceof Error && refreshMutation.error.message) ||
+    (exportAuthMutation.error instanceof Error && exportAuthMutation.error.message) ||
     (removeMutation.error instanceof Error && removeMutation.error.message) ||
     (enabledMutation.error instanceof Error && enabledMutation.error.message) ||
     null;
@@ -166,7 +200,7 @@ export function CodexPoolPage() {
       <PageHeader
         eyebrow="Operations"
         title="Codex 账号池"
-        description="账号池发生在 `.codex/auth.json` 背后。`codex-provider` 继续读 Codex 的 auth 文件，不切协议。"
+        description="这里只负责账号入库、启停和 refresh 能力。真实路由优先级与 failover 已经迁到 LB Proxy 页面。"
         icon={<ServerCog className="h-4 w-4" />}
         badge={<PageHeaderBadge>Codex Auth Manager</PageHeaderBadge>}
       />
@@ -185,7 +219,7 @@ export function CodexPoolPage() {
 
       <SectionPanel
         title="当前状态"
-        description="这里展示当前激活账号、账号仓可用性，以及是否还有可切换的就绪账号。"
+        description="这里展示账号仓可用性、启用数和 ready 数；路由侧的优先级与当前流量选择请去 LB Proxy。"
         icon={<ShieldCheck className="h-4 w-4 text-primary" />}
       >
         <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -193,7 +227,6 @@ export function CodexPoolPage() {
           <Badge variant="outline">accounts: {status?.totalAccounts ?? 0}</Badge>
           <Badge variant="outline">enabled: {status?.enabledAccounts ?? 0}</Badge>
           <Badge variant="outline">ready: {status?.readyAccounts ?? 0}</Badge>
-          <Badge variant="outline">active: {status?.activeAccountId || '—'}</Badge>
         </div>
         <div className="mt-3 rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-xs text-foreground">
           store: {status?.storeDir || 'loading...'}
@@ -226,8 +259,60 @@ export function CodexPoolPage() {
       </SectionPanel>
 
       <SectionPanel
+        title="Cookie / Session 导入"
+        description="粘贴 ChatGPT Web session JSON、现成 auth.json，或其它带 access token 的 JSON。手工导入默认不参与 refresh。"
+        icon={<KeyRound className="h-4 w-4 text-primary" />}
+      >
+        <div className="space-y-3">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+            <div className="space-y-2">
+              <Label htmlFor="codex-import-payload">Session / auth JSON</Label>
+              <Textarea
+                id="codex-import-payload"
+                value={importPayload}
+                onChange={(event) => setImportPayload(event.target.value)}
+                placeholder='{"user":{"email":"mark@example.com"},"accessToken":"...","sessionToken":"...","account":{"id":"acct_..."}}'
+                className="min-h-[220px] font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="codex-import-refresh-token">Refresh Token</Label>
+              <Input
+                id="codex-import-refresh-token"
+                value={importRefreshToken}
+                onChange={(event) => setImportRefreshToken(event.target.value)}
+                placeholder="可选；例如 rt__123..."
+              />
+              <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                页面 session 通常没有真实 `refresh_token`。
+                <br />
+                这里手填的 `rt__...` 会覆盖 JSON 里的 refresh token 并直接入池。
+                <br />
+                只有勾选下方开关后，这个账号才会参与手动 refresh 和后台 sweep。
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/40 px-3 py-2">
+                <div>
+                  <div className="text-sm text-foreground">允许 refresh</div>
+                  <div className="text-xs text-muted-foreground">仅在你确认这个 `rt__...` 可重复使用时开启。</div>
+                </div>
+                <Switch
+                  checked={importRefreshEnabled}
+                  onCheckedChange={setImportRefreshEnabled}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => importMutation.mutate()} disabled={!importPayload.trim() || importMutation.isPending}>
+              转换并导入
+            </Button>
+          </div>
+        </div>
+      </SectionPanel>
+
+      <SectionPanel
         title="账号卡片"
-        description="激活账号会被投影到 `.codex/auth.json`。这里直接看每个账号的 5h 窗口、周窗口和下次刷新时间。"
+        description="这里看每个账号的 quota、refresh 和错误状态；拖拽优先级请去 LB Proxy。"
         icon={<RefreshCw className="h-4 w-4 text-primary" />}
       >
         {accounts.length === 0 ? (
@@ -251,7 +336,6 @@ export function CodexPoolPage() {
                       </div>
                       <div className="flex flex-wrap justify-end gap-2">
                         <Badge variant={statusTone(account.status) as any}>{account.status}</Badge>
-                        {account.isActive ? <Badge>active</Badge> : null}
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -321,6 +405,11 @@ export function CodexPoolPage() {
                       {account.cooldownUntil ? <div className="mt-1">cooldown until {formatTime(account.cooldownUntil)}</div> : null}
                       {account.refreshFailureAt ? <div className="mt-1">refresh failed {formatTime(account.refreshFailureAt)}</div> : null}
                       {account.lastError ? <div className="mt-1 text-destructive">{account.lastError}</div> : null}
+                      {!account.refreshEnabled ? (
+                        <div className="mt-1 text-muted-foreground">
+                          这个账号的 refresh 已关闭。只使用当前 access token，不参与后台 sweep。
+                        </div>
+                      ) : null}
                       {account.status === 'reauth_required' ? (
                         <div className="mt-1 text-destructive">
                           refresh token 已失效，后台 sweep 不会再自动重试。请点“重新登录”。
@@ -335,20 +424,21 @@ export function CodexPoolPage() {
                   </CardContent>
                   <CardFooter className="flex flex-wrap gap-2">
                     <Button
-                      size="sm"
-                      variant={account.isActive ? 'secondary' : 'default'}
-                      disabled={account.isActive || activateMutation.isPending}
-                      onClick={() => activateMutation.mutate(account.id)}
-                    >
-                      设为激活
-                    </Button>
+                        size="sm"
+                        variant="outline"
+                        disabled={!account.refreshEnabled || refreshMutation.isPending}
+                        onClick={() => refreshMutation.mutate(account.id)}
+                      >
+                        刷新
+                      </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={refreshMutation.isPending}
-                      onClick={() => refreshMutation.mutate(account.id)}
+                      disabled={exportAuthMutation.isPending}
+                      onClick={() => exportAuthMutation.mutate(account.id)}
                     >
-                      刷新
+                      <Copy className="mr-2 h-4 w-4" />
+                      复制 auth.json
                     </Button>
                     <Button
                       size="sm"

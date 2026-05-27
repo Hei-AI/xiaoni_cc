@@ -112,4 +112,82 @@ describe('codex pool routes', () => {
       expect.objectContaining({ method: 'DELETE' })
     );
   });
+
+  it('imports a session payload through provider-service', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        success: true,
+        data: {
+          account: {
+            id: 'acct-1',
+            email: 'import@example.com'
+          },
+          importTest: {
+            success: true,
+            provider: 'codex-direct',
+            model: 'gpt-5.4-mini',
+            durationMs: 123,
+            response: 'hi',
+            error: null,
+            statusCode: 200
+          }
+        }
+      })
+    } as Response);
+    global.fetch = fetchMock as typeof fetch;
+
+    const response = await request(createApp())
+      .post('/api/codex-pool/import')
+      .send({
+        rawInput: '{"accessToken":"abc"}',
+        refreshToken: 'rt__manual'
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.account.email).toBe('import@example.com');
+    expect(response.body.data.importTest.success).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/internal/codex-accounts/import'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          rawInput: '{"accessToken":"abc"}',
+          refreshToken: 'rt__manual',
+          replaceAccountId: undefined,
+          refreshEnabled: false
+        })
+      })
+    );
+  });
+
+  it('exports auth payload for an account through provider-service', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        success: true,
+        data: {
+          auth_mode: 'chatgpt',
+          OPENAI_API_KEY: null,
+          last_refresh: '2026-05-09T03:00:00.000Z',
+          tokens: {
+            access_token: 'access-token',
+            refresh_token: 'refresh-token',
+            expires_at: 1
+          }
+        }
+      })
+    } as Response);
+    global.fetch = fetchMock as typeof fetch;
+
+    const response = await request(createApp()).get('/api/codex-pool/accounts/acct-1/auth-export');
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/internal/codex-accounts/acct-1/auth-export'),
+      undefined
+    );
+    expect(response.body.data.tokens.access_token).toBe('access-token');
+  });
+
 });

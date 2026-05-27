@@ -2,10 +2,11 @@ import express from 'express';
 import winston from 'winston';
 import { DatabaseManager } from '../services/database';
 import {
-  activateCodexAccount,
   completeCodexLogin,
   createCodexLoginSession,
+  exportCodexAccountAuth,
   getCodexAccountsStatus,
+  importCodexAccount,
   listCodexAccounts,
   removeCodexAccount,
   refreshCodexAccount,
@@ -73,14 +74,19 @@ export function createCodexPoolRoutes(_database: DatabaseManager, logger: winsto
     }
   });
 
-  router.post('/codex-pool/accounts/:accountId/activate', async (req, res) => {
+  router.post('/codex-pool/import', async (req, res) => {
     try {
-      res.json(await activateCodexAccount(req.params.accountId));
+      res.json(await importCodexAccount({
+        rawInput: typeof req.body?.rawInput === 'string' ? req.body.rawInput : '',
+        refreshToken: typeof req.body?.refreshToken === 'string' ? req.body.refreshToken.trim() : undefined,
+        replaceAccountId: typeof req.body?.replaceAccountId === 'string' ? req.body.replaceAccountId.trim() : undefined,
+        refreshEnabled: req.body?.refreshEnabled === true
+      }));
     } catch (error) {
-      logger.error('Failed to activate codex account', { error });
+      logger.error('Failed to import codex account', { error });
       res.status(400).json({
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to activate codex account',
+        error: error instanceof Error ? error.message : 'Failed to import codex account',
         timestamp: new Date().toISOString(),
       });
     }
@@ -94,6 +100,19 @@ export function createCodexPoolRoutes(_database: DatabaseManager, logger: winsto
       res.status(400).json({
         success: false,
         error: error instanceof Error ? error.message : 'Failed to refresh codex account',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  router.get('/codex-pool/accounts/:accountId/auth-export', async (req, res) => {
+    try {
+      res.json(await exportCodexAccountAuth(req.params.accountId));
+    } catch (error) {
+      logger.error('Failed to export codex account auth payload', { error });
+      res.status(400).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to export codex account auth payload',
         timestamp: new Date().toISOString(),
       });
     }

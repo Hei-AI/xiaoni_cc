@@ -143,10 +143,10 @@ scripts/codex-with-mitm-trust.sh mcp get openaiDeveloperDocs
 scripts/codex-with-mitm-trust.sh exec "Use openaiDeveloperDocs to summarize the Responses API."
 ```
 
-这个 wrapper 会把 `~/.mitmproxy/mitmproxy-ca-cert.pem` 同时导出到
-`SSL_CERT_FILE`、`REQUESTS_CA_BUNDLE`、`CURL_CA_BUNDLE`、`GIT_SSL_CAINFO`、
-`NODE_EXTRA_CA_CERTS`。只有在确认 helper runtime 仍然不接受 CA 之后，才考虑
-最小范围 bypass，而且不能影响主 Codex 流量观测。
+这个 wrapper 不再把单张 mitmproxy 根证书直接塞给 Codex，而是强制 helper runtime
+回到系统 CA bundle，并先检查系统信任库是否已经包含当前 active transparent MITM
+使用的 CA。只有在确认 helper runtime 仍然不接受 CA 之后，才考虑最小范围 bypass，
+而且不能影响主 Codex 流量观测。
 
 如果 wrapper 仍然报 Codex websocket / MCP 证书错误，再检查是否发生了证书漂移：
 
@@ -160,8 +160,10 @@ scripts/install-mitmproxy-ca-system.sh
 - `node` / `curl` 直连 HTTPS 报 `unable to verify the first certificate`
 - `codex` 报 `invalid peer certificate: BadSignature`
 
-这通常不是“MITM 不可用”，而是系统信任库里保留了旧的 `mitmproxy.crt`，和当前
-`~/.mitmproxy/mitmproxy-ca-cert.pem` 已经不是同一张证书。
+这通常不是“MITM 不可用”，而是系统信任库里的 `mitmproxy-current.crt` /
+`mitmproxy.crt` 仍和当前 transparent MITM `confdir`
+`modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem`
+不是同一张证书。
 
 当前这台机器的 helper-only bypass 也已经收口到
 `modules/http-traffic-monitor/transparent-proxy/config.json`：

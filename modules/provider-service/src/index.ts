@@ -498,6 +498,79 @@ async function simulateSimpleQueueMessage(messageType: ProviderMessageType, payl
   };
 }
 
+async function expandForwardSegments(message: OneBotMessageEvent): Promise<OneBotMessageEvent> {
+  if (!Array.isArray(message.message)) {
+    return message;
+  }
+
+  const hasForward = message.message.some((seg) => seg.type === 'forward');
+  if (!hasForward) {
+    return message;
+  }
+
+  const expandedSegments: typeof message.message = [];
+  for (const seg of message.message) {
+    if (seg.type !== 'forward') {
+      expandedSegments.push(seg);
+      continue;
+    }
+    const forwardId = String(seg.data?.id ?? '');
+    if (!forwardId) {
+      expandedSegments.push({ type: 'text', data: { text: '[转发消息]' } });
+      continue;
+    }
+    try {
+      const items = await napcatClient.getForwardMessage(forwardId);
+      const lines: string[] = ['[转发消息]'];
+      for (const item of items) {
+        const senderName = item.sender?.nickname || String(item.sender?.user_id ?? '');
+        const segments = item.content ?? item.message ?? [];
+        const parts: string[] = [];
+        for (const s of segments) {
+          if (s.type === 'text') {
+            const t = String(s.data?.text ?? '').trim();
+            if (t) parts.push(t);
+          } else if (s.type === 'json') {
+            const raw = String(s.data?.data ?? '');
+            try {
+              const parsed = JSON.parse(raw);
+              const detail = parsed?.meta?.detail_1 ?? {};
+              const desc = detail.desc || detail.title || parsed.prompt || '';
+              const rawUrl = detail.qqdocurl || detail.url || '';
+              const url = rawUrl.split('?')[0];
+              parts.push(url ? `[卡片] ${desc} ${url}`.trim() : `[卡片] ${desc}`);
+            } catch {
+              parts.push('[卡片]');
+            }
+          } else if (s.type === 'xml') {
+            const raw = String(s.data?.data ?? '');
+            const title = /<title[^>]*>([^<]+)<\/title>/i.exec(raw)?.[1]?.trim();
+            const url = /<url[^>]*>([^<]+)<\/url>/i.exec(raw)?.[1]?.trim();
+            const desc = /<des[^>]*>([^<]+)<\/des>/i.exec(raw)?.[1]?.trim();
+            const label = title || desc;
+            parts.push(url ? `[卡片] ${label ?? ''} ${url}`.trim() : `[卡片] ${label ?? ''}`);
+          } else if (s.type === 'share') {
+            const title = String(s.data?.title ?? s.data?.content ?? '').trim();
+            const url = String(s.data?.url ?? '').trim();
+            if (url) parts.push(title ? `[链接] ${title} ${url}` : `[链接] ${url}`);
+          } else if (s.type === 'forward') {
+            parts.push('[嵌套转发]');
+          }
+        }
+        const combined = parts.join(' ').trim();
+        if (combined) {
+          lines.push(`${senderName}: ${combined}`);
+        }
+      }
+      expandedSegments.push({ type: 'text', data: { text: lines.join('\n') } });
+    } catch {
+      expandedSegments.push({ type: 'text', data: { text: '[转发消息]' } });
+    }
+  }
+
+  return { ...message, message: expandedSegments };
+}
+
 async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
   const messageType = message.message_type === 'group' ? 'group' : 'private';
   const userId = Number(message.user_id);
@@ -534,8 +607,9 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
   }
 
   const traceId = inboxService.createTraceId('napcat');
+  const expandedMessage = await expandForwardSegments(message);
   const inboundContext = buildNapcatInboundContext({
-    event: message,
+    event: expandedMessage,
     fallbackBotAccountId: String(aiConfig.bot_qq_number),
     replyCache: recentMessageCache,
   });
@@ -1321,6 +1395,27 @@ app.post('/api/internal/codex-accounts/complete-login', async (req, res) => {
   }
 });
 
+app.post('/api/internal/codex-accounts/import', async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: await codexAccountManager.importAccount({
+        rawInput: typeof req.body?.rawInput === 'string' ? req.body.rawInput : '',
+        refreshToken: typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : undefined,
+        replaceAccountId: typeof req.body?.replaceAccountId === 'string' ? req.body.replaceAccountId : undefined,
+        refreshEnabled: req.body?.refreshEnabled === true
+      }),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to import Codex account',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 app.post('/api/internal/codex-accounts/:accountId/activate', async (req, res) => {
   try {
     res.json({
@@ -1348,6 +1443,22 @@ app.post('/api/internal/codex-accounts/:accountId/refresh', async (req, res) => 
     res.status(400).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to refresh Codex account',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.get('/api/internal/codex-accounts/:accountId/auth-export', async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: await codexAccountManager.exportAccountAuth(req.params.accountId),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to export Codex account auth payload',
       timestamp: new Date().toISOString()
     });
   }

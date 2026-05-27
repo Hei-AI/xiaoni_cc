@@ -2,7 +2,9 @@ export type CodexAccountRow = {
   id: string;
   email: string | null;
   accountId: string | null;
+  priorityOrder: number;
   enabled: boolean;
+  refreshEnabled: boolean;
   status: 'ready' | 'cooldown' | 'expired' | 'disabled' | 'reauth_required';
   isActive: boolean;
   expiresAt: string;
@@ -68,6 +70,42 @@ export interface CodexLoginSessionResponse {
   error?: string;
 }
 
+export interface CodexAuthExportResponse {
+  success: boolean;
+  data?: {
+    OPENAI_API_KEY: null;
+    auth_mode: 'chatgpt';
+    last_refresh: string;
+    tokens: {
+      access_token: string;
+      refresh_token: string;
+      expires_at: number;
+      account_id?: string;
+      id_token?: string;
+    };
+  };
+  error?: string;
+}
+
+export type CodexImportTestResult = {
+  success: boolean;
+  provider: 'codex-direct';
+  model: string;
+  durationMs: number;
+  response: string | null;
+  error: string | null;
+  statusCode: number | null;
+};
+
+export interface ImportCodexAccountResponse {
+  success: boolean;
+  data?: {
+    account: CodexAccountRow;
+    importTest: CodexImportTestResult;
+  };
+  error?: string;
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   const payload = await response.json().catch(() => ({ success: false, error: `Invalid response from ${url}` }));
@@ -111,9 +149,18 @@ export async function completeCodexLogin(callbackUrl: string) {
   });
 }
 
-export async function activateCodexAccount(accountId: string) {
-  return requestJson(`/api/codex-pool/accounts/${encodeURIComponent(accountId)}/activate`, {
-    method: 'POST'
+export async function importCodexAccount(input: {
+  rawInput: string;
+  refreshToken?: string;
+  replaceAccountId?: string;
+  refreshEnabled?: boolean;
+}): Promise<ImportCodexAccountResponse> {
+  return requestJson<ImportCodexAccountResponse>('/api/codex-pool/import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(input)
   });
 }
 
@@ -121,6 +168,10 @@ export async function refreshCodexAccount(accountId: string) {
   return requestJson(`/api/codex-pool/accounts/${encodeURIComponent(accountId)}/refresh`, {
     method: 'POST'
   });
+}
+
+export async function exportCodexAccountAuth(accountId: string): Promise<CodexAuthExportResponse> {
+  return requestJson<CodexAuthExportResponse>(`/api/codex-pool/accounts/${encodeURIComponent(accountId)}/auth-export`);
 }
 
 export async function setCodexAccountEnabled(accountId: string, enabled: boolean) {
