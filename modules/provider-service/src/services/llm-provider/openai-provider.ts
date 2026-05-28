@@ -237,6 +237,10 @@ export class OpenAIProvider implements LLMProvider {
     }
 
     const providerSpecific = providerConfig?.model?.providerSpecific || {};
+    const text = this.buildTextConfig(request, providerSpecific);
+    if (text) {
+      payload.text = text;
+    }
     const reasoningEffort = providerSpecific.reasoningEffort || request.reasoning?.effort;
     const reasoningSummary = providerSpecific.reasoningSummary || request.reasoning?.summary;
     if (typeof reasoningEffort === 'string' || typeof reasoningSummary === 'string') {
@@ -266,6 +270,9 @@ export class OpenAIProvider implements LLMProvider {
     }
     if (typeof request.prompt_cache_retention === 'string' && request.prompt_cache_retention.trim()) {
       payload.prompt_cache_retention = request.prompt_cache_retention.trim();
+    }
+    if (Array.isArray(request.context_management) && request.context_management.length > 0) {
+      payload.context_management = cloneValue(request.context_management);
     }
 
     return payload;
@@ -343,5 +350,21 @@ export class OpenAIProvider implements LLMProvider {
     }
 
     return toolChoice;
+  }
+
+  private buildTextConfig(
+    request: OpenResponseCreateRequest,
+    providerSpecific: Record<string, any>
+  ): Record<string, any> | undefined {
+    const requestText = isPlainObject(request.text) ? cloneValue(request.text) as Record<string, any> : {};
+    const verbosity = typeof providerSpecific.textVerbosity === 'string' && providerSpecific.textVerbosity.trim()
+      ? providerSpecific.textVerbosity.trim()
+      : typeof requestText.verbosity === 'string' && requestText.verbosity.trim()
+      ? requestText.verbosity.trim()
+      : '';
+    if (verbosity === 'low' || verbosity === 'medium' || verbosity === 'high') {
+      requestText.verbosity = verbosity;
+    }
+    return Object.keys(requestText).length > 0 ? requestText : undefined;
   }
 }

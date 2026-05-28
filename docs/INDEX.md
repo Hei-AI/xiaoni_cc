@@ -13,6 +13,8 @@
   - `docs/AGENTS_SECRETS_LOCAL_STATE.md`
 - embeddings：
   - `docs/AGENTS_EMBEDDINGS.md`
+- OpenAI / LLM 请求、提示词、agent 设计官方参考：
+  - `docs/AGENTS_OPENAI_REQUESTS.md`
 - 已屏蔽的 memory / relationship / topic 历史资料：
   - `docs/AGENTS_MEMORY_EVAL.md`
 - Git 提交、推送、PR：

@@ -90,7 +90,7 @@ export class CodexProvider extends OpenAIProvider {
       instructions: instructions || 'You are a helpful assistant.',
       input: this.buildCodexInput(request),
       text: {
-        verbosity: this.resolveTextVerbosity(providerConfig)
+        verbosity: this.resolveTextVerbosity(request, providerConfig)
       },
       parallel_tool_calls: typeof request.parallel_tool_calls === 'boolean'
         ? request.parallel_tool_calls
@@ -126,6 +126,9 @@ export class CodexProvider extends OpenAIProvider {
     const include = new Set(Array.isArray(request.include) ? request.include.filter((item: unknown) => typeof item === 'string') : []);
     include.add('reasoning.encrypted_content');
     payload.include = Array.from(include);
+    if (Array.isArray(request.context_management) && request.context_management.length > 0) {
+      payload.context_management = request.context_management;
+    }
 
     return payload;
   }
@@ -383,8 +386,8 @@ export class CodexProvider extends OpenAIProvider {
     return `codex_cli_rs/0.117.0 (${os.platform()} ${os.release()}; ${os.arch()}) xterm-256color (codex-tui; 0.117.0)`;
   }
 
-  private resolveTextVerbosity(providerConfig?: UnifiedLLMConfig): 'low' | 'medium' | 'high' {
-    const verbosity = providerConfig?.model?.providerSpecific?.textVerbosity;
+  private resolveTextVerbosity(request?: Record<string, any>, providerConfig?: UnifiedLLMConfig): 'low' | 'medium' | 'high' {
+    const verbosity = providerConfig?.model?.providerSpecific?.textVerbosity || request?.text?.verbosity;
     return verbosity === 'low' || verbosity === 'high' ? verbosity : 'medium';
   }
 

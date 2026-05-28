@@ -123,6 +123,30 @@ type ToolContinuationContext = {
   hasVisibleReply: boolean;
 };
 
+type TurnControlStage =
+  | 'read_unread'
+  | 'feel_reaction'
+  | 'maybe_recall'
+  | 'maybe_search_or_inspect'
+  | 'finalize';
+
+type TurnControlStateBias = 'low_energy' | 'normal' | 'high_energy';
+type TurnControlRecallStatus = 'not_needed' | 'allowed' | 'attempted_empty' | 'attempted_hit';
+type TurnControlExpectedNext =
+  | 'emit_unread_meaning'
+  | 'emit_inner_reaction'
+  | 'recall_long_term_learning'
+  | 'final_tool';
+
+export type TurnControlState = {
+  stage: TurnControlStage;
+  targetFound: boolean;
+  stateBias: TurnControlStateBias;
+  recallStatus: TurnControlRecallStatus;
+  expectedNext: TurnControlExpectedNext;
+  reason: string;
+};
+
 type DeliveredAssistantMessage = {
   content: string;
   deliveryMessageId: number | null;
@@ -141,6 +165,14 @@ type CanonicalAgentTurnRequest = {
   metadata?: Record<string, string>;
   tools?: OpenResponseToolDefinition[];
   tool_choice?: OpenResponseToolChoice;
+  reasoning?: {
+    effort?: string;
+    summary?: string;
+    [key: string]: unknown;
+  };
+  text?: Record<string, unknown>;
+  include?: string[];
+  context_management?: Array<Record<string, unknown>>;
   parallel_tool_calls: false;
   prompt_cache_key?: string;
   prompt_cache_retention?: string;
@@ -761,6 +793,7 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '这一轮只处理 `<system_reminder>` 指出的新消息范围。历史消息是背景，不要重复回应已经处理过的旧话。',
   '',
   '消息里的”回复某人””@某人””引用”是说话的社交方向，影响谁在和谁说话，记得一起理解进去。',
+  '当前未读里如果有人直接给小腻反馈、纠偏、批评或称赞，这是本轮行为校准信号；从可见上下文处理，不要当作隐藏记忆来源。',
   '',
   '这一轮顺序：',
   '先搞清楚最新未读在说什么，用 emit_unread_meaning。',
@@ -899,6 +932,31 @@ function hasLongTermRecallReplay(loopInput: OpenResponseInputItem[]) {
   return hasToolReplay(loopInput, TOOL_NAMES.longTermRecall);
 }
 
+function extractLatestLongTermRecallResult(loopInput: OpenResponseInputItem[]): Record<string, unknown> | null {
+  const recallCallIds = new Set<string>();
+  for (const item of loopInput) {
+    if (item.type === 'function_call' && item.name === TOOL_NAMES.longTermRecall) {
+      recallCallIds.add(item.call_id);
+    }
+  }
+
+  for (let index = loopInput.length - 1; index >= 0; index -= 1) {
+    const item = loopInput[index];
+    if (item.type !== 'function_call_output' || !recallCallIds.has(item.call_id)) {
+      continue;
+    }
+    return parseReplayJsonObject(item.output);
+  }
+
+  return null;
+}
+
+function isRecallResultEmpty(toolResult: Record<string, unknown>) {
+  const items = Array.isArray(toolResult.items) ? toolResult.items : [];
+  const markdownItems = Array.isArray(toolResult.markdown_items) ? toolResult.markdown_items : [];
+  return items.length === 0 && markdownItems.length === 0;
+}
+
 function hasDirectNewCue(meaning: UnreadMeaning | null) {
   if (!meaning?.addressedToMe && meaning?.socialTarget !== 'me') {
     return false;
@@ -909,7 +967,125 @@ function hasDirectNewCue(meaning: UnreadMeaning | null) {
   return meaning.messageAct === 'question' || meaning.messageAct === 'request' || meaning.messageAct === 'feedback';
 }
 
-function shouldDowngradeWeakSpeakToSilence(reaction: InnerReaction | null, meaning: UnreadMeaning | null) {
+function hasUsableGroupTarget(meaning: UnreadMeaning | null) {
+  if (!meaning) {
+    return false;
+  }
+  if (hasDirectNewCue(meaning)) {
+    return true;
+  }
+  if (meaning.socialTarget === 'group' && meaning.hasRealNovelty) {
+    return true;
+  }
+  return Boolean(meaning.topicContext?.hasTopic && meaning.hasRealNovelty);
+}
+
+function extractStateBiasFromLoopInput(loopInput: OpenResponseInputItem[]): TurnControlStateBias {
+  for (let index = loopInput.length - 1; index >= 0; index -= 1) {
+    const item = loopInput[index];
+    if (item.type !== 'message' || item.role !== 'assistant') {
+      continue;
+    }
+    const content = flattenMessageContent(item.content);
+    if (!content.includes('source="turn_state"')) {
+      continue;
+    }
+    if (content.includes('state_bias="low_energy"')) {
+      return 'low_energy';
+    }
+    if (content.includes('state_bias="high_energy"')) {
+      return 'high_energy';
+    }
+    if (content.includes('state_bias="normal"')) {
+      return 'normal';
+    }
+  }
+  return 'normal';
+}
+
+export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): TurnControlState {
+  const stateBias = extractStateBiasFromLoopInput(loopInput);
+  if (!hasUnreadMeaningReplay(loopInput)) {
+    return {
+      stage: 'read_unread',
+      targetFound: false,
+      stateBias,
+      recallStatus: 'not_needed',
+      expectedNext: TOOL_NAMES.unreadMeaning,
+      reason: '还没有整理当前未读消息。'
+    };
+  }
+
+  const meaning = extractLatestUnreadMeaning(loopInput);
+  const targetFound = hasUsableGroupTarget(meaning);
+  if (!hasInnerReactionReplay(loopInput)) {
+    return {
+      stage: 'feel_reaction',
+      targetFound,
+      stateBias,
+      recallStatus: 'not_needed',
+      expectedNext: TOOL_NAMES.innerReaction,
+      reason: targetFound
+        ? '当前未读里有可回应目标，下一步判断真实反应。'
+        : '当前未读没有明确找小腻或强话题，下一步只确认是否真的有反应。'
+    };
+  }
+
+  const reaction = extractLatestInnerReaction(loopInput);
+  const recallResult = extractLatestLongTermRecallResult(loopInput);
+  const recallStatus: TurnControlRecallStatus = recallResult
+    ? isRecallResultEmpty(recallResult) ? 'attempted_empty' : 'attempted_hit'
+    : shouldAllowRecall(loopInput, reaction, meaning) ? 'allowed' : 'not_needed';
+  if (recallStatus === 'allowed') {
+    return {
+      stage: 'maybe_recall',
+      targetFound,
+      stateBias,
+      recallStatus,
+      expectedNext: TOOL_NAMES.longTermRecall,
+      reason: '当前反应需要一点长期记忆校准。'
+    };
+  }
+
+  if (reaction?.preferredAction === 'search' || reaction?.preferredAction === 'image_task') {
+    return {
+      stage: 'maybe_search_or_inspect',
+      targetFound,
+      stateBias,
+      recallStatus,
+      expectedNext: 'final_tool',
+      reason: '长期记忆阶段已经结束，下一步只做必要的搜索、看图、做图或沉默。'
+    };
+  }
+
+  return {
+    stage: 'finalize',
+    targetFound,
+    stateBias,
+    recallStatus,
+    expectedNext: 'final_tool',
+    reason: '本轮已经完成现场理解和内在反应判断，应进入最终动作。'
+  };
+}
+
+function shouldAllowRecall(loopInput: OpenResponseInputItem[], reaction: InnerReaction | null, meaning: UnreadMeaning | null) {
+  if (!reaction || hasLongTermRecallReplay(loopInput)) {
+    return false;
+  }
+  if (reaction.preferredAction === 'search' || reaction.preferredAction === 'image_task') {
+    return true;
+  }
+  if (reaction.shouldSearch || reaction.wantsToKnowMore) {
+    return true;
+  }
+  return false;
+}
+
+function shouldDowngradeWeakSpeakToSilence(
+  reaction: InnerReaction | null,
+  meaning: UnreadMeaning | null,
+  stateBias: TurnControlStateBias = 'normal'
+) {
   if (reaction?.preferredAction !== 'speak') {
     return false;
   }
@@ -919,6 +1095,9 @@ function shouldDowngradeWeakSpeakToSilence(reaction: InnerReaction | null, meani
   }
   // Safety catch: model chose speak despite no interest at all
   if (reaction.interestLevel === 'none') {
+    return true;
+  }
+  if (stateBias === 'low_energy' && reaction.reactionAuthenticity === 'weak_but_real' && reaction.interestLevel !== 'high') {
     return true;
   }
   if (reaction.interestLevel === 'low' && !hasDirectNewCue(meaning)) {
@@ -962,13 +1141,14 @@ function selectGroupLoopToolDefinitions(modelName: string) {
 }
 
 function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResponseToolChoice {
-  if (!hasUnreadMeaningReplay(loopInput)) {
+  const turnControl = deriveTurnControlState(loopInput);
+  if (turnControl.expectedNext === TOOL_NAMES.unreadMeaning) {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.unreadMeaning }
     ]);
   }
 
-  if (!hasInnerReactionReplay(loopInput)) {
+  if (turnControl.expectedNext === TOOL_NAMES.innerReaction) {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.innerReaction }
     ]);
@@ -982,13 +1162,13 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
     ]);
   }
 
-  if (shouldDowngradeWeakSpeakToSilence(latestInnerReaction, latestUnreadMeaning)) {
+  if (shouldDowngradeWeakSpeakToSilence(latestInnerReaction, latestUnreadMeaning, turnControl.stateBias)) {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.silentFinish }
     ]);
   }
 
-  if ((latestInnerReaction?.preferredAction === 'search' || latestInnerReaction?.preferredAction === 'image_task') && !hasLongTermRecallReplay(loopInput)) {
+  if (turnControl.expectedNext === TOOL_NAMES.longTermRecall) {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.longTermRecall }
     ]);
@@ -1060,7 +1240,8 @@ function resolveFeedbackWriterToolChoice(loopInput: OpenResponseInputItem[], mod
 export function buildCanonicalAgentTurnRequest(
   modelName: string,
   loopInput: OpenResponseInputItem[],
-  chatType: 'group' | 'direct'
+  chatType: 'group' | 'direct',
+  parameters?: AgentModelParameters
 ): CanonicalAgentTurnRequest {
   const [firstItem, ...remainingItems] = loopInput;
   const baseInstructions = firstItem?.type === 'message'
@@ -1082,7 +1263,10 @@ export function buildCanonicalAgentTurnRequest(
     ...(instructions ? { instructions } : {}),
     tools,
     tool_choice: toolChoice,
-    parallel_tool_calls: false
+    parallel_tool_calls: false,
+    ...(buildAgentReasoningConfig(modelName, parameters) ? { reasoning: buildAgentReasoningConfig(modelName, parameters) } : {}),
+    ...(buildAgentTextConfig(modelName, parameters) ? { text: buildAgentTextConfig(modelName, parameters) } : {}),
+    ...(buildAgentInclude(modelName, parameters) ? { include: buildAgentInclude(modelName, parameters) } : {})
   };
 }
 
@@ -1665,6 +1849,82 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
     ? `从这些消息开始是我还没看过的新消息：${messageRefs.join('；')}。`
     : '这里开始是我还没看过的新消息。';
   return `<system_reminder>${rangeText}先看看他们说了什么。</system_reminder>`;
+}
+
+function deriveStateBiasFromDeveloperContext(developerContextBlock: string | null | undefined): TurnControlStateBias {
+  if (!developerContextBlock) {
+    return 'normal';
+  }
+  const energyMatch = developerContextBlock.match(/energy=([0-9.]+)/);
+  const fatigueMatch = developerContextBlock.match(/fatigue=([0-9.]+)/);
+  const sharingMatch = developerContextBlock.match(/sharing_desire=([0-9.]+)/);
+  const energy = energyMatch ? Number.parseFloat(energyMatch[1]) : null;
+  const fatigue = fatigueMatch ? Number.parseFloat(fatigueMatch[1]) : null;
+  const sharingDesire = sharingMatch ? Number.parseFloat(sharingMatch[1]) : null;
+
+  if ((fatigue !== null && fatigue >= 0.72) || (energy !== null && energy <= 0.3)) {
+    return 'low_energy';
+  }
+  if ((energy !== null && energy >= 0.72) || (sharingDesire !== null && sharingDesire >= 0.68)) {
+    return 'high_energy';
+  }
+  return 'normal';
+}
+
+export function buildTurnStateReminder(developerContextBlock: string | null | undefined): OpenResponseInputItem | null {
+  const stateBias = deriveStateBiasFromDeveloperContext(developerContextBlock);
+  if (stateBias === 'normal') {
+    return null;
+  }
+  const text = stateBias === 'low_energy'
+    ? [
+        '当前状态控制：精力偏低或疲劳偏高，话量阈值提高。',
+        '只有明确找我互动、或反应已经 formed 且确实有内容时才继续到说话；弱反应、顺手接话、没找到目标时优先 stay_silent。'
+      ].join('\n')
+    : [
+        '当前状态控制：精力或分享欲偏高，可以接受更轻的短句参与。',
+        '仍然只回应当前未读里真实触发的东西；不要为了证明在线而硬说。'
+      ].join('\n');
+  return buildAssistantCommentaryInputItem([
+    formatTaggedBlock('system_reminder', {
+      source: 'turn_state',
+      state_bias: stateBias
+    }, text)
+  ]);
+}
+
+export function buildTurnControlReminder(turnControl: TurnControlState): OpenResponseInputItem | null {
+  if (turnControl.stage === 'read_unread') {
+    return null;
+  }
+
+  const lines: string[] = [];
+  if (!turnControl.targetFound && turnControl.stage === 'feel_reaction') {
+    lines.push('当前未读没有明确找小腻，也没有稳定的新目标；下一步只确认是否真的有反应，不要为了接话而制造目标。');
+  }
+  if (turnControl.stage === 'maybe_recall') {
+    lines.push('当前反应需要长期记忆校准；只召回一次，召回后按结果进入最终动作。');
+  }
+  if (turnControl.recallStatus === 'attempted_empty') {
+    lines.push('长期记忆没有找到足以改变本轮判断的内容。不要继续重复召回；按当前 QQ 现场决定说话或 stay_silent。');
+  }
+  if (turnControl.stateBias === 'low_energy' && turnControl.stage === 'finalize') {
+    lines.push('当前状态偏低，弱反应不要升级成发言；如果没有清楚目标或成形反应，stay_silent 是有效收口。');
+  }
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  return buildAssistantCommentaryInputItem([
+    formatTaggedBlock('system_reminder', {
+      source: 'turn_control',
+      stage: turnControl.stage,
+      target_found: String(turnControl.targetFound),
+      recall_status: turnControl.recallStatus,
+      expected_next: turnControl.expectedNext
+    }, lines.join('\n'))
+  ]);
 }
 
 function renderPresenceTickAction(queueMessage: QueueMessageRecord['payload']) {
@@ -2688,11 +2948,35 @@ export function applyToolResultToLoopInput(
     call_id: toolCall.callId,
     output: JSON.stringify(toolResult)
   }];
+  const loopInputAfterTool = [
+    ...(context?.loopInput ?? []),
+    {
+      type: 'function_call' as const,
+      call_id: toolCall.callId,
+      name: toolCall.name,
+      arguments: toolCall.rawArguments
+    },
+    inputItems[0]
+  ];
   if (toolCall.name === TOOL_NAMES.longTermRecall && Array.isArray(toolResult.markdown_items)) {
     for (const markdownItem of toolResult.markdown_items) {
       if (typeof markdownItem === 'string' && markdownItem.trim()) {
         inputItems.push(buildAssistantCommentaryInputItem([markdownItem.trim()]));
       }
+    }
+    if (isRecallResultEmpty(toolResult)) {
+      const turnControl = deriveTurnControlState(loopInputAfterTool);
+      const reminder = buildTurnControlReminder(turnControl);
+      if (reminder) {
+        inputItems.push(reminder);
+      }
+    }
+  }
+  if (toolCall.name === TOOL_NAMES.unreadMeaning || toolCall.name === TOOL_NAMES.innerReaction) {
+    const turnControl = deriveTurnControlState(loopInputAfterTool);
+    const reminder = buildTurnControlReminder(turnControl);
+    if (reminder) {
+      inputItems.push(reminder);
     }
   }
   if (toolCall.name === TOOL_NAMES.imageTask) {
@@ -2777,6 +3061,81 @@ type ReplayableModelOutput =
       };
     };
 
+type AgentModelParameters = Record<string, unknown> | null | undefined;
+
+function normalizeModelSlug(modelName: string) {
+  const value = typeof modelName === 'string' ? modelName.trim() : '';
+  if (!value) {
+    return '';
+  }
+  return (value.includes('/') ? value.split('/').pop() || value : value).trim().toLowerCase();
+}
+
+function getProviderSpecificParameters(parameters: AgentModelParameters): Record<string, unknown> {
+  const base = parameters && typeof parameters === 'object' && !Array.isArray(parameters)
+    ? parameters
+    : {};
+  const modelConfig = base.model_config && typeof base.model_config === 'object' && !Array.isArray(base.model_config)
+    ? base.model_config as Record<string, unknown>
+    : {};
+  return modelConfig.providerSpecific && typeof modelConfig.providerSpecific === 'object' && !Array.isArray(modelConfig.providerSpecific)
+    ? modelConfig.providerSpecific as Record<string, unknown>
+    : {};
+}
+
+function shouldUseReasoningReplay(modelName: string) {
+  const slug = normalizeModelSlug(modelName);
+  return slug === 'gpt-5.5' || slug === 'gpt-5.5-mini' || slug.startsWith('gpt-5.5-');
+}
+
+function buildAgentReasoningConfig(modelName: string, parameters: AgentModelParameters) {
+  const providerSpecific = getProviderSpecificParameters(parameters);
+  const explicitEffort = typeof providerSpecific.reasoningEffort === 'string' && providerSpecific.reasoningEffort.trim()
+    ? providerSpecific.reasoningEffort.trim()
+    : null;
+  const explicitSummary = typeof providerSpecific.reasoningSummary === 'string' && providerSpecific.reasoningSummary.trim()
+    ? providerSpecific.reasoningSummary.trim()
+    : null;
+
+  if (!explicitEffort && !explicitSummary && !shouldUseReasoningReplay(modelName)) {
+    return undefined;
+  }
+
+  return {
+    effort: explicitEffort || 'medium',
+    summary: explicitSummary || 'auto'
+  };
+}
+
+function buildAgentTextConfig(modelName: string, parameters: AgentModelParameters) {
+  const providerSpecific = getProviderSpecificParameters(parameters);
+  const explicitVerbosity = typeof providerSpecific.textVerbosity === 'string' && providerSpecific.textVerbosity.trim()
+    ? providerSpecific.textVerbosity.trim()
+    : null;
+  const verbosity = explicitVerbosity === 'low' || explicitVerbosity === 'medium' || explicitVerbosity === 'high'
+    ? explicitVerbosity
+    : shouldUseReasoningReplay(modelName)
+    ? 'medium'
+    : null;
+
+  return verbosity ? { verbosity } : undefined;
+}
+
+function buildAgentInclude(modelName: string, parameters: AgentModelParameters): string[] | undefined {
+  const providerSpecific = getProviderSpecificParameters(parameters);
+  const include = new Set(
+    Array.isArray(providerSpecific.include)
+      ? providerSpecific.include.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())
+      : []
+  );
+
+  if (shouldUseReasoningReplay(modelName)) {
+    include.add('reasoning.encrypted_content');
+  }
+
+  return include.size > 0 ? Array.from(include) : undefined;
+}
+
 function isReplayableToolCall(item: ReplayableModelOutput): item is Extract<ReplayableModelOutput, { type: 'tool_call' }> {
   return item.type === 'tool_call';
 }
@@ -2859,6 +3218,8 @@ export class AgentLoopService {
       metadata: { run_id: queueMessage.id, batch_id: queueMessage.batchId }
     });
 
+    let loopContinuation: OpenResponseInputItem[] = [];
+
     try {
       if (!isPresenceTickPayload(payload)) {
         const recorder = (this.store as RuntimeStore & {
@@ -2902,7 +3263,6 @@ export class AgentLoopService {
         baseDeveloperContextBlock,
         presenceContext?.block || null
       ].filter((part): part is string => Boolean(part && part.trim())).join('\n\n') || null;
-      let loopContinuation: OpenResponseInputItem[] = [];
       budgetPlan = await this.buildContextBudgetPlan({
         history,
         queueMessage: payload,
@@ -3256,6 +3616,7 @@ export class AgentLoopService {
             inner_reaction: innerReactionArtifact
           },
           context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
+          responses_replay_items: extractReasoningReplayInputItems(loopContinuation),
           total_turns: turnsExecuted,
           termination_reason: termination.terminationReason,
           finish_reason: termination.finishReason,
@@ -3436,6 +3797,7 @@ export class AgentLoopService {
           sent_messages: sentMessages,
           xiaoni_os: null,
           context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
+          responses_replay_items: extractReasoningReplayInputItems(loopContinuation),
           total_turns: turnsExecuted,
           termination_reason: termination.terminationReason,
           no_reply: termination.noReply
@@ -4379,7 +4741,8 @@ export class AgentLoopService {
       ...buildCanonicalAgentTurnRequest(
         runtimePrompt.modelName,
         turnInput,
-        queueMessage.chatType
+        queueMessage.chatType,
+        runtimePrompt.parameters as Record<string, unknown> | undefined
       ),
       metadata: buildAgentTurnMetadata(queueMessage, runtimePrompt),
       prompt_cache_key: buildPromptCacheKey(queueMessage, runtimePrompt),
@@ -5027,6 +5390,7 @@ export function buildInitialInput(
   pendingProactiveShare: string | null = null,
   developerContextBlock: string | null = null
 ): OpenResponseInputItem[] {
+  const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
   const items: OpenResponseInputItem[] = [
     {
       type: 'message',
@@ -5038,11 +5402,11 @@ export function buildInitialInput(
     }
   ];
 
-  if (developerContextBlock && developerContextBlock.trim()) {
+  if (developerContextParts.worldNarrative) {
     items.push({
       type: 'message',
       role: 'developer',
-      content: developerContextBlock.trim()
+      content: developerContextParts.worldNarrative
     });
   }
 
@@ -5080,6 +5444,7 @@ export function buildInitialInput(
         items.push(buildAssistantCommentaryInputItem([osText]));
         osAttached = true;
       }
+      items.push(...buildTurnReasoningReplayItems(turn));
       continue;
     }
 
@@ -5093,6 +5458,8 @@ export function buildInitialInput(
     if (osText && !osAttached) {
       items.push(buildAssistantCommentaryInputItem([osText]));
     }
+
+    items.push(...buildTurnReasoningReplayItems(turn));
   }
 
   items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
@@ -5105,9 +5472,41 @@ export function buildInitialInput(
   if (identityFactsText) {
     items.push(buildDeveloperInputItem([identityFactsText]));
   }
+  if (developerContextParts.dynamicContext) {
+    items.push({
+      type: 'message',
+      role: 'developer',
+      content: developerContextParts.dynamicContext
+    });
+  }
+  const turnStateReminder = buildTurnStateReminder(developerContextBlock);
+  if (turnStateReminder) {
+    items.push(turnStateReminder);
+  }
   items.push(buildDeveloperInputItem([RUNTIME_HISTORY_READING_DEVELOPER_CONTEXT]));
 
   return items;
+}
+
+function splitDeveloperContextBlock(developerContextBlock: string | null | undefined) {
+  const block = developerContextBlock?.trim();
+  if (!block) {
+    return {
+      worldNarrative: null,
+      dynamicContext: null
+    };
+  }
+
+  const worldNarrativeMatch = block.match(/<world_narrative>[\s\S]*?<\/world_narrative>/);
+  const worldNarrative = worldNarrativeMatch?.[0]?.trim() || null;
+  const dynamicContext = worldNarrative
+    ? block.replace(worldNarrative, '').trim()
+    : block;
+
+  return {
+    worldNarrative,
+    dynamicContext: dynamicContext || null
+  };
 }
 
 function buildTurnOs(turn: ConversationTurn) {
@@ -5148,6 +5547,50 @@ function buildTurnOs(turn: ConversationTurn) {
   }
 
   return '';
+}
+
+function isReasoningReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'reasoning' }> {
+  if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'reasoning') {
+    return false;
+  }
+
+  const item = value as {
+    content?: unknown;
+    summary?: unknown;
+    encrypted_content?: unknown;
+  };
+  return typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
+    || typeof item.content === 'string' && item.content.length > 0
+    || typeof item.summary === 'string' && item.summary.length > 0
+    || Array.isArray(item.summary) && item.summary.length > 0;
+}
+
+function extractReasoningReplayInputItems(items: OpenResponseInputItem[]): Array<Extract<OpenResponseInputItem, { type: 'reasoning' }>> {
+  return items
+    .filter(isReasoningReplayItem)
+    .map((item) => ({
+      type: 'reasoning' as const,
+      ...(typeof item.content === 'string' && item.content.length > 0 ? { content: item.content } : {}),
+      ...(typeof item.summary === 'string' && item.summary.length > 0
+        ? { summary: item.summary }
+        : Array.isArray(item.summary) && item.summary.length > 0
+        ? { summary: item.summary }
+        : {}),
+      ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
+        ? { encrypted_content: item.encrypted_content }
+        : {})
+    }));
+}
+
+function buildTurnReasoningReplayItems(turn: ConversationTurn): OpenResponseInputItem[] {
+  const rawResponse = turn.rawResponse && typeof turn.rawResponse === 'object'
+    ? turn.rawResponse as Record<string, unknown>
+    : {};
+  const replayItems = Array.isArray(rawResponse.responses_replay_items)
+    ? rawResponse.responses_replay_items
+    : [];
+
+  return replayItems.filter(isReasoningReplayItem);
 }
 
 function buildCurrentTurnInputItems(

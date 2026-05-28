@@ -133,6 +133,24 @@ test('OpenAI provider serializes allowed_tools without changing the tool list', 
   assert.equal(payload.tools.length, TOOL_DEFINITIONS.length);
 });
 
+test('OpenAI provider preserves Responses text and context management fields', () => {
+  const provider = new TestOpenAIProvider({} as any);
+  const payload = provider.buildPayload({
+    ...createCanonicalRequest(),
+    text: {
+      verbosity: 'medium'
+    },
+    context_management: [
+      { type: 'compaction', compact_threshold: 200000 }
+    ]
+  } as any);
+
+  assert.deepEqual(payload.text, { verbosity: 'medium' });
+  assert.deepEqual(payload.context_management, [
+    { type: 'compaction', compact_threshold: 200000 }
+  ]);
+});
+
 test('Codex provider keeps canonical instructions top-level and preserves parallel_tool_calls', () => {
   const provider = new TestCodexProvider({} as any);
   const payload = provider.buildPayload(createCanonicalRequest());
@@ -185,6 +203,36 @@ test('Codex provider preserves explicit reasoning settings and include values', 
     summary: 'detailed'
   });
   assert.deepEqual(payload.include, ['reasoning.encrypted_content', 'file_search_call.results']);
+});
+
+test('Codex provider accepts gpt-5.5 medium stateless reasoning replay contract', () => {
+  const provider = new TestCodexProvider({} as any);
+  const payload = provider.buildPayload({
+    ...createCanonicalRequest(),
+    model: 'gpt-5.5',
+    reasoning: {
+      effort: 'medium',
+      summary: 'auto'
+    },
+    text: {
+      verbosity: 'medium'
+    },
+    include: ['reasoning.encrypted_content'],
+    context_management: [
+      { type: 'compaction', compact_threshold: 200000 }
+    ]
+  } as any);
+
+  assert.equal(payload.model, 'gpt-5.5');
+  assert.deepEqual(payload.reasoning, {
+    effort: 'medium',
+    summary: 'auto'
+  });
+  assert.deepEqual(payload.text, { verbosity: 'medium' });
+  assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
+  assert.deepEqual(payload.context_management, [
+    { type: 'compaction', compact_threshold: 200000 }
+  ]);
 });
 
 test('Codex provider defaults proxy-key mode to CLIProxyAPI Codex direct route', async () => {

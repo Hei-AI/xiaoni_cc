@@ -39,6 +39,22 @@ const DEFAULT_MODEL_POLICIES: Record<string, ModelContextPolicy> = {
     softTriggerRatio: DEFAULT_SOFT_TRIGGER_RATIO,
     hardBufferRatio: DEFAULT_HARD_BUFFER_RATIO
   },
+  'gpt-5.5': {
+    model: 'gpt-5.5',
+    contextWindowTokens: 1050000,
+    maxOutputTokens: 128000,
+    defaultReplyBudgetTokens: DEFAULT_REPLY_BUDGET_TOKENS,
+    softTriggerRatio: DEFAULT_SOFT_TRIGGER_RATIO,
+    hardBufferRatio: DEFAULT_HARD_BUFFER_RATIO
+  },
+  'gpt-5.5-mini': {
+    model: 'gpt-5.5-mini',
+    contextWindowTokens: 400000,
+    maxOutputTokens: 128000,
+    defaultReplyBudgetTokens: DEFAULT_REPLY_BUDGET_TOKENS,
+    softTriggerRatio: DEFAULT_SOFT_TRIGGER_RATIO,
+    hardBufferRatio: DEFAULT_HARD_BUFFER_RATIO
+  },
   'gpt-5-codex': {
     model: 'gpt-5-codex',
     contextWindowTokens: 400000,

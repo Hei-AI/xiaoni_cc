@@ -15,6 +15,16 @@ const DEFAULT_MODEL_POLICIES: Record<string, ModelContextPolicy> = {
     contextWindowTokens: 1050000,
     maxOutputTokens: 128000
   },
+  'gpt-5.5': {
+    model: 'gpt-5.5',
+    contextWindowTokens: 1050000,
+    maxOutputTokens: 128000
+  },
+  'gpt-5.5-mini': {
+    model: 'gpt-5.5-mini',
+    contextWindowTokens: 400000,
+    maxOutputTokens: 128000
+  },
   'gpt-5-codex': {
     model: 'gpt-5-codex',
     contextWindowTokens: 400000,

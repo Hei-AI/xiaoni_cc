@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, buildToolLoopMonitorReminder, materializePresenceTickQueueMessage, sanitizeLowValueOpeningFiller, summarizeToolLoopState, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, buildToolLoopMonitorReminder, buildTurnStateReminder, deriveTurnControlState, materializePresenceTickQueueMessage, sanitizeLowValueOpeningFiller, summarizeToolLoopState, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload } from '../types';
 
@@ -302,6 +302,7 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.match(String(request.instructions), /web_search 是求知，不是默认步骤/);
   assert.match(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/);
   assert.match(String(request.instructions), /有真实的感觉才开口/);
+  assert.match(String(request.instructions), /直接给小腻反馈、纠偏、批评或称赞/);
   assert.match(String(request.instructions), /查完还是你自己决定说不说/);
   assert.match(String(request.instructions), /这一轮怎么收/);
   assert.match(String(planFunction?.description), /提取当前新入站消息/);
@@ -314,6 +315,20 @@ test('buildCanonicalAgentTurnRequest does not include previous_response_id', () 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
   assert.equal(Object.prototype.hasOwnProperty.call(request, 'previous_response_id'), false);
+});
+
+test('buildCanonicalAgentTurnRequest makes gpt-5.5 stateless reasoning replay explicit', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
+  const request = buildCanonicalAgentTurnRequest('gpt-5.5', loopInput, 'group');
+
+  assert.deepEqual(request.reasoning, {
+    effort: 'medium',
+    summary: 'auto'
+  });
+  assert.deepEqual(request.text, {
+    verbosity: 'medium'
+  });
+  assert.deepEqual(request.include, ['reasoning.encrypted_content']);
 });
 
 test('buildCanonicalAgentTurnRequest keeps the same group loop tools on the first group turn', () => {
@@ -920,6 +935,31 @@ test('executeAgentTurn forwards encrypted reasoning input items to provider-serv
   )));
 });
 
+test('buildInitialInput replays stored encrypted reasoning items across turns', () => {
+  const turn = createConversationTurn({
+    id: 42,
+    userMessage: '上一轮用户消息',
+    aiResponse: '上一轮回复'
+  });
+  turn.rawResponse = {
+    responses_replay_items: [
+      {
+        type: 'reasoning',
+        summary: [{ type: 'summary_text', text: 'prior turn reasoning summary' }],
+        encrypted_content: 'enc-prior-turn'
+      }
+    ]
+  };
+
+  const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
+
+  assert.ok(loopInput.some((item: any) => (
+    item.type === 'reasoning'
+    && item.encrypted_content === 'enc-prior-turn'
+    && item.summary?.[0]?.text === 'prior turn reasoning summary'
+  )));
+});
+
 test('buildInitialInput renders stable batch context without exposing runtime ids', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'
@@ -1031,6 +1071,7 @@ test('buildInitialInput does not append transcript summary to the system prompt 
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
   assert.match(String(loopInput[0]?.content), /小腻的OS/);
   assert.match(String(loopInput[0]?.content), /普通聊天、轻吐槽、短反应都是正常参与/);
+  assert.match(String(loopInput[0]?.content), /本轮行为校准信号/);
   assert.doesNotMatch(String(loopInput[0]?.content), /Conversation summary:/);
 });
 
@@ -1045,6 +1086,7 @@ test('buildInitialInput appends the thin runtime contract for group chats', () =
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
   assert.match(String(loopInput[0]?.content), /<INPUT_MESSAGE>/);
   assert.match(String(loopInput[0]?.content), /<system_reminder>/);
+  assert.match(String(loopInput[0]?.content), /直接给小腻反馈、纠偏、批评或称赞/);
   assert.match(String(loopInput[0]?.content), /这一轮怎么收/);
 });
 
@@ -1611,7 +1653,10 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
     }
   });
   assert.equal(calls[0].canonicalRequest.model, 'gpt-5.4');
-  assert.equal(Object.prototype.hasOwnProperty.call(calls[0].canonicalRequest, 'reasoning'), false);
+  assert.deepEqual(calls[0].canonicalRequest.reasoning, {
+    effort: 'high',
+    summary: 'auto'
+  });
 });
 
 test('feedback memory subagent is disabled after extract_feedback_episode tool removal', async () => {
@@ -3530,6 +3575,149 @@ test('parseInnerReaction accepts tool output without recalled_prior_pattern and 
   );
 });
 
+test('buildTurnStateReminder turns low energy presence context into a commentary system reminder', () => {
+  const reminder = buildTurnStateReminder([
+    '<小腻当前状态>',
+    'current_state: 疲劳偏高；boredom=0.20；fatigue=0.86；energy=0.14；sharing_desire=0.22。',
+    '</小腻当前状态>'
+  ].join('\n'));
+
+  assert.ok(reminder, 'low energy context should produce a reminder');
+  assert.equal((reminder as any).role, 'assistant');
+  assert.equal((reminder as any).phase, 'commentary');
+  assert.match(getMessageContent(reminder), /source="turn_state"/);
+  assert.match(getMessageContent(reminder), /state_bias="low_energy"/);
+  assert.match(getMessageContent(reminder), /话量阈值提高/);
+});
+
+test('low energy turn state downgrades weak speak to stay_silent', () => {
+  const loopInput = buildInitialInput(
+    [],
+    createQueuePayload(),
+    createRuntimePrompt(),
+    [],
+    null,
+    null,
+    [
+      '<小腻当前状态>',
+      'current_state: 疲劳偏高；boredom=0.20；fatigue=0.86；energy=0.14；sharing_desire=0.22。',
+      '</小腻当前状态>'
+    ].join('\n')
+  );
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"群里随口吐槽天气","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":true,"confidence":"medium","reason":"公共闲聊"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"群里随口吐槽天气","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":true,"confidence":"medium","reason":"公共闲聊"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"medium","wants_to_know_more":false,"reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"speak","reason":"有一点想接但不强"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"medium","wants_to_know_more":false,"reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"speak","reason":"有一点想接但不强"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL]);
+});
+
+test('deriveTurnControlState allows one memory recall when reaction wants more context', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"对方问小腻以前提过的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问到旧事"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"对方问小腻以前提过的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问到旧事"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"medium","wants_to_know_more":true,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"需要想起之前关系里的说法"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"medium","wants_to_know_more":true,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"需要想起之前关系里的说法"}'
+  });
+
+  const turnControl = deriveTurnControlState(loopInput);
+  assert.equal(turnControl.stage, 'maybe_recall');
+  assert.equal(turnControl.expectedNext, LONG_TERM_RECALL_TOOL);
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LONG_TERM_RECALL_TOOL]);
+});
+
+test('empty recall result appends a turn-control reminder and prevents repeated recall', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"对方问小腻以前提过的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问到旧事"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"对方问小腻以前提过的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问到旧事"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"medium","wants_to_know_more":true,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"需要想起之前关系里的说法"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"medium","wants_to_know_more":true,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"需要想起之前关系里的说法"}'
+  });
+
+  const continuation = applyToolResultToLoopInput({
+    name: LONG_TERM_RECALL_TOOL,
+    callId: 'call-recall',
+    rawArguments: '{"reason":"需要想起之前关系里的说法","topic_hint":"旧事","include_current_sender":true,"desired_recall_count":2}'
+  }, {
+    reason: '需要想起之前关系里的说法',
+    topic_hint: '旧事',
+    query_text: '旧事',
+    items: [],
+    markdown_items: []
+  }, {
+    loopInput,
+    speakingToolName: GROUP_REPLY_TOOL,
+    hasVisibleReply: false
+  });
+
+  const reminder = continuation.inputItems.find((item) => getMessageContent(item).includes('recall_status="attempted_empty"'));
+  assert.ok(reminder, 'empty recall should append a deterministic reminder');
+  assert.match(getMessageContent(reminder), /不要继续重复召回/);
+
+  const nextLoopInput = [...loopInput, {
+    type: 'function_call' as const,
+    call_id: 'call-recall',
+    name: LONG_TERM_RECALL_TOOL,
+    arguments: '{"reason":"需要想起之前关系里的说法","topic_hint":"旧事","include_current_sender":true,"desired_recall_count":2}'
+  }, ...continuation.inputItems];
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, nextLoopInput, 'group');
+  assert.ok(!getAllowedToolNames(request.tool_choice).includes(LONG_TERM_RECALL_TOOL));
+});
+
 // B: INNER_REACTION_TOOL schema must not contain recalled_prior_pattern or felt_direction
 test('INNER_REACTION_TOOL schema does not declare recalled_prior_pattern or felt_direction', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
@@ -3618,21 +3806,29 @@ test('materializePresenceTickQueueMessage replaces synthetic session with target
 test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in instructions', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.match(String(request.instructions), /社交解码 — 先判断这条消息的场/);
-  assert.match(String(request.instructions), /感受基底 — 我有自己在意的东西/);
+  assert.match(String(request.instructions), /这一轮的目标：看懂真实 QQ 现场/);
+  assert.match(String(request.instructions), /有真实反应才开口/);
+  assert.match(String(request.instructions), /社交方向/);
   assert.match(String(request.instructions), /@ 了我是信号，不是命令/);
 });
 
-// H: developer role injection — buildInitialInput places developer message at index 1 when provided
-test('buildInitialInput places developer context block at index 1 when provided', () => {
+// H: developer role injection — stable world narrative stays early while turn-dynamic context stays late
+test('buildInitialInput splits stable world narrative from turn-dynamic developer context', () => {
   const devBlock = '<world_narrative>test</world_narrative>\n\n<current_relationship>\n本次发言者：foo（QQ:12345）\n当前关系层级：L2\n当前可开放的自己：偶尔吐槽，有自己的语气\n</current_relationship>';
   const items = buildInitialInput([], createQueuePayload(), undefined, [], null, null, devBlock);
   assert.equal(items[0]?.type, 'message');
   assert.equal((items[0] as { role?: string })?.role, 'system');
   assert.equal(items[1]?.type, 'message');
   assert.equal((items[1] as { role?: string })?.role, 'developer');
-  assert.match(String((items[1] as { content?: unknown })?.content), /world_narrative/);
-  assert.match(String((items[1] as { content?: unknown })?.content), /current_relationship/);
+  assert.match(getMessageContent(items[1]), /world_narrative/);
+  assert.doesNotMatch(getMessageContent(items[1]), /current_relationship/);
+  const developerIndex = items.findIndex((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('current_relationship'));
+  const currentReminderIndex = items.findIndex((item) => getMessageContent(item).includes('还没看过的新消息'));
+  const historyReadingIndex = items.findIndex((item) => getMessageContent(item).includes('<runtime_history_reading>'));
+  assert.ok(developerIndex > currentReminderIndex);
+  assert.ok(developerIndex < historyReadingIndex);
+  assert.doesNotMatch(getMessageContent(items[developerIndex]), /world_narrative/);
+  assert.match(getMessageContent(items[developerIndex]), /current_relationship/);
 });
 
 // I: developer role injection — buildInitialInput skips developer message when block is null
