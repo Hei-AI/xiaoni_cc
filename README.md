@@ -48,9 +48,9 @@ NapCat -> provider-service
 - NapCat 独立部署，不包含在主业务 compose 中。
 - 管理端默认链路是前端 -> `admin-panel/backend`。
 - `provider-service` 当前负责 provider debug、OneBot 入站和出站、queue 写入、image provider、embeddings 和 timeline 记录。
-- `agent-service` 负责消费消息批次、执行 loop agent，并把 run / trace / transcript / delivery state / 自学习结果写回 PostgreSQL。
+- `agent-service` 负责消费消息批次、执行 loop agent，并把 run / trace / transcript / delivery state / 三层长期记忆写回 PostgreSQL。
 - provider 侧的 participation 现在保留为硬安全边界和观测事件，主行为判断逐步收口到 `agent-service` runtime。
-- 当前主发言判断在 `agent-service`；topic projection、transcript snapshot、feedback reflection 等后台能力可以用于观测、召回、评测或异步产物，但不要把它们当成入口层“是否说话”的总决策器。
+- 当前主发言判断在 `agent-service`；topic projection、transcript snapshot、三层长期记忆等后台能力可以用于观测、后续 typed recall projection、评测或异步产物，但不要把它们当成入口层“是否说话”的总决策器。
 - 当前对话历史里的 `<小腻的OS>` 视为小腻跨轮延续下来的内部状态与成长轨迹，按历史真相保留，并随已读历史一起参与上下文窗口管理。
 - HTTP 流量监控/回放属于管理端运维工具链。
 

@@ -766,7 +766,10 @@ context and let it calibrate the immediate response.
 
 **Problem:** the previous `context_compression_memory_writer` could run through
 the real provider and write `agent_feedback_reflections`, but the generated
-reflection quality was not acceptable. In the probe, real evicted turns
+reflection quality was not acceptable. The 2026-05-29 three-layer rewrite moved
+new writes to `agent_memory_observations` / `agent_memory_assertions` /
+`agent_memory_reflections`, but the quality question still applies to the new
+reflection layer. In the probe, real evicted turns
 `4352-4418` produced reflection `324`, which generalized the batch into
 "未被点到时旁观更合适". That conclusion appears too shallow / possibly wrong
 for the actual context and may reinforce silence from weak evidence.
@@ -779,11 +782,12 @@ policy as settled.
 
 **Action:**
 
-- Review the compact writer prompt and tool contract so it distinguishes:
-  durable feedback, social lessons, ordinary topic summaries, and "no learning"
-  cases.
-- Add a quality gate that allows the writer to emit no reflection when evidence
-  is weak; avoid turning ordinary silent/passing context into active recall rows.
+- Review the three-layer compact writer prompt and tool contracts so they distinguish:
+  concrete episodic observations, objective semantic assertions, cross-time
+  reflections, ordinary topic summaries, and "no memory" cases.
+- Add a quality gate that allows `write_memory_reflections` to emit an empty
+  array when evidence is weak; avoid turning ordinary silent/passing context into
+  active reflection rows.
 - Re-run the `253631878` compact probe with labeled expected outcomes and compare
   whether the generated reflection matches the actual batch.
 - Review identity continuity projection separately from group behavior memory:
@@ -794,15 +798,15 @@ policy as settled.
 
 **Acceptance criteria:**
 
-- Compact memory generation can produce `no_tool_call` / no persisted reflection
-  for low-evidence batches.
+- Compact memory generation can persist episodic / semantic rows while producing
+  zero reflection rows for low-evidence batches.
 - A regression test or replay fixture covers the `253631878` probe range and
   prevents the current over-broad "旁观更合适" style conclusion from passing as a
   durable lesson without stronger evidence.
 - Identity continuity has an explicit projection contract and tests showing it
   does not absorb tentative group-behavior lessons as durable identity facts.
 - The runtime request clearly separates identity facts, compact summaries,
-  feedback reflections, and group-specific behavior policy.
+  three-layer long-term memory projection, and group-specific behavior policy.
 
 ### Task 10 - Image task tool routing bug
 

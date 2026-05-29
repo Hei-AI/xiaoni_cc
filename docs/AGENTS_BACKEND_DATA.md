@@ -26,6 +26,13 @@
 - Trace span builder 现在有两层 provider 请求证据：优先挂接 MITM / traffic log 命中的真实 provider request；如果没有命中但 `llm_call_logs` 里有 `wire_request` / `wire_response`，会合成 `provider-request:wire:<llm_call_id>` span。
 - 合成 provider span 的 detail 可以再从 `CLIPROXY_REQUEST_LOG_DIR` 指向的 CLIProxyAPI 请求日志补全真实上游 request / response；日志匹配只信 `x-llm-call-id` header，敏感 header 会脱敏。
 
+## Memory Persistence
+
+- Xiaoni 的新长期记忆表是 `agent_memory_observations`、`agent_memory_assertions`、`agent_memory_reflections`。
+- 写入入口在 `packages/persistence/agent-memory.js`，服务侧只通过 `RuntimeStore.createAgentMemoryObservation` / `createAgentMemoryAssertion` / `createAgentMemoryReflection` 调用。
+- 这些表由 `context_compression_memory_writer` 在旧 turn 移出窗口时异步写入；不要在路由、临时脚本或主聊天工具里绕过 persistence 直接写表。
+- 旧 `agent_feedback_reflections` / `agent_feedback_learning_states` 仍在 schema 中用于历史兼容和旧评测，但不是新三层长期记忆的主写入路径。
+
 ## Agent Runtime Contracts
 - loop agent 每一轮必须保持同一份 instructions 和同一份 tools 定义；不要为了表达“这一轮做什么”逐轮改 prompt 或改 tools 列表。
 - 分阶段约束用 Provider 的 `tool_choice.allowed_tools` 或业务侧状态机表达；这可以缩小当前可调用工具集合，同时不改变 tools 定义本身。

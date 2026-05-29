@@ -42,11 +42,11 @@
 
 ## Memory And Search Routing
 
-- 当前上下文窗口、摘要、最近历史、图片观察和已有工具结果是第一信息源；这些足够时禁止为了“多想一点”调用长期记忆。
-- 长期记忆只解决私域、群内、关系连续性和当前窗口外的内部上下文缺口；公开事实、新鲜资料和互联网实体优先走 `web_search`。
-- 群聊内部梗、别的小群/私聊里可能发生过的内容不能猜。记忆检索达到上限仍为空时，要追加 runtime `system_reminder`：小腻没有这段记忆，不要继续召回，不要编造来源。
-- 空记忆允许有限重试，但必须换检索角度；当前默认两次：`topic_primary` 和 `speaker_social_context` / `relationship_pattern`。
-- 记忆耗尽后的收口由 runtime 放开最终动作：可以自然问群友“这是你们在哪聊的”，公开事实可搜索，没人找小腻时可以 `stay_silent`。
+- 当前上下文窗口、摘要、最近历史、图片观察和已有工具结果是第一信息源；这些足够时禁止为了“多想一点”补长期记忆。
+- 主聊天 loop 不再暴露 pre-reply recall 工具。长期记忆后续应由 typed recall projection 在进入主 loop 前准备好，作为 runtime input / developer context 注入。
+- 三层长期记忆的生成发生在 context compression：episodic observations 和 semantic assertions 使用 `gpt-5.5-mini`；memory reflections 使用 `gpt-5.5`，并且必须由至少两条 episodic observations 支撑。
+- 三层 writer 都使用强制 function schema：`write_episodic_observations`、`write_semantic_assertions`、`write_memory_reflections`。允许空数组；不要用 prose JSON 或 prompt 里的强格式要求替代 schema。
+- 群聊内部梗、别的小群/私聊里可能发生过的内容不能猜。当前上下文没有投影到相关记忆时，要少说、问群友来源，或沉默；公开事实、新鲜资料和互联网实体优先走 `web_search`。
 
 ## Official References
 

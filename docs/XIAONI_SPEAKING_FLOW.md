@@ -481,6 +481,8 @@ flowchart TD
 
 当上下文预算需要把旧 turn 移出窗口时，会异步启动 `context_compression_memory_writer`。它审视“即将从上下文窗口移除的一批历史”，决定里面有没有值得长期保存的内容。
 
+当前 writer 是三层长期记忆生成器，不再是旧的单条 feedback reflection 生成器。
+
 instructions 结构：
 
 ```text
@@ -490,16 +492,9 @@ Context compression memory subagent runtime contract:
 你正在审视一批即将从上下文窗口中永久移除的对话历史。
 这是这批对话最后一次被完整看见的机会。
 
-你的任务：判断这批对话里有没有值得长期保留的内容。
-大多数普通对话批次不包含任何值得写入长期记忆的内容——这种情况直接 should_persist=false，流程结束。
-
-只有以下情况才值得写入：
-- 用户给出了明确的反馈、纠偏、批评或正向肯定，且这个信号在这批对话里是清晰的
-- 出现了一次对关系有结构性影响的真实互动
-- 这批对话里有一个清晰的新结论，改变了以后在类似场景下怎么在场的判断
-
-如果有值得写入的内容：每次只写一条最重要的 reflection，不批量写入。
-如果没有值得写入的内容：不要调用工具，也不要写额外说明。
+你的任务：把这批对话拆成三类长期记忆。
+episodic 记录具体发生过什么；semantic 记录客观事实、状态、计划和 claim；reflection 只在至少两条 episodic observation 支撑时生成跨时间模式。
+普通闲聊可以写空数组；不要从缺席、沉默或单个弱信号推导行为规则。
 
 输出只通过工具完成，不写自然语言说明。
 ...
@@ -521,8 +516,9 @@ Context compression writer 工具说明：
 
 | 工具 | 当前 description | 关键字段 |
 |---|---|---|
-| `synthesize_feedback_reflection` | `在上下文压缩时，把这批即将移出上下文的对话里真正值得长期保留的内容提炼成一条 append-only reflection。默认是叠加，不是覆盖；只有明确是同题新结论时，才表明 supersede 或 conflict。` | `learning_key`, `learning_scope`, `reflection_type`, `feedback_kind`, `confidence`, `importance_score`, `evidence_weight`, `stability_score`, `summary_text`, `retrieval_text`, `embedding_text`, `supersede_latest`, `conflict_group_key`, `reason` |
-| `update_learning_state` | `根据新 reflection 和同题当前状态，更新 learning_state。默认叠加；只有同题新结论才 revised 或 conflicted。` | `state_type`, `activation_weight`, `recency_weight`, `importance_weight`, `source_weight`, `conflict_penalty`, `activate_new_reflection`, `reason` |
+| `write_episodic_observations` | 从即将被压缩的聊天里写具体小腻视角 observation；没有值得记的内容时写空数组。 | `topic`, `text`, `poignancy`, `participants`, `xiaoni_role`, `source_turn_ids` |
+| `write_semantic_assertions` | 写客观事实、当前状态、计划、claim；不写气氛、视角或行为规则。 | `text`, `fact_type`, `entities`, `participants`, `source_turn_ids` |
+| `write_memory_reflections` | 基于刚写入的 episodic observations 生成跨时间抽象；证据不足时写空数组。 | `text`, `kind`, `subjects`, `evidence_basis`, `evidence_time_start`, `evidence_time_end`, `poignancy`, `source_observation_ids` |
 
 ```text
 instructions:
@@ -538,15 +534,17 @@ input:
   小腻: ... 或 (本轮未发送消息)
 
 tools:
-  synthesize_feedback_reflection
-  update_learning_state
+  write_episodic_observations
+  write_semantic_assertions
+  write_memory_reflections
 
 tool_choice:
-  Turn 1: auto; 有 durable lesson 时调用 synthesize_feedback_reflection，没有则无 tool call 结束
-  Turn 2: 如果已有 reflection，限制为 update_learning_state
+  episodic: required write_episodic_observations, model=gpt-5.5-mini
+  semantic: required write_semantic_assertions, model=gpt-5.5-mini
+  reflection: required write_memory_reflections, model=gpt-5.5; only after at least two persisted observations
 ```
 
-它的作用是防止旧上下文被裁掉后，真正有长期意义的反馈或关系事件完全丢失。
+它的作用是防止旧上下文被裁掉后，真正有长期意义的具体事件、事实状态和跨时间模式完全丢失。
 
 ### 6. Context summary writer
 
@@ -697,7 +695,7 @@ flowchart TD
   -> 先理解未读
   -> 再判断真实反应
   -> 工程层收缩 allowed_tools
-  -> 沉默 / 召回 / 搜索 / 发言 / 图任务
+  -> 沉默 / 搜索 / 发言 / 图任务
   -> 发言则经 provider-service -> NapCat -> QQ
   -> 记录 run 和工具结果
   -> 异步自学习影响未来

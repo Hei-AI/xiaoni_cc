@@ -99,14 +99,15 @@ else (否)
     end note
     :进入沉默收口;
   else (否)
-    :如果当前上下文不够，先判断缺口来源;\n私密/关系/群内连续性才召回记忆;
+    :如果当前上下文不够，先判断缺口来源;\n私密/关系/群内连续性不要编造来源;
     note right
     输出：
-    - 召回几条相关长期学习
-    - 用来校准现在该不该开口
+    - 公开信息走 web_search
+    - 群内旧梗可问来源或沉默
+    - 后续依赖 typed recall projection
     end note
 
-    if (回看之后仍觉得该说) then (是)
+    if (缺口处理后仍觉得该说) then (是)
       :组织一句值得承担的话;
       note right
       输出：
@@ -114,7 +115,7 @@ else (否)
       - 同时留下隐藏的 xiaoni_os
       end note
       :把这句话发回 QQ 群;
-    elseif (回看之后觉得要先查) then (先查)
+    elseif (缺口是公开事实) then (先查)
       :先去查外部事实，\n查完再回到说 / 不说判断;
     else (还是不说)
       :进入沉默收口;
@@ -132,13 +133,15 @@ note right
 end note
 
 :异步进入自学习闭环;
-:先判断这轮有没有值得长期留下的互动证据;
-:如果有，再把证据提炼成一条经验;
-:最后更新当前更活跃的学习状态;
+:上下文压缩时生成三层长期记忆;
+:episodic 记录具体发生过什么;
+:semantic 记录客观事实/状态/计划/claim;
+:reflection 从多条 observation 抽象长期模式;
 note right
 这条闭环不会回头改写
 刚刚那一轮说不说，
-但会影响以后召回什么经验。
+但会影响以后 typed recall projection
+能投进什么记忆。
 end note
 stop
 @enduml
@@ -557,34 +560,13 @@ UnreadMeaning 里的 social_target / addressed_to_me / message_act
 
 ## “过去学到的东西”输入从哪里来
 
-图里之前没画清楚，这里补上。
+当前主 loop 不再提供 pre-reply recall 工具。长期记忆输入后续应该由 typed recall projection 在进入主 loop 前准备好，按缺口类型投进合适的一层：
 
-recall 的输入不是凭空来的，它至少吃三类东西：
+1. episodic：具体发生过什么、谁在场、小腻当时在现场里的位置。
+2. semantic：客观事实、当前状态、计划、claim。
+3. reflection：至少两条 episodic observations 支撑的跨时间模式。
 
-1. 当前消息现场
-   - 当前 queue batch
-   - 当前说话人
-   - 最近相关发言人
-
-2. LLM 刚刚给出的 recall 请求
-   - `reason`
-   - `topic_hint`
-   - `query_strategy`
-   - `include_current_sender`
-   - `desired_recall_count`
-
-3. 存量长期学习
-   - 来自 `feedback_reflection` / `learning_state`
-   - 通过 `listRelevantFeedbackReflections(...)` 取回
-
-对应代码：
-
-- recall 请求参数定义：`agent-loop-service.ts:573-603`
-- recall 执行：`agent-loop-service.ts:3567-3618`
-
-所以这一步不是“模型想起一点过去”，而是：
-
-> 模型先提出要回看什么，工程层再去反馈学习库里按 query 拉几条，最后把命中的 reflection 返回给模型。
+这一步不是“模型临时决定回忆一下”，而是工程层按当前问题类型选择材料，把它作为运行时上下文的一部分交给小腻。
 
 ### 4. 第一层抑制，直接判沉默
 
@@ -748,7 +730,7 @@ emit_unread_meaning
 代码：
 
 - 触发调度：`AgentLoopService.processQueueMessage` 在 `evictedTurns.length > 0` 时调度 context compression memory writer 和 context summary writer
-- durable lesson writer：`runContextCompressionMemoryWriter`
+- 三层长期记忆 writer：`runContextCompressionMemoryWriter`
 - summary writer：`runContextSummaryWriter`
 - per-turn feedback writer：`runFeedbackMemorySubagent` 只记录 disabled timeline，不调用 provider
 
@@ -758,23 +740,17 @@ emit_unread_meaning
 主 loop 完成
   -> 如果有 evictedTurns:
      -> scheduleContextCompressionMemoryWriter
-     -> synthesize_feedback_reflection
-     -> update_learning_state
+     -> write_episodic_observations
+     -> write_semantic_assertions
+     -> write_memory_reflections
      -> scheduleContextSummaryWriter
-```
-
-如果 reflection 被判成 identity 级别，还会继续：
-
-```text
-appendIdentityChangeCandidate
--> createAcceptedIdentityFact
 ```
 
 per-turn `feedback_memory_writer` 现在只保留 timeline start/end，不再调用 provider 写入长期学习；结束原因是 `disabled_feedback_episode_tool_removed`。
 
-真正的 durable reflection 只在上下文压缩时由 `context_compression_memory_writer` 生成。它审视即将移出窗口的一批历史，如果没有值得长期保留的内容就不调用工具；如果有，只写一条最重要的 reflection，再更新同题 learning state。
+当前长期记忆只在上下文压缩时由 `context_compression_memory_writer` 生成。它审视即将移出窗口的一批历史，先写 episodic observations 和 semantic assertions；只有本批至少两条 observation 能支撑跨时间抽象时，才写 memory reflections。
 
-这条闭环不会直接把这一轮“沉默”改成“说话”，但会影响以后 recall 时能召回什么经验。
+这条闭环不会直接把这一轮“沉默”改成“说话”，但会影响以后 typed recall projection 能投进什么记忆。
 
 ## 你要找的“近期为什么被抑制”
 
@@ -807,7 +783,7 @@ component "provider-service\n入站/出站网关" as provider
 component "agent-service\n主 loop" as agent
 database "agent_queue_messages" as queue
 database "conversation_items\nagent_runs\ntool_execution_logs" as runtime_db
-database "feedback reflections\nlearning state" as learning_db
+database "agent_memory_observations\nagent_memory_assertions\nagent_memory_reflections" as memory_db
 component "context_compression_memory_writer\n异步子 agent" as subagent
 component "context_summary_writer\n异步摘要 writer" as summary
 
@@ -819,17 +795,17 @@ agent --> provider : 需要发言时调用出站发送
 provider --> napcat : 发回 QQ
 
 agent --> subagent : 有历史被压缩时异步调度\n带上即将移出窗口的 turns
-subagent --> provider : 调用同一个 LLM 判断是否生成 durable reflection
-subagent --> learning_db : reflection / learning_state
+subagent --> provider : 调用同一个 LLM 生成三层长期记忆
+subagent --> memory_db : episodic / semantic / reflection
 agent --> summary : 有历史被压缩时异步调度\n生成会话摘要
 summary --> runtime_db : session context summary
-learning_db --> agent : 以后 recall 时被取回
+memory_db --> agent : 后续 typed recall projection 注入上下文
 @enduml
 ```
 
 这张图里要看的核心是：
 
 - 主 loop 负责“这轮说不说”
-- 压缩子 agent 负责“旧上下文被移出前，有没有值得沉淀成长期学习的内容”
+- 压缩子 agent 负责“旧上下文被移出前，有没有值得沉淀成三层长期记忆的内容”
 - 学到的东西不会回头改写这一轮结果
-- 但会进长期学习库，影响以后 recall 命中什么
+- 但会进长期记忆库，影响以后 typed recall projection 命中什么
