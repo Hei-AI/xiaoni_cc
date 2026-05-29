@@ -31,8 +31,10 @@ flowchart TD
   U1 --> U2[Turn 2: emit_inner_reaction<br/>判断真实反应]
   U2 --> Gate{工程收缩 allowed_tools}
   Gate -->|silent 或 weak/low/no direct cue| Silent[stay_silent]
-  Gate -->|需要经验| Recall[recall_long_term_learning]
+  Gate -->|私密/关系/群内连续性缺口| Recall[recall_long_term_learning]
+  Gate -->|公开信息缺口| Search[web_search + stay_silent]
   Recall --> Action[说话 / 搜索 / 图任务 / 沉默]
+  Search --> Action
   Gate -->|可直接行动| Action
   Action -->|speak_in_group / reply_in_private| ProviderSend[provider-service send API]
   ProviderSend --> NapCat --> QQ
@@ -104,11 +106,13 @@ presence tick 只决定“要不要主动打开目标群看一眼并入队”。
 flowchart TD
   A[queue message] --> B[buildInitialInput]
   B --> C[instructions<br/>runtimePrompt.systemPrompt<br/>+ Runtime contract<br/>+ Single-turn tool contract]
-  B --> D[developer message<br/>world_narrative<br/>current_relationship<br/>current_scene<br/>presence_context]
+  B --> D1[developer index 1<br/>world_narrative]
+  B --> D2[late developer context<br/>current_relationship<br/>current_scene<br/>小腻当前状态<br/>turn_state reminder]
   B --> E[mixed input items<br/>user INPUT_MESSAGE<br/>assistant OUTPUT_MESSAGE<br/>assistant commentary OS/ACTION/reminder<br/>developer facts/context]
 
   C --> G[Canonical request<br/>agent_type=chat_bot]
-  D --> G
+  D1 --> G
+  D2 --> G
   E --> G
   G --> H[tools<br/>emit_unread_meaning<br/>emit_inner_reaction<br/>recall_long_term_learning<br/>speak/reply<br/>stay_silent<br/>web_search<br/>image tools]
 
@@ -119,11 +123,11 @@ flowchart TD
   L --> M{resolveGroupLoopToolChoice}
   M -->|preferred_action=silent| N[Turn 3<br/>tool_choice=stay_silent]
   M -->|empty/none/low no direct cue| N
-  M -->|search| O[Turn 3<br/>tool_choice=web_search + stay_silent]
+  M -->|needs_public_info| O[Turn 3<br/>tool_choice=web_search + stay_silent]
   M -->|image_task| P[Turn 3<br/>tool_choice=inspect_image + request_image_task + stay_silent]
-  M -->|需要经验| Q[Turn 3<br/>tool_choice=recall_long_term_learning]
+  M -->|needs_private_memory / unclear_group_reference| Q[Turn 3<br/>tool_choice=recall_long_term_learning]
   Q --> R[recall result replay]
-  R --> S[Turn 4<br/>speak / search / image_task / stay_silent]
+  R --> S[Turn 4<br/>speak / search / ask / image_task / stay_silent]
   M -->|speak/proactive| S
 ```
 
@@ -132,13 +136,15 @@ flowchart TD
 `buildInitialInput` 会把当前 queue message 组装成模型输入：
 
 - system：小腻主 prompt、运行时阅读契约、单轮工具契约。
+- `role=developer`：`<world_narrative>` 如果存在，放在 input index 1。
 - `role=user`：真实入站 QQ 消息，渲染为 `<INPUT_MESSAGE ...>`。
 - `role=assistant phase=final_answer`：小腻过去真正发出的 QQ 消息，渲染为 `<OUTPUT_MESSAGE ...>`。
 - `role=assistant phase=commentary`：`<小腻的OS>`、`<ACTION>`、`<图片内容>`、`<system_reminder>`。
-- `role=developer`：身份事实、关系/信任层、现场状态、presence context 等非 QQ 发言事实。
+- `role=developer`：身份事实、关系/信任层、现场状态、presence context 等非 QQ 发言事实；其中 `<current_relationship>`、`<current_scene>`、`<小腻当前状态>` 靠近输入末尾追加。
 - identity facts：已确认的身份/相处事实。
 - media placeholder context：图片等媒体占位符。
 - presence context：主动链路下额外注入的小腻当前状态。
+- turn state reminder：只有能量/状态偏置非 normal 时追加，作为本轮动态提醒。
 
 注意：`<小腻的OS>` 不是只带上一轮。只要历史 turn 还在当前上下文窗口里，那一轮留下的 OS 就可能被回放。
 
@@ -165,11 +171,11 @@ flowchart TD
 
 - `interest_level`：兴趣强度。
 - `wants_to_know_more`：是否想知道更多。
-- `recalled_prior_pattern`：是否像以前的相处场景。
-- `felt_direction`：内在倾向。
 - `reaction_authenticity`：是真反应，还是只是顺手能接。
 - `should_search`：是否需要查资料。
 - `preferred_action`：更像说、沉默、搜索、图任务。
+- `context_gap`：当前上下文是否足够，或者缺口是私有记忆、公开信息、群内引用。
+- `gap_resolution`：下一步应该不补、查记忆、web_search、问群友，还是先记忆再问/搜。
 
 近期很多沉默都发生在这里：模型觉得有一点弱反应，但不够形成值得承担的一句话。
 
@@ -213,6 +219,13 @@ canonical request 结构：
 
 ```text
 model: runtimePrompt.modelName
+reasoning:
+  effort: medium
+  summary: auto
+text:
+  verbosity: medium  # or runtime/provider override
+include:
+  reasoning.encrypted_content
 instructions:
   runtimePrompt.systemPrompt
   + "\n\nRuntime contract:\n"
@@ -223,9 +236,6 @@ instructions:
 input:
   optional developer message:
     <world_narrative>...</world_narrative>
-    <current_relationship>...</current_relationship>
-    <current_scene>...</current_scene>
-    <小腻当前状态>...</小腻当前状态>    # presence context, if built
 
   optional assistant commentary:
     <对话历史摘要>...</对话历史摘要>
@@ -247,6 +257,12 @@ input:
 
   optional developer message:
     <小腻已确认身份事实>...</小腻已确认身份事实>
+
+  optional developer message near the end:
+    <current_relationship>...</current_relationship>
+    <current_scene>...</current_scene>
+    <小腻当前状态>...</小腻当前状态>    # presence context, if built
+    <system_reminder>...</system_reminder>  # turn_state, only when non-normal
 
 tools:
   group chat:
@@ -272,6 +288,8 @@ prompt_cache_key: qq:group:<groupId> or related runtime key
 prompt_cache_retention: usually 24h
 ```
 
+GPT-5.5 运行态会把 reasoning output item 当 opaque continuation state 回放；`encrypted_content` 只用于跨轮延续，不参与业务解析。OpenAI / LLM 请求契约的完整规则看 `docs/AGENTS_OPENAI_REQUESTS.md`。
+
 主聊天 agent 的 `instructions` 不是单个静态 prompt。它由当前绑定 prompt 加运行时契约组成：
 
 ```text
@@ -294,7 +312,7 @@ Runtime contract:
 这一轮顺序：
 先搞清楚最新未读在说什么，用 emit_unread_meaning。
 再感觉一下这些消息在你这里有没有真实反应，用 emit_inner_reaction。
-如果感觉和以前的经历有关，才用 recall_long_term_learning 查一下。
+如果当前上下文不足，先判断缺口：私密/关系/群内连续性才用 recall_long_term_learning；公开信息用 web_search；找不到来源就少猜，可以问群友或沉默。
 最后通过工具完成这一轮——说话、沉默、查资料还是做图。
 
 普通聊天、轻吐槽、短反应都是正常参与，有真实的感觉才开口。
@@ -388,8 +406,8 @@ source_boundary: ...
 | 工具 | 当前 description | 关键参数 / 输出 |
 |---|---|---|
 | `emit_unread_meaning` | `先搞清楚最新未读在说什么——谁在和谁说、说的是什么事、注意力拉向哪里。这一步只是看懂，不决定说不说。` | `latest_unread_focus`, `message_act`, `social_target`, `addressed_to_me`, `has_real_novelty`, `confidence`, `reason`, `social_act_type`, `topic_context` |
-| `emit_inner_reaction` | `已经看懂了最新未读之后，感觉一下这些消息在你这里有没有真实反应。不是找个能说的话，是看有没有真的被触动。只是因为有空档、顺手能接，那不算。轻微但真实的感觉也可以算。` | `interest_level`, `wants_to_know_more`, `reaction_authenticity`, `should_search`, `preferred_action`, `reason` |
-| `recall_long_term_learning` | `只有当你已经理解了最新未读，也已经感觉到这件事可能和以前学到的东西有关时，才调用这个工具。它帮你按需取回少量长期学习结果，用来校准当前反应，不替代当前反应。` | 输入 `reason`, `topic_hint`, `include_current_sender`, `desired_recall_count`, `social_act_type_hint`; 输出 reflections 的 `summary_text` / markdown items |
+| `emit_inner_reaction` | `已经看懂了最新未读之后，感觉一下这些消息在你这里有没有真实反应。不是找个能说的话，是看有没有真的被触动。只是因为有空档、顺手能接，那不算。轻微但真实的感觉也可以算。` | `interest_level`, `wants_to_know_more`, `reaction_authenticity`, `should_search`, `preferred_action`, `context_gap`, `gap_resolution`, `reason` |
+| `recall_long_term_learning` | `只有当当前上下文不足，并且缺口属于私密、群内或关系连续性时，才调用这个工具。它帮你按需取回少量长期学习结果，用来校准当前反应，不替代当前反应。` | 输入 `reason`, `topic_hint`, `query_strategy`, `include_current_sender`, `desired_recall_count`, `social_act_type_hint`; 输出 reflections 的 `summary_text` / markdown items |
 | `speak_in_group` | `群里说话用这个。有真实反应才调用，不是因为顺手能接。如果是主动说自己的事（proactive），不要 @ 或引用任何人，直接说话。保持自然人话，贴近眼前场域。让这句话在现场里真正新增一点东西，可以是确认、回应或判断。一句已经成立就自然收住，把节奏留在现场里。...` | `message` 或 `messages`, `mention_user_ids`, required `xiaoni_os`, optional `pending_share` |
 | `reply_in_private` | `私聊说话用这个。自然直接，像真人说的话。` | `message` 或 `messages`, required `xiaoni_os`, optional `pending_share` |
 | `stay_silent` | `这轮不说了，用这个收尾。` | required `reason`, `outcome`, `xiaoni_os`, optional `pending_share` |
@@ -413,8 +431,15 @@ After Turn 2:
   else if shouldDowngradeWeakSpeakToSilence(...):
     allowed_tools = [stay_silent]
 
-  else if preferred_action in [search, image_task] and no recall yet:
+  else if context_gap in [needs_private_memory, unclear_group_reference] and recall attempts remain:
     allowed_tools = [recall_long_term_learning]
+
+  else if context_gap == needs_public_info or gap_resolution == web_search:
+    allowed_tools = [web_search, stay_silent]
+
+  else if recall exhausted empty results:
+    append system_reminder = "没有找到这段记忆；不要继续召回或编造来源；可问群友来源、搜索公开信息或沉默"
+    allowed_tools = [web_search, speak_in_group, inspect_image_placeholder, request_image_task, stay_silent]
 
   else if preferred_action == image_task:
     allowed_tools = [inspect_image_placeholder, request_image_task, stay_silent]

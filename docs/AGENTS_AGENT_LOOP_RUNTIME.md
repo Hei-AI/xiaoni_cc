@@ -99,7 +99,7 @@ else (否)
     end note
     :进入沉默收口;
   else (否)
-    :如果这件事可能和过去学到的分寸有关;\n先回看少量相处经验;
+    :如果当前上下文不够，先判断缺口来源;\n私密/关系/群内连续性才召回记忆;
     note right
     输出：
     - 召回几条相关长期学习
@@ -183,7 +183,8 @@ stop
 ```text
 system: <小腻主AGENT system prompt + Runtime contract + Single-turn tool contract>
 
-developer: <world_narrative> / <current_relationship> / <current_scene> / presence context
+developer:
+<world_narrative>...</world_narrative>  # if present, placed at input index 1
 
 user:
 <INPUT_MESSAGE message_id="..." message_sid="..." timestamp="..." sender="楠楠(1655827800)" source="napcat">
@@ -211,7 +212,26 @@ assistant phase=commentary:
 
 developer:
 [身份连续性] ...  # optional accepted identity facts
+
+developer:
+<current_relationship>...</current_relationship>
+<current_scene>...</current_scene>
+<小腻当前状态>...</小腻当前状态>  # optional presence context
+
+developer:
+<system_reminder>...</system_reminder>  # optional turn_state reminder for low/high energy
+
+assistant phase=commentary:
+<runtime_history_reading>...</runtime_history_reading>  # optional context read reminder
 ```
+
+关键顺序：
+
+- `system` 永远在最前面。
+- `<world_narrative>` 如果存在，作为 developer item 放在 index 1，尽早给出世界观阅读底色。
+- 历史、当前消息、媒体、当前处理边界留在中段，让模型先读真实现场。
+- `<current_relationship>`、`<current_scene>`、`<小腻当前状态>` 这类实时状态放在靠后位置，作为本轮最新运行态，而不是压在世界叙事前面。
+- 能量/状态偏置不是 prompt 常驻规则；只有非 normal 时追加 `turn_state` system reminder。
 
 这里要特别纠正一个我前面图里的说法：
 
@@ -320,11 +340,11 @@ tool desc 原文：
 {
   "interest_level": "none | low | medium | high",
   "wants_to_know_more": false,
-  "recalled_prior_pattern": "...",
-  "felt_direction": "...",
   "reaction_authenticity": "none | weak_but_real | formed | empty_but_convenient",
   "should_search": false,
   "preferred_action": "speak | silent | search | image_task",
+  "context_gap": "none | current_context_insufficient | needs_private_memory | needs_public_info | unclear_group_reference",
+  "gap_resolution": "none | memory | web_search | ask_group | memory_then_ask_or_search",
   "reason": "..."
 }
 ```
@@ -333,11 +353,11 @@ tool desc 原文：
 
 - `interest_level`：这件事在她身上拉力强不强
 - `wants_to_know_more`：有没有继续想追下去
-- `recalled_prior_pattern`：她主观觉得像不像以前碰到过的关系场景
-- `felt_direction`：当前内在倾向更像接、等、查还是收住
 - `reaction_authenticity`：这到底是真反应，还是“刚好能接”
 - `should_search`：如果要继续，是否更适合先查资料
 - `preferred_action`：当前最像说 / 不说 / 查 / 图任务
+- `context_gap`：当前上下文是否足够。`needs_private_memory` / `unclear_group_reference` 才偏向记忆召回；`needs_public_info` 偏向搜索公开信息。
+- `gap_resolution`：如果上下文不够，下一步应该用记忆、搜索、问群友，还是先召回再视情况问/搜。
 - `reason`：它为什么这么判
 
 最近这个群的高频输出：
@@ -440,6 +460,7 @@ turn4: {"mode":"required","type":"allowed_tools","tools":[{"type":"web_search"},
 
 - `emit_unread_meaning` 把它判成 `request`
 - `emit_inner_reaction` 把它判成 `preferred_action=speak`
+- 同时它判断当前上下文存在私有/关系连续性缺口
 - 所以第三轮不是 `stay_silent`，而是先走 `recall_long_term_learning`
 - recall 后第四轮才真正开放 `speak_in_group`
 
@@ -463,6 +484,8 @@ UnreadMeaning 里的 social_target / addressed_to_me / message_act
 - `interest_level`
 - `reaction_authenticity`
 - `preferred_action`
+- `context_gap`
+- `gap_resolution`
 
 这些值不是工程规则提前算好的，是模型在当前输入上做出的语义判断。
 
@@ -480,9 +503,37 @@ UnreadMeaning 里的 social_target / addressed_to_me / message_act
 - 中途阻断：第二步如果已经判成 `silent`，直接只开放 `stay_silent`
 - 保守阻断：`low + weak_but_real + no direct new cue`，强制压回 `stay_silent`
 
+## 记忆召回和公开搜索怎么分流
+
+当前规则不是“可能要说就先召回”。小腻必须先判断当前上下文缺口属于哪一类：
+
+- 当前上下文已经足够：直接进入说话、沉默、图任务等最终动作。
+- 私密、群内、关系连续性缺口：允许 `recall_long_term_learning`。
+- 公开事实、新鲜资料、官方页面或指定 URL：走 `web_search`，不是先查记忆。
+- 群里提到的东西在当前上下文没有来源，也不像公开事实：优先少猜。可以尝试记忆召回；多次不同策略仍空时，要承认没有这段记忆，必要时问群友“这是你们在哪聊的”。
+
+`recall_long_term_learning` 现在带 `query_strategy`，用于明确这次怎么查：
+
+```json
+{
+  "reason": "...",
+  "topic_hint": "...",
+  "query_strategy": "topic_primary | speaker_social_context | relationship_pattern",
+  "include_current_sender": true,
+  "desired_recall_count": 3
+}
+```
+
+如果召回为空，工程层最多允许再用不同 `query_strategy` 试两次。连续空召回耗尽后，会追加 system reminder，告诉小腻：
+
+- 没有找到这段记忆。
+- 不要继续反复召回，也不要编造它来自哪里。
+- 如果是公开信息，可以改用 `web_search`。
+- 如果像别的小群或旧聊天里的内容，可以自然问群友来源，或者保持沉默。
+
 ## “学到的分寸有关”这块，最近真实命中过吗
 
-命中过，但不多。
+命中过，但不多。下面这组是历史样本，用来解释 recall 不是常态步骤；新策略会进一步把公开信息缺口分流到 `web_search`。
 
 我查了 `253631878` 最近 7 天的 live 数据：
 
@@ -531,6 +582,7 @@ recall 的输入不是凭空来的，它至少吃三类东西：
 2. LLM 刚刚给出的 recall 请求
    - `reason`
    - `topic_hint`
+   - `query_strategy`
    - `include_current_sender`
    - `desired_recall_count`
 

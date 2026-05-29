@@ -12,7 +12,7 @@ QQ 里有人说话
   -> 看这个群/私聊是否允许她参与
   -> 读最近聊天和当前未读消息
   -> 形成对现场的理解和自己的第一反应
-  -> 召回过去学到的相处经验
+  -> 判断当前上下文是否足够，不足时再选择记忆召回或公开搜索
   -> 决定：沉默、搜索资料、或发言
   -> 如果发言，再发回 QQ
   -> 记录这次经历，供以后复盘和学习
@@ -38,7 +38,7 @@ QQ 群 / QQ 私聊
   +-- 看最近聊天
   +-- 看这次未读消息
   +-- 看自己的成长记录
-  +-- 召回相处经验
+  +-- 按上下文缺口选择记忆召回或公开搜索
   +-- 调用模型思考
   |
   v
@@ -89,9 +89,11 @@ QQ 群 / QQ 私聊
   +-- 可能需要出现
         |
         v
-      先召回相处经验
+      判断上下文缺口来源
         |
-        +-- 需要资料 -> 搜索或沉默
+        +-- 私密/关系/群内连续性 -> 召回相处经验
+        |
+        +-- 公开事实 -> 搜索或沉默
         |
         +-- 适合回应 -> 发言或沉默
 ```
@@ -115,8 +117,8 @@ QQ 群 / QQ 私聊
 ```text
 系统身份与行为约束
 
-developer message
-当前世界叙事、关系/信任层、现场状态、presence context
+developer message at index 1
+<world_narrative> 当前世界叙事
 
 role=user
 <INPUT_MESSAGE message_id="..." timestamp="..." sender="昵称(qq)" source="napcat">
@@ -132,6 +134,12 @@ role=assistant phase=commentary
 <小腻的OS>历史轮留下来的内部连续性</小腻的OS>
 <ACTION source="presence_tick">主动打开群看了一眼</ACTION>
 <system_reminder>本轮只需要处理指定的新入站消息</system_reminder>
+
+developer message near the end
+<current_relationship>关系/信任层</current_relationship>
+<current_scene>现场状态</current_scene>
+<小腻当前状态>presence context</小腻当前状态>
+<system_reminder>turn_state 动态提醒</system_reminder>
 ```
 
 业务上可以理解为：她看到的是一个按角色分开的现场回放。别人真实说的话是 `user`，她过去真正发出的话是 `assistant final_answer`，她自己的 OS、主动动作和工程边界提醒是 `assistant commentary`。
@@ -142,7 +150,7 @@ role=assistant phase=commentary
 
 ```text
 Prompt 名称：小腻主AGENT
-模型：gpt-5.4-mini
+模型：gpt-5.5
 Provider：codex
 ```
 
@@ -191,6 +199,7 @@ Provider：codex
 + 当前未读消息
 + 相关身份事实
 + 当前这批消息
++ 靠近末尾的当前关系、场景、小腻状态和可选 turn_state reminder
 + 当前阶段允许的工具
 ```
 
@@ -230,11 +239,11 @@ emit_inner_reaction
 |---|---|
 | `interest_level` | 兴趣强度：没有、低、中、高 |
 | `wants_to_know_more` | 是否真的想知道更多 |
-| `recalled_prior_pattern` | 她感觉这像不像以前遇到过的情况 |
-| `felt_direction` | 内在倾向：更想接、等、查、收住等 |
 | `reaction_authenticity` | 反应真实性：没有、轻微但真实、已经形成、只是顺手能接 |
 | `should_search` | 是否需要查资料 |
 | `preferred_action` | 倾向动作：发言、沉默、搜索 |
+| `context_gap` | 当前上下文是否足够，缺口是私有记忆、公开信息，还是群内来源不明 |
+| `gap_resolution` | 下一步应该不补、查记忆、web_search、问群友，还是先记忆再问/搜 |
 | `reason` | 为什么 |
 
 这里最重要的字段是 `reaction_authenticity`。如果只是“这句话好像能接一下”，会被标成 `empty_but_convenient`，它不等于真正想说。小腻必须区分“我真的有反应”和“我只是可以补一句”。
@@ -275,9 +284,16 @@ stay_silent
 
 “直接把她拉进来的新理由”必须是：有人明确对小腻说话，并且里面有新信息、问题、请求或反馈。否则，即使她有一点轻微反应，也不能为了显得活跃而开口。
 
-### 7. 如果可能要说或要查，先召回相处经验
+### 7. 如果上下文不够，先判断缺口来源
 
-只有当第二步倾向 `speak` 或 `search` 时，系统才允许：
+现在不是“可能要说或要查就先召回”。第二步会先给出 `context_gap` 和 `gap_resolution`：
+
+- `none`：当前上下文足够，直接进入最终动作。
+- `needs_private_memory` / `unclear_group_reference`：可能需要回看群内、关系或私密连续性，才允许召回。
+- `needs_public_info`：这是公开事实、新鲜资料、官方页面或指定 URL，直接走 `web_search`。
+- `current_context_insufficient`：上下文不足但来源不明，优先少猜；可以问群友来源，或者保持沉默。
+
+只有缺口确实属于私密、群内或关系连续性时，系统才允许：
 
 ```text
 recall_long_term_learning
@@ -289,6 +305,7 @@ recall_long_term_learning
 |---|---|
 | `reason` | 为什么这轮需要回看过去经验 |
 | `topic_hint` | 这次大概是什么话题或关系场景 |
+| `query_strategy` | 这次按什么策略查：`topic_primary`、`speaker_social_context` 或 `relationship_pattern` |
 | `include_current_sender` | 是否优先考虑当前发言人的相关经验 |
 | `desired_recall_count` | 想召回几条，最多 3 条 |
 
@@ -301,11 +318,13 @@ recall_long_term_learning
 置信度如何
 ```
 
+如果召回为空，系统最多允许换 `query_strategy` 再试两次。仍然没有结果时，会追加 reminder：小腻没有这段记忆，不要继续召回或编造来源；如果是公开信息就搜索，如果像别处聊过的内容就问群友，或者沉默。
+
 业务上，这一步的作用是校准：她不是每次都从零开始，而是在“这次真实反应”基础上，看过去有没有学过类似的分寸。
 
 ### 8. 最后才允许搜索、发言或沉默
 
-召回之后，系统才打开最后动作。
+经过缺口分流或召回之后，系统才打开最后动作。
 
 如果第二步倾向是 `search`，下一步只允许：
 
@@ -324,7 +343,7 @@ speak_in_group
 stay_silent
 ```
 
-她可以在召回后改变主意：说、先查，或者沉默。
+她可以在召回或搜索后改变主意：说、继续查，或者沉默。
 
 `speak_in_group` 会要求她给出：
 
@@ -349,7 +368,7 @@ stay_silent
 | 读最近聊天上下文 | 生效 | 她不是只看当前一句话。 |
 | 读当前未读消息批次 | 生效 | 会把连续几条新消息作为一个场面来看。 |
 | 保留 `<小腻的OS>` | 生效 | 这是她之前对自己状态和成长的连续记录。 |
-| 召回过去学到的相处经验 | 生效 | 说话前会先召回相关反馈和经验。 |
+| 召回过去学到的相处经验 | 有条件生效 | 只有当前上下文存在私密、群内或关系连续性缺口时才查。 |
 | 身份连续性 | 生效 | 已确认的身份事实会进入当前场景。 |
 | 搜索外部信息 | 有条件生效 | 只有当前阶段允许、且她判断需要资料时才会用。 |
 | 记录本次处理过程 | 生效 | 包括是否发言、用了什么工具、模型调用等。 |
