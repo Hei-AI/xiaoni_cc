@@ -424,7 +424,7 @@ test('buildCanonicalAgentTurnRequest goes directly to act-turn when inner reacti
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL]);
 });
 
-test('buildCanonicalAgentTurnRequest requires recall before search when inner reaction prefers search', () => {
+test('buildCanonicalAgentTurnRequest uses web search directly for public-info gaps', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({
     type: 'function_call',
@@ -441,17 +441,17 @@ test('buildCanonicalAgentTurnRequest requires recall before search when inner re
     type: 'function_call',
     call_id: 'call-reaction',
     name: INNER_REACTION_TOOL,
-    arguments: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"先查证","reaction_authenticity":"formed","should_search":true,"preferred_action":"search","reason":"需要外部信息"}'
+    arguments: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"先查证","reaction_authenticity":"formed","should_search":true,"preferred_action":"search","context_gap":"needs_public_info","gap_resolution":"web_search","reason":"需要外部信息"}'
   });
   loopInput.push({
     type: 'function_call_output',
     call_id: 'call-reaction',
-    output: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"先查证","reaction_authenticity":"formed","should_search":true,"preferred_action":"search","reason":"需要外部信息"}'
+    output: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"先查证","reaction_authenticity":"formed","should_search":true,"preferred_action":"search","context_gap":"needs_public_info","gap_resolution":"web_search","reason":"需要外部信息"}'
   });
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LONG_TERM_RECALL_TOOL]);
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, SILENT_FINISH_TOOL]);
 });
 
 test('buildCanonicalAgentTurnRequest allows speech after recall when inner reaction prefers speak', () => {
@@ -778,7 +778,7 @@ test('RUNTIME_INPUT_READING_CONTRACT contains new positive permission text and n
   assert.doesNotMatch(String(request.instructions), /后台链路/, 'do not introduce explicit system wording');
 });
 
-test('search and image_task paths still force recall before act-turn', () => {
+test('search path uses web search directly instead of private memory recall', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({ type: 'function_call', call_id: 'c1', name: UNREAD_MEANING_TOOL, arguments: '{"latest_unread_focus":"问了个需要查的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"需要搜索"}' });
   loopInput.push({ type: 'function_call_output', call_id: 'c1', output: '{"latest_unread_focus":"问了个需要查的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"需要搜索"}' });
@@ -786,7 +786,7 @@ test('search and image_task paths still force recall before act-turn', () => {
   loopInput.push({ type: 'function_call_output', call_id: 'c2', output: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"需要查资料","reaction_authenticity":"formed","should_search":true,"preferred_action":"search","reason":"需要搜索"}' });
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LONG_TERM_RECALL_TOOL]);
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, SILENT_FINISH_TOOL]);
 });
 
 test('executeAgentTurn sends the standard canonical request shape to provider-service', async () => {
@@ -3663,7 +3663,7 @@ test('deriveTurnControlState allows one memory recall when reaction wants more c
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [LONG_TERM_RECALL_TOOL]);
 });
 
-test('empty recall result appends a turn-control reminder and prevents repeated recall', () => {
+test('first empty recall result allows one changed-query retry', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({
     type: 'function_call',
@@ -3706,13 +3706,81 @@ test('empty recall result appends a turn-control reminder and prevents repeated 
 
   const reminder = continuation.inputItems.find((item) => getMessageContent(item).includes('recall_status="attempted_empty"'));
   assert.ok(reminder, 'empty recall should append a deterministic reminder');
-  assert.match(getMessageContent(reminder), /不要继续重复召回/);
+  assert.match(getMessageContent(reminder), /换一种检索方式/);
 
   const nextLoopInput = [...loopInput, {
     type: 'function_call' as const,
     call_id: 'call-recall',
     name: LONG_TERM_RECALL_TOOL,
     arguments: '{"reason":"需要想起之前关系里的说法","topic_hint":"旧事","include_current_sender":true,"desired_recall_count":2}'
+  }, ...continuation.inputItems];
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, nextLoopInput, 'group');
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LONG_TERM_RECALL_TOOL]);
+});
+
+test('second empty recall result appends exhausted-memory reminder and prevents repeated recall', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"群友提到一个当前窗口外的旧梗","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":true,"confidence":"high","reason":"当前上下文看不出来源"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"群友提到一个当前窗口外的旧梗","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":true,"confidence":"high","reason":"当前上下文看不出来源"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"medium","wants_to_know_more":true,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","context_gap":"unclear_group_reference","gap_resolution":"memory_then_ask_or_search","reason":"像是他们在别处聊过的内容"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"medium","wants_to_know_more":true,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","context_gap":"unclear_group_reference","gap_resolution":"memory_then_ask_or_search","reason":"像是他们在别处聊过的内容"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-recall-1',
+    name: LONG_TERM_RECALL_TOOL,
+    arguments: '{"reason":"先按旧梗查","topic_hint":"旧梗","include_current_sender":true,"desired_recall_count":2,"query_strategy":"topic_primary"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-recall-1',
+    output: '{"reason":"先按旧梗查","topic_hint":"旧梗","query_strategy":"topic_primary","query_text":"旧梗","items":[],"markdown_items":[]}'
+  });
+
+  const continuation = applyToolResultToLoopInput({
+    name: LONG_TERM_RECALL_TOOL,
+    callId: 'call-recall-2',
+    rawArguments: '{"reason":"换成发言者社交上下文查","topic_hint":"旧梗","include_current_sender":true,"desired_recall_count":2,"query_strategy":"speaker_social_context"}'
+  }, {
+    reason: '换成发言者社交上下文查',
+    topic_hint: '旧梗',
+    query_strategy: 'speaker_social_context',
+    query_text: '旧梗',
+    items: [],
+    markdown_items: []
+  }, {
+    loopInput,
+    speakingToolName: GROUP_REPLY_TOOL,
+    hasVisibleReply: false
+  });
+
+  const reminder = continuation.inputItems.find((item) => getMessageContent(item).includes('recall_status="attempted_empty"'));
+  assert.ok(reminder, 'second empty recall should append exhausted reminder');
+  assert.match(getMessageContent(reminder), /我没有找到这段长期记忆/);
+  assert.match(getMessageContent(reminder), /这是你们在哪聊的/);
+
+  const nextLoopInput = [...loopInput, {
+    type: 'function_call' as const,
+    call_id: 'call-recall-2',
+    name: LONG_TERM_RECALL_TOOL,
+    arguments: '{"reason":"换成发言者社交上下文查","topic_hint":"旧梗","include_current_sender":true,"desired_recall_count":2,"query_strategy":"speaker_social_context"}'
   }, ...continuation.inputItems];
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, nextLoopInput, 'group');
   assert.ok(!getAllowedToolNames(request.tool_choice).includes(LONG_TERM_RECALL_TOOL));
@@ -3726,9 +3794,13 @@ test('INNER_REACTION_TOOL schema does not declare recalled_prior_pattern or felt
   assert.ok(reactionTool, 'emit_inner_reaction tool must exist in initial turn');
   const schema = (reactionTool as any).function?.parameters ?? {};
   const props = schema?.properties ?? {};
+  assert.ok('context_gap' in props, 'context_gap must be declared in schema');
+  assert.ok('gap_resolution' in props, 'gap_resolution must be declared in schema');
   assert.ok(!('recalled_prior_pattern' in props), 'recalled_prior_pattern must be removed from schema');
   assert.ok(!('felt_direction' in props), 'felt_direction must be removed from schema');
   const required: string[] = schema?.required ?? [];
+  assert.ok(required.includes('context_gap'), 'context_gap must be required');
+  assert.ok(required.includes('gap_resolution'), 'gap_resolution must be required');
   assert.ok(!required.includes('recalled_prior_pattern'), 'recalled_prior_pattern must not be in required');
   assert.ok(!required.includes('felt_direction'), 'felt_direction must not be in required');
 });
@@ -3926,6 +3998,8 @@ test('recall_long_term_learning schema includes optional social_act_type_hint wi
   assert.ok(recallTool, 'recall_long_term_learning tool should exist');
   const props = recallTool?.function?.parameters?.properties ?? {};
   assert.ok('social_act_type_hint' in props, 'social_act_type_hint should be in schema properties');
+  assert.ok('query_strategy' in props, 'query_strategy should be in schema properties');
   const required = recallTool?.function?.parameters?.required ?? [];
   assert.ok(!required.includes('social_act_type_hint'), 'social_act_type_hint must NOT be required');
+  assert.ok(!required.includes('query_strategy'), 'query_strategy must NOT be required');
 });

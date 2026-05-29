@@ -40,6 +40,14 @@
 - GPT-5.5 更适合 outcome-first 表达：写清“这一轮什么算成功”和“什么时候收口”，不要把自然社交判断拆成过长流程。
 - 如果确实需要固定工具顺序，由 runtime 状态机和 `tool_choice.allowed_tools` 约束；prompt 只说明最终目标、边界和终态工具语义。
 
+## Memory And Search Routing
+
+- 当前上下文窗口、摘要、最近历史、图片观察和已有工具结果是第一信息源；这些足够时禁止为了“多想一点”调用长期记忆。
+- 长期记忆只解决私域、群内、关系连续性和当前窗口外的内部上下文缺口；公开事实、新鲜资料和互联网实体优先走 `web_search`。
+- 群聊内部梗、别的小群/私聊里可能发生过的内容不能猜。记忆检索达到上限仍为空时，要追加 runtime `system_reminder`：小腻没有这段记忆，不要继续召回，不要编造来源。
+- 空记忆允许有限重试，但必须换检索角度；当前默认两次：`topic_primary` 和 `speaker_social_context` / `relationship_pattern`。
+- 记忆耗尽后的收口由 runtime 放开最终动作：可以自然问群友“这是你们在哪聊的”，公开事实可搜索，没人找小腻时可以 `stay_silent`。
+
 ## Official References
 
 OpenAI / LLM 请求、提示词、agent 设计默认遵循以下官方资料：

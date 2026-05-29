@@ -137,12 +137,27 @@ type TurnControlExpectedNext =
   | 'emit_inner_reaction'
   | 'recall_long_term_learning'
   | 'final_tool';
+type InnerReactionContextGap =
+  | 'none'
+  | 'current_context_insufficient'
+  | 'needs_private_memory'
+  | 'needs_public_info'
+  | 'unclear_group_reference';
+type InnerReactionGapResolution =
+  | 'none'
+  | 'memory'
+  | 'web_search'
+  | 'ask_group'
+  | 'memory_then_ask_or_search';
+type LongTermRecallQueryStrategy = 'topic_primary' | 'speaker_social_context' | 'relationship_pattern';
 
 export type TurnControlState = {
   stage: TurnControlStage;
   targetFound: boolean;
   stateBias: TurnControlStateBias;
   recallStatus: TurnControlRecallStatus;
+  recallAttempts: number;
+  emptyRecallAttempts: number;
   expectedNext: TurnControlExpectedNext;
   reason: string;
 };
@@ -275,6 +290,8 @@ type InnerReaction = {
   reactionAuthenticity: 'none' | 'weak_but_real' | 'formed' | 'empty_but_convenient';
   shouldSearch: boolean;
   preferredAction: 'speak' | 'silent' | 'search' | 'image_task' | 'proactive';
+  contextGap: InnerReactionContextGap;
+  gapResolution: InnerReactionGapResolution;
   reason: string;
 };
 
@@ -283,6 +300,7 @@ type LongTermLearningRecall = {
   topicHint: string;
   includeCurrentSender: boolean;
   desiredRecallCount: number;
+  queryStrategy: LongTermRecallQueryStrategy;
   socialActTypeHint: UnreadMeaningSocialActType | null;
 };
 
@@ -385,6 +403,8 @@ const TOOL_NAMES = {
   groupReply: 'speak_in_group',
   silentFinish: 'stay_silent'
 } as const;
+
+const MAX_EMPTY_LONG_TERM_RECALL_ATTEMPTS = 2;
 
 const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
   type: 'web_search',
@@ -624,17 +644,28 @@ const INNER_REACTION_TOOL = {
           enum: ['none', 'weak_but_real', 'formed', 'empty_but_convenient']
         },
         should_search: {
-          type: 'boolean'
+          type: 'boolean',
+          description: '只有当前上下文不足且缺口属于公开信息时才为 true；不要因为想多看一点就置 true。'
         },
         preferred_action: {
           type: 'string',
           enum: ['speak', 'silent', 'search', 'image_task', 'proactive']
         },
+        context_gap: {
+          type: 'string',
+          enum: ['none', 'current_context_insufficient', 'needs_private_memory', 'needs_public_info', 'unclear_group_reference'],
+          description: '当前上下文窗口是否足够判断。none=当前上下文足够；needs_private_memory=需要小腻长期记忆/关系连续性；needs_public_info=需要公开互联网事实；unclear_group_reference=群友在说一段当前窗口看不到、可能来自别处的内部上下文。'
+        },
+        gap_resolution: {
+          type: 'string',
+          enum: ['none', 'memory', 'web_search', 'ask_group', 'memory_then_ask_or_search'],
+          description: '如果有信息缺口，下一步最合适的信息来源。群聊内部梗或别的小群内容优先 memory；记忆找不到后可以 ask_group。公开实体/新鲜事实用 web_search。'
+        },
         reason: {
           type: 'string'
         }
       },
-      required: ['interest_level', 'wants_to_know_more', 'reaction_authenticity', 'should_search', 'preferred_action', 'reason'],
+      required: ['interest_level', 'wants_to_know_more', 'reaction_authenticity', 'should_search', 'preferred_action', 'context_gap', 'gap_resolution', 'reason'],
       additionalProperties: false
     }
   }
@@ -665,6 +696,11 @@ const LONG_TERM_RECALL_TOOL = {
         social_act_type_hint: {
           type: 'string',
           enum: ['invitation_curiosity', 'emotional_release', 'relationship_probe', 'concrete_request', 'yes_no_reaction', 'casual_remark']
+        },
+        query_strategy: {
+          type: 'string',
+          enum: ['topic_primary', 'speaker_social_context', 'relationship_pattern'],
+          description: '本次记忆检索策略。第一次通常用 topic_primary；如果空结果后再次检索，换成 speaker_social_context 或 relationship_pattern，不要重复同一问法。'
         }
       },
       required: ['reason', 'topic_hint', 'include_current_sender', 'desired_recall_count'],
@@ -797,8 +833,8 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '',
   '这一轮顺序：',
   '先搞清楚最新未读在说什么，用 emit_unread_meaning。',
-  '再感觉一下这些消息在你这里有没有真实反应，用 emit_inner_reaction。',
-  '如果感觉和以前的经历有关，才用 recall_long_term_learning 查一下。',
+  '再感觉一下这些消息在你这里有没有真实反应、当前上下文是否足够，用 emit_inner_reaction。',
+  '只有当前上下文窗口、摘要、最近历史和已给出的工具结果都无法补足私域/群内/关系连续性缺口时，才用 recall_long_term_learning。',
   '最后通过工具完成这一轮——说话、沉默、查资料还是做图。',
   '',
   '工具阶段：',
@@ -821,7 +857,8 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '不要主动说你现在会哪些能力。',
   '',
   'web_search 是求知，不是默认步骤，也不是表演认真。',
-  '只有真的需要新鲜公开信息时才查，查到够用就停，查完还是你自己决定说不说。'
+  '只有真的需要新鲜公开信息时才查，查到够用就停，查完还是你自己决定说不说。',
+  '群友在说当前窗口外的内部上下文时不要猜；记忆找不到就承认没有这段记忆，必要时问一句“这是你们在哪聊的”。'
 ].join('\n');
 
 const RUNTIME_HISTORY_READING_DEVELOPER_CONTEXT = [
@@ -957,6 +994,35 @@ function isRecallResultEmpty(toolResult: Record<string, unknown>) {
   return items.length === 0 && markdownItems.length === 0;
 }
 
+function getLongTermRecallResults(loopInput: OpenResponseInputItem[]) {
+  const recallCallIds = new Set<string>();
+  for (const item of loopInput) {
+    if (item.type === 'function_call' && item.name === TOOL_NAMES.longTermRecall) {
+      recallCallIds.add(item.call_id);
+    }
+  }
+
+  const results: Record<string, unknown>[] = [];
+  for (const item of loopInput) {
+    if (item.type !== 'function_call_output' || !recallCallIds.has(item.call_id)) {
+      continue;
+    }
+    const parsed = parseReplayJsonObject(item.output);
+    if (parsed) {
+      results.push(parsed);
+    }
+  }
+  return results;
+}
+
+function countEmptyLongTermRecallResults(loopInput: OpenResponseInputItem[]) {
+  return getLongTermRecallResults(loopInput).filter(isRecallResultEmpty).length;
+}
+
+function hasLongTermRecallHit(loopInput: OpenResponseInputItem[]) {
+  return getLongTermRecallResults(loopInput).some((result) => !isRecallResultEmpty(result));
+}
+
 function hasDirectNewCue(meaning: UnreadMeaning | null) {
   if (!meaning?.addressedToMe && meaning?.socialTarget !== 'me') {
     return false;
@@ -1005,12 +1071,16 @@ function extractStateBiasFromLoopInput(loopInput: OpenResponseInputItem[]): Turn
 
 export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): TurnControlState {
   const stateBias = extractStateBiasFromLoopInput(loopInput);
+  const recallAttempts = getLongTermRecallResults(loopInput).length;
+  const emptyRecallAttempts = countEmptyLongTermRecallResults(loopInput);
   if (!hasUnreadMeaningReplay(loopInput)) {
     return {
       stage: 'read_unread',
       targetFound: false,
       stateBias,
       recallStatus: 'not_needed',
+      recallAttempts,
+      emptyRecallAttempts,
       expectedNext: TOOL_NAMES.unreadMeaning,
       reason: '还没有整理当前未读消息。'
     };
@@ -1024,6 +1094,8 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
       targetFound,
       stateBias,
       recallStatus: 'not_needed',
+      recallAttempts,
+      emptyRecallAttempts,
       expectedNext: TOOL_NAMES.innerReaction,
       reason: targetFound
         ? '当前未读里有可回应目标，下一步判断真实反应。'
@@ -1036,23 +1108,29 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
   const recallStatus: TurnControlRecallStatus = recallResult
     ? isRecallResultEmpty(recallResult) ? 'attempted_empty' : 'attempted_hit'
     : shouldAllowRecall(loopInput, reaction, meaning) ? 'allowed' : 'not_needed';
-  if (recallStatus === 'allowed') {
+  if (recallStatus === 'allowed' || (recallStatus === 'attempted_empty' && shouldAllowRecall(loopInput, reaction, meaning))) {
     return {
       stage: 'maybe_recall',
       targetFound,
       stateBias,
       recallStatus,
+      recallAttempts,
+      emptyRecallAttempts,
       expectedNext: TOOL_NAMES.longTermRecall,
-      reason: '当前反应需要一点长期记忆校准。'
+      reason: emptyRecallAttempts > 0
+        ? '长期记忆第一次没找到，允许换一种检索方式再试一次。'
+        : '当前反应需要一点长期记忆校准。'
     };
   }
 
-  if (reaction?.preferredAction === 'search' || reaction?.preferredAction === 'image_task') {
+  if (reaction?.preferredAction === 'search' || reaction?.preferredAction === 'image_task' || reaction?.gapResolution === 'web_search') {
     return {
       stage: 'maybe_search_or_inspect',
       targetFound,
       stateBias,
       recallStatus,
+      recallAttempts,
+      emptyRecallAttempts,
       expectedNext: 'final_tool',
       reason: '长期记忆阶段已经结束，下一步只做必要的搜索、看图、做图或沉默。'
     };
@@ -1063,19 +1141,24 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
     targetFound,
     stateBias,
     recallStatus,
+    recallAttempts,
+    emptyRecallAttempts,
     expectedNext: 'final_tool',
     reason: '本轮已经完成现场理解和内在反应判断，应进入最终动作。'
   };
 }
 
 function shouldAllowRecall(loopInput: OpenResponseInputItem[], reaction: InnerReaction | null, meaning: UnreadMeaning | null) {
-  if (!reaction || hasLongTermRecallReplay(loopInput)) {
+  if (!reaction || hasLongTermRecallHit(loopInput) || countEmptyLongTermRecallResults(loopInput) >= MAX_EMPTY_LONG_TERM_RECALL_ATTEMPTS) {
     return false;
   }
-  if (reaction.preferredAction === 'search' || reaction.preferredAction === 'image_task') {
+  if (reaction.gapResolution === 'memory' || reaction.gapResolution === 'memory_then_ask_or_search') {
     return true;
   }
-  if (reaction.shouldSearch || reaction.wantsToKnowMore) {
+  if (reaction.contextGap === 'needs_private_memory' || reaction.contextGap === 'unclear_group_reference') {
+    return true;
+  }
+  if (reaction.wantsToKnowMore && !reaction.shouldSearch && meaning?.addressedToMe) {
     return true;
   }
   return false;
@@ -1903,10 +1986,15 @@ export function buildTurnControlReminder(turnControl: TurnControlState): OpenRes
     lines.push('当前未读没有明确找小腻，也没有稳定的新目标；下一步只确认是否真的有反应，不要为了接话而制造目标。');
   }
   if (turnControl.stage === 'maybe_recall') {
-    lines.push('当前反应需要长期记忆校准；只召回一次，召回后按结果进入最终动作。');
+    lines.push(turnControl.emptyRecallAttempts > 0
+      ? '长期记忆上一次没有找到；如果确实仍需要这段私域/群内上下文，可以换一种检索方式再召回一次，不要重复同一问法。'
+      : '当前反应需要长期记忆校准；先查小腻自己的长期记忆，不要从当前上下文之外猜群友在哪里聊过。');
   }
-  if (turnControl.recallStatus === 'attempted_empty') {
-    lines.push('长期记忆没有找到足以改变本轮判断的内容。不要继续重复召回；按当前 QQ 现场决定说话或 stay_silent。');
+  if (turnControl.recallStatus === 'attempted_empty' && turnControl.emptyRecallAttempts >= MAX_EMPTY_LONG_TERM_RECALL_ATTEMPTS) {
+    lines.push('我没有找到这段长期记忆。不要继续重复召回，也不要编造他们在哪里聊过。');
+    lines.push('如果这像是群友在别的小群、私聊或更早上下文里聊过的内容，可以自然问一句“这是你们在哪聊的”；如果它是公开事实且当前确实需要知道，可以用 web_search；如果没人找我，stay_silent 是有效收口。');
+  } else if (turnControl.recallStatus === 'attempted_empty') {
+    lines.push('长期记忆这次没有找到；只有在换检索角度可能有帮助时才再试一次。');
   }
   if (turnControl.stateBias === 'low_energy' && turnControl.stage === 'finalize') {
     lines.push('当前状态偏低，弱反应不要升级成发言；如果没有清楚目标或成形反应，stay_silent 是有效收口。');
@@ -2496,6 +2584,8 @@ function parseInnerReaction(value: unknown): InnerReaction | null {
   const rawReactionAuthenticity = record.reaction_authenticity ?? record.reactionAuthenticity;
   const shouldSearch = parseOptionalBoolean(record.should_search ?? record.shouldSearch);
   const rawPreferredAction = record.preferred_action ?? record.preferredAction;
+  const rawContextGap = record.context_gap ?? record.contextGap;
+  const rawGapResolution = record.gap_resolution ?? record.gapResolution;
   const rawReason = record.reason;
   const interestLevel = rawInterestLevel === 'none'
     || rawInterestLevel === 'low'
@@ -2516,11 +2606,37 @@ function parseInnerReaction(value: unknown): InnerReaction | null {
     || rawPreferredAction === 'proactive'
     ? rawPreferredAction
     : null;
+  const explicitContextGap: InnerReactionContextGap | null = rawContextGap === 'none'
+    || rawContextGap === 'current_context_insufficient'
+    || rawContextGap === 'needs_private_memory'
+    || rawContextGap === 'needs_public_info'
+    || rawContextGap === 'unclear_group_reference'
+    ? rawContextGap
+    : null;
+  const explicitGapResolution: InnerReactionGapResolution | null = rawGapResolution === 'none'
+    || rawGapResolution === 'memory'
+    || rawGapResolution === 'web_search'
+    || rawGapResolution === 'ask_group'
+    || rawGapResolution === 'memory_then_ask_or_search'
+    ? rawGapResolution
+    : null;
   const reason = typeof rawReason === 'string' ? rawReason.trim() : '';
 
   if (!interestLevel || wantsToKnowMore === null || !reactionAuthenticity || shouldSearch === null || !preferredAction || !reason) {
     return null;
   }
+  const inferredContextGap: InnerReactionContextGap = explicitContextGap
+    || (shouldSearch || preferredAction === 'search'
+      ? 'needs_public_info'
+      : wantsToKnowMore
+      ? 'needs_private_memory'
+      : 'none');
+  const inferredGapResolution: InnerReactionGapResolution = explicitGapResolution
+    || (inferredContextGap === 'needs_public_info'
+      ? 'web_search'
+      : inferredContextGap === 'needs_private_memory' || inferredContextGap === 'unclear_group_reference'
+      ? 'memory'
+      : 'none');
 
   return {
     interestLevel,
@@ -2528,6 +2644,8 @@ function parseInnerReaction(value: unknown): InnerReaction | null {
     reactionAuthenticity,
     shouldSearch,
     preferredAction,
+    contextGap: inferredContextGap,
+    gapResolution: inferredGapResolution,
     reason
   };
 }
@@ -2557,12 +2675,19 @@ function parseLongTermLearningRecall(value: unknown): LongTermLearningRecall | n
   const socialActTypeHint: UnreadMeaningSocialActType | null = socialActTypeValues.includes(rawHint as UnreadMeaningSocialActType)
     ? (rawHint as UnreadMeaningSocialActType)
     : null;
+  const rawQueryStrategy = record.query_strategy ?? record.queryStrategy;
+  const queryStrategy: LongTermRecallQueryStrategy = rawQueryStrategy === 'speaker_social_context'
+    || rawQueryStrategy === 'relationship_pattern'
+    || rawQueryStrategy === 'topic_primary'
+    ? rawQueryStrategy
+    : 'topic_primary';
 
   return {
     reason,
     topicHint,
     includeCurrentSender,
     desiredRecallCount: Math.max(1, Math.min(desiredRecallCount, 3)),
+    queryStrategy,
     socialActTypeHint
   };
 }
@@ -2807,11 +2932,29 @@ function resolveRecentRelatedUserIds(queueMessage: QueueMessageRecord['payload']
   return recentUserIds;
 }
 
-function buildLongTermRecallQuery(queueMessage: QueueMessageRecord['payload'], topicHint: string, reason: string) {
-  return [
+function buildLongTermRecallQuery(
+  queueMessage: QueueMessageRecord['payload'],
+  topicHint: string,
+  reason: string,
+  queryStrategy: LongTermRecallQueryStrategy = 'topic_primary'
+) {
+  const senderNames = queueMessage.messages
+    .map((message) => message.senderName || message.senderId || '')
+    .filter(Boolean)
+    .join(' ');
+  const messageText = [
     ...queueMessage.messages.map((message) => message.bodyForAgent || ''),
     queueMessage.bodyForAgent || '',
-    typeof queueMessage.inboundContext?.ReplyToBody === 'string' ? queueMessage.inboundContext.ReplyToBody : '',
+    typeof queueMessage.inboundContext?.ReplyToBody === 'string' ? queueMessage.inboundContext.ReplyToBody : ''
+  ].join('\n');
+  const strategyText = queryStrategy === 'speaker_social_context'
+    ? `检索角度：当前发言者/相关群友的过往社交语境。相关人：${senderNames}`
+    : queryStrategy === 'relationship_pattern'
+    ? `检索角度：小腻和当前发言者或群聊形成过的关系模式、反馈或约定。相关人：${senderNames}`
+    : '检索角度：当前话题、梗或关键词。';
+  return [
+    strategyText,
+    messageText,
     topicHint,
     reason
   ]
@@ -4814,6 +4957,8 @@ export class AgentLoopService {
           reaction_authenticity: reaction.reactionAuthenticity,
           should_search: reaction.shouldSearch,
           preferred_action: reaction.preferredAction,
+          context_gap: reaction.contextGap,
+          gap_resolution: reaction.gapResolution,
           reason: reaction.reason
         };
       }
@@ -4829,13 +4974,14 @@ export class AgentLoopService {
           return {
             reason: recall.reason,
             topic_hint: recall.topicHint,
-            query_text: buildLongTermRecallQuery(queueMessage, recall.topicHint, recall.reason),
+            query_strategy: recall.queryStrategy,
+            query_text: buildLongTermRecallQuery(queueMessage, recall.topicHint, recall.reason, recall.queryStrategy),
             items: [],
             markdown_items: []
           };
         }
 
-        const queryText = buildLongTermRecallQuery(queueMessage, recall.topicHint, recall.reason);
+        const queryText = buildLongTermRecallQuery(queueMessage, recall.topicHint, recall.reason, recall.queryStrategy);
         const reflections = await reflectionLoader.call(this.store, {
           sessionKey: queueMessage.sessionKey,
           groupId: Number.isFinite(Number(queueMessage.peerId)) ? Number(queueMessage.peerId) : null,
@@ -4849,6 +4995,7 @@ export class AgentLoopService {
         return {
           reason: recall.reason,
           topic_hint: recall.topicHint,
+          query_strategy: recall.queryStrategy,
           query_text: queryText,
           items: reflections.map((reflection, index) => ({
             id: reflection.id,
