@@ -289,38 +289,17 @@ stay_silent
 现在不是“可能要说或要查就先召回”。第二步会先给出 `context_gap` 和 `gap_resolution`：
 
 - `none`：当前上下文足够，直接进入最终动作。
-- `needs_private_memory` / `unclear_group_reference`：可能需要回看群内、关系或私密连续性，才允许召回。
+- `needs_private_memory` / `unclear_group_reference`：当前主 loop 不再调用 pre-reply recall；后续由 typed recall projection 提前把相关长期记忆投进上下文。没投进来时要少猜，必要时问群友来源。
 - `needs_public_info`：这是公开事实、新鲜资料、官方页面或指定 URL，直接走 `web_search`。
 - `current_context_insufficient`：上下文不足但来源不明，优先少猜；可以问群友来源，或者保持沉默。
 
-只有缺口确实属于私密、群内或关系连续性时，系统才允许：
+长期记忆由上下文压缩触发的三层 writer 生成：
 
-```text
-recall_long_term_learning
-```
+- `agent_memory_observations`：episodic，保留具体发生过什么。
+- `agent_memory_assertions`：semantic，保留客观事实、状态、计划、claim。
+- `agent_memory_reflections`：reflection，至少两条 observation 支撑的长期模式。
 
-这一步不是让模型重新幻想经验，而是从已经沉淀的反馈经验里取少量相关内容。调用时会带这些字段：
-
-| 字段 | 业务含义 |
-|---|---|
-| `reason` | 为什么这轮需要回看过去经验 |
-| `topic_hint` | 这次大概是什么话题或关系场景 |
-| `query_strategy` | 这次按什么策略查：`topic_primary`、`speaker_social_context` 或 `relationship_pattern` |
-| `include_current_sender` | 是否优先考虑当前发言人的相关经验 |
-| `desired_recall_count` | 想召回几条，最多 3 条 |
-
-召回结果来自过去完成的对话后沉淀出的反馈经验。它会返回类似这些信息：
-
-```text
-这条经验是什么
-来自哪类反馈
-为什么这轮被召回
-置信度如何
-```
-
-如果召回为空，系统最多允许换 `query_strategy` 再试两次。仍然没有结果时，会追加 reminder：小腻没有这段记忆，不要继续召回或编造来源；如果是公开信息就搜索，如果像别处聊过的内容就问群友，或者沉默。
-
-业务上，这一步的作用是校准：她不是每次都从零开始，而是在“这次真实反应”基础上，看过去有没有学过类似的分寸。
+业务上，这一步的作用是让未来 runtime context 能按问题类型拿到合适记忆，而不是在当前回合临时让模型决定要不要召回。
 
 ### 8. 最后才允许搜索、发言或沉默
 

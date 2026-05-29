@@ -154,6 +154,21 @@ export type AgentFeedbackReflection = $Result.DefaultSelection<Prisma.$AgentFeed
  */
 export type AgentFeedbackLearningState = $Result.DefaultSelection<Prisma.$AgentFeedbackLearningStatePayload>
 /**
+ * Model AgentMemoryObservation
+ * 
+ */
+export type AgentMemoryObservation = $Result.DefaultSelection<Prisma.$AgentMemoryObservationPayload>
+/**
+ * Model AgentMemoryAssertion
+ * 
+ */
+export type AgentMemoryAssertion = $Result.DefaultSelection<Prisma.$AgentMemoryAssertionPayload>
+/**
+ * Model AgentMemoryReflection
+ * 
+ */
+export type AgentMemoryReflection = $Result.DefaultSelection<Prisma.$AgentMemoryReflectionPayload>
+/**
  * Model XiaoniIdentityRoot
  * 
  */
@@ -616,6 +631,36 @@ export class PrismaClient<
     * ```
     */
   get agentFeedbackLearningState(): Prisma.AgentFeedbackLearningStateDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.agentMemoryObservation`: Exposes CRUD operations for the **AgentMemoryObservation** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AgentMemoryObservations
+    * const agentMemoryObservations = await prisma.agentMemoryObservation.findMany()
+    * ```
+    */
+  get agentMemoryObservation(): Prisma.AgentMemoryObservationDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.agentMemoryAssertion`: Exposes CRUD operations for the **AgentMemoryAssertion** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AgentMemoryAssertions
+    * const agentMemoryAssertions = await prisma.agentMemoryAssertion.findMany()
+    * ```
+    */
+  get agentMemoryAssertion(): Prisma.AgentMemoryAssertionDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.agentMemoryReflection`: Exposes CRUD operations for the **AgentMemoryReflection** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AgentMemoryReflections
+    * const agentMemoryReflections = await prisma.agentMemoryReflection.findMany()
+    * ```
+    */
+  get agentMemoryReflection(): Prisma.AgentMemoryReflectionDelegate<ExtArgs, ClientOptions>;
 
   /**
    * `prisma.xiaoniIdentityRoot`: Exposes CRUD operations for the **XiaoniIdentityRoot** model.
@@ -1215,6 +1260,9 @@ export namespace Prisma {
     AgentFeedbackEpisode: 'AgentFeedbackEpisode',
     AgentFeedbackReflection: 'AgentFeedbackReflection',
     AgentFeedbackLearningState: 'AgentFeedbackLearningState',
+    AgentMemoryObservation: 'AgentMemoryObservation',
+    AgentMemoryAssertion: 'AgentMemoryAssertion',
+    AgentMemoryReflection: 'AgentMemoryReflection',
     XiaoniIdentityRoot: 'XiaoniIdentityRoot',
     IdentityLineageEvent: 'IdentityLineageEvent',
     IdentityChangeCandidate: 'IdentityChangeCandidate',
@@ -1246,7 +1294,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "agentQueueMessage" | "agentSessionLifeState" | "agentSessionGroupState" | "agentSharePoolItem" | "agentShareItemUsage" | "agentPresenceStateSidecar" | "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
+      modelProps: "agentQueueMessage" | "agentSessionLifeState" | "agentSessionGroupState" | "agentSharePoolItem" | "agentShareItemUsage" | "agentPresenceStateSidecar" | "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "agentMemoryObservation" | "agentMemoryAssertion" | "agentMemoryReflection" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -3322,6 +3370,228 @@ export namespace Prisma {
           }
         }
       }
+      AgentMemoryObservation: {
+        payload: Prisma.$AgentMemoryObservationPayload<ExtArgs>
+        fields: Prisma.AgentMemoryObservationFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AgentMemoryObservationFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryObservationPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AgentMemoryObservationFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryObservationPayload>
+          }
+          findFirst: {
+            args: Prisma.AgentMemoryObservationFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryObservationPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AgentMemoryObservationFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryObservationPayload>
+          }
+          findMany: {
+            args: Prisma.AgentMemoryObservationFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryObservationPayload>[]
+          }
+          create: {
+            args: Prisma.AgentMemoryObservationCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryObservationPayload>
+          }
+          createMany: {
+            args: Prisma.AgentMemoryObservationCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AgentMemoryObservationCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryObservationPayload>[]
+          }
+          delete: {
+            args: Prisma.AgentMemoryObservationDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryObservationPayload>
+          }
+          update: {
+            args: Prisma.AgentMemoryObservationUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryObservationPayload>
+          }
+          deleteMany: {
+            args: Prisma.AgentMemoryObservationDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AgentMemoryObservationUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AgentMemoryObservationUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryObservationPayload>[]
+          }
+          upsert: {
+            args: Prisma.AgentMemoryObservationUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryObservationPayload>
+          }
+          aggregate: {
+            args: Prisma.AgentMemoryObservationAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAgentMemoryObservation>
+          }
+          groupBy: {
+            args: Prisma.AgentMemoryObservationGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AgentMemoryObservationGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AgentMemoryObservationCountArgs<ExtArgs>
+            result: $Utils.Optional<AgentMemoryObservationCountAggregateOutputType> | number
+          }
+        }
+      }
+      AgentMemoryAssertion: {
+        payload: Prisma.$AgentMemoryAssertionPayload<ExtArgs>
+        fields: Prisma.AgentMemoryAssertionFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AgentMemoryAssertionFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryAssertionPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AgentMemoryAssertionFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryAssertionPayload>
+          }
+          findFirst: {
+            args: Prisma.AgentMemoryAssertionFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryAssertionPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AgentMemoryAssertionFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryAssertionPayload>
+          }
+          findMany: {
+            args: Prisma.AgentMemoryAssertionFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryAssertionPayload>[]
+          }
+          create: {
+            args: Prisma.AgentMemoryAssertionCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryAssertionPayload>
+          }
+          createMany: {
+            args: Prisma.AgentMemoryAssertionCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AgentMemoryAssertionCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryAssertionPayload>[]
+          }
+          delete: {
+            args: Prisma.AgentMemoryAssertionDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryAssertionPayload>
+          }
+          update: {
+            args: Prisma.AgentMemoryAssertionUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryAssertionPayload>
+          }
+          deleteMany: {
+            args: Prisma.AgentMemoryAssertionDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AgentMemoryAssertionUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AgentMemoryAssertionUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryAssertionPayload>[]
+          }
+          upsert: {
+            args: Prisma.AgentMemoryAssertionUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryAssertionPayload>
+          }
+          aggregate: {
+            args: Prisma.AgentMemoryAssertionAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAgentMemoryAssertion>
+          }
+          groupBy: {
+            args: Prisma.AgentMemoryAssertionGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AgentMemoryAssertionGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AgentMemoryAssertionCountArgs<ExtArgs>
+            result: $Utils.Optional<AgentMemoryAssertionCountAggregateOutputType> | number
+          }
+        }
+      }
+      AgentMemoryReflection: {
+        payload: Prisma.$AgentMemoryReflectionPayload<ExtArgs>
+        fields: Prisma.AgentMemoryReflectionFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AgentMemoryReflectionFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryReflectionPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AgentMemoryReflectionFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryReflectionPayload>
+          }
+          findFirst: {
+            args: Prisma.AgentMemoryReflectionFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryReflectionPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AgentMemoryReflectionFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryReflectionPayload>
+          }
+          findMany: {
+            args: Prisma.AgentMemoryReflectionFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryReflectionPayload>[]
+          }
+          create: {
+            args: Prisma.AgentMemoryReflectionCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryReflectionPayload>
+          }
+          createMany: {
+            args: Prisma.AgentMemoryReflectionCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AgentMemoryReflectionCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryReflectionPayload>[]
+          }
+          delete: {
+            args: Prisma.AgentMemoryReflectionDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryReflectionPayload>
+          }
+          update: {
+            args: Prisma.AgentMemoryReflectionUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryReflectionPayload>
+          }
+          deleteMany: {
+            args: Prisma.AgentMemoryReflectionDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AgentMemoryReflectionUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AgentMemoryReflectionUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryReflectionPayload>[]
+          }
+          upsert: {
+            args: Prisma.AgentMemoryReflectionUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentMemoryReflectionPayload>
+          }
+          aggregate: {
+            args: Prisma.AgentMemoryReflectionAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAgentMemoryReflection>
+          }
+          groupBy: {
+            args: Prisma.AgentMemoryReflectionGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AgentMemoryReflectionGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AgentMemoryReflectionCountArgs<ExtArgs>
+            result: $Utils.Optional<AgentMemoryReflectionCountAggregateOutputType> | number
+          }
+        }
+      }
       XiaoniIdentityRoot: {
         payload: Prisma.$XiaoniIdentityRootPayload<ExtArgs>
         fields: Prisma.XiaoniIdentityRootFieldRefs
@@ -4408,6 +4678,9 @@ export namespace Prisma {
     agentFeedbackEpisode?: AgentFeedbackEpisodeOmit
     agentFeedbackReflection?: AgentFeedbackReflectionOmit
     agentFeedbackLearningState?: AgentFeedbackLearningStateOmit
+    agentMemoryObservation?: AgentMemoryObservationOmit
+    agentMemoryAssertion?: AgentMemoryAssertionOmit
+    agentMemoryReflection?: AgentMemoryReflectionOmit
     xiaoniIdentityRoot?: XiaoniIdentityRootOmit
     identityLineageEvent?: IdentityLineageEventOmit
     identityChangeCandidate?: IdentityChangeCandidateOmit
@@ -38887,6 +39160,3554 @@ export namespace Prisma {
 
 
   /**
+   * Model AgentMemoryObservation
+   */
+
+  export type AggregateAgentMemoryObservation = {
+    _count: AgentMemoryObservationCountAggregateOutputType | null
+    _avg: AgentMemoryObservationAvgAggregateOutputType | null
+    _sum: AgentMemoryObservationSumAggregateOutputType | null
+    _min: AgentMemoryObservationMinAggregateOutputType | null
+    _max: AgentMemoryObservationMaxAggregateOutputType | null
+  }
+
+  export type AgentMemoryObservationAvgAggregateOutputType = {
+    id: number | null
+    group_id: number | null
+    source_conversation_id: number | null
+    poignancy: number | null
+  }
+
+  export type AgentMemoryObservationSumAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    source_conversation_id: bigint | null
+    poignancy: number | null
+  }
+
+  export type AgentMemoryObservationMinAggregateOutputType = {
+    id: bigint | null
+    session_key: string | null
+    group_id: bigint | null
+    source_conversation_id: bigint | null
+    topic: string | null
+    text: string | null
+    poignancy: number | null
+    xiaoni_role: string | null
+    source_trace_id: string | null
+    source_run_id: string | null
+    writer_model: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AgentMemoryObservationMaxAggregateOutputType = {
+    id: bigint | null
+    session_key: string | null
+    group_id: bigint | null
+    source_conversation_id: bigint | null
+    topic: string | null
+    text: string | null
+    poignancy: number | null
+    xiaoni_role: string | null
+    source_trace_id: string | null
+    source_run_id: string | null
+    writer_model: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AgentMemoryObservationCountAggregateOutputType = {
+    id: number
+    session_key: number
+    group_id: number
+    source_conversation_id: number
+    source_turn_ids: number
+    source_message_ids: number
+    topic: number
+    text: number
+    poignancy: number
+    participants: number
+    xiaoni_role: number
+    source_trace_id: number
+    source_run_id: number
+    writer_model: number
+    metadata: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type AgentMemoryObservationAvgAggregateInputType = {
+    id?: true
+    group_id?: true
+    source_conversation_id?: true
+    poignancy?: true
+  }
+
+  export type AgentMemoryObservationSumAggregateInputType = {
+    id?: true
+    group_id?: true
+    source_conversation_id?: true
+    poignancy?: true
+  }
+
+  export type AgentMemoryObservationMinAggregateInputType = {
+    id?: true
+    session_key?: true
+    group_id?: true
+    source_conversation_id?: true
+    topic?: true
+    text?: true
+    poignancy?: true
+    xiaoni_role?: true
+    source_trace_id?: true
+    source_run_id?: true
+    writer_model?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AgentMemoryObservationMaxAggregateInputType = {
+    id?: true
+    session_key?: true
+    group_id?: true
+    source_conversation_id?: true
+    topic?: true
+    text?: true
+    poignancy?: true
+    xiaoni_role?: true
+    source_trace_id?: true
+    source_run_id?: true
+    writer_model?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AgentMemoryObservationCountAggregateInputType = {
+    id?: true
+    session_key?: true
+    group_id?: true
+    source_conversation_id?: true
+    source_turn_ids?: true
+    source_message_ids?: true
+    topic?: true
+    text?: true
+    poignancy?: true
+    participants?: true
+    xiaoni_role?: true
+    source_trace_id?: true
+    source_run_id?: true
+    writer_model?: true
+    metadata?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type AgentMemoryObservationAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentMemoryObservation to aggregate.
+     */
+    where?: AgentMemoryObservationWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMemoryObservations to fetch.
+     */
+    orderBy?: AgentMemoryObservationOrderByWithRelationInput | AgentMemoryObservationOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: AgentMemoryObservationWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMemoryObservations from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMemoryObservations.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned AgentMemoryObservations
+    **/
+    _count?: true | AgentMemoryObservationCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: AgentMemoryObservationAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: AgentMemoryObservationSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: AgentMemoryObservationMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: AgentMemoryObservationMaxAggregateInputType
+  }
+
+  export type GetAgentMemoryObservationAggregateType<T extends AgentMemoryObservationAggregateArgs> = {
+        [P in keyof T & keyof AggregateAgentMemoryObservation]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAgentMemoryObservation[P]>
+      : GetScalarType<T[P], AggregateAgentMemoryObservation[P]>
+  }
+
+
+
+
+  export type AgentMemoryObservationGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AgentMemoryObservationWhereInput
+    orderBy?: AgentMemoryObservationOrderByWithAggregationInput | AgentMemoryObservationOrderByWithAggregationInput[]
+    by: AgentMemoryObservationScalarFieldEnum[] | AgentMemoryObservationScalarFieldEnum
+    having?: AgentMemoryObservationScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AgentMemoryObservationCountAggregateInputType | true
+    _avg?: AgentMemoryObservationAvgAggregateInputType
+    _sum?: AgentMemoryObservationSumAggregateInputType
+    _min?: AgentMemoryObservationMinAggregateInputType
+    _max?: AgentMemoryObservationMaxAggregateInputType
+  }
+
+  export type AgentMemoryObservationGroupByOutputType = {
+    id: bigint
+    session_key: string
+    group_id: bigint | null
+    source_conversation_id: bigint | null
+    source_turn_ids: JsonValue
+    source_message_ids: JsonValue
+    topic: string
+    text: string
+    poignancy: number
+    participants: JsonValue
+    xiaoni_role: string
+    source_trace_id: string | null
+    source_run_id: string | null
+    writer_model: string | null
+    metadata: JsonValue | null
+    created_at: Date
+    updated_at: Date
+    _count: AgentMemoryObservationCountAggregateOutputType | null
+    _avg: AgentMemoryObservationAvgAggregateOutputType | null
+    _sum: AgentMemoryObservationSumAggregateOutputType | null
+    _min: AgentMemoryObservationMinAggregateOutputType | null
+    _max: AgentMemoryObservationMaxAggregateOutputType | null
+  }
+
+  type GetAgentMemoryObservationGroupByPayload<T extends AgentMemoryObservationGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AgentMemoryObservationGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AgentMemoryObservationGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AgentMemoryObservationGroupByOutputType[P]>
+            : GetScalarType<T[P], AgentMemoryObservationGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AgentMemoryObservationSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    source_conversation_id?: boolean
+    source_turn_ids?: boolean
+    source_message_ids?: boolean
+    topic?: boolean
+    text?: boolean
+    poignancy?: boolean
+    participants?: boolean
+    xiaoni_role?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    writer_model?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentMemoryObservation"]>
+
+  export type AgentMemoryObservationSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    source_conversation_id?: boolean
+    source_turn_ids?: boolean
+    source_message_ids?: boolean
+    topic?: boolean
+    text?: boolean
+    poignancy?: boolean
+    participants?: boolean
+    xiaoni_role?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    writer_model?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentMemoryObservation"]>
+
+  export type AgentMemoryObservationSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    source_conversation_id?: boolean
+    source_turn_ids?: boolean
+    source_message_ids?: boolean
+    topic?: boolean
+    text?: boolean
+    poignancy?: boolean
+    participants?: boolean
+    xiaoni_role?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    writer_model?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentMemoryObservation"]>
+
+  export type AgentMemoryObservationSelectScalar = {
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    source_conversation_id?: boolean
+    source_turn_ids?: boolean
+    source_message_ids?: boolean
+    topic?: boolean
+    text?: boolean
+    poignancy?: boolean
+    participants?: boolean
+    xiaoni_role?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    writer_model?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type AgentMemoryObservationOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "session_key" | "group_id" | "source_conversation_id" | "source_turn_ids" | "source_message_ids" | "topic" | "text" | "poignancy" | "participants" | "xiaoni_role" | "source_trace_id" | "source_run_id" | "writer_model" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["agentMemoryObservation"]>
+
+  export type $AgentMemoryObservationPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AgentMemoryObservation"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      session_key: string
+      group_id: bigint | null
+      source_conversation_id: bigint | null
+      source_turn_ids: Prisma.JsonValue
+      source_message_ids: Prisma.JsonValue
+      topic: string
+      text: string
+      poignancy: number
+      participants: Prisma.JsonValue
+      xiaoni_role: string
+      source_trace_id: string | null
+      source_run_id: string | null
+      writer_model: string | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["agentMemoryObservation"]>
+    composites: {}
+  }
+
+  type AgentMemoryObservationGetPayload<S extends boolean | null | undefined | AgentMemoryObservationDefaultArgs> = $Result.GetResult<Prisma.$AgentMemoryObservationPayload, S>
+
+  type AgentMemoryObservationCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AgentMemoryObservationFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AgentMemoryObservationCountAggregateInputType | true
+    }
+
+  export interface AgentMemoryObservationDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AgentMemoryObservation'], meta: { name: 'AgentMemoryObservation' } }
+    /**
+     * Find zero or one AgentMemoryObservation that matches the filter.
+     * @param {AgentMemoryObservationFindUniqueArgs} args - Arguments to find a AgentMemoryObservation
+     * @example
+     * // Get one AgentMemoryObservation
+     * const agentMemoryObservation = await prisma.agentMemoryObservation.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AgentMemoryObservationFindUniqueArgs>(args: SelectSubset<T, AgentMemoryObservationFindUniqueArgs<ExtArgs>>): Prisma__AgentMemoryObservationClient<$Result.GetResult<Prisma.$AgentMemoryObservationPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AgentMemoryObservation that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AgentMemoryObservationFindUniqueOrThrowArgs} args - Arguments to find a AgentMemoryObservation
+     * @example
+     * // Get one AgentMemoryObservation
+     * const agentMemoryObservation = await prisma.agentMemoryObservation.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AgentMemoryObservationFindUniqueOrThrowArgs>(args: SelectSubset<T, AgentMemoryObservationFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AgentMemoryObservationClient<$Result.GetResult<Prisma.$AgentMemoryObservationPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentMemoryObservation that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryObservationFindFirstArgs} args - Arguments to find a AgentMemoryObservation
+     * @example
+     * // Get one AgentMemoryObservation
+     * const agentMemoryObservation = await prisma.agentMemoryObservation.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AgentMemoryObservationFindFirstArgs>(args?: SelectSubset<T, AgentMemoryObservationFindFirstArgs<ExtArgs>>): Prisma__AgentMemoryObservationClient<$Result.GetResult<Prisma.$AgentMemoryObservationPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentMemoryObservation that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryObservationFindFirstOrThrowArgs} args - Arguments to find a AgentMemoryObservation
+     * @example
+     * // Get one AgentMemoryObservation
+     * const agentMemoryObservation = await prisma.agentMemoryObservation.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AgentMemoryObservationFindFirstOrThrowArgs>(args?: SelectSubset<T, AgentMemoryObservationFindFirstOrThrowArgs<ExtArgs>>): Prisma__AgentMemoryObservationClient<$Result.GetResult<Prisma.$AgentMemoryObservationPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AgentMemoryObservations that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryObservationFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AgentMemoryObservations
+     * const agentMemoryObservations = await prisma.agentMemoryObservation.findMany()
+     * 
+     * // Get first 10 AgentMemoryObservations
+     * const agentMemoryObservations = await prisma.agentMemoryObservation.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const agentMemoryObservationWithIdOnly = await prisma.agentMemoryObservation.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends AgentMemoryObservationFindManyArgs>(args?: SelectSubset<T, AgentMemoryObservationFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMemoryObservationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AgentMemoryObservation.
+     * @param {AgentMemoryObservationCreateArgs} args - Arguments to create a AgentMemoryObservation.
+     * @example
+     * // Create one AgentMemoryObservation
+     * const AgentMemoryObservation = await prisma.agentMemoryObservation.create({
+     *   data: {
+     *     // ... data to create a AgentMemoryObservation
+     *   }
+     * })
+     * 
+     */
+    create<T extends AgentMemoryObservationCreateArgs>(args: SelectSubset<T, AgentMemoryObservationCreateArgs<ExtArgs>>): Prisma__AgentMemoryObservationClient<$Result.GetResult<Prisma.$AgentMemoryObservationPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AgentMemoryObservations.
+     * @param {AgentMemoryObservationCreateManyArgs} args - Arguments to create many AgentMemoryObservations.
+     * @example
+     * // Create many AgentMemoryObservations
+     * const agentMemoryObservation = await prisma.agentMemoryObservation.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends AgentMemoryObservationCreateManyArgs>(args?: SelectSubset<T, AgentMemoryObservationCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AgentMemoryObservations and returns the data saved in the database.
+     * @param {AgentMemoryObservationCreateManyAndReturnArgs} args - Arguments to create many AgentMemoryObservations.
+     * @example
+     * // Create many AgentMemoryObservations
+     * const agentMemoryObservation = await prisma.agentMemoryObservation.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many AgentMemoryObservations and only return the `id`
+     * const agentMemoryObservationWithIdOnly = await prisma.agentMemoryObservation.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends AgentMemoryObservationCreateManyAndReturnArgs>(args?: SelectSubset<T, AgentMemoryObservationCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMemoryObservationPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AgentMemoryObservation.
+     * @param {AgentMemoryObservationDeleteArgs} args - Arguments to delete one AgentMemoryObservation.
+     * @example
+     * // Delete one AgentMemoryObservation
+     * const AgentMemoryObservation = await prisma.agentMemoryObservation.delete({
+     *   where: {
+     *     // ... filter to delete one AgentMemoryObservation
+     *   }
+     * })
+     * 
+     */
+    delete<T extends AgentMemoryObservationDeleteArgs>(args: SelectSubset<T, AgentMemoryObservationDeleteArgs<ExtArgs>>): Prisma__AgentMemoryObservationClient<$Result.GetResult<Prisma.$AgentMemoryObservationPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AgentMemoryObservation.
+     * @param {AgentMemoryObservationUpdateArgs} args - Arguments to update one AgentMemoryObservation.
+     * @example
+     * // Update one AgentMemoryObservation
+     * const agentMemoryObservation = await prisma.agentMemoryObservation.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends AgentMemoryObservationUpdateArgs>(args: SelectSubset<T, AgentMemoryObservationUpdateArgs<ExtArgs>>): Prisma__AgentMemoryObservationClient<$Result.GetResult<Prisma.$AgentMemoryObservationPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AgentMemoryObservations.
+     * @param {AgentMemoryObservationDeleteManyArgs} args - Arguments to filter AgentMemoryObservations to delete.
+     * @example
+     * // Delete a few AgentMemoryObservations
+     * const { count } = await prisma.agentMemoryObservation.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends AgentMemoryObservationDeleteManyArgs>(args?: SelectSubset<T, AgentMemoryObservationDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentMemoryObservations.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryObservationUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AgentMemoryObservations
+     * const agentMemoryObservation = await prisma.agentMemoryObservation.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends AgentMemoryObservationUpdateManyArgs>(args: SelectSubset<T, AgentMemoryObservationUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentMemoryObservations and returns the data updated in the database.
+     * @param {AgentMemoryObservationUpdateManyAndReturnArgs} args - Arguments to update many AgentMemoryObservations.
+     * @example
+     * // Update many AgentMemoryObservations
+     * const agentMemoryObservation = await prisma.agentMemoryObservation.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more AgentMemoryObservations and only return the `id`
+     * const agentMemoryObservationWithIdOnly = await prisma.agentMemoryObservation.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends AgentMemoryObservationUpdateManyAndReturnArgs>(args: SelectSubset<T, AgentMemoryObservationUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMemoryObservationPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AgentMemoryObservation.
+     * @param {AgentMemoryObservationUpsertArgs} args - Arguments to update or create a AgentMemoryObservation.
+     * @example
+     * // Update or create a AgentMemoryObservation
+     * const agentMemoryObservation = await prisma.agentMemoryObservation.upsert({
+     *   create: {
+     *     // ... data to create a AgentMemoryObservation
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AgentMemoryObservation we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AgentMemoryObservationUpsertArgs>(args: SelectSubset<T, AgentMemoryObservationUpsertArgs<ExtArgs>>): Prisma__AgentMemoryObservationClient<$Result.GetResult<Prisma.$AgentMemoryObservationPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AgentMemoryObservations.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryObservationCountArgs} args - Arguments to filter AgentMemoryObservations to count.
+     * @example
+     * // Count the number of AgentMemoryObservations
+     * const count = await prisma.agentMemoryObservation.count({
+     *   where: {
+     *     // ... the filter for the AgentMemoryObservations we want to count
+     *   }
+     * })
+    **/
+    count<T extends AgentMemoryObservationCountArgs>(
+      args?: Subset<T, AgentMemoryObservationCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AgentMemoryObservationCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AgentMemoryObservation.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryObservationAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AgentMemoryObservationAggregateArgs>(args: Subset<T, AgentMemoryObservationAggregateArgs>): Prisma.PrismaPromise<GetAgentMemoryObservationAggregateType<T>>
+
+    /**
+     * Group by AgentMemoryObservation.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryObservationGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends AgentMemoryObservationGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AgentMemoryObservationGroupByArgs['orderBy'] }
+        : { orderBy?: AgentMemoryObservationGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AgentMemoryObservationGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAgentMemoryObservationGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AgentMemoryObservation model
+   */
+  readonly fields: AgentMemoryObservationFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AgentMemoryObservation.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AgentMemoryObservationClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AgentMemoryObservation model
+   */
+  interface AgentMemoryObservationFieldRefs {
+    readonly id: FieldRef<"AgentMemoryObservation", 'BigInt'>
+    readonly session_key: FieldRef<"AgentMemoryObservation", 'String'>
+    readonly group_id: FieldRef<"AgentMemoryObservation", 'BigInt'>
+    readonly source_conversation_id: FieldRef<"AgentMemoryObservation", 'BigInt'>
+    readonly source_turn_ids: FieldRef<"AgentMemoryObservation", 'Json'>
+    readonly source_message_ids: FieldRef<"AgentMemoryObservation", 'Json'>
+    readonly topic: FieldRef<"AgentMemoryObservation", 'String'>
+    readonly text: FieldRef<"AgentMemoryObservation", 'String'>
+    readonly poignancy: FieldRef<"AgentMemoryObservation", 'Int'>
+    readonly participants: FieldRef<"AgentMemoryObservation", 'Json'>
+    readonly xiaoni_role: FieldRef<"AgentMemoryObservation", 'String'>
+    readonly source_trace_id: FieldRef<"AgentMemoryObservation", 'String'>
+    readonly source_run_id: FieldRef<"AgentMemoryObservation", 'String'>
+    readonly writer_model: FieldRef<"AgentMemoryObservation", 'String'>
+    readonly metadata: FieldRef<"AgentMemoryObservation", 'Json'>
+    readonly created_at: FieldRef<"AgentMemoryObservation", 'DateTime'>
+    readonly updated_at: FieldRef<"AgentMemoryObservation", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * AgentMemoryObservation findUnique
+   */
+  export type AgentMemoryObservationFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryObservation
+     */
+    select?: AgentMemoryObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryObservation
+     */
+    omit?: AgentMemoryObservationOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryObservation to fetch.
+     */
+    where: AgentMemoryObservationWhereUniqueInput
+  }
+
+  /**
+   * AgentMemoryObservation findUniqueOrThrow
+   */
+  export type AgentMemoryObservationFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryObservation
+     */
+    select?: AgentMemoryObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryObservation
+     */
+    omit?: AgentMemoryObservationOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryObservation to fetch.
+     */
+    where: AgentMemoryObservationWhereUniqueInput
+  }
+
+  /**
+   * AgentMemoryObservation findFirst
+   */
+  export type AgentMemoryObservationFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryObservation
+     */
+    select?: AgentMemoryObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryObservation
+     */
+    omit?: AgentMemoryObservationOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryObservation to fetch.
+     */
+    where?: AgentMemoryObservationWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMemoryObservations to fetch.
+     */
+    orderBy?: AgentMemoryObservationOrderByWithRelationInput | AgentMemoryObservationOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentMemoryObservations.
+     */
+    cursor?: AgentMemoryObservationWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMemoryObservations from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMemoryObservations.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentMemoryObservations.
+     */
+    distinct?: AgentMemoryObservationScalarFieldEnum | AgentMemoryObservationScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMemoryObservation findFirstOrThrow
+   */
+  export type AgentMemoryObservationFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryObservation
+     */
+    select?: AgentMemoryObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryObservation
+     */
+    omit?: AgentMemoryObservationOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryObservation to fetch.
+     */
+    where?: AgentMemoryObservationWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMemoryObservations to fetch.
+     */
+    orderBy?: AgentMemoryObservationOrderByWithRelationInput | AgentMemoryObservationOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentMemoryObservations.
+     */
+    cursor?: AgentMemoryObservationWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMemoryObservations from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMemoryObservations.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentMemoryObservations.
+     */
+    distinct?: AgentMemoryObservationScalarFieldEnum | AgentMemoryObservationScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMemoryObservation findMany
+   */
+  export type AgentMemoryObservationFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryObservation
+     */
+    select?: AgentMemoryObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryObservation
+     */
+    omit?: AgentMemoryObservationOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryObservations to fetch.
+     */
+    where?: AgentMemoryObservationWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMemoryObservations to fetch.
+     */
+    orderBy?: AgentMemoryObservationOrderByWithRelationInput | AgentMemoryObservationOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing AgentMemoryObservations.
+     */
+    cursor?: AgentMemoryObservationWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMemoryObservations from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMemoryObservations.
+     */
+    skip?: number
+    distinct?: AgentMemoryObservationScalarFieldEnum | AgentMemoryObservationScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMemoryObservation create
+   */
+  export type AgentMemoryObservationCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryObservation
+     */
+    select?: AgentMemoryObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryObservation
+     */
+    omit?: AgentMemoryObservationOmit<ExtArgs> | null
+    /**
+     * The data needed to create a AgentMemoryObservation.
+     */
+    data: XOR<AgentMemoryObservationCreateInput, AgentMemoryObservationUncheckedCreateInput>
+  }
+
+  /**
+   * AgentMemoryObservation createMany
+   */
+  export type AgentMemoryObservationCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AgentMemoryObservations.
+     */
+    data: AgentMemoryObservationCreateManyInput | AgentMemoryObservationCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentMemoryObservation createManyAndReturn
+   */
+  export type AgentMemoryObservationCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryObservation
+     */
+    select?: AgentMemoryObservationSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryObservation
+     */
+    omit?: AgentMemoryObservationOmit<ExtArgs> | null
+    /**
+     * The data used to create many AgentMemoryObservations.
+     */
+    data: AgentMemoryObservationCreateManyInput | AgentMemoryObservationCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentMemoryObservation update
+   */
+  export type AgentMemoryObservationUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryObservation
+     */
+    select?: AgentMemoryObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryObservation
+     */
+    omit?: AgentMemoryObservationOmit<ExtArgs> | null
+    /**
+     * The data needed to update a AgentMemoryObservation.
+     */
+    data: XOR<AgentMemoryObservationUpdateInput, AgentMemoryObservationUncheckedUpdateInput>
+    /**
+     * Choose, which AgentMemoryObservation to update.
+     */
+    where: AgentMemoryObservationWhereUniqueInput
+  }
+
+  /**
+   * AgentMemoryObservation updateMany
+   */
+  export type AgentMemoryObservationUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AgentMemoryObservations.
+     */
+    data: XOR<AgentMemoryObservationUpdateManyMutationInput, AgentMemoryObservationUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentMemoryObservations to update
+     */
+    where?: AgentMemoryObservationWhereInput
+    /**
+     * Limit how many AgentMemoryObservations to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMemoryObservation updateManyAndReturn
+   */
+  export type AgentMemoryObservationUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryObservation
+     */
+    select?: AgentMemoryObservationSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryObservation
+     */
+    omit?: AgentMemoryObservationOmit<ExtArgs> | null
+    /**
+     * The data used to update AgentMemoryObservations.
+     */
+    data: XOR<AgentMemoryObservationUpdateManyMutationInput, AgentMemoryObservationUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentMemoryObservations to update
+     */
+    where?: AgentMemoryObservationWhereInput
+    /**
+     * Limit how many AgentMemoryObservations to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMemoryObservation upsert
+   */
+  export type AgentMemoryObservationUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryObservation
+     */
+    select?: AgentMemoryObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryObservation
+     */
+    omit?: AgentMemoryObservationOmit<ExtArgs> | null
+    /**
+     * The filter to search for the AgentMemoryObservation to update in case it exists.
+     */
+    where: AgentMemoryObservationWhereUniqueInput
+    /**
+     * In case the AgentMemoryObservation found by the `where` argument doesn't exist, create a new AgentMemoryObservation with this data.
+     */
+    create: XOR<AgentMemoryObservationCreateInput, AgentMemoryObservationUncheckedCreateInput>
+    /**
+     * In case the AgentMemoryObservation was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AgentMemoryObservationUpdateInput, AgentMemoryObservationUncheckedUpdateInput>
+  }
+
+  /**
+   * AgentMemoryObservation delete
+   */
+  export type AgentMemoryObservationDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryObservation
+     */
+    select?: AgentMemoryObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryObservation
+     */
+    omit?: AgentMemoryObservationOmit<ExtArgs> | null
+    /**
+     * Filter which AgentMemoryObservation to delete.
+     */
+    where: AgentMemoryObservationWhereUniqueInput
+  }
+
+  /**
+   * AgentMemoryObservation deleteMany
+   */
+  export type AgentMemoryObservationDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentMemoryObservations to delete
+     */
+    where?: AgentMemoryObservationWhereInput
+    /**
+     * Limit how many AgentMemoryObservations to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMemoryObservation without action
+   */
+  export type AgentMemoryObservationDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryObservation
+     */
+    select?: AgentMemoryObservationSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryObservation
+     */
+    omit?: AgentMemoryObservationOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model AgentMemoryAssertion
+   */
+
+  export type AggregateAgentMemoryAssertion = {
+    _count: AgentMemoryAssertionCountAggregateOutputType | null
+    _avg: AgentMemoryAssertionAvgAggregateOutputType | null
+    _sum: AgentMemoryAssertionSumAggregateOutputType | null
+    _min: AgentMemoryAssertionMinAggregateOutputType | null
+    _max: AgentMemoryAssertionMaxAggregateOutputType | null
+  }
+
+  export type AgentMemoryAssertionAvgAggregateOutputType = {
+    id: number | null
+    group_id: number | null
+    source_conversation_id: number | null
+  }
+
+  export type AgentMemoryAssertionSumAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    source_conversation_id: bigint | null
+  }
+
+  export type AgentMemoryAssertionMinAggregateOutputType = {
+    id: bigint | null
+    session_key: string | null
+    group_id: bigint | null
+    source_conversation_id: bigint | null
+    text: string | null
+    fact_type: string | null
+    source_trace_id: string | null
+    source_run_id: string | null
+    writer_model: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AgentMemoryAssertionMaxAggregateOutputType = {
+    id: bigint | null
+    session_key: string | null
+    group_id: bigint | null
+    source_conversation_id: bigint | null
+    text: string | null
+    fact_type: string | null
+    source_trace_id: string | null
+    source_run_id: string | null
+    writer_model: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AgentMemoryAssertionCountAggregateOutputType = {
+    id: number
+    session_key: number
+    group_id: number
+    source_conversation_id: number
+    source_turn_ids: number
+    source_message_ids: number
+    text: number
+    fact_type: number
+    entities: number
+    participants: number
+    source_trace_id: number
+    source_run_id: number
+    writer_model: number
+    metadata: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type AgentMemoryAssertionAvgAggregateInputType = {
+    id?: true
+    group_id?: true
+    source_conversation_id?: true
+  }
+
+  export type AgentMemoryAssertionSumAggregateInputType = {
+    id?: true
+    group_id?: true
+    source_conversation_id?: true
+  }
+
+  export type AgentMemoryAssertionMinAggregateInputType = {
+    id?: true
+    session_key?: true
+    group_id?: true
+    source_conversation_id?: true
+    text?: true
+    fact_type?: true
+    source_trace_id?: true
+    source_run_id?: true
+    writer_model?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AgentMemoryAssertionMaxAggregateInputType = {
+    id?: true
+    session_key?: true
+    group_id?: true
+    source_conversation_id?: true
+    text?: true
+    fact_type?: true
+    source_trace_id?: true
+    source_run_id?: true
+    writer_model?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AgentMemoryAssertionCountAggregateInputType = {
+    id?: true
+    session_key?: true
+    group_id?: true
+    source_conversation_id?: true
+    source_turn_ids?: true
+    source_message_ids?: true
+    text?: true
+    fact_type?: true
+    entities?: true
+    participants?: true
+    source_trace_id?: true
+    source_run_id?: true
+    writer_model?: true
+    metadata?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type AgentMemoryAssertionAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentMemoryAssertion to aggregate.
+     */
+    where?: AgentMemoryAssertionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMemoryAssertions to fetch.
+     */
+    orderBy?: AgentMemoryAssertionOrderByWithRelationInput | AgentMemoryAssertionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: AgentMemoryAssertionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMemoryAssertions from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMemoryAssertions.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned AgentMemoryAssertions
+    **/
+    _count?: true | AgentMemoryAssertionCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: AgentMemoryAssertionAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: AgentMemoryAssertionSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: AgentMemoryAssertionMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: AgentMemoryAssertionMaxAggregateInputType
+  }
+
+  export type GetAgentMemoryAssertionAggregateType<T extends AgentMemoryAssertionAggregateArgs> = {
+        [P in keyof T & keyof AggregateAgentMemoryAssertion]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAgentMemoryAssertion[P]>
+      : GetScalarType<T[P], AggregateAgentMemoryAssertion[P]>
+  }
+
+
+
+
+  export type AgentMemoryAssertionGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AgentMemoryAssertionWhereInput
+    orderBy?: AgentMemoryAssertionOrderByWithAggregationInput | AgentMemoryAssertionOrderByWithAggregationInput[]
+    by: AgentMemoryAssertionScalarFieldEnum[] | AgentMemoryAssertionScalarFieldEnum
+    having?: AgentMemoryAssertionScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AgentMemoryAssertionCountAggregateInputType | true
+    _avg?: AgentMemoryAssertionAvgAggregateInputType
+    _sum?: AgentMemoryAssertionSumAggregateInputType
+    _min?: AgentMemoryAssertionMinAggregateInputType
+    _max?: AgentMemoryAssertionMaxAggregateInputType
+  }
+
+  export type AgentMemoryAssertionGroupByOutputType = {
+    id: bigint
+    session_key: string
+    group_id: bigint | null
+    source_conversation_id: bigint | null
+    source_turn_ids: JsonValue
+    source_message_ids: JsonValue
+    text: string
+    fact_type: string
+    entities: JsonValue
+    participants: JsonValue
+    source_trace_id: string | null
+    source_run_id: string | null
+    writer_model: string | null
+    metadata: JsonValue | null
+    created_at: Date
+    updated_at: Date
+    _count: AgentMemoryAssertionCountAggregateOutputType | null
+    _avg: AgentMemoryAssertionAvgAggregateOutputType | null
+    _sum: AgentMemoryAssertionSumAggregateOutputType | null
+    _min: AgentMemoryAssertionMinAggregateOutputType | null
+    _max: AgentMemoryAssertionMaxAggregateOutputType | null
+  }
+
+  type GetAgentMemoryAssertionGroupByPayload<T extends AgentMemoryAssertionGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AgentMemoryAssertionGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AgentMemoryAssertionGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AgentMemoryAssertionGroupByOutputType[P]>
+            : GetScalarType<T[P], AgentMemoryAssertionGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AgentMemoryAssertionSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    source_conversation_id?: boolean
+    source_turn_ids?: boolean
+    source_message_ids?: boolean
+    text?: boolean
+    fact_type?: boolean
+    entities?: boolean
+    participants?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    writer_model?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentMemoryAssertion"]>
+
+  export type AgentMemoryAssertionSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    source_conversation_id?: boolean
+    source_turn_ids?: boolean
+    source_message_ids?: boolean
+    text?: boolean
+    fact_type?: boolean
+    entities?: boolean
+    participants?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    writer_model?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentMemoryAssertion"]>
+
+  export type AgentMemoryAssertionSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    source_conversation_id?: boolean
+    source_turn_ids?: boolean
+    source_message_ids?: boolean
+    text?: boolean
+    fact_type?: boolean
+    entities?: boolean
+    participants?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    writer_model?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentMemoryAssertion"]>
+
+  export type AgentMemoryAssertionSelectScalar = {
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    source_conversation_id?: boolean
+    source_turn_ids?: boolean
+    source_message_ids?: boolean
+    text?: boolean
+    fact_type?: boolean
+    entities?: boolean
+    participants?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    writer_model?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type AgentMemoryAssertionOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "session_key" | "group_id" | "source_conversation_id" | "source_turn_ids" | "source_message_ids" | "text" | "fact_type" | "entities" | "participants" | "source_trace_id" | "source_run_id" | "writer_model" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["agentMemoryAssertion"]>
+
+  export type $AgentMemoryAssertionPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AgentMemoryAssertion"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      session_key: string
+      group_id: bigint | null
+      source_conversation_id: bigint | null
+      source_turn_ids: Prisma.JsonValue
+      source_message_ids: Prisma.JsonValue
+      text: string
+      fact_type: string
+      entities: Prisma.JsonValue
+      participants: Prisma.JsonValue
+      source_trace_id: string | null
+      source_run_id: string | null
+      writer_model: string | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["agentMemoryAssertion"]>
+    composites: {}
+  }
+
+  type AgentMemoryAssertionGetPayload<S extends boolean | null | undefined | AgentMemoryAssertionDefaultArgs> = $Result.GetResult<Prisma.$AgentMemoryAssertionPayload, S>
+
+  type AgentMemoryAssertionCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AgentMemoryAssertionFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AgentMemoryAssertionCountAggregateInputType | true
+    }
+
+  export interface AgentMemoryAssertionDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AgentMemoryAssertion'], meta: { name: 'AgentMemoryAssertion' } }
+    /**
+     * Find zero or one AgentMemoryAssertion that matches the filter.
+     * @param {AgentMemoryAssertionFindUniqueArgs} args - Arguments to find a AgentMemoryAssertion
+     * @example
+     * // Get one AgentMemoryAssertion
+     * const agentMemoryAssertion = await prisma.agentMemoryAssertion.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AgentMemoryAssertionFindUniqueArgs>(args: SelectSubset<T, AgentMemoryAssertionFindUniqueArgs<ExtArgs>>): Prisma__AgentMemoryAssertionClient<$Result.GetResult<Prisma.$AgentMemoryAssertionPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AgentMemoryAssertion that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AgentMemoryAssertionFindUniqueOrThrowArgs} args - Arguments to find a AgentMemoryAssertion
+     * @example
+     * // Get one AgentMemoryAssertion
+     * const agentMemoryAssertion = await prisma.agentMemoryAssertion.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AgentMemoryAssertionFindUniqueOrThrowArgs>(args: SelectSubset<T, AgentMemoryAssertionFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AgentMemoryAssertionClient<$Result.GetResult<Prisma.$AgentMemoryAssertionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentMemoryAssertion that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryAssertionFindFirstArgs} args - Arguments to find a AgentMemoryAssertion
+     * @example
+     * // Get one AgentMemoryAssertion
+     * const agentMemoryAssertion = await prisma.agentMemoryAssertion.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AgentMemoryAssertionFindFirstArgs>(args?: SelectSubset<T, AgentMemoryAssertionFindFirstArgs<ExtArgs>>): Prisma__AgentMemoryAssertionClient<$Result.GetResult<Prisma.$AgentMemoryAssertionPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentMemoryAssertion that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryAssertionFindFirstOrThrowArgs} args - Arguments to find a AgentMemoryAssertion
+     * @example
+     * // Get one AgentMemoryAssertion
+     * const agentMemoryAssertion = await prisma.agentMemoryAssertion.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AgentMemoryAssertionFindFirstOrThrowArgs>(args?: SelectSubset<T, AgentMemoryAssertionFindFirstOrThrowArgs<ExtArgs>>): Prisma__AgentMemoryAssertionClient<$Result.GetResult<Prisma.$AgentMemoryAssertionPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AgentMemoryAssertions that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryAssertionFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AgentMemoryAssertions
+     * const agentMemoryAssertions = await prisma.agentMemoryAssertion.findMany()
+     * 
+     * // Get first 10 AgentMemoryAssertions
+     * const agentMemoryAssertions = await prisma.agentMemoryAssertion.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const agentMemoryAssertionWithIdOnly = await prisma.agentMemoryAssertion.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends AgentMemoryAssertionFindManyArgs>(args?: SelectSubset<T, AgentMemoryAssertionFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMemoryAssertionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AgentMemoryAssertion.
+     * @param {AgentMemoryAssertionCreateArgs} args - Arguments to create a AgentMemoryAssertion.
+     * @example
+     * // Create one AgentMemoryAssertion
+     * const AgentMemoryAssertion = await prisma.agentMemoryAssertion.create({
+     *   data: {
+     *     // ... data to create a AgentMemoryAssertion
+     *   }
+     * })
+     * 
+     */
+    create<T extends AgentMemoryAssertionCreateArgs>(args: SelectSubset<T, AgentMemoryAssertionCreateArgs<ExtArgs>>): Prisma__AgentMemoryAssertionClient<$Result.GetResult<Prisma.$AgentMemoryAssertionPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AgentMemoryAssertions.
+     * @param {AgentMemoryAssertionCreateManyArgs} args - Arguments to create many AgentMemoryAssertions.
+     * @example
+     * // Create many AgentMemoryAssertions
+     * const agentMemoryAssertion = await prisma.agentMemoryAssertion.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends AgentMemoryAssertionCreateManyArgs>(args?: SelectSubset<T, AgentMemoryAssertionCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AgentMemoryAssertions and returns the data saved in the database.
+     * @param {AgentMemoryAssertionCreateManyAndReturnArgs} args - Arguments to create many AgentMemoryAssertions.
+     * @example
+     * // Create many AgentMemoryAssertions
+     * const agentMemoryAssertion = await prisma.agentMemoryAssertion.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many AgentMemoryAssertions and only return the `id`
+     * const agentMemoryAssertionWithIdOnly = await prisma.agentMemoryAssertion.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends AgentMemoryAssertionCreateManyAndReturnArgs>(args?: SelectSubset<T, AgentMemoryAssertionCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMemoryAssertionPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AgentMemoryAssertion.
+     * @param {AgentMemoryAssertionDeleteArgs} args - Arguments to delete one AgentMemoryAssertion.
+     * @example
+     * // Delete one AgentMemoryAssertion
+     * const AgentMemoryAssertion = await prisma.agentMemoryAssertion.delete({
+     *   where: {
+     *     // ... filter to delete one AgentMemoryAssertion
+     *   }
+     * })
+     * 
+     */
+    delete<T extends AgentMemoryAssertionDeleteArgs>(args: SelectSubset<T, AgentMemoryAssertionDeleteArgs<ExtArgs>>): Prisma__AgentMemoryAssertionClient<$Result.GetResult<Prisma.$AgentMemoryAssertionPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AgentMemoryAssertion.
+     * @param {AgentMemoryAssertionUpdateArgs} args - Arguments to update one AgentMemoryAssertion.
+     * @example
+     * // Update one AgentMemoryAssertion
+     * const agentMemoryAssertion = await prisma.agentMemoryAssertion.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends AgentMemoryAssertionUpdateArgs>(args: SelectSubset<T, AgentMemoryAssertionUpdateArgs<ExtArgs>>): Prisma__AgentMemoryAssertionClient<$Result.GetResult<Prisma.$AgentMemoryAssertionPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AgentMemoryAssertions.
+     * @param {AgentMemoryAssertionDeleteManyArgs} args - Arguments to filter AgentMemoryAssertions to delete.
+     * @example
+     * // Delete a few AgentMemoryAssertions
+     * const { count } = await prisma.agentMemoryAssertion.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends AgentMemoryAssertionDeleteManyArgs>(args?: SelectSubset<T, AgentMemoryAssertionDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentMemoryAssertions.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryAssertionUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AgentMemoryAssertions
+     * const agentMemoryAssertion = await prisma.agentMemoryAssertion.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends AgentMemoryAssertionUpdateManyArgs>(args: SelectSubset<T, AgentMemoryAssertionUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentMemoryAssertions and returns the data updated in the database.
+     * @param {AgentMemoryAssertionUpdateManyAndReturnArgs} args - Arguments to update many AgentMemoryAssertions.
+     * @example
+     * // Update many AgentMemoryAssertions
+     * const agentMemoryAssertion = await prisma.agentMemoryAssertion.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more AgentMemoryAssertions and only return the `id`
+     * const agentMemoryAssertionWithIdOnly = await prisma.agentMemoryAssertion.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends AgentMemoryAssertionUpdateManyAndReturnArgs>(args: SelectSubset<T, AgentMemoryAssertionUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMemoryAssertionPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AgentMemoryAssertion.
+     * @param {AgentMemoryAssertionUpsertArgs} args - Arguments to update or create a AgentMemoryAssertion.
+     * @example
+     * // Update or create a AgentMemoryAssertion
+     * const agentMemoryAssertion = await prisma.agentMemoryAssertion.upsert({
+     *   create: {
+     *     // ... data to create a AgentMemoryAssertion
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AgentMemoryAssertion we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AgentMemoryAssertionUpsertArgs>(args: SelectSubset<T, AgentMemoryAssertionUpsertArgs<ExtArgs>>): Prisma__AgentMemoryAssertionClient<$Result.GetResult<Prisma.$AgentMemoryAssertionPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AgentMemoryAssertions.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryAssertionCountArgs} args - Arguments to filter AgentMemoryAssertions to count.
+     * @example
+     * // Count the number of AgentMemoryAssertions
+     * const count = await prisma.agentMemoryAssertion.count({
+     *   where: {
+     *     // ... the filter for the AgentMemoryAssertions we want to count
+     *   }
+     * })
+    **/
+    count<T extends AgentMemoryAssertionCountArgs>(
+      args?: Subset<T, AgentMemoryAssertionCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AgentMemoryAssertionCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AgentMemoryAssertion.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryAssertionAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AgentMemoryAssertionAggregateArgs>(args: Subset<T, AgentMemoryAssertionAggregateArgs>): Prisma.PrismaPromise<GetAgentMemoryAssertionAggregateType<T>>
+
+    /**
+     * Group by AgentMemoryAssertion.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryAssertionGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends AgentMemoryAssertionGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AgentMemoryAssertionGroupByArgs['orderBy'] }
+        : { orderBy?: AgentMemoryAssertionGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AgentMemoryAssertionGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAgentMemoryAssertionGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AgentMemoryAssertion model
+   */
+  readonly fields: AgentMemoryAssertionFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AgentMemoryAssertion.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AgentMemoryAssertionClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AgentMemoryAssertion model
+   */
+  interface AgentMemoryAssertionFieldRefs {
+    readonly id: FieldRef<"AgentMemoryAssertion", 'BigInt'>
+    readonly session_key: FieldRef<"AgentMemoryAssertion", 'String'>
+    readonly group_id: FieldRef<"AgentMemoryAssertion", 'BigInt'>
+    readonly source_conversation_id: FieldRef<"AgentMemoryAssertion", 'BigInt'>
+    readonly source_turn_ids: FieldRef<"AgentMemoryAssertion", 'Json'>
+    readonly source_message_ids: FieldRef<"AgentMemoryAssertion", 'Json'>
+    readonly text: FieldRef<"AgentMemoryAssertion", 'String'>
+    readonly fact_type: FieldRef<"AgentMemoryAssertion", 'String'>
+    readonly entities: FieldRef<"AgentMemoryAssertion", 'Json'>
+    readonly participants: FieldRef<"AgentMemoryAssertion", 'Json'>
+    readonly source_trace_id: FieldRef<"AgentMemoryAssertion", 'String'>
+    readonly source_run_id: FieldRef<"AgentMemoryAssertion", 'String'>
+    readonly writer_model: FieldRef<"AgentMemoryAssertion", 'String'>
+    readonly metadata: FieldRef<"AgentMemoryAssertion", 'Json'>
+    readonly created_at: FieldRef<"AgentMemoryAssertion", 'DateTime'>
+    readonly updated_at: FieldRef<"AgentMemoryAssertion", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * AgentMemoryAssertion findUnique
+   */
+  export type AgentMemoryAssertionFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryAssertion
+     */
+    select?: AgentMemoryAssertionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryAssertion
+     */
+    omit?: AgentMemoryAssertionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryAssertion to fetch.
+     */
+    where: AgentMemoryAssertionWhereUniqueInput
+  }
+
+  /**
+   * AgentMemoryAssertion findUniqueOrThrow
+   */
+  export type AgentMemoryAssertionFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryAssertion
+     */
+    select?: AgentMemoryAssertionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryAssertion
+     */
+    omit?: AgentMemoryAssertionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryAssertion to fetch.
+     */
+    where: AgentMemoryAssertionWhereUniqueInput
+  }
+
+  /**
+   * AgentMemoryAssertion findFirst
+   */
+  export type AgentMemoryAssertionFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryAssertion
+     */
+    select?: AgentMemoryAssertionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryAssertion
+     */
+    omit?: AgentMemoryAssertionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryAssertion to fetch.
+     */
+    where?: AgentMemoryAssertionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMemoryAssertions to fetch.
+     */
+    orderBy?: AgentMemoryAssertionOrderByWithRelationInput | AgentMemoryAssertionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentMemoryAssertions.
+     */
+    cursor?: AgentMemoryAssertionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMemoryAssertions from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMemoryAssertions.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentMemoryAssertions.
+     */
+    distinct?: AgentMemoryAssertionScalarFieldEnum | AgentMemoryAssertionScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMemoryAssertion findFirstOrThrow
+   */
+  export type AgentMemoryAssertionFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryAssertion
+     */
+    select?: AgentMemoryAssertionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryAssertion
+     */
+    omit?: AgentMemoryAssertionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryAssertion to fetch.
+     */
+    where?: AgentMemoryAssertionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMemoryAssertions to fetch.
+     */
+    orderBy?: AgentMemoryAssertionOrderByWithRelationInput | AgentMemoryAssertionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentMemoryAssertions.
+     */
+    cursor?: AgentMemoryAssertionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMemoryAssertions from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMemoryAssertions.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentMemoryAssertions.
+     */
+    distinct?: AgentMemoryAssertionScalarFieldEnum | AgentMemoryAssertionScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMemoryAssertion findMany
+   */
+  export type AgentMemoryAssertionFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryAssertion
+     */
+    select?: AgentMemoryAssertionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryAssertion
+     */
+    omit?: AgentMemoryAssertionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryAssertions to fetch.
+     */
+    where?: AgentMemoryAssertionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMemoryAssertions to fetch.
+     */
+    orderBy?: AgentMemoryAssertionOrderByWithRelationInput | AgentMemoryAssertionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing AgentMemoryAssertions.
+     */
+    cursor?: AgentMemoryAssertionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMemoryAssertions from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMemoryAssertions.
+     */
+    skip?: number
+    distinct?: AgentMemoryAssertionScalarFieldEnum | AgentMemoryAssertionScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMemoryAssertion create
+   */
+  export type AgentMemoryAssertionCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryAssertion
+     */
+    select?: AgentMemoryAssertionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryAssertion
+     */
+    omit?: AgentMemoryAssertionOmit<ExtArgs> | null
+    /**
+     * The data needed to create a AgentMemoryAssertion.
+     */
+    data: XOR<AgentMemoryAssertionCreateInput, AgentMemoryAssertionUncheckedCreateInput>
+  }
+
+  /**
+   * AgentMemoryAssertion createMany
+   */
+  export type AgentMemoryAssertionCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AgentMemoryAssertions.
+     */
+    data: AgentMemoryAssertionCreateManyInput | AgentMemoryAssertionCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentMemoryAssertion createManyAndReturn
+   */
+  export type AgentMemoryAssertionCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryAssertion
+     */
+    select?: AgentMemoryAssertionSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryAssertion
+     */
+    omit?: AgentMemoryAssertionOmit<ExtArgs> | null
+    /**
+     * The data used to create many AgentMemoryAssertions.
+     */
+    data: AgentMemoryAssertionCreateManyInput | AgentMemoryAssertionCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentMemoryAssertion update
+   */
+  export type AgentMemoryAssertionUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryAssertion
+     */
+    select?: AgentMemoryAssertionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryAssertion
+     */
+    omit?: AgentMemoryAssertionOmit<ExtArgs> | null
+    /**
+     * The data needed to update a AgentMemoryAssertion.
+     */
+    data: XOR<AgentMemoryAssertionUpdateInput, AgentMemoryAssertionUncheckedUpdateInput>
+    /**
+     * Choose, which AgentMemoryAssertion to update.
+     */
+    where: AgentMemoryAssertionWhereUniqueInput
+  }
+
+  /**
+   * AgentMemoryAssertion updateMany
+   */
+  export type AgentMemoryAssertionUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AgentMemoryAssertions.
+     */
+    data: XOR<AgentMemoryAssertionUpdateManyMutationInput, AgentMemoryAssertionUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentMemoryAssertions to update
+     */
+    where?: AgentMemoryAssertionWhereInput
+    /**
+     * Limit how many AgentMemoryAssertions to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMemoryAssertion updateManyAndReturn
+   */
+  export type AgentMemoryAssertionUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryAssertion
+     */
+    select?: AgentMemoryAssertionSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryAssertion
+     */
+    omit?: AgentMemoryAssertionOmit<ExtArgs> | null
+    /**
+     * The data used to update AgentMemoryAssertions.
+     */
+    data: XOR<AgentMemoryAssertionUpdateManyMutationInput, AgentMemoryAssertionUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentMemoryAssertions to update
+     */
+    where?: AgentMemoryAssertionWhereInput
+    /**
+     * Limit how many AgentMemoryAssertions to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMemoryAssertion upsert
+   */
+  export type AgentMemoryAssertionUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryAssertion
+     */
+    select?: AgentMemoryAssertionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryAssertion
+     */
+    omit?: AgentMemoryAssertionOmit<ExtArgs> | null
+    /**
+     * The filter to search for the AgentMemoryAssertion to update in case it exists.
+     */
+    where: AgentMemoryAssertionWhereUniqueInput
+    /**
+     * In case the AgentMemoryAssertion found by the `where` argument doesn't exist, create a new AgentMemoryAssertion with this data.
+     */
+    create: XOR<AgentMemoryAssertionCreateInput, AgentMemoryAssertionUncheckedCreateInput>
+    /**
+     * In case the AgentMemoryAssertion was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AgentMemoryAssertionUpdateInput, AgentMemoryAssertionUncheckedUpdateInput>
+  }
+
+  /**
+   * AgentMemoryAssertion delete
+   */
+  export type AgentMemoryAssertionDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryAssertion
+     */
+    select?: AgentMemoryAssertionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryAssertion
+     */
+    omit?: AgentMemoryAssertionOmit<ExtArgs> | null
+    /**
+     * Filter which AgentMemoryAssertion to delete.
+     */
+    where: AgentMemoryAssertionWhereUniqueInput
+  }
+
+  /**
+   * AgentMemoryAssertion deleteMany
+   */
+  export type AgentMemoryAssertionDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentMemoryAssertions to delete
+     */
+    where?: AgentMemoryAssertionWhereInput
+    /**
+     * Limit how many AgentMemoryAssertions to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMemoryAssertion without action
+   */
+  export type AgentMemoryAssertionDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryAssertion
+     */
+    select?: AgentMemoryAssertionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryAssertion
+     */
+    omit?: AgentMemoryAssertionOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model AgentMemoryReflection
+   */
+
+  export type AggregateAgentMemoryReflection = {
+    _count: AgentMemoryReflectionCountAggregateOutputType | null
+    _avg: AgentMemoryReflectionAvgAggregateOutputType | null
+    _sum: AgentMemoryReflectionSumAggregateOutputType | null
+    _min: AgentMemoryReflectionMinAggregateOutputType | null
+    _max: AgentMemoryReflectionMaxAggregateOutputType | null
+  }
+
+  export type AgentMemoryReflectionAvgAggregateOutputType = {
+    id: number | null
+    group_id: number | null
+    source_conversation_id: number | null
+    poignancy: number | null
+  }
+
+  export type AgentMemoryReflectionSumAggregateOutputType = {
+    id: bigint | null
+    group_id: bigint | null
+    source_conversation_id: bigint | null
+    poignancy: number | null
+  }
+
+  export type AgentMemoryReflectionMinAggregateOutputType = {
+    id: bigint | null
+    session_key: string | null
+    group_id: bigint | null
+    source_conversation_id: bigint | null
+    text: string | null
+    kind: string | null
+    evidence_basis: string | null
+    evidence_time_start: Date | null
+    evidence_time_end: Date | null
+    poignancy: number | null
+    source_trace_id: string | null
+    source_run_id: string | null
+    writer_model: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AgentMemoryReflectionMaxAggregateOutputType = {
+    id: bigint | null
+    session_key: string | null
+    group_id: bigint | null
+    source_conversation_id: bigint | null
+    text: string | null
+    kind: string | null
+    evidence_basis: string | null
+    evidence_time_start: Date | null
+    evidence_time_end: Date | null
+    poignancy: number | null
+    source_trace_id: string | null
+    source_run_id: string | null
+    writer_model: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AgentMemoryReflectionCountAggregateOutputType = {
+    id: number
+    session_key: number
+    group_id: number
+    source_conversation_id: number
+    text: number
+    kind: number
+    subjects: number
+    evidence_basis: number
+    evidence_time_start: number
+    evidence_time_end: number
+    poignancy: number
+    source_observation_ids: number
+    source_message_ids: number
+    source_trace_id: number
+    source_run_id: number
+    writer_model: number
+    metadata: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type AgentMemoryReflectionAvgAggregateInputType = {
+    id?: true
+    group_id?: true
+    source_conversation_id?: true
+    poignancy?: true
+  }
+
+  export type AgentMemoryReflectionSumAggregateInputType = {
+    id?: true
+    group_id?: true
+    source_conversation_id?: true
+    poignancy?: true
+  }
+
+  export type AgentMemoryReflectionMinAggregateInputType = {
+    id?: true
+    session_key?: true
+    group_id?: true
+    source_conversation_id?: true
+    text?: true
+    kind?: true
+    evidence_basis?: true
+    evidence_time_start?: true
+    evidence_time_end?: true
+    poignancy?: true
+    source_trace_id?: true
+    source_run_id?: true
+    writer_model?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AgentMemoryReflectionMaxAggregateInputType = {
+    id?: true
+    session_key?: true
+    group_id?: true
+    source_conversation_id?: true
+    text?: true
+    kind?: true
+    evidence_basis?: true
+    evidence_time_start?: true
+    evidence_time_end?: true
+    poignancy?: true
+    source_trace_id?: true
+    source_run_id?: true
+    writer_model?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AgentMemoryReflectionCountAggregateInputType = {
+    id?: true
+    session_key?: true
+    group_id?: true
+    source_conversation_id?: true
+    text?: true
+    kind?: true
+    subjects?: true
+    evidence_basis?: true
+    evidence_time_start?: true
+    evidence_time_end?: true
+    poignancy?: true
+    source_observation_ids?: true
+    source_message_ids?: true
+    source_trace_id?: true
+    source_run_id?: true
+    writer_model?: true
+    metadata?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type AgentMemoryReflectionAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentMemoryReflection to aggregate.
+     */
+    where?: AgentMemoryReflectionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMemoryReflections to fetch.
+     */
+    orderBy?: AgentMemoryReflectionOrderByWithRelationInput | AgentMemoryReflectionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: AgentMemoryReflectionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMemoryReflections from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMemoryReflections.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned AgentMemoryReflections
+    **/
+    _count?: true | AgentMemoryReflectionCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: AgentMemoryReflectionAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: AgentMemoryReflectionSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: AgentMemoryReflectionMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: AgentMemoryReflectionMaxAggregateInputType
+  }
+
+  export type GetAgentMemoryReflectionAggregateType<T extends AgentMemoryReflectionAggregateArgs> = {
+        [P in keyof T & keyof AggregateAgentMemoryReflection]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAgentMemoryReflection[P]>
+      : GetScalarType<T[P], AggregateAgentMemoryReflection[P]>
+  }
+
+
+
+
+  export type AgentMemoryReflectionGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AgentMemoryReflectionWhereInput
+    orderBy?: AgentMemoryReflectionOrderByWithAggregationInput | AgentMemoryReflectionOrderByWithAggregationInput[]
+    by: AgentMemoryReflectionScalarFieldEnum[] | AgentMemoryReflectionScalarFieldEnum
+    having?: AgentMemoryReflectionScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AgentMemoryReflectionCountAggregateInputType | true
+    _avg?: AgentMemoryReflectionAvgAggregateInputType
+    _sum?: AgentMemoryReflectionSumAggregateInputType
+    _min?: AgentMemoryReflectionMinAggregateInputType
+    _max?: AgentMemoryReflectionMaxAggregateInputType
+  }
+
+  export type AgentMemoryReflectionGroupByOutputType = {
+    id: bigint
+    session_key: string
+    group_id: bigint | null
+    source_conversation_id: bigint | null
+    text: string
+    kind: string
+    subjects: JsonValue
+    evidence_basis: string
+    evidence_time_start: Date | null
+    evidence_time_end: Date | null
+    poignancy: number
+    source_observation_ids: JsonValue
+    source_message_ids: JsonValue
+    source_trace_id: string | null
+    source_run_id: string | null
+    writer_model: string | null
+    metadata: JsonValue | null
+    created_at: Date
+    updated_at: Date
+    _count: AgentMemoryReflectionCountAggregateOutputType | null
+    _avg: AgentMemoryReflectionAvgAggregateOutputType | null
+    _sum: AgentMemoryReflectionSumAggregateOutputType | null
+    _min: AgentMemoryReflectionMinAggregateOutputType | null
+    _max: AgentMemoryReflectionMaxAggregateOutputType | null
+  }
+
+  type GetAgentMemoryReflectionGroupByPayload<T extends AgentMemoryReflectionGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AgentMemoryReflectionGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AgentMemoryReflectionGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AgentMemoryReflectionGroupByOutputType[P]>
+            : GetScalarType<T[P], AgentMemoryReflectionGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AgentMemoryReflectionSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    source_conversation_id?: boolean
+    text?: boolean
+    kind?: boolean
+    subjects?: boolean
+    evidence_basis?: boolean
+    evidence_time_start?: boolean
+    evidence_time_end?: boolean
+    poignancy?: boolean
+    source_observation_ids?: boolean
+    source_message_ids?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    writer_model?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentMemoryReflection"]>
+
+  export type AgentMemoryReflectionSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    source_conversation_id?: boolean
+    text?: boolean
+    kind?: boolean
+    subjects?: boolean
+    evidence_basis?: boolean
+    evidence_time_start?: boolean
+    evidence_time_end?: boolean
+    poignancy?: boolean
+    source_observation_ids?: boolean
+    source_message_ids?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    writer_model?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentMemoryReflection"]>
+
+  export type AgentMemoryReflectionSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    source_conversation_id?: boolean
+    text?: boolean
+    kind?: boolean
+    subjects?: boolean
+    evidence_basis?: boolean
+    evidence_time_start?: boolean
+    evidence_time_end?: boolean
+    poignancy?: boolean
+    source_observation_ids?: boolean
+    source_message_ids?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    writer_model?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentMemoryReflection"]>
+
+  export type AgentMemoryReflectionSelectScalar = {
+    id?: boolean
+    session_key?: boolean
+    group_id?: boolean
+    source_conversation_id?: boolean
+    text?: boolean
+    kind?: boolean
+    subjects?: boolean
+    evidence_basis?: boolean
+    evidence_time_start?: boolean
+    evidence_time_end?: boolean
+    poignancy?: boolean
+    source_observation_ids?: boolean
+    source_message_ids?: boolean
+    source_trace_id?: boolean
+    source_run_id?: boolean
+    writer_model?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type AgentMemoryReflectionOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "session_key" | "group_id" | "source_conversation_id" | "text" | "kind" | "subjects" | "evidence_basis" | "evidence_time_start" | "evidence_time_end" | "poignancy" | "source_observation_ids" | "source_message_ids" | "source_trace_id" | "source_run_id" | "writer_model" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["agentMemoryReflection"]>
+
+  export type $AgentMemoryReflectionPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AgentMemoryReflection"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      session_key: string
+      group_id: bigint | null
+      source_conversation_id: bigint | null
+      text: string
+      kind: string
+      subjects: Prisma.JsonValue
+      evidence_basis: string
+      evidence_time_start: Date | null
+      evidence_time_end: Date | null
+      poignancy: number
+      source_observation_ids: Prisma.JsonValue
+      source_message_ids: Prisma.JsonValue
+      source_trace_id: string | null
+      source_run_id: string | null
+      writer_model: string | null
+      metadata: Prisma.JsonValue | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["agentMemoryReflection"]>
+    composites: {}
+  }
+
+  type AgentMemoryReflectionGetPayload<S extends boolean | null | undefined | AgentMemoryReflectionDefaultArgs> = $Result.GetResult<Prisma.$AgentMemoryReflectionPayload, S>
+
+  type AgentMemoryReflectionCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AgentMemoryReflectionFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AgentMemoryReflectionCountAggregateInputType | true
+    }
+
+  export interface AgentMemoryReflectionDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AgentMemoryReflection'], meta: { name: 'AgentMemoryReflection' } }
+    /**
+     * Find zero or one AgentMemoryReflection that matches the filter.
+     * @param {AgentMemoryReflectionFindUniqueArgs} args - Arguments to find a AgentMemoryReflection
+     * @example
+     * // Get one AgentMemoryReflection
+     * const agentMemoryReflection = await prisma.agentMemoryReflection.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AgentMemoryReflectionFindUniqueArgs>(args: SelectSubset<T, AgentMemoryReflectionFindUniqueArgs<ExtArgs>>): Prisma__AgentMemoryReflectionClient<$Result.GetResult<Prisma.$AgentMemoryReflectionPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AgentMemoryReflection that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AgentMemoryReflectionFindUniqueOrThrowArgs} args - Arguments to find a AgentMemoryReflection
+     * @example
+     * // Get one AgentMemoryReflection
+     * const agentMemoryReflection = await prisma.agentMemoryReflection.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AgentMemoryReflectionFindUniqueOrThrowArgs>(args: SelectSubset<T, AgentMemoryReflectionFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AgentMemoryReflectionClient<$Result.GetResult<Prisma.$AgentMemoryReflectionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentMemoryReflection that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryReflectionFindFirstArgs} args - Arguments to find a AgentMemoryReflection
+     * @example
+     * // Get one AgentMemoryReflection
+     * const agentMemoryReflection = await prisma.agentMemoryReflection.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AgentMemoryReflectionFindFirstArgs>(args?: SelectSubset<T, AgentMemoryReflectionFindFirstArgs<ExtArgs>>): Prisma__AgentMemoryReflectionClient<$Result.GetResult<Prisma.$AgentMemoryReflectionPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentMemoryReflection that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryReflectionFindFirstOrThrowArgs} args - Arguments to find a AgentMemoryReflection
+     * @example
+     * // Get one AgentMemoryReflection
+     * const agentMemoryReflection = await prisma.agentMemoryReflection.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AgentMemoryReflectionFindFirstOrThrowArgs>(args?: SelectSubset<T, AgentMemoryReflectionFindFirstOrThrowArgs<ExtArgs>>): Prisma__AgentMemoryReflectionClient<$Result.GetResult<Prisma.$AgentMemoryReflectionPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AgentMemoryReflections that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryReflectionFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AgentMemoryReflections
+     * const agentMemoryReflections = await prisma.agentMemoryReflection.findMany()
+     * 
+     * // Get first 10 AgentMemoryReflections
+     * const agentMemoryReflections = await prisma.agentMemoryReflection.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const agentMemoryReflectionWithIdOnly = await prisma.agentMemoryReflection.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends AgentMemoryReflectionFindManyArgs>(args?: SelectSubset<T, AgentMemoryReflectionFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMemoryReflectionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AgentMemoryReflection.
+     * @param {AgentMemoryReflectionCreateArgs} args - Arguments to create a AgentMemoryReflection.
+     * @example
+     * // Create one AgentMemoryReflection
+     * const AgentMemoryReflection = await prisma.agentMemoryReflection.create({
+     *   data: {
+     *     // ... data to create a AgentMemoryReflection
+     *   }
+     * })
+     * 
+     */
+    create<T extends AgentMemoryReflectionCreateArgs>(args: SelectSubset<T, AgentMemoryReflectionCreateArgs<ExtArgs>>): Prisma__AgentMemoryReflectionClient<$Result.GetResult<Prisma.$AgentMemoryReflectionPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AgentMemoryReflections.
+     * @param {AgentMemoryReflectionCreateManyArgs} args - Arguments to create many AgentMemoryReflections.
+     * @example
+     * // Create many AgentMemoryReflections
+     * const agentMemoryReflection = await prisma.agentMemoryReflection.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends AgentMemoryReflectionCreateManyArgs>(args?: SelectSubset<T, AgentMemoryReflectionCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AgentMemoryReflections and returns the data saved in the database.
+     * @param {AgentMemoryReflectionCreateManyAndReturnArgs} args - Arguments to create many AgentMemoryReflections.
+     * @example
+     * // Create many AgentMemoryReflections
+     * const agentMemoryReflection = await prisma.agentMemoryReflection.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many AgentMemoryReflections and only return the `id`
+     * const agentMemoryReflectionWithIdOnly = await prisma.agentMemoryReflection.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends AgentMemoryReflectionCreateManyAndReturnArgs>(args?: SelectSubset<T, AgentMemoryReflectionCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMemoryReflectionPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AgentMemoryReflection.
+     * @param {AgentMemoryReflectionDeleteArgs} args - Arguments to delete one AgentMemoryReflection.
+     * @example
+     * // Delete one AgentMemoryReflection
+     * const AgentMemoryReflection = await prisma.agentMemoryReflection.delete({
+     *   where: {
+     *     // ... filter to delete one AgentMemoryReflection
+     *   }
+     * })
+     * 
+     */
+    delete<T extends AgentMemoryReflectionDeleteArgs>(args: SelectSubset<T, AgentMemoryReflectionDeleteArgs<ExtArgs>>): Prisma__AgentMemoryReflectionClient<$Result.GetResult<Prisma.$AgentMemoryReflectionPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AgentMemoryReflection.
+     * @param {AgentMemoryReflectionUpdateArgs} args - Arguments to update one AgentMemoryReflection.
+     * @example
+     * // Update one AgentMemoryReflection
+     * const agentMemoryReflection = await prisma.agentMemoryReflection.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends AgentMemoryReflectionUpdateArgs>(args: SelectSubset<T, AgentMemoryReflectionUpdateArgs<ExtArgs>>): Prisma__AgentMemoryReflectionClient<$Result.GetResult<Prisma.$AgentMemoryReflectionPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AgentMemoryReflections.
+     * @param {AgentMemoryReflectionDeleteManyArgs} args - Arguments to filter AgentMemoryReflections to delete.
+     * @example
+     * // Delete a few AgentMemoryReflections
+     * const { count } = await prisma.agentMemoryReflection.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends AgentMemoryReflectionDeleteManyArgs>(args?: SelectSubset<T, AgentMemoryReflectionDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentMemoryReflections.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryReflectionUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AgentMemoryReflections
+     * const agentMemoryReflection = await prisma.agentMemoryReflection.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends AgentMemoryReflectionUpdateManyArgs>(args: SelectSubset<T, AgentMemoryReflectionUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentMemoryReflections and returns the data updated in the database.
+     * @param {AgentMemoryReflectionUpdateManyAndReturnArgs} args - Arguments to update many AgentMemoryReflections.
+     * @example
+     * // Update many AgentMemoryReflections
+     * const agentMemoryReflection = await prisma.agentMemoryReflection.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more AgentMemoryReflections and only return the `id`
+     * const agentMemoryReflectionWithIdOnly = await prisma.agentMemoryReflection.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends AgentMemoryReflectionUpdateManyAndReturnArgs>(args: SelectSubset<T, AgentMemoryReflectionUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentMemoryReflectionPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AgentMemoryReflection.
+     * @param {AgentMemoryReflectionUpsertArgs} args - Arguments to update or create a AgentMemoryReflection.
+     * @example
+     * // Update or create a AgentMemoryReflection
+     * const agentMemoryReflection = await prisma.agentMemoryReflection.upsert({
+     *   create: {
+     *     // ... data to create a AgentMemoryReflection
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AgentMemoryReflection we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AgentMemoryReflectionUpsertArgs>(args: SelectSubset<T, AgentMemoryReflectionUpsertArgs<ExtArgs>>): Prisma__AgentMemoryReflectionClient<$Result.GetResult<Prisma.$AgentMemoryReflectionPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AgentMemoryReflections.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryReflectionCountArgs} args - Arguments to filter AgentMemoryReflections to count.
+     * @example
+     * // Count the number of AgentMemoryReflections
+     * const count = await prisma.agentMemoryReflection.count({
+     *   where: {
+     *     // ... the filter for the AgentMemoryReflections we want to count
+     *   }
+     * })
+    **/
+    count<T extends AgentMemoryReflectionCountArgs>(
+      args?: Subset<T, AgentMemoryReflectionCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AgentMemoryReflectionCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AgentMemoryReflection.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryReflectionAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AgentMemoryReflectionAggregateArgs>(args: Subset<T, AgentMemoryReflectionAggregateArgs>): Prisma.PrismaPromise<GetAgentMemoryReflectionAggregateType<T>>
+
+    /**
+     * Group by AgentMemoryReflection.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentMemoryReflectionGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends AgentMemoryReflectionGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AgentMemoryReflectionGroupByArgs['orderBy'] }
+        : { orderBy?: AgentMemoryReflectionGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AgentMemoryReflectionGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAgentMemoryReflectionGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AgentMemoryReflection model
+   */
+  readonly fields: AgentMemoryReflectionFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AgentMemoryReflection.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AgentMemoryReflectionClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AgentMemoryReflection model
+   */
+  interface AgentMemoryReflectionFieldRefs {
+    readonly id: FieldRef<"AgentMemoryReflection", 'BigInt'>
+    readonly session_key: FieldRef<"AgentMemoryReflection", 'String'>
+    readonly group_id: FieldRef<"AgentMemoryReflection", 'BigInt'>
+    readonly source_conversation_id: FieldRef<"AgentMemoryReflection", 'BigInt'>
+    readonly text: FieldRef<"AgentMemoryReflection", 'String'>
+    readonly kind: FieldRef<"AgentMemoryReflection", 'String'>
+    readonly subjects: FieldRef<"AgentMemoryReflection", 'Json'>
+    readonly evidence_basis: FieldRef<"AgentMemoryReflection", 'String'>
+    readonly evidence_time_start: FieldRef<"AgentMemoryReflection", 'DateTime'>
+    readonly evidence_time_end: FieldRef<"AgentMemoryReflection", 'DateTime'>
+    readonly poignancy: FieldRef<"AgentMemoryReflection", 'Int'>
+    readonly source_observation_ids: FieldRef<"AgentMemoryReflection", 'Json'>
+    readonly source_message_ids: FieldRef<"AgentMemoryReflection", 'Json'>
+    readonly source_trace_id: FieldRef<"AgentMemoryReflection", 'String'>
+    readonly source_run_id: FieldRef<"AgentMemoryReflection", 'String'>
+    readonly writer_model: FieldRef<"AgentMemoryReflection", 'String'>
+    readonly metadata: FieldRef<"AgentMemoryReflection", 'Json'>
+    readonly created_at: FieldRef<"AgentMemoryReflection", 'DateTime'>
+    readonly updated_at: FieldRef<"AgentMemoryReflection", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * AgentMemoryReflection findUnique
+   */
+  export type AgentMemoryReflectionFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryReflection
+     */
+    select?: AgentMemoryReflectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryReflection
+     */
+    omit?: AgentMemoryReflectionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryReflection to fetch.
+     */
+    where: AgentMemoryReflectionWhereUniqueInput
+  }
+
+  /**
+   * AgentMemoryReflection findUniqueOrThrow
+   */
+  export type AgentMemoryReflectionFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryReflection
+     */
+    select?: AgentMemoryReflectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryReflection
+     */
+    omit?: AgentMemoryReflectionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryReflection to fetch.
+     */
+    where: AgentMemoryReflectionWhereUniqueInput
+  }
+
+  /**
+   * AgentMemoryReflection findFirst
+   */
+  export type AgentMemoryReflectionFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryReflection
+     */
+    select?: AgentMemoryReflectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryReflection
+     */
+    omit?: AgentMemoryReflectionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryReflection to fetch.
+     */
+    where?: AgentMemoryReflectionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMemoryReflections to fetch.
+     */
+    orderBy?: AgentMemoryReflectionOrderByWithRelationInput | AgentMemoryReflectionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentMemoryReflections.
+     */
+    cursor?: AgentMemoryReflectionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMemoryReflections from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMemoryReflections.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentMemoryReflections.
+     */
+    distinct?: AgentMemoryReflectionScalarFieldEnum | AgentMemoryReflectionScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMemoryReflection findFirstOrThrow
+   */
+  export type AgentMemoryReflectionFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryReflection
+     */
+    select?: AgentMemoryReflectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryReflection
+     */
+    omit?: AgentMemoryReflectionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryReflection to fetch.
+     */
+    where?: AgentMemoryReflectionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMemoryReflections to fetch.
+     */
+    orderBy?: AgentMemoryReflectionOrderByWithRelationInput | AgentMemoryReflectionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AgentMemoryReflections.
+     */
+    cursor?: AgentMemoryReflectionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMemoryReflections from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMemoryReflections.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AgentMemoryReflections.
+     */
+    distinct?: AgentMemoryReflectionScalarFieldEnum | AgentMemoryReflectionScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMemoryReflection findMany
+   */
+  export type AgentMemoryReflectionFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryReflection
+     */
+    select?: AgentMemoryReflectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryReflection
+     */
+    omit?: AgentMemoryReflectionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentMemoryReflections to fetch.
+     */
+    where?: AgentMemoryReflectionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AgentMemoryReflections to fetch.
+     */
+    orderBy?: AgentMemoryReflectionOrderByWithRelationInput | AgentMemoryReflectionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing AgentMemoryReflections.
+     */
+    cursor?: AgentMemoryReflectionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AgentMemoryReflections from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AgentMemoryReflections.
+     */
+    skip?: number
+    distinct?: AgentMemoryReflectionScalarFieldEnum | AgentMemoryReflectionScalarFieldEnum[]
+  }
+
+  /**
+   * AgentMemoryReflection create
+   */
+  export type AgentMemoryReflectionCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryReflection
+     */
+    select?: AgentMemoryReflectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryReflection
+     */
+    omit?: AgentMemoryReflectionOmit<ExtArgs> | null
+    /**
+     * The data needed to create a AgentMemoryReflection.
+     */
+    data: XOR<AgentMemoryReflectionCreateInput, AgentMemoryReflectionUncheckedCreateInput>
+  }
+
+  /**
+   * AgentMemoryReflection createMany
+   */
+  export type AgentMemoryReflectionCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AgentMemoryReflections.
+     */
+    data: AgentMemoryReflectionCreateManyInput | AgentMemoryReflectionCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentMemoryReflection createManyAndReturn
+   */
+  export type AgentMemoryReflectionCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryReflection
+     */
+    select?: AgentMemoryReflectionSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryReflection
+     */
+    omit?: AgentMemoryReflectionOmit<ExtArgs> | null
+    /**
+     * The data used to create many AgentMemoryReflections.
+     */
+    data: AgentMemoryReflectionCreateManyInput | AgentMemoryReflectionCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentMemoryReflection update
+   */
+  export type AgentMemoryReflectionUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryReflection
+     */
+    select?: AgentMemoryReflectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryReflection
+     */
+    omit?: AgentMemoryReflectionOmit<ExtArgs> | null
+    /**
+     * The data needed to update a AgentMemoryReflection.
+     */
+    data: XOR<AgentMemoryReflectionUpdateInput, AgentMemoryReflectionUncheckedUpdateInput>
+    /**
+     * Choose, which AgentMemoryReflection to update.
+     */
+    where: AgentMemoryReflectionWhereUniqueInput
+  }
+
+  /**
+   * AgentMemoryReflection updateMany
+   */
+  export type AgentMemoryReflectionUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AgentMemoryReflections.
+     */
+    data: XOR<AgentMemoryReflectionUpdateManyMutationInput, AgentMemoryReflectionUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentMemoryReflections to update
+     */
+    where?: AgentMemoryReflectionWhereInput
+    /**
+     * Limit how many AgentMemoryReflections to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMemoryReflection updateManyAndReturn
+   */
+  export type AgentMemoryReflectionUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryReflection
+     */
+    select?: AgentMemoryReflectionSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryReflection
+     */
+    omit?: AgentMemoryReflectionOmit<ExtArgs> | null
+    /**
+     * The data used to update AgentMemoryReflections.
+     */
+    data: XOR<AgentMemoryReflectionUpdateManyMutationInput, AgentMemoryReflectionUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentMemoryReflections to update
+     */
+    where?: AgentMemoryReflectionWhereInput
+    /**
+     * Limit how many AgentMemoryReflections to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMemoryReflection upsert
+   */
+  export type AgentMemoryReflectionUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryReflection
+     */
+    select?: AgentMemoryReflectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryReflection
+     */
+    omit?: AgentMemoryReflectionOmit<ExtArgs> | null
+    /**
+     * The filter to search for the AgentMemoryReflection to update in case it exists.
+     */
+    where: AgentMemoryReflectionWhereUniqueInput
+    /**
+     * In case the AgentMemoryReflection found by the `where` argument doesn't exist, create a new AgentMemoryReflection with this data.
+     */
+    create: XOR<AgentMemoryReflectionCreateInput, AgentMemoryReflectionUncheckedCreateInput>
+    /**
+     * In case the AgentMemoryReflection was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AgentMemoryReflectionUpdateInput, AgentMemoryReflectionUncheckedUpdateInput>
+  }
+
+  /**
+   * AgentMemoryReflection delete
+   */
+  export type AgentMemoryReflectionDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryReflection
+     */
+    select?: AgentMemoryReflectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryReflection
+     */
+    omit?: AgentMemoryReflectionOmit<ExtArgs> | null
+    /**
+     * Filter which AgentMemoryReflection to delete.
+     */
+    where: AgentMemoryReflectionWhereUniqueInput
+  }
+
+  /**
+   * AgentMemoryReflection deleteMany
+   */
+  export type AgentMemoryReflectionDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentMemoryReflections to delete
+     */
+    where?: AgentMemoryReflectionWhereInput
+    /**
+     * Limit how many AgentMemoryReflections to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentMemoryReflection without action
+   */
+  export type AgentMemoryReflectionDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentMemoryReflection
+     */
+    select?: AgentMemoryReflectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentMemoryReflection
+     */
+    omit?: AgentMemoryReflectionOmit<ExtArgs> | null
+  }
+
+
+  /**
    * Model XiaoniIdentityRoot
    */
 
@@ -54594,6 +58415,76 @@ export namespace Prisma {
   export type AgentFeedbackLearningStateScalarFieldEnum = (typeof AgentFeedbackLearningStateScalarFieldEnum)[keyof typeof AgentFeedbackLearningStateScalarFieldEnum]
 
 
+  export const AgentMemoryObservationScalarFieldEnum: {
+    id: 'id',
+    session_key: 'session_key',
+    group_id: 'group_id',
+    source_conversation_id: 'source_conversation_id',
+    source_turn_ids: 'source_turn_ids',
+    source_message_ids: 'source_message_ids',
+    topic: 'topic',
+    text: 'text',
+    poignancy: 'poignancy',
+    participants: 'participants',
+    xiaoni_role: 'xiaoni_role',
+    source_trace_id: 'source_trace_id',
+    source_run_id: 'source_run_id',
+    writer_model: 'writer_model',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type AgentMemoryObservationScalarFieldEnum = (typeof AgentMemoryObservationScalarFieldEnum)[keyof typeof AgentMemoryObservationScalarFieldEnum]
+
+
+  export const AgentMemoryAssertionScalarFieldEnum: {
+    id: 'id',
+    session_key: 'session_key',
+    group_id: 'group_id',
+    source_conversation_id: 'source_conversation_id',
+    source_turn_ids: 'source_turn_ids',
+    source_message_ids: 'source_message_ids',
+    text: 'text',
+    fact_type: 'fact_type',
+    entities: 'entities',
+    participants: 'participants',
+    source_trace_id: 'source_trace_id',
+    source_run_id: 'source_run_id',
+    writer_model: 'writer_model',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type AgentMemoryAssertionScalarFieldEnum = (typeof AgentMemoryAssertionScalarFieldEnum)[keyof typeof AgentMemoryAssertionScalarFieldEnum]
+
+
+  export const AgentMemoryReflectionScalarFieldEnum: {
+    id: 'id',
+    session_key: 'session_key',
+    group_id: 'group_id',
+    source_conversation_id: 'source_conversation_id',
+    text: 'text',
+    kind: 'kind',
+    subjects: 'subjects',
+    evidence_basis: 'evidence_basis',
+    evidence_time_start: 'evidence_time_start',
+    evidence_time_end: 'evidence_time_end',
+    poignancy: 'poignancy',
+    source_observation_ids: 'source_observation_ids',
+    source_message_ids: 'source_message_ids',
+    source_trace_id: 'source_trace_id',
+    source_run_id: 'source_run_id',
+    writer_model: 'writer_model',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type AgentMemoryReflectionScalarFieldEnum = (typeof AgentMemoryReflectionScalarFieldEnum)[keyof typeof AgentMemoryReflectionScalarFieldEnum]
+
+
   export const XiaoniIdentityRootScalarFieldEnum: {
     id: 'id',
     identity_key: 'identity_key',
@@ -58284,6 +62175,353 @@ export namespace Prisma {
     metadata?: JsonNullableWithAggregatesFilter<"AgentFeedbackLearningState">
     created_at?: DateTimeWithAggregatesFilter<"AgentFeedbackLearningState"> | Date | string
     updated_at?: DateTimeWithAggregatesFilter<"AgentFeedbackLearningState"> | Date | string
+  }
+
+  export type AgentMemoryObservationWhereInput = {
+    AND?: AgentMemoryObservationWhereInput | AgentMemoryObservationWhereInput[]
+    OR?: AgentMemoryObservationWhereInput[]
+    NOT?: AgentMemoryObservationWhereInput | AgentMemoryObservationWhereInput[]
+    id?: BigIntFilter<"AgentMemoryObservation"> | bigint | number
+    session_key?: StringFilter<"AgentMemoryObservation"> | string
+    group_id?: BigIntNullableFilter<"AgentMemoryObservation"> | bigint | number | null
+    source_conversation_id?: BigIntNullableFilter<"AgentMemoryObservation"> | bigint | number | null
+    source_turn_ids?: JsonFilter<"AgentMemoryObservation">
+    source_message_ids?: JsonFilter<"AgentMemoryObservation">
+    topic?: StringFilter<"AgentMemoryObservation"> | string
+    text?: StringFilter<"AgentMemoryObservation"> | string
+    poignancy?: IntFilter<"AgentMemoryObservation"> | number
+    participants?: JsonFilter<"AgentMemoryObservation">
+    xiaoni_role?: StringFilter<"AgentMemoryObservation"> | string
+    source_trace_id?: StringNullableFilter<"AgentMemoryObservation"> | string | null
+    source_run_id?: StringNullableFilter<"AgentMemoryObservation"> | string | null
+    writer_model?: StringNullableFilter<"AgentMemoryObservation"> | string | null
+    metadata?: JsonNullableFilter<"AgentMemoryObservation">
+    created_at?: DateTimeFilter<"AgentMemoryObservation"> | Date | string
+    updated_at?: DateTimeFilter<"AgentMemoryObservation"> | Date | string
+  }
+
+  export type AgentMemoryObservationOrderByWithRelationInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    source_conversation_id?: SortOrderInput | SortOrder
+    source_turn_ids?: SortOrder
+    source_message_ids?: SortOrder
+    topic?: SortOrder
+    text?: SortOrder
+    poignancy?: SortOrder
+    participants?: SortOrder
+    xiaoni_role?: SortOrder
+    source_trace_id?: SortOrderInput | SortOrder
+    source_run_id?: SortOrderInput | SortOrder
+    writer_model?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMemoryObservationWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: AgentMemoryObservationWhereInput | AgentMemoryObservationWhereInput[]
+    OR?: AgentMemoryObservationWhereInput[]
+    NOT?: AgentMemoryObservationWhereInput | AgentMemoryObservationWhereInput[]
+    session_key?: StringFilter<"AgentMemoryObservation"> | string
+    group_id?: BigIntNullableFilter<"AgentMemoryObservation"> | bigint | number | null
+    source_conversation_id?: BigIntNullableFilter<"AgentMemoryObservation"> | bigint | number | null
+    source_turn_ids?: JsonFilter<"AgentMemoryObservation">
+    source_message_ids?: JsonFilter<"AgentMemoryObservation">
+    topic?: StringFilter<"AgentMemoryObservation"> | string
+    text?: StringFilter<"AgentMemoryObservation"> | string
+    poignancy?: IntFilter<"AgentMemoryObservation"> | number
+    participants?: JsonFilter<"AgentMemoryObservation">
+    xiaoni_role?: StringFilter<"AgentMemoryObservation"> | string
+    source_trace_id?: StringNullableFilter<"AgentMemoryObservation"> | string | null
+    source_run_id?: StringNullableFilter<"AgentMemoryObservation"> | string | null
+    writer_model?: StringNullableFilter<"AgentMemoryObservation"> | string | null
+    metadata?: JsonNullableFilter<"AgentMemoryObservation">
+    created_at?: DateTimeFilter<"AgentMemoryObservation"> | Date | string
+    updated_at?: DateTimeFilter<"AgentMemoryObservation"> | Date | string
+  }, "id">
+
+  export type AgentMemoryObservationOrderByWithAggregationInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    source_conversation_id?: SortOrderInput | SortOrder
+    source_turn_ids?: SortOrder
+    source_message_ids?: SortOrder
+    topic?: SortOrder
+    text?: SortOrder
+    poignancy?: SortOrder
+    participants?: SortOrder
+    xiaoni_role?: SortOrder
+    source_trace_id?: SortOrderInput | SortOrder
+    source_run_id?: SortOrderInput | SortOrder
+    writer_model?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: AgentMemoryObservationCountOrderByAggregateInput
+    _avg?: AgentMemoryObservationAvgOrderByAggregateInput
+    _max?: AgentMemoryObservationMaxOrderByAggregateInput
+    _min?: AgentMemoryObservationMinOrderByAggregateInput
+    _sum?: AgentMemoryObservationSumOrderByAggregateInput
+  }
+
+  export type AgentMemoryObservationScalarWhereWithAggregatesInput = {
+    AND?: AgentMemoryObservationScalarWhereWithAggregatesInput | AgentMemoryObservationScalarWhereWithAggregatesInput[]
+    OR?: AgentMemoryObservationScalarWhereWithAggregatesInput[]
+    NOT?: AgentMemoryObservationScalarWhereWithAggregatesInput | AgentMemoryObservationScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"AgentMemoryObservation"> | bigint | number
+    session_key?: StringWithAggregatesFilter<"AgentMemoryObservation"> | string
+    group_id?: BigIntNullableWithAggregatesFilter<"AgentMemoryObservation"> | bigint | number | null
+    source_conversation_id?: BigIntNullableWithAggregatesFilter<"AgentMemoryObservation"> | bigint | number | null
+    source_turn_ids?: JsonWithAggregatesFilter<"AgentMemoryObservation">
+    source_message_ids?: JsonWithAggregatesFilter<"AgentMemoryObservation">
+    topic?: StringWithAggregatesFilter<"AgentMemoryObservation"> | string
+    text?: StringWithAggregatesFilter<"AgentMemoryObservation"> | string
+    poignancy?: IntWithAggregatesFilter<"AgentMemoryObservation"> | number
+    participants?: JsonWithAggregatesFilter<"AgentMemoryObservation">
+    xiaoni_role?: StringWithAggregatesFilter<"AgentMemoryObservation"> | string
+    source_trace_id?: StringNullableWithAggregatesFilter<"AgentMemoryObservation"> | string | null
+    source_run_id?: StringNullableWithAggregatesFilter<"AgentMemoryObservation"> | string | null
+    writer_model?: StringNullableWithAggregatesFilter<"AgentMemoryObservation"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"AgentMemoryObservation">
+    created_at?: DateTimeWithAggregatesFilter<"AgentMemoryObservation"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"AgentMemoryObservation"> | Date | string
+  }
+
+  export type AgentMemoryAssertionWhereInput = {
+    AND?: AgentMemoryAssertionWhereInput | AgentMemoryAssertionWhereInput[]
+    OR?: AgentMemoryAssertionWhereInput[]
+    NOT?: AgentMemoryAssertionWhereInput | AgentMemoryAssertionWhereInput[]
+    id?: BigIntFilter<"AgentMemoryAssertion"> | bigint | number
+    session_key?: StringFilter<"AgentMemoryAssertion"> | string
+    group_id?: BigIntNullableFilter<"AgentMemoryAssertion"> | bigint | number | null
+    source_conversation_id?: BigIntNullableFilter<"AgentMemoryAssertion"> | bigint | number | null
+    source_turn_ids?: JsonFilter<"AgentMemoryAssertion">
+    source_message_ids?: JsonFilter<"AgentMemoryAssertion">
+    text?: StringFilter<"AgentMemoryAssertion"> | string
+    fact_type?: StringFilter<"AgentMemoryAssertion"> | string
+    entities?: JsonFilter<"AgentMemoryAssertion">
+    participants?: JsonFilter<"AgentMemoryAssertion">
+    source_trace_id?: StringNullableFilter<"AgentMemoryAssertion"> | string | null
+    source_run_id?: StringNullableFilter<"AgentMemoryAssertion"> | string | null
+    writer_model?: StringNullableFilter<"AgentMemoryAssertion"> | string | null
+    metadata?: JsonNullableFilter<"AgentMemoryAssertion">
+    created_at?: DateTimeFilter<"AgentMemoryAssertion"> | Date | string
+    updated_at?: DateTimeFilter<"AgentMemoryAssertion"> | Date | string
+  }
+
+  export type AgentMemoryAssertionOrderByWithRelationInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    source_conversation_id?: SortOrderInput | SortOrder
+    source_turn_ids?: SortOrder
+    source_message_ids?: SortOrder
+    text?: SortOrder
+    fact_type?: SortOrder
+    entities?: SortOrder
+    participants?: SortOrder
+    source_trace_id?: SortOrderInput | SortOrder
+    source_run_id?: SortOrderInput | SortOrder
+    writer_model?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMemoryAssertionWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: AgentMemoryAssertionWhereInput | AgentMemoryAssertionWhereInput[]
+    OR?: AgentMemoryAssertionWhereInput[]
+    NOT?: AgentMemoryAssertionWhereInput | AgentMemoryAssertionWhereInput[]
+    session_key?: StringFilter<"AgentMemoryAssertion"> | string
+    group_id?: BigIntNullableFilter<"AgentMemoryAssertion"> | bigint | number | null
+    source_conversation_id?: BigIntNullableFilter<"AgentMemoryAssertion"> | bigint | number | null
+    source_turn_ids?: JsonFilter<"AgentMemoryAssertion">
+    source_message_ids?: JsonFilter<"AgentMemoryAssertion">
+    text?: StringFilter<"AgentMemoryAssertion"> | string
+    fact_type?: StringFilter<"AgentMemoryAssertion"> | string
+    entities?: JsonFilter<"AgentMemoryAssertion">
+    participants?: JsonFilter<"AgentMemoryAssertion">
+    source_trace_id?: StringNullableFilter<"AgentMemoryAssertion"> | string | null
+    source_run_id?: StringNullableFilter<"AgentMemoryAssertion"> | string | null
+    writer_model?: StringNullableFilter<"AgentMemoryAssertion"> | string | null
+    metadata?: JsonNullableFilter<"AgentMemoryAssertion">
+    created_at?: DateTimeFilter<"AgentMemoryAssertion"> | Date | string
+    updated_at?: DateTimeFilter<"AgentMemoryAssertion"> | Date | string
+  }, "id">
+
+  export type AgentMemoryAssertionOrderByWithAggregationInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    source_conversation_id?: SortOrderInput | SortOrder
+    source_turn_ids?: SortOrder
+    source_message_ids?: SortOrder
+    text?: SortOrder
+    fact_type?: SortOrder
+    entities?: SortOrder
+    participants?: SortOrder
+    source_trace_id?: SortOrderInput | SortOrder
+    source_run_id?: SortOrderInput | SortOrder
+    writer_model?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: AgentMemoryAssertionCountOrderByAggregateInput
+    _avg?: AgentMemoryAssertionAvgOrderByAggregateInput
+    _max?: AgentMemoryAssertionMaxOrderByAggregateInput
+    _min?: AgentMemoryAssertionMinOrderByAggregateInput
+    _sum?: AgentMemoryAssertionSumOrderByAggregateInput
+  }
+
+  export type AgentMemoryAssertionScalarWhereWithAggregatesInput = {
+    AND?: AgentMemoryAssertionScalarWhereWithAggregatesInput | AgentMemoryAssertionScalarWhereWithAggregatesInput[]
+    OR?: AgentMemoryAssertionScalarWhereWithAggregatesInput[]
+    NOT?: AgentMemoryAssertionScalarWhereWithAggregatesInput | AgentMemoryAssertionScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"AgentMemoryAssertion"> | bigint | number
+    session_key?: StringWithAggregatesFilter<"AgentMemoryAssertion"> | string
+    group_id?: BigIntNullableWithAggregatesFilter<"AgentMemoryAssertion"> | bigint | number | null
+    source_conversation_id?: BigIntNullableWithAggregatesFilter<"AgentMemoryAssertion"> | bigint | number | null
+    source_turn_ids?: JsonWithAggregatesFilter<"AgentMemoryAssertion">
+    source_message_ids?: JsonWithAggregatesFilter<"AgentMemoryAssertion">
+    text?: StringWithAggregatesFilter<"AgentMemoryAssertion"> | string
+    fact_type?: StringWithAggregatesFilter<"AgentMemoryAssertion"> | string
+    entities?: JsonWithAggregatesFilter<"AgentMemoryAssertion">
+    participants?: JsonWithAggregatesFilter<"AgentMemoryAssertion">
+    source_trace_id?: StringNullableWithAggregatesFilter<"AgentMemoryAssertion"> | string | null
+    source_run_id?: StringNullableWithAggregatesFilter<"AgentMemoryAssertion"> | string | null
+    writer_model?: StringNullableWithAggregatesFilter<"AgentMemoryAssertion"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"AgentMemoryAssertion">
+    created_at?: DateTimeWithAggregatesFilter<"AgentMemoryAssertion"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"AgentMemoryAssertion"> | Date | string
+  }
+
+  export type AgentMemoryReflectionWhereInput = {
+    AND?: AgentMemoryReflectionWhereInput | AgentMemoryReflectionWhereInput[]
+    OR?: AgentMemoryReflectionWhereInput[]
+    NOT?: AgentMemoryReflectionWhereInput | AgentMemoryReflectionWhereInput[]
+    id?: BigIntFilter<"AgentMemoryReflection"> | bigint | number
+    session_key?: StringFilter<"AgentMemoryReflection"> | string
+    group_id?: BigIntNullableFilter<"AgentMemoryReflection"> | bigint | number | null
+    source_conversation_id?: BigIntNullableFilter<"AgentMemoryReflection"> | bigint | number | null
+    text?: StringFilter<"AgentMemoryReflection"> | string
+    kind?: StringFilter<"AgentMemoryReflection"> | string
+    subjects?: JsonFilter<"AgentMemoryReflection">
+    evidence_basis?: StringFilter<"AgentMemoryReflection"> | string
+    evidence_time_start?: DateTimeNullableFilter<"AgentMemoryReflection"> | Date | string | null
+    evidence_time_end?: DateTimeNullableFilter<"AgentMemoryReflection"> | Date | string | null
+    poignancy?: IntFilter<"AgentMemoryReflection"> | number
+    source_observation_ids?: JsonFilter<"AgentMemoryReflection">
+    source_message_ids?: JsonFilter<"AgentMemoryReflection">
+    source_trace_id?: StringNullableFilter<"AgentMemoryReflection"> | string | null
+    source_run_id?: StringNullableFilter<"AgentMemoryReflection"> | string | null
+    writer_model?: StringNullableFilter<"AgentMemoryReflection"> | string | null
+    metadata?: JsonNullableFilter<"AgentMemoryReflection">
+    created_at?: DateTimeFilter<"AgentMemoryReflection"> | Date | string
+    updated_at?: DateTimeFilter<"AgentMemoryReflection"> | Date | string
+  }
+
+  export type AgentMemoryReflectionOrderByWithRelationInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    source_conversation_id?: SortOrderInput | SortOrder
+    text?: SortOrder
+    kind?: SortOrder
+    subjects?: SortOrder
+    evidence_basis?: SortOrder
+    evidence_time_start?: SortOrderInput | SortOrder
+    evidence_time_end?: SortOrderInput | SortOrder
+    poignancy?: SortOrder
+    source_observation_ids?: SortOrder
+    source_message_ids?: SortOrder
+    source_trace_id?: SortOrderInput | SortOrder
+    source_run_id?: SortOrderInput | SortOrder
+    writer_model?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMemoryReflectionWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: AgentMemoryReflectionWhereInput | AgentMemoryReflectionWhereInput[]
+    OR?: AgentMemoryReflectionWhereInput[]
+    NOT?: AgentMemoryReflectionWhereInput | AgentMemoryReflectionWhereInput[]
+    session_key?: StringFilter<"AgentMemoryReflection"> | string
+    group_id?: BigIntNullableFilter<"AgentMemoryReflection"> | bigint | number | null
+    source_conversation_id?: BigIntNullableFilter<"AgentMemoryReflection"> | bigint | number | null
+    text?: StringFilter<"AgentMemoryReflection"> | string
+    kind?: StringFilter<"AgentMemoryReflection"> | string
+    subjects?: JsonFilter<"AgentMemoryReflection">
+    evidence_basis?: StringFilter<"AgentMemoryReflection"> | string
+    evidence_time_start?: DateTimeNullableFilter<"AgentMemoryReflection"> | Date | string | null
+    evidence_time_end?: DateTimeNullableFilter<"AgentMemoryReflection"> | Date | string | null
+    poignancy?: IntFilter<"AgentMemoryReflection"> | number
+    source_observation_ids?: JsonFilter<"AgentMemoryReflection">
+    source_message_ids?: JsonFilter<"AgentMemoryReflection">
+    source_trace_id?: StringNullableFilter<"AgentMemoryReflection"> | string | null
+    source_run_id?: StringNullableFilter<"AgentMemoryReflection"> | string | null
+    writer_model?: StringNullableFilter<"AgentMemoryReflection"> | string | null
+    metadata?: JsonNullableFilter<"AgentMemoryReflection">
+    created_at?: DateTimeFilter<"AgentMemoryReflection"> | Date | string
+    updated_at?: DateTimeFilter<"AgentMemoryReflection"> | Date | string
+  }, "id">
+
+  export type AgentMemoryReflectionOrderByWithAggregationInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrderInput | SortOrder
+    source_conversation_id?: SortOrderInput | SortOrder
+    text?: SortOrder
+    kind?: SortOrder
+    subjects?: SortOrder
+    evidence_basis?: SortOrder
+    evidence_time_start?: SortOrderInput | SortOrder
+    evidence_time_end?: SortOrderInput | SortOrder
+    poignancy?: SortOrder
+    source_observation_ids?: SortOrder
+    source_message_ids?: SortOrder
+    source_trace_id?: SortOrderInput | SortOrder
+    source_run_id?: SortOrderInput | SortOrder
+    writer_model?: SortOrderInput | SortOrder
+    metadata?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: AgentMemoryReflectionCountOrderByAggregateInput
+    _avg?: AgentMemoryReflectionAvgOrderByAggregateInput
+    _max?: AgentMemoryReflectionMaxOrderByAggregateInput
+    _min?: AgentMemoryReflectionMinOrderByAggregateInput
+    _sum?: AgentMemoryReflectionSumOrderByAggregateInput
+  }
+
+  export type AgentMemoryReflectionScalarWhereWithAggregatesInput = {
+    AND?: AgentMemoryReflectionScalarWhereWithAggregatesInput | AgentMemoryReflectionScalarWhereWithAggregatesInput[]
+    OR?: AgentMemoryReflectionScalarWhereWithAggregatesInput[]
+    NOT?: AgentMemoryReflectionScalarWhereWithAggregatesInput | AgentMemoryReflectionScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"AgentMemoryReflection"> | bigint | number
+    session_key?: StringWithAggregatesFilter<"AgentMemoryReflection"> | string
+    group_id?: BigIntNullableWithAggregatesFilter<"AgentMemoryReflection"> | bigint | number | null
+    source_conversation_id?: BigIntNullableWithAggregatesFilter<"AgentMemoryReflection"> | bigint | number | null
+    text?: StringWithAggregatesFilter<"AgentMemoryReflection"> | string
+    kind?: StringWithAggregatesFilter<"AgentMemoryReflection"> | string
+    subjects?: JsonWithAggregatesFilter<"AgentMemoryReflection">
+    evidence_basis?: StringWithAggregatesFilter<"AgentMemoryReflection"> | string
+    evidence_time_start?: DateTimeNullableWithAggregatesFilter<"AgentMemoryReflection"> | Date | string | null
+    evidence_time_end?: DateTimeNullableWithAggregatesFilter<"AgentMemoryReflection"> | Date | string | null
+    poignancy?: IntWithAggregatesFilter<"AgentMemoryReflection"> | number
+    source_observation_ids?: JsonWithAggregatesFilter<"AgentMemoryReflection">
+    source_message_ids?: JsonWithAggregatesFilter<"AgentMemoryReflection">
+    source_trace_id?: StringNullableWithAggregatesFilter<"AgentMemoryReflection"> | string | null
+    source_run_id?: StringNullableWithAggregatesFilter<"AgentMemoryReflection"> | string | null
+    writer_model?: StringNullableWithAggregatesFilter<"AgentMemoryReflection"> | string | null
+    metadata?: JsonNullableWithAggregatesFilter<"AgentMemoryReflection">
+    created_at?: DateTimeWithAggregatesFilter<"AgentMemoryReflection"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"AgentMemoryReflection"> | Date | string
   }
 
   export type XiaoniIdentityRootWhereInput = {
@@ -63608,6 +67846,433 @@ export namespace Prisma {
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
+  export type AgentMemoryObservationCreateInput = {
+    id?: bigint | number
+    session_key: string
+    group_id?: bigint | number | null
+    source_conversation_id?: bigint | number | null
+    source_turn_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    topic: string
+    text: string
+    poignancy?: number
+    participants: JsonNullValueInput | InputJsonValue
+    xiaoni_role: string
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    writer_model?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentMemoryObservationUncheckedCreateInput = {
+    id?: bigint | number
+    session_key: string
+    group_id?: bigint | number | null
+    source_conversation_id?: bigint | number | null
+    source_turn_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    topic: string
+    text: string
+    poignancy?: number
+    participants: JsonNullValueInput | InputJsonValue
+    xiaoni_role: string
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    writer_model?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentMemoryObservationUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_turn_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    topic?: StringFieldUpdateOperationsInput | string
+    text?: StringFieldUpdateOperationsInput | string
+    poignancy?: IntFieldUpdateOperationsInput | number
+    participants?: JsonNullValueInput | InputJsonValue
+    xiaoni_role?: StringFieldUpdateOperationsInput | string
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    writer_model?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMemoryObservationUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_turn_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    topic?: StringFieldUpdateOperationsInput | string
+    text?: StringFieldUpdateOperationsInput | string
+    poignancy?: IntFieldUpdateOperationsInput | number
+    participants?: JsonNullValueInput | InputJsonValue
+    xiaoni_role?: StringFieldUpdateOperationsInput | string
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    writer_model?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMemoryObservationCreateManyInput = {
+    id?: bigint | number
+    session_key: string
+    group_id?: bigint | number | null
+    source_conversation_id?: bigint | number | null
+    source_turn_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    topic: string
+    text: string
+    poignancy?: number
+    participants: JsonNullValueInput | InputJsonValue
+    xiaoni_role: string
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    writer_model?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentMemoryObservationUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_turn_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    topic?: StringFieldUpdateOperationsInput | string
+    text?: StringFieldUpdateOperationsInput | string
+    poignancy?: IntFieldUpdateOperationsInput | number
+    participants?: JsonNullValueInput | InputJsonValue
+    xiaoni_role?: StringFieldUpdateOperationsInput | string
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    writer_model?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMemoryObservationUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_turn_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    topic?: StringFieldUpdateOperationsInput | string
+    text?: StringFieldUpdateOperationsInput | string
+    poignancy?: IntFieldUpdateOperationsInput | number
+    participants?: JsonNullValueInput | InputJsonValue
+    xiaoni_role?: StringFieldUpdateOperationsInput | string
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    writer_model?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMemoryAssertionCreateInput = {
+    id?: bigint | number
+    session_key: string
+    group_id?: bigint | number | null
+    source_conversation_id?: bigint | number | null
+    source_turn_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    text: string
+    fact_type: string
+    entities: JsonNullValueInput | InputJsonValue
+    participants: JsonNullValueInput | InputJsonValue
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    writer_model?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentMemoryAssertionUncheckedCreateInput = {
+    id?: bigint | number
+    session_key: string
+    group_id?: bigint | number | null
+    source_conversation_id?: bigint | number | null
+    source_turn_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    text: string
+    fact_type: string
+    entities: JsonNullValueInput | InputJsonValue
+    participants: JsonNullValueInput | InputJsonValue
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    writer_model?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentMemoryAssertionUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_turn_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    text?: StringFieldUpdateOperationsInput | string
+    fact_type?: StringFieldUpdateOperationsInput | string
+    entities?: JsonNullValueInput | InputJsonValue
+    participants?: JsonNullValueInput | InputJsonValue
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    writer_model?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMemoryAssertionUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_turn_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    text?: StringFieldUpdateOperationsInput | string
+    fact_type?: StringFieldUpdateOperationsInput | string
+    entities?: JsonNullValueInput | InputJsonValue
+    participants?: JsonNullValueInput | InputJsonValue
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    writer_model?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMemoryAssertionCreateManyInput = {
+    id?: bigint | number
+    session_key: string
+    group_id?: bigint | number | null
+    source_conversation_id?: bigint | number | null
+    source_turn_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    text: string
+    fact_type: string
+    entities: JsonNullValueInput | InputJsonValue
+    participants: JsonNullValueInput | InputJsonValue
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    writer_model?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentMemoryAssertionUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_turn_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    text?: StringFieldUpdateOperationsInput | string
+    fact_type?: StringFieldUpdateOperationsInput | string
+    entities?: JsonNullValueInput | InputJsonValue
+    participants?: JsonNullValueInput | InputJsonValue
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    writer_model?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMemoryAssertionUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_turn_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    text?: StringFieldUpdateOperationsInput | string
+    fact_type?: StringFieldUpdateOperationsInput | string
+    entities?: JsonNullValueInput | InputJsonValue
+    participants?: JsonNullValueInput | InputJsonValue
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    writer_model?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMemoryReflectionCreateInput = {
+    id?: bigint | number
+    session_key: string
+    group_id?: bigint | number | null
+    source_conversation_id?: bigint | number | null
+    text: string
+    kind: string
+    subjects: JsonNullValueInput | InputJsonValue
+    evidence_basis: string
+    evidence_time_start?: Date | string | null
+    evidence_time_end?: Date | string | null
+    poignancy?: number
+    source_observation_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    writer_model?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentMemoryReflectionUncheckedCreateInput = {
+    id?: bigint | number
+    session_key: string
+    group_id?: bigint | number | null
+    source_conversation_id?: bigint | number | null
+    text: string
+    kind: string
+    subjects: JsonNullValueInput | InputJsonValue
+    evidence_basis: string
+    evidence_time_start?: Date | string | null
+    evidence_time_end?: Date | string | null
+    poignancy?: number
+    source_observation_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    writer_model?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentMemoryReflectionUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    text?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    subjects?: JsonNullValueInput | InputJsonValue
+    evidence_basis?: StringFieldUpdateOperationsInput | string
+    evidence_time_start?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    evidence_time_end?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    poignancy?: IntFieldUpdateOperationsInput | number
+    source_observation_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    writer_model?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMemoryReflectionUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    text?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    subjects?: JsonNullValueInput | InputJsonValue
+    evidence_basis?: StringFieldUpdateOperationsInput | string
+    evidence_time_start?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    evidence_time_end?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    poignancy?: IntFieldUpdateOperationsInput | number
+    source_observation_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    writer_model?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMemoryReflectionCreateManyInput = {
+    id?: bigint | number
+    session_key: string
+    group_id?: bigint | number | null
+    source_conversation_id?: bigint | number | null
+    text: string
+    kind: string
+    subjects: JsonNullValueInput | InputJsonValue
+    evidence_basis: string
+    evidence_time_start?: Date | string | null
+    evidence_time_end?: Date | string | null
+    poignancy?: number
+    source_observation_ids: JsonNullValueInput | InputJsonValue
+    source_message_ids: JsonNullValueInput | InputJsonValue
+    source_trace_id?: string | null
+    source_run_id?: string | null
+    writer_model?: string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentMemoryReflectionUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    text?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    subjects?: JsonNullValueInput | InputJsonValue
+    evidence_basis?: StringFieldUpdateOperationsInput | string
+    evidence_time_start?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    evidence_time_end?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    poignancy?: IntFieldUpdateOperationsInput | number
+    source_observation_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    writer_model?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentMemoryReflectionUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    session_key?: StringFieldUpdateOperationsInput | string
+    group_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    source_conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    text?: StringFieldUpdateOperationsInput | string
+    kind?: StringFieldUpdateOperationsInput | string
+    subjects?: JsonNullValueInput | InputJsonValue
+    evidence_basis?: StringFieldUpdateOperationsInput | string
+    evidence_time_start?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    evidence_time_end?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    poignancy?: IntFieldUpdateOperationsInput | number
+    source_observation_ids?: JsonNullValueInput | InputJsonValue
+    source_message_ids?: JsonNullValueInput | InputJsonValue
+    source_trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    source_run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    writer_model?: NullableStringFieldUpdateOperationsInput | string | null
+    metadata?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
   export type XiaoniIdentityRootCreateInput = {
     id?: bigint | number
     identity_key: string
@@ -67609,6 +72274,203 @@ export namespace Prisma {
     importance_weight?: SortOrder
     source_weight?: SortOrder
     conflict_penalty?: SortOrder
+  }
+
+  export type AgentMemoryObservationCountOrderByAggregateInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    source_turn_ids?: SortOrder
+    source_message_ids?: SortOrder
+    topic?: SortOrder
+    text?: SortOrder
+    poignancy?: SortOrder
+    participants?: SortOrder
+    xiaoni_role?: SortOrder
+    source_trace_id?: SortOrder
+    source_run_id?: SortOrder
+    writer_model?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMemoryObservationAvgOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    poignancy?: SortOrder
+  }
+
+  export type AgentMemoryObservationMaxOrderByAggregateInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    topic?: SortOrder
+    text?: SortOrder
+    poignancy?: SortOrder
+    xiaoni_role?: SortOrder
+    source_trace_id?: SortOrder
+    source_run_id?: SortOrder
+    writer_model?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMemoryObservationMinOrderByAggregateInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    topic?: SortOrder
+    text?: SortOrder
+    poignancy?: SortOrder
+    xiaoni_role?: SortOrder
+    source_trace_id?: SortOrder
+    source_run_id?: SortOrder
+    writer_model?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMemoryObservationSumOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    poignancy?: SortOrder
+  }
+
+  export type AgentMemoryAssertionCountOrderByAggregateInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    source_turn_ids?: SortOrder
+    source_message_ids?: SortOrder
+    text?: SortOrder
+    fact_type?: SortOrder
+    entities?: SortOrder
+    participants?: SortOrder
+    source_trace_id?: SortOrder
+    source_run_id?: SortOrder
+    writer_model?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMemoryAssertionAvgOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+  }
+
+  export type AgentMemoryAssertionMaxOrderByAggregateInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    text?: SortOrder
+    fact_type?: SortOrder
+    source_trace_id?: SortOrder
+    source_run_id?: SortOrder
+    writer_model?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMemoryAssertionMinOrderByAggregateInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    text?: SortOrder
+    fact_type?: SortOrder
+    source_trace_id?: SortOrder
+    source_run_id?: SortOrder
+    writer_model?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMemoryAssertionSumOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+  }
+
+  export type AgentMemoryReflectionCountOrderByAggregateInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    text?: SortOrder
+    kind?: SortOrder
+    subjects?: SortOrder
+    evidence_basis?: SortOrder
+    evidence_time_start?: SortOrder
+    evidence_time_end?: SortOrder
+    poignancy?: SortOrder
+    source_observation_ids?: SortOrder
+    source_message_ids?: SortOrder
+    source_trace_id?: SortOrder
+    source_run_id?: SortOrder
+    writer_model?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMemoryReflectionAvgOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    poignancy?: SortOrder
+  }
+
+  export type AgentMemoryReflectionMaxOrderByAggregateInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    text?: SortOrder
+    kind?: SortOrder
+    evidence_basis?: SortOrder
+    evidence_time_start?: SortOrder
+    evidence_time_end?: SortOrder
+    poignancy?: SortOrder
+    source_trace_id?: SortOrder
+    source_run_id?: SortOrder
+    writer_model?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMemoryReflectionMinOrderByAggregateInput = {
+    id?: SortOrder
+    session_key?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    text?: SortOrder
+    kind?: SortOrder
+    evidence_basis?: SortOrder
+    evidence_time_start?: SortOrder
+    evidence_time_end?: SortOrder
+    poignancy?: SortOrder
+    source_trace_id?: SortOrder
+    source_run_id?: SortOrder
+    writer_model?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentMemoryReflectionSumOrderByAggregateInput = {
+    id?: SortOrder
+    group_id?: SortOrder
+    source_conversation_id?: SortOrder
+    poignancy?: SortOrder
   }
 
   export type XiaoniIdentityRootCountOrderByAggregateInput = {

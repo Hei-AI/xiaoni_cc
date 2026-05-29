@@ -126,16 +126,14 @@ type ToolContinuationContext = {
 type TurnControlStage =
   | 'read_unread'
   | 'feel_reaction'
-  | 'maybe_recall'
   | 'maybe_search_or_inspect'
   | 'finalize';
 
 type TurnControlStateBias = 'low_energy' | 'normal' | 'high_energy';
-type TurnControlRecallStatus = 'not_needed' | 'allowed' | 'attempted_empty' | 'attempted_hit';
+type TurnControlRecallStatus = 'not_needed';
 type TurnControlExpectedNext =
   | 'emit_unread_meaning'
   | 'emit_inner_reaction'
-  | 'recall_long_term_learning'
   | 'final_tool';
 type InnerReactionContextGap =
   | 'none'
@@ -149,8 +147,6 @@ type InnerReactionGapResolution =
   | 'web_search'
   | 'ask_group'
   | 'memory_then_ask_or_search';
-type LongTermRecallQueryStrategy = 'topic_primary' | 'speaker_social_context' | 'relationship_pattern';
-
 export type TurnControlState = {
   stage: TurnControlStage;
   targetFound: boolean;
@@ -295,15 +291,6 @@ type InnerReaction = {
   reason: string;
 };
 
-type LongTermLearningRecall = {
-  reason: string;
-  topicHint: string;
-  includeCurrentSender: boolean;
-  desiredRecallCount: number;
-  queryStrategy: LongTermRecallQueryStrategy;
-  socialActTypeHint: UnreadMeaningSocialActType | null;
-};
-
 type FeedbackReflectionCandidate = {
   shouldPersist: boolean;
   feedbackKind: 'positive' | 'negative' | 'mixed';
@@ -343,6 +330,7 @@ type FeedbackLearningStateCandidate = {
 };
 
 type FeedbackWriterMode = 'episode_only' | 'durable_lessons';
+type CompactMemoryLayer = 'episodic' | 'semantic' | 'reflection';
 
 type FeedbackWriterEvidence = {
   sourceMessageIds: number[];
@@ -371,6 +359,15 @@ type ContextCompressionMemoryParams = {
   runtimePrompt: ResolvedAgentRuntimePrompt;
 };
 
+type PersistedMemoryObservation = {
+  id: number;
+  topic: string;
+  text: string;
+  sourceTurnIds: number[];
+  sourceMessageIds: number[];
+  createdAt?: string | Date | null;
+};
+
 type RuntimeIdentityFactProjection = {
   id: number;
   factKey: string;
@@ -394,7 +391,6 @@ const RUNTIME_IDENTITY_FACT_LIMIT = 4;
 const TOOL_NAMES = {
   unreadMeaning: 'emit_unread_meaning',
   innerReaction: 'emit_inner_reaction',
-  longTermRecall: 'recall_long_term_learning',
   inspectImage: 'inspect_image_placeholder',
   imageTask: 'request_image_task',
   feedbackReflection: 'synthesize_feedback_reflection',
@@ -403,8 +399,6 @@ const TOOL_NAMES = {
   groupReply: 'speak_in_group',
   silentFinish: 'stay_silent'
 } as const;
-
-const MAX_EMPTY_LONG_TERM_RECALL_ATTEMPTS = 2;
 
 const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
   type: 'web_search',
@@ -671,44 +665,6 @@ const INNER_REACTION_TOOL = {
   }
 } as const;
 
-const LONG_TERM_RECALL_TOOL = {
-  type: 'function',
-  function: {
-    name: TOOL_NAMES.longTermRecall,
-    description: '按当前主题和社交语境取回少量长期学习结果。',
-    parameters: {
-      type: 'object',
-      properties: {
-        reason: {
-          type: 'string'
-        },
-        topic_hint: {
-          type: 'string'
-        },
-        include_current_sender: {
-          type: 'boolean'
-        },
-        desired_recall_count: {
-          type: 'integer',
-          minimum: 1,
-          maximum: 3
-        },
-        social_act_type_hint: {
-          type: 'string',
-          enum: ['invitation_curiosity', 'emotional_release', 'relationship_probe', 'concrete_request', 'yes_no_reaction', 'casual_remark']
-        },
-        query_strategy: {
-          type: 'string',
-          enum: ['topic_primary', 'speaker_social_context', 'relationship_pattern'],
-          description: '本次记忆检索策略。第一次通常用 topic_primary；如果空结果后再次检索，换成 speaker_social_context 或 relationship_pattern，不要重复同一问法。'
-        }
-      },
-      required: ['reason', 'topic_hint', 'include_current_sender', 'desired_recall_count'],
-      additionalProperties: false
-    }
-  }
-} as const;
-
 const FEEDBACK_REFLECTION_SYNTHESIS_TOOL = {
   type: 'function',
   function: {
@@ -815,6 +771,172 @@ const FEEDBACK_LEARNING_STATE_TOOL = {
   }
 } as const;
 
+const MEMORY_EPISODIC_TOOL = {
+  type: 'function',
+  function: {
+    name: 'write_episodic_observations',
+    description: 'Write short Xiaoni-colored observations from evicted group-chat turns. Empty observations are valid when nothing is worth remembering.',
+    parameters: {
+      type: 'object',
+      properties: {
+        observations: {
+          type: 'array',
+          minItems: 0,
+          maxItems: 20,
+          items: {
+            type: 'object',
+            properties: {
+              topic: { type: 'string' },
+              text: { type: 'string' },
+              poignancy: { type: 'integer', minimum: 1, maximum: 10 },
+              participants: {
+                type: 'array',
+                minItems: 1,
+                items: {
+                  type: 'object',
+                  properties: {
+                    qq_id: { type: 'string' },
+                    name: { type: 'string' }
+                  },
+                  required: ['qq_id', 'name'],
+                  additionalProperties: false
+                }
+              },
+              xiaoni_role: {
+                type: 'string',
+                enum: ['speaker', 'directly_addressed', 'mentioned_or_evaluated', 'bystander', 'not_involved']
+              },
+              source_turn_ids: {
+                type: 'array',
+                minItems: 1,
+                items: { type: 'integer' }
+              }
+            },
+            required: ['topic', 'text', 'poignancy', 'participants', 'xiaoni_role', 'source_turn_ids'],
+            additionalProperties: false
+          }
+        }
+      },
+      required: ['observations'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+const MEMORY_SEMANTIC_TOOL = {
+  type: 'function',
+  function: {
+    name: 'write_semantic_assertions',
+    description: 'Write objective facts, states, plans, and claims from evicted group-chat turns. Empty assertions are valid.',
+    parameters: {
+      type: 'object',
+      properties: {
+        assertions: {
+          type: 'array',
+          minItems: 0,
+          maxItems: 16,
+          items: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+              fact_type: {
+                type: 'string',
+                enum: ['stable_fact', 'current_status', 'one_time_event', 'stated_plan', 'claim']
+              },
+              entities: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 5,
+                items: {
+                  type: 'object',
+                  properties: {
+                    kind: { type: 'string', enum: ['person', 'project', 'concept', 'place', 'url', 'other'] },
+                    value: { type: 'string' }
+                  },
+                  required: ['kind', 'value'],
+                  additionalProperties: false
+                }
+              },
+              participants: {
+                type: 'array',
+                minItems: 1,
+                items: {
+                  type: 'object',
+                  properties: {
+                    qq_id: { type: 'string' },
+                    name: { type: 'string' }
+                  },
+                  required: ['qq_id', 'name'],
+                  additionalProperties: false
+                }
+              },
+              source_turn_ids: {
+                type: 'array',
+                minItems: 1,
+                items: { type: 'integer' }
+              }
+            },
+            required: ['text', 'fact_type', 'entities', 'participants', 'source_turn_ids'],
+            additionalProperties: false
+          }
+        }
+      },
+      required: ['assertions'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+const MEMORY_REFLECTION_TOOL = {
+  type: 'function',
+  function: {
+    name: 'write_memory_reflections',
+    description: 'Synthesize cross-time abstractions from recently written episodic observations. Empty reflections are valid when evidence is insufficient.',
+    parameters: {
+      type: 'object',
+      properties: {
+        reflections: {
+          type: 'array',
+          minItems: 0,
+          maxItems: 5,
+          items: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+              kind: { type: 'string', enum: ['person_pattern', 'relationship', 'group_pattern', 'project_arc', 'self_observation'] },
+              subjects: { type: 'array', minItems: 1, maxItems: 5, items: { type: 'string' } },
+              evidence_basis: {
+                type: 'string',
+                enum: ['explicit_feedback', 'xiaoni_utterances', 'repeated_interactions', 'group_pattern']
+              },
+              evidence_time_start: { type: 'string' },
+              evidence_time_end: { type: 'string' },
+              poignancy: { type: 'integer', minimum: 1, maximum: 10 },
+              source_observation_ids: { type: 'array', minItems: 2, items: { type: 'integer' } }
+            },
+            required: ['text', 'kind', 'subjects', 'evidence_basis', 'evidence_time_start', 'evidence_time_end', 'poignancy', 'source_observation_ids'],
+            additionalProperties: false
+          }
+        }
+      },
+      required: ['reflections'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+const COMPACT_MEMORY_TOOL_BY_LAYER = {
+  episodic: MEMORY_EPISODIC_TOOL,
+  semantic: MEMORY_SEMANTIC_TOOL,
+  reflection: MEMORY_REFLECTION_TOOL
+} as const;
+
+const COMPACT_MEMORY_TOOL_NAME_BY_LAYER = {
+  episodic: 'write_episodic_observations',
+  semantic: 'write_semantic_assertions',
+  reflection: 'write_memory_reflections'
+} as const;
+
 const RUNTIME_INPUT_READING_CONTRACT = [
   '你看到的是真实的 QQ 现场，不是说明文。每段带标签的内容都代表一个明确来源。',
   '',
@@ -834,11 +956,10 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '这一轮顺序：',
   '先搞清楚最新未读在说什么，用 emit_unread_meaning。',
   '再感觉一下这些消息在你这里有没有真实反应、当前上下文是否足够，用 emit_inner_reaction。',
-  '只有当前上下文窗口、摘要、最近历史和已给出的工具结果都无法补足私域/群内/关系连续性缺口时，才用 recall_long_term_learning。',
   '最后通过工具完成这一轮——说话、沉默、查资料还是做图。',
   '',
   '工具阶段：',
-  'commentary 工具只整理现场或补充上下文：emit_unread_meaning、emit_inner_reaction、recall_long_term_learning、inspect_image_placeholder、web_search。',
+  'commentary 工具只整理现场或补充上下文：emit_unread_meaning、emit_inner_reaction、inspect_image_placeholder、web_search。',
   'final_answer 工具会结束本轮或产生外部动作：speak_in_group、reply_in_private、stay_silent、request_image_task。',
   '',
   'preferred_action 的含义：',
@@ -858,7 +979,7 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '',
   'web_search 是求知，不是默认步骤，也不是表演认真。',
   '只有真的需要新鲜公开信息时才查，查到够用就停，查完还是你自己决定说不说。',
-  '群友在说当前窗口外的内部上下文时不要猜；记忆找不到就承认没有这段记忆，必要时问一句“这是你们在哪聊的”。'
+  '群友在说当前窗口外的内部上下文时不要猜；当前上下文和摘要里没有就承认不知道，必要时问一句“这是你们在哪聊的”。'
 ].join('\n');
 
 const RUNTIME_HISTORY_READING_DEVELOPER_CONTEXT = [
@@ -965,64 +1086,6 @@ function extractLatestUnreadMeaning(loopInput: OpenResponseInputItem[]): UnreadM
   return null;
 }
 
-function hasLongTermRecallReplay(loopInput: OpenResponseInputItem[]) {
-  return hasToolReplay(loopInput, TOOL_NAMES.longTermRecall);
-}
-
-function extractLatestLongTermRecallResult(loopInput: OpenResponseInputItem[]): Record<string, unknown> | null {
-  const recallCallIds = new Set<string>();
-  for (const item of loopInput) {
-    if (item.type === 'function_call' && item.name === TOOL_NAMES.longTermRecall) {
-      recallCallIds.add(item.call_id);
-    }
-  }
-
-  for (let index = loopInput.length - 1; index >= 0; index -= 1) {
-    const item = loopInput[index];
-    if (item.type !== 'function_call_output' || !recallCallIds.has(item.call_id)) {
-      continue;
-    }
-    return parseReplayJsonObject(item.output);
-  }
-
-  return null;
-}
-
-function isRecallResultEmpty(toolResult: Record<string, unknown>) {
-  const items = Array.isArray(toolResult.items) ? toolResult.items : [];
-  const markdownItems = Array.isArray(toolResult.markdown_items) ? toolResult.markdown_items : [];
-  return items.length === 0 && markdownItems.length === 0;
-}
-
-function getLongTermRecallResults(loopInput: OpenResponseInputItem[]) {
-  const recallCallIds = new Set<string>();
-  for (const item of loopInput) {
-    if (item.type === 'function_call' && item.name === TOOL_NAMES.longTermRecall) {
-      recallCallIds.add(item.call_id);
-    }
-  }
-
-  const results: Record<string, unknown>[] = [];
-  for (const item of loopInput) {
-    if (item.type !== 'function_call_output' || !recallCallIds.has(item.call_id)) {
-      continue;
-    }
-    const parsed = parseReplayJsonObject(item.output);
-    if (parsed) {
-      results.push(parsed);
-    }
-  }
-  return results;
-}
-
-function countEmptyLongTermRecallResults(loopInput: OpenResponseInputItem[]) {
-  return getLongTermRecallResults(loopInput).filter(isRecallResultEmpty).length;
-}
-
-function hasLongTermRecallHit(loopInput: OpenResponseInputItem[]) {
-  return getLongTermRecallResults(loopInput).some((result) => !isRecallResultEmpty(result));
-}
-
 function hasDirectNewCue(meaning: UnreadMeaning | null) {
   if (!meaning?.addressedToMe && meaning?.socialTarget !== 'me') {
     return false;
@@ -1071,8 +1134,8 @@ function extractStateBiasFromLoopInput(loopInput: OpenResponseInputItem[]): Turn
 
 export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): TurnControlState {
   const stateBias = extractStateBiasFromLoopInput(loopInput);
-  const recallAttempts = getLongTermRecallResults(loopInput).length;
-  const emptyRecallAttempts = countEmptyLongTermRecallResults(loopInput);
+  const recallAttempts = 0;
+  const emptyRecallAttempts = 0;
   if (!hasUnreadMeaningReplay(loopInput)) {
     return {
       stage: 'read_unread',
@@ -1104,24 +1167,7 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
   }
 
   const reaction = extractLatestInnerReaction(loopInput);
-  const recallResult = extractLatestLongTermRecallResult(loopInput);
-  const recallStatus: TurnControlRecallStatus = recallResult
-    ? isRecallResultEmpty(recallResult) ? 'attempted_empty' : 'attempted_hit'
-    : shouldAllowRecall(loopInput, reaction, meaning) ? 'allowed' : 'not_needed';
-  if (recallStatus === 'allowed' || (recallStatus === 'attempted_empty' && shouldAllowRecall(loopInput, reaction, meaning))) {
-    return {
-      stage: 'maybe_recall',
-      targetFound,
-      stateBias,
-      recallStatus,
-      recallAttempts,
-      emptyRecallAttempts,
-      expectedNext: TOOL_NAMES.longTermRecall,
-      reason: emptyRecallAttempts > 0
-        ? '长期记忆第一次没找到，允许换一种检索方式再试一次。'
-        : '当前反应需要一点长期记忆校准。'
-    };
-  }
+  const recallStatus: TurnControlRecallStatus = 'not_needed';
 
   if (reaction?.preferredAction === 'search' || reaction?.preferredAction === 'image_task' || reaction?.gapResolution === 'web_search') {
     return {
@@ -1146,22 +1192,6 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
     expectedNext: 'final_tool',
     reason: '本轮已经完成现场理解和内在反应判断，应进入最终动作。'
   };
-}
-
-function shouldAllowRecall(loopInput: OpenResponseInputItem[], reaction: InnerReaction | null, meaning: UnreadMeaning | null) {
-  if (!reaction || hasLongTermRecallHit(loopInput) || countEmptyLongTermRecallResults(loopInput) >= MAX_EMPTY_LONG_TERM_RECALL_ATTEMPTS) {
-    return false;
-  }
-  if (reaction.gapResolution === 'memory' || reaction.gapResolution === 'memory_then_ask_or_search') {
-    return true;
-  }
-  if (reaction.contextGap === 'needs_private_memory' || reaction.contextGap === 'unclear_group_reference') {
-    return true;
-  }
-  if (reaction.wantsToKnowMore && !reaction.shouldSearch && meaning?.addressedToMe) {
-    return true;
-  }
-  return false;
 }
 
 function shouldDowngradeWeakSpeakToSilence(
@@ -1218,7 +1248,6 @@ function selectGroupLoopToolDefinitions(modelName: string) {
   return [
     UNREAD_MEANING_TOOL,
     INNER_REACTION_TOOL,
-    LONG_TERM_RECALL_TOOL,
     ...selectActorToolDefinitions('group', modelName)
   ] satisfies OpenResponseToolDefinition[];
 }
@@ -1248,12 +1277,6 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
   if (shouldDowngradeWeakSpeakToSilence(latestInnerReaction, latestUnreadMeaning, turnControl.stateBias)) {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.silentFinish }
-    ]);
-  }
-
-  if (turnControl.expectedNext === TOOL_NAMES.longTermRecall) {
-    return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.longTermRecall }
     ]);
   }
 
@@ -1385,6 +1408,46 @@ function buildFeedbackWriterRequest(
   };
 }
 
+function buildCompactMemoryWriterRequest(
+  modelName: string,
+  loopInput: OpenResponseInputItem[],
+  options: {
+    metadata: Record<string, string>;
+    promptCacheKey: string;
+    layer: CompactMemoryLayer;
+    reasoningEffort: string;
+  }
+): CanonicalAgentTurnRequest {
+  const [firstItem, ...remainingItems] = loopInput;
+  const instructions = firstItem?.type === 'message'
+    && firstItem.role === 'system'
+    && typeof firstItem.content === 'string'
+    ? firstItem.content
+    : undefined;
+  const toolName = COMPACT_MEMORY_TOOL_NAME_BY_LAYER[options.layer];
+
+  return {
+    model: modelName,
+    input: instructions ? remainingItems : loopInput,
+    ...(instructions ? { instructions } : {}),
+    tools: [COMPACT_MEMORY_TOOL_BY_LAYER[options.layer]],
+    tool_choice: buildAllowedToolsToolChoice([{ type: 'function', name: toolName }]),
+    parallel_tool_calls: false,
+    metadata: options.metadata,
+    prompt_cache_key: options.promptCacheKey,
+    reasoning: {
+      effort: options.reasoningEffort || 'medium',
+      summary: 'auto'
+    },
+    text: {
+      verbosity: 'low'
+    },
+    ...(agentConfig.promptCacheRetention && agentConfig.promptCacheRetention.trim()
+      ? { prompt_cache_retention: agentConfig.promptCacheRetention.trim() }
+      : {})
+  };
+}
+
 function formatMessageSender(message: QueueMessageRecord['payload']['messages'][number]) {
   return formatIdentity(message.senderName, message.senderId);
 }
@@ -1490,6 +1553,26 @@ function buildFeedbackMemorySubagentTurnMetadata(params: {
     metadata.prompt_id = params.runtimePrompt.promptId;
   }
 
+  return metadata;
+}
+
+function buildCompactMemorySubagentTurnMetadata(params: {
+  queueMessage: QueueMessageRecord['payload'];
+  runtimePrompt: ResolvedAgentRuntimePrompt;
+  conversationId: number;
+  subagentTraceId: string;
+  layer: CompactMemoryLayer;
+}) {
+  const metadata = buildFeedbackMemorySubagentTurnMetadata({
+    queueMessage: params.queueMessage,
+    runtimePrompt: params.runtimePrompt,
+    conversationId: params.conversationId,
+    subagentTraceId: params.subagentTraceId,
+    turn: 1
+  });
+  metadata.subagent_type = CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE;
+  metadata.turn_id = `${params.queueMessage.runId}:compact_memory:${params.layer}`;
+  metadata.memory_layer = params.layer;
   return metadata;
 }
 
@@ -1985,17 +2068,6 @@ export function buildTurnControlReminder(turnControl: TurnControlState): OpenRes
   if (!turnControl.targetFound && turnControl.stage === 'feel_reaction') {
     lines.push('当前未读没有明确找小腻，也没有稳定的新目标；下一步只确认是否真的有反应，不要为了接话而制造目标。');
   }
-  if (turnControl.stage === 'maybe_recall') {
-    lines.push(turnControl.emptyRecallAttempts > 0
-      ? '长期记忆上一次没有找到；如果确实仍需要这段私域/群内上下文，可以换一种检索方式再召回一次，不要重复同一问法。'
-      : '当前反应需要长期记忆校准；先查小腻自己的长期记忆，不要从当前上下文之外猜群友在哪里聊过。');
-  }
-  if (turnControl.recallStatus === 'attempted_empty' && turnControl.emptyRecallAttempts >= MAX_EMPTY_LONG_TERM_RECALL_ATTEMPTS) {
-    lines.push('我没有找到这段长期记忆。不要继续重复召回，也不要编造他们在哪里聊过。');
-    lines.push('如果这像是群友在别的小群、私聊或更早上下文里聊过的内容，可以自然问一句“这是你们在哪聊的”；如果它是公开事实且当前确实需要知道，可以用 web_search；如果没人找我，stay_silent 是有效收口。');
-  } else if (turnControl.recallStatus === 'attempted_empty') {
-    lines.push('长期记忆这次没有找到；只有在换检索角度可能有帮助时才再试一次。');
-  }
   if (turnControl.stateBias === 'low_energy' && turnControl.stage === 'finalize') {
     lines.push('当前状态偏低，弱反应不要升级成发言；如果没有清楚目标或成形反应，stay_silent 是有效收口。');
   }
@@ -2031,7 +2103,6 @@ function renderPresenceTickAction(queueMessage: QueueMessageRecord['payload']) {
 const COMMENTARY_TOOL_MONITOR_NAMES = new Set<string>([
   TOOL_NAMES.unreadMeaning,
   TOOL_NAMES.innerReaction,
-  TOOL_NAMES.longTermRecall,
   TOOL_NAMES.inspectImage,
   'web_search'
 ]);
@@ -2239,6 +2310,118 @@ function buildContextCompressionFeedbackWriterInput(params: {
   ];
 }
 
+const COMPACT_MEMORY_EPISODIC_CONTRACT = [
+  '你在为小腻的长期召回写 episodic observations。',
+  '目标：保留未来能帮助小腻想起“当时发生了什么、谁怎么说、小腻在场上处于什么位置”的具体片段。',
+  '成功标准：每条 observation 必须来自当前这批即将移出上下文的对话；要短、具体、可召回，带话题钩子和参与者。',
+  '不要把 absence 当证据；不要从一次沉默推导长期性格；不要写行为规则、人格设定、泛泛总结。',
+  '如果没有值得未来召回的具体片段，调用工具并返回空 observations。'
+].join('\n');
+
+const COMPACT_MEMORY_SEMANTIC_CONTRACT = [
+  '你在为小腻的长期召回写 semantic assertions。',
+  '目标：保留未来回答实体、项目、状态、计划、事实性问题时有用的客观断言。',
+  '成功标准：只写可从对话文本直接支持的事实、当前状态、一次性事件、计划或明确 claim；每条都要能回到 source_turn_ids。',
+  '不要写氛围、态度、关系判断、猜测、人格化解释；这些属于 episodic 或 reflection。',
+  '如果没有客观断言，调用工具并返回空 assertions。'
+].join('\n');
+
+const COMPACT_MEMORY_REFLECTION_CONTRACT = [
+  '你在为小腻的长期召回写 reflection memories。',
+  '目标：从已经落库的 episodic observations 中提炼跨时间模式，用于未来关系、群体节奏、人物习惯或项目弧线的召回。',
+  '成功标准：每条 reflection 至少引用 2 条 source_observation_ids；必须是证据重复出现后的抽象，不是新事实。',
+  '不要生成指令政策；不要把一次事件提升成长期规则；不要从缺席、沉默、没发生的事推导结论。',
+  '如果 evidence 不足，调用工具并返回空 reflections。'
+].join('\n');
+
+function composeCompactMemorySystemPrompt(params: {
+  systemPrompt: string;
+  layer: CompactMemoryLayer;
+}) {
+  const contract = params.layer === 'episodic'
+    ? COMPACT_MEMORY_EPISODIC_CONTRACT
+    : params.layer === 'semantic'
+    ? COMPACT_MEMORY_SEMANTIC_CONTRACT
+    : COMPACT_MEMORY_REFLECTION_CONTRACT;
+  return appendRuntimePromptSection(
+    params.systemPrompt.trim(),
+    `Compact memory ${params.layer} writer contract:`,
+    contract
+  );
+}
+
+function renderEvictedTurnForCompactMemory(turn: ConversationTurn) {
+  const itemLines = (Array.isArray(turn.items) ? turn.items : [])
+    .map((item, index) => {
+      const role = item.role === 'assistant' ? '小腻' : '群友';
+      const messageId = Number.isFinite(Number(item.deliveryMessageId)) ? ` message_id=${item.deliveryMessageId}` : '';
+      const source = typeof item.source === 'string' && item.source ? ` source=${item.source}` : '';
+      const content = String(item.content || '').trim();
+      return content ? `${index + 1}. ${role}${messageId}${source}: ${content}` : '';
+    })
+    .filter(Boolean);
+  const fallback = [
+    `用户: ${turn.userMessage || '(无消息内容)'}`,
+    `小腻: ${turn.aiResponse || '(本轮未发送消息)'}`
+  ];
+  return [
+    `[turn_id=${turn.id} user_id=${turn.userId}${turn.groupId ? ` group_id=${turn.groupId}` : ''}]`,
+    ...(itemLines.length > 0 ? itemLines : fallback)
+  ].join('\n');
+}
+
+function buildCompactMemoryWriterInput(params: {
+  layer: 'episodic' | 'semantic';
+  evictedTurns: ConversationTurn[];
+  runtimePrompt: ResolvedAgentRuntimePrompt;
+}): OpenResponseInputItem[] {
+  const header = [
+    `[即将从上下文窗口移除的对话历史 (${params.evictedTurns.length} 轮)]`,
+    `任务层：${params.layer}`,
+    '只从下面证据写入；没有合格内容也必须调用对应工具并返回空数组。'
+  ].join('\n');
+
+  return [
+    {
+      type: 'message',
+      role: 'system',
+      content: composeCompactMemorySystemPrompt({
+        systemPrompt: params.runtimePrompt.systemPrompt,
+        layer: params.layer
+      })
+    },
+    buildUserSceneInputItem([[header, ...params.evictedTurns.map(renderEvictedTurnForCompactMemory)].join('\n\n')])
+  ];
+}
+
+function buildCompactMemoryReflectionInput(params: {
+  observations: PersistedMemoryObservation[];
+  runtimePrompt: ResolvedAgentRuntimePrompt;
+}): OpenResponseInputItem[] {
+  const observationLines = params.observations.map((observation) => [
+    `[observation_id=${observation.id}] topic=${observation.topic}`,
+    `source_turn_ids=${JSON.stringify(observation.sourceTurnIds)} source_message_ids=${JSON.stringify(observation.sourceMessageIds)}`,
+    observation.text
+  ].join('\n'));
+  const header = [
+    `[本批刚写入的 episodic observations (${params.observations.length} 条)]`,
+    '任务层：reflection',
+    '只允许从这些 observations 中抽象；证据不足也必须调用对应工具并返回空数组。'
+  ].join('\n');
+
+  return [
+    {
+      type: 'message',
+      role: 'system',
+      content: composeCompactMemorySystemPrompt({
+        systemPrompt: params.runtimePrompt.systemPrompt,
+        layer: 'reflection'
+      })
+    },
+    buildUserSceneInputItem([[header, ...observationLines].join('\n\n')])
+  ];
+}
+
 function uniquePositiveNumbers(values: unknown[]): number[] {
   const seen = new Set<number>();
   const result: number[] = [];
@@ -2289,6 +2472,23 @@ function buildContextCompressionFeedbackWriterEvidence(params: {
     },
     writerSource: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE
   };
+}
+
+function buildSourceMessageIdsByTurnId(evictedTurns: ConversationTurn[]) {
+  const result = new Map<number, number[]>();
+  for (const turn of evictedTurns) {
+    const ids = uniquePositiveNumbers(
+      (Array.isArray(turn.items) ? turn.items : [])
+        .filter((item) => item.role === 'user')
+        .map((item) => item.deliveryMessageId)
+    );
+    result.set(turn.id, ids);
+  }
+  return result;
+}
+
+function collectSourceMessageIds(sourceTurnIds: number[], messageIdsByTurnId: Map<number, number[]>) {
+  return uniquePositiveNumbers(sourceTurnIds.flatMap((turnId) => messageIdsByTurnId.get(turnId) || []));
 }
 
 const CONTEXT_SUMMARY_WRITER_CONTRACT = [
@@ -2650,48 +2850,6 @@ function parseInnerReaction(value: unknown): InnerReaction | null {
   };
 }
 
-function parseLongTermLearningRecall(value: unknown): LongTermLearningRecall | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const reason = typeof record.reason === 'string' ? record.reason.trim() : '';
-  const topicHint = typeof (record.topic_hint ?? record.topicHint) === 'string'
-    ? String(record.topic_hint ?? record.topicHint).trim()
-    : '';
-  const includeCurrentSender = parseOptionalBoolean(record.include_current_sender ?? record.includeCurrentSender);
-  const desiredRecallCount = parseOptionalInteger(record.desired_recall_count ?? record.desiredRecallCount);
-
-  if (!reason || !topicHint || includeCurrentSender === null || desiredRecallCount === null) {
-    return null;
-  }
-
-  const socialActTypeValues: UnreadMeaningSocialActType[] = [
-    'invitation_curiosity', 'emotional_release', 'relationship_probe',
-    'concrete_request', 'yes_no_reaction', 'casual_remark'
-  ];
-  const rawHint = record.social_act_type_hint ?? record.socialActTypeHint;
-  const socialActTypeHint: UnreadMeaningSocialActType | null = socialActTypeValues.includes(rawHint as UnreadMeaningSocialActType)
-    ? (rawHint as UnreadMeaningSocialActType)
-    : null;
-  const rawQueryStrategy = record.query_strategy ?? record.queryStrategy;
-  const queryStrategy: LongTermRecallQueryStrategy = rawQueryStrategy === 'speaker_social_context'
-    || rawQueryStrategy === 'relationship_pattern'
-    || rawQueryStrategy === 'topic_primary'
-    ? rawQueryStrategy
-    : 'topic_primary';
-
-  return {
-    reason,
-    topicHint,
-    includeCurrentSender,
-    desiredRecallCount: Math.max(1, Math.min(desiredRecallCount, 3)),
-    queryStrategy,
-    socialActTypeHint
-  };
-}
-
 function parseFeedbackReflectionSynthesis(value: unknown): FeedbackReflectionSynthesis | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
@@ -2790,6 +2948,157 @@ function parseFeedbackLearningStateCandidate(value: unknown): FeedbackLearningSt
     activateNewReflection,
     reason
   };
+}
+
+function parseRecordArray(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is Record<string, unknown> => (
+    Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+  ));
+}
+
+function parseBoundedInteger(value: unknown, min: number, max: number, fallback: number) {
+  const normalized = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(normalized)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.trunc(normalized)));
+}
+
+function parsePositiveIntegerArray(value: unknown, maxItems = 20) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return uniquePositiveNumbers(value).slice(0, maxItems);
+}
+
+function parseParticipantArray(value: unknown) {
+  return parseRecordArray(value)
+    .map((item) => {
+      const qqId = typeof (item.qq_id ?? item.qqId) === 'string'
+        ? String(item.qq_id ?? item.qqId).trim()
+        : String(item.qq_id ?? item.qqId ?? '').trim();
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      return qqId || name ? { qq_id: qqId, name } : null;
+    })
+    .filter((item): item is { qq_id: string; name: string } => Boolean(item))
+    .slice(0, 12);
+}
+
+function parseEntityArray(value: unknown) {
+  return parseRecordArray(value)
+    .map((item) => {
+      const kind = item.kind === 'person'
+        || item.kind === 'project'
+        || item.kind === 'concept'
+        || item.kind === 'place'
+        || item.kind === 'url'
+        || item.kind === 'other'
+        ? item.kind
+        : 'other';
+      const entityValue = typeof item.value === 'string' ? item.value.trim() : '';
+      return entityValue ? { kind, value: entityValue } : null;
+    })
+    .filter((item): item is { kind: string; value: string } => Boolean(item))
+    .slice(0, 8);
+}
+
+function parseCompactMemoryObservations(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return [];
+  }
+  return parseRecordArray((value as Record<string, unknown>).observations).map((item) => {
+    const topic = typeof item.topic === 'string' ? item.topic.trim() : '';
+    const text = typeof item.text === 'string' ? item.text.trim() : '';
+    const xiaoniRole = item.xiaoni_role === 'speaker'
+      || item.xiaoni_role === 'directly_addressed'
+      || item.xiaoni_role === 'mentioned_or_evaluated'
+      || item.xiaoni_role === 'bystander'
+      || item.xiaoni_role === 'not_involved'
+      ? item.xiaoni_role
+      : 'not_involved';
+    const sourceTurnIds = parsePositiveIntegerArray(item.source_turn_ids ?? item.sourceTurnIds);
+    if (!topic || !text || sourceTurnIds.length === 0) {
+      return null;
+    }
+    return {
+      topic,
+      text,
+      poignancy: parseBoundedInteger(item.poignancy, 1, 10, 1),
+      participants: parseParticipantArray(item.participants),
+      xiaoniRole,
+      sourceTurnIds
+    };
+  }).filter((item): item is NonNullable<typeof item> => Boolean(item));
+}
+
+function parseCompactMemoryAssertions(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return [];
+  }
+  return parseRecordArray((value as Record<string, unknown>).assertions).map((item) => {
+    const text = typeof item.text === 'string' ? item.text.trim() : '';
+    const factType = item.fact_type === 'stable_fact'
+      || item.fact_type === 'current_status'
+      || item.fact_type === 'one_time_event'
+      || item.fact_type === 'stated_plan'
+      || item.fact_type === 'claim'
+      ? item.fact_type
+      : 'claim';
+    const sourceTurnIds = parsePositiveIntegerArray(item.source_turn_ids ?? item.sourceTurnIds);
+    if (!text || sourceTurnIds.length === 0) {
+      return null;
+    }
+    return {
+      text,
+      factType,
+      entities: parseEntityArray(item.entities),
+      participants: parseParticipantArray(item.participants),
+      sourceTurnIds
+    };
+  }).filter((item): item is NonNullable<typeof item> => Boolean(item));
+}
+
+function parseCompactMemoryReflections(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return [];
+  }
+  return parseRecordArray((value as Record<string, unknown>).reflections).map((item) => {
+    const text = typeof item.text === 'string' ? item.text.trim() : '';
+    const kind = item.kind === 'person_pattern'
+      || item.kind === 'relationship'
+      || item.kind === 'group_pattern'
+      || item.kind === 'project_arc'
+      || item.kind === 'self_observation'
+      ? item.kind
+      : 'group_pattern';
+    const evidenceBasis = item.evidence_basis === 'explicit_feedback'
+      || item.evidence_basis === 'xiaoni_utterances'
+      || item.evidence_basis === 'repeated_interactions'
+      || item.evidence_basis === 'group_pattern'
+      ? item.evidence_basis
+      : 'group_pattern';
+    const sourceObservationIds = parsePositiveIntegerArray(item.source_observation_ids ?? item.sourceObservationIds, 12);
+    if (!text || sourceObservationIds.length < 2) {
+      return null;
+    }
+    return {
+      text,
+      kind,
+      subjects: parseStringArray(item.subjects),
+      evidenceBasis,
+      evidenceTimeStart: typeof (item.evidence_time_start ?? item.evidenceTimeStart) === 'string'
+        ? String(item.evidence_time_start ?? item.evidenceTimeStart).trim()
+        : null,
+      evidenceTimeEnd: typeof (item.evidence_time_end ?? item.evidenceTimeEnd) === 'string'
+        ? String(item.evidence_time_end ?? item.evidenceTimeEnd).trim()
+        : null,
+      poignancy: parseBoundedInteger(item.poignancy, 1, 10, 1),
+      sourceObservationIds
+    };
+  }).filter((item): item is NonNullable<typeof item> => Boolean(item));
 }
 
 function parseStringArray(value: unknown) {
@@ -2910,74 +3219,6 @@ function judgeFeedbackReflectionAsIdentityFact(reflection: FeedbackReflectionSyn
     integrityStatus: 'quarantined',
     reason: 'feedback reflection kept as candidate until stronger future evidence supports durable identity change'
   } as const;
-}
-
-function resolveRecentRelatedUserIds(queueMessage: QueueMessageRecord['payload']) {
-  const currentSenderId = Number(queueMessage.senderId);
-  const seen = new Set<number>();
-  const recentUserIds: number[] = [];
-
-  for (const message of [...queueMessage.messages].reverse()) {
-    const senderId = Number(message.senderId);
-    if (!Number.isFinite(senderId) || senderId <= 0 || senderId === currentSenderId || seen.has(senderId)) {
-      continue;
-    }
-    seen.add(senderId);
-    recentUserIds.push(senderId);
-    if (recentUserIds.length >= 2) {
-      break;
-    }
-  }
-
-  return recentUserIds;
-}
-
-function buildLongTermRecallQuery(
-  queueMessage: QueueMessageRecord['payload'],
-  topicHint: string,
-  reason: string,
-  queryStrategy: LongTermRecallQueryStrategy = 'topic_primary'
-) {
-  const senderNames = queueMessage.messages
-    .map((message) => message.senderName || message.senderId || '')
-    .filter(Boolean)
-    .join(' ');
-  const messageText = [
-    ...queueMessage.messages.map((message) => message.bodyForAgent || ''),
-    queueMessage.bodyForAgent || '',
-    typeof queueMessage.inboundContext?.ReplyToBody === 'string' ? queueMessage.inboundContext.ReplyToBody : ''
-  ].join('\n');
-  const strategyText = queryStrategy === 'speaker_social_context'
-    ? `检索角度：当前发言者/相关群友的过往社交语境。相关人：${senderNames}`
-    : queryStrategy === 'relationship_pattern'
-    ? `检索角度：小腻和当前发言者或群聊形成过的关系模式、反馈或约定。相关人：${senderNames}`
-    : '检索角度：当前话题、梗或关键词。';
-  return [
-    strategyText,
-    messageText,
-    topicHint,
-    reason
-  ]
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .join('\n');
-}
-
-function formatLongTermRecallMarkdown(params: {
-  rank: number;
-  summaryText: string;
-  sourceUserName: string | null;
-  feedbackKind: string;
-  whyRecalled: string;
-}) {
-  const lines = [`### 记忆片段 ${params.rank}（长期学习，来自过去对话，不是当前用户输入）`];
-  if (params.sourceUserName) {
-    lines.push(`- 来源：${params.sourceUserName}`);
-  }
-  lines.push(`- 学到的事：${params.summaryText}`);
-  lines.push(`- 类型：${params.feedbackKind}`);
-  lines.push(`- 现在为什么想起：${params.whyRecalled}`);
-  return lines.join('\n');
 }
 
 function parseFeedbackReflectionCandidate(value: unknown): FeedbackReflectionCandidate | null {
@@ -3101,20 +3342,6 @@ export function applyToolResultToLoopInput(
     },
     inputItems[0]
   ];
-  if (toolCall.name === TOOL_NAMES.longTermRecall && Array.isArray(toolResult.markdown_items)) {
-    for (const markdownItem of toolResult.markdown_items) {
-      if (typeof markdownItem === 'string' && markdownItem.trim()) {
-        inputItems.push(buildAssistantCommentaryInputItem([markdownItem.trim()]));
-      }
-    }
-    if (isRecallResultEmpty(toolResult)) {
-      const turnControl = deriveTurnControlState(loopInputAfterTool);
-      const reminder = buildTurnControlReminder(turnControl);
-      if (reminder) {
-        inputItems.push(reminder);
-      }
-    }
-  }
   if (toolCall.name === TOOL_NAMES.unreadMeaning || toolCall.name === TOOL_NAMES.innerReaction) {
     const turnControl = deriveTurnControlState(loopInputAfterTool);
     const reminder = buildTurnControlReminder(turnControl);
@@ -4282,42 +4509,15 @@ export class AgentLoopService {
   }
 
   private async runContextCompressionMemoryWriter(params: ContextCompressionMemoryParams) {
-    const reflectionCreator = (this.store as RuntimeStore & {
-      createFeedbackReflection?: RuntimeStore['createFeedbackReflection'];
-    }).createFeedbackReflection;
-    const stateGetter = (this.store as RuntimeStore & {
-      getFeedbackLearningState?: RuntimeStore['getFeedbackLearningState'];
-    }).getFeedbackLearningState;
-    const stateUpserter = (this.store as RuntimeStore & {
-      upsertFeedbackLearningState?: RuntimeStore['upsertFeedbackLearningState'];
-    }).upsertFeedbackLearningState;
-    const identityCandidateAppender = (this.store as RuntimeStore & {
-      appendIdentityChangeCandidate?: RuntimeStore['appendIdentityChangeCandidate'];
-    }).appendIdentityChangeCandidate;
-    const acceptedIdentityFactCreator = (this.store as RuntimeStore & {
-      createAcceptedIdentityFact?: RuntimeStore['createAcceptedIdentityFact'];
-    }).createAcceptedIdentityFact;
-
-    if (typeof reflectionCreator !== 'function' || typeof stateUpserter !== 'function') {
-      return;
-    }
-
-    const baseInput = buildContextCompressionFeedbackWriterInput({
-      evictedTurns: params.evictedTurns,
-      runtimePrompt: params.runtimePrompt
-    });
     const traceId = `${params.queueMessage.traceId}:subagent:${CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE}`;
     const promptCacheKey = buildSubagentPromptCacheKey({
       queueMessage: params.queueMessage,
       subagentType: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE
     });
-    const evidence = buildContextCompressionFeedbackWriterEvidence({
-      evictedTurns: params.evictedTurns
-    });
-    let loopContinuation: OpenResponseInputItem[] = [];
-    let persistedReflectionId: number | null = null;
-    let activeLearningKey = '';
-    let activeLearningScope = '';
+    const groupId = Number.isFinite(Number(params.queueMessage.peerId)) ? Number(params.queueMessage.peerId) : null;
+    const messageIdsByTurnId = buildSourceMessageIdsByTurnId(params.evictedTurns);
+    const compactModelName = agentConfig.compactMemoryModelName;
+    const reflectionModelName = agentConfig.compactMemoryReflectionModelName;
 
     await this.store.logTimelineEvent({
       traceId,
@@ -4329,105 +4529,144 @@ export class AgentLoopService {
         parent_trace_id: params.queueMessage.traceId,
         parent_run_id: params.queueMessage.runId,
         evicted_turn_count: params.evictedTurns.length,
-        evicted_turn_ids: params.evictedTurns.map((t) => t.id)
+        evicted_turn_ids: params.evictedTurns.map((t) => t.id),
+        memory_architecture: 'episodic_semantic_reflection',
+        episodic_model: compactModelName,
+        semantic_model: compactModelName,
+        reflection_model: reflectionModelName
       }
     }).catch(() => undefined);
 
-    for (let turn = 1; turn <= 3; turn += 1) {
-      const canonicalRequest = buildFeedbackWriterRequest(
-        params.runtimePrompt.modelName,
-        [...baseInput, ...loopContinuation],
-        {
-          metadata: buildFeedbackMemorySubagentTurnMetadata({
-            queueMessage: params.queueMessage,
-            runtimePrompt: params.runtimePrompt,
-            conversationId: params.conversationId,
-            subagentTraceId: traceId,
-            turn
-          }),
-          promptCacheKey,
-          mode: 'durable_lessons'
+    const episodicToolCall = await this.runCompactMemoryLayer({
+      params,
+      traceId,
+      promptCacheKey,
+      layer: 'episodic',
+      modelName: compactModelName,
+      reasoningEffort: agentConfig.compactMemoryReasoningEffort,
+      input: buildCompactMemoryWriterInput({
+        layer: 'episodic',
+        evictedTurns: params.evictedTurns,
+        runtimePrompt: params.runtimePrompt
+      })
+    });
+    const observations = parseCompactMemoryObservations(episodicToolCall.args);
+    const persistedObservations: PersistedMemoryObservation[] = [];
+    for (const observation of observations) {
+      const sourceMessageIds = collectSourceMessageIds(observation.sourceTurnIds, messageIdsByTurnId);
+      const stored = await this.store.createAgentMemoryObservation({
+        sessionKey: params.queueMessage.sessionKey,
+        groupId,
+        sourceConversationId: params.conversationId,
+        sourceTurnIds: observation.sourceTurnIds,
+        sourceMessageIds,
+        topic: observation.topic,
+        text: observation.text,
+        poignancy: observation.poignancy,
+        participants: observation.participants,
+        xiaoniRole: observation.xiaoniRole,
+        sourceTraceId: traceId,
+        sourceRunId: params.queueMessage.runId,
+        writerModel: compactModelName,
+        metadata: {
+          parent_trace_id: params.queueMessage.traceId,
+          memory_layer: 'episodic',
+          source: 'context_compression_evicted_turns'
         }
-      );
-      const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          trace_id: traceId,
-          agent_turn: turn,
-          agent_type: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE,
-          prompt_name: `${params.runtimePrompt.promptName}:${CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE}`,
-          model: params.runtimePrompt.modelName,
-          parameters: buildMainAgentParameters(params.runtimePrompt.parameters as Record<string, unknown> | undefined),
-          canonicalRequest
+      });
+      persistedObservations.push({
+        id: Number(stored.id),
+        topic: observation.topic,
+        text: observation.text,
+        sourceTurnIds: observation.sourceTurnIds,
+        sourceMessageIds,
+        createdAt: (stored as { created_at?: string | Date | null }).created_at ?? null
+      });
+    }
+
+    const semanticToolCall = await this.runCompactMemoryLayer({
+      params,
+      traceId,
+      promptCacheKey,
+      layer: 'semantic',
+      modelName: compactModelName,
+      reasoningEffort: agentConfig.compactMemoryReasoningEffort,
+      input: buildCompactMemoryWriterInput({
+        layer: 'semantic',
+        evictedTurns: params.evictedTurns,
+        runtimePrompt: params.runtimePrompt
+      })
+    });
+    const assertions = parseCompactMemoryAssertions(semanticToolCall.args);
+    for (const assertion of assertions) {
+      await this.store.createAgentMemoryAssertion({
+        sessionKey: params.queueMessage.sessionKey,
+        groupId,
+        sourceConversationId: params.conversationId,
+        sourceTurnIds: assertion.sourceTurnIds,
+        sourceMessageIds: collectSourceMessageIds(assertion.sourceTurnIds, messageIdsByTurnId),
+        text: assertion.text,
+        factType: assertion.factType,
+        entities: assertion.entities,
+        participants: assertion.participants,
+        sourceTraceId: traceId,
+        sourceRunId: params.queueMessage.runId,
+        writerModel: compactModelName,
+        metadata: {
+          parent_trace_id: params.queueMessage.traceId,
+          memory_layer: 'semantic',
+          source: 'context_compression_evicted_turns'
+        }
+      });
+    }
+
+    let reflectionCount = 0;
+    if (persistedObservations.length >= 2) {
+      const reflectionToolCall = await this.runCompactMemoryLayer({
+        params,
+        traceId,
+        promptCacheKey,
+        layer: 'reflection',
+        modelName: reflectionModelName,
+        reasoningEffort: agentConfig.compactMemoryReflectionReasoningEffort,
+        input: buildCompactMemoryReflectionInput({
+          observations: persistedObservations,
+          runtimePrompt: params.runtimePrompt
         })
       });
-
-      const responsePayload = await response.json() as ProviderAgentResponse;
-      if (!response.ok || !responsePayload.success) {
-        throw new Error(responsePayload.error || `Context compression memory writer failed with ${response.status}`);
-      }
-
-      const replayableOutputs = extractReplayableModelOutputs(responsePayload.canonical_response);
-      const toolOutput = replayableOutputs.find(isReplayableToolCall);
-      if (!toolOutput) {
-        await this.store.logTimelineEvent({
-          traceId,
-          eventType: 'subagent',
-          eventName: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE,
-          eventPhase: 'end',
-          conversationId: params.conversationId,
+      const validObservationIds = new Set(persistedObservations.map((observation) => observation.id));
+      const sourceMessageIdsByObservationId = new Map(
+        persistedObservations.map((observation) => [observation.id, observation.sourceMessageIds])
+      );
+      for (const reflection of parseCompactMemoryReflections(reflectionToolCall.args)) {
+        const sourceObservationIds = reflection.sourceObservationIds.filter((id) => validObservationIds.has(id));
+        if (sourceObservationIds.length < 2) {
+          continue;
+        }
+        await this.store.createAgentMemoryReflection({
+          sessionKey: params.queueMessage.sessionKey,
+          groupId,
+          sourceConversationId: params.conversationId,
+          text: reflection.text,
+          kind: reflection.kind,
+          subjects: reflection.subjects,
+          evidenceBasis: reflection.evidenceBasis,
+          evidenceTimeStart: reflection.evidenceTimeStart,
+          evidenceTimeEnd: reflection.evidenceTimeEnd,
+          poignancy: reflection.poignancy,
+          sourceObservationIds,
+          sourceMessageIds: uniquePositiveNumbers(sourceObservationIds.flatMap((id) => sourceMessageIdsByObservationId.get(id) || [])),
+          sourceTraceId: traceId,
+          sourceRunId: params.queueMessage.runId,
+          writerModel: reflectionModelName,
           metadata: {
-            termination_reason: 'no_tool_call',
-            persisted_reflection_id: persistedReflectionId
+            parent_trace_id: params.queueMessage.traceId,
+            memory_layer: 'reflection',
+            source: 'episodic_observations'
           }
-        }).catch(() => undefined);
-        return;
+        });
+        reflectionCount += 1;
       }
-
-      const toolResult = await this.executeFeedbackWriterTool(toolOutput.toolCall, {
-        queueMessage: params.queueMessage,
-        conversationId: params.conversationId,
-        evidence,
-        persistedReflectionId,
-        activeLearningKey,
-        activeLearningScope,
-        stateGetter,
-        reflectionCreator,
-        stateUpserter,
-        identityCandidateAppender,
-        acceptedIdentityFactCreator,
-        mode: 'durable_lessons'
-      });
-
-      if (typeof (toolResult as any).reflection_id === 'number') {
-        persistedReflectionId = (toolResult as any).reflection_id;
-      }
-      if (typeof (toolResult as any).learning_key === 'string') {
-        activeLearningKey = (toolResult as any).learning_key;
-      }
-      if (typeof (toolResult as any).learning_scope === 'string') {
-        activeLearningScope = (toolResult as any).learning_scope;
-      }
-
-      const continuation = applyToolResultToLoopInput(toolOutput.toolCall, toolResult);
-      if (continuation.finishResult) {
-        await this.store.logTimelineEvent({
-          traceId,
-          eventType: 'subagent',
-          eventName: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE,
-          eventPhase: 'end',
-          conversationId: params.conversationId,
-          metadata: {
-            termination_reason: 'tool_finished',
-            persisted_reflection_id: persistedReflectionId,
-            active_learning_key: activeLearningKey || null,
-            active_learning_scope: activeLearningScope || null
-          }
-        }).catch(() => undefined);
-        return;
-      }
-      loopContinuation.push(...replayableOutputs.map((item) => item.inputItem), ...continuation.inputItems);
     }
 
     await this.store.logTimelineEvent({
@@ -4437,12 +4676,63 @@ export class AgentLoopService {
       eventPhase: 'end',
       conversationId: params.conversationId,
       metadata: {
-        termination_reason: 'max_turns',
-        persisted_reflection_id: persistedReflectionId,
-        active_learning_key: activeLearningKey || null,
-        active_learning_scope: activeLearningScope || null
+        termination_reason: 'completed',
+        observation_count: persistedObservations.length,
+        assertion_count: assertions.length,
+        reflection_count: reflectionCount
       }
     }).catch(() => undefined);
+  }
+
+  private async runCompactMemoryLayer(params: {
+    params: ContextCompressionMemoryParams;
+    traceId: string;
+    promptCacheKey: string;
+    layer: CompactMemoryLayer;
+    modelName: string;
+    reasoningEffort: string;
+    input: OpenResponseInputItem[];
+  }) {
+    const canonicalRequest = buildCompactMemoryWriterRequest(
+      params.modelName,
+      params.input,
+      {
+        metadata: buildCompactMemorySubagentTurnMetadata({
+          queueMessage: params.params.queueMessage,
+          runtimePrompt: params.params.runtimePrompt,
+          conversationId: params.params.conversationId,
+          subagentTraceId: params.traceId,
+          layer: params.layer
+        }),
+        promptCacheKey: `${params.promptCacheKey}:${params.layer}`,
+        layer: params.layer,
+        reasoningEffort: params.reasoningEffort
+      }
+    );
+    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        trace_id: params.traceId,
+        agent_turn: 1,
+        agent_type: `${CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE}:${params.layer}`,
+        prompt_name: `${params.params.runtimePrompt.promptName}:${CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE}:${params.layer}`,
+        model: params.modelName,
+        parameters: buildMainAgentParameters(params.params.runtimePrompt.parameters as Record<string, unknown> | undefined),
+        canonicalRequest
+      })
+    });
+
+    const responsePayload = await response.json() as ProviderAgentResponse;
+    if (!response.ok || !responsePayload.success) {
+      throw new Error(responsePayload.error || `Compact memory ${params.layer} writer failed with ${response.status}`);
+    }
+
+    const toolOutput = extractReplayableModelOutputs(responsePayload.canonical_response).find(isReplayableToolCall);
+    if (!toolOutput || toolOutput.toolCall.name !== COMPACT_MEMORY_TOOL_NAME_BY_LAYER[params.layer]) {
+      throw new Error(`Compact memory ${params.layer} writer did not call ${COMPACT_MEMORY_TOOL_NAME_BY_LAYER[params.layer]}`);
+    }
+    return toolOutput.toolCall;
   }
 
   private scheduleFeedbackMemorySubagent(params: FeedbackMemorySubagentParams) {
@@ -4960,61 +5250,6 @@ export class AgentLoopService {
           context_gap: reaction.contextGap,
           gap_resolution: reaction.gapResolution,
           reason: reaction.reason
-        };
-      }
-      case TOOL_NAMES.longTermRecall: {
-        const recall = parseLongTermLearningRecall(toolCall.args);
-        if (!recall) {
-          throw new Error(`${TOOL_NAMES.longTermRecall} returned invalid arguments`);
-        }
-        const reflectionLoader = (this.store as RuntimeStore & {
-          listRelevantFeedbackReflections?: RuntimeStore['listRelevantFeedbackReflections'];
-        }).listRelevantFeedbackReflections;
-        if (typeof reflectionLoader !== 'function') {
-          return {
-            reason: recall.reason,
-            topic_hint: recall.topicHint,
-            query_strategy: recall.queryStrategy,
-            query_text: buildLongTermRecallQuery(queueMessage, recall.topicHint, recall.reason, recall.queryStrategy),
-            items: [],
-            markdown_items: []
-          };
-        }
-
-        const queryText = buildLongTermRecallQuery(queueMessage, recall.topicHint, recall.reason, recall.queryStrategy);
-        const reflections = await reflectionLoader.call(this.store, {
-          sessionKey: queueMessage.sessionKey,
-          groupId: Number.isFinite(Number(queueMessage.peerId)) ? Number(queueMessage.peerId) : null,
-          currentUserId: parseOptionalInteger(queueMessage.senderId) || 0,
-          recentUserIds: recall.includeCurrentSender ? resolveRecentRelatedUserIds(queueMessage) : [],
-          queryText,
-          limit: recall.desiredRecallCount,
-          socialActTypeHint: recall.socialActTypeHint
-        }).catch(() => []);
-
-        return {
-          reason: recall.reason,
-          topic_hint: recall.topicHint,
-          query_strategy: recall.queryStrategy,
-          query_text: queryText,
-          items: reflections.map((reflection, index) => ({
-            id: reflection.id,
-            learning_key: reflection.learningKey,
-            learning_scope: reflection.learningScope,
-            scope_type: reflection.scopeType,
-            reflection_type: reflection.reflectionType,
-            confidence: reflection.confidence,
-            rank: index + 1,
-            why_recalled: recall.reason,
-            summary_text: reflection.summaryText
-          })),
-          markdown_items: reflections.map((reflection, index) => formatLongTermRecallMarkdown({
-            rank: index + 1,
-            summaryText: reflection.summaryText,
-            sourceUserName: reflection.sourceUserName,
-            feedbackKind: reflection.feedbackKind,
-            whyRecalled: recall.reason
-          }))
         };
       }
       case TOOL_NAMES.inspectImage: {

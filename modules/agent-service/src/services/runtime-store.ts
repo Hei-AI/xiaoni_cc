@@ -34,7 +34,11 @@ import {
   listAgentSharePoolItems,
   createAgentShareItemUsage,
   createAgentPresenceStateSidecar,
+  createAgentMemoryAssertion,
+  createAgentMemoryObservation,
+  createAgentMemoryReflection,
   enqueueAgentQueueMessage,
+  ensureAgentMemorySchema,
   incrementRelationshipTrust,
   serializeTimestampForApi,
   type SqlAdapter
@@ -1092,6 +1096,7 @@ export class RuntimeStore {
     await ensureAgentMediaSchema(databaseConfig);
     await ensureAgentTaskSchema(databaseConfig);
     await ensureAgentPresenceSchema(databaseConfig);
+    await ensureAgentMemorySchema(databaseConfig);
     await ensureAgentLifeState('xiaoni', databaseConfig);
   }
 
@@ -2470,6 +2475,110 @@ export class RuntimeStore {
       metadata: params.metadata || {}
     }, databaseConfig);
     return parseFeedbackEpisode(row as Record<string, unknown>);
+  }
+
+  async createAgentMemoryObservation(params: {
+    sessionKey: string;
+    groupId?: number | null;
+    sourceConversationId?: number | null;
+    sourceTurnIds?: number[];
+    sourceMessageIds?: number[];
+    topic: string;
+    text: string;
+    poignancy?: number;
+    participants?: Array<Record<string, unknown>>;
+    xiaoniRole: string;
+    sourceTraceId?: string | null;
+    sourceRunId?: string | null;
+    writerModel?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return createAgentMemoryObservation({
+      sessionKey: params.sessionKey,
+      groupId: params.groupId ?? null,
+      sourceConversationId: params.sourceConversationId ?? null,
+      sourceTurnIds: params.sourceTurnIds || [],
+      sourceMessageIds: params.sourceMessageIds || [],
+      topic: params.topic,
+      text: params.text,
+      poignancy: params.poignancy ?? 1,
+      participants: params.participants || [],
+      xiaoniRole: params.xiaoniRole,
+      sourceTraceId: params.sourceTraceId ?? null,
+      sourceRunId: params.sourceRunId ?? null,
+      writerModel: params.writerModel ?? null,
+      metadata: params.metadata || {}
+    }, databaseConfig);
+  }
+
+  async createAgentMemoryAssertion(params: {
+    sessionKey: string;
+    groupId?: number | null;
+    sourceConversationId?: number | null;
+    sourceTurnIds?: number[];
+    sourceMessageIds?: number[];
+    text: string;
+    factType: string;
+    entities?: Array<Record<string, unknown>>;
+    participants?: Array<Record<string, unknown>>;
+    sourceTraceId?: string | null;
+    sourceRunId?: string | null;
+    writerModel?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return createAgentMemoryAssertion({
+      sessionKey: params.sessionKey,
+      groupId: params.groupId ?? null,
+      sourceConversationId: params.sourceConversationId ?? null,
+      sourceTurnIds: params.sourceTurnIds || [],
+      sourceMessageIds: params.sourceMessageIds || [],
+      text: params.text,
+      factType: params.factType,
+      entities: params.entities || [],
+      participants: params.participants || [],
+      sourceTraceId: params.sourceTraceId ?? null,
+      sourceRunId: params.sourceRunId ?? null,
+      writerModel: params.writerModel ?? null,
+      metadata: params.metadata || {}
+    }, databaseConfig);
+  }
+
+  async createAgentMemoryReflection(params: {
+    sessionKey: string;
+    groupId?: number | null;
+    sourceConversationId?: number | null;
+    text: string;
+    kind: string;
+    subjects?: string[];
+    evidenceBasis: string;
+    evidenceTimeStart?: string | Date | null;
+    evidenceTimeEnd?: string | Date | null;
+    poignancy?: number;
+    sourceObservationIds?: number[];
+    sourceMessageIds?: number[];
+    sourceTraceId?: string | null;
+    sourceRunId?: string | null;
+    writerModel?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return createAgentMemoryReflection({
+      sessionKey: params.sessionKey,
+      groupId: params.groupId ?? null,
+      sourceConversationId: params.sourceConversationId ?? null,
+      text: params.text,
+      kind: params.kind,
+      subjects: params.subjects || [],
+      evidenceBasis: params.evidenceBasis,
+      evidenceTimeStart: params.evidenceTimeStart ?? null,
+      evidenceTimeEnd: params.evidenceTimeEnd ?? null,
+      poignancy: params.poignancy ?? 1,
+      sourceObservationIds: params.sourceObservationIds || [],
+      sourceMessageIds: params.sourceMessageIds || [],
+      sourceTraceId: params.sourceTraceId ?? null,
+      sourceRunId: params.sourceRunId ?? null,
+      writerModel: params.writerModel ?? null,
+      metadata: params.metadata || {}
+    }, databaseConfig);
   }
 
   async listAcceptedIdentityFacts(params: {

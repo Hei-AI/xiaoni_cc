@@ -706,6 +706,79 @@ model AgentFeedbackLearningState {
   @@map("agent_feedback_learning_states")
 }
 
+model AgentMemoryObservation {
+  id                     BigInt    @id @default(autoincrement()) @db.BigInt
+  session_key            String    @db.VarChar(191)
+  group_id               BigInt?   @db.BigInt
+  source_conversation_id BigInt?   @db.BigInt
+  source_turn_ids        Json
+  source_message_ids     Json
+  topic                  String    @db.VarChar(191)
+  text                   String
+  poignancy              Int       @default(1)
+  participants           Json
+  xiaoni_role            String    @db.VarChar(32)
+  source_trace_id        String?   @db.VarChar(128)
+  source_run_id          String?   @db.VarChar(128)
+  writer_model           String?   @db.VarChar(128)
+  metadata               Json?
+  created_at             DateTime  @default(now()) @db.Timestamp(3)
+  updated_at             DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([session_key, created_at, id], map: "idx_agent_memory_obs_session_created")
+  @@index([group_id, created_at, id], map: "idx_agent_memory_obs_group_created")
+  @@map("agent_memory_observations")
+}
+
+model AgentMemoryAssertion {
+  id                     BigInt    @id @default(autoincrement()) @db.BigInt
+  session_key            String    @db.VarChar(191)
+  group_id               BigInt?   @db.BigInt
+  source_conversation_id BigInt?   @db.BigInt
+  source_turn_ids        Json
+  source_message_ids     Json
+  text                   String
+  fact_type              String    @db.VarChar(32)
+  entities               Json
+  participants           Json
+  source_trace_id        String?   @db.VarChar(128)
+  source_run_id          String?   @db.VarChar(128)
+  writer_model           String?   @db.VarChar(128)
+  metadata               Json?
+  created_at             DateTime  @default(now()) @db.Timestamp(3)
+  updated_at             DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([session_key, created_at, id], map: "idx_agent_memory_assert_session_created")
+  @@index([group_id, fact_type, created_at], map: "idx_agent_memory_assert_group_fact")
+  @@map("agent_memory_assertions")
+}
+
+model AgentMemoryReflection {
+  id                     BigInt    @id @default(autoincrement()) @db.BigInt
+  session_key            String    @db.VarChar(191)
+  group_id               BigInt?   @db.BigInt
+  source_conversation_id BigInt?   @db.BigInt
+  text                   String
+  kind                   String    @db.VarChar(32)
+  subjects               Json
+  evidence_basis         String    @db.VarChar(32)
+  evidence_time_start    DateTime? @db.Timestamp(3)
+  evidence_time_end      DateTime? @db.Timestamp(3)
+  poignancy              Int       @default(1)
+  source_observation_ids Json
+  source_message_ids     Json
+  source_trace_id        String?   @db.VarChar(128)
+  source_run_id          String?   @db.VarChar(128)
+  writer_model           String?   @db.VarChar(128)
+  metadata               Json?
+  created_at             DateTime  @default(now()) @db.Timestamp(3)
+  updated_at             DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([session_key, created_at, id], map: "idx_agent_memory_refl_session_created")
+  @@index([group_id, kind, created_at], map: "idx_agent_memory_refl_group_kind")
+  @@map("agent_memory_reflections")
+}
+
 model XiaoniIdentityRoot {
   id                          BigInt   @id @default(autoincrement()) @db.BigInt
   identity_key                String   @db.VarChar(191)

@@ -31,9 +31,9 @@ flowchart TD
   U1 --> U2[Turn 2: emit_inner_reaction<br/>判断真实反应]
   U2 --> Gate{工程收缩 allowed_tools}
   Gate -->|silent 或 weak/low/no direct cue| Silent[stay_silent]
-  Gate -->|私密/关系/群内连续性缺口| Recall[recall_long_term_learning]
+  Gate -->|私密/关系/群内连续性缺口| AskOrAct[少猜 / 问群友 / 直接行动]
   Gate -->|公开信息缺口| Search[web_search + stay_silent]
-  Recall --> Action[说话 / 搜索 / 图任务 / 沉默]
+  AskOrAct --> Action[说话 / 搜索 / 图任务 / 沉默]
   Search --> Action
   Gate -->|可直接行动| Action
   Action -->|speak_in_group / reply_in_private| ProviderSend[provider-service send API]
@@ -41,7 +41,7 @@ flowchart TD
 
   Action --> Record[(agent_runs / conversation_items / tool_execution_logs)]
   Record --> Learn[上下文压缩时异步学习]
-  Learn --> Memory[(feedback reflections / learning state / identity facts)]
+  Learn --> Memory[(episodic / semantic / reflection memories<br/>identity facts)]
 ```
 
 一句话：被动发言和主动发言最后都汇入同一个 `agent-service` main loop。差别只在队列消息是怎么来的，以及主动发言在进入 loop 前会额外注入 `presence_context`。
@@ -114,7 +114,7 @@ flowchart TD
   D1 --> G
   D2 --> G
   E --> G
-  G --> H[tools<br/>emit_unread_meaning<br/>emit_inner_reaction<br/>recall_long_term_learning<br/>speak/reply<br/>stay_silent<br/>web_search<br/>image tools]
+  G --> H[tools<br/>emit_unread_meaning<br/>emit_inner_reaction<br/>speak/reply<br/>stay_silent<br/>web_search<br/>image tools]
 
   H --> I[Turn 1<br/>tool_choice=emit_unread_meaning]
   I --> J[tool output replay]
@@ -125,9 +125,7 @@ flowchart TD
   M -->|empty/none/low no direct cue| N
   M -->|needs_public_info| O[Turn 3<br/>tool_choice=web_search + stay_silent]
   M -->|image_task| P[Turn 3<br/>tool_choice=inspect_image + request_image_task + stay_silent]
-  M -->|needs_private_memory / unclear_group_reference| Q[Turn 3<br/>tool_choice=recall_long_term_learning]
-  Q --> R[recall result replay]
-  R --> S[Turn 4<br/>speak / search / ask / image_task / stay_silent]
+  M -->|needs_private_memory / unclear_group_reference| S[Turn 3<br/>少猜 / ask / speak / stay_silent]
   M -->|speak/proactive| S
 ```
 
@@ -268,7 +266,6 @@ tools:
   group chat:
     emit_unread_meaning
     emit_inner_reaction
-    recall_long_term_learning
     web_search, if enabled
     speak_in_group
     inspect_image_placeholder
@@ -312,7 +309,7 @@ Runtime contract:
 这一轮顺序：
 先搞清楚最新未读在说什么，用 emit_unread_meaning。
 再感觉一下这些消息在你这里有没有真实反应，用 emit_inner_reaction。
-如果当前上下文不足，先判断缺口：私密/关系/群内连续性才用 recall_long_term_learning；公开信息用 web_search；找不到来源就少猜，可以问群友或沉默。
+如果当前上下文不足，先判断缺口：公开信息用 web_search；私密、关系或群内连续性缺口不要编造，能问群友就问，不能问就少说或沉默。
 最后通过工具完成这一轮——说话、沉默、查资料还是做图。
 
 普通聊天、轻吐槽、短反应都是正常参与，有真实的感觉才开口。
@@ -407,7 +404,6 @@ source_boundary: ...
 |---|---|---|
 | `emit_unread_meaning` | `先搞清楚最新未读在说什么——谁在和谁说、说的是什么事、注意力拉向哪里。这一步只是看懂，不决定说不说。` | `latest_unread_focus`, `message_act`, `social_target`, `addressed_to_me`, `has_real_novelty`, `confidence`, `reason`, `social_act_type`, `topic_context` |
 | `emit_inner_reaction` | `已经看懂了最新未读之后，感觉一下这些消息在你这里有没有真实反应。不是找个能说的话，是看有没有真的被触动。只是因为有空档、顺手能接，那不算。轻微但真实的感觉也可以算。` | `interest_level`, `wants_to_know_more`, `reaction_authenticity`, `should_search`, `preferred_action`, `context_gap`, `gap_resolution`, `reason` |
-| `recall_long_term_learning` | `只有当当前上下文不足，并且缺口属于私密、群内或关系连续性时，才调用这个工具。它帮你按需取回少量长期学习结果，用来校准当前反应，不替代当前反应。` | 输入 `reason`, `topic_hint`, `query_strategy`, `include_current_sender`, `desired_recall_count`, `social_act_type_hint`; 输出 reflections 的 `summary_text` / markdown items |
 | `speak_in_group` | `群里说话用这个。有真实反应才调用，不是因为顺手能接。如果是主动说自己的事（proactive），不要 @ 或引用任何人，直接说话。保持自然人话，贴近眼前场域。让这句话在现场里真正新增一点东西，可以是确认、回应或判断。一句已经成立就自然收住，把节奏留在现场里。...` | `message` 或 `messages`, `mention_user_ids`, required `xiaoni_os`, optional `pending_share` |
 | `reply_in_private` | `私聊说话用这个。自然直接，像真人说的话。` | `message` 或 `messages`, required `xiaoni_os`, optional `pending_share` |
 | `stay_silent` | `这轮不说了，用这个收尾。` | required `reason`, `outcome`, `xiaoni_os`, optional `pending_share` |
@@ -431,15 +427,8 @@ After Turn 2:
   else if shouldDowngradeWeakSpeakToSilence(...):
     allowed_tools = [stay_silent]
 
-  else if context_gap in [needs_private_memory, unclear_group_reference] and recall attempts remain:
-    allowed_tools = [recall_long_term_learning]
-
   else if context_gap == needs_public_info or gap_resolution == web_search:
     allowed_tools = [web_search, stay_silent]
-
-  else if recall exhausted empty results:
-    append system_reminder = "没有找到这段记忆；不要继续召回或编造来源；可问群友来源、搜索公开信息或沉默"
-    allowed_tools = [web_search, speak_in_group, inspect_image_placeholder, request_image_task, stay_silent]
 
   else if preferred_action == image_task:
     allowed_tools = [inspect_image_placeholder, request_image_task, stay_silent]
@@ -630,7 +619,7 @@ context_summary_writer 不再暴露 write_context_summary 工具。
 | share pool | `agent_share_pool_items` | mock/constructed/digital-life/group residue/真实浏览材料等写入 | presence context 取未用且非 blocked 的材料，最多 top 3 注入 |
 | share usage | `agent_share_item_usages` | presence context 使用某条 material 后写入 | 防止同一 `target_session_key` 重复拿同一材料 |
 | presence trace | `agent_presence_state_sidecars` | 每次 presence context 生成后记录 | 保留最终 block、source items、scores、boundary，方便追责 |
-| 长期经验 | `agent_feedback_reflections` / `agent_feedback_learning_states` | 上下文压缩时由 `context_compression_memory_writer` 从即将移出窗口的历史中提炼 | `recall_long_term_learning` 按当前 topic/sender 拉少量经验 |
+| 三层长期记忆 | `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections` | 上下文压缩时由 `context_compression_memory_writer` 从即将移出窗口的历史中提炼 | 后续 typed recall projection 按 episodic / semantic / reflection 分层注入运行时上下文 |
 | 媒体 | `agent_media_assets` / observations | provider 入站保存图片等媒体资产；inspect 时生成观察 | 只有模型调用 `inspect_image_placeholder` 才看图 |
 | 外部事实 | `web_search` | 模型在 search 阶段调用 | 只在需要新鲜事实/公开资料时进入，不是默认步骤 |
 | 发言发送 | provider-service send API -> NapCat | `speak_in_group` / `reply_in_private` 工具触发 | 真正发回 QQ |
@@ -667,21 +656,23 @@ flowchart TD
   B --> C{有 evictedTurns?}
   C -->|否| E[结束]
   C -->|是| D[context compression memory writer]
-  D -->|无 durable lesson| E
-  D -->|有 durable lesson| F[synthesize_feedback_reflection]
-  F --> G[(agent_feedback_reflections)]
-  G --> H[update_learning_state]
-  H --> I[(agent_feedback_learning_states)]
-  G --> J[identity candidate / accepted fact]
-  J --> K[(identity lineage / accepted identity facts)]
-  I --> L[未来 recall_long_term_learning]
-  K --> M[未来 buildInitialInput identity facts]
+  D --> F[write_episodic_observations<br/>gpt-5.5-mini]
+  D --> G[write_semantic_assertions<br/>gpt-5.5-mini]
+  F --> H[(agent_memory_observations)]
+  G --> I[(agent_memory_assertions)]
+  H --> J{本批 observations >= 2?}
+  J -->|是| K[write_memory_reflections<br/>gpt-5.5]
+  J -->|否| E
+  K --> L[(agent_memory_reflections)]
+  L --> M[未来 typed recall projection]
+  I --> M
+  H --> M
 ```
 
 这条闭环不会回头改写刚刚那一轮说不说，但会影响未来两类输入：
 
-- `recall_long_term_learning` 能召回哪些相处经验。
-- `buildInitialInput` 能注入哪些已确认身份事实。
+- typed recall projection 后续能按问题类型注入 episodic / semantic / reflection。
+- `buildInitialInput` 仍能注入已确认身份事实。
 
 ## 排查时先看哪里
 
@@ -693,7 +684,7 @@ flowchart TD
 | 主动发言不触发 | `PRESENCE_TICK_*` 环境变量、`agent_session_life_states`、cooldown/fatigue/boredom |
 | 主动发言没材料 | `agent_share_pool_items`、`agent_share_item_usages`、`agent_presence_state_sidecars` |
 | 说话重复 | `agent_runs.delivery_phase`、delivery commit 相关日志 |
-| 召回经验少 | `agent_feedback_reflections`、`agent_feedback_learning_states`、`recall_long_term_learning` 命中率 |
+| 召回经验少 | `agent_memory_observations`、`agent_memory_assertions`、`agent_memory_reflections` 的写入量和后续 typed recall projection 命中率 |
 | 图没看懂 | `agent_media_assets`、`inspect_image_placeholder` 工具结果 |
 
 ## 当前有效心智模型

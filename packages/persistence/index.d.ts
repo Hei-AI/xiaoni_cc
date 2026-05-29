@@ -212,6 +212,58 @@ export type FeedbackLearningStateInput = {
   metadata?: Record<string, unknown> | null;
 };
 
+export type AgentMemoryObservationInput = {
+  sessionKey: string;
+  groupId?: number | bigint | string | null;
+  sourceConversationId?: number | bigint | string | null;
+  sourceTurnIds?: Array<number | bigint | string>;
+  sourceMessageIds?: Array<number | bigint | string>;
+  topic: string;
+  text: string;
+  poignancy?: number;
+  participants?: Array<Record<string, unknown>>;
+  xiaoniRole?: string;
+  sourceTraceId?: string | null;
+  sourceRunId?: string | null;
+  writerModel?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type AgentMemoryAssertionInput = {
+  sessionKey: string;
+  groupId?: number | bigint | string | null;
+  sourceConversationId?: number | bigint | string | null;
+  sourceTurnIds?: Array<number | bigint | string>;
+  sourceMessageIds?: Array<number | bigint | string>;
+  text: string;
+  factType: string;
+  entities?: Array<Record<string, unknown>>;
+  participants?: Array<Record<string, unknown>>;
+  sourceTraceId?: string | null;
+  sourceRunId?: string | null;
+  writerModel?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type AgentMemoryReflectionInput = {
+  sessionKey: string;
+  groupId?: number | bigint | string | null;
+  sourceConversationId?: number | bigint | string | null;
+  text: string;
+  kind: string;
+  subjects?: string[];
+  evidenceBasis: string;
+  evidenceTimeStart?: string | Date | null;
+  evidenceTimeEnd?: string | Date | null;
+  poignancy?: number;
+  sourceObservationIds?: Array<number | bigint | string>;
+  sourceMessageIds?: Array<number | bigint | string>;
+  sourceTraceId?: string | null;
+  sourceRunId?: string | null;
+  writerModel?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
 export type ImageLabRunInput = {
   id: string;
   operation: string;
@@ -644,6 +696,14 @@ export function listFeedbackLearningStates(
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
 export function upsertFeedbackLearningState(input: FeedbackLearningStateInput, config?: DatabaseUrlConfig): Promise<any>;
+export function ensureAgentMemorySchema(config?: DatabaseUrlConfig): Promise<void>;
+export function createAgentMemoryObservation(input: AgentMemoryObservationInput, config?: DatabaseUrlConfig): Promise<any>;
+export function createAgentMemoryAssertion(input: AgentMemoryAssertionInput, config?: DatabaseUrlConfig): Promise<any>;
+export function createAgentMemoryReflection(input: AgentMemoryReflectionInput, config?: DatabaseUrlConfig): Promise<any>;
+export function listAgentMemoryObservations(
+  filters?: { sessionKey?: string; groupId?: number | bigint | string | null; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<any[]>;
 export const IdentityLineageValidationError: {
   new(message: string, code?: string): Error & { code?: string };
 };

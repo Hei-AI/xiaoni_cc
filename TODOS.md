@@ -11,8 +11,11 @@ Archived pre-cleanup snapshot:
 Authoritative execution order:
 
 1. **P0-A: user-visible Xiaoni group-chat behavior.**
-   Tasks 1-7 are implemented; keep verification notes here and move any next
-   follow-up into a new task instead of reopening the old queue.
+   Tasks 1-7 are implemented. Tasks 8-12 are active follow-ups for current
+   runtime context quality, compact memory quality, image task routing,
+   presence-context v2, and Xiaoni's creative agency. Keep verification notes
+   here and move any next follow-up into a new task instead of reopening the old
+   queue.
 2. **P0-B: Identity Lineage Phase 1.**
    Substrate work can proceed, but runtime-facing policy waits for P0-A's first
    causality closure.
@@ -144,91 +147,20 @@ sessionKey from the queue message.
 writes. The read-path test exposed that queue `senderId` is a string at runtime;
 `buildDeveloperContextBlock` now parses it before loading identity-scoped trust.
 
-### Task 4 - `socialActTypeHint` in recall ranking
+### Task 4 - Retire pre-reply `recall_long_term_learning`
 
-**Status:** done.
+**Status:** replaced on 2026-05-29.
 
-**Files:**
+`recall_long_term_learning` was removed from the main group loop. The new memory
+direction is not “ask the model whether to recall before speaking”; it is typed
+memory generation during context compression:
 
-- `modules/agent-service/src/services/agent-loop-service.ts`
-- `modules/agent-service/src/services/runtime-store.ts`
+- episodic observations: concrete chat moments and social hooks
+- semantic assertions: objective facts, current status, plans, claims
+- reflections: cross-time abstractions from at least two episodic observations
 
-**Action:** Pass optional social-act type from `unread_meaning` into long-term
-recall ranking and add a small context-match score.
-
-**Expected hints:**
-
-- `invitation_curiosity`
-- `emotional_release`
-- `relationship_probe`
-- `concrete_request`
-- `yes_no_reaction`
-- `casual_remark`
-
-**Scoring shape:** boost self-model updates for invitation curiosity and social
-lessons for relationship probes. Keep this a small ranking nudge, not a hard
-filter.
-
-**Exact edits:**
-
-4a. `LONG_TERM_RECALL_TOOL` `parameters.properties` (around line 635 in
-    `agent-loop-service.ts`) — add after `desired_recall_count` (do NOT add to
-    `required` array; the schema has `additionalProperties: false` so it MUST be
-    in `properties`):
-    ```ts
-    social_act_type_hint: {
-      type: 'string',
-      enum: ['invitation_curiosity', 'emotional_release', 'relationship_probe', 'concrete_request', 'yes_no_reaction', 'casual_remark']
-    },
-    ```
-
-4b. **Shared type required first (Codex finding).** `UnreadMeaningSocialActType` is
-    currently defined in `agent-loop-service.ts` (line 209). `agent-loop-service.ts`
-    imports from `runtime-store.ts` (line 23). If `runtime-store.ts` imports from
-    `agent-loop-service.ts`, this creates a circular import. Fix: move
-    `UnreadMeaningSocialActType` to a shared types file (e.g.,
-    `modules/agent-service/src/types/social-act-type.ts`) and `import type` it from
-    both files.
-
-4c. `LongTermLearningRecall` type (around line 244) — add field:
-    ```ts
-    socialActTypeHint: UnreadMeaningSocialActType | null;
-    ```
-
-4d. `parseLongTermLearningRecall` (around line 1981) — parse optional hint and
-    include in returned object.
-
-4e. `executeTool` → `longTermRecall` case, `reflectionLoader.call(this.store, {...})`
-    params (around line 4361) — add:
-    ```ts
-    socialActTypeHint: recall.socialActTypeHint,
-    ```
-
-4f. `listRelevantFeedbackReflections` in `runtime-store.ts` (line 2366) — add
-    `socialActTypeHint?: UnreadMeaningSocialActType | null` to params type (imported
-    from shared types file), then forward it into the `rankFeedbackReflectionsForRecall`
-    call.
-
-4g. `rankFeedbackReflectionsForRecall` (line 1041) — add `socialActTypeHint?`
-    param and a small `actHintScore` term:
-    ```ts
-    const actHintScore = (() => {
-      if (!params.socialActTypeHint) return 0;
-      if (params.socialActTypeHint === 'invitation_curiosity' && reflection.reflectionType === 'self_model_update') return 0.08;
-      if (params.socialActTypeHint === 'relationship_probe' && reflection.reflectionType === 'social_lesson') return 0.06;
-      return 0;
-    })();
-    // add actHintScore to combinedScore
-    ```
-    Note: the eligibility filter at line 1102 (`bm25Score > 0 || embeddingScore >= 0.2`)
-    means hint score cannot surface irrelevant items, but can flip candidates whose
-    combined scores differ by < 0.08. This magnitude is acceptable for a nudge.
-
-**Test requirement:** Add a test in `runtime-store.test.ts` that `rankFeedbackReflectionsForRecall`
-with `socialActTypeHint = 'invitation_curiosity'` ranks a `self_model_update` reflection
-higher than when hint is null, and similarly for `relationship_probe` / `social_lesson`.
-Both candidates must pass the eligibility filter (bm25Score > 0 or embeddingScore >= 0.2)
-for the test to be valid.
+Future recall work should project these three layers into the runtime context by
+typed query planning, not revive the old `recall_long_term_learning` tool.
 
 ### Task 5 - Browser-backed digital life / `presence_context` loop
 
@@ -743,58 +675,44 @@ Add deterministic engineering monitoring inside a single run:
 - Repeated tool-call monitor can append deterministic `<system_reminder>` during a
   run and is covered by tests.
 
-### Task 7 - Long-term learning generation trigger
+### Task 7 - Three-layer compact memory generation
 
-**Status:** implemented and Docker-verified in agent-service on 2026-05-27.
+**Status:** implemented in agent-service on 2026-05-29.
 
-**Source:** 2026-05-27 review of exported
-`/home/liahua/.qqbot-local/exports/xiaoni-memory-20260527-142325/01_long_term_learning.json`.
+**Source:** `$office-hours` product pressure + `$openai-docs` GPT-5.5 guidance:
+outcome-first prompts, static instructions before dynamic evidence, forced
+structured tool output, `medium` reasoning as the default baseline.
 
-**Problem:** `agent_feedback_reflections` / `recall_long_term_learning` inventory
-looks like it is being generated per current turn. That is the wrong trigger for
-long-term experience: it turns the reflection table into a noisy pile of local
-turn reactions instead of durable lessons.
+**Design:** when context compression evicts turns, `context_compression_memory_writer`
+now runs three engineering-triggered model passes:
 
-**Expected model:** long-term experience should be generated when transcript /
-context compression runs, because compression is the point where recent dialogue
-is summarized into stable memory. Per-turn feedback can still produce trace or
-short-lived evaluation artifacts, but it should not blindly create active
-long-term recall reflections.
+- `write_episodic_observations` with `gpt-5.5-mini`
+- `write_semantic_assertions` with `gpt-5.5-mini`
+- `write_memory_reflections` with `gpt-5.5`, only after at least two episodic
+  observations from the same batch were persisted
 
-**Likely implementation areas:**
+**Persistence:** new tables in `packages/persistence`:
 
-- `modules/agent-service/src/services/agent-loop-service.ts`
-  - feedback writer / reflection generation after each run
-  - transcript/context compression subagent path
-- `modules/agent-service/src/services/runtime-store.ts`
-  - reflection ranking and active-state lookup
-- `packages/persistence/feedback-reflection.js`
-  - reflection write APIs and learning-state updates
+- `agent_memory_observations`
+- `agent_memory_assertions`
+- `agent_memory_reflections`
 
-**Acceptance criteria:**
+**Prompt contract:**
 
-- New active `agent_feedback_reflections` are produced by compression-triggered
-  synthesis, not by every normal turn.
-- Per-turn feedback cannot spam active long-term recall rows for single-turn local
-  observations.
-- Existing recall ranking still returns a small number of durable lessons when
-  `recall_long_term_learning` is explicitly called.
-- Add tests covering that normal run feedback does not create active long-term
-  reflection rows, while compression-triggered synthesis can.
+- episodic: concrete Xiaoni-colored moments; no absence-derived rules
+- semantic: objective facts/states/plans/claims only
+- reflection: at least two episodic observations; no policy instructions or
+  one-off overgeneralization
 
-**Implementation notes (2026-05-27):**
+**Next work:** build typed recall projection from these tables into runtime
+context. Use semantic for objective/entity/status questions, episodic for “what
+happened / who said what / group texture”, and reflection for relationship,
+person, group, or project patterns.
 
-- Normal `feedback_memory_writer` is disabled after removing the
-  `extract_feedback_episode` tool; per-turn runs no longer write hidden feedback
-  episode evidence.
-- `context_compression_memory_writer` is the only path allowed to synthesize
-  durable feedback reflections / learning state, and it now starts directly with
-  `synthesize_feedback_reflection` instead of an episode tool call.
-- `write_context_summary` was removed as a model tool. Engineering still triggers
-  summary generation when compact evicts turns, but the summary writer now returns
-  a strict assistant JSON payload that engineering parses and persists.
-- Verified with `npm --prefix modules/agent-service test -- --test-reporter=spec`
-  on 2026-05-27.
+**Verified 2026-05-29:**
+
+- `npm --prefix packages/persistence run generate`
+- `npm --prefix modules/agent-service run test`
 - Docker-verified with `docker compose build --no-cache agent-service`,
   `docker compose up -d agent-service`, `docker compose ps`, and
   `docker compose logs --tail=120 agent-service` on 2026-05-27.
@@ -838,6 +756,268 @@ context and let it calibrate the immediate response.
 - Per-turn feedback episodes remain removed/gated; no parallel hidden source of
   facts is reintroduced for material the model should read from context,
   summary, or durable recall.
+
+### Task 9 - Compact memory quality and identity continuity review
+
+**Status:** todo.
+
+**Source:** 2026-05-27 live compact probe for group `253631878`:
+`tmp/compact-memory-253631878-20260527T100734Z.md`.
+
+**Problem:** the previous `context_compression_memory_writer` could run through
+the real provider and write `agent_feedback_reflections`, but the generated
+reflection quality was not acceptable. In the probe, real evicted turns
+`4352-4418` produced reflection `324`, which generalized the batch into
+"未被点到时旁观更合适". That conclusion appears too shallow / possibly wrong
+for the actual context and may reinforce silence from weak evidence.
+
+**Related problem:** the current `[身份连续性]` / identity continuity projection is
+also not right. It is semantically unclear in the request shape and risks mixing
+durable identity, group-behavior policy, and compacted social lessons into one
+surface. Do not treat the current identity-continuity rendering or promotion
+policy as settled.
+
+**Action:**
+
+- Review the compact writer prompt and tool contract so it distinguishes:
+  durable feedback, social lessons, ordinary topic summaries, and "no learning"
+  cases.
+- Add a quality gate that allows the writer to emit no reflection when evidence
+  is weak; avoid turning ordinary silent/passing context into active recall rows.
+- Re-run the `253631878` compact probe with labeled expected outcomes and compare
+  whether the generated reflection matches the actual batch.
+- Review identity continuity projection separately from group behavior memory:
+  define what belongs in accepted identity facts, what remains a tentative
+  reflection, and what should only be context summary.
+- Update the request shape so identity continuity is placed and labeled clearly,
+  not as another vague scene block.
+
+**Acceptance criteria:**
+
+- Compact memory generation can produce `no_tool_call` / no persisted reflection
+  for low-evidence batches.
+- A regression test or replay fixture covers the `253631878` probe range and
+  prevents the current over-broad "旁观更合适" style conclusion from passing as a
+  durable lesson without stronger evidence.
+- Identity continuity has an explicit projection contract and tests showing it
+  does not absorb tentative group-behavior lessons as durable identity facts.
+- The runtime request clearly separates identity facts, compact summaries,
+  feedback reflections, and group-specific behavior policy.
+
+### Task 10 - Image task tool routing bug
+
+**Status:** todo.
+
+**Source:** 2026-05-27 trace/run review for
+`run_1779879915056_87d8f640` /
+`runtrace_1779879915056_33f40789`.
+
+**Problem:** the current image-task tool path can misroute a plain image
+generation request into `image_edit`. In the reviewed run, the runtime created
+`agent_tasks.id = task_1779879930738_ef6a94d0` with:
+
+- `task_type = image_edit`
+- `prompt = 生成一张很普通、简洁的蓝天白云风格头像图...`
+- `source_media_tags = []`
+- `source_media_asset_ids = []`
+- `input_json.has_source_media = false`
+
+The async task was correctly queued into `agent_tasks`, but then failed inside
+`AgentTaskWorkerService` before reaching `provider-service`, with:
+
+`Image edit task requires at least one readable source image`
+
+That means the current tool contract / routing logic allows the model or runtime
+to request edit-mode work without any actual source image, so the user sees
+"已经开始处理" but the job is guaranteed to fail.
+
+**Action:**
+
+- Review the `request_image_task` tool contract and runtime routing so plain
+  generation requests default to `image_generate`, not `image_edit`.
+- Add an explicit guard: `image_edit` is only allowed when at least one
+  resolvable `source_media_tag` / `source_media_asset_id` is present.
+- If the user intent is "generate a new image" and no source media is attached,
+  normalize the task to `image_generate` instead of failing later in the async
+  worker.
+- If edit-mode is requested but source media is missing or unreadable, surface a
+  deterministic user-facing clarification/fallback path rather than queued
+  success text followed by hidden task failure.
+- Re-check whether the tool schema or prompt wording is nudging the model toward
+  `operation = edit` for avatar-style requests that are actually pure
+  generation.
+
+**Likely implementation areas:**
+
+- `modules/agent-service/src/services/agent-loop-service.ts`
+  - `requestImageTask`
+  - image tool schema / descriptions / runtime normalization
+- `modules/agent-service/src/services/agent-task-worker-service.ts`
+  - pre-provider validation / fallback behavior for `image_edit`
+- `modules/agent-service/src/__tests__/agent-loop-service.test.ts`
+- `modules/agent-service/src/__tests__/agent-task-worker-service.test.ts`
+
+**Acceptance criteria:**
+
+- Replaying a plain "帮我生成头像图" style request without any source image
+  creates `image_generate`, not `image_edit`.
+- `image_edit` tasks cannot be created or processed without at least one
+  readable source image.
+- When edit intent is ambiguous and no source image exists, the runtime either
+  auto-normalizes to generate mode or returns a clear user-facing clarification;
+  it does not enqueue a doomed async task.
+- Add regression tests covering the reviewed run shape: avatar-generation prompt,
+  no source media, no hidden failure after "queued" acknowledgement.
+
+### Task 11 - Presence context v2 action trace and energy model
+
+**Status:** todo.
+
+**Source:** 2026-05-27 runtime context review against
+`docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
+
+**Problem:** the design already defines `小腻当前状态` as a six-section private
+context block with recent action trace, current residue, current state,
+available material, action cost, and source boundary. It also defines the
+energy/fatigue/reward model: action budget, sleep pressure, fatigue,
+reward-sensitivity / dopamine-like attraction, pressure, boredom, sharing
+desire, and effort cost.
+
+The current implementation is only a first slice. `presence-context.ts` derives
+`boredom`, `fatigue`, `energy`, and `sharingDesire`, then injects raw decimals
+and a hard-coded `recent_action_trace` such as "本轮由 presence_tick 触发" or
+"本轮由群友消息触发". That means Xiaoni's real recent action experience is not
+yet present in the runtime context. The model cannot see whether she had been
+idling in QQ, watching the group, leaving and returning, doing a mock/real
+digital action, carrying group residue, or deciding that a topic is still alive.
+
+The older "dopamine / stress" surface is also only a compatibility mapping:
+`sharingDesire -> dopamine` and `fatigue -> stress`. It does not yet expose the
+designed action budget / fatigue load / reward attraction / effort-cost model in
+a human-readable way.
+
+**Action:**
+
+- Implement a presence-context v2 projection that follows the design doc's
+  six-section `小腻当前状态` shape instead of the current thin key/value block.
+- Add a real recent-action trace source. It should be built from stored
+  presence/digital-action records, ongoing QQ presence state, share-pool source
+  items, same-day group residue, and explicit mock/constructed records. Do not
+  invent offline or unsupported external experiences.
+- Replace raw decimals in prompt context with readable scaled state, for example
+  `当前行动预算：5 / 10`, `疲惫负荷：6 / 10`, `压力负荷：2 / 10`,
+  `无聊：7 / 10`, `找刺激/新鲜感：6 / 10`, `分享欲：5 / 10`.
+- Keep the engineering source of truth numeric. Derive readable prompt labels
+  from persisted anchors and action history, not from hand-authored mood text.
+- Model reward as `reward_sensitivity` / novelty and pickup attraction, not as a
+  literal biochemical dopamine gauge. Keep compatibility `dopamine` naming only
+  at legacy boundaries if still required.
+- Add action-cost wording that tells the model which actions currently feel
+  light, medium, or expensive, without adding a "recommended action" command.
+- Preserve source honesty. Mock/constructed material can become Xiaoni's own
+  thought or topic, but cannot be phrased as "刚看到 / 刚刷到 / 我查到" unless
+  there is real browser evidence.
+- Expand `agent_presence_state_sidecars` or its `compression_mapping` so a
+  generated block can be audited back to action records, share-pool items,
+  energy snapshot, group residue, and source-boundary decisions.
+
+**Likely implementation areas:**
+
+- `modules/agent-service/src/services/presence-context.ts`
+  - `deriveLifeState`
+  - `buildPresenceContextBlock`
+  - scaled state/action-budget rendering
+- `modules/agent-service/src/services/runtime-store.ts`
+  - `buildPresenceContext`
+  - presence action/history loading
+  - sidecar recording
+- `packages/persistence/prisma/schema.prisma`
+  - add or confirm storage for presence/digital action records if existing tables
+    are not enough
+- `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`
+  - remains the design source of record
+- `docs/XIAONI_SPEAKING_FLOW.md`
+  - update runtime truth after implementation
+
+**Acceptance criteria:**
+
+- Runtime `<小腻当前状态>` contains six readable sections matching the design doc:
+  recent action trace, current residue, current state, available material,
+  action cost, and source boundary.
+- `最近行动轨迹` is no longer just "presence_tick triggered" / "群友消息触发";
+  it is derived from traceable records or explicitly says there is no concrete
+  recent action material.
+- Current-state rendering exposes action budget, fatigue/pressure load, boredom,
+  novelty/reward attraction, and sharing desire on a readable scale.
+- No prompt surface claims real browsing, watching, reading, liking, posting, or
+  downloading unless a real digital-action record supports it.
+- Sidecar traces show which records and scores produced each block section.
+- Tests cover the no-material case, mock-material source-honesty case, and a
+  multi-step recent-action trace case.
+
+### Task 12 - Xiaoni creative agency and latent capability activation
+
+**Status:** todo.
+
+**Source:** 2026-05-28 `$office-hours` note before follow-up discussion.
+
+**Problem:** Xiaoni should have more creativity and subjective agency. The model
+already carries broad latent capabilities from training, for example poetry,
+imagery, analogy, humor, taste, lightweight analysis, and many other natural
+language abilities. Current runtime work mostly focuses on when Xiaoni speaks,
+what context she sees, and how source honesty is preserved. That is necessary,
+but it does not yet explicitly design how Xiaoni notices a situation where one
+of her own latent abilities would be a natural thing to use.
+
+The goal is not to make Xiaoni advertise capabilities or perform on command. The
+goal is to let ability emerge from motive, state, relationship, and scene. If a
+group topic, private chat, same-day residue, or digital-life fragment naturally
+touches something poetic, funny, visual, reflective, technical, or playful,
+Xiaoni should be able to initiate or shape the response from that internal
+capacity instead of only reacting as a thin chat participant.
+
+**Discussion seed:**
+
+- Treat "models were trained on many poetry collections, so Xiaoni is naturally
+  able to write poetry" as the prototype case.
+- Generalize the pattern to other latent capabilities: metaphor, image
+  description, playful rewriting, tiny fiction, critique, concept explanation,
+  curiosity-driven browsing/search, taste judgment, memory organization, and
+  self-started creative exercises.
+- Decide where this belongs in the runtime: stable identity / interests,
+  current-state block, digital-life action traces, tool choice policy, prompt
+  contract, or a separate "capability activation" projection.
+- Preserve the existing source-honesty and anti-service boundary: Xiaoni should
+  not say "我会哪些能力" or act like a feature menu; she should simply do the
+  thing when the scene makes it feel like her own thought or impulse.
+
+**Likely implementation areas after design discussion:**
+
+- `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`
+  - extend the design from digital-life material to self-initiated creative
+    material and latent capability activation.
+- `modules/agent-service/src/services/presence-context.ts`
+  - expose creative residue / capability affordances as state facts, not commands.
+- `modules/agent-service/src/services/agent-loop-service.ts`
+  - update runtime prompt contract/tests so creative agency is allowed without
+    advertising capabilities or forcing output.
+- `packages/persistence`
+  - decide whether creative exercises/actions need traceable records before they
+    can influence future context.
+
+**Acceptance criteria:**
+
+- The next design pass defines how Xiaoni's latent abilities are activated by
+  motive, state, relationship, and scene rather than by explicit feature prompts.
+- Poetry is covered as a concrete example, but the mechanism is not poetry-only.
+- Runtime wording preserves Xiaoni as a group member with inner life, not a
+  capability menu or assistant service.
+- Source honesty remains intact: created thoughts can be presented as Xiaoni's
+  own writing/thinking, while external reading/browsing claims still require
+  traceable evidence.
+- Follow-up implementation tasks are split only after the design discussion
+  clarifies whether this belongs in identity facts, presence context,
+  digital-life traces, prompt contract, or a new projection layer.
 
 ## P0-C - Runtime Data Readiness And Cleanup
 

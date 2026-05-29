@@ -689,6 +689,67 @@ exports.Prisma.AgentFeedbackLearningStateScalarFieldEnum = {
   updated_at: 'updated_at'
 };
 
+exports.Prisma.AgentMemoryObservationScalarFieldEnum = {
+  id: 'id',
+  session_key: 'session_key',
+  group_id: 'group_id',
+  source_conversation_id: 'source_conversation_id',
+  source_turn_ids: 'source_turn_ids',
+  source_message_ids: 'source_message_ids',
+  topic: 'topic',
+  text: 'text',
+  poignancy: 'poignancy',
+  participants: 'participants',
+  xiaoni_role: 'xiaoni_role',
+  source_trace_id: 'source_trace_id',
+  source_run_id: 'source_run_id',
+  writer_model: 'writer_model',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentMemoryAssertionScalarFieldEnum = {
+  id: 'id',
+  session_key: 'session_key',
+  group_id: 'group_id',
+  source_conversation_id: 'source_conversation_id',
+  source_turn_ids: 'source_turn_ids',
+  source_message_ids: 'source_message_ids',
+  text: 'text',
+  fact_type: 'fact_type',
+  entities: 'entities',
+  participants: 'participants',
+  source_trace_id: 'source_trace_id',
+  source_run_id: 'source_run_id',
+  writer_model: 'writer_model',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentMemoryReflectionScalarFieldEnum = {
+  id: 'id',
+  session_key: 'session_key',
+  group_id: 'group_id',
+  source_conversation_id: 'source_conversation_id',
+  text: 'text',
+  kind: 'kind',
+  subjects: 'subjects',
+  evidence_basis: 'evidence_basis',
+  evidence_time_start: 'evidence_time_start',
+  evidence_time_end: 'evidence_time_end',
+  poignancy: 'poignancy',
+  source_observation_ids: 'source_observation_ids',
+  source_message_ids: 'source_message_ids',
+  source_trace_id: 'source_trace_id',
+  source_run_id: 'source_run_id',
+  writer_model: 'writer_model',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
 exports.Prisma.XiaoniIdentityRootScalarFieldEnum = {
   id: 'id',
   identity_key: 'identity_key',
@@ -978,6 +1039,9 @@ exports.Prisma.ModelName = {
   AgentFeedbackEpisode: 'AgentFeedbackEpisode',
   AgentFeedbackReflection: 'AgentFeedbackReflection',
   AgentFeedbackLearningState: 'AgentFeedbackLearningState',
+  AgentMemoryObservation: 'AgentMemoryObservation',
+  AgentMemoryAssertion: 'AgentMemoryAssertion',
+  AgentMemoryReflection: 'AgentMemoryReflection',
   XiaoniIdentityRoot: 'XiaoniIdentityRoot',
   IdentityLineageEvent: 'IdentityLineageEvent',
   IdentityChangeCandidate: 'IdentityChangeCandidate',

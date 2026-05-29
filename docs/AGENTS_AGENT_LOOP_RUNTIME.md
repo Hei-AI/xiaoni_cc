@@ -376,7 +376,7 @@ tool desc 原文：
 - `trace_id=runtrace_1777338739504_842b2ab4`
 - 结果：`no_reply=true`
 
-它的 `tool_choice` 逐轮收缩是：
+历史样本在 2026-05-29 前的 `tool_choice` 逐轮收缩是：
 
 ```json
 turn1: {"mode":"required","type":"allowed_tools","tools":[{"name":"emit_unread_meaning","type":"function"}]}
@@ -461,8 +461,8 @@ turn4: {"mode":"required","type":"allowed_tools","tools":[{"type":"web_search"},
 - `emit_unread_meaning` 把它判成 `request`
 - `emit_inner_reaction` 把它判成 `preferred_action=speak`
 - 同时它判断当前上下文存在私有/关系连续性缺口
-- 所以第三轮不是 `stay_silent`，而是先走 `recall_long_term_learning`
-- recall 后第四轮才真正开放 `speak_in_group`
+- 当时第三轮会先走 `recall_long_term_learning`
+- 2026-05-29 后这条 pre-reply recall 路径已移除；相同缺口要少猜、问群友或依赖未来 typed recall projection 提前注入的三层记忆
 
 所以近期“能说”和“被压住”的分叉，不在 provider，不在 prompt 名称，而在：
 
@@ -503,33 +503,20 @@ UnreadMeaning 里的 social_target / addressed_to_me / message_act
 - 中途阻断：第二步如果已经判成 `silent`，直接只开放 `stay_silent`
 - 保守阻断：`low + weak_but_real + no direct new cue`，强制压回 `stay_silent`
 
-## 记忆召回和公开搜索怎么分流
+## 记忆和公开搜索怎么分流
 
-当前规则不是“可能要说就先召回”。小腻必须先判断当前上下文缺口属于哪一类：
+当前主 loop 已经不再暴露 `recall_long_term_learning`。小腻必须先判断当前上下文缺口属于哪一类：
 
 - 当前上下文已经足够：直接进入说话、沉默、图任务等最终动作。
-- 私密、群内、关系连续性缺口：允许 `recall_long_term_learning`。
+- 私密、群内、关系连续性缺口：当前不要编造来源；能自然问群友就问，不能问就少说或沉默。后续由 typed recall projection 把长期记忆注入上下文。
 - 公开事实、新鲜资料、官方页面或指定 URL：走 `web_search`，不是先查记忆。
-- 群里提到的东西在当前上下文没有来源，也不像公开事实：优先少猜。可以尝试记忆召回；多次不同策略仍空时，要承认没有这段记忆，必要时问群友“这是你们在哪聊的”。
+- 群里提到的东西在当前上下文没有来源，也不像公开事实：优先少猜，必要时问群友“这是你们在哪聊的”。
 
-`recall_long_term_learning` 现在带 `query_strategy`，用于明确这次怎么查：
+长期记忆现在由上下文压缩异步生成三层：
 
-```json
-{
-  "reason": "...",
-  "topic_hint": "...",
-  "query_strategy": "topic_primary | speaker_social_context | relationship_pattern",
-  "include_current_sender": true,
-  "desired_recall_count": 3
-}
-```
-
-如果召回为空，工程层最多允许再用不同 `query_strategy` 试两次。连续空召回耗尽后，会追加 system reminder，告诉小腻：
-
-- 没有找到这段记忆。
-- 不要继续反复召回，也不要编造它来自哪里。
-- 如果是公开信息，可以改用 `web_search`。
-- 如果像别的小群或旧聊天里的内容，可以自然问群友来源，或者保持沉默。
+- episodic observations：具体发生过什么、谁在场、小腻的位置。
+- semantic assertions：客观事实、当前状态、计划、claim。
+- reflections：至少两条 episodic observations 支撑的跨时间模式。
 
 ## “学到的分寸有关”这块，最近真实命中过吗
 
@@ -708,41 +695,13 @@ reaction_authenticity = weak_but_real
 如果只是因为有个话口、顺手能接、补一句也不违和，那还不算你真正的反应。
 ```
 
-### 6. Recall 不是默认步骤
+### 6. Recall 不再是主回合工具
 
-代码：
+2026-05-29 后，主聊天 loop 不再暴露 `recall_long_term_learning`。长期记忆的当前工程边界是：
 
-- tool desc: `agent-loop-service.ts:573-603`
-- 触发：`agent-loop-service.ts:1000-1004`
-- 执行：`agent-loop-service.ts:3567-3618`
-
-只有 `preferred_action in {speak, search, image_task}`，才允许先调 `recall_long_term_learning`。
-
-输出长相：
-
-```json
-{
-  "reason": "...",
-  "topic_hint": "...",
-  "query_text": "...",
-  "items": [
-    {
-      "id": 99,
-      "learning_key": "group_style_avoid_template_echo",
-      "learning_scope": "...",
-      "scope_type": "group_self",
-      "reflection_type": "...",
-      "confidence": "high",
-      "rank": 1,
-      "why_recalled": "...",
-      "summary_text": "..."
-    }
-  ],
-  "markdown_items": ["..."]
-}
-```
-
-这一步会把“别再用固定模板占位”这类历史学习召回回来，再校准是否开口。
+- 上下文压缩时生成三层记忆：episodic / semantic / reflection。
+- 生成使用强制工具 schema：`write_episodic_observations`、`write_semantic_assertions`、`write_memory_reflections`。
+- 未来召回应做 typed recall projection，把合适层提前投进 runtime context，而不是在主回合临时开 recall 工具。
 
 ### 7. speak / search / stay_silent 最终动作
 
@@ -757,7 +716,6 @@ reaction_authenticity = weak_but_real
 ```text
 emit_unread_meaning
 -> emit_inner_reaction
--> recall_long_term_learning
 -> speak_in_group
 ```
 

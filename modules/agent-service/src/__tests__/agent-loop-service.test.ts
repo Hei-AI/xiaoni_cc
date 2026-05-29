@@ -8,7 +8,6 @@ import type { QueueMessagePayload } from '../types';
 const PRIVATE_REPLY_TOOL = 'reply_in_private';
 const UNREAD_MEANING_TOOL = 'emit_unread_meaning';
 const INNER_REACTION_TOOL = 'emit_inner_reaction';
-const LONG_TERM_RECALL_TOOL = 'recall_long_term_learning';
 const GROUP_REPLY_TOOL = 'speak_in_group';
 const INSPECT_IMAGE_TOOL = 'inspect_image_placeholder';
 const IMAGE_TASK_TOOL = 'request_image_task';
@@ -17,7 +16,6 @@ const WEB_SEARCH_TOOL = 'web_search';
 const GROUP_LOOP_TOOLS = [
   UNREAD_MEANING_TOOL,
   INNER_REACTION_TOOL,
-  LONG_TERM_RECALL_TOOL,
   WEB_SEARCH_TOOL,
   GROUP_REPLY_TOOL,
   INSPECT_IMAGE_TOOL,
@@ -342,7 +340,7 @@ test('buildCanonicalAgentTurnRequest keeps the same group loop tools on the firs
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [UNREAD_MEANING_TOOL]);
   assert.match(String(request.instructions), /这一轮顺序/);
   assert.match(String(request.instructions), /emit_unread_meaning/);
-  assert.match(String(request.instructions), /recall_long_term_learning/);
+  assert.doesNotMatch(String(request.instructions), /recall_long_term_learning/);
   assert.match(String(request.instructions), /最后通过工具完成这一轮/);
 });
 
@@ -454,7 +452,7 @@ test('buildCanonicalAgentTurnRequest uses web search directly for public-info ga
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, SILENT_FINISH_TOOL]);
 });
 
-test('buildCanonicalAgentTurnRequest allows speech after recall when inner reaction prefers speak', () => {
+test('buildCanonicalAgentTurnRequest allows speech when inner reaction prefers speak without pre-reply recall', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({
     type: 'function_call',
@@ -478,24 +476,12 @@ test('buildCanonicalAgentTurnRequest allows speech after recall when inner react
     call_id: 'call-reaction',
     output: '{"interest_level":"high","wants_to_know_more":false,"recalled_prior_pattern":"这是直接递话","felt_direction":"可以承担一句回应","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实回应"}'
   });
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'call-recall',
-    name: LONG_TERM_RECALL_TOOL,
-    arguments: '{"reason":"当前反应可能和以往互动反馈有关","topic_hint":"直接递话","include_current_sender":true,"desired_recall_count":2}'
-  });
-  loopInput.push({
-    type: 'function_call_output',
-    call_id: 'call-recall',
-    output: '{"reason":"当前反应可能和以往互动反馈有关","topic_hint":"直接递话","query_text":"直接递话","items":[],"markdown_items":[]}'
-  });
-
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, GROUP_REPLY_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL]);
 });
 
-test('buildCanonicalAgentTurnRequest allows search after recall when inner reaction prefers search', () => {
+test('buildCanonicalAgentTurnRequest allows search when inner reaction prefers search without private recall', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({
     type: 'function_call',
@@ -519,18 +505,6 @@ test('buildCanonicalAgentTurnRequest allows search after recall when inner react
     call_id: 'call-reaction',
     output: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"先查证","reaction_authenticity":"formed","should_search":true,"preferred_action":"search","reason":"需要外部信息"}'
   });
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'call-recall',
-    name: LONG_TERM_RECALL_TOOL,
-    arguments: '{"reason":"当前反应可能和以往互动反馈有关","topic_hint":"资料问题","include_current_sender":true,"desired_recall_count":2}'
-  });
-  loopInput.push({
-    type: 'function_call_output',
-    call_id: 'call-recall',
-    output: '{"reason":"当前反应可能和以往互动反馈有关","topic_hint":"资料问题","query_text":"资料问题","items":[],"markdown_items":[]}'
-  });
-
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [WEB_SEARCH_TOOL, SILENT_FINISH_TOOL]);
@@ -719,15 +693,12 @@ test('buildCanonicalAgentTurnRequest routes proactive to speak+silent tools', ()
   assert.ok(!allowedTools.includes(INSPECT_IMAGE_TOOL), 'proactive must not include image tools');
 });
 
-test('speak act-turn does not include stay_silent after recall completes', () => {
+test('speak act-turn does not include stay_silent when speech is the chosen action', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({ type: 'function_call', call_id: 'c1', name: UNREAD_MEANING_TOOL, arguments: '{"latest_unread_focus":"直接问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问"}' });
   loopInput.push({ type: 'function_call_output', call_id: 'c1', output: '{"latest_unread_focus":"直接问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问"}' });
   loopInput.push({ type: 'function_call', call_id: 'c2', name: INNER_REACTION_TOOL, arguments: '{"interest_level":"medium","wants_to_know_more":false,"recalled_prior_pattern":"直接问要直接答","felt_direction":"有回应","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实回应"}' });
   loopInput.push({ type: 'function_call_output', call_id: 'c2', output: '{"interest_level":"medium","wants_to_know_more":false,"recalled_prior_pattern":"直接问要直接答","felt_direction":"有回应","reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"有真实回应"}' });
-  loopInput.push({ type: 'function_call', call_id: 'c3', name: LONG_TERM_RECALL_TOOL, arguments: '{"reason":"检查历史","topic_hint":"直接问","include_current_sender":true,"desired_recall_count":2}' });
-  loopInput.push({ type: 'function_call_output', call_id: 'c3', output: '{"reason":"检查历史","topic_hint":"直接问","query_text":"直接问","items":[],"markdown_items":[]}' });
-
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   const allowedTools = getAllowedToolNames(request.tool_choice);
 
@@ -745,7 +716,7 @@ test('speak act-turn without recall goes directly to act-turn skipping recall', 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   const allowedTools = getAllowedToolNames(request.tool_choice);
 
-  assert.ok(!allowedTools.includes(LONG_TERM_RECALL_TOOL), `recall must not be forced for speak path; got [${allowedTools.join(', ')}]`);
+  assert.ok(!allowedTools.includes('recall_long_term_learning'), `recall must not be forced for speak path; got [${allowedTools.join(', ')}]`);
   assert.ok(allowedTools.includes(GROUP_REPLY_TOOL), `speak_in_group must be in act-turn tools`);
 });
 
@@ -1784,16 +1755,25 @@ test('context summary writer is engineering-triggered JSON output, not a tool ca
   }]);
 });
 
-test('context compression memory writer can synthesize durable reflections', async () => {
+test('context compression memory writer generates episodic, semantic, and reflection memories', async () => {
   const calls: Array<any> = [];
+  const observationWrites: Array<any> = [];
+  const assertionWrites: Array<any> = [];
   const reflectionWrites: Array<any> = [];
   const store = {
     logTimelineEvent: async () => undefined,
-    createFeedbackReflection: async (params: any) => {
-      reflectionWrites.push(params);
-      return { id: 2 };
+    createAgentMemoryObservation: async (params: any) => {
+      observationWrites.push(params);
+      return { id: observationWrites.length, ...params, created_at: '2026-05-29T00:00:00.000Z' };
     },
-    upsertFeedbackLearningState: async () => ({ id: 3 })
+    createAgentMemoryAssertion: async (params: any) => {
+      assertionWrites.push(params);
+      return { id: assertionWrites.length, ...params };
+    },
+    createAgentMemoryReflection: async (params: any) => {
+      reflectionWrites.push(params);
+      return { id: reflectionWrites.length, ...params };
+    }
   };
   const service = new AgentLoopService(store as any);
   const originalFetch = globalThis.fetch;
@@ -1809,30 +1789,82 @@ test('context compression memory writer can synthesize durable reflections', asy
           canonical_response: {
             output: [{
               type: 'function_call',
-              call_id: 'call-reflection',
-              name: 'synthesize_feedback_reflection',
+              call_id: 'call-episodic',
+              name: 'write_episodic_observations',
               arguments: JSON.stringify({
-                learning_key: 'style.no_formulaic_reply',
-                learning_scope: 'group_self',
-                reflection_type: 'self_model_update',
-                feedback_kind: 'negative',
-                confidence: 'high',
-                importance_score: 0.8,
-                evidence_weight: 0.8,
-                stability_score: 0.7,
-                summary_text: '我在被明确纠偏后意识到，公式化接话会破坏在场感。',
-                retrieval_text: '公式化接话会破坏在场感。',
-                embedding_text: 'correction 公式化 接话 在场感',
-                supersede_latest: false,
-                conflict_group_key: null,
-                reason: '压缩触发时生成 durable reflection'
+                observations: [
+                  {
+                    topic: '公式化接话纠偏',
+                    text: '群友明确提醒小腻别用公式化开场，小腻当时在被纠偏的位置。',
+                    poignancy: 8,
+                    participants: [{ qq_id: '202', name: 'Alice' }],
+                    xiaoni_role: 'directly_addressed',
+                    source_turn_ids: [10]
+                  },
+                  {
+                    topic: '公式化接话纠偏',
+                    text: '小腻前后两轮都被这个话题牵动，说明这是关系现场里的真实反馈。',
+                    poignancy: 7,
+                    participants: [{ qq_id: '202', name: 'Alice' }],
+                    xiaoni_role: 'mentioned_or_evaluated',
+                    source_turn_ids: [11]
+                  }
+                ]
               })
             }]
           }
         })
       } as any;
     }
-    return { ok: true, json: async () => ({ success: true, canonical_response: { output: [] } }) } as any;
+    if (turn === 2) {
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          canonical_response: {
+            output: [{
+              type: 'function_call',
+              call_id: 'call-semantic',
+              name: 'write_semantic_assertions',
+              arguments: JSON.stringify({
+                assertions: [{
+                  text: 'Alice 明确表达过不喜欢小腻公式化接话。',
+                  fact_type: 'claim',
+                  entities: [{ kind: 'person', value: 'Alice' }],
+                  participants: [{ qq_id: '202', name: 'Alice' }],
+                  source_turn_ids: [10]
+                }]
+              })
+            }]
+          }
+        })
+      } as any;
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-reflection',
+            name: 'write_memory_reflections',
+            arguments: JSON.stringify({
+              reflections: [{
+                text: 'Alice 对小腻的公式化接话比较敏感，后续相处要靠现场反应而不是套话。',
+                kind: 'relationship',
+                subjects: ['Alice', '小腻'],
+                evidence_basis: 'repeated_interactions',
+                evidence_time_start: '2026-05-29T00:00:00.000Z',
+                evidence_time_end: '2026-05-29T00:00:00.000Z',
+                poignancy: 8,
+                source_observation_ids: [1, 2]
+              }]
+            })
+          }]
+        }
+      })
+    } as any;
   }) as typeof fetch;
 
   try {
@@ -1842,6 +1874,9 @@ test('context compression memory writer can synthesize durable reflections', asy
       evictedTurns: [createConversationTurn({
         id: 10,
         userDeliveryMessageId: 201
+      }), createConversationTurn({
+        id: 11,
+        userDeliveryMessageId: 202
       })],
       runtimePrompt: createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' })
     });
@@ -1849,17 +1884,23 @@ test('context compression memory writer can synthesize durable reflections', asy
     globalThis.fetch = originalFetch;
   }
 
-  assert.equal(calls[0].agent_type, 'context_compression_memory_writer');
+  assert.equal(calls[0].agent_type, 'context_compression_memory_writer:episodic');
   assert.deepEqual(
     calls[0].canonicalRequest.tools.map((tool: any) => getToolName(tool)),
-    ['synthesize_feedback_reflection', 'update_learning_state']
+    ['write_episodic_observations']
   );
+  assert.equal(calls[1].agent_type, 'context_compression_memory_writer:semantic');
+  assert.equal(calls[2].agent_type, 'context_compression_memory_writer:reflection');
+  assert.deepEqual(calls.map((call) => call.model), ['gpt-5.5-mini', 'gpt-5.5-mini', 'gpt-5.5']);
+  assert.equal(observationWrites.length, 2);
+  assert.deepEqual(observationWrites[0].sourceMessageIds, [201]);
+  assert.deepEqual(observationWrites[1].sourceMessageIds, [202]);
+  assert.equal(assertionWrites.length, 1);
+  assert.deepEqual(assertionWrites[0].sourceMessageIds, [201]);
   assert.equal(reflectionWrites.length, 1);
-  assert.deepEqual(reflectionWrites[0].sourceMessageIds, [201]);
-  assert.equal(reflectionWrites[0].sourceConversationId, 10);
-  assert.deepEqual(reflectionWrites[0].metadata.evicted_turn_ids, [10]);
-  assert.equal(reflectionWrites[0].metadata.writer_source, 'context_compression_memory_writer');
-  assert.notDeepEqual(reflectionWrites[0].sourceMessageIds, [11]);
+  assert.deepEqual(reflectionWrites[0].sourceObservationIds, [1, 2]);
+  assert.deepEqual(reflectionWrites[0].sourceMessageIds, [201, 202]);
+  assert.equal(reflectionWrites[0].metadata.source, 'episodic_observations');
 });
 
 test('context compression identity lineage uses compression writer provenance', async () => {
@@ -2191,9 +2232,9 @@ test('summarizeToolLoopState counts tool calls by name and phase', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
   loopInput.push({
     type: 'function_call',
-    call_id: 'recall-1',
-    name: LONG_TERM_RECALL_TOOL,
-    arguments: '{"reason":"查一下","topic_hint":"话题","include_current_sender":true,"desired_recall_count":1}'
+    call_id: 'meaning-1',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"有人问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问"}'
   });
   loopInput.push({
     type: 'function_call',
@@ -2204,7 +2245,7 @@ test('summarizeToolLoopState counts tool calls by name and phase', () => {
 
   const state = summarizeToolLoopState(loopInput);
 
-  assert.deepEqual(state.byName[LONG_TERM_RECALL_TOOL], {
+  assert.deepEqual(state.byName[UNREAD_MEANING_TOOL], {
     count: 1,
     phase: 'commentary'
   });
@@ -2223,20 +2264,20 @@ test('buildToolLoopMonitorReminder appends deterministic reminder for repeated c
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
   loopInput.push({
     type: 'function_call',
-    call_id: 'recall-1',
-    name: LONG_TERM_RECALL_TOOL,
-    arguments: '{"reason":"查一下","topic_hint":"话题","include_current_sender":true,"desired_recall_count":1}'
+    call_id: 'reaction-1',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"low","wants_to_know_more":false,"reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"silent","reason":"弱反应"}'
   });
   loopInput.push({
     type: 'function_call_output',
-    call_id: 'recall-1',
-    output: '{"items":[],"markdown_items":[]}'
+    call_id: 'reaction-1',
+    output: '{"interest_level":"low","wants_to_know_more":false,"reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"silent","reason":"弱反应"}'
   });
   loopInput.push({
     type: 'function_call',
-    call_id: 'recall-2',
-    name: LONG_TERM_RECALL_TOOL,
-    arguments: '{"reason":"再查一下","topic_hint":"话题","include_current_sender":true,"desired_recall_count":1}'
+    call_id: 'reaction-2',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"low","wants_to_know_more":false,"reaction_authenticity":"weak_but_real","should_search":false,"preferred_action":"silent","reason":"仍是弱反应"}'
   });
 
   const reminder = buildToolLoopMonitorReminder(loopInput, {
@@ -2249,7 +2290,7 @@ test('buildToolLoopMonitorReminder appends deterministic reminder for repeated c
   assert.equal(reminder?.role, 'assistant');
   assert.equal((reminder as any).phase, 'commentary');
   assert.match(getMessageContent(reminder!), /source="tool_loop_monitor"/);
-  assert.match(getMessageContent(reminder!), /recall_long_term_learningx2/);
+  assert.match(getMessageContent(reminder!), /emit_inner_reactionx2/);
   assert.match(getMessageContent(reminder!), /不要继续重复/);
 
   loopInput.push(reminder!);
@@ -3631,161 +3672,6 @@ test('low energy turn state downgrades weak speak to stay_silent', () => {
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL]);
 });
 
-test('deriveTurnControlState allows one memory recall when reaction wants more context', () => {
-  const loopInput = buildInitialInput([], createQueuePayload());
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'call-meaning',
-    name: UNREAD_MEANING_TOOL,
-    arguments: '{"latest_unread_focus":"对方问小腻以前提过的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问到旧事"}'
-  });
-  loopInput.push({
-    type: 'function_call_output',
-    call_id: 'call-meaning',
-    output: '{"latest_unread_focus":"对方问小腻以前提过的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问到旧事"}'
-  });
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'call-reaction',
-    name: INNER_REACTION_TOOL,
-    arguments: '{"interest_level":"medium","wants_to_know_more":true,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"需要想起之前关系里的说法"}'
-  });
-  loopInput.push({
-    type: 'function_call_output',
-    call_id: 'call-reaction',
-    output: '{"interest_level":"medium","wants_to_know_more":true,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"需要想起之前关系里的说法"}'
-  });
-
-  const turnControl = deriveTurnControlState(loopInput);
-  assert.equal(turnControl.stage, 'maybe_recall');
-  assert.equal(turnControl.expectedNext, LONG_TERM_RECALL_TOOL);
-  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LONG_TERM_RECALL_TOOL]);
-});
-
-test('first empty recall result allows one changed-query retry', () => {
-  const loopInput = buildInitialInput([], createQueuePayload());
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'call-meaning',
-    name: UNREAD_MEANING_TOOL,
-    arguments: '{"latest_unread_focus":"对方问小腻以前提过的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问到旧事"}'
-  });
-  loopInput.push({
-    type: 'function_call_output',
-    call_id: 'call-meaning',
-    output: '{"latest_unread_focus":"对方问小腻以前提过的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问到旧事"}'
-  });
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'call-reaction',
-    name: INNER_REACTION_TOOL,
-    arguments: '{"interest_level":"medium","wants_to_know_more":true,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"需要想起之前关系里的说法"}'
-  });
-  loopInput.push({
-    type: 'function_call_output',
-    call_id: 'call-reaction',
-    output: '{"interest_level":"medium","wants_to_know_more":true,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","reason":"需要想起之前关系里的说法"}'
-  });
-
-  const continuation = applyToolResultToLoopInput({
-    name: LONG_TERM_RECALL_TOOL,
-    callId: 'call-recall',
-    rawArguments: '{"reason":"需要想起之前关系里的说法","topic_hint":"旧事","include_current_sender":true,"desired_recall_count":2}'
-  }, {
-    reason: '需要想起之前关系里的说法',
-    topic_hint: '旧事',
-    query_text: '旧事',
-    items: [],
-    markdown_items: []
-  }, {
-    loopInput,
-    speakingToolName: GROUP_REPLY_TOOL,
-    hasVisibleReply: false
-  });
-
-  const reminder = continuation.inputItems.find((item) => getMessageContent(item).includes('recall_status="attempted_empty"'));
-  assert.ok(reminder, 'empty recall should append a deterministic reminder');
-  assert.match(getMessageContent(reminder), /换一种检索方式/);
-
-  const nextLoopInput = [...loopInput, {
-    type: 'function_call' as const,
-    call_id: 'call-recall',
-    name: LONG_TERM_RECALL_TOOL,
-    arguments: '{"reason":"需要想起之前关系里的说法","topic_hint":"旧事","include_current_sender":true,"desired_recall_count":2}'
-  }, ...continuation.inputItems];
-  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, nextLoopInput, 'group');
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LONG_TERM_RECALL_TOOL]);
-});
-
-test('second empty recall result appends exhausted-memory reminder and prevents repeated recall', () => {
-  const loopInput = buildInitialInput([], createQueuePayload());
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'call-meaning',
-    name: UNREAD_MEANING_TOOL,
-    arguments: '{"latest_unread_focus":"群友提到一个当前窗口外的旧梗","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":true,"confidence":"high","reason":"当前上下文看不出来源"}'
-  });
-  loopInput.push({
-    type: 'function_call_output',
-    call_id: 'call-meaning',
-    output: '{"latest_unread_focus":"群友提到一个当前窗口外的旧梗","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":true,"confidence":"high","reason":"当前上下文看不出来源"}'
-  });
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'call-reaction',
-    name: INNER_REACTION_TOOL,
-    arguments: '{"interest_level":"medium","wants_to_know_more":true,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","context_gap":"unclear_group_reference","gap_resolution":"memory_then_ask_or_search","reason":"像是他们在别处聊过的内容"}'
-  });
-  loopInput.push({
-    type: 'function_call_output',
-    call_id: 'call-reaction',
-    output: '{"interest_level":"medium","wants_to_know_more":true,"reaction_authenticity":"formed","should_search":false,"preferred_action":"speak","context_gap":"unclear_group_reference","gap_resolution":"memory_then_ask_or_search","reason":"像是他们在别处聊过的内容"}'
-  });
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'call-recall-1',
-    name: LONG_TERM_RECALL_TOOL,
-    arguments: '{"reason":"先按旧梗查","topic_hint":"旧梗","include_current_sender":true,"desired_recall_count":2,"query_strategy":"topic_primary"}'
-  });
-  loopInput.push({
-    type: 'function_call_output',
-    call_id: 'call-recall-1',
-    output: '{"reason":"先按旧梗查","topic_hint":"旧梗","query_strategy":"topic_primary","query_text":"旧梗","items":[],"markdown_items":[]}'
-  });
-
-  const continuation = applyToolResultToLoopInput({
-    name: LONG_TERM_RECALL_TOOL,
-    callId: 'call-recall-2',
-    rawArguments: '{"reason":"换成发言者社交上下文查","topic_hint":"旧梗","include_current_sender":true,"desired_recall_count":2,"query_strategy":"speaker_social_context"}'
-  }, {
-    reason: '换成发言者社交上下文查',
-    topic_hint: '旧梗',
-    query_strategy: 'speaker_social_context',
-    query_text: '旧梗',
-    items: [],
-    markdown_items: []
-  }, {
-    loopInput,
-    speakingToolName: GROUP_REPLY_TOOL,
-    hasVisibleReply: false
-  });
-
-  const reminder = continuation.inputItems.find((item) => getMessageContent(item).includes('recall_status="attempted_empty"'));
-  assert.ok(reminder, 'second empty recall should append exhausted reminder');
-  assert.match(getMessageContent(reminder), /我没有找到这段长期记忆/);
-  assert.match(getMessageContent(reminder), /这是你们在哪聊的/);
-
-  const nextLoopInput = [...loopInput, {
-    type: 'function_call' as const,
-    call_id: 'call-recall-2',
-    name: LONG_TERM_RECALL_TOOL,
-    arguments: '{"reason":"换成发言者社交上下文查","topic_hint":"旧梗","include_current_sender":true,"desired_recall_count":2,"query_strategy":"speaker_social_context"}'
-  }, ...continuation.inputItems];
-  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, nextLoopInput, 'group');
-  assert.ok(!getAllowedToolNames(request.tool_choice).includes(LONG_TERM_RECALL_TOOL));
-});
-
 // B: INNER_REACTION_TOOL schema must not contain recalled_prior_pattern or felt_direction
 test('INNER_REACTION_TOOL schema does not declare recalled_prior_pattern or felt_direction', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
@@ -3991,15 +3877,10 @@ test('buildDeveloperContextBlock reads speaker trust using XIAONI_IDENTITY_KEY',
   assert.match(String(block), /当前关系层级：L3/);
 });
 
-test('recall_long_term_learning schema includes optional social_act_type_hint without listing it in required', () => {
+test('group loop no longer exposes recall_long_term_learning as a pre-reply tool', () => {
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, buildInitialInput([], createQueuePayload()), 'group');
   const recallTool = (request.tools as Array<{ function?: { name?: string; parameters?: { properties?: Record<string, unknown>; required?: string[] } } }>)
     ?.find((t) => t.function?.name === 'recall_long_term_learning');
-  assert.ok(recallTool, 'recall_long_term_learning tool should exist');
-  const props = recallTool?.function?.parameters?.properties ?? {};
-  assert.ok('social_act_type_hint' in props, 'social_act_type_hint should be in schema properties');
-  assert.ok('query_strategy' in props, 'query_strategy should be in schema properties');
-  const required = recallTool?.function?.parameters?.required ?? [];
-  assert.ok(!required.includes('social_act_type_hint'), 'social_act_type_hint must NOT be required');
-  assert.ok(!required.includes('query_strategy'), 'query_strategy must NOT be required');
+  assert.equal(recallTool, undefined);
+  assert.ok(!getAllowedToolNames(request.tool_choice).includes('recall_long_term_learning'));
 });

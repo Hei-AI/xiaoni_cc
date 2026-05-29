@@ -47,6 +47,10 @@ export const databaseConfig = {
 export const agentConfig = {
   providerServiceUrl: (process.env.PROVIDER_SERVICE_URL || 'http://127.0.0.1:8091').replace(/\/$/, ''),
   modelName: process.env.AI_MODEL_NAME || 'gpt-5.4-mini',
+  compactMemoryModelName: process.env.AGENT_COMPACT_MEMORY_MODEL || 'gpt-5.5-mini',
+  compactMemoryReflectionModelName: process.env.AGENT_COMPACT_MEMORY_REFLECTION_MODEL || 'gpt-5.5',
+  compactMemoryReasoningEffort: process.env.AGENT_COMPACT_MEMORY_REASONING_EFFORT || 'medium',
+  compactMemoryReflectionReasoningEffort: process.env.AGENT_COMPACT_MEMORY_REFLECTION_REASONING_EFFORT || 'medium',
   promptCacheRetention: process.env.AGENT_PROMPT_CACHE_RETENTION || '24h',
   preReplyMemoryReasonerEnabled: false,
   preReplyMemoryReasonerModelName: process.env.AGENT_PRE_REPLY_MEMORY_REASONER_MODEL || 'gpt-5.4',
