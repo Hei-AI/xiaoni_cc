@@ -3094,6 +3094,63 @@ test('processQueueMessage does not allow request_image_task to swallow the visib
   }
 });
 
+test('requestImageTask normalizes edit operation without source media to image_generate', async () => {
+  const payload = createQueuePayload();
+  const createdTasks: any[] = [];
+  const store = {
+    createRuntimeTask: async (input: any) => {
+      createdTasks.push(input);
+      return 'task-image-generate-normalized';
+    },
+    getMediaAssetByTag: async () => null
+  } as any;
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  const result = await (service as any).requestImageTask({
+    operation: 'edit',
+    prompt: '生成一张很普通、简洁的蓝天白云风格头像图',
+    target_description: '头像图',
+    xiaoni_os: '这其实是新图生成，不需要源图。'
+  }, payload);
+
+  assert.equal(createdTasks.length, 1);
+  assert.equal(createdTasks[0]?.taskType, 'image_generate');
+  assert.equal(createdTasks[0]?.inputJson?.operation, 'generate');
+  assert.equal(createdTasks[0]?.inputJson?.has_source_media, false);
+  assert.equal(result.queued, true);
+  assert.equal(result.task_type, 'image_generate');
+});
+
+test('requestImageTask refuses image_edit when requested source media cannot be resolved', async () => {
+  const payload = createQueuePayload();
+  const createdTasks: any[] = [];
+  const store = {
+    createRuntimeTask: async (input: any) => {
+      createdTasks.push(input);
+      return 'task-image-edit-missing-source';
+    },
+    getMediaAssetByTag: async () => null
+  } as any;
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  const result = await (service as any).requestImageTask({
+    operation: 'edit',
+    prompt: '把这张图改成蓝天白云风格',
+    target_description: '编辑用户发来的图',
+    source_media_tags: ['[Image 1]'],
+    xiaoni_os: '源图没找到，不能假装已经开始编辑。'
+  }, payload);
+
+  assert.equal(createdTasks.length, 0);
+  assert.equal(result.queued, false);
+  assert.equal(result.task_type, 'image_edit');
+  assert.match(result.status_text, /没找到可编辑的源图片/);
+});
+
 test('processQueueMessage stores partially delivered assistant transcript as commentary on failure', async () => {
   const queueMessage = {
     id: 'run-queue-failure',

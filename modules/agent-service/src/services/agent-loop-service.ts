@@ -511,13 +511,15 @@ const IMAGE_TASK_TOOL = {
       properties: {
         operation: {
           type: 'string',
-          enum: ['generate', 'edit']
+          enum: ['generate', 'edit'],
+          description: 'generate=从文字生成一张新图；edit=基于当前上下文里已经存在的图片改图，必须同时提供 source_media_tags。头像、插画、壁纸等纯新图请求用 generate。'
         },
         prompt: { type: 'string' },
         target_description: { type: 'string' },
         source_media_tags: {
           type: 'array',
-          items: { type: 'string' }
+          items: { type: 'string' },
+          description: '只在 operation=edit 时填写，引用当前上下文里真实出现过的图片占位符；没有源图时不要填写。'
         },
         xiaoni_os: {
           type: 'string',
@@ -5429,13 +5431,16 @@ export class AgentLoopService {
     args: Record<string, unknown>,
     queueMessage: QueueMessageRecord['payload']
   ) {
-    const operation = args.operation === 'edit' ? 'edit' : 'generate';
+    const requestedOperation = args.operation === 'edit' ? 'edit' : 'generate';
     const prompt = typeof args.prompt === 'string' && args.prompt.trim()
       ? args.prompt.trim()
       : '';
     const targetDescription = typeof args.target_description === 'string' && args.target_description.trim()
       ? args.target_description.trim()
       : `帮 ${queueMessage.senderName || queueMessage.senderId} 做一张图`;
+    const xiaoniOs = typeof args.xiaoni_os === 'string' && args.xiaoni_os.trim()
+      ? args.xiaoni_os.trim()
+      : null;
     if (!prompt) {
       throw new Error(`${TOOL_NAMES.imageTask} requires prompt`);
     }
@@ -5449,6 +5454,18 @@ export class AgentLoopService {
       if (asset) {
         mediaAssets.push(asset);
       }
+    }
+    const operation = requestedOperation === 'edit' && mediaAssets.length > 0
+      ? 'edit'
+      : 'generate';
+    if (requestedOperation === 'edit' && sourceMediaTags.length > 0 && mediaAssets.length === 0) {
+      return {
+        queued: false,
+        task_type: 'image_edit',
+        task_context: targetDescription,
+        xiaoni_os: xiaoniOs,
+        status_text: '没找到可编辑的源图片，所以这次没有登记后台改图任务。需要对方重新发图，或者明确说要生成一张新图。'
+      };
     }
 
     await this.store.createRuntimeTask({
@@ -5469,14 +5486,12 @@ export class AgentLoopService {
       sourceMediaAssetIds: mediaAssets.map((asset) => asset.id),
       inputJson: {
         operation,
+        requested_operation: requestedOperation,
         source_media_tags: sourceMediaTags,
+        source_media_asset_ids: mediaAssets.map((asset) => asset.id),
         has_source_media: mediaAssets.length > 0
       }
     });
-
-    const xiaoniOs = typeof args.xiaoni_os === 'string' && args.xiaoni_os.trim()
-      ? args.xiaoni_os.trim()
-      : null;
 
     return {
       queued: true,
