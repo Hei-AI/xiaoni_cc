@@ -302,6 +302,81 @@ async function resolveChatAgentPrompt(params = {}, config = {}) {
   };
 }
 
+async function listAgentInboundMessages(filters = {}, config = {}) {
+  const prisma = getPrismaClient(config);
+  const where = {};
+  if (typeof filters.sessionKey === 'string' && filters.sessionKey.trim()) {
+    where.session_key = filters.sessionKey.trim();
+  }
+  if (typeof filters.chatType === 'string' && filters.chatType.trim()) {
+    where.chat_type = filters.chatType.trim();
+  }
+  if (typeof filters.peerId === 'string' && filters.peerId.trim()) {
+    where.peer_id = filters.peerId.trim();
+  }
+  if (typeof filters.senderId === 'string' && filters.senderId.trim()) {
+    where.sender_id = filters.senderId.trim();
+  }
+  const take = Number.isFinite(Number(filters.limit)) && Number(filters.limit) > 0
+    ? Number(filters.limit)
+    : undefined;
+  const skip = Number.isFinite(Number(filters.offset)) && Number(filters.offset) > 0
+    ? Number(filters.offset)
+    : undefined;
+
+  const rows = await prisma.agentInboundMessage.findMany({
+    where,
+    orderBy: [
+      { received_at: 'asc' },
+      { id: 'asc' }
+    ],
+    take,
+    skip
+  });
+  return rows.map(normalizeRow);
+}
+
+async function listAgentInboundMessagesByIds(ids = [], config = {}) {
+  const normalizedIds = Array.from(new Set(ids.map((id) => {
+    try {
+      return BigInt(id);
+    } catch {
+      return null;
+    }
+  }).filter((id) => id !== null)));
+  if (normalizedIds.length === 0) {
+    return [];
+  }
+  const prisma = getPrismaClient(config);
+  const rows = await prisma.agentInboundMessage.findMany({
+    where: { id: { in: normalizedIds } },
+    orderBy: [
+      { received_at: 'asc' },
+      { id: 'asc' }
+    ]
+  });
+  return rows.map(normalizeRow);
+}
+
+async function getAgentInboundMessageByMessageSid(messageSid, filters = {}, config = {}) {
+  if (typeof messageSid !== 'string' || !messageSid.trim()) {
+    return null;
+  }
+  const where = { message_sid: messageSid.trim() };
+  if (typeof filters.sessionKey === 'string' && filters.sessionKey.trim()) {
+    where.session_key = filters.sessionKey.trim();
+  }
+  const prisma = getPrismaClient(config);
+  const row = await prisma.agentInboundMessage.findFirst({
+    where,
+    orderBy: [
+      { received_at: 'asc' },
+      { id: 'asc' }
+    ]
+  });
+  return row ? normalizeRow(row) : null;
+}
+
 const trafficPersistence = createTrafficPersistence({
   getPrismaClient,
   Prisma
@@ -373,6 +448,9 @@ module.exports = {
   getPrismaClient,
   closePrismaClient,
   resolveChatAgentPrompt,
+  listAgentInboundMessages,
+  listAgentInboundMessagesByIds,
+  getAgentInboundMessageByMessageSid,
   ...require('./time'),
   ...trafficPersistence,
   ...selfEvolutionPersistence,

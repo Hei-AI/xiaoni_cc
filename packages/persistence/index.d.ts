@@ -629,7 +629,7 @@ export function listConversationItemsByIds(
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
 export function listAgentInboundMessages(
-  filters?: { sessionKey?: string; chatType?: string; senderId?: string; limit?: number },
+  filters?: { sessionKey?: string; chatType?: string; peerId?: string; senderId?: string; limit?: number; offset?: number },
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
 export function listAgentInboundMessagesByIds(

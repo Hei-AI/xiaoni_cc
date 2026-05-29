@@ -1587,7 +1587,36 @@ function buildSubagentPromptCacheKey(params: {
   queueMessage: QueueMessageRecord['payload'];
   subagentType: string;
 }) {
-  return `${params.queueMessage.sessionKey}:subagent:${params.subagentType}`;
+  const subagentKey = params.subagentType === CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE
+    ? 'cmem'
+    : params.subagentType === CONTEXT_SUMMARY_SUBAGENT_TYPE
+    ? 'csum'
+    : params.subagentType === FEEDBACK_MEMORY_SUBAGENT_TYPE
+    ? 'fmem'
+    : params.subagentType.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 16);
+  return `${params.queueMessage.sessionKey}:${subagentKey}`.slice(0, 48);
+}
+
+function isRetryableProviderStatus(status: number) {
+  return status === 502 || status === 503 || status === 504;
+}
+
+function isRetryableCompactMemoryFailure(status: number, error: string | null | undefined) {
+  if (isRetryableProviderStatus(status)) {
+    return true;
+  }
+  if (status !== 500 || !error) {
+    return false;
+  }
+  const normalized = error.toLowerCase();
+  return normalized.includes('aborted')
+    || normalized.includes('timeout')
+    || normalized.includes('timed out')
+    || normalized.includes('temporarily unavailable');
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildMainAgentParameters(parameters: Record<string, unknown> | null | undefined) {
@@ -1610,6 +1639,29 @@ function buildMainAgentParameters(parameters: Record<string, unknown> | null | u
   }
 
   return base;
+}
+
+function buildCompactMemoryAgentParameters(parameters: Record<string, unknown> | null | undefined) {
+  const base = buildMainAgentParameters(parameters);
+  const advancedConfig = base.advanced_config && typeof base.advanced_config === 'object' && !Array.isArray(base.advanced_config)
+    ? base.advanced_config as Record<string, unknown>
+    : {};
+  const generationConfig = advancedConfig.generationConfig
+    && typeof advancedConfig.generationConfig === 'object'
+    && !Array.isArray(advancedConfig.generationConfig)
+    ? advancedConfig.generationConfig as Record<string, unknown>
+    : {};
+
+  return {
+    ...base,
+    advanced_config: {
+      ...advancedConfig,
+      generationConfig: {
+        ...generationConfig,
+        timeout: agentConfig.compactMemoryTimeoutMs
+      }
+    }
+  };
 }
 
 function buildInboundBatchTranscriptItems(
@@ -4709,23 +4761,43 @@ export class AgentLoopService {
         reasoningEffort: params.reasoningEffort
       }
     );
-    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        trace_id: params.traceId,
-        agent_turn: 1,
-        agent_type: `${CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE}:${params.layer}`,
-        prompt_name: `${params.params.runtimePrompt.promptName}:${CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE}:${params.layer}`,
-        model: params.modelName,
-        parameters: buildMainAgentParameters(params.params.runtimePrompt.parameters as Record<string, unknown> | undefined),
-        canonicalRequest
-      })
+    const requestBody = JSON.stringify({
+      trace_id: params.traceId,
+      agent_turn: 1,
+      agent_type: `${CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE}:${params.layer}`,
+      prompt_name: `${params.params.runtimePrompt.promptName}:${CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE}:${params.layer}`,
+      model: params.modelName,
+      parameters: buildCompactMemoryAgentParameters(params.params.runtimePrompt.parameters as Record<string, unknown> | undefined),
+      canonicalRequest
     });
 
-    const responsePayload = await response.json() as ProviderAgentResponse;
-    if (!response.ok || !responsePayload.success) {
-      throw new Error(responsePayload.error || `Compact memory ${params.layer} writer failed with ${response.status}`);
+    let responsePayload: ProviderAgentResponse | null = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody
+      });
+      responsePayload = await response.json() as ProviderAgentResponse;
+      if (response.ok && responsePayload.success) {
+        break;
+      }
+      const errorMessage = responsePayload.error || null;
+      if (attempt >= 3 || !isRetryableCompactMemoryFailure(response.status, errorMessage)) {
+        throw new Error(responsePayload.error || `Compact memory ${params.layer} writer failed with ${response.status}`);
+      }
+      moduleLogger.warn('Retrying compact memory layer after retryable provider failure', {
+        traceId: params.traceId,
+        layer: params.layer,
+        attempt,
+        status: response.status,
+        error: errorMessage
+      });
+      await delay(500 * attempt);
+    }
+
+    if (!responsePayload?.success) {
+      throw new Error(`Compact memory ${params.layer} writer failed without a successful response`);
     }
 
     const toolOutput = extractReplayableModelOutputs(responsePayload.canonical_response).find(isReplayableToolCall);

@@ -539,9 +539,9 @@ tools:
   write_memory_reflections
 
 tool_choice:
-  episodic: required write_episodic_observations, model=gpt-5.5-mini
-  semantic: required write_semantic_assertions, model=gpt-5.5-mini
-  reflection: required write_memory_reflections, model=gpt-5.5; only after at least two persisted observations
+  episodic: required write_episodic_observations, model=生产 compact 默认（当前跟随 AI_MODEL_NAME=gpt-5.4-mini）
+  semantic: required write_semantic_assertions, model=生产 compact 默认（当前跟随 AI_MODEL_NAME=gpt-5.4-mini）
+  reflection: required write_memory_reflections, model=生产 reflection 默认（当前跟随 AI_MODEL_NAME=gpt-5.4-mini）; only after at least two persisted observations
 ```
 
 它的作用是防止旧上下文被裁掉后，真正有长期意义的具体事件、事实状态和跨时间模式完全丢失。
@@ -654,12 +654,12 @@ flowchart TD
   B --> C{有 evictedTurns?}
   C -->|否| E[结束]
   C -->|是| D[context compression memory writer]
-  D --> F[write_episodic_observations<br/>gpt-5.5-mini]
-  D --> G[write_semantic_assertions<br/>gpt-5.5-mini]
+  D --> F[write_episodic_observations<br/>compact default]
+  D --> G[write_semantic_assertions<br/>compact default]
   F --> H[(agent_memory_observations)]
   G --> I[(agent_memory_assertions)]
   H --> J{本批 observations >= 2?}
-  J -->|是| K[write_memory_reflections<br/>gpt-5.5]
+  J -->|是| K[write_memory_reflections<br/>reflection default]
   J -->|否| E
   K --> L[(agent_memory_reflections)]
   L --> M[未来 typed recall projection]

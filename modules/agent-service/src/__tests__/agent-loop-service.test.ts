@@ -1891,7 +1891,14 @@ test('context compression memory writer generates episodic, semantic, and reflec
   );
   assert.equal(calls[1].agent_type, 'context_compression_memory_writer:semantic');
   assert.equal(calls[2].agent_type, 'context_compression_memory_writer:reflection');
-  assert.deepEqual(calls.map((call) => call.model), ['gpt-5.5-mini', 'gpt-5.5-mini', 'gpt-5.5']);
+  assert.deepEqual(calls.map((call) => call.model), ['gpt-5.4-mini', 'gpt-5.4-mini', 'gpt-5.4-mini']);
+  assert.deepEqual(calls.map((call) => call.canonicalRequest.prompt_cache_key), [
+    'qq:group:101:cmem:episodic',
+    'qq:group:101:cmem:semantic',
+    'qq:group:101:cmem:reflection'
+  ]);
+  assert.deepEqual(calls.map((call) => call.parameters.advanced_config.generationConfig.timeout), [60000, 60000, 60000]);
+  assert.ok(calls.every((call) => call.canonicalRequest.prompt_cache_key.length <= 64));
   assert.equal(observationWrites.length, 2);
   assert.deepEqual(observationWrites[0].sourceMessageIds, [201]);
   assert.deepEqual(observationWrites[1].sourceMessageIds, [202]);
@@ -1901,6 +1908,70 @@ test('context compression memory writer generates episodic, semantic, and reflec
   assert.deepEqual(reflectionWrites[0].sourceObservationIds, [1, 2]);
   assert.deepEqual(reflectionWrites[0].sourceMessageIds, [201, 202]);
   assert.equal(reflectionWrites[0].metadata.source, 'episodic_observations');
+});
+
+test('context compression memory writer retries transient provider aborts', async () => {
+  const calls: Array<any> = [];
+  const observationWrites: Array<any> = [];
+  const assertionWrites: Array<any> = [];
+  const service = new AgentLoopService({
+    logTimelineEvent: async () => undefined,
+    createAgentMemoryObservation: async (params: any) => {
+      observationWrites.push(params);
+      return { id: observationWrites.length, ...params };
+    },
+    createAgentMemoryAssertion: async (params: any) => {
+      assertionWrites.push(params);
+      return { id: assertionWrites.length, ...params };
+    }
+  } as any);
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    calls.push(JSON.parse(String(init?.body || '{}')));
+    if (calls.length === 1) {
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({ success: false, error: 'This operation was aborted' })
+      } as any;
+    }
+    const toolName = calls.length === 2 ? 'write_episodic_observations' : 'write_semantic_assertions';
+    const args = calls.length === 2 ? { observations: [] } : { assertions: [] };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: `call-${calls.length}`,
+            name: toolName,
+            arguments: JSON.stringify(args)
+          }]
+        }
+      })
+    } as any;
+  }) as typeof fetch;
+
+  try {
+    await (service as any).runContextCompressionMemoryWriter({
+      queueMessage: createQueuePayload(),
+      conversationId: 1001,
+      evictedTurns: [createConversationTurn({ id: 10, userDeliveryMessageId: 201 })],
+      runtimePrompt: createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' })
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0].agent_type, 'context_compression_memory_writer:episodic');
+  assert.equal(calls[1].agent_type, 'context_compression_memory_writer:episodic');
+  assert.equal(calls[2].agent_type, 'context_compression_memory_writer:semantic');
+  assert.equal(observationWrites.length, 0);
+  assert.equal(assertionWrites.length, 0);
 });
 
 test('context compression identity lineage uses compression writer provenance', async () => {

@@ -44,7 +44,7 @@
 
 - 当前上下文窗口、摘要、最近历史、图片观察和已有工具结果是第一信息源；这些足够时禁止为了“多想一点”补长期记忆。
 - 主聊天 loop 不再暴露 pre-reply recall 工具。长期记忆后续应由 typed recall projection 在进入主 loop 前准备好，作为 runtime input / developer context 注入。
-- 三层长期记忆的生成发生在 context compression：episodic observations 和 semantic assertions 使用 `gpt-5.5-mini`；memory reflections 使用 `gpt-5.5`，并且必须由至少两条 episodic observations 支撑。
+- 三层长期记忆的生成发生在 context compression：生产默认跟随 `AI_MODEL_NAME`，当前是 `gpt-5.4-mini`；memory reflections 也跟随同一生产默认，除非显式设置 `AGENT_COMPACT_MEMORY_REFLECTION_MODEL`。reflection 必须由至少两条 episodic observations 支撑。
 - 三层 writer 都使用强制 function schema：`write_episodic_observations`、`write_semantic_assertions`、`write_memory_reflections`。允许空数组；不要用 prose JSON 或 prompt 里的强格式要求替代 schema。
 - 群聊内部梗、别的小群/私聊里可能发生过的内容不能猜。当前上下文没有投影到相关记忆时，要少说、问群友来源，或沉默；公开事实、新鲜资料和互联网实体优先走 `web_search`。
 

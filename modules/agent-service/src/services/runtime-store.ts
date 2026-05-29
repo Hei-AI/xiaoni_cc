@@ -18,6 +18,7 @@ import {
   listAcceptedIdentityFacts,
   getTopicProjectionVersionById,
   listFeedbackLearningStates,
+  listAgentInboundMessages,
   listFeedbackReflections,
   recordRuntimeIdentityActivationTrace,
   listSelfEvolutionStates,
@@ -2289,6 +2290,19 @@ export class RuntimeStore {
     } catch {
       return { activeSenderCount: 0, recentMessageCount: 0 };
     }
+  }
+
+  async listInboundMessagesForMemoryBackfill(params: {
+    groupId: string;
+    offset?: number;
+    limit?: number | null;
+  }) {
+    return listAgentInboundMessages({
+      chatType: 'group',
+      peerId: params.groupId,
+      offset: params.offset ?? 0,
+      limit: params.limit ?? undefined
+    }, databaseConfig);
   }
 
   async listRelevantFeedbackReflections(params: {
