@@ -22,19 +22,33 @@ const ACTIVE_CODEX_AUTH_PATH = path.join(os.homedir(), '.codex', 'auth.json');
 const DIRECT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
 const CLIPROXYAPI_CODEX_BASE_URL = 'http://host.docker.internal:8317/backend-api';
 
-function resolveCodexProxyApiKey(aiConfig: AIConfig): string | undefined {
+type CodexProviderRuntimeOptions = {
+  id?: 'codex' | 'codex-local';
+  disableProxy?: boolean;
+  baseUrl?: string;
+  responsesPath?: string;
+  localOAuth?: boolean;
+};
+
+function resolveCodexProxyApiKey(aiConfig: AIConfig, options?: Pick<CodexProviderRuntimeOptions, 'disableProxy'>): string | undefined {
+  if (options?.disableProxy) {
+    return undefined;
+  }
   return aiConfig.codex_proxy_api_key
     || process.env.CODEX_PROXY_API_KEY
     || undefined;
 }
 
-function resolveCodexBaseUrl(aiConfig: AIConfig): string {
+function resolveCodexBaseUrl(aiConfig: AIConfig, options?: Pick<CodexProviderRuntimeOptions, 'disableProxy' | 'baseUrl'>): string {
+  if (options?.baseUrl) {
+    return options.baseUrl;
+  }
   const explicitBaseUrl = aiConfig.codex_base_url || process.env.CODEX_BASE_URL;
   if (explicitBaseUrl) {
     return explicitBaseUrl;
   }
 
-  if (resolveCodexProxyApiKey(aiConfig)) {
+  if (resolveCodexProxyApiKey(aiConfig, options)) {
     return process.env.CODEX_PROXY_BASE_URL || CLIPROXYAPI_CODEX_BASE_URL;
   }
 
@@ -42,28 +56,31 @@ function resolveCodexBaseUrl(aiConfig: AIConfig): string {
 }
 
 export class CodexProvider extends OpenAIProvider {
-  readonly id = 'codex' as const;
-  private readonly codexLogger = logger.createModuleLogger('llm-provider-codex');
-  private readonly aiConfig: AIConfig;
+  readonly id: 'codex' | 'codex-local';
+  protected readonly codexLogger = logger.createModuleLogger('llm-provider-codex');
+  protected readonly aiConfig: AIConfig;
+  private readonly runtimeOptions: CodexProviderRuntimeOptions;
 
-  constructor(aiConfig: AIConfig) {
+  constructor(aiConfig: AIConfig, runtimeOptions: CodexProviderRuntimeOptions = {}) {
     super(aiConfig, {
-      id: 'codex',
-      apiKey: aiConfig.codex_access_token || process.env.CODEX_OAUTH_ACCESS_TOKEN || '',
-      baseUrl: resolveCodexBaseUrl(aiConfig),
-      responsesPath: aiConfig.codex_responses_path || process.env.CODEX_RESPONSES_PATH || '/codex/responses',
+      id: runtimeOptions.id || 'codex',
+      apiKey: aiConfig.codex_access_token || (runtimeOptions.localOAuth ? process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN : undefined) || process.env.CODEX_OAUTH_ACCESS_TOKEN || '',
+      baseUrl: resolveCodexBaseUrl(aiConfig, runtimeOptions),
+      responsesPath: runtimeOptions.responsesPath || aiConfig.codex_responses_path || process.env.CODEX_RESPONSES_PATH || '/codex/responses',
       defaultHeaders: {
         Origin: 'https://chatgpt.com',
         Referer: 'https://chatgpt.com/',
-        originator: 'codex_cli_rs',
+        Originator: 'codex_cli_rs',
         'OpenAI-Beta': 'responses=experimental'
       }
     });
+    this.id = runtimeOptions.id || 'codex';
     this.aiConfig = aiConfig;
+    this.runtimeOptions = runtimeOptions;
   }
 
   protected override async resolveApiKey(): Promise<string> {
-    const proxyApiKey = resolveCodexProxyApiKey(this.aiConfig);
+    const proxyApiKey = resolveCodexProxyApiKey(this.aiConfig, this.runtimeOptions);
     if (proxyApiKey) {
       return proxyApiKey;
     }
@@ -87,7 +104,7 @@ export class CodexProvider extends OpenAIProvider {
       model: resolvedModel,
       store: request.store ?? false,
       stream: true,
-      instructions: instructions || 'You are a helpful assistant.',
+      instructions: instructions || '',
       input: this.buildCodexInput(request),
       text: {
         verbosity: this.resolveTextVerbosity(request, providerConfig)
@@ -126,9 +143,6 @@ export class CodexProvider extends OpenAIProvider {
     const include = new Set(Array.isArray(request.include) ? request.include.filter((item: unknown) => typeof item === 'string') : []);
     include.add('reasoning.encrypted_content');
     payload.include = Array.from(include);
-    if (Array.isArray(request.context_management) && request.context_management.length > 0) {
-      payload.context_management = request.context_management;
-    }
 
     return payload;
   }
@@ -141,7 +155,7 @@ export class CodexProvider extends OpenAIProvider {
     timeoutMs?: number,
     traceHeaders: Record<string, string> = {}
   ): Promise<any> {
-    const proxyApiKey = resolveCodexProxyApiKey(this.aiConfig);
+    const proxyApiKey = resolveCodexProxyApiKey(this.aiConfig, this.runtimeOptions);
     if (proxyApiKey) {
       return await this.fetchAndAssembleCodexResponse(
         baseUrl,
@@ -245,7 +259,7 @@ export class CodexProvider extends OpenAIProvider {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
           'User-Agent': this.buildUserAgent(),
-          ...(accountId ? { 'chatgpt-account-id': accountId } : {}),
+          ...(accountId ? { 'Chatgpt-Account-Id': accountId } : {}),
           ...this.defaultHeaders,
           ...traceHeaders
         }
@@ -543,15 +557,20 @@ export class CodexProvider extends OpenAIProvider {
     source?: OAuthCredentialSource;
   }> {
     const resolved = await loadOAuthCredential({
-      envAccessToken: this.aiConfig.codex_access_token || process.env.CODEX_OAUTH_ACCESS_TOKEN,
-      envRefreshToken: this.aiConfig.codex_refresh_token || process.env.CODEX_OAUTH_REFRESH_TOKEN,
-      envExpiresAt: this.aiConfig.codex_expires_at || process.env.CODEX_OAUTH_EXPIRES_AT,
-      envAccountId: this.aiConfig.codex_account_id || process.env.CODEX_ACCOUNT_ID,
-      explicitPath: this.aiConfig.codex_oauth_path || process.env.CODEX_OAUTH_PATH,
-      fallbackPaths: [
-        path.join(os.homedir(), '.openclaw', 'credentials', 'oauth.json'),
-        path.join(os.homedir(), '.codex', 'auth.json')
-      ],
+      envAccessToken: this.aiConfig.codex_access_token || (this.runtimeOptions.localOAuth ? process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN : undefined) || process.env.CODEX_OAUTH_ACCESS_TOKEN,
+      envRefreshToken: this.aiConfig.codex_refresh_token || (this.runtimeOptions.localOAuth ? process.env.CODEX_LOCAL_OAUTH_REFRESH_TOKEN : undefined) || process.env.CODEX_OAUTH_REFRESH_TOKEN,
+      envExpiresAt: this.aiConfig.codex_expires_at || (this.runtimeOptions.localOAuth ? process.env.CODEX_LOCAL_OAUTH_EXPIRES_AT : undefined) || process.env.CODEX_OAUTH_EXPIRES_AT,
+      envAccountId: this.aiConfig.codex_account_id || (this.runtimeOptions.localOAuth ? process.env.CODEX_LOCAL_ACCOUNT_ID : undefined) || process.env.CODEX_ACCOUNT_ID,
+      explicitPath: (this.runtimeOptions.localOAuth ? process.env.CODEX_LOCAL_OAUTH_PATH : undefined) || this.aiConfig.codex_oauth_path || process.env.CODEX_OAUTH_PATH,
+      fallbackPaths: this.runtimeOptions.localOAuth
+        ? [
+            path.join(os.homedir(), '.codex', 'auth.json'),
+            path.join(os.homedir(), '.openclaw', 'credentials', 'oauth.json')
+          ]
+        : [
+            path.join(os.homedir(), '.openclaw', 'credentials', 'oauth.json'),
+            path.join(os.homedir(), '.codex', 'auth.json')
+          ],
       providerKey: 'openai-codex'
     });
 

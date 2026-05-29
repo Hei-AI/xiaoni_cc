@@ -152,6 +152,12 @@ function normalizeProvider(provider?: string | null): PlaygroundProviderConfig['
   const normalized = (provider || '').trim().toLowerCase();
   if (normalized === 'openai') return 'openai';
   if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
+  if (
+    normalized === 'codex-local' ||
+    normalized === 'openai-codex-local' ||
+    normalized === 'local-codex' ||
+    normalized === 'codex-openai'
+  ) return 'codex-local';
   if (normalized === 'google-legacy' || normalized === 'google' || normalized === 'gemini-api') return 'google-legacy';
   return 'google-gemini-cli';
 }

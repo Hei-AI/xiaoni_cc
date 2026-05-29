@@ -194,6 +194,12 @@ function normalizeProvider(value?: string | null): PlaygroundProviderConfig['mod
   const normalized = (value || '').trim().toLowerCase();
   if (normalized === 'openai') return 'openai';
   if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
+  if (
+    normalized === 'codex-local' ||
+    normalized === 'openai-codex-local' ||
+    normalized === 'local-codex' ||
+    normalized === 'codex-openai'
+  ) return 'codex-local';
   if (normalized === 'google' || normalized === 'google-legacy' || normalized === 'gemini-api') return 'google-legacy';
   return 'google-gemini-cli';
 }
@@ -202,6 +208,8 @@ function defaultModelForProvider(provider: PlaygroundProviderConfig['model']['pr
   switch (provider) {
     case 'openai':
       return 'gpt-5.4-mini';
+    case 'codex-local':
+      return 'gpt-5.5';
     case 'codex':
       return 'gpt-5.4-mini';
     case 'google-legacy':
@@ -688,6 +696,12 @@ function providerFromApiType(apiType?: string | null): PlaygroundProviderConfig[
   const normalized = (apiType || '').trim().toLowerCase();
   if (normalized === 'openai') return 'openai';
   if (normalized === 'codex') return 'codex';
+  if (
+    normalized === 'codex-local' ||
+    normalized === 'openai-codex-local' ||
+    normalized === 'local-codex' ||
+    normalized === 'codex-openai'
+  ) return 'codex-local';
   if (normalized === 'google-legacy') return 'google-legacy';
   return 'google-gemini-cli';
 }
@@ -698,11 +712,13 @@ function inferProviderFromModelName(modelName?: string | null): PlaygroundProvid
     normalized.includes('codex') ||
     normalized === 'gpt-5-mini' ||
     normalized === 'gpt-5.4-mini' ||
+    normalized === 'gpt-5.5' ||
+    normalized === 'gpt-5.5-mini' ||
     normalized === 'gpt-5.3-codex' ||
     normalized === 'gpt-5.3-codex-spark' ||
     normalized === 'gpt-5.2-codex'
   ) {
-    return 'codex';
+    return 'codex-local';
   }
 
   if (
@@ -857,6 +873,12 @@ function mapUnifiedProvider(value?: string | null): PlaygroundProviderConfig['mo
   const normalized = (value || '').trim().toLowerCase();
   if (normalized === 'openai') return 'openai';
   if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
+  if (
+    normalized === 'codex-local' ||
+    normalized === 'openai-codex-local' ||
+    normalized === 'local-codex' ||
+    normalized === 'codex-openai'
+  ) return 'codex-local';
   if (normalized === 'google-legacy' || normalized === 'google') return 'google-legacy';
   return 'google-gemini-cli';
 }

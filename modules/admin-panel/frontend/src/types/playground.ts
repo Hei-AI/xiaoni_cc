@@ -29,6 +29,7 @@ export type PlaygroundProviderId =
   | 'google-legacy'
   | 'openai'
   | 'codex'
+  | 'codex-local'
   | 'custom';
 
 export interface PlaygroundProviderConfig {

@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { CodexLocalProvider } from '../llm-provider/codex-local-provider';
 import { CodexProvider } from '../llm-provider/codex-provider';
 import { GeminiCliProvider } from '../llm-provider/gemini-cli-provider';
 import { OpenAIProvider } from '../llm-provider/openai-provider';
@@ -38,6 +42,23 @@ class TestCodexProvider extends CodexProvider {
       1000,
       traceHeaders
     );
+  }
+}
+
+class TestCodexLocalProvider extends CodexLocalProvider {
+  buildPayload(request: OpenResponseCreateRequest) {
+    return this.buildResponsesPayload(request);
+  }
+
+  transportDefaults() {
+    return {
+      baseUrl: this.baseUrl,
+      responsesPath: this.responsesPath
+    };
+  }
+
+  resolveApiKeyForTest() {
+    return this.resolveApiKey();
   }
 }
 
@@ -230,9 +251,7 @@ test('Codex provider accepts gpt-5.5 medium stateless reasoning replay contract'
   });
   assert.deepEqual(payload.text, { verbosity: 'medium' });
   assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
-  assert.deepEqual(payload.context_management, [
-    { type: 'compaction', compact_threshold: 200000 }
-  ]);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'context_management'), false);
 });
 
 test('Codex provider defaults proxy-key mode to CLIProxyAPI Codex direct route', async () => {
@@ -268,6 +287,72 @@ test('Codex provider defaults proxy-key mode to CLIProxyAPI Codex direct route',
         process.env[key] = value;
       }
     }
+  }
+});
+
+test('Codex local provider uses Codex auth.json against the direct Codex backend', async () => {
+  const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-local-auth-'));
+  const authPath = path.join(authDir, 'auth.json');
+  fs.writeFileSync(authPath, JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: {
+      access_token: 'local-access-token',
+      refresh_token: 'local-refresh-token',
+      expires_at: Date.now() + 300_000
+    }
+  }), 'utf8');
+
+  const previousEnv = {
+    CODEX_LOCAL_BASE_URL: process.env.CODEX_LOCAL_BASE_URL,
+    CODEX_LOCAL_RESPONSES_PATH: process.env.CODEX_LOCAL_RESPONSES_PATH,
+    CODEX_LOCAL_OAUTH_ACCESS_TOKEN: process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN,
+    CODEX_OAUTH_ACCESS_TOKEN: process.env.CODEX_OAUTH_ACCESS_TOKEN,
+    CODEX_PROXY_API_KEY: process.env.CODEX_PROXY_API_KEY
+  };
+
+  try {
+    delete process.env.CODEX_LOCAL_BASE_URL;
+    delete process.env.CODEX_LOCAL_RESPONSES_PATH;
+    delete process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN;
+    delete process.env.CODEX_OAUTH_ACCESS_TOKEN;
+    process.env.CODEX_PROXY_API_KEY = 'proxy-key-ignored-by-local-provider';
+
+    const provider = new TestCodexLocalProvider({
+      codex_oauth_path: authPath,
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5.4-mini'
+    });
+
+    assert.deepEqual(provider.transportDefaults(), {
+      baseUrl: 'https://chatgpt.com/backend-api',
+      responsesPath: '/codex/responses'
+    });
+    assert.equal(await provider.resolveApiKeyForTest(), 'local-access-token');
+
+    const payload = provider.buildPayload({
+      model: 'gpt-5.4-mini',
+      stream: true,
+      instructions: 'Be concise.',
+      input: [{ type: 'message', role: 'user', content: 'ping' }]
+    });
+
+    assert.equal(payload.model, 'gpt-5.4-mini');
+    assert.equal(payload.instructions, 'Be concise.');
+    assert.equal(payload.stream, true);
+    assert.deepEqual(payload.reasoning, { summary: 'auto' });
+    assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
+    assert.deepEqual(payload.input, [{ type: 'message', role: 'user', content: 'ping' }]);
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(authDir, { recursive: true, force: true });
   }
 });
 
@@ -317,7 +402,8 @@ test('Codex provider sends CLIProxyAPI proxy requests as SSE and assembles the r
     assert.equal(calls[0]?.init?.headers?.Accept, 'text/event-stream');
     assert.equal(calls[0]?.init?.headers?.['Content-Type'], 'application/json');
     assert.equal(calls[0]?.init?.headers?.session_id, 'qq:group:101');
-    assert.equal(calls[0]?.init?.headers?.['chatgpt-account-id'], undefined);
+    assert.equal(calls[0]?.init?.headers?.['Chatgpt-Account-Id'], undefined);
+    assert.equal(calls[0]?.init?.headers?.Originator, 'codex_cli_rs');
     assert.equal(JSON.parse(calls[0]?.init?.body).stream, true);
     assert.equal(response.output_text, 'hello');
     assert.equal(response.usage.total_tokens, 4);

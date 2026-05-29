@@ -60,7 +60,7 @@ export interface UnifiedLLMConfig {
   category: string;
   model: {
     name: string;
-    provider: 'google' | 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex' | 'custom';
+    provider: 'google' | 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex' | 'codex-local' | 'custom';
     allowedTokenIds?: number[];
     providerSpecific?: Record<string, any>;
     fallbackModels?: string[];

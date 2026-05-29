@@ -10,7 +10,9 @@
 - `reasoning.summary` 默认使用 `auto`，用于可观测性；不要要求或解析原始 hidden reasoning。
 - 对持续运行、工具密集、`store: false` 的 agent，请求必须包含 `include: ["reasoning.encrypted_content"]`，并在后续轮次把返回的 reasoning item 作为 opaque Responses item 回传。
 - `text.verbosity` 必须作为模型参数处理；默认 `medium`，需要更短输出时用 `low`，不要把最终回答长度和 reasoning effort 混在同一条 prompt 里控制。
-- Codex provider 是当前工作站支持 `gpt-5.5` 的目标传输层；不要把 `gpt-5.5 -> codex` 当作风险点本身。需要验证的是参数透传、replay、日志和上下文预算。
+- `codex-local` provider 是当前工作站支持 `gpt-5.5` 的默认传输层；它读取容器内 `/root/.codex/auth.json`（宿主机 `${HOME}/.codex/auth.json` 挂载而来），默认上游是 `https://chatgpt.com/backend-api/codex/responses`，并且不受 `CODEX_PROXY_API_KEY` 影响。
+- `codex` provider 保留为 CLIProxyAPI / ChatGPT backend 传输；配置了 `CODEX_PROXY_API_KEY` 时默认走 `CODEX_PROXY_BASE_URL`。只有显式配置 provider 为 `codex` 时才使用这条旧路径。
+- 2026-05-29 实测：Codex CLI OAuth token 缺少 `api.responses.write` scope，直打 OpenAI Platform `https://api.openai.com/v1/responses` 返回 401；可用路径是 Codex/ChatGPT backend。`codex-local` 真实 smoke 已用 `gpt-5.5` 返回 `pong`。
 
 ## State And Replay
 

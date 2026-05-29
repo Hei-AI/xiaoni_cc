@@ -1,6 +1,6 @@
 import { UnifiedLLMConfig } from '../../types';
 
-export type LLMProviderId = 'google' | 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex';
+export type LLMProviderId = 'google' | 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex' | 'codex-local';
 
 export type OpenResponseMessageRole = 'system' | 'developer' | 'user' | 'assistant';
 

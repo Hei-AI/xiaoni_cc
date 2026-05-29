@@ -28,6 +28,7 @@ export const PROVIDER_OPTIONS: Array<{
   { value: 'google-legacy', label: 'Google Legacy API' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'codex', label: 'Codex' },
+  { value: 'codex-local', label: 'Codex Local' },
 ];
 
 export const PLAYGROUND_PROVIDER_MODEL_OPTIONS: Record<PlaygroundProviderId, string[]> = {
@@ -46,10 +47,16 @@ export const PLAYGROUND_PROVIDER_MODEL_OPTIONS: Record<PlaygroundProviderId, str
   openai: [
     'gpt-5.4-mini',
     'gpt-5.4',
+    'gpt-5.5',
   ],
   codex: [
     'gpt-5.4-mini',
     'gpt-5.3-codex',
+  ],
+  'codex-local': [
+    'gpt-5.5',
+    'gpt-5.4-mini',
+    'gpt-5.4',
   ],
   custom: [],
 };
@@ -106,6 +113,12 @@ export function normalizePromptProvider(value: unknown): PlaygroundProviderId {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (normalized === 'openai') return 'openai';
   if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
+  if (
+    normalized === 'codex-local' ||
+    normalized === 'openai-codex-local' ||
+    normalized === 'local-codex' ||
+    normalized === 'codex-openai'
+  ) return 'codex-local';
   if (normalized === 'custom') return 'custom';
   if (
     normalized === 'google-legacy' ||
@@ -125,11 +138,13 @@ export function inferProviderFromModelName(modelName?: string | null): Playgroun
     normalized === 'gpt-5-mini' ||
     normalized === 'gpt-5.4' ||
     normalized === 'gpt-5.4-mini' ||
+    normalized === 'gpt-5.5' ||
+    normalized === 'gpt-5.5-mini' ||
     normalized === 'gpt-5.3-codex' ||
     normalized === 'gpt-5.3-codex-spark' ||
     normalized === 'gpt-5.2-codex'
   ) {
-    return 'codex';
+    return 'codex-local';
   }
 
   if (
@@ -148,6 +163,8 @@ export function defaultModelForProvider(provider: PlaygroundProviderId): string 
   switch (provider) {
     case 'openai':
       return 'gpt-5.4-mini';
+    case 'codex-local':
+      return 'gpt-5.5';
     case 'codex':
       return 'gpt-5.4-mini';
     case 'google':

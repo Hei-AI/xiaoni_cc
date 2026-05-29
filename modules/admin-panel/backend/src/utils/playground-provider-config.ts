@@ -47,6 +47,12 @@ export function normalizePlaygroundProvider(value: unknown): PlaygroundProviderI
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (normalized === 'openai') return 'openai';
   if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
+  if (
+    normalized === 'codex-local' ||
+    normalized === 'openai-codex-local' ||
+    normalized === 'local-codex' ||
+    normalized === 'codex-openai'
+  ) return 'codex-local';
   if (normalized === 'custom') return 'custom';
   if (
     normalized === 'google-legacy' ||
@@ -63,6 +69,8 @@ export function defaultModelForPlaygroundProvider(provider: PlaygroundProviderId
   switch (provider) {
     case 'openai':
       return 'gpt-5.4-mini';
+    case 'codex-local':
+      return 'gpt-5.5';
     case 'codex':
       return 'gpt-5.4-mini';
     case 'google':

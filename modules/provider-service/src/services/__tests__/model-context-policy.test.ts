@@ -48,6 +48,12 @@ test('allows environment provider overrides by model name', () => {
   }
 });
 
+test('routes Codex-capable GPT models to local Codex auth by default', () => {
+  assert.equal(inferProviderFromModelName('gpt-5.5'), 'codex-local');
+  assert.equal(inferProviderFromModelName('gpt-5.4-mini'), 'codex-local');
+  assert.equal(inferProviderFromModelName('gpt-5.3-codex'), 'codex-local');
+});
+
 test('allows environment model context policy overrides', () => {
   const original = process.env.MODEL_CONTEXT_POLICIES_JSON;
   process.env.MODEL_CONTEXT_POLICIES_JSON = JSON.stringify({
