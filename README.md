@@ -7,7 +7,7 @@
 - `provider-service`: NapCat / OneBot 入口、LLM provider 执行、消息模拟、embeddings、queue 入口
 - `agent-service`: 主 agent loop runtime，消费 queue batch、重建上下文、执行 agent run、控制 delivery state，并运行 presence / self-action 后台循环
 - `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、run workspace、Image Lab、Codex 账号池、流量查看/回放、runtime status
-- `admin-panel/frontend`: 管理界面
+- `admin-panel/frontend`: 管理界面，默认从“小腻活动”看她当前在做什么
 - `postgres`: 数据存储
 - `docker-compose.napcat.yml`: NapCat 独立部署入口
 
@@ -90,6 +90,7 @@ docker compose ps
 
 保留的调试面：
 
+- Admin 小腻活动瀑布流：真实 trace 里的 action/tool、LLM in_context、发言、看群、后台搜索、任务、图片观察和 runtime busy flags
 - `provider-service` 健康检查、消息模拟、LLM 调试、简单队列接口、embeddings
 - Admin agent run workspace、会话明细、participation events、runtime status、agent runtime task/media 观测
 - Admin Queue Management

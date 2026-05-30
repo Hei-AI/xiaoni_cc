@@ -13,6 +13,7 @@ const { createAgentTaskPersistence } = require('./agent-tasks');
 const { createAgentQueuePersistence } = require('./agent-queue');
 const { createAgentPresencePersistence } = require('./agent-presence');
 const { createAgentLifeEventPersistence } = require('./agent-life-events');
+const { createXiaoniActivityPersistence } = require('./xiaoni-activity');
 const { createAbExperimentPersistence } = require('./ab-experiment');
 const { createRelationshipTrustPersistence } = require('./relationship-trust');
 const { createAgentMemoryPersistence } = require('./agent-memory');
@@ -432,6 +433,11 @@ const agentLifeEventPersistence = createAgentLifeEventPersistence({
   createSqlAdapter
 });
 
+const xiaoniActivityPersistence = createXiaoniActivityPersistence({
+  getPrismaClient,
+  createSqlAdapter
+});
+
 const abExperimentPersistence = createAbExperimentPersistence({
   getPrismaClient,
   createSqlAdapter
@@ -469,6 +475,7 @@ module.exports = {
   ...agentQueuePersistence,
   ...agentPresencePersistence,
   ...agentLifeEventPersistence,
+  ...xiaoniActivityPersistence,
   ...abExperimentPersistence,
   ...relationshipTrustPersistence,
   ...agentMemoryPersistence

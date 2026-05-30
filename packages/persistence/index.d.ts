@@ -1134,6 +1134,50 @@ export type AgentLifeEventProjection = {
   dedupeKey: string;
   createdAt: string | null;
 };
+export type XiaoniActivityFeedItem = {
+  id: string;
+  source: 'life_event' | 'tool_call' | 'llm_call' | 'digital_action' | 'task' | 'media_observation' | 'queue_message' | string;
+  kind: string;
+  title: string;
+  body: string | null;
+  status: string | null;
+  actor: string | null;
+  actorName: string | null;
+  timestamp: string;
+  sessionKey: string | null;
+  peerName: string | null;
+  runId: string | null;
+  traceId: string | null;
+  tone: 'xiaoni' | 'success' | 'warning' | 'danger' | 'info' | 'neutral' | string;
+  metadata: Record<string, unknown>;
+};
+export type XiaoniActivityFeedResult = {
+  identityKey: string;
+  generatedAt: string;
+  current: {
+    lifeState: Record<string, unknown> | null;
+    latestActivityAt: string | null;
+    queue: {
+      pending: number;
+      processing: number;
+      staleProcessing: number;
+      failed: number;
+    };
+    digitalActions: {
+      planned: number;
+      processing: number;
+      completed: number;
+      failed: number;
+    };
+    tasks: {
+      pending: number;
+      processing: number;
+      completed: number;
+      failed: number;
+    };
+  };
+  items: XiaoniActivityFeedItem[];
+};
 export type RecordAgentLifeEventInput = {
   identityKey?: string;
   identity_key?: string;
@@ -1211,3 +1255,4 @@ export function recordAgentLifeEvent(input: RecordAgentLifeEventInput, config?: 
 export function listAgentLifeEvents(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection[]>;
 export function listAgentLifeEventsForPrompt(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection[]>;
 export function findAgentLifeEventByDedupeKey(dedupeKey: string, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection | null>;
+export function getXiaoniActivityFeed(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<XiaoniActivityFeedResult>;

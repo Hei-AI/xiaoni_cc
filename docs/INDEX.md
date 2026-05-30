@@ -5,6 +5,8 @@
 - 全仓文档默认遵循渐进式披露：入口页只负责分流和给下一跳，细节只维护在被指向的主文档里。
 
 ## Agent Working Set
+- 小腻当前活动、action/tool、LLM in_context、真实 trace、runtime busy flags：
+  - 管理端“小腻活动”
 - 前端页面、交互、生产前端问题：
   - `docs/AGENTS_FRONTEND.md`
 - 后端接口、队列、共享数据模型、数据库访问：

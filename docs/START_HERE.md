@@ -6,6 +6,7 @@
 ## First 5 Minutes
 - 这是 QQ Bot 的主仓，但当前保留的是“运行底座 + 管理端”，不是完整旧业务全集。
 - 默认先分清两条链：小腻行为链是 `NapCat -> provider-service -> agent-service -> provider-service -> NapCat`，管理端链是 `admin-frontend -> admin-backend -> provider-service / agent-service / PostgreSQL`。
+- 管理端当前默认关注“小腻在做什么”：先看“小腻活动”瀑布流，再按需跳 run trace、队列、流量或 Playground。
 - 先信这些入口：`README.md`、`docs/INDEX.md`、`AGENTS.md`
 
 ## First 15 Minutes

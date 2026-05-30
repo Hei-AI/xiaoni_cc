@@ -11,12 +11,12 @@ import {
   SheetTitle,
 } from './ui/sheet';
 import {
+  Activity,
   Bot,
   ChevronRight,
   ClipboardList,
   FileText,
   ImagePlus,
-  LayoutDashboard,
   Menu,
   MessageCircle,
   Network,
@@ -26,8 +26,6 @@ import {
   Search,
   ShieldCheck,
   ServerCog,
-  User,
-  Users,
 } from 'lucide-react';
 import { cn, formatTimestamp } from '../lib/utils';
 
@@ -160,11 +158,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       label: 'Overview',
       items: [
         {
-          href: '/dashboard',
-          label: '指挥台',
-          icon: LayoutDashboard,
-          description: '系统总览、指标与健康状态',
-          active: location.pathname === '/dashboard',
+          href: '/xiaoni-activity',
+          label: '小腻活动',
+          icon: Activity,
+          description: 'action/tool、in_context 与真实 trace',
+          active: location.pathname === '/xiaoni-activity',
         },
       ],
     },
@@ -177,20 +175,6 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           icon: MessageCircle,
           description: '按会话和 agent run 查看输入批次与回复原因',
           active: location.pathname.startsWith('/conversations') || location.pathname.startsWith('/runs/'),
-        },
-        {
-          href: '/groups',
-          label: '群聊策略',
-          icon: Users,
-          description: '群配置、启用状态与活跃度',
-          active: location.pathname.startsWith('/groups'),
-        },
-        {
-          href: '/private-chats',
-          label: '私聊策略',
-          icon: User,
-          description: '用户级配置与批量操作',
-          active: location.pathname.startsWith('/private-chats'),
         },
       ],
     },

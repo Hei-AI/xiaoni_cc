@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
-import { DashboardPage } from './pages/DashboardPage';
+import { XiaoniActivityPage } from './pages/XiaoniActivityPage';
 import { ConversationsPage } from './pages/ConversationsPage';
 import { RunTracePage } from './pages/RunTracePage';
 import { GroupManagementPage } from './pages/GroupManagementPage';
@@ -66,8 +66,9 @@ function App() {
         <Layout>
           <Suspense fallback={<RouteFallback />}>
             <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/" element={<Navigate to="/xiaoni-activity" replace />} />
+              <Route path="/xiaoni-activity" element={<XiaoniActivityPage />} />
+              <Route path="/dashboard" element={<Navigate to="/xiaoni-activity" replace />} />
               <Route path="/conversations" element={<ConversationsPage />} />
               <Route path="/conversation/:conversationId/timeline" element={<ConversationTimelineRedirect />} />
               <Route path="/runs/:runId/trace" element={<RunTracePage />} />
