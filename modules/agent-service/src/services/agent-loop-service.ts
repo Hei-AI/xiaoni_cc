@@ -1541,7 +1541,7 @@ export function buildCanonicalAgentTurnRequest(
 
   return {
     model: modelName,
-    input: instructions ? remainingItems : loopInput,
+    input: normalizeResponseInputItems(instructions ? remainingItems : loopInput),
     ...(instructions ? { instructions } : {}),
     tools,
     tool_choice: toolChoice,
@@ -1571,7 +1571,7 @@ function buildFeedbackWriterRequest(
   const toolChoice = resolveFeedbackWriterToolChoice(loopInput, options.mode);
   return {
     model: modelName,
-    input: instructions ? remainingItems : loopInput,
+    input: normalizeResponseInputItems(instructions ? remainingItems : loopInput),
     ...(instructions ? { instructions } : {}),
     tools: selectFeedbackWriterToolDefinitions(options.mode),
     ...(toolChoice ? { tool_choice: toolChoice } : {}),
@@ -1605,7 +1605,7 @@ function buildCompactMemoryWriterRequest(
 
   return {
     model: modelName,
-    input: instructions ? remainingItems : loopInput,
+    input: normalizeResponseInputItems(instructions ? remainingItems : loopInput),
     ...(instructions ? { instructions } : {}),
     tools: [COMPACT_MEMORY_TOOL_BY_LAYER[options.layer]],
     tool_choice: buildAllowedToolsToolChoice([{ type: 'function', name: toolName }]),
@@ -4347,7 +4347,17 @@ export class AgentLoopService {
         const hasToolCall = replayableOutputs.some((item) => item.type === 'tool_call');
 
         if (!hasToolCall) {
-          throw new Error('Agent did not emit any tool call before finish');
+          deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
+          if (deliveryState.deliveryPhase !== 'reasoning_open' && deliveredMessages.length > 0) {
+            finishResult = {
+              finished: true,
+              outcome: 'reply_sent',
+              reason: 'Visible delivery already committed; model finished without another tool call.',
+              no_reply: false
+            };
+          } else {
+            throw new Error('Agent did not emit any tool call before finish');
+          }
         }
 
         for (const replayItem of replayableOutputs) {
@@ -6641,21 +6651,40 @@ function isReasoningReplayItem(value: unknown): value is Extract<OpenResponseInp
     || Array.isArray(item.summary) && item.summary.length > 0;
 }
 
+function normalizeReasoningReplayInputItem(item: Extract<OpenResponseInputItem, { type: 'reasoning' }>): Extract<OpenResponseInputItem, { type: 'reasoning' }> {
+  return {
+    type: 'reasoning',
+    ...(typeof item.content === 'string' && item.content.length > 0 ? { content: item.content } : {}),
+    ...(typeof item.summary === 'string' && item.summary.length > 0
+      ? { summary: item.summary }
+      : Array.isArray(item.summary) && item.summary.length > 0
+      ? { summary: item.summary }
+      : { summary: [] }),
+    ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
+      ? { encrypted_content: item.encrypted_content }
+      : {})
+  };
+}
+
+function normalizeResponseInputItems(items: OpenResponseInputItem[]): OpenResponseInputItem[] {
+  const normalizedItems: OpenResponseInputItem[] = [];
+  for (const item of items) {
+    if (item.type !== 'reasoning') {
+      normalizedItems.push(item);
+      continue;
+    }
+    const normalizedItem = normalizeReasoningReplayInputItem(item);
+    if (isReasoningReplayItem(normalizedItem)) {
+      normalizedItems.push(normalizedItem);
+    }
+  }
+  return normalizedItems;
+}
+
 function extractReasoningReplayInputItems(items: OpenResponseInputItem[]): Array<Extract<OpenResponseInputItem, { type: 'reasoning' }>> {
   return items
     .filter(isReasoningReplayItem)
-    .map((item) => ({
-      type: 'reasoning' as const,
-      ...(typeof item.content === 'string' && item.content.length > 0 ? { content: item.content } : {}),
-      ...(typeof item.summary === 'string' && item.summary.length > 0
-        ? { summary: item.summary }
-        : Array.isArray(item.summary) && item.summary.length > 0
-        ? { summary: item.summary }
-        : {}),
-      ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
-        ? { encrypted_content: item.encrypted_content }
-        : {})
-    }));
+    .map(normalizeReasoningReplayInputItem);
 }
 
 function buildTurnReasoningReplayItems(turn: ConversationTurn): OpenResponseInputItem[] {
@@ -6666,7 +6695,9 @@ function buildTurnReasoningReplayItems(turn: ConversationTurn): OpenResponseInpu
     ? rawResponse.responses_replay_items
     : [];
 
-  return replayItems.filter(isReasoningReplayItem);
+  return replayItems
+    .filter(isReasoningReplayItem)
+    .map(normalizeReasoningReplayInputItem);
 }
 
 function buildCurrentTurnInputItems(
@@ -6829,7 +6860,7 @@ function extractReplayableModelOutputs(response: ProviderAgentResponse['canonica
 
   for (const item of output) {
     if (item?.type === 'reasoning') {
-      const reasoningItem: Extract<ReplayableModelOutput, { type: 'reasoning' }>['inputItem'] = {
+      const reasoningItem = normalizeReasoningReplayInputItem({
         type: 'reasoning',
         ...(typeof item.content === 'string' && item.content.length > 0
           ? { content: item.content }
@@ -6842,8 +6873,8 @@ function extractReplayableModelOutputs(response: ProviderAgentResponse['canonica
         ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
           ? { encrypted_content: item.encrypted_content }
           : {})
-      };
-      if (reasoningItem.content || reasoningItem.summary || reasoningItem.encrypted_content) {
+      });
+      if (isReasoningReplayItem(reasoningItem)) {
         replayItems.push({
           type: 'reasoning',
           inputItem: reasoningItem

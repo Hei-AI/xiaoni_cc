@@ -380,4 +380,49 @@ describe('run routes', () => {
       }
     });
   });
+
+  it('does not query conversation trace with a nonnumeric run id before conversation_id is available', async () => {
+    const database = createDatabaseMock();
+    database.executeQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('FROM agent_runs')) {
+        return [{ conversation_id: null }];
+      }
+      if (sql.includes('FROM conversations')) {
+        throw new Error(`invalid input syntax for type bigint: ${params?.[0]}`);
+      }
+      return [];
+    });
+
+    const response = await request(createApp(database)).get('/api/runs/run_1780105264736_a778356f/trace');
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({
+      success: false,
+      error: 'Run trace not available yet'
+    });
+    expect(database.executeQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not query trace span detail with a nonnumeric run id before conversation_id is available', async () => {
+    const database = createDatabaseMock();
+    database.executeQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('FROM agent_runs')) {
+        return [{ conversation_id: null }];
+      }
+      if (sql.includes('FROM conversations')) {
+        throw new Error(`invalid input syntax for type bigint: ${params?.[0]}`);
+      }
+      return [];
+    });
+
+    const response = await request(createApp(database))
+      .get('/api/runs/run_1780105264736_a778356f/trace/spans/llm-call%3Allm_1/detail');
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({
+      success: false,
+      error: 'Run trace not available yet'
+    });
+    expect(database.executeQuery).toHaveBeenCalledTimes(1);
+  });
 });

@@ -906,6 +906,48 @@ test('executeAgentTurn forwards encrypted reasoning input items to provider-serv
   )));
 });
 
+test('executeAgentTurn fills an empty summary for encrypted reasoning items without one', async () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'reasoning',
+    encrypted_content: 'enc-without-summary'
+  } as any);
+
+  const service = new AgentLoopService({} as any);
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ body: any }> = [];
+
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    calls.push({
+      body: JSON.parse(String(init?.body || '{}'))
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        llm_call_id: 'llm-1',
+        canonical_response: {
+          output: []
+        }
+      })
+    } as any;
+  }) as typeof fetch;
+
+  try {
+    await (service as any).executeAgentTurn(loopInput, createQueuePayload(), 'trace-1', 2, createRuntimePrompt());
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const requestInput = calls[0].body.canonicalRequest.input;
+  assert.ok(requestInput.some((item: any) => (
+    item.type === 'reasoning'
+    && item.encrypted_content === 'enc-without-summary'
+    && Array.isArray(item.summary)
+    && item.summary.length === 0
+  )));
+});
+
 test('buildInitialInput replays stored encrypted reasoning items across turns', () => {
   const turn = createConversationTurn({
     id: 42,
@@ -928,6 +970,31 @@ test('buildInitialInput replays stored encrypted reasoning items across turns', 
     item.type === 'reasoning'
     && item.encrypted_content === 'enc-prior-turn'
     && item.summary?.[0]?.text === 'prior turn reasoning summary'
+  )));
+});
+
+test('buildInitialInput repairs stored encrypted reasoning items missing summary', () => {
+  const turn = createConversationTurn({
+    id: 43,
+    userMessage: '上一轮用户消息',
+    aiResponse: '上一轮回复'
+  });
+  turn.rawResponse = {
+    responses_replay_items: [
+      {
+        type: 'reasoning',
+        encrypted_content: 'enc-prior-turn-without-summary'
+      }
+    ]
+  };
+
+  const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
+
+  assert.ok(loopInput.some((item: any) => (
+    item.type === 'reasoning'
+    && item.encrypted_content === 'enc-prior-turn-without-summary'
+    && Array.isArray(item.summary)
+    && item.summary.length === 0
   )));
 });
 
@@ -3330,6 +3397,126 @@ test('processQueueMessage stores partially delivered assistant transcript as com
   assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'delivery_error');
   assert.deepEqual(storeCalls.completeAgentRun[0]?.sentMessages, ['先发一条']);
   assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-failure']);
+});
+
+test('processQueueMessage completes when the model stops emitting tool calls after a delivered reply', async () => {
+  const queueMessage = {
+    id: 'run-queue-no-tool-after-delivery',
+    traceId: 'trace-no-tool-after-delivery',
+    batchId: 'batch-no-tool-after-delivery',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    completeQueueMessage: [],
+    failQueueMessage: [],
+    completeAgentRun: [],
+    markRunDeliveryCommitted: [],
+    logTimelineEvent: []
+  };
+  let deliveryPhase = 'reasoning_open';
+
+  const store = {
+    createLlmJob: async () => 'job-no-tool-after-delivery',
+    logTimelineEvent: async (params: any) => { storeCalls.logTimelineEvent.push(params); },
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getRunDeliveryState: async () => ({
+      deliveryPhase,
+      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    markRunDeliveryCommitted: async (_runId: string) => {
+      deliveryPhase = 'delivery_committed';
+      storeCalls.markRunDeliveryCommitted.push(_runId);
+    },
+    markRunDeliveryBlocked: async () => {},
+    createToolExecutionLog: async () => 1,
+    completeToolExecutionLog: async () => {},
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 2101;
+    },
+    attachConversationIdToTrace: async () => {},
+    completeQueueMessage: async (_runId: string, params: any) => { storeCalls.completeQueueMessage.push(params); },
+    failQueueMessage: async (...args: any[]) => { storeCalls.failQueueMessage.push(args); },
+    completeAgentRun: async (_runId: string, params: any) => { storeCalls.completeAgentRun.push(params); },
+    updateLlmJob: async () => {}
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  (service as any).executeSocialTurnPlanner = async () => ({
+    actionType: 'reply_to_person',
+    addresseeUserId: 202,
+    answerShape: 'light_join',
+    beatCount: 1,
+    beatStyle: 'single_complete',
+    stopRule: 'stop_immediately',
+    reason: '这句还是应该回。'
+  });
+  let turn = 0;
+  (service as any).executeAgentTurn = async () => {
+    turn += 1;
+    if (turn === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-delivered-1',
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-send-delivered',
+            name: GROUP_REPLY_TOOL,
+            arguments: JSON.stringify({ message: '先发一条' })
+          }]
+        }
+      };
+    }
+
+    return {
+      success: true,
+      llm_call_id: 'llm-delivered-2',
+      canonical_response: {
+        output: [{
+          type: 'message',
+          content: [{ type: 'output_text', text: '' }]
+        }]
+      }
+    };
+  };
+  (service as any).executeTool = async (toolCall: any) => {
+    assert.equal(toolCall.name, GROUP_REPLY_TOOL);
+    return {
+      message_type: 'group',
+      sent_messages: ['先发一条'],
+      xiaoni_os: '第一轮已经发出可见回复。',
+      delivery: [{ message_id: 6101 }]
+    };
+  };
+
+  await service.processQueueMessage(queueMessage as any);
+
+  assert.equal(turn, 2);
+  assert.equal(storeCalls.failQueueMessage.length, 0);
+  assert.equal(storeCalls.createConversation.length, 1);
+  assert.equal(storeCalls.createConversation[0]?.status, 'completed');
+  assert.equal(storeCalls.createConversation[0]?.aiResponse, '先发一条');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.termination_reason, 'reply_sent');
+  assert.equal(storeCalls.completeQueueMessage[0]?.result?.termination_reason, 'reply_sent');
+  assert.deepEqual(storeCalls.completeQueueMessage[0]?.result?.sent_messages, ['先发一条']);
+  assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'reply_sent');
+  assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-no-tool-after-delivery']);
 });
 
 test('processQueueMessage suppresses duplicate outbound reply attempts within the same run', async () => {

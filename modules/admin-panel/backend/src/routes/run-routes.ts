@@ -71,6 +71,34 @@ function parsePositiveInteger(value: unknown, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function isNumericIdentifier(value: string) {
+  return /^\d+$/.test(value);
+}
+
+function resolveRunTraceConversationId(
+  runId: string,
+  runs: Array<{ conversation_id: number | string | null | undefined }>
+) {
+  const run = runs[0];
+  if (run) {
+    return run.conversation_id ? String(run.conversation_id) : null;
+  }
+  return isNumericIdentifier(runId) ? runId : null;
+}
+
+function buildRunTraceUnavailableResponse(
+  res: express.Response,
+  runId: string,
+  runs: Array<{ conversation_id: number | string | null | undefined }>
+) {
+  const runExists = Boolean(runs[0]);
+  return res.status(404).json({
+    success: false,
+    error: runExists ? 'Run trace not available yet' : isNumericIdentifier(runId) ? 'Trace not found' : 'Run not found',
+    timestamp: new Date().toISOString()
+  });
+}
+
 function truncateEvidenceText(value: unknown, maxLength = 240): string | null {
   if (typeof value !== 'string') {
     return null;
@@ -865,12 +893,15 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
         [runId]
       );
 
-      const conversationId = runs[0]?.conversation_id ? String(runs[0].conversation_id) : runId;
+      const conversationId = resolveRunTraceConversationId(runId, runs);
+      if (!conversationId) {
+        return buildRunTraceUnavailableResponse(res, runId, runs);
+      }
       const payload = await buildConversationTracePayload(database, logger, conversationId);
       if (!payload) {
         return res.status(404).json({
           success: false,
-          error: runs[0]?.conversation_id ? 'Trace not found' : 'Run trace not available yet',
+          error: runs[0] && !runs[0].conversation_id ? 'Run trace not available yet' : 'Trace not found',
           timestamp: new Date().toISOString()
         });
       }
@@ -1028,7 +1059,10 @@ export function createRunRoutes(database: DatabaseManager, logger: winston.Logge
         [runId]
       );
 
-      const conversationId = runs[0]?.conversation_id ? String(runs[0].conversation_id) : runId;
+      const conversationId = resolveRunTraceConversationId(runId, runs);
+      if (!conversationId) {
+        return buildRunTraceUnavailableResponse(res, runId, runs);
+      }
       const detail = await buildConversationTraceSpanDetail(
         database,
         logger,
