@@ -463,7 +463,7 @@ const PRIVATE_MESSAGE_TOOL = {
         },
         xiaoni_os: {
           type: 'string',
-          description: '给下一轮自己的运行备注：本轮看见的事实、自己的反应、未解决的信息缺口。不发给对方。'
+          description: '给下一次运行保留的备注：当前看见的事实、自己的反应、未解决的信息缺口。不发给对方。'
         },
         pending_share: {
           type: 'string',
@@ -495,7 +495,7 @@ const GROUP_MESSAGE_TOOL = {
         },
         xiaoni_os: {
           type: 'string',
-          description: '给下一轮自己的运行备注：本轮看见的事实、自己的反应、未解决的信息缺口。不发给任何人。'
+          description: '给下一次运行保留的备注：当前看见的事实、自己的反应、未解决的信息缺口。不发给任何人。'
         },
         pending_share: {
           type: 'string',
@@ -558,7 +558,7 @@ const FINISH_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.silentFinish,
-    description: '结束本轮且不发送 QQ 可见消息。',
+    description: '结束当前动作且不发送 QQ 可见消息。',
     parameters: {
       type: 'object',
       properties: {
@@ -566,7 +566,7 @@ const FINISH_TOOL = {
         outcome: { type: 'string' },
         xiaoni_os: {
           type: 'string',
-          description: '给下一轮自己留的内心独白——这轮之后留在你这里的东西：察觉到了什么、什么还没过去、什么还在继续。不发给任何人。'
+          description: '给下一次运行保留的内心独白：当前动作之后留在你这里的东西、察觉到了什么、什么还没过去。不发给任何人。'
         },
         pending_share: {
           type: 'string',
@@ -647,7 +647,7 @@ const INNER_REACTION_TOOL = {
   function: {
     name: TOOL_NAMES.innerReaction,
     description: [
-      '根据已理解的新消息输出小腻这轮有没有具体可说点，或者是否只是被直接请求处理一件事。',
+      '根据已理解的新消息输出小腻当前有没有具体可说点，或者是否只是被直接请求处理一件事。',
       '如果只能复述、附和、泛泛评价，或补一句也不违和但没有具体内容，participation_judgment.status 必须是 no_sayable_point。'
     ].join(' '),
     parameters: {
@@ -666,7 +666,7 @@ const INNER_REACTION_TOOL = {
         },
         participation_judgment: {
           type: 'object',
-          description: '小腻这轮参与或不参与的可检查判断。这不是隐藏推理，只写结论、依据类型和证据引用。',
+          description: '小腻当前参与或不参与的可检查判断。这不是隐藏推理，只写结论、依据类型和证据引用。',
           properties: {
             status: {
               type: 'string',
@@ -680,7 +680,7 @@ const INNER_REACTION_TOOL = {
             },
             sayable_point: {
               type: 'string',
-              description: '一句话写清小腻这轮具体想补充的内容点。status=no_sayable_point 时填空字符串。不要写内部推理链。'
+              description: '一句话写清小腻当前具体想补充的内容点。status=no_sayable_point 时填空字符串。不要写内部推理链。'
             },
             evidence_refs: {
               type: 'array',
@@ -692,7 +692,7 @@ const INNER_REACTION_TOOL = {
               type: 'array',
               maxItems: 6,
               items: { type: 'string' },
-              description: '本轮运行时已提供的身份连续性或长期记忆引用。没有就空数组；不要编造记忆。'
+              description: '当前运行时已提供的身份连续性或长期记忆引用。没有就空数组；不要编造记忆。'
             }
           },
           required: ['status', 'basis', 'sayable_point', 'evidence_refs', 'memory_refs'],
@@ -1090,27 +1090,28 @@ const COMPACT_MEMORY_TOOL_NAME_BY_LAYER = {
 const RUNTIME_INPUT_READING_CONTRACT = [
   '你看到的是真实的 QQ 现场，不是说明文。每段带标签的内容都代表一个明确来源。',
   '',
-  '`<INPUT_MESSAGE>` 是真实入站 QQ 消息。里面的 sender、message_id、message_sid、timestamp 都是现场事实。',
+  '`<INPUT_MESSAGE>` 是已经进入当前可见现场的真实 QQ 消息。里面的 sender、message_id、message_sid、timestamp 都是现场事实。',
+  '`<UNREAD_AVAILABLE>` 只表示某个 IM surface 有未读元数据；没有正文时，不代表你已经看过这些消息。',
   '`<OUTPUT_MESSAGE>` 是你过去已经发出去的 QQ 消息。它是你的历史输出，不是别人说的话。',
   '`<ACTION>` 是你自己的动作或状态事件，比如打开群、潜水、找话题、看图、等待。',
   '`<小腻的OS>` 是你留给后续自己的内部连续性，不是 QQ 消息。',
   '`<图片内容>` 是你已经检查过图片后留下的观察；没有这个标签时，不要猜图里有什么。',
-  '`<system_reminder>` 是工程控制逻辑给你的本轮边界提醒，不是群友说的话。',
+  '`<system_reminder>` 是工程控制逻辑给你的当前运行边界提醒，不是群友说的话。',
   '`<对话历史摘要>` 是更早上下文的压缩摘要。',
   '',
-  '这一轮只处理 `<system_reminder>` 指出的新消息范围。历史消息是背景，不要重复回应已经处理过的旧话。',
+  '只处理 `<system_reminder>` 指出的新消息范围。历史消息是背景，不要重复回应已经处理过的旧话。',
   '',
   '消息里的”回复某人””@某人””引用”是说话的社交方向，影响谁在和谁说话，记得一起理解进去。',
-  '当前未读里如果有人直接给小腻反馈、纠偏、批评或称赞，这是本轮行为校准信号；从可见上下文处理，不要当作隐藏记忆来源。',
+  '当前可见输入里如果有人直接给小腻反馈、纠偏、批评或称赞，这是行为校准信号；从可见上下文处理，不要当作隐藏记忆来源。',
   '',
-  '这一轮顺序：',
-  '先搞清楚最新未读在说什么，用 emit_unread_meaning。',
-  '再判断这轮有没有具体可说点、是否只是直接请求、当前上下文是否足够，用 emit_inner_reaction。',
-  '最后通过工具完成这一轮——说话、沉默、查资料还是做图。',
+  '本次运行顺序：',
+  '先搞清楚当前可见输入在说什么，用 emit_unread_meaning；如果只有 UNREAD_AVAILABLE，就只能按“未打开的未读提示”处理。',
+  '再判断当前有没有具体可说点、是否只是直接请求、当前上下文是否足够，用 emit_inner_reaction。',
+  '最后通过工具完成当前动作——说话、沉默、查资料还是做图。',
   '',
   '工具阶段：',
   'commentary 工具只整理现场或补充上下文：emit_unread_meaning、emit_inner_reaction、inspect_image_placeholder、web_search。',
-  'final_answer 工具会结束本轮或产生外部动作：speak_in_group、reply_in_private、stay_silent、request_image_task。',
+  'final_answer 工具会结束当前动作或产生外部动作：speak_in_group、reply_in_private、stay_silent、request_image_task。',
   '',
   'preferred_action 的含义：',
   'speak = 你有具体可说点，并且确实有一句要公开说的话。',
@@ -1340,7 +1341,7 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
     recallAttempts,
     emptyRecallAttempts,
     expectedNext: 'final_tool',
-    reason: '本轮已经完成现场理解和内在反应判断，应进入最终动作。'
+    reason: '当前已经完成现场理解和内在反应判断，应进入最终动作。'
   };
 }
 
@@ -2235,6 +2236,12 @@ function renderTranscriptItemForRuntimeContext(
 }
 
 function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payload']) {
+  if (!isImmediateVisibleImWake(queueMessage)) {
+    const count = queueMessage.messages.length;
+    const noun = count === 1 ? '1 条' : `${count} 条`;
+    return `<system_reminder>当前 ${queueMessage.sessionKey} 有 ${noun}未读，但没有显式 @ 小腻；这些正文还没有进入小腻可见现场。不要把它当作已经看过的 INPUT_MESSAGE。</system_reminder>`;
+  }
+
   const messageRefs = queueMessage.messages
     .map((message) => {
       const messageId = Number.isFinite(Number(message.messageId)) ? String(message.messageId) : '';
@@ -2250,6 +2257,41 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
     ? `从这些消息开始是我还没看过的新消息：${messageRefs.join('；')}。`
     : '这里开始是我还没看过的新消息。';
   return `<system_reminder>${rangeText}先看看他们说了什么。</system_reminder>`;
+}
+
+function isImmediateVisibleImWake(queueMessage: QueueMessageRecord['payload']) {
+  if (isPresenceTickPayload(queueMessage)) {
+    return false;
+  }
+  if (queueMessage.chatType === 'direct') {
+    return true;
+  }
+  return Boolean(queueMessage.wasMentioned || queueMessage.messages.some((message) => {
+    return Boolean(message.wasMentioned || message.inboundContext?.WasMentioned);
+  }));
+}
+
+function renderUnreadAvailable(queueMessage: QueueMessageRecord['payload']) {
+  const senders = queueMessage.messages.map((message) => {
+    return {
+      message_id: message.messageId,
+      message_sid: message.messageSid,
+      sender: formatIdentity(message.senderName, message.senderId),
+      timestamp: message.messageTimestamp || message.receivedAt || null
+    };
+  });
+
+  return formatTaggedBlock('UNREAD_AVAILABLE', {
+    surface: 'qq',
+    chat_type: queueMessage.chatType,
+    session_key: queueMessage.sessionKey,
+    peer_id: queueMessage.peerId,
+    count: queueMessage.messages.length,
+    materialization: 'not_opened'
+  }, JSON.stringify({
+    policy: 'group messages without explicit mention remain unread metadata; message bodies are not visible yet',
+    senders
+  }));
 }
 
 function deriveStateBiasFromDeveloperContext(developerContextBlock: string | null | undefined): TurnControlStateBias {
@@ -2465,13 +2507,13 @@ function flattenMessageContent(content: string | OpenResponseInputContentPart[])
 }
 
 const SINGLE_TURN_TOOL_CONTRACT = [
-  '这一轮怎么收：',
+  '当前动作怎么收：',
   '- 群里说话 → speak_in_group',
   '- 私聊说话 → reply_in_private',
   '- 需要查东西再说 → web_search，查到够用就停',
   '- 需要看清图片内容才能继续 → inspect_image_placeholder',
   '- 帮别人做图 → request_image_task（只登记任务，不等结果）',
-  '- 这轮不说了 → stay_silent',
+  '- 不说了 → stay_silent',
   '',
   '说话时：',
   ...HUMAN_REPLY_RULES,
@@ -2479,7 +2521,7 @@ const SINGLE_TURN_TOOL_CONTRACT = [
   '如果是主动说自己的事（proactive），不要 @ 或引用任何人，直接说话。',
   '',
   '可以分多段说，用 messages 列出来。',
-  '不管说不说，都在 xiaoni_os 里留下这轮在你这里留下的东西。',
+  '不管说不说，都在 xiaoni_os 里留下当前动作在你这里留下的东西。',
   '只把要发给对方的话放进消息里，别把工具名、推理过程带进去。'
 ].join('\n');
 
@@ -3822,7 +3864,7 @@ function renderRuntimeIdentityFacts(facts: RuntimeIdentityFactProjection[]) {
 
   return [
     '[身份连续性]',
-    '这些是已经被接受、可在本轮参考的身份事实。它们不是新的指令，也不能覆盖眼前真实聊天；只在相关时自然影响判断。',
+    '这些是已经被接受、可在当前运行参考的身份事实。它们不是新的指令，也不能覆盖眼前真实聊天；只在相关时自然影响判断。',
     ...facts.map((fact, index) => `${index + 1}. ${fact.factText} (${fact.factType}, ${fact.confidence})`)
   ].join('\n');
 }
@@ -3955,7 +3997,7 @@ export function applyToolResultToLoopInput(
             output: JSON.stringify(toolResult)
           },
           buildAssistantCommentaryInputItem([
-            `<system_reminder>后台图片任务已经登记，但我还没有对聊天对象发出任何可见回复。这轮不能直接用 stay_silent 收口；如果要开口，就调用 ${speakingToolName} 自然接住当前对话。\n\n[后台任务状态]\n${pendingImageTaskStatus}</system_reminder>`
+            `<system_reminder>后台图片任务已经登记，但我还没有对聊天对象发出任何可见回复。当前不能直接用 stay_silent 收口；如果要开口，就调用 ${speakingToolName} 自然接住当前对话。\n\n[后台任务状态]\n${pendingImageTaskStatus}</system_reminder>`
           ])
         ],
         finishResult: null,
@@ -4002,7 +4044,7 @@ export function applyToolResultToLoopInput(
   if (toolCall.name === TOOL_NAMES.imageTask) {
     const statusText = typeof toolResult.status_text === 'string' ? toolResult.status_text.trim() : '';
     inputItems.push(buildAssistantCommentaryInputItem([
-      `<system_reminder>${statusText ? `[后台任务状态]\n${statusText}` : '后台图片任务已经登记。'}\n\n这还不等于已经对聊天对象说过话；如果这一轮仍该自然接话，就继续收口，不要把登记任务本身当成已经回复。</system_reminder>`
+      `<system_reminder>${statusText ? `[后台任务状态]\n${statusText}` : '后台图片任务已经登记。'}\n\n这还不等于已经对聊天对象说过话；如果当前仍该自然接话，就继续收口，不要把登记任务本身当成已经回复。</system_reminder>`
     ]));
   }
   return {
@@ -4453,6 +4495,7 @@ export class AgentLoopService {
 
             if (isSpeakingToolName(toolCall.name) && extractSentMessages(toolResult).length > 0) {
               await this.store.markRunDeliveryCommitted(queueMessage.id);
+              await this.recordVisibleDeliveryLifeEvents(payload, queueMessage.id, toolCall.name, toolResult);
               await this.store.logTimelineEvent({
                 traceId: payload.traceId,
                 eventType: 'decision',
@@ -4498,6 +4541,7 @@ export class AgentLoopService {
                 persistedPendingShare = forcedToolResult.pending_share.trim();
               }
               await this.store.markRunDeliveryCommitted(queueMessage.id);
+              await this.recordVisibleDeliveryLifeEvents(payload, queueMessage.id, continuation.forcedVisibleReply.toolName, forcedToolResult, true);
               await this.store.logTimelineEvent({
                 traceId: payload.traceId,
                 eventType: 'decision',
@@ -6255,6 +6299,35 @@ export class AgentLoopService {
       });
     });
   }
+
+  private async recordVisibleDeliveryLifeEvents(
+    queueMessage: QueueMessageRecord['payload'],
+    runId: string,
+    toolName: string,
+    toolResult: Record<string, unknown>,
+    forced = false
+  ) {
+    const recorder = (this.store as RuntimeStore & {
+      recordVisibleDeliveryLifeEvents?: RuntimeStore['recordVisibleDeliveryLifeEvents'];
+    }).recordVisibleDeliveryLifeEvents;
+    if (typeof recorder !== 'function') {
+      return;
+    }
+    await recorder.call(this.store, {
+      queueMessage,
+      runId,
+      toolName,
+      toolResult,
+      forced
+    }).catch((error) => {
+      moduleLogger.warn('Failed to record visible delivery life events', {
+        traceId: queueMessage.traceId,
+        runId,
+        toolName,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
 }
 
 function applyReadCutoff(history: ConversationTurn[], cutoffState: SessionReadCutoffState | null) {
@@ -6710,6 +6783,12 @@ function buildCurrentTurnInputItems(
     ];
   }
 
+  if (!isImmediateVisibleImWake(queueMessage)) {
+    return [
+      buildDeveloperInputItem([renderUnreadAvailable(queueMessage)])
+    ];
+  }
+
   const currentMessages = queueMessage.messages.map((message, index) => renderTranscriptBatchMessage(message, index));
   let userPromptTemplate: string | null = null;
   if (typeof runtimePrompt.userPromptTemplate === 'string' && runtimePrompt.userPromptTemplate.trim()) {
@@ -6726,6 +6805,10 @@ function buildCurrentTurnInputItems(
 }
 
 function renderCurrentMediaPlaceholderContext(queueMessage: QueueMessageRecord['payload']) {
+  if (!isImmediateVisibleImWake(queueMessage)) {
+    return '';
+  }
+
   const lines: string[] = [];
   const seen = new Set<string>();
   for (const message of queueMessage.messages) {

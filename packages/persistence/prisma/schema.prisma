@@ -157,6 +157,50 @@ model AgentDigitalAction {
   @@map("agent_digital_actions")
 }
 
+model AgentLifeEvent {
+  id                   BigInt   @id @default(autoincrement()) @db.BigInt
+  identity_key         String   @db.VarChar(191)
+  event_kind           String   @db.VarChar(64)
+  occurred_at          DateTime @default(now()) @db.Timestamp(3)
+  surface              String?  @db.VarChar(64)
+  chat_type            String?  @db.VarChar(16)
+  session_key          String?  @db.VarChar(191)
+  surface_id           String?  @db.VarChar(191)
+  peer_id              String?  @db.VarChar(191)
+  account_id           String?  @db.VarChar(191)
+  message_sid          String?  @db.VarChar(191)
+  message_id           String?  @db.VarChar(128)
+  batch_id             String?  @db.VarChar(128)
+  conversation_id      BigInt?  @db.BigInt
+  conversation_item_id BigInt?  @db.BigInt
+  queue_message_id     BigInt?  @db.BigInt
+  run_id               String?  @db.VarChar(128)
+  trace_id             String?  @db.VarChar(128)
+  llm_call_id          String?  @db.VarChar(128)
+  source_action_id     String?  @db.VarChar(128)
+  actor_type           String   @default("xiaoni") @db.VarChar(32)
+  actor_id             String?  @db.VarChar(191)
+  target_id            String?  @db.VarChar(191)
+  visibility           String   @db.VarChar(32)
+  action_cost          Float    @default(0)
+  pressure_delta       Float    @default(0)
+  reward_delta         Float    @default(0)
+  boredom_delta        Float    @default(0)
+  attention_delta      Float    @default(0)
+  payload              Json     @default("{}")
+  dedupe_key           String   @unique @db.VarChar(255)
+  created_at           DateTime @default(now()) @db.Timestamp(3)
+
+  @@index([identity_key, occurred_at], map: "idx_agent_life_events_identity_time")
+  @@index([session_key, occurred_at], map: "idx_agent_life_events_session_time")
+  @@index([chat_type, peer_id, occurred_at], map: "idx_agent_life_events_peer_time")
+  @@index([message_sid], map: "idx_agent_life_events_message_sid")
+  @@index([run_id], map: "idx_agent_life_events_run")
+  @@index([trace_id], map: "idx_agent_life_events_trace")
+  @@index([event_kind, occurred_at], map: "idx_agent_life_events_kind_time")
+  @@map("agent_life_events")
+}
+
 model GroupChatSetting {
   group_id           BigInt    @id @db.BigInt
   group_name         String?

@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildPresenceAnchorsFromLife,
   rankFeedbackReflectionsForRecall,
   RuntimeStore
 } from '../services/runtime-store';
+import { deriveLifeState } from '../services/presence-context';
 
 function createStoreWithQuery(query: (sql: string, params?: unknown[]) => Promise<unknown[]>) {
   const store = new RuntimeStore() as any;
@@ -25,6 +27,26 @@ function createStoreWithSql(overrides: Partial<Record<'query' | 'execute', any>>
   };
   return store as RuntimeStore;
 }
+
+test('buildPresenceAnchorsFromLife preserves recent activity for fatigue derivation', () => {
+  const now = new Date('2026-05-30T04:00:00.000Z');
+  const anchors = buildPresenceAnchorsFromLife({
+    service_started_at: '2026-05-26T04:00:00.000Z',
+    last_active_at: '2026-05-30T03:55:00.000Z',
+    last_boredom_reset_at: '2026-05-30T03:55:00.000Z',
+    last_sleep_at: null,
+    last_presence_tick_enqueued_at: null,
+    last_proactive_at: null,
+    last_user_message_at: '2026-05-30T03:58:00.000Z',
+    daily_proactive_count: 0
+  }, now);
+
+  const state = deriveLifeState(anchors);
+
+  assert.equal(anchors.lastActiveAt, '2026-05-30T03:55:00.000Z');
+  assert.ok(state.fatigue < 0.01);
+  assert.ok(state.energy > 0.99);
+});
 
 test('listRecentTurns rebuilds historical user items from structured queue payloads', async () => {
   const store = createStoreWithQuery(async (sql) => {
@@ -267,11 +289,15 @@ test('getRunDeliveryState returns normalized persisted delivery state', async ()
 
 test('markRunDeliveryCommitted persists the single-commit invariant', async () => {
   const executeCalls: Array<{ sql: string; params?: unknown[] }> = [];
+  const lifeEvents: Array<Record<string, unknown>> = [];
   const store = createStoreWithSql({
     execute: async (sql: string, params?: unknown[]) => {
       executeCalls.push({ sql, params });
     }
   });
+  (store as any).recordLifeEventSafe = async (input: Record<string, unknown>) => {
+    lifeEvents.push(input);
+  };
 
   await store.markRunDeliveryCommitted('run-commit');
 
@@ -279,15 +305,21 @@ test('markRunDeliveryCommitted persists the single-commit invariant', async () =
   assert.match(executeCalls[0]?.sql || '', /delivery_phase = 'delivery_committed'/);
   assert.match(executeCalls[0]?.sql || '', /delivery_commit_count = CASE/);
   assert.deepEqual(executeCalls[0]?.params, ['run-commit']);
+  assert.equal(lifeEvents[0]?.eventKind, 'terminal_action_committed');
+  assert.equal(lifeEvents[0]?.visibility, 'operator_only');
 });
 
 test('markRunDeliveryBlocked increments blocked attempt count and reason', async () => {
   const executeCalls: Array<{ sql: string; params?: unknown[] }> = [];
+  const lifeEvents: Array<Record<string, unknown>> = [];
   const store = createStoreWithSql({
     execute: async (sql: string, params?: unknown[]) => {
       executeCalls.push({ sql, params });
     }
   });
+  (store as any).recordLifeEventSafe = async (input: Record<string, unknown>) => {
+    lifeEvents.push(input);
+  };
 
   await store.markRunDeliveryBlocked('run-blocked', 'Outbound delivery already committed earlier in this run.');
 
@@ -295,6 +327,8 @@ test('markRunDeliveryBlocked increments blocked attempt count and reason', async
   assert.match(executeCalls[0]?.sql || '', /blocked_delivery_attempt_count = COALESCE\(blocked_delivery_attempt_count, 0\) \+ 1/);
   assert.match(executeCalls[0]?.sql || '', /last_blocked_delivery_reason = \?/);
   assert.deepEqual(executeCalls[0]?.params, ['Outbound delivery already committed earlier in this run.', 'run-blocked']);
+  assert.equal(lifeEvents[0]?.eventKind, 'terminal_action_blocked');
+  assert.equal(lifeEvents[0]?.visibility, 'operator_only');
 });
 
 test('rankFeedbackReflectionsForRecall does not recall unrelated memories just because the sender matches', () => {

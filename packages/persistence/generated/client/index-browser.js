@@ -240,6 +240,41 @@ exports.Prisma.AgentDigitalActionScalarFieldEnum = {
   completed_at: 'completed_at'
 };
 
+exports.Prisma.AgentLifeEventScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  event_kind: 'event_kind',
+  occurred_at: 'occurred_at',
+  surface: 'surface',
+  chat_type: 'chat_type',
+  session_key: 'session_key',
+  surface_id: 'surface_id',
+  peer_id: 'peer_id',
+  account_id: 'account_id',
+  message_sid: 'message_sid',
+  message_id: 'message_id',
+  batch_id: 'batch_id',
+  conversation_id: 'conversation_id',
+  conversation_item_id: 'conversation_item_id',
+  queue_message_id: 'queue_message_id',
+  run_id: 'run_id',
+  trace_id: 'trace_id',
+  llm_call_id: 'llm_call_id',
+  source_action_id: 'source_action_id',
+  actor_type: 'actor_type',
+  actor_id: 'actor_id',
+  target_id: 'target_id',
+  visibility: 'visibility',
+  action_cost: 'action_cost',
+  pressure_delta: 'pressure_delta',
+  reward_delta: 'reward_delta',
+  boredom_delta: 'boredom_delta',
+  attention_delta: 'attention_delta',
+  payload: 'payload',
+  dedupe_key: 'dedupe_key',
+  created_at: 'created_at'
+};
+
 exports.Prisma.GroupChatSettingScalarFieldEnum = {
   group_id: 'group_id',
   group_name: 'group_name',
@@ -1041,6 +1076,7 @@ exports.Prisma.ModelName = {
   AgentShareItemUsage: 'AgentShareItemUsage',
   AgentPresenceStateSidecar: 'AgentPresenceStateSidecar',
   AgentDigitalAction: 'AgentDigitalAction',
+  AgentLifeEvent: 'AgentLifeEvent',
   GroupChatSetting: 'GroupChatSetting',
   PrivateChatSetting: 'PrivateChatSetting',
   AgentInboundMessage: 'AgentInboundMessage',

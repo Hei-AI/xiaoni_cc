@@ -9,6 +9,7 @@ import {
   ensureAgentMediaSchema,
   ensureAgentTaskSchema,
   ensureAgentPresenceSchema,
+  ensureAgentLifeEventSchema,
   ensureIdentityLineageSchema,
   ensureXiaoniIdentityRoot,
   ensureFeedbackReflectionSchema,
@@ -40,6 +41,7 @@ import {
   updateAgentDigitalAction,
   listAgentDigitalActions,
   countAgentDigitalActions,
+  recordAgentLifeEvent,
   createAgentMemoryAssertion,
   createAgentMemoryObservation,
   createAgentMemoryReflection,
@@ -47,15 +49,18 @@ import {
   ensureAgentMemorySchema,
   incrementRelationshipTrust,
   serializeTimestampForApi,
+  type RecordAgentLifeEventInput,
   type SqlAdapter
 } from '@qq-bot/persistence';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig, databaseConfig } from '../config';
+import { logger } from '../utils/logger';
 import {
   buildPresenceContextBlock,
   deriveLifeState,
   scoreSharePoolItem,
   shouldFirePresenceTick,
+  type PresenceAnchors,
   type PresenceDigitalAction,
   type PresenceSharePoolItem
 } from './presence-context';
@@ -72,6 +77,8 @@ import {
   QueueMessageRecord
 } from '../types';
 import { renderRuntimeBatchMessage } from './runtime-input-renderer';
+
+const moduleLogger = logger.createModuleLogger('runtime-store');
 
 type QueueRow = {
   id: number;
@@ -99,6 +106,31 @@ type QueueRow = {
   error_message: string | null;
   payload: string | Record<string, unknown>;
 };
+
+type AgentLifeStateRow = {
+  last_active_at?: Date | string | null;
+  service_started_at?: Date | string | null;
+  last_boredom_reset_at?: Date | string | null;
+  last_sleep_at?: Date | string | null;
+  last_presence_tick_enqueued_at?: Date | string | null;
+  last_proactive_at?: Date | string | null;
+  last_user_message_at?: Date | string | null;
+  daily_proactive_count?: number | string | null;
+};
+
+export function buildPresenceAnchorsFromLife(life: AgentLifeStateRow, now: Date): PresenceAnchors {
+  return {
+    now,
+    lastActiveAt: life.last_active_at ?? null,
+    serviceStartedAt: life.service_started_at ?? null,
+    lastBoredomResetAt: life.last_boredom_reset_at ?? null,
+    lastSleepAt: life.last_sleep_at ?? null,
+    lastPresenceTickEnqueuedAt: life.last_presence_tick_enqueued_at ?? null,
+    lastProactiveAt: life.last_proactive_at ?? null,
+    lastUserMessageAt: life.last_user_message_at ?? null,
+    dailyProactiveCount: Number(life.daily_proactive_count || 0)
+  };
+}
 
 type StructuredReplayQueueRow = {
   id: number;
@@ -273,6 +305,40 @@ export type RuntimeDigitalAction = {
   updatedAt: string | null;
   completedAt: string | null;
 };
+
+function isImmediateVisibleImWake(queueMessage: QueueMessagePayload) {
+  if (queueMessage.presenceTick) {
+    return false;
+  }
+  if (queueMessage.chatType === 'direct') {
+    return true;
+  }
+  return Boolean(queueMessage.wasMentioned || queueMessage.messages.some((message) => {
+    return Boolean(message.wasMentioned || message.inboundContext?.WasMentioned);
+  }));
+}
+
+function normalizeLifeEventOccurredAt(value: unknown) {
+  if (!value) {
+    return new Date();
+  }
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function compactDedupePart(value: unknown, fallback: string) {
+  const normalized = String(value || fallback).replace(/\s+/g, '_');
+  return normalized.length > 80 ? normalized.slice(0, 80) : normalized;
+}
+
+function extractDeliveredTexts(toolResult: Record<string, unknown>) {
+  if (!Array.isArray(toolResult.sent_messages)) {
+    return [];
+  }
+  return toolResult.sent_messages
+    .map((item) => typeof item === 'string' ? item.trim() : '')
+    .filter(Boolean);
+}
 
 export type RuntimeFeedbackLearningState = {
   id: number;
@@ -1126,6 +1192,20 @@ export class RuntimeStore {
     });
   }
 
+  private async recordLifeEventSafe(input: RecordAgentLifeEventInput) {
+    try {
+      await recordAgentLifeEvent(input, databaseConfig);
+    } catch (error) {
+      moduleLogger.warn('Failed to record agent life event', {
+        eventKind: input.eventKind || input.event_kind,
+        dedupeKey: input.dedupeKey || input.dedupe_key,
+        runId: input.runId || input.run_id,
+        traceId: input.traceId || input.trace_id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
   async initialize() {
     await this.ensureSchema();
     await ensureFeedbackReflectionSchema(databaseConfig);
@@ -1134,6 +1214,7 @@ export class RuntimeStore {
     await ensureAgentMediaSchema(databaseConfig);
     await ensureAgentTaskSchema(databaseConfig);
     await ensureAgentPresenceSchema(databaseConfig);
+    await ensureAgentLifeEventSchema(databaseConfig);
     await ensureAgentMemorySchema(databaseConfig);
     await ensureAgentLifeState('xiaoni', databaseConfig);
   }
@@ -1150,16 +1231,7 @@ export class RuntimeStore {
 
     const now = new Date();
     const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
-    const state = deriveLifeState({
-      now,
-      serviceStartedAt: life.service_started_at as Date | string | null,
-      lastBoredomResetAt: life.last_boredom_reset_at as Date | string | null,
-      lastSleepAt: life.last_sleep_at as Date | string | null,
-      lastPresenceTickEnqueuedAt: life.last_presence_tick_enqueued_at as Date | string | null,
-      lastProactiveAt: life.last_proactive_at as Date | string | null,
-      lastUserMessageAt: life.last_user_message_at as Date | string | null,
-      dailyProactiveCount: Number(life.daily_proactive_count || 0)
-    }, {
+    const state = deriveLifeState(buildPresenceAnchorsFromLife(life, now), {
       cooldownMs: agentConfig.presenceTickCooldownMs,
       startupGraceMs: agentConfig.presenceTickStartupGraceMs
     });
@@ -1261,6 +1333,10 @@ export class RuntimeStore {
   }
 
   async recordPresenceUserMessage(queueMessage: QueueMessagePayload) {
+    if (!isImmediateVisibleImWake(queueMessage)) {
+      return;
+    }
+
     const now = new Date();
     await updateAgentLifeState('xiaoni', {
       last_user_message_at: now,
@@ -1272,6 +1348,72 @@ export class RuntimeStore {
         sessionKey: queueMessage.sessionKey,
         lastUserMessageAt: now
       }, databaseConfig);
+    }
+
+    const wakeKind = queueMessage.chatType === 'direct' ? 'direct_private' : 'explicit_mention';
+    await this.recordLifeEventSafe({
+      identityKey: 'xiaoni',
+      eventKind: 'surface_visit',
+      occurredAt: now,
+      surface: 'qq',
+      chatType: queueMessage.chatType,
+      sessionKey: queueMessage.sessionKey,
+      surfaceId: queueMessage.sessionKey,
+      peerId: queueMessage.peerId,
+      accountId: queueMessage.accountId,
+      batchId: queueMessage.batchId,
+      runId: queueMessage.runId,
+      traceId: queueMessage.traceId,
+      actorType: 'xiaoni',
+      actorId: queueMessage.accountId,
+      targetId: queueMessage.peerId,
+      visibility: 'active_surface',
+      actionCost: 0.2,
+      attentionDelta: 0.2,
+      payload: {
+        wake_kind: wakeKind,
+        unread_batch_size: queueMessage.messages.length,
+        direct_materialization_policy: queueMessage.chatType === 'direct'
+          ? 'private_dm_is_current_surface'
+          : 'group_message_requires_explicit_mention'
+      },
+      dedupeKey: `surface_visit:${compactDedupePart(queueMessage.runId, queueMessage.traceId)}:${compactDedupePart(queueMessage.sessionKey, 'session')}`
+    });
+
+    for (const message of queueMessage.messages) {
+      await this.recordLifeEventSafe({
+        identityKey: 'xiaoni',
+        eventKind: 'qq_message_seen',
+        occurredAt: normalizeLifeEventOccurredAt(message.messageTimestamp || message.receivedAt),
+        surface: 'qq',
+        chatType: queueMessage.chatType,
+        sessionKey: queueMessage.sessionKey,
+        surfaceId: queueMessage.sessionKey,
+        peerId: message.peerId,
+        accountId: message.accountId,
+        messageSid: message.messageSid,
+        messageId: String(message.messageId),
+        batchId: queueMessage.batchId,
+        queueMessageId: message.queueMessageId,
+        runId: queueMessage.runId,
+        traceId: message.traceId || queueMessage.traceId,
+        actorType: 'human',
+        actorId: message.senderId,
+        targetId: message.accountId,
+        visibility: 'active_surface',
+        attentionDelta: 0.1,
+        payload: {
+          wake_kind: wakeKind,
+          sender_id: message.senderId,
+          sender_name: message.senderName || null,
+          peer_name: message.peerName || queueMessage.peerName || null,
+          was_mentioned: Boolean(message.wasMentioned || message.inboundContext?.WasMentioned),
+          body_for_agent: message.bodyForAgent,
+          raw_body: message.rawBody,
+          message_timestamp: message.messageTimestamp || null
+        },
+        dedupeKey: `qq_message_seen:${message.messageSid || message.queueMessageId || message.messageId}`
+      });
     }
   }
 
@@ -1287,6 +1429,83 @@ export class RuntimeStore {
         sessionKey: queueMessage.sessionKey,
         lastSpokeAt: now
       }, databaseConfig);
+    }
+  }
+
+  async recordVisibleDeliveryLifeEvents(input: {
+    queueMessage: QueueMessagePayload;
+    runId?: string;
+    toolName: string;
+    toolResult: Record<string, unknown>;
+    forced?: boolean;
+  }) {
+    const now = new Date();
+    const queueMessage = input.queueMessage;
+    const runId = input.runId || queueMessage.runId;
+    const messages = extractDeliveredTexts(input.toolResult);
+    if (messages.length === 0) {
+      return;
+    }
+
+    if (queueMessage.chatType === 'group') {
+      await this.recordLifeEventSafe({
+        identityKey: 'xiaoni',
+        eventKind: 'speak_in_group',
+        occurredAt: now,
+        surface: 'qq',
+        chatType: queueMessage.chatType,
+        sessionKey: queueMessage.sessionKey,
+        surfaceId: queueMessage.sessionKey,
+        peerId: queueMessage.peerId,
+        accountId: queueMessage.accountId,
+        batchId: queueMessage.batchId,
+        runId,
+        traceId: queueMessage.traceId,
+        actorType: 'xiaoni',
+        actorId: queueMessage.accountId,
+        targetId: queueMessage.peerId,
+        visibility: 'active_surface',
+        actionCost: 1,
+        pressureDelta: -0.1,
+        payload: {
+          tool_name: input.toolName,
+          forced: Boolean(input.forced),
+          message_count: messages.length,
+          sent_messages: messages,
+          delivery: input.toolResult.delivery || null
+        },
+        dedupeKey: `speak_in_group:${compactDedupePart(runId, queueMessage.traceId)}`
+      });
+    }
+
+    for (const [index, content] of messages.entries()) {
+      await this.recordLifeEventSafe({
+        identityKey: 'xiaoni',
+        eventKind: 'qq_self_message',
+        occurredAt: now,
+        surface: 'qq',
+        chatType: queueMessage.chatType,
+        sessionKey: queueMessage.sessionKey,
+        surfaceId: queueMessage.sessionKey,
+        peerId: queueMessage.peerId,
+        accountId: queueMessage.accountId,
+        batchId: queueMessage.batchId,
+        runId,
+        traceId: queueMessage.traceId,
+        actorType: 'xiaoni',
+        actorId: queueMessage.accountId,
+        targetId: queueMessage.peerId,
+        visibility: queueMessage.chatType === 'direct' ? 'private_surface' : 'active_surface',
+        actionCost: 1,
+        payload: {
+          tool_name: input.toolName,
+          forced: Boolean(input.forced),
+          index,
+          content,
+          delivery: input.toolResult.delivery || null
+        },
+        dedupeKey: `qq_self_message:${compactDedupePart(runId, queueMessage.traceId)}:${index}`
+      });
     }
   }
 
@@ -1310,16 +1529,7 @@ export class RuntimeStore {
   async evaluateSelfActionEligibility(surface = 'background'): Promise<RuntimeSelfActionEligibility> {
     const now = new Date();
     const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
-    const state = deriveLifeState({
-      now,
-      serviceStartedAt: life.service_started_at as Date | string | null,
-      lastBoredomResetAt: life.last_boredom_reset_at as Date | string | null,
-      lastSleepAt: life.last_sleep_at as Date | string | null,
-      lastPresenceTickEnqueuedAt: life.last_presence_tick_enqueued_at as Date | string | null,
-      lastProactiveAt: life.last_proactive_at as Date | string | null,
-      lastUserMessageAt: life.last_user_message_at as Date | string | null,
-      dailyProactiveCount: Number(life.daily_proactive_count || 0)
-    }, {
+    const state = deriveLifeState(buildPresenceAnchorsFromLife(life, now), {
       cooldownMs: agentConfig.selfActionCooldownMs,
       startupGraceMs: agentConfig.selfActionStartupGraceMs
     });
@@ -1410,7 +1620,7 @@ export class RuntimeStore {
     sourceQueueIds?: unknown[];
     sourceRunIds?: unknown[];
   }): Promise<RuntimeDigitalAction> {
-    return createAgentDigitalAction({
+    const action = await createAgentDigitalAction({
       id: input.id,
       identityKey: 'xiaoni',
       actionType: input.actionType,
@@ -1422,7 +1632,32 @@ export class RuntimeStore {
       budgetSnapshot: input.budgetSnapshot || {},
       sourceQueueIds: input.sourceQueueIds || [],
       sourceRunIds: input.sourceRunIds || []
-    }, databaseConfig) as Promise<RuntimeDigitalAction>;
+    }, databaseConfig) as RuntimeDigitalAction;
+
+    await this.recordLifeEventSafe({
+      identityKey: action.identityKey || 'xiaoni',
+      eventKind: 'self_action_started',
+      occurredAt: action.createdAt ? new Date(action.createdAt) : new Date(),
+      surface: action.surface,
+      sourceActionId: action.id,
+      actorType: 'xiaoni',
+      actorId: 'xiaoni',
+      visibility: 'self_private',
+      actionCost: 1,
+      payload: {
+        action_type: action.actionType,
+        status: action.status,
+        motive_kind: action.motiveKind,
+        motive_text: action.motiveText,
+        query: action.query,
+        source_queue_ids: action.sourceQueueIds,
+        source_run_ids: action.sourceRunIds,
+        budget_snapshot: action.budgetSnapshot
+      },
+      dedupeKey: `self_action_started:${action.id}`
+    });
+
+    return action;
   }
 
   async completeDigitalAction(input: {
@@ -1453,6 +1688,54 @@ export class RuntimeStore {
       last_active_at: now,
       last_boredom_reset_at: now
     }, databaseConfig);
+
+    await this.recordLifeEventSafe({
+      identityKey: action.identityKey || 'xiaoni',
+      eventKind: 'self_action_completed',
+      occurredAt: now,
+      surface: action.surface,
+      sourceActionId: action.id,
+      actorType: 'xiaoni',
+      actorId: 'xiaoni',
+      visibility: 'self_private',
+      actionCost: 1,
+      rewardDelta: action.residueText || action.resultSummary ? 0.2 : 0,
+      payload: {
+        action_type: action.actionType,
+        status: action.status,
+        motive_kind: action.motiveKind,
+        motive_text: action.motiveText,
+        query: action.query,
+        result_summary: action.resultSummary,
+        residue_kind: action.residueKind,
+        source_wording: action.sourceWording
+      },
+      dedupeKey: `self_action_completed:${action.id}`
+    });
+
+    if (action.actionType === 'web_search' && (action.resultSummary || action.residueText)) {
+      await this.recordLifeEventSafe({
+        identityKey: action.identityKey || 'xiaoni',
+        eventKind: 'web_search_result',
+        occurredAt: now,
+        surface: action.surface,
+        sourceActionId: action.id,
+        actorType: 'xiaoni',
+        actorId: 'xiaoni',
+        visibility: 'public_residue',
+        actionCost: 1,
+        rewardDelta: 0.3,
+        payload: {
+          query: action.query,
+          result_summary: action.resultSummary,
+          residue_text: action.residueText,
+          residue_kind: action.residueKind,
+          source_wording: action.sourceWording,
+          source_trace: action.sourceTrace
+        },
+        dedupeKey: `web_search_result:${action.id}`
+      });
+    }
     return action;
   }
 
@@ -1471,7 +1754,7 @@ export class RuntimeStore {
     baseHeat?: number;
     metadata?: Record<string, unknown>;
   }) {
-    return createAgentSharePoolItem({
+    const item = await createAgentSharePoolItem({
       identityKey: input.action.identityKey || 'xiaoni',
       content: input.content,
       sourceKind: input.action.actionType === 'web_search' ? 'web_search' : input.action.actionType,
@@ -1486,21 +1769,36 @@ export class RuntimeStore {
         query: input.action.query
       }
     }, databaseConfig);
+
+    await this.recordLifeEventSafe({
+      identityKey: input.action.identityKey || 'xiaoni',
+      eventKind: 'pending_share_created',
+      occurredAt: item.createdAt ? new Date(item.createdAt) : new Date(),
+      surface: input.action.surface,
+      sourceActionId: input.action.id,
+      actorType: 'xiaoni',
+      actorId: 'xiaoni',
+      visibility: 'self_private',
+      rewardDelta: 0.2,
+      payload: {
+        share_pool_item_id: item.id,
+        content: item.content,
+        source_kind: item.sourceKind,
+        boundary_label: item.boundaryLabel,
+        source_wording: item.sourceWording,
+        base_heat: item.baseHeat,
+        metadata: item.metadata
+      },
+      dedupeKey: `pending_share_created:${item.id}`
+    });
+
+    return item;
   }
 
   async buildPresenceContext(queueMessage: QueueMessagePayload): Promise<RuntimePresenceContext> {
     const now = new Date();
     const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
-    const state = deriveLifeState({
-      now,
-      serviceStartedAt: life.service_started_at as Date | string | null,
-      lastBoredomResetAt: life.last_boredom_reset_at as Date | string | null,
-      lastSleepAt: life.last_sleep_at as Date | string | null,
-      lastPresenceTickEnqueuedAt: life.last_presence_tick_enqueued_at as Date | string | null,
-      lastProactiveAt: life.last_proactive_at as Date | string | null,
-      lastUserMessageAt: life.last_user_message_at as Date | string | null,
-      dailyProactiveCount: Number(life.daily_proactive_count || 0)
-    }, {
+    const state = deriveLifeState(buildPresenceAnchorsFromLife(life, now), {
       cooldownMs: agentConfig.presenceTickCooldownMs,
       startupGraceMs: agentConfig.presenceTickStartupGraceMs
     });
@@ -1576,6 +1874,32 @@ export class RuntimeStore {
         traceId: input.queueMessage.traceId,
         outcome: input.outcome || 'lurked'
       }, databaseConfig);
+
+      await this.recordLifeEventSafe({
+        identityKey: 'xiaoni',
+        eventKind: 'pending_share_consumed',
+        occurredAt: new Date(),
+        surface: 'qq',
+        chatType: input.queueMessage.chatType,
+        sessionKey: input.queueMessage.sessionKey,
+        surfaceId: input.queueMessage.sessionKey,
+        peerId: input.queueMessage.peerId,
+        accountId: input.queueMessage.accountId,
+        batchId: input.queueMessage.batchId,
+        runId: input.queueMessage.runId,
+        traceId: input.queueMessage.traceId,
+        actorType: 'xiaoni',
+        actorId: input.queueMessage.accountId,
+        targetId: input.queueMessage.peerId,
+        visibility: 'self_private',
+        payload: {
+          share_pool_item_id: item.id,
+          source_kind: item.sourceKind,
+          source_wording: item.sourceWording,
+          outcome: input.outcome || 'lurked'
+        },
+        dedupeKey: `pending_share_consumed:${item.id}:${compactDedupePart(input.queueMessage.runId, input.queueMessage.traceId)}`
+      });
     }
   }
 
@@ -1883,6 +2207,19 @@ export class RuntimeStore {
       `,
       [runId]
     );
+    await this.recordLifeEventSafe({
+      identityKey: 'xiaoni',
+      eventKind: 'terminal_action_committed',
+      occurredAt: new Date(),
+      runId,
+      actorType: 'xiaoni',
+      actorId: 'xiaoni',
+      visibility: 'operator_only',
+      payload: {
+        delivery_phase: 'delivery_committed'
+      },
+      dedupeKey: `terminal_action_committed:${compactDedupePart(runId, 'run')}`
+    });
   }
 
   async markRunDeliveryBlocked(runId: string, reason: string) {
@@ -1896,6 +2233,19 @@ export class RuntimeStore {
       `,
       [reason, runId]
     );
+    await this.recordLifeEventSafe({
+      identityKey: 'xiaoni',
+      eventKind: 'terminal_action_blocked',
+      occurredAt: new Date(),
+      runId,
+      actorType: 'xiaoni',
+      actorId: 'xiaoni',
+      visibility: 'operator_only',
+      payload: {
+        reason
+      },
+      dedupeKey: `terminal_action_blocked:${compactDedupePart(runId, 'run')}:${Date.now()}:${uuidv4().slice(0, 8)}`
+    });
   }
 
   async createLlmJob(params: {
@@ -2454,17 +2804,7 @@ export class RuntimeStore {
     try {
       const now = new Date();
       const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
-      const state = deriveLifeState({
-        now,
-        lastActiveAt: life.last_active_at as Date | string | null,
-        serviceStartedAt: life.service_started_at as Date | string | null,
-        lastBoredomResetAt: life.last_boredom_reset_at as Date | string | null,
-        lastSleepAt: life.last_sleep_at as Date | string | null,
-        lastPresenceTickEnqueuedAt: life.last_presence_tick_enqueued_at as Date | string | null,
-        lastProactiveAt: life.last_proactive_at as Date | string | null,
-        lastUserMessageAt: life.last_user_message_at as Date | string | null,
-        dailyProactiveCount: Number(life.daily_proactive_count || 0)
-      }, {
+      const state = deriveLifeState(buildPresenceAnchorsFromLife(life, now), {
         cooldownMs: agentConfig.presenceTickCooldownMs,
         startupGraceMs: agentConfig.presenceTickStartupGraceMs
       });

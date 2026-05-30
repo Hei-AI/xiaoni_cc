@@ -302,7 +302,7 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.match(String(request.instructions), /具体可说点/);
   assert.match(String(request.instructions), /直接给小腻反馈、纠偏、批评或称赞/);
   assert.match(String(request.instructions), /查完还是你自己决定说不说/);
-  assert.match(String(request.instructions), /这一轮怎么收/);
+  assert.match(String(request.instructions), /当前动作怎么收/);
   assert.match(String(planFunction?.description), /提取当前新入站消息/);
   assert.doesNotMatch(String(planFunction?.description), /先搞清楚/);
   assert.deepEqual(planFunction?.parameters?.required, ['latest_unread_focus', 'message_act', 'social_target', 'addressed_to_me', 'has_real_novelty', 'confidence', 'reason', 'topic_context']);
@@ -338,10 +338,10 @@ test('buildCanonicalAgentTurnRequest keeps the same group loop tools on the firs
     GROUP_LOOP_TOOLS
   );
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [UNREAD_MEANING_TOOL]);
-  assert.match(String(request.instructions), /这一轮顺序/);
+  assert.match(String(request.instructions), /本次运行顺序/);
   assert.match(String(request.instructions), /emit_unread_meaning/);
   assert.doesNotMatch(String(request.instructions), /recall_long_term_learning/);
-  assert.match(String(request.instructions), /最后通过工具完成这一轮/);
+  assert.match(String(request.instructions), /最后通过工具完成当前动作/);
 });
 
 test('buildCanonicalAgentTurnRequest only unlocks inner reaction after unread meaning replay', () => {
@@ -830,7 +830,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
     requestBody.canonicalRequest.input.slice(-4).map((item: any) => item.type),
     ['function_call', 'function_call_output', 'function_call', 'function_call_output']
   );
-  assert.match(String(requestBody.canonicalRequest.instructions), /这一轮顺序/);
+  assert.match(String(requestBody.canonicalRequest.instructions), /本次运行顺序/);
   assert.deepEqual(getAllowedToolNames(requestBody.canonicalRequest.tool_choice), [SILENT_FINISH_TOOL]);
   assert.equal(requestBody.canonicalRequest.parallel_tool_calls, false);
   assert.deepEqual(
@@ -1018,6 +1018,29 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /\[mentioned bot\]/);
 });
 
+test('buildInitialInput keeps ordinary unmentioned group IM as unread metadata only', () => {
+  const payload = createQueuePayload();
+  payload.wasMentioned = false;
+  payload.bodyForAgent = '普通闲聊正文不应该直接进来';
+  payload.rawBody = '普通闲聊正文不应该直接进来';
+  payload.inboundContext.WasMentioned = false;
+  payload.messages[0].wasMentioned = false;
+  payload.messages[0].bodyForAgent = '普通闲聊正文不应该直接进来';
+  payload.messages[0].rawBody = '普通闲聊正文不应该直接进来';
+  payload.messages[0].inboundContext.WasMentioned = false;
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }));
+  const rendered = loopInput.map(getMessageContent).join('\n');
+
+  assert.doesNotMatch(rendered, /<INPUT_MESSAGE message_id="11"/);
+  assert.doesNotMatch(rendered, /普通闲聊正文不应该直接进来/);
+  assert.match(rendered, /<UNREAD_AVAILABLE/);
+  assert.match(rendered, /not_opened/);
+  assert.match(rendered, /没有显式 @ 小腻/);
+});
+
 test('buildInitialInput projects image placeholders without exposing image locators', () => {
   const payload = createQueuePayload();
   payload.bodyForAgent = '[Image] 帮我看看';
@@ -1109,7 +1132,7 @@ test('buildInitialInput does not append transcript summary to the system prompt 
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
   assert.match(String(loopInput[0]?.content), /小腻的OS/);
   assert.match(String(loopInput[0]?.content), /普通聊天、轻吐槽、短反应都是正常参与/);
-  assert.match(String(loopInput[0]?.content), /本轮行为校准信号/);
+  assert.match(String(loopInput[0]?.content), /行为校准信号/);
   assert.doesNotMatch(String(loopInput[0]?.content), /Conversation summary:/);
 });
 
@@ -1125,7 +1148,7 @@ test('buildInitialInput appends the thin runtime contract for group chats', () =
   assert.match(String(loopInput[0]?.content), /<INPUT_MESSAGE>/);
   assert.match(String(loopInput[0]?.content), /<system_reminder>/);
   assert.match(String(loopInput[0]?.content), /直接给小腻反馈、纠偏、批评或称赞/);
-  assert.match(String(loopInput[0]?.content), /这一轮怎么收/);
+  assert.match(String(loopInput[0]?.content), /当前动作怎么收/);
 });
 
 test('buildInitialInput uses the same thin runtime contract for direct chats', () => {
@@ -1137,7 +1160,7 @@ test('buildInitialInput uses the same thin runtime contract for direct chats', (
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
-  assert.match(String(loopInput[0]?.content), /这一轮怎么收/);
+  assert.match(String(loopInput[0]?.content), /当前动作怎么收/);
   assert.match(String(loopInput[0]?.content), /群里说话/);
   assert.match(String(loopInput[0]?.content), /私聊说话/);
 });
@@ -1620,7 +1643,7 @@ test('buildInitialInput keeps user input as pure scene without synthetic current
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   assert.match(String(request.instructions), /^你是小腻主AGENT/);
-  assert.match(String(request.instructions), /这一轮怎么收/);
+  assert.match(String(request.instructions), /当前动作怎么收/);
   assert.match(String(request.instructions), /具体可说点/);
   assert.match(String(request.instructions), /群里说话/);
   assert.equal(request.input.some((item) => getMessageContent(item).includes('[当前任务]')), false);

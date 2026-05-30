@@ -1079,6 +1079,120 @@ export type AgentDigitalActionProjection = {
   updatedAt: string | null;
   completedAt: string | null;
 };
+export type AgentLifeEventKind =
+  | 'surface_visit'
+  | 'qq_message_seen'
+  | 'qq_self_message'
+  | 'speak_in_group'
+  | 'silence_decision'
+  | 'surface_leave'
+  | 'self_action_started'
+  | 'self_action_completed'
+  | 'web_search_result'
+  | 'pending_share_created'
+  | 'pending_share_consumed'
+  | 'state_snapshot'
+  | 'terminal_action_committed'
+  | 'terminal_action_blocked';
+export type AgentLifeEventVisibility =
+  | 'active_surface'
+  | 'public_residue'
+  | 'self_private'
+  | 'private_surface'
+  | 'operator_only';
+export type AgentLifeEventProjection = {
+  id: string;
+  identityKey: string;
+  eventKind: AgentLifeEventKind | string;
+  occurredAt: string | null;
+  surface: string | null;
+  chatType: string | null;
+  sessionKey: string | null;
+  surfaceId: string | null;
+  peerId: string | null;
+  accountId: string | null;
+  messageSid: string | null;
+  messageId: string | null;
+  batchId: string | null;
+  conversationId: string | null;
+  conversationItemId: string | null;
+  queueMessageId: string | null;
+  runId: string | null;
+  traceId: string | null;
+  llmCallId: string | null;
+  sourceActionId: string | null;
+  actorType: string;
+  actorId: string | null;
+  targetId: string | null;
+  visibility: AgentLifeEventVisibility | string;
+  actionCost: number;
+  pressureDelta: number;
+  rewardDelta: number;
+  boredomDelta: number;
+  attentionDelta: number;
+  payload: Record<string, unknown>;
+  dedupeKey: string;
+  createdAt: string | null;
+};
+export type RecordAgentLifeEventInput = {
+  identityKey?: string;
+  identity_key?: string;
+  eventKind: AgentLifeEventKind | string;
+  event_kind?: AgentLifeEventKind | string;
+  occurredAt?: string | Date;
+  occurred_at?: string | Date;
+  surface?: string | null;
+  chatType?: string | null;
+  chat_type?: string | null;
+  sessionKey?: string | null;
+  session_key?: string | null;
+  surfaceId?: string | null;
+  surface_id?: string | null;
+  peerId?: string | null;
+  peer_id?: string | null;
+  accountId?: string | null;
+  account_id?: string | null;
+  messageSid?: string | null;
+  message_sid?: string | null;
+  messageId?: string | number | null;
+  message_id?: string | number | null;
+  batchId?: string | null;
+  batch_id?: string | null;
+  conversationId?: string | number | bigint | null;
+  conversation_id?: string | number | bigint | null;
+  conversationItemId?: string | number | bigint | null;
+  conversation_item_id?: string | number | bigint | null;
+  queueMessageId?: string | number | bigint | null;
+  queue_message_id?: string | number | bigint | null;
+  runId?: string | null;
+  run_id?: string | null;
+  traceId?: string | null;
+  trace_id?: string | null;
+  llmCallId?: string | null;
+  llm_call_id?: string | null;
+  sourceActionId?: string | null;
+  source_action_id?: string | null;
+  actorType?: string | null;
+  actor_type?: string | null;
+  actorId?: string | null;
+  actor_id?: string | null;
+  targetId?: string | null;
+  target_id?: string | null;
+  visibility?: AgentLifeEventVisibility | string;
+  actionCost?: number;
+  action_cost?: number;
+  pressureDelta?: number;
+  pressure_delta?: number;
+  rewardDelta?: number;
+  reward_delta?: number;
+  boredomDelta?: number;
+  boredom_delta?: number;
+  attentionDelta?: number;
+  attention_delta?: number;
+  payload?: Record<string, unknown>;
+  dedupeKey: string;
+  dedupe_key?: string;
+};
 export function ensureAgentPresenceSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function ensureAgentLifeState(identityKey: string, config?: DatabaseUrlConfig): Promise<Record<string, unknown>>;
 export function getAgentLifeState(identityKey: string, config?: DatabaseUrlConfig): Promise<Record<string, unknown> | null>;
@@ -1092,3 +1206,8 @@ export function createAgentDigitalAction(input: Record<string, unknown>, config?
 export function updateAgentDigitalAction(id: string, data: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentDigitalActionProjection>;
 export function listAgentDigitalActions(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentDigitalActionProjection[]>;
 export function countAgentDigitalActions(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<number>;
+export function ensureAgentLifeEventSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function recordAgentLifeEvent(input: RecordAgentLifeEventInput, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection>;
+export function listAgentLifeEvents(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection[]>;
+export function listAgentLifeEventsForPrompt(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection[]>;
+export function findAgentLifeEventByDedupeKey(dedupeKey: string, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection | null>;
