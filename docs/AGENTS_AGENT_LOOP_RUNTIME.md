@@ -26,7 +26,7 @@
   - `interest_level=low`
   - `reaction_authenticity=weak_but_real`
 
-这意味着她不是“没看到”，而是“看到了，也有点感觉，但判断还不值得承担一句话”。
+这意味着她不是“没看到”，而是“看到了，也有点感觉，但没有生成具体可说点”。
 
 ## 抑制图，PlantUML
 
@@ -72,11 +72,11 @@ note right
 - 有没有真正的新推进
 end note
 
-:第二步，交给 LLM\n只判断小腻自己身上有没有真实反应;
+:第二步，交给 LLM\n判断有没有具体可说点;
 note right
 输出：
 - 兴趣强度高不高
-- 这反应是真形成了，还是只是顺手能接
+- 有没有具体观点、问题、好奇、不适、联想或边界
 - 当前更像想说、想查，还是更适合不出现
 end note
 
@@ -108,7 +108,7 @@ else (否)
     end note
 
     if (缺口处理后仍觉得该说) then (是)
-      :组织一句值得承担的话;
+      :组织一句具体的话;
       note right
       输出：
       - 群里真正能看到的话
@@ -178,7 +178,7 @@ stop
 
 - 历史 `ConversationTurn[]`
 - 当前 queue batch
-- runtime prompt
+- runtime prompt：单一代码内置 `小腻主AGENT`，来源为 `modules/agent-service/src/prompts/xiaoni-main-agent.ts`；不再从群/私聊 DB 绑定解析
 - runtime identity facts
 
 输出长相：
@@ -332,10 +332,8 @@ tool desc 原文：
 tool desc 原文：
 
 ```text
-在已经理解最新未读之后，只判断你体内有没有真实反应。
-这里先不要替自己找一句能说出口的话，只看这条消息有没有真的在你身上碰出一点东西。
-如果只是因为有个话口、顺手能接、补一句也不违和，那还不算你真正的反应。
-如果只是很轻地被碰到一下，也可以如实承认这种轻微但真实的反应。
+根据已理解的新消息输出小腻这轮有没有具体可说点，或者是否只是被直接请求处理一件事。
+如果只能复述、附和、泛泛评价，或补一句也不违和但没有具体内容，participation_judgment.status 必须是 no_sayable_point。
 ```
 
 输出 JSON：
@@ -345,8 +343,15 @@ tool desc 原文：
   "interest_level": "none | low | medium | high",
   "wants_to_know_more": false,
   "reaction_authenticity": "none | weak_but_real | formed | empty_but_convenient",
+  "participation_judgment": {
+    "status": "has_sayable_point | no_sayable_point | direct_request",
+    "basis": "opinion | question | curiosity | discomfort | association | boundary | direct_request | none",
+    "sayable_point": "...",
+    "evidence_refs": ["message_id=..."],
+    "memory_refs": []
+  },
   "should_search": false,
-  "preferred_action": "speak | silent | search | image_task",
+  "preferred_action": "speak | silent | search | image_task | proactive",
   "context_gap": "none | current_context_insufficient | needs_private_memory | needs_public_info | unclear_group_reference",
   "gap_resolution": "none | memory | web_search | ask_group | memory_then_ask_or_search",
   "reason": "..."
@@ -358,6 +363,7 @@ tool desc 原文：
 - `interest_level`：这件事在她身上拉力强不强
 - `wants_to_know_more`：有没有继续想追下去
 - `reaction_authenticity`：这到底是真反应，还是“刚好能接”
+- `participation_judgment`：有没有具体可说点；没有可说点时即使能接话也不能继续说
 - `should_search`：如果要继续，是否更适合先查资料
 - `preferred_action`：当前最像说 / 不说 / 查 / 图任务
 - `context_gap`：当前上下文是否足够。`needs_private_memory` / `unclear_group_reference` 才偏向记忆召回；`needs_public_info` 偏向搜索公开信息。
@@ -402,7 +408,7 @@ turn3: {"mode":"required","type":"allowed_tools","tools":[{"name":"stay_silent",
 </OUTPUT_MESSAGE>
 
 <小腻的OS>
-这轮很轻，像是对方给了一个确认的回声；我把节奏收住了，没有把简单的共鸣说重。
+这轮只有对方的确认回声；我没有新的观点或问题，所以不补话。
 </小腻的OS>
 ...
 
@@ -419,7 +425,7 @@ duck typing 如果它叫起来像鸭子那它就是诗
 这个样本最后数据库里落下来的 `finish_reason` 是：
 
 ```text
-最新未读是群里延续的轻梗双关，没有直接点到我，也没有形成需要我承担的话语点；先保持沉默更贴合现场节奏。
+最新未读是群里延续的轻梗双关，没有直接点到我，也没有生成新的观点、问题或请求；本轮不说。
 ```
 
 这就是近期抑制说话最典型的工程路径：
@@ -437,7 +443,7 @@ group chatter
 - **LLM 做的语义识别**
   - 这句话到底是不是在对小腻说
   - 这轮到底是群体接龙还是明确提问
-  - 她自己现在是真有反应，还是只是可以顺手接
+  - 她自己现在有没有具体可说点
 - **工程做的阻断**
   - 如果第二步判成 `silent`，后面就不开放 `speak`
   - 如果只是 `low + weak_but_real` 且没有 direct new cue，就强制压回沉默
@@ -505,7 +511,8 @@ UnreadMeaning 里的 social_target / addressed_to_me / message_act
 
 - 入口阻断：`auto_reply_enabled=false`，不进 loop
 - 中途阻断：第二步如果已经判成 `silent`，直接只开放 `stay_silent`
-- 保守阻断：`low + weak_but_real + no direct new cue`，强制压回 `stay_silent`
+- 参与判断阻断：`participation_judgment.status=no_sayable_point` 时，即使 `preferred_action=speak` 也只开放 `stay_silent`
+- 保守阻断：`low + weak_but_real/formed + no direct new cue`，强制压回 `stay_silent`
 
 ## 记忆和公开搜索怎么分流
 
@@ -519,8 +526,8 @@ UnreadMeaning 里的 social_target / addressed_to_me / message_act
 长期记忆现在由上下文压缩异步生成三层：
 
 - episodic observations：具体发生过什么、谁在场、小腻的位置。
-- semantic assertions：客观事实、当前状态、计划、claim。
-- reflections：至少两条 episodic observations 支撑的跨时间模式。
+- semantic assertions：客观事实、当前状态、计划、claim；必须保留 owner、directed_to、scope 和证据摘要，不能把可识别发言人压成“群里/有人”。
+- reflections：至少两条已落库 episodic observations 支撑的跨时间模式；优先保存 person/dyad/self-continuity，不把一次事件写成行为指令。
 
 ## “学到的分寸有关”这块，最近真实命中过吗
 
@@ -581,7 +588,34 @@ UnreadMeaning 里的 social_target / addressed_to_me / message_act
 
 - 下一轮 `tool_choice` 被直接收缩成 `allowed_tools([stay_silent])`
 
-### 5. 第二层抑制，weak speak downgrade
+### 5. 第二层抑制，没有具体可说点
+
+代码：
+
+- `canUseFinalActionFromParticipationJudgment`
+- `shouldForceActionToSilenceFromParticipationJudgment`
+- `resolveGroupLoopToolChoice`
+
+条件：
+
+```text
+preferred_action != silent
+participation_judgment.status = no_sayable_point
+```
+
+或者：
+
+```text
+participation_judgment.status = direct_request
+但当前 unread meaning 没有 direct new cue
+```
+
+效果：
+
+- 下一轮同样只开放 `stay_silent`
+- 这层是为了防止“能接话”绕过小腻自己的判断
+
+### 6. 第三层抑制，weak speak downgrade
 
 代码：
 
@@ -594,7 +628,7 @@ UnreadMeaning 里的 social_target / addressed_to_me / message_act
 ```text
 preferred_action = speak
 interest_level = low
-reaction_authenticity = weak_but_real
+reaction_authenticity = weak_but_real 或 formed
 并且没有 direct new cue
 ```
 
@@ -619,7 +653,7 @@ reaction_authenticity = weak_but_real
 
 这层不是近期沉默主因。
 
-### B. loop 行为层，决定这轮是否值得承担一句话
+### B. loop 行为层，决定这轮是否有具体可说点
 
 代码：
 
@@ -649,11 +683,10 @@ reaction_authenticity = weak_but_real
 ### `speak_in_group`
 
 ```text
-当一句话已经在我这里成熟到值得承担时，我使用这个工具。
-我开口，是因为这句话此刻对我成立，也愿意承担它落在关系里的后果。
+向当前 QQ 群发送一条或多条消息，可选指定需要 @ 的成员。
 保持自然人话，贴近眼前场域。
 让这句话在现场里真正新增一点东西。
-一句已经成立就自然收住，把节奏留在现场里。
+message/messages 必须来自当前可见消息、工具结果或 proactive 材料；不要重复旧话。
 ```
 
 ### `stay_silent`
@@ -673,12 +706,11 @@ reaction_authenticity = weak_but_real
 ### `emit_inner_reaction`
 
 ```text
-在已经理解最新未读之后，只判断你体内有没有真实反应。
-这里先不要替自己找一句能说出口的话，只看这条消息有没有真的在你身上碰出一点东西。
-如果只是因为有个话口、顺手能接、补一句也不违和，那还不算你真正的反应。
+根据已理解的新消息输出小腻这轮有没有具体可说点，或者是否只是被直接请求处理一件事。
+如果只能复述、附和、泛泛评价，或补一句也不违和但没有具体内容，participation_judgment.status 必须是 no_sayable_point。
 ```
 
-### 6. Recall 不再是主回合工具
+### 7. Recall 不再是主回合工具
 
 2026-05-29 后，主聊天 loop 不再暴露 `recall_long_term_learning`。长期记忆的当前工程边界是：
 
@@ -686,7 +718,7 @@ reaction_authenticity = weak_but_real
 - 生成使用强制工具 schema：`write_episodic_observations`、`write_semantic_assertions`、`write_memory_reflections`。
 - 未来召回应做 typed recall projection，把合适层提前投进 runtime context，而不是在主回合临时开 recall 工具。
 
-### 7. speak / search / stay_silent 最终动作
+### 8. speak / search / stay_silent 最终动作
 
 代码：
 
@@ -710,7 +742,7 @@ emit_unread_meaning
 -> stay_silent
 ```
 
-### 8. 第三层抑制，发过一次后禁止再发
+### 9. 第三层抑制，发过一次后禁止再发
 
 代码：
 
@@ -724,7 +756,7 @@ emit_unread_meaning
 - 只要本 run 已经通过 speaking tool 成功发出去过
 - 之后再想发 speaking tool，就会被 delivery state 挡住
 
-### 9. 自学习闭环
+### 10. 自学习闭环
 
 主 loop 收口后，不是结束。
 

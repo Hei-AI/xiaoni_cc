@@ -7,6 +7,7 @@ import {
   ConversationTranscriptItem,
   ConversationTranscriptPhase,
   ConversationTurn,
+  QueueBatchMessage,
   QueueMessageRecord
 } from '../types';
 import {
@@ -1088,10 +1089,11 @@ const COMPACT_MEMORY_TOOL_NAME_BY_LAYER = {
 } as const;
 
 const RUNTIME_INPUT_READING_CONTRACT = [
-  '你看到的是真实的 QQ 现场，不是说明文。每段带标签的内容都代表一个明确来源。',
+  '这些输入按来源分层：QQ 现场、动作状态、运行提醒、压缩历史。逐段按标签读取。',
   '',
   '`<INPUT_MESSAGE>` 是已经进入当前可见现场的真实 QQ 消息。里面的 sender、message_id、message_sid、timestamp 都是现场事实。',
-  '`<UNREAD_AVAILABLE>` 只表示某个 IM surface 有未读元数据；没有正文时，不代表你已经看过这些消息。',
+  '`<IM_INBOX_WINDOW>` 是一次打开/使用 IM 的边界。trigger=explicit_mention/proactive_use_im；其后的 INPUT_MESSAGE 按时间顺序组成这次 append 的 unread/inbox 瀑布流。',
+  '`<UNREAD_AVAILABLE>` 是未打开的 IM 元数据，只包含数量和发送者线索；正文还没进入当前现场。',
   '`<OUTPUT_MESSAGE>` 是你过去已经发出去的 QQ 消息。它是你的历史输出，不是别人说的话。',
   '`<ACTION>` 是你自己的动作或状态事件，比如打开群、潜水、找话题、看图、等待。',
   '`<小腻的OS>` 是你留给后续自己的内部连续性，不是 QQ 消息。',
@@ -1099,13 +1101,14 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '`<system_reminder>` 是工程控制逻辑给你的当前运行边界提醒，不是群友说的话。',
   '`<对话历史摘要>` 是更早上下文的压缩摘要。',
   '',
-  '只处理 `<system_reminder>` 指出的新消息范围。历史消息是背景，不要重复回应已经处理过的旧话。',
+  '只处理 `<system_reminder>` 指出的新消息范围。历史消息是背景，已经处理过的旧话只作为理解现场的上下文。',
   '',
   '消息里的”回复某人””@某人””引用”是说话的社交方向，影响谁在和谁说话，记得一起理解进去。',
   '当前可见输入里如果有人直接给小腻反馈、纠偏、批评或称赞，这是行为校准信号；从可见上下文处理，不要当作隐藏记忆来源。',
   '',
   '本次运行顺序：',
-  '先搞清楚当前可见输入在说什么，用 emit_unread_meaning；如果只有 UNREAD_AVAILABLE，就只能按“未打开的未读提示”处理。',
+  '先看当前是否有 `<IM_INBOX_WINDOW>`。有窗口时，按窗口内 INPUT_MESSAGE 的时间顺序理解现场，并用 emit_unread_meaning 概括这次打开 IM 看到的重点。',
+  '如果当前只有 `<UNREAD_AVAILABLE>`，emit_unread_meaning 只能标记“有未打开未读”和等待/沉默的理由。',
   '再判断当前有没有具体可说点、是否只是直接请求、当前上下文是否足够，用 emit_inner_reaction。',
   '最后通过工具完成当前动作——说话、沉默、查资料还是做图。',
   '',
@@ -2239,7 +2242,7 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
   if (!isImmediateVisibleImWake(queueMessage)) {
     const count = queueMessage.messages.length;
     const noun = count === 1 ? '1 条' : `${count} 条`;
-    return `<system_reminder>当前 ${queueMessage.sessionKey} 有 ${noun}未读，但没有显式 @ 小腻；这些正文还没有进入小腻可见现场。不要把它当作已经看过的 INPUT_MESSAGE。</system_reminder>`;
+    return `<system_reminder>当前 ${queueMessage.sessionKey} 有 ${noun}未读元数据，尚未触发小腻打开 IM；可见现场只有 UNREAD_AVAILABLE，正文等待 @ 或主动使用 IM 后 append。</system_reminder>`;
   }
 
   const messageRefs = queueMessage.messages
@@ -2256,12 +2259,15 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
   const rangeText = messageRefs.length > 0
     ? `从这些消息开始是我还没看过的新消息：${messageRefs.join('；')}。`
     : '这里开始是我还没看过的新消息。';
-  return `<system_reminder>${rangeText}先看看他们说了什么。</system_reminder>`;
+  return `<system_reminder>本次已打开 IM；${rangeText}按顺序读这个 unread/inbox window。</system_reminder>`;
 }
 
 function isImmediateVisibleImWake(queueMessage: QueueMessageRecord['payload']) {
   if (isPresenceTickPayload(queueMessage)) {
     return false;
+  }
+  if (queueMessage.source === 'proactive_im_open') {
+    return true;
   }
   if (queueMessage.chatType === 'direct') {
     return true;
@@ -2289,9 +2295,24 @@ function renderUnreadAvailable(queueMessage: QueueMessageRecord['payload']) {
     count: queueMessage.messages.length,
     materialization: 'not_opened'
   }, JSON.stringify({
-    policy: 'group messages without explicit mention remain unread metadata; message bodies are not visible yet',
+    policy: 'metadata only until explicit_mention or proactive_use_im opens IM and appends the unread/inbox window',
     senders
   }));
+}
+
+function renderImInboxWindowAvailable(queueMessage: QueueMessageRecord['payload']) {
+  const trigger = queueMessage.source === 'proactive_im_open'
+    ? 'proactive_use_im'
+    : queueMessage.wasMentioned ? 'explicit_mention' : 'proactive_use_im';
+  return formatTaggedBlock('IM_INBOX_WINDOW', {
+    surface: 'qq',
+    chat_type: queueMessage.chatType,
+    session_key: queueMessage.sessionKey,
+    peer_id: queueMessage.peerId,
+    count: queueMessage.messages.length,
+    materialization: 'opened',
+    trigger
+  }, '小腻正在使用 IM；下面 append 的 INPUT_MESSAGE 是这次打开时 claim 到的 unread/inbox window，按时间顺序阅读。');
 }
 
 function deriveStateBiasFromDeveloperContext(developerContextBlock: string | null | undefined): TurnControlStateBias {
@@ -4210,7 +4231,7 @@ export class AgentLoopService {
 
   async processQueueMessage(queueMessage: QueueMessageRecord) {
     const startedAt = Date.now();
-    const activeQueueMessage = materializePresenceTickQueueMessage(queueMessage);
+    const activeQueueMessage = await materializeActiveImQueueMessage(queueMessage);
     const payload = activeQueueMessage.payload;
     const inboundContext = payload.inboundContext;
     const sessionIds = resolveSessionTargets(payload);
@@ -4783,6 +4804,9 @@ export class AgentLoopService {
         totalTurns: turnsExecuted,
         conversationId
       });
+      if (sentMessages.length === 0) {
+        await this.recordSilenceDecisionLifeEvent(payload, queueMessage.id, presenceOutcome, termination, turnsExecuted, conversationId);
+      }
       await this.store.logTimelineEvent({
         traceId: payload.traceId,
         eventType: 'decision',
@@ -6328,6 +6352,44 @@ export class AgentLoopService {
       });
     });
   }
+
+  private async recordSilenceDecisionLifeEvent(
+    queueMessage: QueueMessageRecord['payload'],
+    runId: string,
+    outcome: string,
+    termination: {
+      terminationReason: string;
+      finishReason: string | null;
+      finishOutcome: string | null;
+      noReply: boolean;
+    },
+    totalTurns: number,
+    conversationId: number | null
+  ) {
+    const recorder = (this.store as RuntimeStore & {
+      recordSilenceDecisionLifeEvent?: RuntimeStore['recordSilenceDecisionLifeEvent'];
+    }).recordSilenceDecisionLifeEvent;
+    if (typeof recorder !== 'function') {
+      return;
+    }
+    await recorder.call(this.store, {
+      queueMessage,
+      runId,
+      traceId: queueMessage.traceId,
+      outcome,
+      presenceOutcome: outcome,
+      termination,
+      totalTurns,
+      conversationId
+    }).catch((error) => {
+      moduleLogger.warn('Failed to record silence decision life event', {
+        traceId: queueMessage.traceId,
+        runId,
+        outcome,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
 }
 
 function applyReadCutoff(history: ConversationTurn[], cutoffState: SessionReadCutoffState | null) {
@@ -6342,6 +6404,78 @@ function isPresenceTickPayload(queueMessage: QueueMessageRecord['payload']) {
   return queueMessage.source === 'presence_tick'
     || queueMessage.sessionKey === 'presence_tick:xiaoni'
     || Boolean(queueMessage.presenceTick);
+}
+
+type ClaimedInboxMessageRecord = {
+  id: number;
+  traceId: string;
+  source: string;
+  messageSid: string;
+  chatType: 'direct' | 'group';
+  sessionKey: string;
+  peerId: string;
+  peerName?: string;
+  senderId: string;
+  senderName?: string;
+  accountId: string;
+  bodyForAgent: string;
+  rawBody?: string;
+  commandBody?: string;
+  wasMentioned?: boolean;
+  receivedAt?: string;
+  messageTimestamp?: string | null;
+  rawPayload?: Record<string, unknown>;
+  inboundContext?: Record<string, unknown>;
+};
+
+async function materializeActiveImQueueMessage(queueMessage: QueueMessageRecord): Promise<QueueMessageRecord> {
+  const materializedQueueMessage = materializePresenceTickQueueMessage(queueMessage);
+  const tick = queueMessage.payload.presenceTick;
+  if (!tick?.targetSessionKey) {
+    return materializedQueueMessage;
+  }
+
+  const claimedMessages = await claimUnreadInboxWindowForActiveIm({
+    traceId: queueMessage.traceId,
+    sessionKey: tick.targetSessionKey
+  });
+  return materializePresenceTickInboxWindow(materializedQueueMessage, claimedMessages);
+}
+
+async function claimUnreadInboxWindowForActiveIm(params: { traceId: string; sessionKey: string }): Promise<ClaimedInboxMessageRecord[]> {
+  try {
+    const response = await fetch(`${agentConfig.providerServiceUrl}/api/inbox/messages/claim`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        session_key: params.sessionKey,
+        limit: agentConfig.activeImClaimLimit
+      })
+    });
+    if (!response.ok) {
+      throw new Error(`provider claim returned HTTP ${response.status}`);
+    }
+    const payload = await response.json() as {
+      success?: boolean;
+      data?: {
+        claimed?: unknown;
+      };
+    };
+    if (!payload.success || !Array.isArray(payload.data?.claimed)) {
+      return [];
+    }
+    return payload.data.claimed
+      .filter((item): item is ClaimedInboxMessageRecord => Boolean(item && typeof item === 'object'));
+  } catch (error) {
+    moduleLogger.warn('Failed to claim unread inbox window for active IM open', {
+      traceId: params.traceId,
+      sessionKey: params.sessionKey,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return [];
+  }
 }
 
 export function materializePresenceTickQueueMessage(queueMessage: QueueMessageRecord): QueueMessageRecord {
@@ -6391,6 +6525,112 @@ export function materializePresenceTickQueueMessage(queueMessage: QueueMessageRe
       inboundContext,
       messages
     }
+  };
+}
+
+export function materializePresenceTickInboxWindow(
+  queueMessage: QueueMessageRecord,
+  claimedMessages: ClaimedInboxMessageRecord[]
+): QueueMessageRecord {
+  if (!queueMessage.payload.presenceTick || claimedMessages.length === 0) {
+    return queueMessage;
+  }
+
+  const messages = claimedMessages.map((message) => mapClaimedInboxMessageToQueueBatch(message));
+  const latest = messages[messages.length - 1];
+  if (!latest) {
+    return queueMessage;
+  }
+
+  const payload = queueMessage.payload;
+  const inboundContext = {
+    ...latest.inboundContext,
+    Surface: 'proactive_im_open',
+    SessionKey: latest.sessionKey,
+    ChatType: latest.chatType,
+    NativeChannelId: latest.peerId,
+    WasMentioned: messages.some((message) => message.wasMentioned),
+    CommandAuthorized: false
+  };
+
+  return {
+    ...queueMessage,
+    payload: {
+      ...payload,
+      source: 'proactive_im_open',
+      chatType: latest.chatType,
+      sessionKey: latest.sessionKey,
+      peerId: latest.peerId,
+      peerName: latest.peerName,
+      senderId: latest.senderId,
+      senderName: latest.senderName,
+      accountId: latest.accountId,
+      bodyForAgent: messages.map((message) => message.bodyForAgent).join('\n'),
+      rawBody: messages.map((message) => message.rawBody).join('\n'),
+      commandBody: messages.map((message) => message.commandBody).join('\n'),
+      wasMentioned: messages.some((message) => message.wasMentioned),
+      receivedAt: latest.receivedAt,
+      messageTimestamp: latest.messageTimestamp,
+      rawPayload: {
+        kind: 'proactive_im_open',
+        source_run_id: payload.runId,
+        source_trace_id: payload.traceId,
+        claimed_message_sids: messages.map((message) => message.messageSid)
+      },
+      inboundContext,
+      messages,
+      presenceTick: undefined
+    }
+  };
+}
+
+function mapClaimedInboxMessageToQueueBatch(message: ClaimedInboxMessageRecord): QueueBatchMessage {
+  const inboundContext = normalizeClaimedInboundContext(message.inboundContext, message);
+  return {
+    queueMessageId: Number(message.id),
+    traceId: message.traceId,
+    source: message.source || 'inbox_claim',
+    messageId: Number(message.id),
+    messageSid: message.messageSid,
+    chatType: message.chatType === 'direct' ? 'direct' : 'group',
+    sessionKey: message.sessionKey,
+    peerId: message.peerId,
+    peerName: message.peerName,
+    senderId: message.senderId,
+    senderName: message.senderName,
+    accountId: message.accountId,
+    bodyForAgent: message.bodyForAgent,
+    rawBody: message.rawBody || message.bodyForAgent,
+    commandBody: message.commandBody || message.bodyForAgent,
+    wasMentioned: Boolean(message.wasMentioned || inboundContext.WasMentioned),
+    receivedAt: message.receivedAt || new Date().toISOString(),
+    messageTimestamp: message.messageTimestamp ?? null,
+    rawPayload: message.rawPayload || {},
+    inboundContext
+  };
+}
+
+function normalizeClaimedInboundContext(
+  value: Record<string, unknown> | undefined,
+  message: ClaimedInboxMessageRecord
+): QueueBatchMessage['inboundContext'] {
+  const context = value && typeof value === 'object' ? value : {};
+  return {
+    ...context,
+    Body: typeof context.Body === 'string' ? context.Body : message.bodyForAgent,
+    BodyForAgent: typeof context.BodyForAgent === 'string' ? context.BodyForAgent : message.bodyForAgent,
+    BodyForCommands: typeof context.BodyForCommands === 'string' ? context.BodyForCommands : message.commandBody || message.bodyForAgent,
+    RawBody: typeof context.RawBody === 'string' ? context.RawBody : message.rawBody || message.bodyForAgent,
+    CommandBody: typeof context.CommandBody === 'string' ? context.CommandBody : message.commandBody || message.bodyForAgent,
+    SessionKey: typeof context.SessionKey === 'string' ? context.SessionKey : message.sessionKey,
+    AccountId: typeof context.AccountId === 'string' ? context.AccountId : message.accountId,
+    MessageSid: typeof context.MessageSid === 'string' ? context.MessageSid : message.messageSid,
+    ChatType: typeof context.ChatType === 'string' ? context.ChatType : message.chatType,
+    SenderName: typeof context.SenderName === 'string' ? context.SenderName : message.senderName,
+    SenderId: typeof context.SenderId === 'string' ? context.SenderId : message.senderId,
+    NativeChannelId: typeof context.NativeChannelId === 'string' ? context.NativeChannelId : message.peerId,
+    WasMentioned: Boolean(context.WasMentioned || message.wasMentioned),
+    CommandAuthorized: false
   };
 }
 
@@ -6785,11 +7025,17 @@ function buildCurrentTurnInputItems(
 
   if (!isImmediateVisibleImWake(queueMessage)) {
     return [
-      buildDeveloperInputItem([renderUnreadAvailable(queueMessage)])
+      buildUserSceneInputItem([renderUnreadAvailable(queueMessage)])
     ];
   }
 
   const currentMessages = queueMessage.messages.map((message, index) => renderTranscriptBatchMessage(message, index));
+  const imWindow = renderImInboxWindowAvailable(queueMessage);
+  if (currentMessages.length === 0) {
+    currentMessages.push(imWindow);
+  } else {
+    currentMessages[0] = `${imWindow}\n${currentMessages[0]}`;
+  }
   let userPromptTemplate: string | null = null;
   if (typeof runtimePrompt.userPromptTemplate === 'string' && runtimePrompt.userPromptTemplate.trim()) {
     userPromptTemplate = runtimePrompt.userPromptTemplate;

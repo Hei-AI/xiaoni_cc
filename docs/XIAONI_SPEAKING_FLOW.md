@@ -326,9 +326,9 @@ prompt_cache_key: qq:group:<groupId> or related runtime key
 prompt_cache_retention: usually 24h
 ```
 
-当前主聊天生产默认模型是 `gpt-5.4-mini`，compact memory / reflection 默认使用 `gpt-5.5`。主聊天 agent 只在 provider 参数或模型策略需要时发送 `reasoning` / `text` / `include`；reasoning output item 如果存在，只能当 opaque continuation state 回放，不参与业务解析。OpenAI / LLM 请求契约的完整规则看 `docs/AGENTS_OPENAI_REQUESTS.md`。
+当前主聊天默认模型由 `XIAONI_MAIN_AGENT_MODEL` 控制，默认 `gpt-5.5`；compact memory / reflection 默认使用 `gpt-5.5`。主聊天 agent 只在 provider 参数或模型策略需要时发送 `reasoning` / `text` / `include`；reasoning output item 如果存在，只能当 opaque continuation state 回放，不参与业务解析。OpenAI / LLM 请求契约的完整规则看 `docs/AGENTS_OPENAI_REQUESTS.md`。
 
-主聊天 agent 的 `instructions` 不是单个静态 prompt。它由当前绑定 prompt 加运行时契约组成：
+主聊天 agent 的 `instructions` 不是 DB 里的可变 prompt。它由代码内置的 `小腻主AGENT` 加运行时契约组成：
 
 ```text
 <runtimePrompt.systemPrompt>

@@ -1,10 +1,12 @@
-import { resolveChatAgentPrompt } from '@qq-bot/persistence';
-import { agentConfig, databaseConfig } from '../config';
+import { agentConfig } from '../config';
 import { QueueMessagePayload } from '../types';
-import { logger } from '../utils/logger';
+import {
+  XIAONI_MAIN_AGENT_PROMPT_ID,
+  XIAONI_MAIN_AGENT_PROMPT_NAME
+} from '../prompts/xiaoni-main-agent';
 
 export type ResolvedAgentRuntimePrompt = {
-  source: 'default' | 'group' | 'private';
+  source: 'default' | 'group' | 'private' | 'static';
   promptId: string | null;
   promptName: string;
   systemPrompt: string;
@@ -19,8 +21,6 @@ export type ResolvedAgentRuntimePrompt = {
 export interface AgentPromptResolver {
   resolveForQueueMessage(queueMessage: QueueMessagePayload): Promise<ResolvedAgentRuntimePrompt>;
 }
-
-const moduleLogger = logger.createModuleLogger('agent-prompt-service');
 
 export class MissingAgentPromptBindingError extends Error {
   constructor(
@@ -101,12 +101,6 @@ function stringifyTemplateValue(value: unknown): string {
   return String(value);
 }
 
-function normalizeObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
-}
-
 function buildRuntimeVariables(queueMessage: QueueMessagePayload, modelName: string): Record<string, unknown> {
   return {
     trace_id: queueMessage.traceId,
@@ -128,73 +122,21 @@ function buildRuntimeVariables(queueMessage: QueueMessagePayload, modelName: str
 
 export class AgentPromptService implements AgentPromptResolver {
   async resolveForQueueMessage(queueMessage: QueueMessagePayload): Promise<ResolvedAgentRuntimePrompt> {
-    const groupId = queueMessage.chatType === 'group'
-      ? Number(queueMessage.inboundContext.NativeChannelId || queueMessage.peerId)
-      : undefined;
-    const userId = Number(queueMessage.senderId);
-    const resolved = await resolveChatAgentPrompt({
-      chatType: queueMessage.chatType,
-      groupId,
-      userId
-    }, databaseConfig);
-
-    if (!resolved) {
-      throw new MissingAgentPromptBindingError('No active agent prompt binding found for current conversation', {
-        reason: 'missing_binding',
-        bindingSource: null,
-        bindingPromptId: null,
-        chatType: queueMessage.chatType,
-        ...(groupId !== undefined ? { groupId } : {}),
-        userId
-      });
-    }
-
-    if (!resolved.prompt) {
-      if (resolved.bindingPromptId) {
-        moduleLogger.warn('Chat prompt binding points to a missing or inactive prompt; refusing to run without prompt', {
-          traceId: queueMessage.traceId,
-          bindingSource: resolved.bindingSource,
-          bindingPromptId: resolved.bindingPromptId,
-          chatType: queueMessage.chatType,
-          groupId: groupId || null,
-          userId: Number.isFinite(userId) ? userId : null
-        });
-      }
-      throw new MissingAgentPromptBindingError('Bound agent prompt is missing or inactive for current conversation', {
-        reason: 'missing_prompt',
-        bindingSource: resolved.bindingSource,
-        bindingPromptId: resolved.bindingPromptId,
-        chatType: queueMessage.chatType,
-        ...(groupId !== undefined ? { groupId } : {}),
-        userId
-      });
-    }
-
-    const contextVariables = normalizeObject(resolved.prompt.contextVariables);
-    const modelConfig = normalizeObject(resolved.prompt.modelConfig);
-    const advancedConfig = normalizeObject(resolved.prompt.advancedConfig);
-    const modelName = resolved.prompt.modelName || agentConfig.modelName;
+    const contextVariables = {};
+    const modelName = agentConfig.xiaoniMainAgentModelName;
     const runtimeVariables = buildRuntimeVariables(queueMessage, modelName);
 
-    const parameters: Record<string, unknown> = {};
-    if (Object.keys(modelConfig).length > 0) {
-      parameters.model_config = modelConfig;
-    }
-    if (Object.keys(advancedConfig).length > 0) {
-      parameters.advanced_config = advancedConfig;
-    }
-
     return {
-      source: resolved.bindingSource,
-      promptId: resolved.prompt.id,
-      promptName: resolved.prompt.promptName,
-      systemPrompt: renderPromptTemplate(resolved.prompt.systemInstruction, contextVariables, runtimeVariables),
-      identityGenesisSnapshot: resolved.prompt.systemInstruction,
-      userPromptTemplate: resolved.prompt.userPromptTemplate,
+      source: 'static',
+      promptId: XIAONI_MAIN_AGENT_PROMPT_ID,
+      promptName: XIAONI_MAIN_AGENT_PROMPT_NAME,
+      systemPrompt: renderPromptTemplate(agentConfig.systemPrompt, contextVariables, runtimeVariables),
+      identityGenesisSnapshot: agentConfig.systemPrompt,
+      userPromptTemplate: null,
       contextVariables,
       runtimeVariables,
       modelName,
-      parameters
+      parameters: {}
     };
   }
 }

@@ -39,8 +39,12 @@ import {
   type ProviderMessageType,
   type SimpleQueueSimulationPayload,
 } from './services/simple-queue-simulation-context';
-import { FinalizedInboundContext } from './types';
+import { FinalizedInboundContext, InboxMessageRecord } from './types';
 import { runtimeStoreService } from './services/runtime-store-service';
+import {
+  decideInboundAgentQueueTrigger,
+  processInboundAgentQueueTrigger
+} from './services/inbound-agent-trigger-service';
 import { logger } from './utils/logger';
 
 const app = express();
@@ -49,6 +53,7 @@ const RUNTIME_ASSET_ROOT = process.env.PROVIDER_RUNTIME_ASSET_ROOT || '/app/logs
 const RUNTIME_ASSET_BASE_URL = (process.env.PROVIDER_RUNTIME_ASSET_BASE_URL || `http://qqbot-provider-service:${serverConfig.port}`).replace(/\/$/, '');
 const NAPCAT_QQ_DATA_ROOT = process.env.NAPCAT_QQ_DATA_ROOT || '/app/napcat-qq-data';
 const NAPCAT_QQ_CONTAINER_ROOT = '/app/.config/QQ';
+const IM_TRIGGER_CLAIM_LIMIT = Math.max(Number(process.env.AGENT_IM_TRIGGER_CLAIM_LIMIT || 200), 1);
 const embeddingService = new EmbeddingService(aiConfig);
 const imageProvider = new OpenAIImageProvider();
 const imagePromptAssistant = new ImagePromptAssistantService();
@@ -329,6 +334,54 @@ function recordRelationshipLedgerAsync(inboundContext: FinalizedInboundContext, 
   });
 }
 
+function isInboxOnlyInboundMessage(message: { chatType: 'direct' | 'group'; wasMentioned: boolean }) {
+  return !decideInboundAgentQueueTrigger(message).shouldEnqueue;
+}
+
+async function claimImWindowForAgentTrigger(params: {
+  inboxEvent: InboxMessageRecord;
+  traceId: string;
+  source: 'napcat' | 'simulator';
+  triggerReason: string;
+}) {
+  await runtimeStoreService.logTimelineEvent({
+    traceId: params.traceId,
+    eventType: 'im_window',
+    eventName: 'claim_unread',
+    eventPhase: 'start',
+    metadata: {
+      source: params.source,
+      trigger_reason: params.triggerReason,
+      session_key: params.inboxEvent.sessionKey,
+      chat_type: params.inboxEvent.chatType,
+      limit: IM_TRIGGER_CLAIM_LIMIT
+    }
+  });
+
+  const claimedMessages = await inboxService.claimMessages({
+    sessionKey: params.inboxEvent.sessionKey,
+    limit: IM_TRIGGER_CLAIM_LIMIT
+  });
+
+  const messages = claimedMessages.length > 0 ? claimedMessages : [params.inboxEvent];
+  await runtimeStoreService.logTimelineEvent({
+    traceId: params.traceId,
+    eventType: 'im_window',
+    eventName: 'claim_unread',
+    eventPhase: 'end',
+    metadata: {
+      source: params.source,
+      trigger_reason: params.triggerReason,
+      session_key: params.inboxEvent.sessionKey,
+      claimed_count: claimedMessages.length,
+      materialized_count: messages.length,
+      message_sids: messages.map((message) => message.messageSid)
+    }
+  });
+
+  return messages;
+}
+
 async function materializeContinuousLearningTurn(params: {
   inboundContext: FinalizedInboundContext;
   currentMessageId?: number | null;
@@ -362,11 +415,19 @@ async function runContinuousLearningIfEnabled(params: {
   inboundContext: FinalizedInboundContext;
   traceId: string;
   skipMaterialization?: boolean;
+  inboxOnly?: boolean;
 }) {
   if (!params.policyState.continuousLearningEnabled) {
     return {
       attempted: false,
       reason: 'continuous_learning_disabled'
+    };
+  }
+
+  if (params.inboxOnly) {
+    return {
+      attempted: false,
+      reason: 'inbox_only_until_im_opened'
     };
   }
 
@@ -464,12 +525,14 @@ async function simulateSimpleQueueMessage(messageType: ProviderMessageType, payl
     source: 'simulator',
     policyState
   });
+  const inboxOnly = isInboxOnlyInboundMessage(result.event);
   const learning = !autoReply.queued
     ? await runContinuousLearningIfEnabled({
         policyState,
         inboxEventId: result.event.id,
         inboundContext: finalizedContext,
-        traceId: result.traceId
+        traceId: result.traceId,
+        inboxOnly
       })
     : await runContinuousLearningIfEnabled({
         policyState,
@@ -640,12 +703,14 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     source: 'napcat',
     policyState: policy
   });
+  const inboxOnly = isInboxOnlyInboundMessage(result.event);
   const learning = !autoReply.queued
     ? await runContinuousLearningIfEnabled({
         policyState: policy,
         inboxEventId: result.event.id,
         inboundContext,
-        traceId: result.traceId
+        traceId: result.traceId,
+        inboxOnly
       })
     : await runContinuousLearningIfEnabled({
         policyState: policy,
@@ -680,6 +745,7 @@ async function processAutoReply(params: {
   if (!policyTargets) {
     return {
       attempted: false,
+      queued: false,
       reason: 'invalid_policy_targets'
     };
   }
@@ -688,6 +754,7 @@ async function processAutoReply(params: {
   if (!policy.autoReplyEnabled) {
     return {
       attempted: false,
+      queued: false,
       reason: 'auto_reply_disabled',
       policy: {
         ...policy,
@@ -707,19 +774,36 @@ async function processAutoReply(params: {
       chat_type: params.inboxEvent.chatType
     }
   });
-  const participationDecision = {
-    decision: 'reply' as const,
-    reason: 'delegated_to_agent_service_unified_planner',
-    confidence: 'high' as const,
-    conservativeFallback: false,
-    usedEmbeddings: false,
-    usedLlmJudge: false,
-    scores: null,
-    metadata: {
-      source_of_truth: 'agent_service_unified_planner',
-      provider_boundary_mode: 'hard_safety_only'
-    }
-  };
+  const triggerDecision = decideInboundAgentQueueTrigger(params.inboxEvent);
+  const participationDecision = triggerDecision.shouldEnqueue
+    ? {
+        decision: 'reply' as const,
+        reason: 'delegated_to_agent_service_unified_planner',
+        confidence: 'high' as const,
+        conservativeFallback: false,
+        usedEmbeddings: false,
+        usedLlmJudge: false,
+        scores: null,
+        metadata: {
+          source_of_truth: 'agent_service_unified_planner',
+          provider_boundary_mode: 'hard_safety_only',
+          trigger_reason: triggerDecision.reason
+        }
+      }
+    : {
+        decision: 'ignore' as const,
+        reason: triggerDecision.reason,
+        confidence: 'high' as const,
+        conservativeFallback: false,
+        usedEmbeddings: false,
+        usedLlmJudge: false,
+        scores: null,
+        metadata: {
+          source_of_truth: 'provider_inbound_queue_gate',
+          provider_boundary_mode: 'inbox_only_for_unmentioned_group',
+          trigger_reason: triggerDecision.reason
+        }
+      };
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
     eventType: 'participation',
@@ -737,59 +821,24 @@ async function processAutoReply(params: {
       ...participationDecision.metadata
     }
   });
-  await runtimeStoreService.logTimelineEvent({
-    traceId: params.traceId,
-    eventType: 'queue',
-    eventName: 'normalize',
-    eventPhase: 'start',
-    metadata: {
-      source: params.source,
-      chat_type: params.inboxEvent.chatType,
-      session_key: params.inboxEvent.sessionKey
-    }
-  });
-  const semanticMessage = runtimeStoreService.buildSemanticInboundMessage(params.inboxEvent, {
-    source: params.source,
+  const inboxWindowMessages = triggerDecision.shouldEnqueue
+    ? await claimImWindowForAgentTrigger({
+        inboxEvent: params.inboxEvent,
+        traceId: params.traceId,
+        source: params.source,
+        triggerReason: triggerDecision.reason
+      })
+    : undefined;
+  const queueResult = await processInboundAgentQueueTrigger({
+    inboxEvent: params.inboxEvent,
+    inboxWindowMessages,
+    inboundContext: params.inboundContext,
     rawPayload: params.rawPayload,
-    inboundContext: params.inboundContext
-  });
-  await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
-    eventType: 'queue',
-    eventName: 'normalize',
-    eventPhase: 'end',
-    metadata: {
-      source: params.source,
-      dedupe_key: semanticMessage.dedupeKey || null
-    }
-  });
-  await runtimeStoreService.logTimelineEvent({
-    traceId: params.traceId,
-    eventType: 'queue',
-    eventName: 'enqueue',
-    eventPhase: 'start',
-    metadata: {
-      message_sid: semanticMessage.messageSid,
-      source: params.source
-    }
-  });
-  const queueResult = await runtimeStoreService.enqueueSemanticMessage(semanticMessage);
-  await runtimeStoreService.logTimelineEvent({
-    traceId: params.traceId,
-    eventType: 'queue',
-    eventName: 'enqueue',
-    eventPhase: 'end',
-    metadata: {
-      queue_id: queueResult.queueId,
-      queue_status: queueResult.status
-    }
-  });
+    source: params.source
+  }, runtimeStoreService);
   return {
-    attempted: true,
-    queued: true,
-    queueId: queueResult.queueId,
-    queueStatus: queueResult.status,
-    traceId: params.traceId,
+    ...queueResult,
     participationDecision
   };
 }
@@ -1801,7 +1850,8 @@ app.post('/api/inbox/simulate', async (req, res) => {
       policyState: policy,
       inboxEventId: result.event.id,
       inboundContext: finalizedContext,
-      traceId: result.traceId
+      traceId: result.traceId,
+      inboxOnly: isInboxOnlyInboundMessage(result.event)
     });
 
     res.json({

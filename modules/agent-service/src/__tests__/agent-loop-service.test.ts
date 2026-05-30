@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, buildToolLoopMonitorReminder, buildTurnStateReminder, deriveTurnControlState, materializePresenceTickQueueMessage, sanitizeLowValueOpeningFiller, summarizeToolLoopState, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, buildToolLoopMonitorReminder, buildTurnStateReminder, deriveTurnControlState, materializePresenceTickInboxWindow, materializePresenceTickQueueMessage, sanitizeLowValueOpeningFiller, summarizeToolLoopState, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload } from '../types';
 
@@ -296,7 +296,7 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   );
   const planFunction = getFunctionTool((request.tools ?? [])[0]);
   assert.equal(planFunction?.name, UNREAD_MEANING_TOOL);
-  assert.match(String(request.instructions), /群里的一个成员，不是助手，不是服务/);
+  assert.match(String(request.instructions), /我在 QQ 里生活/);
   assert.match(String(request.instructions), /web_search 是求知，不是默认步骤/);
   assert.match(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/);
   assert.match(String(request.instructions), /具体可说点/);
@@ -1018,7 +1018,7 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /\[mentioned bot\]/);
 });
 
-test('buildInitialInput keeps ordinary unmentioned group IM as unread metadata only', () => {
+test('buildInitialInput keeps ordinary unmentioned group IM as low-trust unread metadata only', () => {
   const payload = createQueuePayload();
   payload.wasMentioned = false;
   payload.bodyForAgent = '普通闲聊正文不应该直接进来';
@@ -1038,7 +1038,105 @@ test('buildInitialInput keeps ordinary unmentioned group IM as unread metadata o
   assert.doesNotMatch(rendered, /普通闲聊正文不应该直接进来/);
   assert.match(rendered, /<UNREAD_AVAILABLE/);
   assert.match(rendered, /not_opened/);
-  assert.match(rendered, /没有显式 @ 小腻/);
+  assert.match(rendered, /尚未触发小腻打开 IM/);
+
+  const unreadItems = loopInput.filter((item: any) => item.role === 'user' && getMessageContent(item).includes('<UNREAD_AVAILABLE'));
+  assert.equal(unreadItems.length, 1);
+  assert.equal((unreadItems[0] as any).role, 'user');
+  assert.equal(loopInput.some((item: any) => item.role === 'developer' && getMessageContent(item).includes('<UNREAD_AVAILABLE')), false);
+});
+
+test('buildInitialInput materializes full group IM window when an unread batch mentions xiaoni', () => {
+  const payload = createQueuePayload();
+  payload.wasMentioned = true;
+  payload.bodyForAgent = '前面普通未读\n@小腻 看到前面了吗';
+  payload.rawBody = '前面普通未读\n@小腻 看到前面了吗';
+  payload.messages[0].bodyForAgent = '前面普通未读';
+  payload.messages[0].rawBody = '前面普通未读';
+  payload.messages[0].wasMentioned = false;
+  payload.messages[0].inboundContext = {
+    ...payload.messages[0].inboundContext,
+    Body: '前面普通未读',
+    BodyForAgent: '前面普通未读',
+    BodyForCommands: '前面普通未读',
+    WasMentioned: false,
+    MentionedUsers: []
+  };
+  payload.messages.push({
+    ...payload.messages[0],
+    queueMessageId: 2,
+    messageId: 12,
+    messageSid: 'sid-2',
+    bodyForAgent: '@小腻 看到前面了吗',
+    rawBody: '@小腻 看到前面了吗',
+    wasMentioned: true,
+    inboundContext: {
+      ...payload.messages[0].inboundContext,
+      Body: '@小腻 看到前面了吗',
+      BodyForAgent: '@小腻 看到前面了吗',
+      BodyForCommands: '@小腻 看到前面了吗',
+      WasMentioned: true,
+      MentionedUsers: []
+    }
+  });
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt());
+  const rendered = loopInput.map(getMessageContent).join('\n');
+  const sceneRendered = loopInput
+    .filter((item: any) => item.role !== 'system')
+    .map(getMessageContent)
+    .join('\n');
+
+  assert.match(rendered, /<IM_INBOX_WINDOW[^>]*materialization="opened"[^>]*trigger="explicit_mention"/);
+  assert.match(rendered, /前面普通未读/);
+  assert.match(rendered, /@小腻 看到前面了吗/);
+  assert.match(rendered, /message_id="11"/);
+  assert.match(rendered, /message_id="12"/);
+  assert.doesNotMatch(sceneRendered, /<UNREAD_AVAILABLE/);
+  assert.equal(loopInput.some((item: any) => item.role === 'developer' && /Alice|202|<IM_INBOX_WINDOW|<UNREAD_AVAILABLE/.test(getMessageContent(item))), false);
+});
+
+test('buildInitialInput materializes full direct IM window when active IM use enqueues it', () => {
+  const payload = createDirectQueuePayload();
+  payload.bodyForAgent = '第一条私聊\n第二条私聊';
+  payload.rawBody = '第一条私聊\n第二条私聊';
+  payload.messages[0].bodyForAgent = '第一条私聊';
+  payload.messages[0].rawBody = '第一条私聊';
+  payload.messages[0].inboundContext = {
+    ...payload.messages[0].inboundContext,
+    Body: '第一条私聊',
+    BodyForAgent: '第一条私聊',
+    BodyForCommands: '第一条私聊'
+  };
+  payload.messages.push({
+    ...payload.messages[0],
+    queueMessageId: 2,
+    messageId: 12,
+    messageSid: 'sid-2',
+    bodyForAgent: '第二条私聊',
+    rawBody: '第二条私聊',
+    inboundContext: {
+      ...payload.messages[0].inboundContext,
+      Body: '第二条私聊',
+      BodyForAgent: '第二条私聊',
+      BodyForCommands: '第二条私聊'
+    }
+  });
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt());
+  const rendered = loopInput.map(getMessageContent).join('\n');
+  const sceneRendered = loopInput
+    .filter((item: any) => item.role !== 'system')
+    .map(getMessageContent)
+    .join('\n');
+
+  assert.match(rendered, /<IM_INBOX_WINDOW[^>]*chat_type="direct"[^>]*materialization="opened"[^>]*trigger="proactive_use_im"/);
+  assert.match(rendered, /第一条私聊/);
+  assert.match(rendered, /第二条私聊/);
+  assert.match(rendered, /message_id="11"/);
+  assert.match(rendered, /message_id="12"/);
+  assert.doesNotMatch(sceneRendered, /<UNREAD_AVAILABLE/);
+  assert.equal(loopInput.some((item: any) => item.role === 'developer' && /Alice|202|<IM_INBOX_WINDOW|<UNREAD_AVAILABLE/.test(getMessageContent(item))), false);
 });
 
 test('buildInitialInput projects image placeholders without exposing image locators', () => {
@@ -1234,7 +1332,7 @@ test('buildInitialInput keeps current batch before reminder and identity continu
   const osIndex = rendered.findIndex((content) => content.includes('上一轮留下的内在延续'));
   const firstCurrentIndex = rendered.findIndex((content) => content.includes('message_id="11"'));
   const secondCurrentIndex = rendered.findIndex((content) => content.includes('message_id="12"'));
-  const reminderIndex = rendered.findIndex((content) => content.includes('<system_reminder>从这些消息开始是我还没看过的新消息'));
+  const reminderIndex = rendered.findIndex((content) => content.includes('<system_reminder>本次已打开 IM；从这些消息开始是我还没看过的新消息'));
   const identityIndex = rendered.findIndex((content) => content.includes('[身份连续性]'));
   const historyReadingIndex = rendered.findIndex((content) => content.includes('<runtime_history_reading>'));
 
@@ -2712,7 +2810,8 @@ test('processQueueMessage fails without a bound prompt and does not call the pro
     failQueueMessage: [],
     completeAgentRun: [],
     updateLlmJob: [],
-    logTimelineEvent: []
+    logTimelineEvent: [],
+    recordSilenceDecisionLifeEvent: []
   };
 
   const store = {
@@ -2730,7 +2829,8 @@ test('processQueueMessage fails without a bound prompt and does not call the pro
     attachConversationIdToTrace: async () => {},
     failQueueMessage: async (...args: any[]) => { storeCalls.failQueueMessage.push(args); },
     completeAgentRun: async (_runId: string, params: any) => { storeCalls.completeAgentRun.push(params); },
-    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); }
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); },
+    recordSilenceDecisionLifeEvent: async (params: any) => { storeCalls.recordSilenceDecisionLifeEvent.push(params); }
   } as any;
 
   const resolver = {
@@ -2779,6 +2879,7 @@ test('processQueueMessage fails without a bound prompt and does not call the pro
   assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'prompt_binding_error');
   assert.equal(storeCalls.completeAgentRun[0]?.noReply, true);
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'failed');
+  assert.equal(storeCalls.recordSilenceDecisionLifeEvent.length, 0);
 });
 
 test('processQueueMessage persists delivered assistant transcript items with final phase on success', async () => {
@@ -2990,7 +3091,8 @@ test('processQueueMessage completes with no reply when the model directly calls 
     createConversation: [],
     completeQueueMessage: [],
     completeAgentRun: [],
-    updateLlmJob: []
+    updateLlmJob: [],
+    recordSilenceDecisionLifeEvent: []
   };
 
   const store = {
@@ -3049,7 +3151,8 @@ test('processQueueMessage completes with no reply when the model directly calls 
     completeQueueMessage: async (_runId: string, params: any) => { storeCalls.completeQueueMessage.push(params); },
     failQueueMessage: async () => {},
     completeAgentRun: async (_runId: string, params: any) => { storeCalls.completeAgentRun.push(params); },
-    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); }
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); },
+    recordSilenceDecisionLifeEvent: async (params: any) => { storeCalls.recordSilenceDecisionLifeEvent.push(params); }
   } as any;
 
   const service = new AgentLoopService(store, {
@@ -3092,6 +3195,10 @@ test('processQueueMessage completes with no reply when the model directly calls 
   assert.equal(storeCalls.completeQueueMessage[0]?.result?.termination_reason, 'finish_no_reply');
   assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'finish_no_reply');
   assert.equal(storeCalls.completeAgentRun[0]?.totalTurns, 1);
+  assert.equal(storeCalls.recordSilenceDecisionLifeEvent.length, 1);
+  assert.equal(storeCalls.recordSilenceDecisionLifeEvent[0]?.outcome, 'silent');
+  assert.equal(storeCalls.recordSilenceDecisionLifeEvent[0]?.termination?.terminationReason, 'finish_no_reply');
+  assert.equal(storeCalls.recordSilenceDecisionLifeEvent[0]?.queueMessage?.sessionKey, 'qq:group:101');
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'completed');
 });
 
@@ -4118,9 +4225,9 @@ test('buildInitialInput does not inject legacy pending_share blocks', () => {
   assert.equal(userTexts.some((t: string) => t.includes('<INPUT_MESSAGE')), true);
 });
 
-test('materializePresenceTickQueueMessage replaces synthetic session with target group session', () => {
+function createPresenceTickQueueMessageForTest() {
   const basePayload = createQueuePayload();
-  const queueMessage = {
+  return {
     id: 'run-presence',
     traceId: 'trace-presence',
     batchId: 'batch-presence',
@@ -4162,7 +4269,10 @@ test('materializePresenceTickQueueMessage replaces synthetic session with target
       }))
     }
   };
+}
 
+test('materializePresenceTickQueueMessage replaces synthetic session with target group session', () => {
+  const queueMessage = createPresenceTickQueueMessageForTest();
   const materialized = materializePresenceTickQueueMessage(queueMessage);
   assert.equal(materialized.payload.sessionKey, 'qq:group:999');
   assert.equal(materialized.payload.peerId, '999');
@@ -4173,14 +4283,67 @@ test('materializePresenceTickQueueMessage replaces synthetic session with target
   assert.equal(materialized.payload.messages[0].peerId, '999');
 });
 
+test('materializePresenceTickInboxWindow turns claimed unread into a proactive IM window', () => {
+  const queueMessage = materializePresenceTickQueueMessage(createPresenceTickQueueMessageForTest());
+  const materialized = materializePresenceTickInboxWindow(queueMessage, [{
+    id: 901,
+    traceId: 'trace-inbox-901',
+    source: 'napcat',
+    messageSid: 'sid-inbox-901',
+    chatType: 'group',
+    sessionKey: 'qq:group:999',
+    peerId: '999',
+    peerName: 'Presence Group',
+    senderId: '202',
+    senderName: 'Alice',
+    accountId: '303',
+    bodyForAgent: '普通未读，但是小腻主动打开 IM 后应该看到',
+    rawBody: '普通未读，但是小腻主动打开 IM 后应该看到',
+    commandBody: '普通未读，但是小腻主动打开 IM 后应该看到',
+    wasMentioned: false,
+    receivedAt: '2026-03-28T08:01:00.000Z',
+    messageTimestamp: '2026-03-28T08:01:00.000Z',
+    rawPayload: {},
+    inboundContext: {
+      Body: '普通未读，但是小腻主动打开 IM 后应该看到',
+      BodyForAgent: '普通未读，但是小腻主动打开 IM 后应该看到',
+      BodyForCommands: '普通未读，但是小腻主动打开 IM 后应该看到',
+      ChatType: 'group',
+      NativeChannelId: '999',
+      SessionKey: 'qq:group:999',
+      AccountId: '303',
+      MessageSid: 'sid-inbox-901',
+      SenderId: '202',
+      SenderName: 'Alice',
+      WasMentioned: false,
+      CommandAuthorized: false
+    }
+  }]);
+
+  assert.equal(materialized.payload.source, 'proactive_im_open');
+  assert.equal(materialized.payload.presenceTick, undefined);
+  assert.equal(materialized.payload.messages.length, 1);
+
+  const loopInput = buildInitialInput([], materialized.payload, createRuntimePrompt());
+  const rendered = loopInput.map(getMessageContent).join('\n');
+  const sceneRendered = loopInput
+    .filter((item: any) => item.role !== 'system')
+    .map(getMessageContent)
+    .join('\n');
+  assert.match(rendered, /<IM_INBOX_WINDOW[^>]*trigger="proactive_use_im"/);
+  assert.match(rendered, /普通未读，但是小腻主动打开 IM 后应该看到/);
+  assert.doesNotMatch(sceneRendered, /<UNREAD_AVAILABLE/);
+  assert.doesNotMatch(sceneRendered, /小腻主动打开群看了一眼；当前没有新的群友消息触发/);
+});
+
 // F: 社交认知帧 — social cognitive frame substrings appear in agent instructions
 test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in instructions', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.match(String(request.instructions), /这一轮的目标：看懂真实 QQ 现场/);
+  assert.match(String(request.instructions), /目标：看懂当前可见现场/);
   assert.match(String(request.instructions), /有具体可说点才开口/);
   assert.match(String(request.instructions), /社交方向/);
-  assert.match(String(request.instructions), /@ 了我是信号，不是命令/);
+  assert.match(String(request.instructions), /@ 是打开 IM 的信号/);
 });
 
 // H: developer role injection — stable world narrative stays early while turn-dynamic context stays late

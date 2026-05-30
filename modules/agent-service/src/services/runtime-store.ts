@@ -1350,7 +1350,7 @@ export class RuntimeStore {
       }, databaseConfig);
     }
 
-    const wakeKind = queueMessage.chatType === 'direct' ? 'direct_private' : 'explicit_mention';
+    const wakeKind = queueMessage.wasMentioned ? 'explicit_mention' : 'proactive_use_im';
     await this.recordLifeEventSafe({
       identityKey: 'xiaoni',
       eventKind: 'surface_visit',
@@ -1374,8 +1374,8 @@ export class RuntimeStore {
         wake_kind: wakeKind,
         unread_batch_size: queueMessage.messages.length,
         direct_materialization_policy: queueMessage.chatType === 'direct'
-          ? 'private_dm_is_current_surface'
-          : 'group_message_requires_explicit_mention'
+          ? 'private_dm_claimed_by_active_im_open'
+          : 'group_message_requires_explicit_mention_or_active_im_open'
       },
       dedupeKey: `surface_visit:${compactDedupePart(queueMessage.runId, queueMessage.traceId)}:${compactDedupePart(queueMessage.sessionKey, 'session')}`
     });
@@ -1507,6 +1507,76 @@ export class RuntimeStore {
         dedupeKey: `qq_self_message:${compactDedupePart(runId, queueMessage.traceId)}:${index}`
       });
     }
+  }
+
+  async recordSilenceDecisionLifeEvent(input: {
+    queueMessage: QueueMessagePayload;
+    runId?: string;
+    traceId?: string;
+    outcome?: string | null;
+    presenceOutcome?: string | null;
+    termination: {
+      terminationReason: string;
+      finishReason?: string | null;
+      finishOutcome?: string | null;
+      noReply?: boolean;
+    };
+    totalTurns?: number;
+    conversationId?: number | null;
+  }) {
+    const now = new Date();
+    const queueMessage = input.queueMessage;
+    const runId = input.runId || queueMessage.runId;
+    const traceId = input.traceId || queueMessage.traceId;
+    const outcome = input.outcome || input.presenceOutcome || (isPresenceTickPayload(queueMessage) ? 'lurked' : 'silent');
+    const firstMessage = queueMessage.messages[0] || null;
+
+    await this.recordLifeEventSafe({
+      identityKey: 'xiaoni',
+      eventKind: 'silence_decision',
+      occurredAt: now,
+      surface: 'qq',
+      chatType: queueMessage.chatType,
+      sessionKey: queueMessage.sessionKey,
+      surfaceId: queueMessage.sessionKey,
+      peerId: queueMessage.peerId,
+      accountId: queueMessage.accountId,
+      messageSid: firstMessage?.messageSid || null,
+      messageId: typeof firstMessage?.messageId === 'undefined' ? null : String(firstMessage.messageId),
+      batchId: queueMessage.batchId,
+      queueMessageId: firstMessage?.queueMessageId,
+      runId,
+      traceId,
+      actorType: 'xiaoni',
+      actorId: queueMessage.accountId,
+      targetId: queueMessage.peerId,
+      visibility: 'self_private',
+      actionCost: isPresenceTickPayload(queueMessage) ? 0.2 : 0.1,
+      payload: {
+        run_id: runId,
+        trace_id: traceId,
+        chat_type: queueMessage.chatType,
+        session_key: queueMessage.sessionKey,
+        peer_id: queueMessage.peerId,
+        peer_name: queueMessage.peerName || null,
+        account_id: queueMessage.accountId,
+        batch_id: queueMessage.batchId,
+        source: queueMessage.source,
+        outcome,
+        presence_outcome: input.presenceOutcome || outcome,
+        termination: {
+          reason: input.termination.terminationReason,
+          finish_reason: input.termination.finishReason || null,
+          finish_outcome: input.termination.finishOutcome || null,
+          no_reply: input.termination.noReply ?? true
+        },
+        reason: input.termination.finishReason || input.termination.terminationReason,
+        total_turns: input.totalTurns ?? null,
+        conversation_id: input.conversationId ?? null,
+        unread_batch_size: queueMessage.messages.length
+      },
+      dedupeKey: `silence_decision:${compactDedupePart(runId, traceId || 'run')}:${compactDedupePart(queueMessage.sessionKey, 'session')}`
+    });
   }
 
   async recordPresenceProactiveCompletion(queueMessage: QueueMessagePayload, outcome: string) {

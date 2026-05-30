@@ -6,6 +6,7 @@ import {
   RuntimeStore
 } from '../services/runtime-store';
 import { deriveLifeState } from '../services/presence-context';
+import type { QueueMessagePayload } from '../types';
 
 function createStoreWithQuery(query: (sql: string, params?: unknown[]) => Promise<unknown[]>) {
   const store = new RuntimeStore() as any;
@@ -28,6 +29,76 @@ function createStoreWithSql(overrides: Partial<Record<'query' | 'execute', any>>
   return store as RuntimeStore;
 }
 
+function createRuntimeStoreQueuePayload(overrides: Partial<QueueMessagePayload> = {}): QueueMessagePayload {
+  return {
+    traceId: 'trace-runtime-silence',
+    runId: 'run-runtime-silence',
+    batchId: 'batch-runtime-silence',
+    source: 'presence_tick',
+    chatType: 'group',
+    sessionKey: 'qq:group:999',
+    peerId: '999',
+    peerName: 'Presence Group',
+    senderId: '303',
+    senderName: 'presence_tick',
+    accountId: '303',
+    bodyForAgent: 'presence_tick',
+    rawBody: 'presence_tick',
+    commandBody: 'presence_tick',
+    wasMentioned: false,
+    receivedAt: '2026-05-30T08:00:00.000Z',
+    messageTimestamp: '2026-05-30T08:00:00.000Z',
+    rawPayload: {},
+    inboundContext: {
+      Body: 'presence_tick',
+      BodyForAgent: 'presence_tick',
+      BodyForCommands: 'presence_tick',
+      NativeChannelId: '999',
+      CommandAuthorized: true,
+      Surface: 'presence_tick'
+    },
+    messages: [{
+      queueMessageId: 7001,
+      traceId: 'trace-runtime-silence',
+      source: 'presence_tick',
+      messageId: 8001,
+      messageSid: 'presence:sid:8001',
+      chatType: 'group',
+      sessionKey: 'qq:group:999',
+      peerId: '999',
+      peerName: 'Presence Group',
+      senderId: '303',
+      senderName: 'presence_tick',
+      accountId: '303',
+      bodyForAgent: 'presence_tick',
+      rawBody: 'presence_tick',
+      commandBody: 'presence_tick',
+      wasMentioned: false,
+      receivedAt: '2026-05-30T08:00:00.000Z',
+      messageTimestamp: '2026-05-30T08:00:00.000Z',
+      rawPayload: {},
+      inboundContext: {
+        Body: 'presence_tick',
+        BodyForAgent: 'presence_tick',
+        BodyForCommands: 'presence_tick',
+        NativeChannelId: '999',
+        CommandAuthorized: true,
+        Surface: 'presence_tick'
+      }
+    }],
+    presenceTick: {
+      identityKey: 'xiaoni',
+      targetSessionKey: 'qq:group:999',
+      targetGroupId: 999,
+      targetPeerId: '999',
+      targetPeerName: 'Presence Group',
+      targetChatType: 'group',
+      targetAccountId: '303'
+    },
+    ...overrides
+  };
+}
+
 test('buildPresenceAnchorsFromLife preserves recent activity for fatigue derivation', () => {
   const now = new Date('2026-05-30T04:00:00.000Z');
   const anchors = buildPresenceAnchorsFromLife({
@@ -46,6 +117,49 @@ test('buildPresenceAnchorsFromLife preserves recent activity for fatigue derivat
   assert.equal(anchors.lastActiveAt, '2026-05-30T03:55:00.000Z');
   assert.ok(state.fatigue < 0.01);
   assert.ok(state.energy > 0.99);
+});
+
+test('recordSilenceDecisionLifeEvent records lurked run as self-private silence decision', async () => {
+  const store = createStoreWithSql({});
+  const lifeEvents: any[] = [];
+  (store as any).recordLifeEventSafe = async (input: any) => {
+    lifeEvents.push(input);
+  };
+
+  const queueMessage = createRuntimeStoreQueuePayload();
+
+  await store.recordSilenceDecisionLifeEvent({
+    queueMessage,
+    outcome: 'lurked',
+    presenceOutcome: 'lurked',
+    termination: {
+      terminationReason: 'finish_no_reply',
+      finishReason: 'opened the group and stayed quiet',
+      finishOutcome: 'complete',
+      noReply: true
+    },
+    totalTurns: 1,
+    conversationId: 42
+  });
+
+  assert.equal(lifeEvents.length, 1);
+  const event = lifeEvents[0];
+  assert.equal(event.eventKind, 'silence_decision');
+  assert.equal(event.visibility, 'self_private');
+  assert.equal(event.chatType, 'group');
+  assert.equal(event.sessionKey, 'qq:group:999');
+  assert.equal(event.peerId, '999');
+  assert.equal(event.runId, 'run-runtime-silence');
+  assert.equal(event.traceId, 'trace-runtime-silence');
+  assert.equal(event.messageSid, 'presence:sid:8001');
+  assert.equal(event.queueMessageId, 7001);
+  assert.equal(event.payload.outcome, 'lurked');
+  assert.equal(event.payload.presence_outcome, 'lurked');
+  assert.equal(event.payload.termination.reason, 'finish_no_reply');
+  assert.equal(event.payload.termination.finish_reason, 'opened the group and stayed quiet');
+  assert.equal(event.payload.reason, 'opened the group and stayed quiet');
+  assert.equal(event.payload.conversation_id, 42);
+  assert.match(event.dedupeKey, /^silence_decision:run-runtime-silence:qq:group:999$/);
 });
 
 test('listRecentTurns rebuilds historical user items from structured queue payloads', async () => {
