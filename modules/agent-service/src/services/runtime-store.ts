@@ -34,13 +34,9 @@ import {
   updateAgentLifeState,
   upsertAgentGroupPresenceState,
   listAgentSharePoolItems,
-  createAgentSharePoolItem,
   createAgentShareItemUsage,
   createAgentPresenceStateSidecar,
-  createAgentDigitalAction,
-  updateAgentDigitalAction,
   listAgentDigitalActions,
-  countAgentDigitalActions,
   recordAgentLifeEvent,
   createAgentMemoryAssertion,
   createAgentMemoryObservation,
@@ -294,36 +290,6 @@ export type RuntimePresenceContext = {
   recallScores: Record<string, unknown>[];
   boundaryJudgments: Record<string, unknown>[];
   compressionMapping: Record<string, unknown>;
-};
-
-export type RuntimeSelfActionEligibility = {
-  eligible: boolean;
-  reason: string;
-  lifeState: ReturnType<typeof deriveLifeState>;
-  budgetSnapshot: Record<string, unknown>;
-};
-
-export type RuntimeDigitalAction = {
-  id: string;
-  identityKey: string;
-  actionType: string;
-  surface: string;
-  motiveKind: string | null;
-  motiveText: string | null;
-  query: string | null;
-  status: string;
-  sourceTrace: Record<string, unknown>;
-  resultSummary: string | null;
-  residueText: string | null;
-  residueKind: string | null;
-  sourceWording: string | null;
-  budgetSnapshot: Record<string, unknown>;
-  sourceQueueIds: unknown[];
-  sourceRunIds: unknown[];
-  errorMessage: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
-  completedAt: string | null;
 };
 
 function isImmediateVisibleImWake(queueMessage: QueueMessagePayload) {
@@ -1580,290 +1546,25 @@ export class RuntimeStore {
 
   async recordPresenceProactiveCompletion(queueMessage: QueueMessagePayload, outcome: string) {
     const now = new Date();
-    const currentDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
-    const sameDay = isSameUtcDate(life.daily_proactive_date as Date | string | null | undefined, now);
-    await updateAgentLifeState('xiaoni', {
-      last_proactive_at: now,
-      daily_proactive_date: currentDate,
-      daily_proactive_count: sameDay ? { increment: 1 } : 1
-    }, databaseConfig);
+    const spoke = outcome === 'shared' || outcome === 'replied';
+    const nextState: Record<string, unknown> = {
+      last_proactive_at: now
+    };
+    if (spoke) {
+      const currentDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
+      const sameDay = isSameUtcDate(life.daily_proactive_date as Date | string | null | undefined, now);
+      nextState.daily_proactive_date = currentDate;
+      nextState.daily_proactive_count = sameDay ? { increment: 1 } : 1;
+    }
+    await updateAgentLifeState('xiaoni', nextState, databaseConfig);
     if (queueMessage.chatType === 'group') {
       await upsertAgentGroupPresenceState({
         identityKey: 'xiaoni',
         sessionKey: queueMessage.sessionKey,
-        ...(outcome === 'shared' || outcome === 'replied' ? { lastSpokeAt: now } : {})
+        ...(spoke ? { lastSpokeAt: now } : {})
       }, databaseConfig);
     }
-  }
-
-  async evaluateSelfActionEligibility(surface = 'background'): Promise<RuntimeSelfActionEligibility> {
-    const now = new Date();
-    const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
-    const state = deriveLifeState(buildPresenceAnchorsFromLife(life, now), {
-      cooldownMs: agentConfig.selfActionCooldownMs,
-      startupGraceMs: agentConfig.selfActionStartupGraceMs
-    });
-    const dayStart = new Date(now);
-    dayStart.setHours(0, 0, 0, 0);
-    const hourStart = new Date(now.getTime() - 60 * 60 * 1000);
-    const [dailyCount, hourlyCount, latestActions] = await Promise.all([
-      countAgentDigitalActions({
-        identityKey: 'xiaoni',
-        actionType: 'web_search',
-        status: 'completed',
-        createdAfter: dayStart
-      }, databaseConfig),
-      countAgentDigitalActions({
-        identityKey: 'xiaoni',
-        actionType: 'web_search',
-        status: 'completed',
-        createdAfter: hourStart
-      }, databaseConfig),
-      listAgentDigitalActions({
-        identityKey: 'xiaoni',
-        actionType: 'web_search',
-        limit: 10
-      }, databaseConfig) as Promise<RuntimeDigitalAction[]>
-    ]);
-    const lastUserMessageAt = life.last_user_message_at ? new Date(life.last_user_message_at as Date | string) : null;
-    const consecutiveWithoutUser = latestActions.filter((action) => {
-      if (action.status !== 'completed') return false;
-      const createdAt = action.createdAt ? new Date(action.createdAt) : null;
-      if (!createdAt || Number.isNaN(createdAt.getTime())) return false;
-      return !lastUserMessageAt || createdAt.getTime() > lastUserMessageAt.getTime();
-    }).length;
-    const latestActionAt = latestActions[0]?.createdAt ? new Date(latestActions[0].createdAt) : null;
-    const cooldownRemainingMs = latestActionAt && Number.isFinite(latestActionAt.getTime())
-      ? Math.max(0, agentConfig.selfActionCooldownMs - (now.getTime() - latestActionAt.getTime()))
-      : 0;
-    const budgetSnapshot = {
-      surface,
-      daily_count: dailyCount,
-      daily_budget: agentConfig.selfActionDailyBudget,
-      hourly_count: hourlyCount,
-      hourly_budget: agentConfig.selfActionHourlyBudget,
-      consecutive_without_user: consecutiveWithoutUser,
-      max_consecutive_without_user: agentConfig.selfActionMaxConsecutiveWithoutUser,
-      cooldown_remaining_ms: cooldownRemainingMs,
-      state
-    };
-
-    if (!agentConfig.selfActionEnabled) {
-      return { eligible: false, reason: 'disabled', lifeState: state, budgetSnapshot };
-    }
-    if (!agentConfig.webSearchEnabled) {
-      return { eligible: false, reason: 'web_search_disabled', lifeState: state, budgetSnapshot };
-    }
-    if (state.startupGraceActive) {
-      return { eligible: false, reason: 'startup_grace', lifeState: state, budgetSnapshot };
-    }
-    if (agentConfig.selfActionDailyBudget <= 0 || dailyCount >= agentConfig.selfActionDailyBudget) {
-      return { eligible: false, reason: 'daily_budget_exhausted', lifeState: state, budgetSnapshot };
-    }
-    if (agentConfig.selfActionHourlyBudget <= 0 || hourlyCount >= agentConfig.selfActionHourlyBudget) {
-      return { eligible: false, reason: 'hourly_budget_exhausted', lifeState: state, budgetSnapshot };
-    }
-    if (cooldownRemainingMs > 0) {
-      return { eligible: false, reason: 'cooldown', lifeState: state, budgetSnapshot };
-    }
-    if (agentConfig.selfActionMaxConsecutiveWithoutUser >= 0 && consecutiveWithoutUser >= agentConfig.selfActionMaxConsecutiveWithoutUser) {
-      return { eligible: false, reason: 'awaiting_user_interaction', lifeState: state, budgetSnapshot };
-    }
-    if (state.fatigue > 0.9) {
-      return { eligible: false, reason: 'fatigue', lifeState: state, budgetSnapshot };
-    }
-    if (state.sharingDesire < 0.25 && state.boredom < 0.5) {
-      return { eligible: false, reason: 'low_internal_drive', lifeState: state, budgetSnapshot };
-    }
-    return { eligible: true, reason: 'eligible', lifeState: state, budgetSnapshot };
-  }
-
-  async createDigitalAction(input: {
-    id: string;
-    actionType: string;
-    surface: string;
-    status: string;
-    motiveKind?: string | null;
-    motiveText?: string | null;
-    query?: string | null;
-    budgetSnapshot?: Record<string, unknown>;
-    sourceQueueIds?: unknown[];
-    sourceRunIds?: unknown[];
-  }): Promise<RuntimeDigitalAction> {
-    const action = await createAgentDigitalAction({
-      id: input.id,
-      identityKey: 'xiaoni',
-      actionType: input.actionType,
-      surface: input.surface,
-      status: input.status,
-      motiveKind: input.motiveKind || null,
-      motiveText: input.motiveText || null,
-      query: input.query || null,
-      budgetSnapshot: input.budgetSnapshot || {},
-      sourceQueueIds: input.sourceQueueIds || [],
-      sourceRunIds: input.sourceRunIds || []
-    }, databaseConfig) as RuntimeDigitalAction;
-
-    await this.recordLifeEventSafe({
-      identityKey: action.identityKey || 'xiaoni',
-      eventKind: 'self_action_started',
-      occurredAt: action.createdAt ? new Date(action.createdAt) : new Date(),
-      surface: action.surface,
-      sourceActionId: action.id,
-      actorType: 'xiaoni',
-      actorId: 'xiaoni',
-      visibility: 'self_private',
-      actionCost: 1,
-      payload: {
-        action_type: action.actionType,
-        status: action.status,
-        motive_kind: action.motiveKind,
-        motive_text: action.motiveText,
-        query: action.query,
-        source_queue_ids: action.sourceQueueIds,
-        source_run_ids: action.sourceRunIds,
-        budget_snapshot: action.budgetSnapshot
-      },
-      dedupeKey: `self_action_started:${action.id}`
-    });
-
-    return action;
-  }
-
-  async completeDigitalAction(input: {
-    id: string;
-    motiveKind?: string | null;
-    motiveText?: string | null;
-    query?: string | null;
-    sourceTrace?: Record<string, unknown>;
-    resultSummary?: string | null;
-    residueText?: string | null;
-    residueKind?: string | null;
-    sourceWording?: string | null;
-  }): Promise<RuntimeDigitalAction> {
-    const now = new Date();
-    const action = await updateAgentDigitalAction(input.id, {
-      status: 'completed',
-      motiveKind: input.motiveKind || null,
-      motiveText: input.motiveText || null,
-      query: input.query || null,
-      sourceTrace: input.sourceTrace || {},
-      resultSummary: input.resultSummary || null,
-      residueText: input.residueText || null,
-      residueKind: input.residueKind || null,
-      sourceWording: input.sourceWording || null,
-      completedAt: now
-    }, databaseConfig) as RuntimeDigitalAction;
-    await updateAgentLifeState('xiaoni', {
-      last_active_at: now,
-      last_boredom_reset_at: now
-    }, databaseConfig);
-
-    await this.recordLifeEventSafe({
-      identityKey: action.identityKey || 'xiaoni',
-      eventKind: 'self_action_completed',
-      occurredAt: now,
-      surface: action.surface,
-      sourceActionId: action.id,
-      actorType: 'xiaoni',
-      actorId: 'xiaoni',
-      visibility: 'self_private',
-      actionCost: 1,
-      rewardDelta: action.residueText || action.resultSummary ? 0.2 : 0,
-      payload: {
-        action_type: action.actionType,
-        status: action.status,
-        motive_kind: action.motiveKind,
-        motive_text: action.motiveText,
-        query: action.query,
-        result_summary: action.resultSummary,
-        residue_kind: action.residueKind,
-        source_wording: action.sourceWording
-      },
-      dedupeKey: `self_action_completed:${action.id}`
-    });
-
-    if (action.actionType === 'web_search' && (action.resultSummary || action.residueText)) {
-      await this.recordLifeEventSafe({
-        identityKey: action.identityKey || 'xiaoni',
-        eventKind: 'web_search_result',
-        occurredAt: now,
-        surface: action.surface,
-        sourceActionId: action.id,
-        actorType: 'xiaoni',
-        actorId: 'xiaoni',
-        visibility: 'public_residue',
-        actionCost: 1,
-        rewardDelta: 0.3,
-        payload: {
-          query: action.query,
-          result_summary: action.resultSummary,
-          residue_text: action.residueText,
-          residue_kind: action.residueKind,
-          source_wording: action.sourceWording,
-          source_trace: action.sourceTrace
-        },
-        dedupeKey: `web_search_result:${action.id}`
-      });
-    }
-    return action;
-  }
-
-  async failDigitalAction(id: string, errorMessage: string): Promise<RuntimeDigitalAction> {
-    return updateAgentDigitalAction(id, {
-      status: 'failed',
-      errorMessage,
-      completedAt: new Date()
-    }, databaseConfig) as Promise<RuntimeDigitalAction>;
-  }
-
-  async createSharePoolItemFromDigitalAction(input: {
-    action: RuntimeDigitalAction;
-    content: string;
-    boundaryLabel: string;
-    baseHeat?: number;
-    metadata?: Record<string, unknown>;
-  }) {
-    const item = await createAgentSharePoolItem({
-      identityKey: input.action.identityKey || 'xiaoni',
-      content: input.content,
-      sourceKind: input.action.actionType === 'web_search' ? 'web_search' : input.action.actionType,
-      boundaryLabel: input.boundaryLabel,
-      sourceWording: input.action.sourceWording || 'real_web_search',
-      effortCost: 1,
-      baseHeat: input.baseHeat || 1,
-      metadata: {
-        ...(input.metadata || {}),
-        digital_action_id: input.action.id,
-        motive_kind: input.action.motiveKind,
-        query: input.action.query
-      }
-    }, databaseConfig);
-
-    await this.recordLifeEventSafe({
-      identityKey: input.action.identityKey || 'xiaoni',
-      eventKind: 'pending_share_created',
-      occurredAt: item.createdAt ? new Date(item.createdAt) : new Date(),
-      surface: input.action.surface,
-      sourceActionId: input.action.id,
-      actorType: 'xiaoni',
-      actorId: 'xiaoni',
-      visibility: 'self_private',
-      rewardDelta: 0.2,
-      payload: {
-        share_pool_item_id: item.id,
-        content: item.content,
-        source_kind: item.sourceKind,
-        boundary_label: item.boundaryLabel,
-        source_wording: item.sourceWording,
-        base_heat: item.baseHeat,
-        metadata: item.metadata
-      },
-      dedupeKey: `pending_share_created:${item.id}`
-    });
-
-    return item;
   }
 
   async buildPresenceContext(queueMessage: QueueMessagePayload): Promise<RuntimePresenceContext> {

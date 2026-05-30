@@ -89,7 +89,7 @@ export function deriveLifeState(anchors: PresenceAnchors, options: {
   const fatigue = clamp01((sleepPressure * 0.75) + (hoursSinceActive > 20 ? 0.25 : 0) - (recentSleepRestore * 0.4));
   const boredom = clamp01(hoursSinceBoredomReset / 3);
   const energy = clamp01(1 - fatigue);
-  const sharingDesire = clamp01((boredom * 0.65) + (energy * 0.25) - ((anchors.dailyProactiveCount || 0) * 0.08));
+  const sharingDesire = clamp01((boredom * 0.7) + (energy * 0.3));
   const cooldownActive = Boolean(enqueuedAt && now.getTime() - enqueuedAt.getTime() < (options.cooldownMs ?? 45 * 60 * 1000));
   const startupGraceActive = Boolean(serviceStartedAt && now.getTime() - serviceStartedAt.getTime() < (options.startupGraceMs ?? 5 * 60 * 1000));
 

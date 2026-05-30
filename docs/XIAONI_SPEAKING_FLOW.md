@@ -41,7 +41,7 @@ flowchart TD
 
   AgentTimer[agent-service presence timer] --> PresenceQueue[(synthetic presence_tick)]
   PresenceQueue --> Loop
-  SelfActionTimer[agent-service self-action timer] --> SelfSkip[legacy_self_action_search_removed]
+  RetiredSelfAction[旧 random self-action runner 已删除]
   HistoricalActions[(historical agent_digital_actions / share pool)] --> Loop
 ```
 
@@ -86,7 +86,7 @@ flowchart TD
 
 presence tick 只决定“要不要从小腻自己的生活里抬头检查 IM 列表并入队”。它不再读取固定目标群；处理时如果 inbox 有未读，会选择一个未读会话 claim 成 `proactive_im_open`，真正说不说仍由 main loop 判断。
 
-self-action 也不直接发 QQ。旧的后台 hosted `web_search` runner 已退役；当前 self-action timer 只会通过 eligibility 后返回 `legacy_self_action_search_removed`。历史 `agent_digital_actions` 和 share pool 记录仍可被 presence/context 读取，后续新的数字生活 runner 需要重新接入。
+旧的后台 hosted `web_search` self-action runner 已从 runtime 删除。历史 `agent_digital_actions` 和 share pool 记录仍可被 presence/context 读取，后续新的数字生活 runner 需要重新接入。
 
 ## Main Loop 当前契约
 

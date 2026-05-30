@@ -2,9 +2,9 @@
 
 Status: design-locked from office-hours on 2026-05-26. Current implementation
 has landed the presence-context first slice. A constrained hosted `web_search`
-self-action slice landed on 2026-05-30, then its random runner was retired on
-2026-05-31; the tables and historical traces remain, but current runtime no
-longer starts new self-action searches. This is still not the full
+self-action slice landed on 2026-05-30, then its random runner was deleted from
+runtime on 2026-05-31; the tables and historical traces remain, but current
+runtime no longer starts new self-action searches. This is still not the full
 browser-backed digital-life system.
 
 This document is the system of record for browser-backed digital life,
@@ -205,10 +205,8 @@ Current implemented slices:
   `emit_self_search_result`. Completed actions are written to
   `agent_digital_actions`; safe `share_seed` residue is written to
   `agent_share_pool_items`.
-- 2026-05-31: the legacy random self-action `web_search` runner was retired.
-  `SelfActionService` now evaluates eligibility and returns
-  `legacy_self_action_search_removed` instead of calling provider-service or
-  writing a new digital action. Existing tables, historical records, source
+- 2026-05-31: the legacy random self-action `web_search` runner was removed
+  from agent-service runtime. Existing tables, historical records, source
   honesty checks, and presence projection support remain for replay and for the
   next digital-life runner.
 - Real-source wording is allowed only when the action trace proves a completed

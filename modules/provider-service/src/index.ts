@@ -337,7 +337,7 @@ function recordRelationshipLedgerAsync(inboundContext: FinalizedInboundContext, 
   });
 }
 
-function isInboxOnlyInboundMessage(message: { chatType: 'direct' | 'group'; wasMentioned: boolean }) {
+function isInboxOnlyInboundMessage(message: { chatType: 'direct' | 'group'; wasMentioned: boolean; senderId: string }) {
   return !decideInboundAgentQueueTrigger(message).shouldEnqueue;
 }
 

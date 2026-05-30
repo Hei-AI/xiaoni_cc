@@ -257,3 +257,62 @@ test('keeps direct messages inbox-only until xiaoni actively opens IM', async ()
   assert.equal(store.timelineEvents.length, 1);
   assert.equal(store.timelineEvents[0]?.eventPhase, 'skipped');
 });
+
+test('enqueues private messages from authorized user as IM triggers', async () => {
+  const earlierContext = buildContext({
+    ChatType: 'direct',
+    SessionKey: 'qq:direct:1129974489:85178516',
+    SenderId: '85178516',
+    MessageSid: 'dm-earlier',
+    Body: '前面一句',
+    BodyForAgent: '前面一句'
+  });
+  const triggerContext = buildContext({
+    ChatType: 'direct',
+    SessionKey: 'qq:direct:1129974489:85178516',
+    SenderId: '85178516',
+    MessageSid: 'dm-trigger',
+    Body: '现在这句要让小腻看到',
+    BodyForAgent: '现在这句要让小腻看到'
+  });
+  const earlier = buildInbox({
+    id: 201,
+    messageSid: 'dm-earlier',
+    dedupeKey: 'napcat:dm-earlier',
+    chatType: 'direct',
+    sessionKey: 'qq:direct:1129974489:85178516',
+    senderId: '85178516',
+    peerId: '85178516',
+    bodyForAgent: '前面一句',
+    inboundContext: earlierContext
+  });
+  const trigger = buildInbox({
+    id: 202,
+    messageSid: 'dm-trigger',
+    dedupeKey: 'napcat:dm-trigger',
+    chatType: 'direct',
+    sessionKey: 'qq:direct:1129974489:85178516',
+    senderId: '85178516',
+    peerId: '85178516',
+    bodyForAgent: '现在这句要让小腻看到',
+    inboundContext: triggerContext
+  });
+  const store = new FakeRuntimeStore();
+
+  const result = await processInboundAgentQueueTrigger({
+    inboxEvent: trigger,
+    inboxWindowMessages: [earlier, trigger],
+    inboundContext: trigger.inboundContext,
+    rawPayload: { trigger: true },
+    traceId: trigger.traceId,
+    source: 'napcat'
+  }, store);
+
+  assert.equal(result.queued, true);
+  assert.equal(result.triggerDecision.reason, 'direct_authorized_user_im_trigger');
+  assert.equal(result.imWindowMessageCount, 2);
+  assert.deepEqual(store.enqueuedMessages.map((message) => message.messageSid), ['dm-earlier', 'dm-trigger']);
+  assert.equal(store.enqueuedMessages[1]?.chatType, 'direct');
+  assert.equal(store.enqueuedMessages[1]?.senderId, '85178516');
+  assert.equal(store.enqueuedMessages[1]?.bodyForAgent, '现在这句要让小腻看到');
+});

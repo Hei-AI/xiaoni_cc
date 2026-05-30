@@ -2,6 +2,7 @@ import type { FinalizedInboundContext, InboxMessageRecord, SemanticInboundMessag
 
 export type InboundAgentQueueTriggerReason =
   | 'group_mention_im_trigger'
+  | 'direct_authorized_user_im_trigger'
   | 'direct_inbox_only'
   | 'group_unmentioned_inbox_only';
 
@@ -29,7 +30,17 @@ export type InboundAgentQueueRuntimeStore = {
   }): Promise<void>;
 };
 
-export function decideInboundAgentQueueTrigger(message: Pick<InboxMessageRecord, 'chatType' | 'wasMentioned'>): InboundAgentQueueTriggerDecision {
+function parseDirectTriggerUserIds(value: string | undefined): Set<string> {
+  return new Set(String(value || '85178516')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean));
+}
+
+export function decideInboundAgentQueueTrigger(
+  message: Pick<InboxMessageRecord, 'chatType' | 'wasMentioned' | 'senderId'>,
+  options: { directTriggerUserIds?: Set<string> } = {}
+): InboundAgentQueueTriggerDecision {
   if (message.chatType === 'group') {
     if (message.wasMentioned) {
       return {
@@ -41,6 +52,15 @@ export function decideInboundAgentQueueTrigger(message: Pick<InboxMessageRecord,
     return {
       shouldEnqueue: false,
       reason: 'group_unmentioned_inbox_only'
+    };
+  }
+
+  const directTriggerUserIds = options.directTriggerUserIds
+    || parseDirectTriggerUserIds(process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS || process.env.AUTHORIZED_USER_ID);
+  if (directTriggerUserIds.has(String(message.senderId))) {
+    return {
+      shouldEnqueue: true,
+      reason: 'direct_authorized_user_im_trigger'
     };
   }
 
@@ -71,6 +91,7 @@ export async function processInboundAgentQueueTrigger(params: {
         reason: triggerDecision.reason,
         chat_type: params.inboxEvent.chatType,
         session_key: params.inboxEvent.sessionKey,
+        sender_id: params.inboxEvent.senderId,
         was_mentioned: params.inboxEvent.wasMentioned
       }
     });
@@ -96,6 +117,7 @@ export async function processInboundAgentQueueTrigger(params: {
       trigger_reason: triggerDecision.reason,
       chat_type: params.inboxEvent.chatType,
       session_key: params.inboxEvent.sessionKey,
+      sender_id: params.inboxEvent.senderId,
       im_window_count: inboxWindowMessages.length
     }
   });

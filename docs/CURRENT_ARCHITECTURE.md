@@ -63,7 +63,7 @@ synthetic presence_tick 入队
 同一个 main loop 决定沉默 / 主动说一句 / 搜索资料
 ```
 
-self-action 入口当前只做 eligibility/skip。看到 `legacy_self_action_search_removed` 说明旧的 random web_search runner 被正确跳过。历史 `agent_digital_actions` 和 share pool 记录仍可用于观测、Admin 展示和后续 presence context 投影，但当前代码不会新建这种后台搜索记录。
+旧 random web_search self-action runner 已从 runtime 删除。历史 `agent_digital_actions` 和 share pool 记录仍可用于观测、Admin 展示和后续 presence context 投影，但当前代码不会新建这种后台搜索记录。
 
 技术对应关系只作为定位用：
 
@@ -333,7 +333,7 @@ stay_silent
 | 三层长期记忆 | 写入已生效，召回投影待接入 | 上下文压缩时写 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`；后续由 typed recall projection 注入运行时上下文。 |
 | 身份连续性 | 生效 | 已确认的身份事实会进入当前场景。 |
 | 搜索外部信息 | 有条件生效 | 只有当前阶段允许、且她判断需要资料时才会用。 |
-| 自主 web_search 数字行动 | 已退役旧 runner | 2026-05-30 的 hosted `web_search` slice 已留下表和历史记录投影能力；当前 self-action 入口只返回 `legacy_self_action_search_removed`，不会新建后台搜索。 |
+| 自主 web_search 数字行动 | 已删除旧 runner | 2026-05-30 的 hosted `web_search` slice 已留下表和历史记录投影能力；当前 runtime 不再挂载 random self-action timer，也不会新建后台搜索。 |
 | 记录本次处理过程 | 生效 | 包括是否发言、用了什么工具、模型调用等。 |
 | 处理后沉淀经验 | 生效 | 完成的对话之后，后台可能生成新的反馈经验或身份候选。 |
 

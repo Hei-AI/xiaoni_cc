@@ -41,6 +41,23 @@ test('shouldFirePresenceTick allows bored, energetic state after cooldown', () =
   assert.equal(shouldFirePresenceTick(state).shouldEnqueue, true);
 });
 
+test('presence sharing desire is not suppressed by previous proactive count', () => {
+  const state = deriveLifeState({
+    now: new Date('2026-05-26T12:00:00.000Z'),
+    serviceStartedAt: '2026-05-26T06:00:00.000Z',
+    lastBoredomResetAt: '2026-05-26T08:00:00.000Z',
+    lastActiveAt: '2026-05-26T08:00:00.000Z',
+    lastPresenceTickEnqueuedAt: '2026-05-26T10:00:00.000Z',
+    dailyProactiveCount: 12
+  }, {
+    cooldownMs: 45 * 60 * 1000,
+    startupGraceMs: 5 * 60 * 1000
+  });
+
+  assert.ok(state.sharingDesire > 0.35);
+  assert.equal(shouldFirePresenceTick(state).reason, 'eligible');
+});
+
 test('scoreSharePoolItem boosts fresh safe material over stale reframe material', () => {
   const now = new Date('2026-05-26T12:00:00.000Z');
   const fresh = scoreSharePoolItem({
