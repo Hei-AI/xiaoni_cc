@@ -65,7 +65,7 @@ QQ 群 / QQ 私聊
 4. 如果不允许自动回复，消息仍然可以被记录，但不会进入小腻主动发言流程。
 5. 如果允许自动回复，这批消息会进入小腻的待处理池。
 6. 小腻读取最近聊天、当前未读消息、自己之前留下的成长记录，以及已确认的身份/相处事实。
-7. 小腻先判断“现场发生了什么”，再判断“我对此有没有真实反应”。
+7. 小腻先判断“现场发生了什么”，再判断“我这轮有没有具体可说点”。
 8. 如果当前上下文不够，小腻会判断缺口来源；长期记忆后续由 typed recall projection 提前注入，不在主回合临时召回。
 9. 小腻最后只会走三类结果：沉默、搜索资料、发言。
 10. 如果决定发言，系统把她的话发回 QQ。
@@ -150,7 +150,7 @@ developer message near the end
 
 ```text
 Prompt 名称：小腻主AGENT
-模型：gpt-5.5
+模型：主聊天默认跟随 AI_MODEL_NAME，当前生产默认 gpt-5.4-mini；compact memory / reflection 默认使用 gpt-5.5
 Provider：codex
 ```
 
@@ -181,7 +181,7 @@ Provider：codex
 ```text
 话已成立，而且值得我承担，就说。
 事已成立，但理解未足，就先求知。
-思考之后仍未形成值得承担的话，就沉默。
+如果没有具体可说点，就沉默。
 
 群聊说话时，调用 speak_in_group。
 需要求知时，调用 web_search。
@@ -225,7 +225,7 @@ emit_unread_meaning
 
 这一步的业务意义是：先把“发生了什么”看清楚，避免她直接顺着话口回复。
 
-### 4. 第二步：看自己有没有真实反应
+### 4. 第二步：看有没有具体可说点
 
 只有第一步完成后，系统才允许她调用：
 
@@ -239,14 +239,15 @@ emit_inner_reaction
 |---|---|
 | `interest_level` | 兴趣强度：没有、低、中、高 |
 | `wants_to_know_more` | 是否真的想知道更多 |
-| `reaction_authenticity` | 反应真实性：没有、轻微但真实、已经形成、只是顺手能接 |
+| `reaction_authenticity` | 反应强度：没有、轻微、已经形成，或没有具体可说点 |
+| `participation_judgment` | 这轮有没有具体可说点、是否是直接请求，以及证据引用 |
 | `should_search` | 是否需要查资料 |
 | `preferred_action` | 倾向动作：发言、沉默、搜索 |
 | `context_gap` | 当前上下文是否足够，缺口是私有记忆、公开信息，还是群内来源不明 |
 | `gap_resolution` | 下一步应该不补、查记忆、web_search、问群友，还是先记忆再问/搜 |
 | `reason` | 为什么 |
 
-这里最重要的字段是 `reaction_authenticity`。如果只是“这句话好像能接一下”，会被标成 `empty_but_convenient`，它不等于真正想说。小腻必须区分“我真的有反应”和“我只是可以补一句”。
+这里最重要的字段是 `participation_judgment`。如果只是“这句话好像能接一下”，会被标成 `empty_but_convenient` 或 `participation_judgment.status=no_sayable_point`，它不等于真正想说。小腻必须区分“我有具体可说点”和“我只是可以补一句”。
 
 ### 5. 如果倾向沉默，就只能沉默
 
@@ -265,6 +266,8 @@ stay_silent
 | `xiaoni_os` | 沉默之后留在小腻身上的余波，下一轮会继续带着 |
 
 这就是为什么沉默也是有效结果。她不是失败了，而是判断“这轮不出现更自然”。
+
+如果第二步没有具体可说点，系统同样只允许 `stay_silent`。也就是说，`preferred_action=speak` 不能绕过 `participation_judgment.status=no_sayable_point`；只有 `has_sayable_point`，或当前消息明确直接请求小腻处理时的 `direct_request`，才可能继续到最终动作。
 
 ### 6. 如果只是很弱地想说，还会被强制收住
 
@@ -296,8 +299,8 @@ stay_silent
 长期记忆由上下文压缩触发的三层 writer 生成：
 
 - `agent_memory_observations`：episodic，保留具体发生过什么。
-- `agent_memory_assertions`：semantic，保留客观事实、状态、计划、claim。
-- `agent_memory_reflections`：reflection，至少两条 observation 支撑的长期模式。
+- `agent_memory_assertions`：semantic，保留客观事实、状态、计划、claim，并记录 owner、directed_to、scope 和 evidence_summary。
+- `agent_memory_reflections`：reflection，至少两条已落库 observation 支撑的长期模式，按 person / dyad / group / self-continuity 等类型保存。
 
 业务上，这一步的作用是让未来 runtime context 能按问题类型拿到合适记忆，而不是在当前回合临时让模型决定要不要召回。
 

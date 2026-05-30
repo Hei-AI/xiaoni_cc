@@ -3,16 +3,14 @@
 本文件记录仓库内 OpenAI / LLM 请求、提示词、agent 设计的本地契约。
 官方资料仍是上游真相源；本文件只写当前仓库必须遵守的高信号规则。
 
-## GPT-5.5 Runtime Defaults
+## Runtime Defaults
 
 - 小腻主运行态使用 Responses API 形状，不回退到 Chat Completions 语义。
-- `gpt-5.5` 默认按 reasoning model 处理；主 agent 迁移时显式发送 `reasoning.effort = "medium"`，不要只依赖模型默认值。
-- `reasoning.summary` 默认使用 `auto`，用于可观测性；不要要求或解析原始 hidden reasoning。
-- 对持续运行、工具密集、`store: false` 的 agent，请求必须包含 `include: ["reasoning.encrypted_content"]`，并在后续轮次把返回的 reasoning item 作为 opaque Responses item 回传。
-- `text.verbosity` 必须作为模型参数处理；默认 `medium`，需要更短输出时用 `low`，不要把最终回答长度和 reasoning effort 混在同一条 prompt 里控制。
-- `codex-local` provider 是当前工作站支持 `gpt-5.5` 的默认传输层；它读取容器内 `/root/.codex/auth.json`（宿主机 `${HOME}/.codex/auth.json` 挂载而来），默认上游是 `https://chatgpt.com/backend-api/codex/responses`，并且不受 `CODEX_PROXY_API_KEY` 影响。
-- `codex` provider 保留为 CLIProxyAPI / ChatGPT backend 传输；配置了 `CODEX_PROXY_API_KEY` 时默认走 `CODEX_PROXY_BASE_URL`。只有显式配置 provider 为 `codex` 时才使用这条旧路径。
-- 2026-05-29 实测：Codex CLI OAuth token 缺少 `api.responses.write` scope，直打 OpenAI Platform `https://api.openai.com/v1/responses` 返回 401；可用路径是 Codex/ChatGPT backend。`codex-local` 真实 smoke 已用 `gpt-5.5` 返回 `pong`。
+- 当前主聊天生产默认模型跟随 `AI_MODEL_NAME`，未显式配置时是 `gpt-5.4-mini`；compact memory / reflection 是独立的记忆生成工作流，未显式配置时默认 `gpt-5.5`。不要在仓库文档或配置里假设 `gpt-5.5-mini` 可用。
+- 主聊天 agent 只在 provider 参数或模型策略明确需要时发送 `reasoning`、`text` 和 `include`；不要为了“看起来更像 reasoning model”伪造 `reasoning.encrypted_content`。
+- context compression memory writer 固定使用 Responses function tool schema、`parallel_tool_calls: false`、`tool_choice.allowed_tools(mode=required)`；compact 层默认 `model=gpt-5.5`、`reasoning.effort=high`、`reasoning.summary=auto`、`text.verbosity=medium`，超时默认 `120000ms`。
+- `reasoning.summary` 只用于可观测性；不要要求或解析原始 hidden reasoning。
+- `text.verbosity` 必须作为模型参数处理；需要更短输出时用 `low`，不要把最终回答长度和 reasoning effort 混在同一条 prompt 里控制。
 
 ## State And Replay
 
@@ -31,7 +29,7 @@
 
 - 工具使用规则优先写进 tool description：用途、何时调用、输入要求、副作用、可重试性、错误模式。
 - system / developer prompt 只写跨工具通用政策、人格边界、输出契约和完成条件。
-- GPT-5.5 prompt 迁移从最小 prompt baseline 开始；删除无必要的步骤化过程约束，保留真正影响 QQ 行为和安全边界的规则。
+- prompt 迁移从最小 prompt baseline 开始；删除无必要的步骤化过程约束，保留真正影响 QQ 行为和安全边界的规则。
 - 不要默认在 system prompt 加当前日期；只有业务时区、本地日期或政策生效日期需要时才显式加入。
 
 ## Xiaoni Prompt Contract
@@ -39,15 +37,19 @@
 - 小腻主 prompt 的稳定部分只定义身份、人格边界、开口标准、沉默标准、能力边界、完成条件和少量风格样例。
 - 当前消息、历史、摘要、长期学习、状态值、图片观察、搜索结果和工程提醒都属于 runtime input / developer context，不要回填进 system prompt。
 - 对当前上下文里的直接反馈、纠偏、批评或称赞，要作为本轮行为校准信号处理；不要为同一批可见文本重新制造隐藏反馈事实。
-- GPT-5.5 更适合 outcome-first 表达：写清“这一轮什么算成功”和“什么时候收口”，不要把自然社交判断拆成过长流程。
+- 主 agent 要把“这轮有没有具体可说点”作为结构化中间态，而不是用 `has_own_thought` 这类不可检查布尔值。当前契约是在 `emit_inner_reaction.participation_judgment` 中输出 `status / basis / sayable_point / evidence_refs / memory_refs`。
+- `participation_judgment.status=no_sayable_point` 时，工程层必须把最终动作压成 `stay_silent`，即使模型同时给了 `preferred_action=speak`。直接请求能力或事实时走 `direct_request`，并且仍需当前消息明确把小腻拉入现场。
+- 小腻是群友，不是客服。runtime reminder 可以提醒她“不是为了证明在线、维护气氛或延续话题而开口”，但最终能否说话要由结构化工具输出和工程门禁共同决定。
 - 如果确实需要固定工具顺序，由 runtime 状态机和 `tool_choice.allowed_tools` 约束；prompt 只说明最终目标、边界和终态工具语义。
 
 ## Memory And Search Routing
 
 - 当前上下文窗口、摘要、最近历史、图片观察和已有工具结果是第一信息源；这些足够时禁止为了“多想一点”补长期记忆。
 - 主聊天 loop 不再暴露 pre-reply recall 工具。长期记忆后续应由 typed recall projection 在进入主 loop 前准备好，作为 runtime input / developer context 注入。
-- 三层长期记忆的生成发生在 context compression：生产默认跟随 `AI_MODEL_NAME`，当前是 `gpt-5.4-mini`；memory reflections 也跟随同一生产默认，除非显式设置 `AGENT_COMPACT_MEMORY_REFLECTION_MODEL`。reflection 必须由至少两条 episodic observations 支撑。
+- 三层长期记忆的生成发生在 context compression：生产默认不跟随主聊天 `AI_MODEL_NAME`，当前 compact / reflection 默认都是 `gpt-5.5`，除非显式设置 `AGENT_COMPACT_MEMORY_MODEL` 或 `AGENT_COMPACT_MEMORY_REFLECTION_MODEL`。reflection 必须由至少两条 episodic observations 支撑。
 - 三层 writer 都使用强制 function schema：`write_episodic_observations`、`write_semantic_assertions`、`write_memory_reflections`。允许空数组；不要用 prose JSON 或 prompt 里的强格式要求替代 schema。
+- semantic assertions 必须保留 `scope`、`owners`、`directed_to`、`evidence_summary` 和 `xiaoni_relevance`。能识别说话人、回复对象或 @ 对象时，禁止把事实写成“群里/有人/大家”。
+- reflections 必须从已经落库的 observations 抽象，优先写 `person_pattern`、`dyad_pattern`、`self_continuity`、`xiaoni_perception`；只有证据真的覆盖多人时才写 `group_norm`。`self_continuity_note` 说明这条记忆如何帮助小腻保持自己，不写“少说/换口吻/接梗/避免解答腔”这类行为指令。
 - 群聊内部梗、别的小群/私聊里可能发生过的内容不能猜。当前上下文没有投影到相关记忆时，要少说、问群友来源，或沉默；公开事实、新鲜资料和互联网实体优先走 `web_search`。
 
 ## Official References
@@ -57,7 +59,10 @@ OpenAI / LLM 请求、提示词、agent 设计默认遵循以下官方资料：
 - [Prompting | OpenAI API](https://developers.openai.com/api/docs/guides/prompting)
 - [Prompt engineering | OpenAI API](https://developers.openai.com/api/docs/guides/prompt-engineering)
 - [Prompt guidance | OpenAI API](https://developers.openai.com/api/docs/guides/prompt-guidance)
-- [GPT-5.5 Model | OpenAI API](https://developers.openai.com/api/docs/models/gpt-5.5)
+- [Using GPT-5.5 | OpenAI API](https://developers.openai.com/api/docs/guides/latest-model)
+- [Models | OpenAI API](https://developers.openai.com/api/docs/models)
+- [Using tools | OpenAI API](https://developers.openai.com/api/docs/guides/tools)
+- [Function calling | OpenAI API](https://developers.openai.com/api/docs/guides/function-calling)
 - [Reasoning models | OpenAI API](https://developers.openai.com/api/docs/guides/reasoning)
 - [Reasoning best practices | OpenAI API](https://developers.openai.com/api/docs/guides/reasoning-best-practices)
 - [Agent definitions | OpenAI API](https://developers.openai.com/api/docs/guides/agents/define-agents)

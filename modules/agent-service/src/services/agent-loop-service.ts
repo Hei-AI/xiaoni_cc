@@ -147,6 +147,19 @@ type InnerReactionGapResolution =
   | 'web_search'
   | 'ask_group'
   | 'memory_then_ask_or_search';
+type InnerReactionParticipationJudgmentStatus =
+  | 'has_sayable_point'
+  | 'no_sayable_point'
+  | 'direct_request';
+type InnerReactionParticipationJudgmentBasis =
+  | 'opinion'
+  | 'question'
+  | 'curiosity'
+  | 'discomfort'
+  | 'association'
+  | 'boundary'
+  | 'direct_request'
+  | 'none';
 export type TurnControlState = {
   stage: TurnControlStage;
   targetFound: boolean;
@@ -284,6 +297,13 @@ type InnerReaction = {
   interestLevel: 'none' | 'low' | 'medium' | 'high';
   wantsToKnowMore: boolean;
   reactionAuthenticity: 'none' | 'weak_but_real' | 'formed' | 'empty_but_convenient';
+  participationJudgment: {
+    status: InnerReactionParticipationJudgmentStatus;
+    basis: InnerReactionParticipationJudgmentBasis;
+    sayablePoint: string | null;
+    evidenceRefs: string[];
+    memoryRefs: string[];
+  };
   shouldSearch: boolean;
   preferredAction: 'speak' | 'silent' | 'search' | 'image_task' | 'proactive';
   contextGap: InnerReactionContextGap;
@@ -363,10 +383,14 @@ type PersistedMemoryObservation = {
   id: number;
   topic: string;
   text: string;
+  participants: CompactMemoryParticipant[];
+  xiaoniRole: string;
   sourceTurnIds: number[];
   sourceMessageIds: number[];
   createdAt?: string | Date | null;
 };
+
+type CompactMemoryParticipant = { qq_id: string; name: string };
 
 type RuntimeIdentityFactProjection = {
   id: number;
@@ -413,15 +437,15 @@ const LEGACY_TOOL_ALIASES = {
 } as const;
 
 const HUMAN_REPLY_RULES = [
-  '保持自然人话，贴近眼前场域。',
-  '让这句话在现场里真正新增一点东西，可以是确认、回应或判断。',
-  '一句已经成立就自然收住，把节奏留在现场里。'
+  '只发送群友能直接看到的话，不写工具名、阶段名或分析过程。',
+  'message/messages 必须来自当前可见消息、工具结果或 proactive 材料；不要重复旧话。',
+  '一句话够用就短句收住；不要为了延长场面补解释。'
 ] as const;
 
 const GROUP_MENTION_RULES = [
   'mention_user_ids 只在你确实是在自然点名某个人、回应某个人、或者要把某个人拉进当前话题时使用。',
   '让每个 @ 都对应真实的指向，比如点名回应、转向某个人，或把某个人带进当前话题。',
-  '如果一句话自然落地时已经有清楚的指向，就让句子自己成立。'
+  '如果不用 @ 也能看懂你在回谁，就不要 @。'
 ] as const;
 
 const PRIVATE_MESSAGE_TOOL = {
@@ -439,7 +463,7 @@ const PRIVATE_MESSAGE_TOOL = {
         },
         xiaoni_os: {
           type: 'string',
-          description: '给下一轮自己留的内心独白——这轮之后留在你这里的东西：看见了什么、感觉到了什么、什么还没过去。不发给对方。'
+          description: '给下一轮自己的运行备注：本轮看见的事实、自己的反应、未解决的信息缺口。不发给对方。'
         },
         pending_share: {
           type: 'string',
@@ -471,7 +495,7 @@ const GROUP_MESSAGE_TOOL = {
         },
         xiaoni_os: {
           type: 'string',
-          description: '给下一轮自己留的内心独白——这轮之后留在你这里的东西：看见了什么、感觉到了什么、什么还没过去。不发给任何人。'
+          description: '给下一轮自己的运行备注：本轮看见的事实、自己的反应、未解决的信息缺口。不发给任何人。'
         },
         pending_share: {
           type: 'string',
@@ -521,7 +545,7 @@ const IMAGE_TASK_TOOL = {
         },
         xiaoni_os: {
           type: 'string',
-          description: '给下一轮自己留的内心独白——这个后台任务在你这里留下的延续。不发给任何人。'
+          description: '给下一轮自己的运行备注：这个后台任务和相关信息缺口。不发给任何人。'
         }
       },
       required: ['operation', 'prompt', 'target_description', 'xiaoni_os'],
@@ -622,7 +646,10 @@ const INNER_REACTION_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.innerReaction,
-    description: '根据已理解的新消息输出小腻的反应强度、真实性和下一步偏好。',
+    description: [
+      '根据已理解的新消息输出小腻这轮有没有具体可说点，或者是否只是被直接请求处理一件事。',
+      '如果只能复述、附和、泛泛评价，或补一句也不违和但没有具体内容，participation_judgment.status 必须是 no_sayable_point。'
+    ].join(' '),
     parameters: {
       type: 'object',
       properties: {
@@ -636,6 +663,40 @@ const INNER_REACTION_TOOL = {
         reaction_authenticity: {
           type: 'string',
           enum: ['none', 'weak_but_real', 'formed', 'empty_but_convenient']
+        },
+        participation_judgment: {
+          type: 'object',
+          description: '小腻这轮参与或不参与的可检查判断。这不是隐藏推理，只写结论、依据类型和证据引用。',
+          properties: {
+            status: {
+              type: 'string',
+              enum: ['has_sayable_point', 'no_sayable_point', 'direct_request'],
+              description: 'has_sayable_point=小腻有一条具体可说点：观点、问题、好奇、不适、联想或边界；no_sayable_point=只能复述、附和或泛泛评价；direct_request=对方直接请求小腻处理能力或事实。'
+            },
+            basis: {
+              type: 'string',
+              enum: ['opinion', 'question', 'curiosity', 'discomfort', 'association', 'boundary', 'direct_request', 'none'],
+              description: '可说点的类型。status=no_sayable_point 时必须为 none；direct_request 时通常为 direct_request。'
+            },
+            sayable_point: {
+              type: 'string',
+              description: '一句话写清小腻这轮具体想补充的内容点。status=no_sayable_point 时填空字符串。不要写内部推理链。'
+            },
+            evidence_refs: {
+              type: 'array',
+              maxItems: 6,
+              items: { type: 'string' },
+              description: '支持这个参与判断的当前消息引用，例如 message_id、sender 或短证据。没有就空数组。'
+            },
+            memory_refs: {
+              type: 'array',
+              maxItems: 6,
+              items: { type: 'string' },
+              description: '本轮运行时已提供的身份连续性或长期记忆引用。没有就空数组；不要编造记忆。'
+            }
+          },
+          required: ['status', 'basis', 'sayable_point', 'evidence_refs', 'memory_refs'],
+          additionalProperties: false
         },
         should_search: {
           type: 'boolean',
@@ -659,7 +720,7 @@ const INNER_REACTION_TOOL = {
           type: 'string'
         }
       },
-      required: ['interest_level', 'wants_to_know_more', 'reaction_authenticity', 'should_search', 'preferred_action', 'context_gap', 'gap_resolution', 'reason'],
+      required: ['interest_level', 'wants_to_know_more', 'reaction_authenticity', 'participation_judgment', 'should_search', 'preferred_action', 'context_gap', 'gap_resolution', 'reason'],
       additionalProperties: false
     }
   }
@@ -827,7 +888,11 @@ const MEMORY_SEMANTIC_TOOL = {
   type: 'function',
   function: {
     name: 'write_semantic_assertions',
-    description: 'Write objective facts, states, plans, and claims from evicted group-chat turns. Empty assertions are valid.',
+    description: [
+      'Write objective facts, states, plans, and claims from evicted group-chat turns.',
+      'Preserve who stated/owns the assertion and who/what it is about; do not collapse identifiable speakers into "the group" or "someone".',
+      'Empty assertions are valid.'
+    ].join(' '),
     parameters: {
       type: 'object',
       properties: {
@@ -842,6 +907,41 @@ const MEMORY_SEMANTIC_TOOL = {
               fact_type: {
                 type: 'string',
                 enum: ['stable_fact', 'current_status', 'one_time_event', 'stated_plan', 'claim']
+              },
+              scope: {
+                type: 'string',
+                enum: ['person', 'dyad', 'group', 'topic', 'system_state', 'self_continuity'],
+                description: '断言适用范围。只有确实是群体共同事实时才用 group；可识别到说话人时优先 person/dyad/topic。'
+              },
+              owners: {
+                type: 'array',
+                minItems: 0,
+                maxItems: 4,
+                description: '谁说出、持有或负责这个断言。能识别说话人时必须填写，不要用“群里/有人”。',
+                items: {
+                  type: 'object',
+                  properties: {
+                    qq_id: { type: 'string' },
+                    name: { type: 'string' }
+                  },
+                  required: ['qq_id', 'name'],
+                  additionalProperties: false
+                }
+              },
+              directed_to: {
+                type: 'array',
+                minItems: 0,
+                maxItems: 4,
+                description: '这个断言当时明确说给谁。没有明确对象就空数组。',
+                items: {
+                  type: 'object',
+                  properties: {
+                    qq_id: { type: 'string' },
+                    name: { type: 'string' }
+                  },
+                  required: ['qq_id', 'name'],
+                  additionalProperties: false
+                }
               },
               entities: {
                 type: 'array',
@@ -870,13 +970,22 @@ const MEMORY_SEMANTIC_TOOL = {
                   additionalProperties: false
                 }
               },
+              evidence_summary: {
+                type: 'string',
+                description: '一句话说明这个断言来自哪段可见文本。必须保留说话人/对象，不写内部推理。'
+              },
+              xiaoni_relevance: {
+                type: 'string',
+                enum: ['participation_judgment', 'direct_feedback', 'relationship_context', 'topic_knowledge', 'none'],
+                description: '这条断言对小腻自我连续性或未来召回的关系。不是行为指令。'
+              },
               source_turn_ids: {
                 type: 'array',
                 minItems: 1,
                 items: { type: 'integer' }
               }
             },
-            required: ['text', 'fact_type', 'entities', 'participants', 'source_turn_ids'],
+            required: ['text', 'fact_type', 'scope', 'owners', 'directed_to', 'entities', 'participants', 'evidence_summary', 'xiaoni_relevance', 'source_turn_ids'],
             additionalProperties: false
           }
         }
@@ -891,7 +1000,11 @@ const MEMORY_REFLECTION_TOOL = {
   type: 'function',
   function: {
     name: 'write_memory_reflections',
-    description: 'Synthesize cross-time abstractions from recently written episodic observations. Empty reflections are valid when evidence is insufficient.',
+    description: [
+      'Synthesize cross-time abstractions from recently written episodic observations.',
+      'Reflections preserve person/dyad/self continuity; group-level reflections are only valid when evidence is truly group-wide.',
+      'Do not write behavior instructions for Xiaoni. Empty reflections are valid when evidence is insufficient.'
+    ].join(' '),
     parameters: {
       type: 'object',
       properties: {
@@ -903,18 +1016,55 @@ const MEMORY_REFLECTION_TOOL = {
             type: 'object',
             properties: {
               text: { type: 'string' },
-              kind: { type: 'string', enum: ['person_pattern', 'relationship', 'group_pattern', 'project_arc', 'self_observation'] },
+              kind: { type: 'string', enum: ['person_pattern', 'dyad_pattern', 'group_norm', 'project_arc', 'self_continuity', 'xiaoni_perception'] },
               subjects: { type: 'array', minItems: 1, maxItems: 5, items: { type: 'string' } },
+              subject_participants: {
+                type: 'array',
+                minItems: 0,
+                maxItems: 5,
+                items: {
+                  type: 'object',
+                  properties: {
+                    qq_id: { type: 'string' },
+                    name: { type: 'string' }
+                  },
+                  required: ['qq_id', 'name'],
+                  additionalProperties: false
+                }
+              },
+              object_participants: {
+                type: 'array',
+                minItems: 0,
+                maxItems: 5,
+                description: '关系或评价指向的对象，例如小腻或另一个群友。没有明确对象就空数组。',
+                items: {
+                  type: 'object',
+                  properties: {
+                    qq_id: { type: 'string' },
+                    name: { type: 'string' }
+                  },
+                  required: ['qq_id', 'name'],
+                  additionalProperties: false
+                }
+              },
               evidence_basis: {
                 type: 'string',
-                enum: ['explicit_feedback', 'xiaoni_utterances', 'repeated_interactions', 'group_pattern']
+                enum: ['explicit_feedback', 'xiaoni_sayable_points', 'repeated_interactions', 'repeated_group_events']
+              },
+              evidence_summary: {
+                type: 'string',
+                description: '说明至少两条 observation 如何支持这个抽象。必须点出持续的主体，不写“群里都怎样”这种泛化。'
+              },
+              self_continuity_note: {
+                type: 'string',
+                description: '这条 reflection 对小腻自我连续性的含义：她怎么看自己、别人怎么看她、她对某事的稳定关注点。不是未来行为指令。'
               },
               evidence_time_start: { type: 'string' },
               evidence_time_end: { type: 'string' },
               poignancy: { type: 'integer', minimum: 1, maximum: 10 },
               source_observation_ids: { type: 'array', minItems: 2, items: { type: 'integer' } }
             },
-            required: ['text', 'kind', 'subjects', 'evidence_basis', 'evidence_time_start', 'evidence_time_end', 'poignancy', 'source_observation_ids'],
+            required: ['text', 'kind', 'subjects', 'subject_participants', 'object_participants', 'evidence_basis', 'evidence_summary', 'self_continuity_note', 'evidence_time_start', 'evidence_time_end', 'poignancy', 'source_observation_ids'],
             additionalProperties: false
           }
         }
@@ -955,7 +1105,7 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '',
   '这一轮顺序：',
   '先搞清楚最新未读在说什么，用 emit_unread_meaning。',
-  '再感觉一下这些消息在你这里有没有真实反应、当前上下文是否足够，用 emit_inner_reaction。',
+  '再判断这轮有没有具体可说点、是否只是直接请求、当前上下文是否足够，用 emit_inner_reaction。',
   '最后通过工具完成这一轮——说话、沉默、查资料还是做图。',
   '',
   '工具阶段：',
@@ -963,14 +1113,14 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   'final_answer 工具会结束本轮或产生外部动作：speak_in_group、reply_in_private、stay_silent、request_image_task。',
   '',
   'preferred_action 的含义：',
-  'speak = 对这条消息有真实反应，要接话。',
+  'speak = 你有具体可说点，并且确实有一句要公开说的话。',
   'silent = 没什么想说的。',
   'search = 想查清楚再说。',
   'image_task = 要帮人做图。',
   'proactive = 我自己有个事想说，借这个时机开口；不是在接这条消息，要确实有东西，不是因为有空档就开口。',
   '',
-  '普通聊天、轻吐槽、短反应都是正常参与，有真实的感觉才开口。',
-  '真的没什么想说的就不说，不用硬凑一句。',
+  '普通聊天、轻吐槽、短反应都是正常参与，但必须来自具体观点、问题、好奇、不适、联想或边界。',
+  '只是能接话不算有可说点；真的没什么想说的就不说，不用硬凑一句。',
   '主动说个自己的事（proactive）是借这个时机开口，不是在接这条消息。',
   '',
   '阿花当前只允许你使用这些对外能力：在当前群聊或私聊里发文字消息、选择不回复、在确实需要新鲜公开信息时搜索网页、查看已经提供给你的图片内容、登记后台图片任务。',
@@ -1161,8 +1311,8 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
       emptyRecallAttempts,
       expectedNext: TOOL_NAMES.innerReaction,
       reason: targetFound
-        ? '当前未读里有可回应目标，下一步判断真实反应。'
-        : '当前未读没有明确找小腻或强话题，下一步只确认是否真的有反应。'
+        ? '当前未读里有可回应目标，下一步判断是否有具体可说点。'
+        : '当前未读没有明确找小腻或强话题，下一步只确认是否有具体可说点。'
     };
   }
 
@@ -1226,6 +1376,26 @@ function shouldDowngradeWeakSpeakToSilence(
   return false;
 }
 
+function canUseFinalActionFromParticipationJudgment(reaction: InnerReaction | null, meaning: UnreadMeaning | null) {
+  if (!reaction) {
+    return false;
+  }
+  if (reaction.participationJudgment.status === 'has_sayable_point') {
+    return true;
+  }
+  if (reaction.preferredAction === 'proactive') {
+    return false;
+  }
+  return reaction.participationJudgment.status === 'direct_request' && hasDirectNewCue(meaning);
+}
+
+function shouldForceActionToSilenceFromParticipationJudgment(reaction: InnerReaction | null, meaning: UnreadMeaning | null) {
+  if (!reaction || reaction.preferredAction === 'silent') {
+    return false;
+  }
+  return !canUseFinalActionFromParticipationJudgment(reaction, meaning);
+}
+
 function buildAllowedToolsToolChoice(tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }>): OpenResponseToolChoice {
   return {
     type: 'allowed_tools',
@@ -1269,6 +1439,12 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
   const latestInnerReaction = extractLatestInnerReaction(loopInput);
   const latestUnreadMeaning = extractLatestUnreadMeaning(loopInput);
   if (latestInnerReaction?.preferredAction === 'silent') {
+    return buildAllowedToolsToolChoice([
+      { type: 'function', name: TOOL_NAMES.silentFinish }
+    ]);
+  }
+
+  if (shouldForceActionToSilenceFromParticipationJudgment(latestInnerReaction, latestUnreadMeaning)) {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.silentFinish }
     ]);
@@ -1416,6 +1592,7 @@ function buildCompactMemoryWriterRequest(
     promptCacheKey: string;
     layer: CompactMemoryLayer;
     reasoningEffort: string;
+    textVerbosity: 'low' | 'medium' | 'high';
   }
 ): CanonicalAgentTurnRequest {
   const [firstItem, ...remainingItems] = loopInput;
@@ -1440,7 +1617,7 @@ function buildCompactMemoryWriterRequest(
       summary: 'auto'
     },
     text: {
-      verbosity: 'low'
+      verbosity: options.textVerbosity
     },
     ...(agentConfig.promptCacheRetention && agentConfig.promptCacheRetention.trim()
       ? { prompt_cache_retention: agentConfig.promptCacheRetention.trim() }
@@ -1612,7 +1789,13 @@ function isRetryableCompactMemoryFailure(status: number, error: string | null | 
   return normalized.includes('aborted')
     || normalized.includes('timeout')
     || normalized.includes('timed out')
-    || normalized.includes('temporarily unavailable');
+    || normalized.includes('temporarily unavailable')
+    || normalized.includes('fetch failed')
+    || normalized.includes('sse error')
+    || normalized.includes('terminated')
+    || normalized.includes('connection reset')
+    || normalized.includes('econnreset')
+    || normalized.includes('socket hang up');
 }
 
 function delay(ms: number) {
@@ -2097,11 +2280,11 @@ export function buildTurnStateReminder(developerContextBlock: string | null | un
   const text = stateBias === 'low_energy'
     ? [
         '当前状态控制：精力偏低或疲劳偏高，话量阈值提高。',
-        '只有明确找我互动、或反应已经 formed 且确实有内容时才继续到说话；弱反应、顺手接话、没找到目标时优先 stay_silent。'
+        '只有明确找我处理的直接请求、或 participation_judgment.status=has_sayable_point 且确实有内容时才继续到说话；弱反应、顺手接话、没找到目标时优先 stay_silent。'
       ].join('\n')
     : [
         '当前状态控制：精力或分享欲偏高，可以接受更轻的短句参与。',
-        '仍然只回应当前未读里真实触发的东西；不要为了证明在线而硬说。'
+        '仍然只表达当前未读触发出的具体可说点；不要为了证明在线而硬说。'
       ].join('\n');
   return buildAssistantCommentaryInputItem([
     formatTaggedBlock('system_reminder', {
@@ -2118,10 +2301,10 @@ export function buildTurnControlReminder(turnControl: TurnControlState): OpenRes
 
   const lines: string[] = [];
   if (!turnControl.targetFound && turnControl.stage === 'feel_reaction') {
-    lines.push('当前未读没有明确找小腻，也没有稳定的新目标；下一步只确认是否真的有反应，不要为了接话而制造目标。');
+    lines.push('当前未读没有明确找小腻，也没有稳定的新目标；下一步只确认是否有具体可说点，不要为了接话而制造目标。');
   }
   if (turnControl.stateBias === 'low_energy' && turnControl.stage === 'finalize') {
-    lines.push('当前状态偏低，弱反应不要升级成发言；如果没有清楚目标或成形反应，stay_silent 是有效收口。');
+    lines.push('当前状态偏低，弱反应不要升级成发言；如果 participation_judgment 不是 has_sayable_point，也不是 direct_request，stay_silent 是有效收口。');
   }
 
   if (lines.length === 0) {
@@ -2372,17 +2555,21 @@ const COMPACT_MEMORY_EPISODIC_CONTRACT = [
 
 const COMPACT_MEMORY_SEMANTIC_CONTRACT = [
   '你在为小腻的长期召回写 semantic assertions。',
-  '目标：保留未来回答实体、项目、状态、计划、事实性问题时有用的客观断言。',
-  '成功标准：只写可从对话文本直接支持的事实、当前状态、一次性事件、计划或明确 claim；每条都要能回到 source_turn_ids。',
-  '不要写氛围、态度、关系判断、猜测、人格化解释；这些属于 episodic 或 reflection。',
+  '目标：保留未来回答实体、项目、状态、计划、事实性问题，或恢复“谁说过/谁认为/谁计划了什么”时有用的客观断言。',
+  '成功标准：只写可从对话文本直接支持的事实、当前状态、一次性事件、计划或明确 claim；每条都要能回到 source_turn_ids，并保留 owner / directed_to / scope。',
+  '如果原文能识别说话人、被回复对象、@对象或小腻的位置，text 和 evidence_summary 必须写清楚；禁止把可识别的人压成“群里”“有人”“大家”。',
+  'scope=group 只用于真正群体共同事实；多数单人发言应是 person/topic，人与人之间的说法应是 dyad。',
+  '不要写氛围、态度、关系判断、猜测、人格化解释；这些属于 episodic 或 reflection。不要写小腻未来应该怎么做。',
   '如果没有客观断言，调用工具并返回空 assertions。'
 ].join('\n');
 
 const COMPACT_MEMORY_REFLECTION_CONTRACT = [
   '你在为小腻的长期召回写 reflection memories。',
-  '目标：从已经落库的 episodic observations 中提炼跨时间模式，用于未来关系、群体节奏、人物习惯或项目弧线的召回。',
-  '成功标准：每条 reflection 至少引用 2 条 source_observation_ids；必须是证据重复出现后的抽象，不是新事实。',
-  '不要生成指令政策；不要把一次事件提升成长期规则；不要从缺席、沉默、没发生的事推导结论。',
+  '目标：从已经落库的 episodic observations 中提炼跨时间模式，用于恢复小腻的自我连续性、人物理解、二人关系、群体事实或项目弧线。',
+  '成功标准：每条 reflection 至少引用 2 条 source_observation_ids；必须是证据重复出现后的抽象，不是新事实，并且要有稳定主体。',
+  '优先写 person_pattern、dyad_pattern、self_continuity、xiaoni_perception；只有证据确实覆盖多人且不是单个说话人的意见时才写 group_norm。',
+  'text 要回答“谁持续怎样看/说/对待谁或什么”；self_continuity_note 只写这对小腻保持自己有什么意义，不写未来行为指令。',
+  '禁止把一次事件提升成长期规则；不要从缺席、沉默、没发生的事推导结论；禁止写“后续应该少说/换口吻/接梗/避免解答腔”这类行为政策。',
   '如果 evidence 不足，调用工具并返回空 reflections。'
 ].join('\n');
 
@@ -2402,18 +2589,25 @@ function composeCompactMemorySystemPrompt(params: {
   );
 }
 
+function extractTaggedSender(content: string) {
+  const match = content.match(/\bsender="([^"]+)"/);
+  return match ? match[1] : '';
+}
+
 function renderEvictedTurnForCompactMemory(turn: ConversationTurn) {
   const itemLines = (Array.isArray(turn.items) ? turn.items : [])
     .map((item, index) => {
       const role = item.role === 'assistant' ? '小腻' : '群友';
+      const taggedSender = extractTaggedSender(String(item.content || ''));
+      const actor = taggedSender || (item.role === 'assistant' ? '小腻(1129974489)' : `群友(${turn.userId})`);
       const messageId = Number.isFinite(Number(item.deliveryMessageId)) ? ` message_id=${item.deliveryMessageId}` : '';
       const source = typeof item.source === 'string' && item.source ? ` source=${item.source}` : '';
       const content = String(item.content || '').trim();
-      return content ? `${index + 1}. ${role}${messageId}${source}: ${content}` : '';
+      return content ? `${index + 1}. role=${role} actor=${actor}${messageId}${source}: ${content}` : '';
     })
     .filter(Boolean);
   const fallback = [
-    `用户: ${turn.userMessage || '(无消息内容)'}`,
+    `群友(${turn.userId}): ${turn.userMessage || '(无消息内容)'}`,
     `小腻: ${turn.aiResponse || '(本轮未发送消息)'}`
   ];
   return [
@@ -2452,6 +2646,7 @@ function buildCompactMemoryReflectionInput(params: {
 }): OpenResponseInputItem[] {
   const observationLines = params.observations.map((observation) => [
     `[observation_id=${observation.id}] topic=${observation.topic}`,
+    `participants=${JSON.stringify(observation.participants)} xiaoni_role=${observation.xiaoniRole}`,
     `source_turn_ids=${JSON.stringify(observation.sourceTurnIds)} source_message_ids=${JSON.stringify(observation.sourceMessageIds)}`,
     observation.text
   ].join('\n'));
@@ -2834,6 +3029,11 @@ function parseInnerReaction(value: unknown): InnerReaction | null {
   const rawInterestLevel = record.interest_level ?? record.interestLevel;
   const wantsToKnowMore = parseOptionalBoolean(record.wants_to_know_more ?? record.wantsToKnowMore);
   const rawReactionAuthenticity = record.reaction_authenticity ?? record.reactionAuthenticity;
+  const rawParticipationJudgment = record.participation_judgment
+    ?? record.participationJudgment
+    // Backward compatibility for traces written before the field was renamed.
+    ?? record.self_position
+    ?? record.selfPosition;
   const shouldSearch = parseOptionalBoolean(record.should_search ?? record.shouldSearch);
   const rawPreferredAction = record.preferred_action ?? record.preferredAction;
   const rawContextGap = record.context_gap ?? record.contextGap;
@@ -2889,11 +3089,18 @@ function parseInnerReaction(value: unknown): InnerReaction | null {
       : inferredContextGap === 'needs_private_memory' || inferredContextGap === 'unclear_group_reference'
       ? 'memory'
       : 'none');
+  const participationJudgment = parseInnerReactionParticipationJudgment(rawParticipationJudgment, {
+    reactionAuthenticity,
+    preferredAction,
+    shouldSearch,
+    wantsToKnowMore
+  });
 
   return {
     interestLevel,
     wantsToKnowMore,
     reactionAuthenticity,
+    participationJudgment,
     shouldSearch,
     preferredAction,
     contextGap: inferredContextGap,
@@ -3026,16 +3233,197 @@ function parsePositiveIntegerArray(value: unknown, maxItems = 20) {
   return uniquePositiveNumbers(value).slice(0, maxItems);
 }
 
+function isXiaoniParticipant(qqId: string, name: string) {
+  const botAccountId = agentConfig.botAccountId || '1129974489';
+  const normalizedName = name.replace(/\s+/g, '');
+  return qqId === botAccountId
+    || normalizedName === '小腻'
+    || normalizedName === `小腻(${botAccountId})`
+    || normalizedName === `小腻（${botAccountId}）`;
+}
+
+const COMPACT_MEMORY_CANONICAL_PARTICIPANTS = new Map<string, CompactMemoryParticipant>([
+  ['452884318', { qq_id: '452884318', name: '龙哥' }],
+  ['870853294', { qq_id: '870853294', name: '闻震' }],
+  ['3375477814', { qq_id: '3375477814', name: 'Nova' }],
+  ['2427270734', { qq_id: '2427270734', name: '一条大野狗' }]
+]);
+
+const COMPACT_MEMORY_CANONICAL_PARTICIPANTS_BY_NAME = new Map(
+  Array.from(COMPACT_MEMORY_CANONICAL_PARTICIPANTS.values()).map((participant) => [
+    normalizeParticipantLookupName(participant.name),
+    participant
+  ])
+);
+
+function normalizeCompactMemoryQqId(value: string) {
+  const normalized = value.trim();
+  return normalized === '未知' || /^unknown$/i.test(normalized) || /^null$/i.test(normalized) || /^none$/i.test(normalized)
+    ? ''
+    : normalized;
+}
+
+function isMalformedCompactMemoryParticipantName(value: string) {
+  const normalized = value.trim();
+  return !normalized
+    || /[{}]/.test(normalized)
+    || /^unknown$/i.test(normalized)
+    || /^群友$/i.test(normalized)
+    || normalized === '未知';
+}
+
+function isNonSpecificCompactMemoryParticipantName(value: string) {
+  const normalized = value.trim().replace(/\s+/g, '');
+  return normalized === '主人' || normalized === '某人' || normalized === '有人' || normalized === '用户';
+}
+
+function normalizeParticipantLookupName(value: string) {
+  return value.trim().replace(/\s+/g, '').toLowerCase();
+}
+
+function canonicalizeCompactMemoryAliasText(value: string) {
+  return value
+    .replace(/给你的\s*AI\s*一个世界去生活/g, '龙哥')
+    .replace(/\bKisin\b/g, '闻震');
+}
+
+function canonicalizeCompactMemorySubject(value: string) {
+  const trimmed = value.trim();
+  const compact = trimmed.replace(/\s+/g, '');
+  if (/^Kisin$/i.test(trimmed)) {
+    return '闻震';
+  }
+  if (compact === '给你的AI一个世界去生活') {
+    return '龙哥';
+  }
+  if (/^novalattice\.online$/i.test(trimmed)) {
+    return 'Nova';
+  }
+  if (trimmed === '还有这种事') {
+    return '一条大野狗';
+  }
+  return canonicalizeCompactMemoryAliasText(trimmed);
+}
+
+function canonicalCompactMemoryParticipant(participant: CompactMemoryParticipant): CompactMemoryParticipant {
+  const qqId = normalizeCompactMemoryQqId(participant.qq_id);
+  const name = participant.name.trim();
+  if (isXiaoniParticipant(qqId, name)) {
+    return { qq_id: agentConfig.botAccountId || '1129974489', name: '小腻' };
+  }
+  const known = qqId ? COMPACT_MEMORY_CANONICAL_PARTICIPANTS.get(qqId) : null;
+  if (known) {
+    return known;
+  }
+  const canonicalName = canonicalizeCompactMemorySubject(name);
+  const knownByName = COMPACT_MEMORY_CANONICAL_PARTICIPANTS_BY_NAME.get(normalizeParticipantLookupName(canonicalName));
+  return knownByName || { qq_id: qqId, name: canonicalName };
+}
+
+function parseParticipantLabel(value: string): CompactMemoryParticipant | null {
+  const match = value.trim().match(/^(.+?)[(（]\s*(\d+)\s*[)）]$/);
+  if (!match) {
+    return null;
+  }
+  const name = match[1].trim();
+  const qqId = normalizeCompactMemoryQqId(match[2].trim());
+  if (!qqId || isMalformedCompactMemoryParticipantName(name)) {
+    return null;
+  }
+  return canonicalCompactMemoryParticipant({ qq_id: qqId, name });
+}
+
+function addParticipantDirectoryEntry(
+  directory: Map<string, CompactMemoryParticipant>,
+  participant: CompactMemoryParticipant | null
+) {
+  if (!participant) {
+    return;
+  }
+  const canonical = canonicalCompactMemoryParticipant(participant);
+  if (!canonical.qq_id || isMalformedCompactMemoryParticipantName(canonical.name) || isNonSpecificCompactMemoryParticipantName(canonical.name)) {
+    return;
+  }
+  directory.set(`qq:${canonical.qq_id}`, canonical);
+  directory.set(`name:${normalizeParticipantLookupName(canonical.name)}`, canonical);
+}
+
+function buildCompactMemoryParticipantDirectory(evictedTurns: ConversationTurn[]) {
+  const directory = new Map<string, CompactMemoryParticipant>();
+  addParticipantDirectoryEntry(directory, { qq_id: agentConfig.botAccountId || '1129974489', name: '小腻' });
+  for (const turn of evictedTurns) {
+    for (const item of Array.isArray(turn.items) ? turn.items : []) {
+      if (item.role === 'assistant') {
+        addParticipantDirectoryEntry(directory, { qq_id: agentConfig.botAccountId || '1129974489', name: '小腻' });
+      }
+      const content = String(item.content || '');
+      for (const match of content.matchAll(/\bsender="([^"]+)"/g)) {
+        addParticipantDirectoryEntry(directory, parseParticipantLabel(match[1]));
+      }
+    }
+  }
+  return directory;
+}
+
+function normalizeCompactMemoryParticipant(
+  participant: CompactMemoryParticipant,
+  directory: Map<string, CompactMemoryParticipant>
+) {
+  const canonical = canonicalCompactMemoryParticipant(participant);
+  if (isMalformedCompactMemoryParticipantName(canonical.name)) {
+    return null;
+  }
+  const byQq = canonical.qq_id ? directory.get(`qq:${canonical.qq_id}`) : null;
+  if (byQq) {
+    return byQq;
+  }
+  const byName = canonical.name ? directory.get(`name:${normalizeParticipantLookupName(canonical.name)}`) : null;
+  if (byName && (!canonical.qq_id || canonical.qq_id === byName.qq_id)) {
+    return byName;
+  }
+  if (!canonical.qq_id || isNonSpecificCompactMemoryParticipantName(canonical.name)) {
+    return null;
+  }
+  return canonical;
+}
+
+function normalizeCompactMemoryParticipants(
+  participants: CompactMemoryParticipant[],
+  directory: Map<string, CompactMemoryParticipant>
+) {
+  const seen = new Set<string>();
+  const result: CompactMemoryParticipant[] = [];
+  for (const participant of participants) {
+    const normalized = normalizeCompactMemoryParticipant(participant, directory);
+    if (!normalized) {
+      continue;
+    }
+    const key = normalized.qq_id ? `qq:${normalized.qq_id}` : `name:${normalizeParticipantLookupName(normalized.name)}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(normalized);
+  }
+  return result;
+}
+
 function parseParticipantArray(value: unknown) {
   return parseRecordArray(value)
     .map((item) => {
       const qqId = typeof (item.qq_id ?? item.qqId) === 'string'
-        ? String(item.qq_id ?? item.qqId).trim()
-        : String(item.qq_id ?? item.qqId ?? '').trim();
+        ? normalizeCompactMemoryQqId(String(item.qq_id ?? item.qqId))
+        : normalizeCompactMemoryQqId(String(item.qq_id ?? item.qqId ?? ''));
       const name = typeof item.name === 'string' ? item.name.trim() : '';
+      if (isXiaoniParticipant(qqId, name)) {
+        return { qq_id: agentConfig.botAccountId || '1129974489', name: '小腻' };
+      }
+      if (isMalformedCompactMemoryParticipantName(name) || (!qqId && isNonSpecificCompactMemoryParticipantName(name))) {
+        return null;
+      }
       return qqId || name ? { qq_id: qqId, name } : null;
     })
-    .filter((item): item is { qq_id: string; name: string } => Boolean(item))
+    .filter((item): item is CompactMemoryParticipant => Boolean(item))
     .slice(0, 12);
 }
 
@@ -3050,11 +3438,52 @@ function parseEntityArray(value: unknown) {
         || item.kind === 'other'
         ? item.kind
         : 'other';
-      const entityValue = typeof item.value === 'string' ? item.value.trim() : '';
+      const entityValue = typeof item.value === 'string'
+        ? canonicalizeCompactMemoryAliasText(item.value.trim())
+        : '';
       return entityValue ? { kind, value: entityValue } : null;
     })
     .filter((item): item is { kind: string; value: string } => Boolean(item))
     .slice(0, 8);
+}
+
+function isMalformedCompactMemoryText(...values: string[]) {
+  const normalized = values.filter(Boolean).join('\n').toLowerCase();
+  return /\bneed\s+remove\b/.test(normalized)
+    || /\bremove\s+this\b/.test(normalized)
+    || /\bmalformed\s+(assertion|reflection|memory|record)\b/.test(normalized)
+    || /\?\s*no\s*$/i.test(values.find(Boolean) || '');
+}
+
+function containsFutureBehaviorPolicy(value: string) {
+  const normalized = value.replace(/\s+/g, '');
+  return /后续(应该|要|需要)/.test(normalized)
+    || /以后(应该|要|需要)/.test(normalized)
+    || /未来(应该|要|需要)/.test(normalized)
+    || /少(说|回)点?话/.test(normalized)
+    || /不用每条都回/.test(normalized)
+    || /不要每条都回/.test(normalized)
+    || /(应该|要|需要).*换口吻/.test(normalized)
+    || /换口吻.*(应该|要|需要)/.test(normalized)
+    || /(应该|要|需要).*接梗/.test(normalized)
+    || /接梗.*(应该|要|需要)/.test(normalized)
+    || /(应该|要|需要|避免).*解答腔/.test(normalized);
+}
+
+function parseCompactMemoryEvidenceTime(value: unknown) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const year = date.getUTCFullYear();
+  return year >= 2020 && year <= 2035 ? trimmed : null;
 }
 
 function parseCompactMemoryObservations(value: unknown) {
@@ -3063,7 +3492,7 @@ function parseCompactMemoryObservations(value: unknown) {
   }
   return parseRecordArray((value as Record<string, unknown>).observations).map((item) => {
     const topic = typeof item.topic === 'string' ? item.topic.trim() : '';
-    const text = typeof item.text === 'string' ? item.text.trim() : '';
+    const text = typeof item.text === 'string' ? canonicalizeCompactMemoryAliasText(item.text.trim()) : '';
     const xiaoniRole = item.xiaoni_role === 'speaker'
       || item.xiaoni_role === 'directly_addressed'
       || item.xiaoni_role === 'mentioned_or_evaluated'
@@ -3072,7 +3501,7 @@ function parseCompactMemoryObservations(value: unknown) {
       ? item.xiaoni_role
       : 'not_involved';
     const sourceTurnIds = parsePositiveIntegerArray(item.source_turn_ids ?? item.sourceTurnIds);
-    if (!topic || !text || sourceTurnIds.length === 0) {
+    if (!topic || !text || sourceTurnIds.length === 0 || isMalformedCompactMemoryText(text)) {
       return null;
     }
     return {
@@ -3086,12 +3515,115 @@ function parseCompactMemoryObservations(value: unknown) {
   }).filter((item): item is NonNullable<typeof item> => Boolean(item));
 }
 
+function parseInnerReactionParticipationJudgment(
+  value: unknown,
+  fallback: {
+    reactionAuthenticity: InnerReaction['reactionAuthenticity'];
+    preferredAction: InnerReaction['preferredAction'];
+    shouldSearch: boolean;
+    wantsToKnowMore: boolean;
+  }
+): InnerReaction['participationJudgment'] {
+  const inferredStatus: InnerReactionParticipationJudgmentStatus =
+    fallback.reactionAuthenticity === 'formed'
+      && fallback.preferredAction !== 'silent'
+      && fallback.preferredAction !== 'image_task'
+      ? 'has_sayable_point'
+    : fallback.reactionAuthenticity === 'weak_but_real' && fallback.preferredAction === 'speak'
+      ? 'direct_request'
+    : fallback.preferredAction === 'image_task' || fallback.shouldSearch || fallback.wantsToKnowMore
+      ? 'direct_request'
+      : 'no_sayable_point';
+  const inferredBasis: InnerReactionParticipationJudgmentBasis = inferredStatus === 'has_sayable_point'
+    ? fallback.preferredAction === 'proactive'
+      ? 'association'
+    : fallback.shouldSearch || fallback.wantsToKnowMore
+      ? 'question'
+      : 'opinion'
+    : inferredStatus === 'direct_request'
+    ? 'direct_request'
+    : 'none';
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {
+      status: inferredStatus,
+      basis: inferredBasis,
+      sayablePoint: null,
+      evidenceRefs: [],
+      memoryRefs: []
+    };
+  }
+
+  const record = value as Record<string, unknown>;
+  const rawStatus = record.status
+    ?? record.participation_judgment_status
+    ?? record.participationJudgmentStatus
+    ?? record.self_position_status
+    ?? record.selfPositionStatus;
+  const rawBasis = record.basis
+    ?? record.reason_type
+    ?? record.reasonType
+    ?? record.self_position_basis
+    ?? record.selfPositionBasis;
+  const status: InnerReactionParticipationJudgmentStatus = rawStatus === 'has_sayable_point'
+    || rawStatus === 'has_own_judgment'
+    || rawStatus === 'formed'
+    ? 'has_sayable_point'
+    : rawStatus === 'no_sayable_point'
+    || rawStatus === 'no_reason_to_join'
+    || rawStatus === 'not_formed'
+    ? 'no_sayable_point'
+    : rawStatus === 'direct_request'
+    || rawStatus === 'direct_request_only'
+    ? 'direct_request'
+    : inferredStatus;
+  const parsedBasis: InnerReactionParticipationJudgmentBasis = rawBasis === 'opinion'
+    || rawBasis === 'stance'
+    ? 'opinion'
+    : rawBasis === 'question'
+    || rawBasis === 'genuine_question'
+    ? 'question'
+    : rawBasis === 'curiosity'
+    || rawBasis === 'interest'
+    ? 'curiosity'
+    : rawBasis === 'discomfort'
+    || rawBasis === 'association'
+    ? rawBasis
+    : rawBasis === 'boundary'
+    || rawBasis === 'identity_boundary'
+    ? 'boundary'
+    : rawBasis === 'direct_request'
+    || rawBasis === 'none'
+    ? rawBasis
+    : inferredBasis;
+  const basis = status === 'no_sayable_point'
+    ? 'none'
+    : status === 'direct_request' && parsedBasis === 'none'
+    ? 'direct_request'
+    : parsedBasis;
+  const rawSayablePoint = record.sayable_point
+    ?? record.sayablePoint
+    ?? record.public_summary
+    ?? record.publicSummary;
+  const sayablePoint = typeof rawSayablePoint === 'string' && rawSayablePoint.trim()
+    ? rawSayablePoint.trim()
+    : null;
+
+  return {
+    status,
+    basis,
+    sayablePoint,
+    evidenceRefs: parseStringArray(record.evidence_refs ?? record.evidenceRefs),
+    memoryRefs: parseStringArray(record.memory_refs ?? record.memoryRefs)
+  };
+}
+
 function parseCompactMemoryAssertions(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return [];
   }
   return parseRecordArray((value as Record<string, unknown>).assertions).map((item) => {
-    const text = typeof item.text === 'string' ? item.text.trim() : '';
+    const text = typeof item.text === 'string' ? canonicalizeCompactMemoryAliasText(item.text.trim()) : '';
     const factType = item.fact_type === 'stable_fact'
       || item.fact_type === 'current_status'
       || item.fact_type === 'one_time_event'
@@ -3099,15 +3631,39 @@ function parseCompactMemoryAssertions(value: unknown) {
       || item.fact_type === 'claim'
       ? item.fact_type
       : 'claim';
+    const scope = item.scope === 'person'
+      || item.scope === 'dyad'
+      || item.scope === 'group'
+      || item.scope === 'topic'
+      || item.scope === 'system_state'
+      || item.scope === 'self_continuity'
+      ? item.scope
+      : 'topic';
+    const xiaoniRelevance = item.xiaoni_relevance === 'participation_judgment'
+      || item.xiaoni_relevance === 'self_position'
+      || item.xiaoni_relevance === 'direct_feedback'
+      || item.xiaoni_relevance === 'relationship_context'
+      || item.xiaoni_relevance === 'topic_knowledge'
+      || item.xiaoni_relevance === 'none'
+      ? (item.xiaoni_relevance === 'self_position' ? 'participation_judgment' : item.xiaoni_relevance)
+      : 'none';
+    const evidenceSummary = typeof (item.evidence_summary ?? item.evidenceSummary) === 'string'
+      ? canonicalizeCompactMemoryAliasText(String(item.evidence_summary ?? item.evidenceSummary).trim())
+      : '';
     const sourceTurnIds = parsePositiveIntegerArray(item.source_turn_ids ?? item.sourceTurnIds);
-    if (!text || sourceTurnIds.length === 0) {
+    if (!text || sourceTurnIds.length === 0 || isMalformedCompactMemoryText(text, evidenceSummary)) {
       return null;
     }
     return {
       text,
       factType,
+      scope,
+      owners: parseParticipantArray(item.owners ?? item.claim_owners ?? item.claimOwners),
+      directedTo: parseParticipantArray(item.directed_to ?? item.directedTo),
       entities: parseEntityArray(item.entities),
       participants: parseParticipantArray(item.participants),
+      evidenceSummary,
+      xiaoniRelevance,
       sourceTurnIds
     };
   }).filter((item): item is NonNullable<typeof item> => Boolean(item));
@@ -3118,35 +3674,62 @@ function parseCompactMemoryReflections(value: unknown) {
     return [];
   }
   return parseRecordArray((value as Record<string, unknown>).reflections).map((item) => {
-    const text = typeof item.text === 'string' ? item.text.trim() : '';
+    const text = typeof item.text === 'string' ? canonicalizeCompactMemoryAliasText(item.text.trim()) : '';
     const kind = item.kind === 'person_pattern'
-      || item.kind === 'relationship'
-      || item.kind === 'group_pattern'
+      || item.kind === 'dyad_pattern'
+      || item.kind === 'group_norm'
       || item.kind === 'project_arc'
-      || item.kind === 'self_observation'
+      || item.kind === 'self_continuity'
+      || item.kind === 'xiaoni_perception'
       ? item.kind
-      : 'group_pattern';
+      : item.kind === 'relationship'
+      ? 'dyad_pattern'
+      : item.kind === 'group_pattern'
+      ? 'group_norm'
+    : item.kind === 'self_observation'
+      || item.kind === 'self_position_continuity'
+      ? 'self_continuity'
+      : null;
     const evidenceBasis = item.evidence_basis === 'explicit_feedback'
-      || item.evidence_basis === 'xiaoni_utterances'
+      || item.evidence_basis === 'xiaoni_sayable_points'
       || item.evidence_basis === 'repeated_interactions'
-      || item.evidence_basis === 'group_pattern'
+      || item.evidence_basis === 'repeated_group_events'
       ? item.evidence_basis
-      : 'group_pattern';
+      : item.evidence_basis === 'xiaoni_utterances'
+      || item.evidence_basis === 'xiaoni_positions'
+      ? 'xiaoni_sayable_points'
+      : item.evidence_basis === 'group_pattern'
+      ? 'repeated_group_events'
+      : null;
+    const evidenceSummary = typeof (item.evidence_summary ?? item.evidenceSummary) === 'string'
+      ? canonicalizeCompactMemoryAliasText(String(item.evidence_summary ?? item.evidenceSummary).trim())
+      : '';
+    const selfContinuityNote = typeof (item.self_continuity_note ?? item.selfContinuityNote) === 'string'
+      ? canonicalizeCompactMemoryAliasText(String(item.self_continuity_note ?? item.selfContinuityNote).trim())
+      : '';
     const sourceObservationIds = parsePositiveIntegerArray(item.source_observation_ids ?? item.sourceObservationIds, 12);
-    if (!text || sourceObservationIds.length < 2) {
+    if (!text
+      || !kind
+      || !evidenceBasis
+      || sourceObservationIds.length < 2
+      || isMalformedCompactMemoryText(text, evidenceSummary, selfContinuityNote)
+      || containsFutureBehaviorPolicy(text)
+      || containsFutureBehaviorPolicy(evidenceSummary)
+      || containsFutureBehaviorPolicy(selfContinuityNote)
+    ) {
       return null;
     }
     return {
       text,
       kind,
-      subjects: parseStringArray(item.subjects),
+      subjects: parseCompactMemorySubjectArray(item.subjects),
+      subjectParticipants: parseParticipantArray(item.subject_participants ?? item.subjectParticipants),
+      objectParticipants: parseParticipantArray(item.object_participants ?? item.objectParticipants),
       evidenceBasis,
-      evidenceTimeStart: typeof (item.evidence_time_start ?? item.evidenceTimeStart) === 'string'
-        ? String(item.evidence_time_start ?? item.evidenceTimeStart).trim()
-        : null,
-      evidenceTimeEnd: typeof (item.evidence_time_end ?? item.evidenceTimeEnd) === 'string'
-        ? String(item.evidence_time_end ?? item.evidenceTimeEnd).trim()
-        : null,
+      evidenceSummary,
+      selfContinuityNote,
+      evidenceTimeStart: parseCompactMemoryEvidenceTime(item.evidence_time_start ?? item.evidenceTimeStart),
+      evidenceTimeEnd: parseCompactMemoryEvidenceTime(item.evidence_time_end ?? item.evidenceTimeEnd),
       poignancy: parseBoundedInteger(item.poignancy, 1, 10, 1),
       sourceObservationIds
     };
@@ -3161,6 +3744,21 @@ function parseStringArray(value: unknown) {
     .map((item) => (typeof item === 'string' ? item.trim() : ''))
     .filter(Boolean)
     .slice(0, 6);
+}
+
+function parseCompactMemorySubjectArray(value: unknown) {
+  const seen = new Set<string>();
+  const subjects: string[] = [];
+  for (const subject of parseStringArray(value)) {
+    const canonical = canonicalizeCompactMemorySubject(subject);
+    const key = canonical.replace(/\s+/g, '').toLowerCase();
+    if (!canonical || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    subjects.push(canonical);
+  }
+  return subjects.slice(0, 6);
 }
 
 function buildIdentitySceneText(queueMessage: QueueMessageRecord['payload']) {
@@ -4568,6 +5166,7 @@ export class AgentLoopService {
     });
     const groupId = Number.isFinite(Number(params.queueMessage.peerId)) ? Number(params.queueMessage.peerId) : null;
     const messageIdsByTurnId = buildSourceMessageIdsByTurnId(params.evictedTurns);
+    const participantDirectory = buildCompactMemoryParticipantDirectory(params.evictedTurns);
     const compactModelName = agentConfig.compactMemoryModelName;
     const reflectionModelName = agentConfig.compactMemoryReflectionModelName;
 
@@ -4606,6 +5205,7 @@ export class AgentLoopService {
     const persistedObservations: PersistedMemoryObservation[] = [];
     for (const observation of observations) {
       const sourceMessageIds = collectSourceMessageIds(observation.sourceTurnIds, messageIdsByTurnId);
+      const participants = normalizeCompactMemoryParticipants(observation.participants, participantDirectory);
       const stored = await this.store.createAgentMemoryObservation({
         sessionKey: params.queueMessage.sessionKey,
         groupId,
@@ -4615,7 +5215,7 @@ export class AgentLoopService {
         topic: observation.topic,
         text: observation.text,
         poignancy: observation.poignancy,
-        participants: observation.participants,
+        participants,
         xiaoniRole: observation.xiaoniRole,
         sourceTraceId: traceId,
         sourceRunId: params.queueMessage.runId,
@@ -4630,6 +5230,8 @@ export class AgentLoopService {
         id: Number(stored.id),
         topic: observation.topic,
         text: observation.text,
+        participants,
+        xiaoniRole: observation.xiaoniRole,
         sourceTurnIds: observation.sourceTurnIds,
         sourceMessageIds,
         createdAt: (stored as { created_at?: string | Date | null }).created_at ?? null
@@ -4651,6 +5253,9 @@ export class AgentLoopService {
     });
     const assertions = parseCompactMemoryAssertions(semanticToolCall.args);
     for (const assertion of assertions) {
+      const participants = normalizeCompactMemoryParticipants(assertion.participants, participantDirectory);
+      const owners = normalizeCompactMemoryParticipants(assertion.owners, participantDirectory);
+      const directedTo = normalizeCompactMemoryParticipants(assertion.directedTo, participantDirectory);
       await this.store.createAgentMemoryAssertion({
         sessionKey: params.queueMessage.sessionKey,
         groupId,
@@ -4660,14 +5265,19 @@ export class AgentLoopService {
         text: assertion.text,
         factType: assertion.factType,
         entities: assertion.entities,
-        participants: assertion.participants,
+        participants,
         sourceTraceId: traceId,
         sourceRunId: params.queueMessage.runId,
         writerModel: compactModelName,
         metadata: {
           parent_trace_id: params.queueMessage.traceId,
           memory_layer: 'semantic',
-          source: 'context_compression_evicted_turns'
+          source: 'context_compression_evicted_turns',
+          scope: assertion.scope,
+          owners,
+          directed_to: directedTo,
+          evidence_summary: assertion.evidenceSummary,
+          xiaoni_relevance: assertion.xiaoniRelevance
         }
       });
     }
@@ -4714,7 +5324,11 @@ export class AgentLoopService {
           metadata: {
             parent_trace_id: params.queueMessage.traceId,
             memory_layer: 'reflection',
-            source: 'episodic_observations'
+            source: 'episodic_observations',
+            subject_participants: normalizeCompactMemoryParticipants(reflection.subjectParticipants, participantDirectory),
+            object_participants: normalizeCompactMemoryParticipants(reflection.objectParticipants, participantDirectory),
+            evidence_summary: reflection.evidenceSummary,
+            self_continuity_note: reflection.selfContinuityNote
           }
         });
         reflectionCount += 1;
@@ -4758,7 +5372,8 @@ export class AgentLoopService {
         }),
         promptCacheKey: `${params.promptCacheKey}:${params.layer}`,
         layer: params.layer,
-        reasoningEffort: params.reasoningEffort
+        reasoningEffort: params.reasoningEffort,
+        textVerbosity: agentConfig.compactMemoryTextVerbosity
       }
     );
     const requestBody = JSON.stringify({
@@ -5317,6 +5932,13 @@ export class AgentLoopService {
           interest_level: reaction.interestLevel,
           wants_to_know_more: reaction.wantsToKnowMore,
           reaction_authenticity: reaction.reactionAuthenticity,
+          participation_judgment: {
+            status: reaction.participationJudgment.status,
+            basis: reaction.participationJudgment.basis,
+            sayable_point: reaction.participationJudgment.sayablePoint || '',
+            evidence_refs: reaction.participationJudgment.evidenceRefs,
+            memory_refs: reaction.participationJudgment.memoryRefs
+          },
           should_search: reaction.shouldSearch,
           preferred_action: reaction.preferredAction,
           context_gap: reaction.contextGap,

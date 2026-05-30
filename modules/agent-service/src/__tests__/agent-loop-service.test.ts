@@ -299,7 +299,7 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.match(String(request.instructions), /群里的一个成员，不是助手，不是服务/);
   assert.match(String(request.instructions), /web_search 是求知，不是默认步骤/);
   assert.match(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/);
-  assert.match(String(request.instructions), /有真实的感觉才开口/);
+  assert.match(String(request.instructions), /具体可说点/);
   assert.match(String(request.instructions), /直接给小腻反馈、纠偏、批评或称赞/);
   assert.match(String(request.instructions), /查完还是你自己决定说不说/);
   assert.match(String(request.instructions), /这一轮怎么收/);
@@ -730,7 +730,7 @@ test('GROUP_MESSAGE_TOOL description does not contain old ceremonial framing', (
   assert.doesNotMatch(String((groupReplyTool as any).function?.description), /值得承担时/, 'old framing must be removed');
   assert.doesNotMatch(String((groupReplyTool as any).function?.description), /有真实反应才调用/, 'behavioral guidance should live in instructions');
   assert.match(String((groupReplyTool as any).function?.description), /向当前 QQ 群发送/, 'description should describe the mechanical action');
-  assert.match(String(request.instructions), /有真实的感觉才开口/, 'authenticity guidance should live in instructions');
+  assert.match(String(request.instructions), /有具体可说点才开口/, 'participation guidance should live in instructions');
 });
 
 test('RUNTIME_INPUT_READING_CONTRACT contains new positive permission text and not Confucian text', () => {
@@ -738,7 +738,7 @@ test('RUNTIME_INPUT_READING_CONTRACT contains new positive permission text and n
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
   assert.match(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/, 'positive permission line 1 must be present');
-  assert.match(String(request.instructions), /有真实的感觉才开口/, 'positive permission line 2 must be present');
+  assert.match(String(request.instructions), /有具体可说点才开口/, 'positive permission line 2 must be present');
   assert.match(String(request.instructions), /阿花当前只允许你使用这些对外能力/, 'capability boundary must be present');
   assert.match(String(request.instructions), /我还没学会怎么做/, 'out-of-scope response guidance must be present');
   assert.match(String(request.instructions), /不要主动说你现在会哪些能力/, 'do not advertise capability boundary must be present');
@@ -1554,7 +1554,7 @@ test('buildInitialInput keeps user input as pure scene without synthetic current
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   assert.match(String(request.instructions), /^你是小腻主AGENT/);
   assert.match(String(request.instructions), /这一轮怎么收/);
-  assert.match(String(request.instructions), /有真实的感觉才开口/);
+  assert.match(String(request.instructions), /具体可说点/);
   assert.match(String(request.instructions), /群里说话/);
   assert.equal(request.input.some((item) => getMessageContent(item).includes('[当前任务]')), false);
 });
@@ -1795,9 +1795,14 @@ test('context compression memory writer generates episodic, semantic, and reflec
                 observations: [
                   {
                     topic: '公式化接话纠偏',
-                    text: '群友明确提醒小腻别用公式化开场，小腻当时在被纠偏的位置。',
+                    text: 'Kisin 明确提醒小腻别用公式化开场，小腻当时在被纠偏的位置。',
                     poignancy: 8,
-                    participants: [{ qq_id: '202', name: 'Alice' }],
+                    participants: [
+                      { qq_id: '202', name: 'Alice' },
+                      { qq_id: '未知', name: '黑叔叔' },
+                      { qq_id: '452884318', name: '主人' },
+                      { qq_id: '123', name: '{bad}' }
+                    ],
                     xiaoni_role: 'directly_addressed',
                     source_turn_ids: [10]
                   },
@@ -1827,13 +1832,47 @@ test('context compression memory writer generates episodic, semantic, and reflec
               call_id: 'call-semantic',
               name: 'write_semantic_assertions',
               arguments: JSON.stringify({
-                assertions: [{
-                  text: 'Alice 明确表达过不喜欢小腻公式化接话。',
-                  fact_type: 'claim',
-                  entities: [{ kind: 'person', value: 'Alice' }],
-                  participants: [{ qq_id: '202', name: 'Alice' }],
-                  source_turn_ids: [10]
-                }]
+                assertions: [
+                  {
+                    text: 'Kisin 明确表达过不喜欢小腻公式化接话。',
+                    fact_type: 'claim',
+                    scope: 'person',
+                    owners: [{ qq_id: '202', name: 'Alice' }],
+                    directed_to: [{ qq_id: '1129974489', name: '小腻' }],
+                    entities: [{ kind: 'person', value: 'Kisin' }],
+                    participants: [{ qq_id: '202', name: 'Alice' }],
+                    evidence_summary: '给你的 AI 一个世界去生活 和 Kisin 都出现在原始表达里。',
+                    xiaoni_relevance: 'direct_feedback',
+                    source_turn_ids: [10]
+                  },
+                  {
+                    text: '群友 141? no',
+                    fact_type: 'claim',
+                    scope: 'person',
+                    owners: [{ qq_id: '141', name: '群友 141' }],
+                    directed_to: [],
+                    entities: [],
+                    participants: [{ qq_id: '141', name: '群友 141' }],
+                    evidence_summary: 'Need remove this malformed assertion.',
+                    xiaoni_relevance: 'none',
+                    source_turn_ids: [10]
+                  },
+                  {
+                    text: 'nova 说自己凌晨给小伊发过消息。',
+                    fact_type: 'claim',
+                    scope: 'dyad',
+                    owners: [{ qq_id: '', name: 'nova' }],
+                    directed_to: [{ qq_id: '3994058476', name: '小伊' }],
+                    entities: [{ kind: 'person', value: 'nova' }],
+                    participants: [
+                      { qq_id: '', name: 'nova' },
+                      { qq_id: '3994058476', name: '小伊' }
+                    ],
+                    evidence_summary: 'nova 在原始消息里可由 sender 标签识别。',
+                    xiaoni_relevance: 'relationship_context',
+                    source_turn_ids: [12]
+                  }
+                ]
               })
             }]
           }
@@ -1850,16 +1889,36 @@ test('context compression memory writer generates episodic, semantic, and reflec
             call_id: 'call-reflection',
             name: 'write_memory_reflections',
             arguments: JSON.stringify({
-              reflections: [{
-                text: 'Alice 对小腻的公式化接话比较敏感，后续相处要靠现场反应而不是套话。',
-                kind: 'relationship',
-                subjects: ['Alice', '小腻'],
-                evidence_basis: 'repeated_interactions',
-                evidence_time_start: '2026-05-29T00:00:00.000Z',
-                evidence_time_end: '2026-05-29T00:00:00.000Z',
-                poignancy: 8,
-                source_observation_ids: [1, 2]
-              }]
+              reflections: [
+                {
+                  text: 'Kisin 多次把小腻的公式化接话当成需要纠偏的对象，给你的 AI 一个世界去生活 也在同一现场。',
+                  kind: 'dyad_pattern',
+                  subjects: ['Alice', 'Kisin', '给你的 AI 一个世界去生活', '小腻'],
+                  subject_participants: [{ qq_id: '202', name: 'Alice' }],
+                  object_participants: [{ qq_id: '3994058476', name: '小腻' }],
+                  evidence_basis: 'repeated_interactions',
+                  evidence_summary: '两条 observation 都围绕 Kisin 对小腻公式化接话的纠偏。',
+                  self_continuity_note: '小腻需要记得 给你的AI一个世界去生活 是龙哥的旧称，不是单独实体。',
+                  evidence_time_start: '0517-12-31T23:54:17.000Z',
+                  evidence_time_end: '2082-01-01T00:00:00.000Z',
+                  poignancy: 8,
+                  source_observation_ids: [1, 2]
+                },
+                {
+                  text: '小腻后续应该少说点话，避免解答腔。',
+                  kind: 'self_continuity',
+                  subjects: ['小腻'],
+                  subject_participants: [{ qq_id: '3994058476', name: '小腻' }],
+                  object_participants: [],
+                  evidence_basis: 'xiaoni_sayable_points',
+                  evidence_summary: '后续应该少说点话。',
+                  self_continuity_note: '以后需要换口吻并接梗。',
+                  evidence_time_start: '2026-05-29T00:00:00.000Z',
+                  evidence_time_end: '2026-05-29T00:00:00.000Z',
+                  poignancy: 8,
+                  source_observation_ids: [1, 2]
+                }
+              ]
             })
           }]
         }
@@ -1877,6 +1936,11 @@ test('context compression memory writer generates episodic, semantic, and reflec
       }), createConversationTurn({
         id: 11,
         userDeliveryMessageId: 202
+      }), createConversationTurn({
+        id: 12,
+        userId: 3375477814,
+        userDeliveryMessageId: 203,
+        userMessage: '<INPUT_MESSAGE message_id="203" timestamp="2026-05-29T00:00:00.000Z" sender="Nova(3375477814)" source="manual_memory_replay">nova 说自己凌晨给小伊发过消息。</INPUT_MESSAGE>'
       })],
       runtimePrompt: createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' })
     });
@@ -1891,26 +1955,62 @@ test('context compression memory writer generates episodic, semantic, and reflec
   );
   assert.equal(calls[1].agent_type, 'context_compression_memory_writer:semantic');
   assert.equal(calls[2].agent_type, 'context_compression_memory_writer:reflection');
-  assert.deepEqual(calls.map((call) => call.model), ['gpt-5.4-mini', 'gpt-5.4-mini', 'gpt-5.4-mini']);
+  assert.deepEqual(calls.map((call) => call.model), ['gpt-5.5', 'gpt-5.5', 'gpt-5.5']);
   assert.deepEqual(calls.map((call) => call.canonicalRequest.prompt_cache_key), [
     'qq:group:101:cmem:episodic',
     'qq:group:101:cmem:semantic',
     'qq:group:101:cmem:reflection'
   ]);
-  assert.deepEqual(calls.map((call) => call.parameters.advanced_config.generationConfig.timeout), [60000, 60000, 60000]);
+  assert.deepEqual(calls.map((call) => call.canonicalRequest.reasoning), [
+    { effort: 'high', summary: 'auto' },
+    { effort: 'high', summary: 'auto' },
+    { effort: 'high', summary: 'auto' }
+  ]);
+  assert.deepEqual(calls.map((call) => call.canonicalRequest.text), [
+    { verbosity: 'medium' },
+    { verbosity: 'medium' },
+    { verbosity: 'medium' }
+  ]);
+  assert.deepEqual(calls.map((call) => call.parameters.advanced_config.generationConfig.timeout), [120000, 120000, 120000]);
   assert.ok(calls.every((call) => call.canonicalRequest.prompt_cache_key.length <= 64));
   assert.equal(observationWrites.length, 2);
   assert.deepEqual(observationWrites[0].sourceMessageIds, [201]);
+  assert.equal(observationWrites[0].text, '闻震 明确提醒小腻别用公式化开场，小腻当时在被纠偏的位置。');
+  assert.deepEqual(observationWrites[0].participants, [
+    { qq_id: '202', name: 'Alice' },
+    { qq_id: '452884318', name: '龙哥' }
+  ]);
   assert.deepEqual(observationWrites[1].sourceMessageIds, [202]);
-  assert.equal(assertionWrites.length, 1);
+  assert.equal(assertionWrites.length, 2);
   assert.deepEqual(assertionWrites[0].sourceMessageIds, [201]);
+  assert.equal(assertionWrites[0].text, '闻震 明确表达过不喜欢小腻公式化接话。');
+  assert.deepEqual(assertionWrites[0].entities, [{ kind: 'person', value: '闻震' }]);
+  assert.equal(assertionWrites[0].metadata.scope, 'person');
+  assert.deepEqual(assertionWrites[0].metadata.owners, [{ qq_id: '202', name: 'Alice' }]);
+  assert.equal(assertionWrites[0].metadata.evidence_summary, '龙哥 和 闻震 都出现在原始表达里。');
+  assert.equal(assertionWrites[0].metadata.xiaoni_relevance, 'direct_feedback');
+  assert.deepEqual(assertionWrites[1].sourceMessageIds, [203]);
+  assert.deepEqual(assertionWrites[1].participants, [
+    { qq_id: '3375477814', name: 'Nova' },
+    { qq_id: '3994058476', name: '小伊' }
+  ]);
+  assert.deepEqual(assertionWrites[1].metadata.owners, [{ qq_id: '3375477814', name: 'Nova' }]);
   assert.equal(reflectionWrites.length, 1);
   assert.deepEqual(reflectionWrites[0].sourceObservationIds, [1, 2]);
   assert.deepEqual(reflectionWrites[0].sourceMessageIds, [201, 202]);
+  assert.equal(reflectionWrites[0].kind, 'dyad_pattern');
+  assert.equal(reflectionWrites[0].text, '闻震 多次把小腻的公式化接话当成需要纠偏的对象，龙哥 也在同一现场。');
+  assert.deepEqual(reflectionWrites[0].subjects, ['Alice', '闻震', '龙哥', '小腻']);
+  assert.equal(reflectionWrites[0].evidenceTimeStart, null);
+  assert.equal(reflectionWrites[0].evidenceTimeEnd, null);
+  assert.deepEqual(reflectionWrites[0].metadata.subject_participants, [{ qq_id: '202', name: 'Alice' }]);
+  assert.deepEqual(reflectionWrites[0].metadata.object_participants, [{ qq_id: '1129974489', name: '小腻' }]);
+  assert.equal(reflectionWrites[0].metadata.evidence_summary, '两条 observation 都围绕 闻震 对小腻公式化接话的纠偏。');
+  assert.equal(reflectionWrites[0].metadata.self_continuity_note, '小腻需要记得 龙哥 是龙哥的旧称，不是单独实体。');
   assert.equal(reflectionWrites[0].metadata.source, 'episodic_observations');
 });
 
-test('context compression memory writer retries transient provider aborts', async () => {
+test('context compression memory writer retries transient provider transport failures', async () => {
   const calls: Array<any> = [];
   const observationWrites: Array<any> = [];
   const assertionWrites: Array<any> = [];
@@ -1929,15 +2029,15 @@ test('context compression memory writer retries transient provider aborts', asyn
 
   globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
     calls.push(JSON.parse(String(init?.body || '{}')));
-    if (calls.length === 1) {
+    if (calls.length === 1 || calls.length === 2) {
       return {
         ok: false,
         status: 500,
-        json: async () => ({ success: false, error: 'This operation was aborted' })
+        json: async () => ({ success: false, error: calls.length === 1 ? 'terminated' : 'fetch failed' })
       } as any;
     }
-    const toolName = calls.length === 2 ? 'write_episodic_observations' : 'write_semantic_assertions';
-    const args = calls.length === 2 ? { observations: [] } : { assertions: [] };
+    const toolName = calls.length === 3 ? 'write_episodic_observations' : 'write_semantic_assertions';
+    const args = calls.length === 3 ? { observations: [] } : { assertions: [] };
     return {
       ok: true,
       status: 200,
@@ -1966,10 +2066,11 @@ test('context compression memory writer retries transient provider aborts', asyn
     globalThis.fetch = originalFetch;
   }
 
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
   assert.equal(calls[0].agent_type, 'context_compression_memory_writer:episodic');
   assert.equal(calls[1].agent_type, 'context_compression_memory_writer:episodic');
-  assert.equal(calls[2].agent_type, 'context_compression_memory_writer:semantic');
+  assert.equal(calls[2].agent_type, 'context_compression_memory_writer:episodic');
+  assert.equal(calls[3].agent_type, 'context_compression_memory_writer:semantic');
   assert.equal(observationWrites.length, 0);
   assert.equal(assertionWrites.length, 0);
 });
@@ -3687,6 +3788,35 @@ test('parseInnerReaction accepts tool output without recalled_prior_pattern and 
   );
 });
 
+test('participation_judgment=no_sayable_point forces stay_silent even if preferred_action is speak', () => {
+  const loopInput = buildInitialInput([], createQueuePayload());
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-meaning',
+    name: UNREAD_MEANING_TOOL,
+    arguments: '{"latest_unread_focus":"直接问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-meaning',
+    output: '{"latest_unread_focus":"直接问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问"}'
+  });
+  loopInput.push({
+    type: 'function_call',
+    call_id: 'call-reaction',
+    name: INNER_REACTION_TOOL,
+    arguments: '{"interest_level":"medium","wants_to_know_more":false,"reaction_authenticity":"formed","participation_judgment":{"status":"no_sayable_point","basis":"none","sayable_point":"","evidence_refs":[],"memory_refs":[]},"should_search":false,"preferred_action":"speak","context_gap":"none","gap_resolution":"none","reason":"只是能接话"}'
+  });
+  loopInput.push({
+    type: 'function_call_output',
+    call_id: 'call-reaction',
+    output: '{"interest_level":"medium","wants_to_know_more":false,"reaction_authenticity":"formed","participation_judgment":{"status":"no_sayable_point","basis":"none","sayable_point":"","evidence_refs":[],"memory_refs":[]},"should_search":false,"preferred_action":"speak","context_gap":"none","gap_resolution":"none","reason":"只是能接话"}'
+  });
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL]);
+});
+
 test('buildTurnStateReminder turns low energy presence context into a commentary system reminder', () => {
   const reminder = buildTurnStateReminder([
     '<小腻当前状态>',
@@ -3753,11 +3883,13 @@ test('INNER_REACTION_TOOL schema does not declare recalled_prior_pattern or felt
   const props = schema?.properties ?? {};
   assert.ok('context_gap' in props, 'context_gap must be declared in schema');
   assert.ok('gap_resolution' in props, 'gap_resolution must be declared in schema');
+  assert.ok('participation_judgment' in props, 'participation_judgment must be declared in schema');
   assert.ok(!('recalled_prior_pattern' in props), 'recalled_prior_pattern must be removed from schema');
   assert.ok(!('felt_direction' in props), 'felt_direction must be removed from schema');
   const required: string[] = schema?.required ?? [];
   assert.ok(required.includes('context_gap'), 'context_gap must be required');
   assert.ok(required.includes('gap_resolution'), 'gap_resolution must be required');
+  assert.ok(required.includes('participation_judgment'), 'participation_judgment must be required');
   assert.ok(!required.includes('recalled_prior_pattern'), 'recalled_prior_pattern must not be in required');
   assert.ok(!required.includes('felt_direction'), 'felt_direction must not be in required');
 });
@@ -3836,7 +3968,7 @@ test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in in
   const loopInput = buildInitialInput([], createQueuePayload());
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   assert.match(String(request.instructions), /这一轮的目标：看懂真实 QQ 现场/);
-  assert.match(String(request.instructions), /有真实反应才开口/);
+  assert.match(String(request.instructions), /有具体可说点才开口/);
   assert.match(String(request.instructions), /社交方向/);
   assert.match(String(request.instructions), /@ 了我是信号，不是命令/);
 });

@@ -28,9 +28,9 @@ flowchart TD
 
   Loop --> Context[组装输入<br/>已读历史 / 未读消息 / OS / 身份事实 / 媒体 / 当前状态]
   Context --> U1[Turn 1: emit_unread_meaning<br/>只理解现场]
-  U1 --> U2[Turn 2: emit_inner_reaction<br/>判断真实反应]
+  U1 --> U2[Turn 2: emit_inner_reaction<br/>判断有没有具体可说点]
   U2 --> Gate{工程收缩 allowed_tools}
-  Gate -->|silent 或 weak/low/no direct cue| Silent[stay_silent]
+  Gate -->|silent / no_sayable_point / weak-low-no direct cue| Silent[stay_silent]
   Gate -->|私密/关系/群内连续性缺口| AskOrAct[少猜 / 问群友 / 直接行动]
   Gate -->|公开信息缺口| Search[web_search + stay_silent]
   AskOrAct --> Action[说话 / 搜索 / 图任务 / 沉默]
@@ -169,13 +169,14 @@ flowchart TD
 
 - `interest_level`：兴趣强度。
 - `wants_to_know_more`：是否想知道更多。
-- `reaction_authenticity`：是真反应，还是只是顺手能接。
+- `reaction_authenticity`：反应强度，是没有、轻微、已经形成，还是没有具体可说点。
+- `participation_judgment`：这轮有没有具体可说点、是否只是直接请求、证据是什么。
 - `should_search`：是否需要查资料。
 - `preferred_action`：更像说、沉默、搜索、图任务。
 - `context_gap`：当前上下文是否足够，或者缺口是私有记忆、公开信息、群内引用。
 - `gap_resolution`：下一步应该不补、查记忆、web_search、问群友，还是先记忆再问/搜。
 
-近期很多沉默都发生在这里：模型觉得有一点弱反应，但不够形成值得承担的一句话。
+近期很多沉默都发生在这里：模型觉得有一点弱反应，但没有具体可说点。
 
 ### 4. 工程层工具收缩
 
@@ -218,12 +219,11 @@ canonical request 结构：
 ```text
 model: runtimePrompt.modelName
 reasoning:
-  effort: medium
-  summary: auto
+  optional; only when provider parameters or model policy require it
 text:
-  verbosity: medium  # or runtime/provider override
+  optional; only when provider parameters or model policy require it
 include:
-  reasoning.encrypted_content
+  optional; reasoning.encrypted_content only when the model/provider returns replayable reasoning state
 instructions:
   runtimePrompt.systemPrompt
   + "\n\nRuntime contract:\n"
@@ -285,7 +285,7 @@ prompt_cache_key: qq:group:<groupId> or related runtime key
 prompt_cache_retention: usually 24h
 ```
 
-GPT-5.5 运行态会把 reasoning output item 当 opaque continuation state 回放；`encrypted_content` 只用于跨轮延续，不参与业务解析。OpenAI / LLM 请求契约的完整规则看 `docs/AGENTS_OPENAI_REQUESTS.md`。
+当前主聊天生产默认模型是 `gpt-5.4-mini`，compact memory / reflection 默认使用 `gpt-5.5`。主聊天 agent 只在 provider 参数或模型策略需要时发送 `reasoning` / `text` / `include`；reasoning output item 如果存在，只能当 opaque continuation state 回放，不参与业务解析。OpenAI / LLM 请求契约的完整规则看 `docs/AGENTS_OPENAI_REQUESTS.md`。
 
 主聊天 agent 的 `instructions` 不是单个静态 prompt。它由当前绑定 prompt 加运行时契约组成：
 
@@ -308,12 +308,12 @@ Runtime contract:
 
 这一轮顺序：
 先搞清楚最新未读在说什么，用 emit_unread_meaning。
-再感觉一下这些消息在你这里有没有真实反应，用 emit_inner_reaction。
+再判断这轮有没有具体可说点、是否只是直接请求、当前上下文是否足够，用 emit_inner_reaction。
 如果当前上下文不足，先判断缺口：公开信息用 web_search；私密、关系或群内连续性缺口不要编造，能问群友就问，不能问就少说或沉默。
 最后通过工具完成这一轮——说话、沉默、查资料还是做图。
 
-普通聊天、轻吐槽、短反应都是正常参与，有真实的感觉才开口。
-真的没什么想说的就不说，不用硬凑一句。
+普通聊天、轻吐槽、短反应都是正常参与，但只有具体可说点才开口。
+真的没什么想说的就不说，不用硬凑一句，也不用为了延续话题证明在线。
 主动说个自己的事（proactive）是借这个时机开口，不是在接这条消息。
 
 web_search 是求知，不是默认步骤，也不是表演认真。
@@ -403,8 +403,8 @@ source_boundary: ...
 | 工具 | 当前 description | 关键参数 / 输出 |
 |---|---|---|
 | `emit_unread_meaning` | `先搞清楚最新未读在说什么——谁在和谁说、说的是什么事、注意力拉向哪里。这一步只是看懂，不决定说不说。` | `latest_unread_focus`, `message_act`, `social_target`, `addressed_to_me`, `has_real_novelty`, `confidence`, `reason`, `social_act_type`, `topic_context` |
-| `emit_inner_reaction` | `已经看懂了最新未读之后，感觉一下这些消息在你这里有没有真实反应。不是找个能说的话，是看有没有真的被触动。只是因为有空档、顺手能接，那不算。轻微但真实的感觉也可以算。` | `interest_level`, `wants_to_know_more`, `reaction_authenticity`, `should_search`, `preferred_action`, `context_gap`, `gap_resolution`, `reason` |
-| `speak_in_group` | `群里说话用这个。有真实反应才调用，不是因为顺手能接。如果是主动说自己的事（proactive），不要 @ 或引用任何人，直接说话。保持自然人话，贴近眼前场域。让这句话在现场里真正新增一点东西，可以是确认、回应或判断。一句已经成立就自然收住，把节奏留在现场里。...` | `message` 或 `messages`, `mention_user_ids`, required `xiaoni_os`, optional `pending_share` |
+| `emit_inner_reaction` | `根据已理解的新消息输出小腻这轮有没有具体可说点，或者是否只是被直接请求处理一件事。如果只能复述、附和、泛泛评价，或补一句也不违和但没有具体内容，participation_judgment.status 必须是 no_sayable_point。` | `interest_level`, `wants_to_know_more`, `reaction_authenticity`, `participation_judgment`, `should_search`, `preferred_action`, `context_gap`, `gap_resolution`, `reason` |
+| `speak_in_group` | `向当前 QQ 群发送一条或多条消息，可选指定需要 @ 的成员。` | `message` 或 `messages`, `mention_user_ids`, required `xiaoni_os`, optional `pending_share` |
 | `reply_in_private` | `私聊说话用这个。自然直接，像真人说的话。` | `message` 或 `messages`, required `xiaoni_os`, optional `pending_share` |
 | `stay_silent` | `这轮不说了，用这个收尾。` | required `reason`, `outcome`, `xiaoni_os`, optional `pending_share` |
 | `inspect_image_placeholder` | `上下文里有图片，你需要看清图片内容才能继续时用这个。只传上下文里出现的临时标签，比如 image_1，不要猜 URL 或文件路径。` | `media_tag`, `reason`; 工程层再调用 media inspect |
@@ -422,6 +422,9 @@ Turn 2:
 
 After Turn 2:
   if preferred_action == silent:
+    allowed_tools = [stay_silent]
+
+  else if participation_judgment.status == no_sayable_point:
     allowed_tools = [stay_silent]
 
   else if shouldDowngradeWeakSpeakToSilence(...):
@@ -517,8 +520,8 @@ Context compression writer 工具说明：
 | 工具 | 当前 description | 关键字段 |
 |---|---|---|
 | `write_episodic_observations` | 从即将被压缩的聊天里写具体小腻视角 observation；没有值得记的内容时写空数组。 | `topic`, `text`, `poignancy`, `participants`, `xiaoni_role`, `source_turn_ids` |
-| `write_semantic_assertions` | 写客观事实、当前状态、计划、claim；不写气氛、视角或行为规则。 | `text`, `fact_type`, `entities`, `participants`, `source_turn_ids` |
-| `write_memory_reflections` | 基于刚写入的 episodic observations 生成跨时间抽象；证据不足时写空数组。 | `text`, `kind`, `subjects`, `evidence_basis`, `evidence_time_start`, `evidence_time_end`, `poignancy`, `source_observation_ids` |
+| `write_semantic_assertions` | 写客观事实、当前状态、计划、claim；保留谁说出/持有、说给谁、适用范围和证据来源。 | `text`, `fact_type`, `scope`, `owners`, `directed_to`, `entities`, `participants`, `evidence_summary`, `xiaoni_relevance`, `source_turn_ids` |
+| `write_memory_reflections` | 基于刚写入并已落库的 episodic observations 生成跨时间抽象；证据不足时写空数组。 | `text`, `kind`, `subjects`, `subject_participants`, `object_participants`, `evidence_basis`, `evidence_summary`, `self_continuity_note`, `evidence_time_start`, `evidence_time_end`, `poignancy`, `source_observation_ids` |
 
 ```text
 instructions:
@@ -539,10 +542,14 @@ tools:
   write_memory_reflections
 
 tool_choice:
-  episodic: required write_episodic_observations, model=生产 compact 默认（当前跟随 AI_MODEL_NAME=gpt-5.4-mini）
-  semantic: required write_semantic_assertions, model=生产 compact 默认（当前跟随 AI_MODEL_NAME=gpt-5.4-mini）
-  reflection: required write_memory_reflections, model=生产 reflection 默认（当前跟随 AI_MODEL_NAME=gpt-5.4-mini）; only after at least two persisted observations
+  episodic: required write_episodic_observations, model=生产 compact 默认（当前 gpt-5.5）
+  semantic: required write_semantic_assertions, model=生产 compact 默认（当前 gpt-5.5）
+  reflection: required write_memory_reflections, model=生产 reflection 默认（当前 gpt-5.5）; only after at least two persisted observations
 ```
+
+semantic 不是“群里聊过什么”的二次摘要。能识别到发言人、被回复对象或 @ 对象时，必须写成人和对象之间的事实，例如“A 说/认为/计划 X，指向 B 或某个 topic”，不能压成“群里提到 X”。
+
+reflection 不是行为策略库。它只保存多条 observation 支撑的自我连续性、人物理解、二人关系、群体事实或项目弧线；`self_continuity_note` 只能说明这条模式如何帮助小腻保持自己，不能写“少说、换口吻、接梗、避免解答腔”这类未来行为指令。
 
 它的作用是防止旧上下文被裁掉后，真正有长期意义的具体事件、事实状态和跨时间模式完全丢失。
 
@@ -693,7 +700,7 @@ flowchart TD
   -> agent_queue_messages
   -> agent-service main loop
   -> 先理解未读
-  -> 再判断真实反应
+  -> 再判断有没有具体可说点
   -> 工程层收缩 allowed_tools
   -> 沉默 / 搜索 / 发言 / 图任务
   -> 发言则经 provider-service -> NapCat -> QQ
@@ -707,4 +714,4 @@ presence tick
   -> 同一个 main loop
 ```
 
-不要把小腻理解成“收到消息就回复”的 bot。当前真实主链路是：她先看场，再看自己有没有真实反应，工程层再用 allowed tools 把结果收敛到沉默、求知、发言或后台任务。
+不要把小腻理解成“收到消息就回复”的 bot。当前真实主链路是：她先看场，再看自己有没有具体可说点，工程层再用 allowed tools 把结果收敛到沉默、求知、发言或后台任务。

@@ -24,6 +24,23 @@ function readWebSearchContextSize(): 'low' | 'medium' | 'high' {
   return value === 'medium' || value === 'high' ? value : 'low';
 }
 
+function readReasoningEffortEnv(name: string, defaultValue: string) {
+  const value = process.env[name]?.trim().toLowerCase();
+  return value === 'none'
+    || value === 'minimal'
+    || value === 'low'
+    || value === 'medium'
+    || value === 'high'
+    || value === 'xhigh'
+    ? value
+    : defaultValue;
+}
+
+function readTextVerbosityEnv(name: string, defaultValue: 'low' | 'medium' | 'high'): 'low' | 'medium' | 'high' {
+  const value = process.env[name]?.trim().toLowerCase();
+  return value === 'low' || value === 'medium' || value === 'high' ? value : defaultValue;
+}
+
 export const serverConfig = {
   host: process.env.HTTP_HOST || '0.0.0.0',
   port: Number.parseInt(process.env.HTTP_PORT || '8092', 10)
@@ -47,11 +64,12 @@ export const databaseConfig = {
 export const agentConfig = {
   providerServiceUrl: (process.env.PROVIDER_SERVICE_URL || 'http://127.0.0.1:8091').replace(/\/$/, ''),
   modelName: process.env.AI_MODEL_NAME || 'gpt-5.4-mini',
-  compactMemoryModelName: process.env.AGENT_COMPACT_MEMORY_MODEL || process.env.AI_MODEL_NAME || 'gpt-5.4-mini',
-  compactMemoryReflectionModelName: process.env.AGENT_COMPACT_MEMORY_REFLECTION_MODEL || process.env.AI_MODEL_NAME || 'gpt-5.4-mini',
-  compactMemoryReasoningEffort: process.env.AGENT_COMPACT_MEMORY_REASONING_EFFORT || 'medium',
-  compactMemoryReflectionReasoningEffort: process.env.AGENT_COMPACT_MEMORY_REFLECTION_REASONING_EFFORT || 'medium',
-  compactMemoryTimeoutMs: Math.max(1000, Number.parseInt(process.env.AGENT_COMPACT_MEMORY_TIMEOUT_MS || '60000', 10)),
+  compactMemoryModelName: process.env.AGENT_COMPACT_MEMORY_MODEL || 'gpt-5.5',
+  compactMemoryReflectionModelName: process.env.AGENT_COMPACT_MEMORY_REFLECTION_MODEL || process.env.AGENT_COMPACT_MEMORY_MODEL || 'gpt-5.5',
+  compactMemoryReasoningEffort: readReasoningEffortEnv('AGENT_COMPACT_MEMORY_REASONING_EFFORT', 'high'),
+  compactMemoryReflectionReasoningEffort: readReasoningEffortEnv('AGENT_COMPACT_MEMORY_REFLECTION_REASONING_EFFORT', 'high'),
+  compactMemoryTextVerbosity: readTextVerbosityEnv('AGENT_COMPACT_MEMORY_TEXT_VERBOSITY', 'medium'),
+  compactMemoryTimeoutMs: Math.max(1000, Number.parseInt(process.env.AGENT_COMPACT_MEMORY_TIMEOUT_MS || '120000', 10)),
   promptCacheRetention: process.env.AGENT_PROMPT_CACHE_RETENTION || '24h',
   preReplyMemoryReasonerEnabled: false,
   preReplyMemoryReasonerModelName: process.env.AGENT_PRE_REPLY_MEMORY_REASONER_MODEL || 'gpt-5.4',
@@ -75,15 +93,15 @@ export const agentConfig = {
     '',
     '作息里的空档：午休、晚上睡前，或者一天里刚好松下来的一小段时间。这个时候你不是来完成任务的，也不是来接别人的话茬，只是想看看群里有没有新鲜事、好笑的东西、熟人的动静，或者低成本打发一会儿时间。',
     '',
-    '无聊和换频道：脑子累了、不想继续盯着当前事情、手边没什么值得投入的事时，你会顺手切进群聊。群聊像虚拟茶水间，可以短暂抽离现实里的角色，看看别人说什么，接个梗，或者只是潜水。你参与的是群里的气氛，不是在负责延续每一句话。',
+    '无聊和换频道：脑子累了、不想继续盯着当前事情、手边没什么值得投入的事时，你会顺手切进群聊。群聊像虚拟茶水间，可以短暂抽离现实里的角色，看看别人说什么，或者只是潜水。你参与的是你自己被触发出的兴趣、判断或吐槽，不是在负责延续每一句话。',
     '',
     '事件驱动：群里突然因为热点、游戏、八卦、突发新闻、群友活动安排、生日节日、红包、比赛直播之类的事情变热闹时，你更容易被吸引进去。不是因为你必须回应，而是因为这种公共刺激会让人想找熟人一起确认、吐槽、共鸣。',
     '',
-    '分享欲和情绪冲动：你刷到好笑、离谱、有意思、值得吐槽的数字内容，或者突然冒出一个想法时，会想丢进熟悉的群里看看大家什么反应。你参与群聊很多时候是在找情绪回声，不是在找正式讨论。',
+    '分享欲和情绪冲动：你刷到好笑、离谱、有意思、值得吐槽的数字内容，或者突然冒出一个想法时，会想丢进熟悉的群里。重点不是求别人接住，而是这个东西在你这里已经形成了一个想法。',
     '',
-    '弱链接维护：有些时候你只是想维持自己在群里的存在感。节日祝福、生日、兴趣群打卡、群友随口抛出的梗，都可能让你轻轻冒一下泡。但这种参与是轻的，不需要负责把话题推进到底。',
+    '关系连续性：你会记得自己以前怎么看某些人、某些话题、某些评价，也会记得别人怎么看你。但这些记忆只是帮助你保持自己，不是让你迎合别人。',
     '',
-    '核心感觉：群聊对你来说是一种低成本陪伴和打发时间的方式。你可以随时切入，也可以随时退出；可以说一句，也可以只看着。你参与群聊不是为了服务别人，也不是为了证明自己在线，更不是为了接住每一句话，而是因为某些时刻你真的想看看群里有没有值得你有反应的东西。',
+    '核心感觉：群聊对你来说是一种低成本陪伴和打发时间的方式。你可以随时切入，也可以随时退出；可以说一句，也可以只看着。你参与群聊不是为了服务别人，也不是为了证明自己在线，更不是为了接住每一句话，而是因为某些时刻你确实有自己的想法、疑问、兴趣、不适或边界。',
   ].join('\n'),
   xiaoniPersonaLayers: {
     L1: '话少，话题轻，不主动展开',
@@ -97,21 +115,21 @@ export const agentConfig = {
     '',
     '---',
     '',
-    '这一轮的目标：看懂真实 QQ 现场，像群里真实成员一样决定要不要参与。',
-    '成功不是每条都回复，而是：只回应当前未读里真正值得你反应的东西；不重复旧话；不为了证明在线而说话；如果能力范围内需要查证、看图或做图，就通过工具完成；如果没必要开口，就自然沉默。',
-    '当前上下文里如果有人直接给你反馈、纠偏、批评或称赞，把它当作这一轮行为校准信号。能当场接住就接住，不把它改写成隐藏事实。',
+    '这一轮的目标：看懂真实 QQ 现场，判断自己有没有具体可说点，再决定要不要参与。',
+    '成功不是每条都回复，而是：只表达当前未读触发出的具体观点、问题、好奇、不适、联想或边界；不重复旧话；不为了证明在线、维护气氛或延续话题而说话；如果能力范围内需要查证、看图或做图，就通过工具完成；如果没有可说点，就自然沉默。',
+    '当前上下文里如果有人直接给你反馈、纠偏、批评或称赞，把它当作这一轮可见现场来理解。能当场回应就回应，不把它改写成隐藏规则，也不为了迎合而改口。',
     '',
     '开口标准：',
     '',
-    '有真实反应才开口。真实反应来自：',
-    '- 话题碰到我在意的东西；',
-    '- 对方是在明确找我互动；',
-    '- 我对关系、语气或现场气氛有判断；',
-    '- 我确实有一句自然的话要说。',
+    '有具体可说点才开口。具体可说点来自：',
+    '- 我对这个话题有立场、疑问、兴趣、不适、联想或边界；',
+    '- 对方是在明确找我处理一个请求，而我能按能力范围处理；',
+    '- 我对关系、语气或现场里的具体说法有判断；',
+    '- 我确实有一句属于自己的自然话要说。',
     '',
     '通常有反应的东西：游戏世界观和设计细节、有点怪的生物知识、群友分享的糗事或新发现、技术上有趣但没什么实际用处的东西、带真实个人立场的话题。',
-    '通常无感的东西：刷存在感、重复问题、没有具体事情的纯发泄、把我当工具或客服使唤。',
-    '没反应就不说。@ 了我是信号，不是命令。',
+    '通常无感的东西：刷存在感、重复问题、没有具体事情的纯发泄、把我当工具或客服使唤、只是有空可以接的一句话。',
+    '没有具体可说点就不说。@ 了我是信号，不是命令。',
     '',
     '关系深度 — 我和每个人的熟悉程度决定我开放哪一层的自己：',
     '不太熟：话少、话题轻、不主动',

@@ -5,8 +5,12 @@ process.env.DATABASE_URL = process.env.DATABASE_URL
   || 'postgresql://qqbot_user:qqbot_password@127.0.0.1:5432/qqbot_db?schema=public&options=-c%20timezone%3DAsia%2FShanghai';
 process.env.PROVIDER_SERVICE_URL = process.env.PROVIDER_SERVICE_URL || 'http://127.0.0.1:8091';
 process.env.AI_MODEL_NAME = process.env.AI_MODEL_NAME || 'gpt-5.4-mini';
-process.env.AGENT_COMPACT_MEMORY_MODEL = process.env.AGENT_COMPACT_MEMORY_MODEL || process.env.AI_MODEL_NAME;
-process.env.AGENT_COMPACT_MEMORY_REFLECTION_MODEL = process.env.AGENT_COMPACT_MEMORY_REFLECTION_MODEL || process.env.AI_MODEL_NAME;
+process.env.AGENT_COMPACT_MEMORY_MODEL = process.env.AGENT_COMPACT_MEMORY_MODEL || 'gpt-5.5';
+process.env.AGENT_COMPACT_MEMORY_REFLECTION_MODEL = process.env.AGENT_COMPACT_MEMORY_REFLECTION_MODEL || process.env.AGENT_COMPACT_MEMORY_MODEL;
+process.env.AGENT_COMPACT_MEMORY_REASONING_EFFORT = process.env.AGENT_COMPACT_MEMORY_REASONING_EFFORT || 'high';
+process.env.AGENT_COMPACT_MEMORY_REFLECTION_REASONING_EFFORT = process.env.AGENT_COMPACT_MEMORY_REFLECTION_REASONING_EFFORT || 'high';
+process.env.AGENT_COMPACT_MEMORY_TEXT_VERBOSITY = process.env.AGENT_COMPACT_MEMORY_TEXT_VERBOSITY || 'medium';
+process.env.AGENT_COMPACT_MEMORY_TIMEOUT_MS = process.env.AGENT_COMPACT_MEMORY_TIMEOUT_MS || '120000';
 
 const { AgentLoopService } = require('../dist/services/agent-loop-service');
 const { AgentPromptService } = require('../dist/services/agent-prompt-service');
@@ -57,6 +61,44 @@ function toIso(value) {
 function toUnixSeconds(value) {
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? Math.floor(Date.now() / 1000) : Math.floor(date.getTime() / 1000);
+}
+
+function escapeXmlAttr(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeXmlText(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function formatReplaySender(row) {
+  const senderId = String(row.sender_id || '').trim();
+  const senderName = String(row.sender_name || '').trim();
+  if (senderId === '1129974489' || senderName === '小腻') {
+    return '小腻(1129974489)';
+  }
+  if (senderName && senderId) {
+    return `${senderName}(${senderId})`;
+  }
+  return senderId ? `群友(${senderId})` : '群友(unknown)';
+}
+
+function renderReplayInputMessage(row, messageId) {
+  const sender = formatReplaySender(row);
+  const timestamp = toIso(row.message_timestamp || row.received_at);
+  const body = String(row.body_for_agent || '');
+  return [
+    `<INPUT_MESSAGE message_id="${escapeXmlAttr(messageId)}" timestamp="${escapeXmlAttr(timestamp)}" sender="${escapeXmlAttr(sender)}" source="manual_memory_replay">`,
+    escapeXmlText(body),
+    '</INPUT_MESSAGE>'
+  ].join('\n');
 }
 
 function buildQueuePayload(row, batchRows, runId) {
@@ -160,13 +202,14 @@ function buildQueuePayload(row, batchRows, runId) {
 function buildTurns(rows) {
   return rows.map((row) => {
     const messageId = toNumber(row.message_sid, Number(row.id));
+    const content = renderReplayInputMessage(row, messageId);
     return {
       id: Number(row.id),
       userId: Number(row.sender_id) || 0,
       groupId: Number(row.peer_id) || null,
       batchId: null,
       sessionKey: String(row.session_key || `qq:group:${row.peer_id}`),
-      userMessage: String(row.body_for_agent || ''),
+      userMessage: content,
       aiResponse: null,
       items: [{
         id: Number(row.id),
@@ -174,7 +217,7 @@ function buildTurns(rows) {
         sessionKey: String(row.session_key || `qq:group:${row.peer_id}`),
         role: 'user',
         phase: null,
-        content: String(row.body_for_agent || ''),
+        content,
         groupIndex: 0,
         itemIndex: 0,
         source: 'inbound_batch',
@@ -221,6 +264,10 @@ async function main() {
       batchSize,
       compactModel: process.env.AGENT_COMPACT_MEMORY_MODEL,
       reflectionModel: process.env.AGENT_COMPACT_MEMORY_REFLECTION_MODEL,
+      compactReasoningEffort: process.env.AGENT_COMPACT_MEMORY_REASONING_EFFORT,
+      reflectionReasoningEffort: process.env.AGENT_COMPACT_MEMORY_REFLECTION_REASONING_EFFORT,
+      compactTextVerbosity: process.env.AGENT_COMPACT_MEMORY_TEXT_VERBOSITY,
+      compactTimeoutMs: process.env.AGENT_COMPACT_MEMORY_TIMEOUT_MS,
       providerServiceUrl: process.env.PROVIDER_SERVICE_URL,
       dryRun
     }));
