@@ -21,6 +21,8 @@ type ClaimMessagesInput = {
   sessionKey?: string;
   limit?: number;
   order?: 'oldest' | 'latest';
+  markRead?: boolean;
+  includeMessageIds?: number[];
 };
 
 type ListConversationMessagesInput = {
@@ -372,6 +374,10 @@ export class InboundInboxService {
     const claimOrder = input.order === 'latest'
       ? 'received_at DESC, id DESC'
       : 'received_at ASC, id ASC';
+    const shouldMarkRead = input.markRead !== false;
+    const includeMessageIds = Array.isArray(input.includeMessageIds)
+      ? input.includeMessageIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
+      : [];
     const rows = await this.db.withTransaction(async (tx) => {
       const filters = ['is_read = 0'];
       const params: Array<string | number> = [];
@@ -395,21 +401,46 @@ export class InboundInboxService {
         params
       );
 
-      const ids = idRows.map((row) => Number(row.id));
+      const selectedIds = new Set(idRows.map((row) => Number(row.id)));
+      if (includeMessageIds.length > 0) {
+        const includePlaceholders = includeMessageIds.map(() => '?').join(', ');
+        const includeFilters = ['is_read = 0', `id IN (${includePlaceholders})`];
+        const includeParams: Array<string | number> = [...includeMessageIds];
+        if (input.sessionKey) {
+          includeFilters.push('session_key = ?');
+          includeParams.push(input.sessionKey);
+        }
+        const includeRows = await tx.query<{ id: number }>(
+          `
+            SELECT id
+            FROM ${TABLE_NAME}
+            WHERE ${includeFilters.join(' AND ')}
+            FOR UPDATE
+          `,
+          includeParams
+        );
+        for (const row of includeRows) {
+          selectedIds.add(Number(row.id));
+        }
+      }
+
+      const ids = Array.from(selectedIds);
       if (ids.length === 0) {
         return [];
       }
 
       const placeholders = ids.map(() => '?').join(', ');
 
-      await tx.execute(
-        `
-          UPDATE ${TABLE_NAME}
-          SET is_read = 1, read_at = NOW()
-          WHERE id IN (${placeholders})
-        `,
-        ids
-      );
+      if (shouldMarkRead) {
+        await tx.execute(
+          `
+            UPDATE ${TABLE_NAME}
+            SET is_read = 1, read_at = NOW()
+            WHERE id IN (${placeholders})
+          `,
+          ids
+        );
+      }
 
       return await tx.query<InboxRow>(
         `
@@ -423,8 +454,28 @@ export class InboundInboxService {
     });
 
     const ids = rows.map((row) => Number(row.id));
-    this.removeFromUnreadBuffer(ids);
+    if (shouldMarkRead) {
+      this.removeFromUnreadBuffer(ids);
+    }
     return rows.map((row) => this.mapRow(row));
+  }
+
+  async markMessagesRead(ids: number[]) {
+    const uniqueIds = Array.from(new Set(ids.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)));
+    if (uniqueIds.length === 0) {
+      return;
+    }
+
+    const placeholders = uniqueIds.map(() => '?').join(', ');
+    await this.db.execute(
+      `
+        UPDATE ${TABLE_NAME}
+        SET is_read = 1, read_at = COALESCE(read_at, NOW())
+        WHERE id IN (${placeholders})
+      `,
+      uniqueIds
+    );
+    this.removeFromUnreadBuffer(uniqueIds);
   }
 
   private async persistMessage(params: {

@@ -2824,6 +2824,53 @@ test('sanitizeLowValueOpeningFiller only removes low-value opening fillers', () 
   assert.equal(sanitizeLowValueOpeningFiller('哈哈，确实。'), '哈哈，确实。');
 });
 
+test('speak_in_group prefers messages array over message when both are supplied', async () => {
+  const service = new AgentLoopService({
+    recordPresenceAssistantAction: async () => {}
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const queueMessage = createQueuePayload();
+  const originalFetch = globalThis.fetch;
+  const sendGroupCalls: Array<{ url: string; body: any }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    sendGroupCalls.push({
+      url: String(url),
+      body: JSON.parse(String(init?.body || '{}'))
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: [{ message_id: 9101 }]
+      })
+    } as any;
+  }) as typeof fetch;
+
+  try {
+    const result = await (service as any).sendMessage('group', {
+      message: '这一句不应该被追加',
+      messages: ['只发这一句'],
+      mention_user_ids: [],
+      xiaoni_os: '测试 message/messages 优先级。'
+    }, queueMessage);
+
+    assert.deepEqual(result.sent_messages, ['只发这一句']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(sendGroupCalls, [{
+    url: `${agentConfig.providerServiceUrl}/api/internal/send_group`,
+    body: {
+      session_key: 'qq:group:101',
+      group_id: 101,
+      messages: ['只发这一句'],
+      mention_user_ids: []
+    }
+  }]);
+});
+
 test('submit_life_action with a single message sends it once', async () => {
   const service = new AgentLoopService({
     recordPresenceAssistantAction: async () => {}
@@ -3015,7 +3062,8 @@ test('processQueueMessage persists delivered assistant transcript items with fin
     completeAgentRun: [],
     updateLlmJob: [],
     markRunDeliveryCommitted: [],
-    ensureXiaoniIdentityRoot: []
+    ensureXiaoniIdentityRoot: [],
+    createToolExecutionLog: []
   };
   let deliveryPhase = 'reasoning_open';
 
@@ -3038,7 +3086,10 @@ test('processQueueMessage persists delivered assistant transcript items with fin
       storeCalls.markRunDeliveryCommitted.push(_runId);
     },
     markRunDeliveryBlocked: async () => {},
-    createToolExecutionLog: async () => 1,
+    createToolExecutionLog: async (params: any) => {
+      storeCalls.createToolExecutionLog.push(params);
+      return 1;
+    },
     completeToolExecutionLog: async () => {},
     createConversation: async (params: any) => {
       storeCalls.createConversation.push(params);
@@ -3194,6 +3245,8 @@ test('processQueueMessage persists delivered assistant transcript items with fin
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.total_turns, 1);
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.loop_stage_artifacts?.life_action?.action_type, 'speak');
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.loop_stage_artifacts?.unread_meaning?.message_act, 'question');
+  assert.equal(storeCalls.createToolExecutionLog[0]?.toolName, LIFE_ACTION_TOOL);
+  assert.equal(storeCalls.createToolExecutionLog[0]?.sideEffect, true);
   assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-success']);
   assert.deepEqual(sendGroupCalls, [{
     url: `${agentConfig.providerServiceUrl}/api/internal/send_group`,
@@ -4031,6 +4084,245 @@ test('processQueueMessage blocks near-duplicate second outbound reply after deli
   assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.blocked_transition, true);
   assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.duplicate_suppressed, false);
   assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-near-duplicate']);
+  assert.equal(storeCalls.markRunDeliveryBlocked.length, 1);
+});
+
+test('processQueueMessage fingerprints duplicate life action replies with the current direct chat type', async () => {
+  const basePayload = createQueuePayload();
+  const directPayload: QueueMessagePayload = {
+    ...basePayload,
+    chatType: 'direct',
+    sessionKey: 'qq:private:202',
+    peerId: '202',
+    peerName: 'Alice',
+    wasMentioned: false,
+    messages: basePayload.messages.map((message) => ({
+      ...message,
+      chatType: 'direct',
+      sessionKey: 'qq:private:202',
+      peerId: '202',
+      peerName: 'Alice',
+      wasMentioned: false
+    }))
+  };
+  const queueMessage = {
+    id: 'run-queue-direct-duplicate',
+    traceId: 'trace-direct-duplicate',
+    batchId: 'batch-direct-duplicate',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: directPayload
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    completeToolExecutionLog: [],
+    markRunDeliveryCommitted: [],
+    markRunDeliveryBlocked: []
+  };
+  let deliveryPhase = 'reasoning_open';
+
+  const store = {
+    createLlmJob: async () => 'job-direct-duplicate',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getRunDeliveryState: async () => ({
+      deliveryPhase,
+      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      blockedDeliveryAttemptCount: storeCalls.markRunDeliveryBlocked.length,
+      lastBlockedDeliveryReason: storeCalls.markRunDeliveryBlocked[storeCalls.markRunDeliveryBlocked.length - 1] ?? null
+    }),
+    markRunDeliveryCommitted: async (_runId: string) => {
+      deliveryPhase = 'delivery_committed';
+      storeCalls.markRunDeliveryCommitted.push(_runId);
+    },
+    markRunDeliveryBlocked: async (_runId: string, reason: string) => {
+      storeCalls.markRunDeliveryBlocked.push(reason);
+    },
+    createToolExecutionLog: async () => 1,
+    completeToolExecutionLog: async (_logId: number, params: any) => { storeCalls.completeToolExecutionLog.push(params); },
+    createConversation: async () => 4101,
+    attachConversationIdToTrace: async () => {},
+    completeQueueMessage: async () => {},
+    failQueueMessage: async () => {},
+    completeAgentRun: async () => {},
+    updateLlmJob: async () => {}
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  let turn = 0;
+  let executeToolCalls = 0;
+  (service as any).executeAgentTurn = async () => {
+    turn += 1;
+    if (turn === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-direct-duplicate-1',
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-direct-duplicate-1',
+            name: PRIVATE_REPLY_TOOL,
+            arguments: JSON.stringify({ message: '私聊同一句话' })
+          }]
+        }
+      };
+    }
+
+    return {
+      success: true,
+      llm_call_id: 'llm-direct-duplicate-2',
+      canonical_response: {
+        output: [{
+          type: 'function_call',
+          call_id: 'call-direct-duplicate-2',
+          name: LIFE_ACTION_TOOL,
+          arguments: JSON.stringify({
+            action_type: 'speak',
+            messages: ['私聊同一句话'],
+            mention_user_ids: [404]
+          })
+        }]
+      }
+    };
+  };
+  (service as any).executeTool = async () => {
+    executeToolCalls += 1;
+    return {
+      message_type: 'private',
+      sent_messages: ['私聊同一句话'],
+      delivery: [{ message_id: 7201 }]
+    };
+  };
+
+  await service.processQueueMessage(queueMessage as any);
+
+  assert.equal(executeToolCalls, 1);
+  assert.equal(storeCalls.completeToolExecutionLog.length, 2);
+  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.blocked_transition, true);
+  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.message_type, 'private');
+  assert.deepEqual(storeCalls.completeToolExecutionLog[1]?.result?.mention_user_ids, []);
+  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.duplicate_suppressed, true);
+  assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-direct-duplicate']);
+  assert.equal(storeCalls.markRunDeliveryBlocked.length, 1);
+});
+
+test('processQueueMessage blocks life action image tasks after visible delivery commit', async () => {
+  const queueMessage = {
+    id: 'run-queue-image-after-delivery',
+    traceId: 'trace-image-after-delivery',
+    batchId: 'batch-image-after-delivery',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    completeToolExecutionLog: [],
+    markRunDeliveryCommitted: [],
+    markRunDeliveryBlocked: []
+  };
+  let deliveryPhase = 'reasoning_open';
+
+  const store = {
+    createLlmJob: async () => 'job-image-after-delivery',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getRunDeliveryState: async () => ({
+      deliveryPhase,
+      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      blockedDeliveryAttemptCount: storeCalls.markRunDeliveryBlocked.length,
+      lastBlockedDeliveryReason: storeCalls.markRunDeliveryBlocked[storeCalls.markRunDeliveryBlocked.length - 1] ?? null
+    }),
+    markRunDeliveryCommitted: async (_runId: string) => {
+      deliveryPhase = 'delivery_committed';
+      storeCalls.markRunDeliveryCommitted.push(_runId);
+    },
+    markRunDeliveryBlocked: async (_runId: string, reason: string) => {
+      storeCalls.markRunDeliveryBlocked.push(reason);
+    },
+    createToolExecutionLog: async () => 1,
+    completeToolExecutionLog: async (_logId: number, params: any) => { storeCalls.completeToolExecutionLog.push(params); },
+    createConversation: async () => 4201,
+    attachConversationIdToTrace: async () => {},
+    completeQueueMessage: async () => {},
+    failQueueMessage: async () => {},
+    completeAgentRun: async () => {},
+    updateLlmJob: async () => {}
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  let turn = 0;
+  let executeToolCalls = 0;
+  (service as any).executeAgentTurn = async () => {
+    turn += 1;
+    if (turn === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-image-after-delivery-1',
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-image-after-delivery-1',
+            name: GROUP_REPLY_TOOL,
+            arguments: JSON.stringify({ message: '先回复一句' })
+          }]
+        }
+      };
+    }
+
+    return {
+      success: true,
+      llm_call_id: 'llm-image-after-delivery-2',
+      canonical_response: {
+        output: [{
+          type: 'function_call',
+          call_id: 'call-image-after-delivery-2',
+          name: LIFE_ACTION_TOOL,
+          arguments: JSON.stringify({
+            action_type: 'image_task',
+            prompt: '再生成一张图',
+            reason: '已经发完后不应再创建任务。'
+          })
+        }]
+      }
+    };
+  };
+  (service as any).executeTool = async () => {
+    executeToolCalls += 1;
+    return {
+      message_type: 'group',
+      sent_messages: ['先回复一句'],
+      delivery: [{ message_id: 7301 }]
+    };
+  };
+
+  await service.processQueueMessage(queueMessage as any);
+
+  assert.equal(executeToolCalls, 1);
+  assert.equal(storeCalls.completeToolExecutionLog.length, 2);
+  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.blocked_transition, true);
+  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.message_type, 'group');
+  assert.deepEqual(storeCalls.completeToolExecutionLog[1]?.result?.blocked_messages, []);
+  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.duplicate_suppressed, false);
+  assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-image-after-delivery']);
   assert.equal(storeCalls.markRunDeliveryBlocked.length, 1);
 });
 

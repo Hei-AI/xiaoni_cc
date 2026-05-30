@@ -1258,6 +1258,18 @@ function isSpeakingToolName(name: string) {
   return isPrivateReplyToolName(name) || isGroupReplyToolName(name);
 }
 
+function isToolCallSideEffecting(toolCall: Pick<AgentToolCall, 'name' | 'args'>) {
+  if (isSpeakingToolName(toolCall.name) || toolCall.name === TOOL_NAMES.imageTask) {
+    return true;
+  }
+  if (toolCall.name === TOOL_NAMES.lifeAction) {
+    return toolCall.args.action_type === 'speak'
+      || toolCall.args.action_type === 'proactive'
+      || toolCall.args.action_type === 'image_task';
+  }
+  return false;
+}
+
 function hasUnreadMeaningReplay(loopInput: OpenResponseInputItem[]) {
   return hasToolReplay(loopInput, TOOL_NAMES.unreadMeaning);
 }
@@ -2028,28 +2040,42 @@ function buildOutboundFingerprint(payload: OutboundDeliveryFingerprint) {
   });
 }
 
-function buildDuplicateOutboundSuppression(toolCall: Pick<AgentToolCall, 'name' | 'args'>) {
-  const isLifeActionOutbound = toolCall.name === TOOL_NAMES.lifeAction
-    && (toolCall.args.action_type === 'speak' || toolCall.args.action_type === 'proactive');
-  if (!isPrivateReplyToolName(toolCall.name) && !isGroupReplyToolName(toolCall.name) && !isLifeActionOutbound) {
+function buildPostCommitSideEffectSuppression(
+  toolCall: Pick<AgentToolCall, 'name' | 'args'>,
+  chatType: QueueMessageRecord['payload']['chatType']
+) {
+  const isLifeAction = toolCall.name === TOOL_NAMES.lifeAction;
+  const isLifeActionMessage = isLifeAction
+    && (
+      toolCall.args.action_type === 'speak'
+      || toolCall.args.action_type === 'proactive'
+      || toolCall.args.action_type === 'image_task'
+    );
+  const isImageTaskSideEffect = toolCall.name === TOOL_NAMES.imageTask
+    || (isLifeAction && toolCall.args.action_type === 'image_task');
+  if (!isPrivateReplyToolName(toolCall.name) && !isGroupReplyToolName(toolCall.name) && !isLifeActionMessage && !isImageTaskSideEffect) {
     return null;
   }
 
   const messages = normalizeMessages(toolCall.args);
-  if (messages.length === 0) {
+  if (messages.length === 0 && !isImageTaskSideEffect) {
     return null;
   }
 
   const payload: OutboundDeliveryFingerprint = {
-    messageType: isPrivateReplyToolName(toolCall.name) ? 'private' : 'group',
+    messageType: isPrivateReplyToolName(toolCall.name)
+      ? 'private'
+      : isGroupReplyToolName(toolCall.name)
+        ? 'group'
+        : chatType === 'direct' ? 'private' : 'group',
     messages,
-    mentionUserIds: isGroupReplyToolName(toolCall.name) || isLifeActionOutbound
+    mentionUserIds: isGroupReplyToolName(toolCall.name) || (isLifeActionMessage && chatType === 'group')
       ? normalizeOptionalIntegerList(toolCall.args.mention_user_ids)
       : []
   };
 
   return {
-    fingerprint: buildOutboundFingerprint(payload),
+    fingerprint: messages.length > 0 ? buildOutboundFingerprint(payload) : null,
     payload
   };
 }
@@ -4666,16 +4692,16 @@ export class AgentLoopService {
             toolName: toolCall.name,
             methodId: toolCall.name,
             arguments: toolCall.args,
-            sideEffect: isSpeakingToolName(toolCall.name)
+            sideEffect: isToolCallSideEffecting(toolCall)
           });
 
           try {
-            const duplicateOutbound = buildDuplicateOutboundSuppression(toolCall);
+            const duplicateOutbound = buildPostCommitSideEffectSuppression(toolCall, payload.chatType);
             if (duplicateOutbound) {
               deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
             }
             if (duplicateOutbound && deliveryState.deliveryPhase !== 'reasoning_open') {
-              const duplicateSuppressed = Boolean(duplicateOutbound && deliveredFingerprints.has(duplicateOutbound.fingerprint));
+              const duplicateSuppressed = Boolean(duplicateOutbound?.fingerprint && deliveredFingerprints.has(duplicateOutbound.fingerprint));
               const blockReason = 'Outbound delivery already committed earlier in this run.';
               const toolResult = {
                 finished: true,
@@ -6461,7 +6487,9 @@ export class AgentLoopService {
       body: JSON.stringify({
         trace_id: queueMessage.traceId,
         image_url: imageUrl,
-        prompt: '请用中文客观描述这张图片里可见的内容。只描述可见事实，不要猜测隐私、身份或意图。'
+        reason: typeof args.reason === 'string' && args.reason.trim()
+          ? args.reason.trim()
+          : '小腻需要看清这个图片占位符才能继续回复。'
       })
     });
     const payload = await response.json() as { success?: boolean; error?: string; data?: { description?: string; model?: string } };
@@ -7704,22 +7732,24 @@ function extractReplayableModelOutputs(response: ProviderAgentResponse['canonica
 }
 
 function normalizeMessages(args: Record<string, unknown>) {
-  const messages: string[] = [];
-
-  if (typeof args.message === 'string' && args.message.trim()) {
-    messages.push(sanitizeLowValueOpeningFiller(args.message));
-  }
-
   if (Array.isArray(args.messages)) {
+    const messages: string[] = [];
     for (const item of args.messages) {
       if (typeof item !== 'string' || !item.trim()) {
         throw new Error('messages must be an array of non-empty strings');
       }
       messages.push(sanitizeLowValueOpeningFiller(item));
     }
+    if (messages.length > 0) {
+      return messages;
+    }
   }
 
-  return messages;
+  if (typeof args.message === 'string' && args.message.trim()) {
+    return [sanitizeLowValueOpeningFiller(args.message)];
+  }
+
+  return [];
 }
 
 export function sanitizeLowValueOpeningFiller(message: string) {

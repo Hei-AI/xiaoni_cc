@@ -116,3 +116,67 @@ test('claimMessages supports latest unread window for proactive IM opens', async
   assert.match(queries[0], /ORDER BY received_at DESC, id DESC/);
   assert.deepEqual(claimed.map((message: any) => message.messageSid), ['sid-2', 'sid-3']);
 });
+
+test('claimMessages can include a trigger row without marking read before enqueue succeeds', async () => {
+  const service = new InboundInboxService() as any;
+  const queries: string[] = [];
+  let executeCalls = 0;
+  const row = (id: number, timestamp: string) => ({
+    id,
+    trace_id: `trace-${id}`,
+    source: 'napcat',
+    message_sid: `sid-${id}`,
+    dedupe_key: `dedupe-${id}`,
+    chat_type: 'group',
+    session_key: 'qq:group:1040740258',
+    peer_id: '1040740258',
+    peer_name: '群 1040740258',
+    sender_id: '100',
+    sender_name: 'tester',
+    account_id: '1129974489',
+    is_read: 0,
+    read_at: null,
+    received_at: timestamp,
+    message_timestamp: timestamp,
+    body_for_agent: `message ${id}`,
+    raw_body: `message ${id}`,
+    command_body: `message ${id}`,
+    was_mentioned: id === 9 ? 1 : 0,
+    reply_to_id: null,
+    reply_to_body: null,
+    reply_to_sender: null,
+    raw_payload: {},
+    inbound_context: {}
+  });
+  const tx = {
+    query: async (sql: string) => {
+      queries.push(sql);
+      if (sql.includes('SELECT id') && sql.includes('id IN')) {
+        return [{ id: 9 }];
+      }
+      if (sql.includes('SELECT id')) {
+        return [{ id: 1 }];
+      }
+      return [
+        row(1, '2026-05-31T00:58:00.000+08:00'),
+        row(9, '2026-05-31T01:00:00.000+08:00')
+      ];
+    },
+    execute: async () => { executeCalls += 1; }
+  };
+  service.db = {
+    withTransaction: async (fn: (inner: typeof tx) => Promise<unknown>) => fn(tx),
+    close: async () => undefined
+  };
+
+  const claimed = await service.claimMessages({
+    sessionKey: 'qq:group:1040740258',
+    limit: 1,
+    includeMessageIds: [9],
+    markRead: false
+  });
+
+  assert.equal(executeCalls, 0);
+  assert.equal(queries.some((sql) => sql.includes('id IN')), true);
+  assert.deepEqual(claimed.map((message: any) => message.messageSid), ['sid-1', 'sid-9']);
+});

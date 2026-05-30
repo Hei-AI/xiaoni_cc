@@ -9,7 +9,7 @@ import {
   ensureTopicLabSchema,
   upsertAgentMediaAssets,
 } from '@qq-bot/persistence';
-import { aiConfig, codexAccountRefreshConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
+import { aiConfig, codexAccountRefreshConfig, mediaInspectorConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
 import { NapcatClient } from './services/napcat-client';
@@ -34,6 +34,7 @@ import { GroupParticipationService } from './services/group-participation-servic
 import { codexAccountManager } from './services/codex-account-manager';
 import { CodexAccountRefreshSweeper } from './services/codex-account-refresh-sweeper';
 import { ImagePromptAssistantService, ImageProviderError, OpenAIImageProvider } from './services/image-provider';
+import { inspectMediaImage } from './services/media-inspector-service';
 import {
   buildSimpleQueueSimulationContext,
   type ProviderMessageType,
@@ -281,22 +282,24 @@ function respondRuntimeFeatureDisabled(
 }
 
 function normalizeOutboundMessages(body: Record<string, unknown>) {
-  const messages: string[] = [];
-
-  if (typeof body.message === 'string' && body.message.trim()) {
-    messages.push(body.message.trim());
-  }
-
   if (Array.isArray(body.messages)) {
+    const messages: string[] = [];
     for (const item of body.messages) {
       if (typeof item !== 'string' || !item.trim()) {
         throw new Error('messages must be an array of non-empty strings');
       }
       messages.push(item.trim());
     }
+    if (messages.length > 0) {
+      return messages;
+    }
   }
 
-  return messages;
+  if (typeof body.message === 'string' && body.message.trim()) {
+    return [body.message.trim()];
+  }
+
+  return [];
 }
 
 function normalizeOptionalNumericIdList(value: unknown, fieldName: string) {
@@ -360,7 +363,9 @@ async function claimImWindowForAgentTrigger(params: {
 
   const claimedMessages = await inboxService.claimMessages({
     sessionKey: params.inboxEvent.sessionKey,
-    limit: IM_TRIGGER_CLAIM_LIMIT
+    limit: IM_TRIGGER_CLAIM_LIMIT,
+    markRead: false,
+    includeMessageIds: [params.inboxEvent.id]
   });
 
   const messages = claimedMessages.length > 0 ? claimedMessages : [params.inboxEvent];
@@ -837,6 +842,9 @@ async function processAutoReply(params: {
     traceId: params.traceId,
     source: params.source
   }, runtimeStoreService);
+  if (triggerDecision.shouldEnqueue && queueResult.queued && inboxWindowMessages?.length) {
+    await inboxService.markMessagesRead(inboxWindowMessages.map((message) => message.id));
+  }
   return {
     ...queueResult,
     participationDecision
@@ -1180,40 +1188,34 @@ app.post('/api/internal/media/inspect', async (req, res) => {
       });
     }
 
-    const prompt = typeof req.body?.prompt === 'string' && req.body.prompt.trim()
-      ? req.body.prompt.trim()
-      : '请用中文客观描述这张图片里可见的内容。只描述可见事实，不要猜测隐私、身份或意图。';
+    const reason = typeof req.body?.reason === 'string' && req.body.reason.trim()
+      ? req.body.reason.trim()
+      : typeof req.body?.prompt === 'string' && req.body.prompt.trim()
+        ? req.body.prompt.trim()
+        : undefined;
     const model = typeof req.body?.model === 'string' && req.body.model.trim()
       ? req.body.model.trim()
-      : aiConfig.model_name;
-    const result = await executeAgentRequest({
-      trace_id: typeof req.body?.trace_id === 'string' ? req.body.trace_id : undefined,
-      agent_turn: 0,
-      agent_type: 'media_inspector',
-      prompt_name: 'runtime_media_inspect',
+      : undefined;
+    const result = await inspectMediaImage({
+      imageUrl,
+      traceId: typeof req.body?.trace_id === 'string' ? req.body.trace_id : undefined,
+      reason,
       model,
-      canonicalRequest: {
-        model,
-        input: [
-          {
-            type: 'message',
-            role: 'user',
-            content: [
-              { type: 'input_text', text: prompt },
-              { type: 'input_image', image_url: imageUrl }
-            ]
-          }
-        ]
-      }
-    });
+      defaultModel: mediaInspectorConfig.modelName
+    }, executeAgentRequest);
 
     res.json({
       success: true,
       data: {
-        description: result.response || '',
-        model: result.model || model,
-        provider: result.provider || null,
-        llm_call_id: result.llm_call_id || null
+        description: result.description,
+        summary: result.summary,
+        visible_text: result.visible_text,
+        objects: result.objects,
+        uncertainty: result.uncertainty,
+        safety_notes: result.safety_notes,
+        model: result.model,
+        provider: result.provider,
+        llm_call_id: result.llm_call_id
       },
       timestamp: new Date().toISOString()
     });

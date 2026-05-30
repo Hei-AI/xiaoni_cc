@@ -291,17 +291,26 @@ function summarizeToolCall(row) {
   const args = normalizeJsonObject(row.arguments);
   const result = normalizeJsonObject(row.result);
   const inContext = buildInContextSnapshot(row.canonical_request, row.context_summary, row.input_prompt);
-  const sentMessages = Array.isArray(result.sent_messages) ? result.sent_messages.join('\n') : null;
+  const isBlockedTransition = Boolean(result.blocked_transition);
+  const sentMessages = Array.isArray(result.sent_messages)
+    ? result.sent_messages.filter((item) => typeof item === 'string' && item.trim()).join('\n')
+    : null;
+  const blockedMessages = Array.isArray(result.blocked_messages)
+    ? result.blocked_messages.filter((item) => typeof item === 'string' && item.trim()).join('\n')
+    : null;
   const title = `tool: ${row.tool_name || row.tool_type || 'unknown'}`;
   const body = firstString(
+    isBlockedTransition ? result.reason : null,
+    isBlockedTransition ? result.blocked_reason : null,
+    isBlockedTransition ? blockedMessages : null,
+    sentMessages,
+    args.query,
     args.message,
     Array.isArray(args.messages) ? args.messages.join('\n') : null,
-    args.query,
     args.reason,
     args.outcome,
     result.reason,
     result.outcome,
-    sentMessages,
     args.xiaoni_os,
     row.error_message
   );
@@ -320,7 +329,7 @@ function summarizeToolCall(row) {
     peerName: row.peer_name || null,
     runId: row.run_id || null,
     traceId: row.trace_id || null,
-    tone: row.status === 'failed' ? 'danger' : row.status === 'completed' ? 'success' : 'warning',
+    tone: row.status === 'failed' ? 'danger' : isBlockedTransition ? 'warning' : row.status === 'completed' ? 'success' : 'warning',
     metadata: {
       toolCallId: row.tool_call_id || null,
       llmCallId: row.llm_call_id || null,
