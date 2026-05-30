@@ -97,12 +97,12 @@ export type QueueMessagePayload = {
   messages: QueueBatchMessage[];
   presenceTick?: {
     identityKey: string;
-    targetSessionKey: string;
+    targetSessionKey?: string;
     targetGroupId?: number;
-    targetPeerId: string;
+    targetPeerId?: string;
     targetPeerName?: string | null;
-    targetChatType: 'group';
-    targetAccountId: string;
+    targetChatType?: ChatType;
+    targetAccountId?: string;
   };
 };
 

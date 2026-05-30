@@ -172,7 +172,7 @@ export function buildPresenceContextBlock(params: {
     : '- 暂无可用分享材料';
   return [
     '<小腻当前状态>',
-    `recent_action_trace: ${params.isPresenceTick ? '本轮由 presence_tick 触发；小腻主动打开目标群查看。' : '本轮由群友消息触发。'}`,
+    `recent_action_trace: ${params.isPresenceTick ? '本轮由 presence_tick 触发；小腻从自己的生活里检查 IM 列表。' : '本轮由群友消息触发。'}`,
     `recent_digital_actions:\n${actionTrace}`,
     `current_residue: ${currentResidue}`,
     `current_state: ${stateLabel}；boredom=${params.state.boredom.toFixed(2)}；fatigue=${params.state.fatigue.toFixed(2)}；energy=${params.state.energy.toFixed(2)}；sharing_desire=${params.state.sharingDesire.toFixed(2)}。`,

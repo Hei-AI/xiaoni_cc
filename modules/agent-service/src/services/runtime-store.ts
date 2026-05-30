@@ -1181,7 +1181,7 @@ function buildStructuredReplayConversationItems(params: {
       role: isPresenceAction ? 'assistant' : 'user',
       phase: isPresenceAction ? 'commentary' : null,
       content: isPresenceAction
-        ? '<ACTION source="presence_tick">我主动打开群看了一眼。</ACTION>'
+        ? '<ACTION source="presence_tick">我从自己的生活里抬头看了一眼 IM 列表。</ACTION>'
         : renderRuntimeBatchMessage(message, items.length),
       groupIndex: 0,
       itemIndex: items.length,
@@ -1244,9 +1244,8 @@ export class RuntimeStore {
   }
 
   async enqueuePresenceTick() {
-    const targetGroupId = Number(agentConfig.presenceTickTargetGroupId);
-    if (!agentConfig.presenceTickEnabled || !Number.isFinite(targetGroupId) || targetGroupId <= 0) {
-      return { enqueued: false, reason: 'disabled_or_missing_target' };
+    if (!agentConfig.presenceTickEnabled) {
+      return { enqueued: false, reason: 'disabled' };
     }
 
     const now = new Date();
@@ -1260,38 +1259,28 @@ export class RuntimeStore {
       return { enqueued: false, reason: decision.reason };
     }
 
-    const targetRows = await this.sql.query<{ group_id: number | string; group_name: string | null; is_enabled: number | string | null }>(
-      'SELECT group_id, group_name, is_enabled FROM group_chat_settings WHERE group_id = ? LIMIT 1',
-      [targetGroupId]
-    );
-    const target = targetRows[0] || null;
-    if (target && Number(target.is_enabled ?? 1) === 0) {
-      return { enqueued: false, reason: 'target_group_disabled' };
-    }
-
-    const targetSessionKey = `qq:group:${targetGroupId}`;
     const messageSid = `presence_tick:${now.getTime()}`;
     const dedupeKey = `presence_tick:xiaoni:${Math.floor(now.getTime() / agentConfig.presenceTickCooldownMs)}`;
+    const bodyForAgent = '小腻从自己的生活里抬头看了一眼 IM 列表；还没有打开任何具体会话。';
     const inboundContext: FinalizedInboundContext = {
       Body: 'presence_tick',
-      BodyForAgent: '小腻主动打开群看了一眼；当前没有新的群友消息触发。',
+      BodyForAgent: bodyForAgent,
       BodyForCommands: 'presence_tick',
       RawBody: 'presence_tick',
       CommandBody: 'presence_tick',
       From: agentConfig.botAccountId,
-      To: String(targetGroupId),
+      To: agentConfig.botAccountId,
       SessionKey: 'presence_tick:xiaoni',
       AccountId: agentConfig.botAccountId,
       MessageSid: messageSid,
-      ChatType: 'group',
-      GroupSubject: target?.group_name || undefined,
+      ChatType: 'direct',
       SenderName: 'presence_tick',
       SenderId: agentConfig.botAccountId,
       Timestamp: Math.floor(now.getTime() / 1000),
       Provider: 'agent-service',
       Surface: 'presence_tick',
       WasMentioned: false,
-      NativeChannelId: String(targetGroupId),
+      NativeChannelId: 'presence_tick:xiaoni',
       CommandAuthorized: false
     };
     const message = {
@@ -1300,43 +1289,31 @@ export class RuntimeStore {
       messageId: 0,
       messageSid,
       dedupeKey,
-      chatType: 'group' as const,
+      chatType: 'direct' as const,
       sessionKey: 'presence_tick:xiaoni',
-      peerId: String(targetGroupId),
-      peerName: target?.group_name || undefined,
+      peerId: 'xiaoni',
+      peerName: '小腻',
       senderId: agentConfig.botAccountId,
       senderName: 'presence_tick',
       accountId: agentConfig.botAccountId,
-      bodyForAgent: '小腻主动打开群看了一眼；当前没有新的群友消息触发。',
+      bodyForAgent,
       rawBody: 'presence_tick',
       commandBody: 'presence_tick',
       wasMentioned: false,
       receivedAt: now.toISOString(),
       messageTimestamp: now.toISOString(),
       rawPayload: {
-        kind: 'presence_tick',
-        target_group_id: targetGroupId,
-        target_session_key: targetSessionKey
+        kind: 'presence_tick'
       },
       inboundContext,
       presenceTick: {
-        identityKey: 'xiaoni',
-        targetSessionKey,
-        targetGroupId,
-        targetPeerId: String(targetGroupId),
-        targetPeerName: target?.group_name || null,
-        targetChatType: 'group',
-        targetAccountId: agentConfig.botAccountId
+        identityKey: 'xiaoni'
       }
     };
 
     await updateAgentLifeState('xiaoni', {
       last_presence_tick_enqueued_at: now,
       last_active_at: now
-    }, databaseConfig);
-    await upsertAgentGroupPresenceState({
-      identityKey: 'xiaoni',
-      sessionKey: targetSessionKey
     }, databaseConfig);
 
     const result = await enqueueAgentQueueMessage({
@@ -1348,7 +1325,7 @@ export class RuntimeStore {
       enqueued: result.status === 'pending',
       reason: result.status,
       queueId: result.queueId,
-      targetSessionKey
+      targetSessionKey: null
     };
   }
 
@@ -3824,6 +3801,7 @@ export class RuntimeStore {
     });
 
     const latest = messages[messages.length - 1];
+    const latestPayload = parseJson<Partial<QueueMessagePayload>>(input.rows[input.rows.length - 1]?.payload, {});
     const payload: QueueMessagePayload = {
       traceId: input.traceId,
       runId: input.runId,
@@ -3845,6 +3823,7 @@ export class RuntimeStore {
       rawPayload: latest.rawPayload,
       inboundContext: latest.inboundContext,
       messages,
+      ...(latestPayload.presenceTick ? { presenceTick: latestPayload.presenceTick } : {}),
     };
 
     return {

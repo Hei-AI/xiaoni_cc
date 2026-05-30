@@ -119,7 +119,7 @@ async function runPresenceTickOnce() {
     if (result.enqueued) {
       moduleLogger.info('Presence tick enqueued', {
         queue_id: result.queueId,
-        target_session_key: result.targetSessionKey
+        mode: 'life_level_inbox_scan'
       });
     }
   } catch (error) {

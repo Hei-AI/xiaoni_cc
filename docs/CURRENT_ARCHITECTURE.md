@@ -150,7 +150,7 @@ role=assistant phase=final_answer
 
 role=assistant phase=commentary
 <小腻的OS>历史轮留下来的内部连续性</小腻的OS>
-<ACTION source="presence_tick">主动打开群看了一眼</ACTION>
+<ACTION source="presence_tick">从自己的生活里抬头看了一眼 IM 列表</ACTION>
 <system_reminder>本轮只需要处理指定的新入站消息</system_reminder>
 
 developer message near the end

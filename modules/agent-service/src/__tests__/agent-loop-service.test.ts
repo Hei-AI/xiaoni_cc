@@ -4318,6 +4318,42 @@ function createPresenceTickQueueMessageForTest() {
   };
 }
 
+function createLifePresenceTickQueueMessageForTest() {
+  const queueMessage = createPresenceTickQueueMessageForTest();
+  return {
+    ...queueMessage,
+    payload: {
+      ...queueMessage.payload,
+      chatType: 'direct' as const,
+      peerId: 'xiaoni',
+      peerName: '小腻',
+      bodyForAgent: '小腻从自己的生活里抬头看了一眼 IM 列表；还没有打开任何具体会话。',
+      inboundContext: {
+        ...queueMessage.payload.inboundContext,
+        ChatType: 'direct',
+        NativeChannelId: 'presence_tick:xiaoni',
+        To: '303'
+      },
+      presenceTick: {
+        identityKey: 'xiaoni'
+      },
+      messages: queueMessage.payload.messages.map((message) => ({
+        ...message,
+        chatType: 'direct' as const,
+        peerId: 'xiaoni',
+        peerName: '小腻',
+        bodyForAgent: '小腻从自己的生活里抬头看了一眼 IM 列表；还没有打开任何具体会话。',
+        inboundContext: {
+          ...message.inboundContext,
+          ChatType: 'direct',
+          NativeChannelId: 'presence_tick:xiaoni',
+          To: '303'
+        }
+      }))
+    }
+  };
+}
+
 test('materializePresenceTickQueueMessage replaces synthetic session with target group session', () => {
   const queueMessage = createPresenceTickQueueMessageForTest();
   const materialized = materializePresenceTickQueueMessage(queueMessage);
@@ -4328,6 +4364,19 @@ test('materializePresenceTickQueueMessage replaces synthetic session with target
   assert.equal(materialized.payload.inboundContext.NativeChannelId, '999');
   assert.equal(materialized.payload.messages[0].sessionKey, 'qq:group:999');
   assert.equal(materialized.payload.messages[0].peerId, '999');
+});
+
+test('life-level presence tick does not materialize a legacy target group without a selected IM', () => {
+  const queueMessage = createLifePresenceTickQueueMessageForTest();
+  const materialized = materializePresenceTickQueueMessage(queueMessage);
+  assert.equal(materialized.payload.sessionKey, 'presence_tick:xiaoni');
+  assert.equal(materialized.payload.peerId, 'xiaoni');
+
+  const loopInput = buildInitialInput([], materialized.payload, createRuntimePrompt());
+  const rendered = loopInput.map(getMessageContent).join('\n');
+  assert.match(rendered, /IM 列表/);
+  assert.doesNotMatch(rendered, /主动打开群看了一眼/);
+  assert.doesNotMatch(rendered, /target_group_id/);
 });
 
 test('materializePresenceTickInboxWindow turns claimed unread into a proactive IM window', () => {

@@ -93,7 +93,6 @@ export const agentConfig = {
   presenceTickIntervalMs: Math.max(1000, Number.parseInt(process.env.PRESENCE_TICK_INTERVAL_MS || '300000', 10)),
   presenceTickCooldownMs: Math.max(1000, Number.parseInt(process.env.PRESENCE_TICK_COOLDOWN_MS || String(45 * 60 * 1000), 10)),
   presenceTickStartupGraceMs: Math.max(0, Number.parseInt(process.env.PRESENCE_TICK_STARTUP_GRACE_MS || String(5 * 60 * 1000), 10)),
-  presenceTickTargetGroupId: process.env.PRESENCE_TICK_TARGET_GROUP_ID || '',
   selfActionEnabled: readBooleanEnv('SELF_ACTION_ENABLED', false),
   selfActionIntervalMs: Math.max(1000, Number.parseInt(process.env.SELF_ACTION_INTERVAL_MS || String(15 * 60 * 1000), 10)),
   selfActionCooldownMs: Math.max(1000, Number.parseInt(process.env.SELF_ACTION_COOLDOWN_MS || String(60 * 60 * 1000), 10)),

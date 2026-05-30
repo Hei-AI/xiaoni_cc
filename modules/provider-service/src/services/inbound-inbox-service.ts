@@ -20,6 +20,7 @@ type IngestIncomingMessageInput = {
 type ClaimMessagesInput = {
   sessionKey?: string;
   limit?: number;
+  order?: 'oldest' | 'latest';
 };
 
 type ListConversationMessagesInput = {
@@ -368,6 +369,9 @@ export class InboundInboxService {
 
   async claimMessages(input: ClaimMessagesInput): Promise<InboxMessageRecord[]> {
     const limit = Math.max(input.limit || DEFAULT_CLAIM_LIMIT, 1);
+    const claimOrder = input.order === 'latest'
+      ? 'received_at DESC, id DESC'
+      : 'received_at ASC, id ASC';
     const rows = await this.db.withTransaction(async (tx) => {
       const filters = ['is_read = 0'];
       const params: Array<string | number> = [];
@@ -384,7 +388,7 @@ export class InboundInboxService {
           SELECT id
           FROM ${TABLE_NAME}
           WHERE ${filters.join(' AND ')}
-          ORDER BY received_at ASC, id ASC
+          ORDER BY ${claimOrder}
           LIMIT ?
           FOR UPDATE
         `,

@@ -310,7 +310,8 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
   metadata         Json     @default("{}")
   ```
   No `consumed_at` — reuse across groups is tracked via `AgentShareItemUsage`.
-  No `target_group_id` — this version uses a config-supplied fixed group (see timer section).
+  No `target_group_id` — shareable material is identity-level; usage is tracked per
+  materialized session when a proactive IM open actually happens.
 
 - `AgentShareItemUsage` — per-group usage record for share pool items (locked 2026-05-26
   second-pass, replaces `consumed_at`):
@@ -410,23 +411,22 @@ stop reading them, remove the aging logic. Do not let both run simultaneously.
   item, 45 min cooldown since last proactive, 2/session, 12/day global. Soft
   signals fed into in-context state — model infers whether to post.
 
-**Type discriminator and target group selection (locked 2026-05-26 second-pass):**
+**Type discriminator and active IM selection (updated 2026-05-31):**
 `claimNextQueueMessage` batches every pending row for the same `session_key` and
 immediately uses `peer_id`, `chat_type`, `account_id` from the latest row to create
-run/batch records (`runtime-store.ts:1504, 1524`). Target must therefore be resolved
-**before enqueue**, not after claim.
+run/batch records. `presence_tick:xiaoni` is a synthetic life-level row; it must be
+materialized by the agent loop before any model turn or delivery target is used.
 
 Timer flow:
 1. Check thresholds (boredom, fatigue, cooldown via `last_presence_tick_enqueued_at`).
    If any fail, skip — do not enqueue.
-2. Query share pool for highest-scored available item.
-   If none, skip — do not enqueue.
-3. Read target group from config (`PRESENCE_TICK_TARGET_GROUP_ID` env var or equivalent).
-4. Write `last_presence_tick_enqueued_at = now()` to `AgentSessionLifeState`.
-5. Enqueue a queue message with `session_key = 'presence_tick:xiaoni'`, and embed
-   `target_session_key`, `target_group_id`, `peer_id`, `account_id` in the payload.
-6. Agent loop detects `session_key.startsWith('presence_tick:')` and reads target
-   from payload — does NOT re-select group at runtime.
+2. Write `last_presence_tick_enqueued_at = now()` to `AgentSessionLifeState`.
+3. Enqueue a queue message with `session_key = 'presence_tick:xiaoni'` and no fixed
+   target group. The row means “小腻从自己的生活里抬头看 IM 列表”.
+4. Agent loop selects an unread inbox conversation at runtime. If one exists, it
+   claims that session and materializes the run as `source = proactive_im_open`.
+5. If no unread conversation exists, the run completes as an idle no-reply tick
+   without calling the model and without creating any group/private delivery target.
 
 **Crash window (known risk, accepted this version — locked 2A):** If the process
 crashes between step 4 (anchor write) and step 5 (enqueue), the anchor is written
@@ -435,13 +435,10 @@ crashes after claim but before run completion, the queue row stays `processing`
 forever (orphaned run). Both are accepted as low-probability in this version and
 will be addressed in a future hardening pass.
 
-**This version only:** target group is a single config-supplied group ID. Future
-version: Xiaoni evaluates active groups and selects based on per-group state
-(`last_user_message_at`, trust, recent atmosphere). That is a separate feature.
-
-**presence_tick session replacement in agent loop (locked 2026-05-26 second-pass):**
+**presence_tick session replacement in agent loop:**
 `payload.sessionKey = 'presence_tick:xiaoni'` must NOT flow into downstream runtime
-paths (conversation creation, transcript writes, prompt cache key at `runtime-store.ts:1242`).
+paths that can speak. It is either replaced by a claimed `proactive_im_open` session
+or completed as an idle self-private tick.
 
 `processQueueMessage` detects `payload.sessionKey.startsWith('presence_tick:')` at
 entry and immediately replaces:
@@ -1134,15 +1131,13 @@ an explicit readiness pass instead of being left as operator folklore.
 
 **Action:**
 
-1. Decide the `253631878` participation policy.
-   - Current state: `PRESENCE_TICK_TARGET_GROUP_ID=253631878`, but
-     `group_chat_settings.auto_reply_enabled=0` and
-     `continuous_learning_enabled=0`.
-   - Decide whether proactive `presence_tick` may target this group while normal
-     auto-reply is disabled.
-   - If yes, encode it as an explicit data flag such as `proactive_enabled` or an
-     equivalent persisted policy. If no, disable the presence target or enable
-     normal auto-reply consistently.
+1. Clean up stale presence target configuration.
+   - Current runtime no longer reads `PRESENCE_TICK_TARGET_GROUP_ID`; presence tick
+     is life-level and selects unread inbox conversations at runtime.
+   - Remove stale local/deploy env entries so operators do not infer that a single
+     proactive target group still exists.
+   - If per-chat proactive policy is reintroduced later, encode it as an explicit
+     data flag such as `proactive_enabled`, not as a single process-wide target.
 
 2. Add a dry-run cleanup/classification report before mutating data.
    - Report the stuck 2026-04-12 `processing` queue/run/batch and mark it

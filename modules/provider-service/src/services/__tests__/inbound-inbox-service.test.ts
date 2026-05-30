@@ -58,3 +58,61 @@ test('finalizeSimulationContext preserves supplied group session data', async ()
   assert.equal(context.WasMentioned, true);
   await service.close();
 });
+
+test('claimMessages supports latest unread window for proactive IM opens', async () => {
+  const service = new InboundInboxService() as any;
+  const queries: string[] = [];
+  const row = (id: number, timestamp: string) => ({
+    id,
+    trace_id: `trace-${id}`,
+    source: 'napcat',
+    message_sid: `sid-${id}`,
+    dedupe_key: `dedupe-${id}`,
+    chat_type: 'group',
+    session_key: 'qq:group:1040740258',
+    peer_id: '1040740258',
+    peer_name: '群 1040740258',
+    sender_id: '100',
+    sender_name: 'tester',
+    account_id: '1129974489',
+    is_read: 1,
+    read_at: '2026-05-31T01:00:00.000+08:00',
+    received_at: timestamp,
+    message_timestamp: timestamp,
+    body_for_agent: `message ${id}`,
+    raw_body: `message ${id}`,
+    command_body: `message ${id}`,
+    was_mentioned: 0,
+    reply_to_id: null,
+    reply_to_body: null,
+    reply_to_sender: null,
+    raw_payload: {},
+    inbound_context: {}
+  });
+  const tx = {
+    query: async (sql: string) => {
+      queries.push(sql);
+      if (sql.includes('SELECT id')) {
+        return [{ id: 3 }, { id: 2 }];
+      }
+      return [
+        row(2, '2026-05-31T00:59:00.000+08:00'),
+        row(3, '2026-05-31T01:00:00.000+08:00')
+      ];
+    },
+    execute: async () => undefined
+  };
+  service.db = {
+    withTransaction: async (fn: (inner: typeof tx) => Promise<unknown>) => fn(tx),
+    close: async () => undefined
+  };
+
+  const claimed = await service.claimMessages({
+    sessionKey: 'qq:group:1040740258',
+    limit: 2,
+    order: 'latest'
+  });
+
+  assert.match(queries[0], /ORDER BY received_at DESC, id DESC/);
+  assert.deepEqual(claimed.map((message: any) => message.messageSid), ['sid-2', 'sid-3']);
+});

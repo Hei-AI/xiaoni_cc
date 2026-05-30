@@ -1767,9 +1767,11 @@ app.post('/api/inbox/messages/claim', async (req, res) => {
       ? req.body.session_key.trim()
       : undefined;
     const limit = Number.parseInt(String(req.body?.limit || '20'), 10);
+    const order = req.body?.order === 'latest' ? 'latest' : 'oldest';
     const claimed = await inboxService.claimMessages({
       sessionKey,
-      limit
+      limit,
+      order
     });
 
     res.json({

@@ -2476,7 +2476,7 @@ export function buildTurnControlReminder(turnControl: TurnControlState): OpenRes
 function renderPresenceTickAction(queueMessage: QueueMessageRecord['payload']) {
   const body = typeof queueMessage.bodyForAgent === 'string' && queueMessage.bodyForAgent.trim() && queueMessage.bodyForAgent.trim() !== 'presence_tick'
     ? queueMessage.bodyForAgent.trim()
-    : '我主动打开群看了一眼。';
+    : '我从自己的生活里抬头看了一眼 IM 列表。';
   return renderAssistantAction({
     timestamp: queueMessage.messageTimestamp || queueMessage.receivedAt,
     source: 'presence_tick',
@@ -4391,10 +4391,74 @@ export class AgentLoopService {
     private readonly promptResolver: AgentPromptResolver = new AgentPromptService()
   ) {}
 
+  private async completeIdlePresenceTick(
+    queueMessage: QueueMessageRecord,
+    payload: QueueMessageRecord['payload'],
+    startedAt: number
+  ) {
+    const termination = {
+      terminationReason: 'finish_no_reply',
+      finishReason: '当前没有未读 IM 会话可打开。',
+      finishOutcome: '小腻停留在自己的生活里，没有进入任何具体会话。',
+      noReply: true
+    };
+    const finishResult = {
+      reason: termination.finishReason,
+      outcome: termination.finishOutcome,
+      finished: true,
+      no_reply: true,
+      xiaoni_os: 'presence_tick 只是检查 IM 列表；没有未读会话，不进入任何目标群或私聊。'
+    };
+
+    await this.store.completeQueueMessage(queueMessage.id, {
+      result: {
+        no_reply: true,
+        sent_messages: [],
+        xiaoni_os: finishResult.xiaoni_os,
+        stored_feedback_reflection_ids: [],
+        total_turns: 0,
+        finish_result: finishResult,
+        termination_reason: termination.terminationReason
+      }
+    });
+    await this.store.completeAgentRun(queueMessage.id, {
+      status: 'completed',
+      terminationReason: termination.terminationReason,
+      finishReason: termination.finishReason,
+      finishOutcome: termination.finishOutcome,
+      noReply: true,
+      finalResponse: null,
+      sentMessages: [],
+      totalTurns: 0,
+      conversationId: null
+    });
+    await this.recordSilenceDecisionLifeEvent(payload, queueMessage.id, 'idle', termination, 0, null);
+    await this.store.logTimelineEvent({
+      traceId: payload.traceId,
+      eventType: 'decision',
+      eventName: 'presence_tick_idle',
+      eventPhase: 'end',
+      metadata: {
+        sent_count: 0,
+        total_turns: 0
+      },
+      durationMs: Date.now() - startedAt
+    });
+
+    moduleLogger.info('Presence tick completed without active IM', {
+      traceId: payload.traceId,
+      runId: queueMessage.id
+    });
+  }
+
   async processQueueMessage(queueMessage: QueueMessageRecord) {
     const startedAt = Date.now();
     const activeQueueMessage = await materializeActiveImQueueMessage(queueMessage);
     const payload = activeQueueMessage.payload;
+    if (isIdleLifePresenceTickPayload(payload)) {
+      await this.completeIdlePresenceTick(queueMessage, payload, startedAt);
+      return;
+    }
     const inboundContext = payload.inboundContext;
     const sessionIds = resolveSessionTargets(payload);
     const jobId = await this.store.createLlmJob({
@@ -6728,18 +6792,78 @@ type ClaimedInboxMessageRecord = {
   inboundContext?: Record<string, unknown>;
 };
 
+type InboxConversationSummaryRecord = {
+  sessionKey?: string;
+  session_key?: string;
+  unreadCount?: number;
+  unread_count?: number;
+  lastReceivedAt?: string | null;
+  last_received_at?: string | null;
+};
+
 async function materializeActiveImQueueMessage(queueMessage: QueueMessageRecord): Promise<QueueMessageRecord> {
-  const materializedQueueMessage = materializePresenceTickQueueMessage(queueMessage);
+  let materializedQueueMessage = materializePresenceTickQueueMessage(queueMessage);
   const tick = queueMessage.payload.presenceTick;
-  if (!tick?.targetSessionKey) {
-    return materializedQueueMessage;
+  let targetSessionKey = typeof tick?.targetSessionKey === 'string' && tick.targetSessionKey.trim()
+    ? tick.targetSessionKey.trim()
+    : '';
+
+  if (!targetSessionKey && isLifePresenceTickPayload(queueMessage.payload)) {
+    targetSessionKey = await selectUnreadInboxSessionForActiveIm({
+      traceId: queueMessage.traceId
+    }) || '';
+    materializedQueueMessage = queueMessage;
   }
 
+  if (!targetSessionKey) {
+    return materializedQueueMessage;
+  }
   const claimedMessages = await claimUnreadInboxWindowForActiveIm({
     traceId: queueMessage.traceId,
-    sessionKey: tick.targetSessionKey
+    sessionKey: targetSessionKey
   });
   return materializePresenceTickInboxWindow(materializedQueueMessage, claimedMessages);
+}
+
+async function selectUnreadInboxSessionForActiveIm(params: { traceId: string }): Promise<string | null> {
+  try {
+    const response = await fetch(`${agentConfig.providerServiceUrl}/api/inbox/conversations?limit=100`, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json'
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`provider conversations returned HTTP ${response.status}`);
+    }
+    const payload = await response.json() as {
+      success?: boolean;
+      data?: unknown;
+    };
+    if (!payload.success || !Array.isArray(payload.data)) {
+      return null;
+    }
+    const unreadConversations = payload.data
+      .filter((item): item is InboxConversationSummaryRecord => Boolean(item && typeof item === 'object'))
+      .filter((item) => {
+        const count = Number(item.unreadCount ?? item.unread_count ?? 0);
+        const sessionKey = String(item.sessionKey ?? item.session_key ?? '').trim();
+        return count > 0 && sessionKey.length > 0;
+      })
+      .sort((left, right) => {
+        const leftTime = Date.parse(String(left.lastReceivedAt ?? left.last_received_at ?? '')) || 0;
+        const rightTime = Date.parse(String(right.lastReceivedAt ?? right.last_received_at ?? '')) || 0;
+        return rightTime - leftTime;
+      });
+    const selected = unreadConversations[0];
+    return selected ? String(selected.sessionKey ?? selected.session_key).trim() : null;
+  } catch (error) {
+    moduleLogger.warn('Failed to select unread inbox session for active IM open', {
+      traceId: params.traceId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  }
 }
 
 async function claimUnreadInboxWindowForActiveIm(params: { traceId: string; sessionKey: string }): Promise<ClaimedInboxMessageRecord[]> {
@@ -6751,7 +6875,8 @@ async function claimUnreadInboxWindowForActiveIm(params: { traceId: string; sess
       },
       body: JSON.stringify({
         session_key: params.sessionKey,
-        limit: agentConfig.activeImClaimLimit
+        limit: agentConfig.activeImClaimLimit,
+        order: 'latest'
       })
     });
     if (!response.ok) {
@@ -6778,9 +6903,20 @@ async function claimUnreadInboxWindowForActiveIm(params: { traceId: string; sess
   }
 }
 
+function isLifePresenceTickPayload(queueMessage: QueueMessageRecord['payload']) {
+  return queueMessage.source === 'presence_tick'
+    && queueMessage.sessionKey === 'presence_tick:xiaoni'
+    && Boolean(queueMessage.presenceTick);
+}
+
+function isIdleLifePresenceTickPayload(queueMessage: QueueMessageRecord['payload']) {
+  return isLifePresenceTickPayload(queueMessage)
+    && !(typeof queueMessage.presenceTick?.targetSessionKey === 'string' && queueMessage.presenceTick.targetSessionKey.trim());
+}
+
 export function materializePresenceTickQueueMessage(queueMessage: QueueMessageRecord): QueueMessageRecord {
   const tick = queueMessage.payload.presenceTick;
-  if (!tick || queueMessage.payload.sessionKey !== 'presence_tick:xiaoni') {
+  if (!tick || queueMessage.payload.sessionKey !== 'presence_tick:xiaoni' || !tick.targetSessionKey || !tick.targetPeerId || !tick.targetAccountId) {
     return queueMessage;
   }
 
@@ -6788,27 +6924,31 @@ export function materializePresenceTickQueueMessage(queueMessage: QueueMessageRe
   const targetSessionKey = tick.targetSessionKey;
   const targetPeerId = tick.targetPeerId;
   const targetPeerName = tick.targetPeerName || undefined;
+  const targetAccountId = tick.targetAccountId;
+  const targetChatType: QueueMessageRecord['payload']['chatType'] = tick.targetChatType === 'direct' ? 'direct' : 'group';
   const inboundContext = {
     ...payload.inboundContext,
     SessionKey: targetSessionKey,
     To: targetPeerId,
     NativeChannelId: targetPeerId,
-    GroupSubject: targetPeerName || payload.inboundContext.GroupSubject,
+    ...(targetChatType === 'group' ? { GroupSubject: targetPeerName || payload.inboundContext.GroupSubject } : {}),
+    ChatType: targetChatType,
     Surface: 'presence_tick'
   };
   const messages = payload.messages.map((message) => ({
     ...message,
-    chatType: 'group' as const,
+    chatType: targetChatType,
     sessionKey: targetSessionKey,
     peerId: targetPeerId,
     peerName: targetPeerName,
-    accountId: tick.targetAccountId,
+    accountId: targetAccountId,
     inboundContext: {
       ...message.inboundContext,
       SessionKey: targetSessionKey,
       To: targetPeerId,
       NativeChannelId: targetPeerId,
-      GroupSubject: targetPeerName || message.inboundContext.GroupSubject,
+      ...(targetChatType === 'group' ? { GroupSubject: targetPeerName || message.inboundContext.GroupSubject } : {}),
+      ChatType: targetChatType,
       Surface: 'presence_tick'
     }
   }));
@@ -6817,11 +6957,11 @@ export function materializePresenceTickQueueMessage(queueMessage: QueueMessageRe
     ...queueMessage,
     payload: {
       ...payload,
-      chatType: 'group',
+      chatType: targetChatType,
       sessionKey: targetSessionKey,
       peerId: targetPeerId,
       peerName: targetPeerName,
-      accountId: tick.targetAccountId,
+      accountId: targetAccountId,
       inboundContext,
       messages
     }
