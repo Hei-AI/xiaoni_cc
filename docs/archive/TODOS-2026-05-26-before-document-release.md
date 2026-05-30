@@ -198,7 +198,7 @@ this as a separate execution track.
 
 What:
 
-After the `preferred_action=silent` hotfix, follow up on the remaining style
+After the `action_type=silent` hotfix, follow up on the remaining style
 pollution in group `253631878`: recent replay still contains many Xiaoni outputs
 that start with `哈哈` / `确实`, and those examples can keep biasing future turns
 even though silent inner reactions can no longer speak.
@@ -207,12 +207,12 @@ Why:
 
 The silent gate and output sanitizer now cover two earlier failure modes:
 
-- `preferred_action=silent` only unlocks `stay_silent`.
+- `action_type=silent` only unlocks `stay_silent`.
 - `speak_in_group` / `reply_in_private` output normalization strips low-value
   opening fillers like `哈哈，确实` when there is still real content after them.
 
 That still does not prove the live group is healthy. Recent polluted history can
-still bias replay, and valid `preferred_action=speak` turns may still choose
+still bias replay, and valid `action_type=speak` turns may still choose
 low-value participation if the scene understanding is weak.
 
 Identity impact:
@@ -244,7 +244,7 @@ Do this as an evidence chain, not as a flat root-cause brainstorm:
    - Decide whether `markdown_items` should still be re-injected as fresh user
      scene messages or narrowed to a structured projection.
 4. Inspect fake-tool amplification.
-   - Audit whether `emit_unread_meaning` and `emit_inner_reaction` should keep
+   - Audit whether `emit_unread_meaning` and `submit_life_action` should keep
      round-tripping full model-authored content as `function_call_output`.
    - Decide whether downstream turns should receive a narrower normalized
      projection instead.
@@ -262,7 +262,7 @@ Do this as an evidence chain, not as a flat root-cause brainstorm:
 7. Verify the chosen fix.
    - Run a targeted replay/live QA pass for the latest `哈哈` / `确实` cluster.
    - Verify the shipped sanitizer does not over-correct normal speech.
-   - Add tests for the `preferred_action=search` path and decide whether search
+   - Add tests for the `action_type=search` path and decide whether search
      should force another inner reaction before speech.
    - Treat `should this scene have spoken at all` as a validation question, not
      a root cause. Re-check it only after the upstream causes above are cleaned
@@ -334,8 +334,8 @@ First evidence pass, 2026-04-28:
   - `emit_unread_meaning`: `addressed_to_me=false`,
     `has_real_novelty=true`, `message_act=statement`,
     `social_target=group`.
-  - `emit_inner_reaction`: `interest_level=medium`,
-    `reaction_authenticity=formed`, `preferred_action=speak`.
+  - `submit_life_action`: `interest_level=medium`,
+    `reaction_authenticity=formed`, `action_type=speak`.
   - `recall_long_term_learning`: selected memories about not raising same-meaning
     echoes and avoiding `哈哈确实` as a fixed opening.
 - Recall did return relevant caution, but the current runtime also re-injected

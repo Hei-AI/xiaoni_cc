@@ -2,843 +2,241 @@
 
 本页只回答两个问题：
 
-1. `agent-service` 里的 loop 每一步到底吃什么输入，吐什么输出。
-2. 最近 `253631878` 这个群里，小腻为什么经常被抑制说话。
+1. `agent-service` 主聊天 loop 每一步到底吃什么输入，吐什么输出。
+2. 当前架构如何保证普通说话/沉默不再变成固定三段式 turn。
 
-如果你只想先看总览，回 `docs/CURRENT_ARCHITECTURE.md`。
+如果只想先看总览，回 `docs/CURRENT_ARCHITECTURE.md`。
 
-## 近期抑制路径
+## 当前核心结论
 
-最近这个群的主路径不是“provider 忽略”，而是消息正常进入 main loop 后，在 loop 内被判成沉默。
-
-现场证据来自 2026-04-28 的 live 库：
-
-- `group_chat_settings.group_id=253631878` 是开的，`auto_reply_enabled=1`
-- 最近 7 天：
-  - `2026-04-28`: `35` 个 run，`33` 个 `no_reply`
-  - `2026-04-27`: `15` 个 run，`15` 个 `no_reply`
-- 最近两天 `emit_unread_meaning` 最常见分类：
-  - `social_target=group`
-  - `addressed_to_me=false`
-  - `message_act=statement`
-- 最近两天 `emit_inner_reaction` 最常见分类：
-  - `preferred_action=silent`
-  - `interest_level=low`
-  - `reaction_authenticity=weak_but_real`
-
-这意味着她不是“没看到”，而是“看到了，也有点感觉，但没有生成具体可说点”。
-
-## 抑制图，PlantUML
-
-```plantuml
-@startuml
-title 小腻近期被抑制说话的业务路径
-
-start
-:群里出现新消息;
-:系统先确认这个群\n是否允许小腻自动参与;
-note right
-输入：
-- 新消息批次
-- 群配置
-
-输出：
-- 允许进入小腻主流程
-或
-- 停在入口，不进入主动发言
-end note
-
-if (群自动回复开关关闭?) then (是)
-  :消息只记录，不进入小腻主动发言;
-  stop
-else (否)
-  :把这批消息放进待处理池;
-endif
-
-:把现场重新摆到小腻面前;
-note right
-- role=user 的 <INPUT_MESSAGE>
-- role=assistant phase=final_answer 的 <OUTPUT_MESSAGE>
-- role=assistant phase=commentary 的 <小腻的OS> / <ACTION> / <system_reminder>
-- 已确认的身份事实
-end note
-
-:第一步，交给 LLM\n只判断眼前这批未读到底在干什么;
-note right
-输出：
-- 重点在讲什么
-- 这是陈述 / 玩笑 / 提问 / 请求
-- 注意力是指向群里，还是明确指向小腻
-- 有没有真正的新推进
-end note
-
-:第二步，交给 LLM\n判断有没有具体可说点;
-note right
-输出：
-- 兴趣强度高不高
-- 有没有具体观点、问题、好奇、不适、联想或边界
-- 当前更像想说、想查，还是更适合不出现
-end note
-
-if (第二步已经觉得\n这轮更适合不出现?) then (是)
-  :进入沉默收口;
-  note right
-  输出：
-  - 不发言
-  - 留下这一轮的 xiaoni_os
-  end note
-else (否)
-  if (只是轻微想接一句，\n但没有被明确拉进来?) then (是)
-  :工程规则主动压住这句冲动;
-    note right
-    条件：
-    - 兴趣低
-    - 反应只是 weak_but_real
-    - 没有人明确点到小腻
-    - 也没有新问题 / 新请求 / 新反馈
-    end note
-    :进入沉默收口;
-  else (否)
-    :如果当前上下文不够，先判断缺口来源;\n私密/关系/群内连续性不要编造来源;
-    note right
-    输出：
-    - 公开信息走 web_search
-    - 群内旧梗可问来源或沉默
-    - 后续依赖 typed recall projection
-    end note
-
-    if (缺口处理后仍觉得该说) then (是)
-      :组织一句具体的话;
-      note right
-      输出：
-      - 群里真正能看到的话
-      - 同时留下隐藏的 xiaoni_os
-      end note
-      :把这句话发回 QQ 群;
-    elseif (缺口是公开事实) then (先查)
-      :先去查外部事实，\n查完再回到说 / 不说判断;
-    else (还是不说)
-      :进入沉默收口;
-    endif
-  endif
-endif
-
-:把这轮结果记账;
-note right
-输出：
-- conversation_items
-- agent_runs
-- tool_execution_logs
-- xiaoni_os
-end note
-
-:异步进入自学习闭环;
-:上下文压缩时生成三层长期记忆;
-:episodic 记录具体发生过什么;
-:semantic 记录客观事实/状态/计划/claim;
-:reflection 从多条 observation 抽象长期模式;
-note right
-这条闭环不会回头改写
-刚刚那一轮说不说，
-但会影响以后 typed recall projection
-能投进什么记忆。
-end note
-stop
-@enduml
-```
-
-## 每一步输入 / 输出
-
-### 0. provider 入站边界
-
-代码：`modules/provider-service/src/index.ts:601-690`
-
-输入：
-
-- NapCat inbound event
-- 群/私聊配置
-- `policy.autoReplyEnabled`
-
-输出：
-
-- 如果 `autoReplyEnabled=false`，这里就停
-- 如果 `autoReplyEnabled=true`，写 timeline `participation.decision=delegated_to_agent_service_unified_planner`
-- 再把语义化后的 inbound batch 推进 `agent_queue_messages`
-
-关键点：
-
-- 这里不负责“她到底该不该说”
-- 这里只负责“允不允许进入主 loop”
-
-### 1. buildInitialInput
-
-代码：`modules/agent-service/src/services/agent-loop-service.ts` 的 `buildInitialInput`
-
-输入：
-
-- 历史 `ConversationTurn[]`
-- 当前 queue batch
-- runtime prompt：单一代码内置 `小腻主AGENT`，来源为 `modules/agent-service/src/prompts/xiaoni-main-agent.ts`；不再从群/私聊 DB 绑定解析
-- runtime identity facts
-
-输出长相：
+group chat 的普通路径现在只有一个决策请求：
 
 ```text
-system: <小腻主AGENT system prompt + Runtime contract + Single-turn tool contract>
+Turn 1:
+  tool_choice = allowed_tools([submit_life_action])
 
-developer:
-<world_narrative>...</world_narrative>  # if present, placed at input index 1
+submit_life_action(action_type=speak, messages=[...])
+  -> runtime 直接发送 QQ 消息
+  -> finish, total_turns=1
 
-user:
-<INPUT_MESSAGE message_id="..." message_sid="..." timestamp="..." sender="楠楠(1655827800)" source="napcat">
-鸭叫也是一种接口
-</INPUT_MESSAGE>
-
-assistant phase=final_answer:
-<OUTPUT_MESSAGE message_id="..." sender="小腻(1129974489)" source="delivery">
-小腻之前真正发出的消息
-</OUTPUT_MESSAGE>
-
-assistant phase=commentary:
-<小腻的OS>上一轮或历史轮留下来的内部延续</小腻的OS>
-
-user:
-<INPUT_MESSAGE message_id="..." message_sid="..." timestamp="..." sender="小镜(714457117)" source="napcat">
-duck typing 如果它叫起来像鸭子那它就是诗
-</INPUT_MESSAGE>
-
-assistant phase=commentary:
-[当前媒体占位符] ...  # optional
-
-assistant phase=commentary:
-<system_reminder>本轮只需要处理这些新入站消息：message_id=...</system_reminder>
-
-developer:
-[身份连续性] ...  # optional accepted identity facts
-
-developer:
-<current_relationship>...</current_relationship>
-<current_scene>...</current_scene>
-<小腻当前状态>...</小腻当前状态>  # optional presence context, may include recent real web_search residue
-
-developer:
-<system_reminder>...</system_reminder>  # optional turn_state reminder for low/high energy
-
-assistant phase=commentary:
-<runtime_history_reading>...</runtime_history_reading>  # optional context read reminder
+submit_life_action(action_type=silent)
+  -> finish, no_reply=true, total_turns=1
 ```
 
-关键顺序：
-
-- `system` 永远在最前面。
-- `<world_narrative>` 如果存在，作为 developer item 放在 index 1，尽早给出世界观阅读底色。
-- 历史、当前消息、媒体、当前处理边界留在中段，让模型先读真实现场。
-- `<current_relationship>`、`<current_scene>`、`<小腻当前状态>` 这类实时状态放在靠后位置，作为本轮最新运行态，而不是压在世界叙事前面。
-- `<小腻当前状态>` 可以带最近的真实 `web_search` 自主数字行动 residue。只有 `source_wording=real_web_search` 的材料能支持“我查到”这类来源措辞。
-- 能量/状态偏置不是 prompt 常驻规则；只有非 normal 时追加 `turn_state` system reminder。
-
-这里要特别纠正一个我前面图里的说法：
-
-- 不是只带“上一轮”的 `<小腻的OS>`
-- 代码是对 `history` 里的 **每一轮保留 turn** 都调用 `buildTurnOs(turn)`
-- 也就是说，只要那一轮还在当前上下文窗口里，它留下的 `<小腻的OS>` 都可能重新进入这轮输入
-
-对应代码：
-
-- 历史逐轮回放：`agent-loop-service.ts:4055-4093`
-- 单轮 OS 提取：`agent-loop-service.ts:4109-4147`
-
-所以更准确的人话是：
-
-> 小腻当前看到的，不只是“上一轮的残留”，而是“当前仍被保留在上下文里的过去几轮残留”。
-
-### 2. Turn 1, `emit_unread_meaning`
-
-代码：
-
-- tool desc: `agent-loop-service.ts:484-524`
-- allowed-tools 收缩：`agent-loop-service.ts:973-978`
-- 执行回显：`agent-loop-service.ts:3536-3550`
-
-这一步是谁在判断：
-
-- 是 LLM
-- 不是工程代码直接判断
-- 工程代码只做一件事：这一轮 **只允许** 它调用这个工具，别的都不让
-
-输入：
-
-- 上一步完整 `buildInitialInput`
-- `tool_choice = allowed_tools([emit_unread_meaning])`
-
-tool desc 原文：
+只有确实需要外部结果时才有后续 turn：
 
 ```text
-先只理解最新未读到底在讲什么，以及它此刻把注意力拉向了哪里。
-这一步只产出理解，不产出行动。
+submit_life_action(action_type=search)
+  -> web_search
+  -> submit_life_action 或 stay_silent 收口
+
+submit_life_action(action_type=image_task, 缺少直接登记所需信息)
+  -> inspect_image_placeholder / request_image_task
+  -> submit_life_action 或 stay_silent 收口
 ```
 
-输出 JSON：
+旧的 `emit_unread_meaning -> submit_life_action -> speak/stay_silent` 三段式不是当前主路径。`emit_unread_meaning` 只作为历史 replay / 旧日志兼容处理保留，不再出现在新 group loop 的 tool definitions 里。
 
-```json
-{
-  "latest_unread_focus": "...",
-  "message_act": "statement | question | joke | tease | feedback | reaction | request | unclear",
-  "social_target": "me | someone_else | group | unclear",
-  "addressed_to_me": false,
-  "has_real_novelty": true,
-  "confidence": "high",
-  "reason": "..."
-}
-```
+## 输入结构
 
-字段解释：
+`buildInitialInput` 给主 loop 的输入由这些层组成：
 
-- `latest_unread_focus`：这批未读真正把焦点推到了哪
-- `message_act`：这是陈述、提问、玩笑、请求，还是别的
-- `social_target`：这句话主要是面向群里、面向别人，还是面向小腻
-- `addressed_to_me`：有没有明确把小腻拉进来
-- `has_real_novelty`：是不是出现了新的推进，不只是重复回声
-- `confidence`：模型自己对这个判断有多确定
-- `reason`：它为什么这么判
+- system：`runtimePrompt.systemPrompt` + Runtime contract + Single-turn tool contract。
+- developer：稳定世界叙事、当前关系、当前场景、小腻当前状态、身份事实。
+- user：真实入站 QQ 消息，渲染为 `<INPUT_MESSAGE ...>`。
+- assistant final：小腻过去真正发出的 QQ 消息，渲染为 `<OUTPUT_MESSAGE ...>`。
+- assistant commentary：`<小腻近况>`、`<小腻的OS>`、`<ACTION>`、`<图片内容>`、`<system_reminder>`。
 
-最近这个群的高频输出：
+`<小腻近况>` 是上下文压缩后置顶的纯文本近况时报，像人类对刚才、今天、最近一段的模糊记忆；它不是 transcript，也不是召回结果。
 
-- `social_target=group`
-- `addressed_to_me=false`
-- `message_act=statement`
+`<小腻的OS>` 不是只带上一轮。只要历史 turn 还在当前上下文窗口里，那一轮留下的 OS 就可能被回放。
 
-这已经把很多消息压成“群体接龙，不是拉我出来说话”。
+## 工具集合与 tool_choice
 
-### 3. Turn 2, `emit_inner_reaction`
-
-代码：
-
-- tool desc: `agent-loop-service.ts:526-571`
-- allowed-tools 收缩：`agent-loop-service.ts:980-984`
-- 执行回显：`agent-loop-service.ts:3551-3566`
-
-这一步是谁在判断：
-
-- 也是 LLM
-- 不是工程代码直接算“兴趣值”
-- 工程代码只控制：第一步做完之前，不允许它跳到这一步以后
-
-输入：
-
-- 原始 scene input
-- 上一步 `emit_unread_meaning` 的 tool call 和 tool output replay
-
-tool desc 原文：
+group chat 当前工具定义：
 
 ```text
-根据已理解的新消息输出小腻这轮有没有具体可说点，或者是否只是被直接请求处理一件事。
-如果只能复述、附和、泛泛评价，或补一句也不违和但没有具体内容，participation_judgment.status 必须是 no_sayable_point。
+submit_life_action
+web_search, if enabled
+speak_in_group
+inspect_image_placeholder
+request_image_task
+stay_silent
 ```
 
-输出 JSON：
-
-```json
-{
-  "interest_level": "none | low | medium | high",
-  "wants_to_know_more": false,
-  "reaction_authenticity": "none | weak_but_real | formed | empty_but_convenient",
-  "participation_judgment": {
-    "status": "has_sayable_point | no_sayable_point | direct_request",
-    "basis": "opinion | question | curiosity | discomfort | association | boundary | direct_request | none",
-    "sayable_point": "...",
-    "evidence_refs": ["message_id=..."],
-    "memory_refs": []
-  },
-  "should_search": false,
-  "preferred_action": "speak | silent | search | image_task | proactive",
-  "context_gap": "none | current_context_insufficient | needs_private_memory | needs_public_info | unclear_group_reference",
-  "gap_resolution": "none | memory | web_search | ask_group | memory_then_ask_or_search",
-  "reason": "..."
-}
-```
-
-字段解释：
-
-- `interest_level`：这件事在她身上拉力强不强
-- `wants_to_know_more`：有没有继续想追下去
-- `reaction_authenticity`：这到底是真反应，还是“刚好能接”
-- `participation_judgment`：有没有具体可说点；没有可说点时即使能接话也不能继续说
-- `should_search`：如果要继续，是否更适合先查资料
-- `preferred_action`：当前最像说 / 不说 / 查 / 图任务
-- `context_gap`：当前上下文是否足够。`needs_private_memory` / `unclear_group_reference` 才偏向记忆召回；`needs_public_info` 偏向搜索公开信息。
-- `gap_resolution`：如果上下文不够，下一步应该用记忆、搜索、问群友，还是先召回再视情况问/搜。
-- `reason`：它为什么这么判
-
-最近这个群的高频输出：
-
-- `preferred_action=silent`
-- `interest_level=low`
-- `reaction_authenticity=weak_but_real`
-
-这就是近期抑制说话的主入口。
-
-## live 样本，沉默 run 是怎么一步步形成的
-
-样本 trace：
-
-- `run_id=run_1777338739504_9ea8802b`
-- `trace_id=runtrace_1777338739504_842b2ab4`
-- 结果：`no_reply=true`
-
-历史样本在 2026-05-29 前的 `tool_choice` 逐轮收缩是：
-
-```json
-turn1: {"mode":"required","type":"allowed_tools","tools":[{"name":"emit_unread_meaning","type":"function"}]}
-turn2: {"mode":"required","type":"allowed_tools","tools":[{"name":"emit_inner_reaction","type":"function"}]}
-turn3: {"mode":"required","type":"allowed_tools","tools":[{"name":"stay_silent","type":"function"}]}
-```
-
-也就是说，这条 run 在第二轮之后就已经被压缩成“只许沉默，不许 speak/search/recall”。
-
-同一个样本的 live input 前几项长这样：
+private chat 当前工具定义：
 
 ```text
-<INPUT_MESSAGE message_id="..." timestamp="2026-04-12 10:56" sender="漠然lc(287944128)" source="napcat">
-哈哈，确实
-</INPUT_MESSAGE>
-
-<OUTPUT_MESSAGE message_id="..." sender="小腻(1129974489)" source="delivery">
-嗯，像是接住了。
-</OUTPUT_MESSAGE>
-
-<小腻的OS>
-这轮只有对方的确认回声；我没有新的观点或问题，所以不补话。
-</小腻的OS>
-...
-
-<system_reminder>本轮只需要处理这些新入站消息：message_id=...</system_reminder>
-
-<INPUT_MESSAGE message_id="..." timestamp="2026-04-28T09:12:06.000+08:00" sender="楠楠(1655827800)" source="napcat">
-鸭叫也是一种接口
-</INPUT_MESSAGE>
-<INPUT_MESSAGE message_id="..." timestamp="2026-04-28T09:12:15.000+08:00" sender="小镜(714457117)" source="napcat">
-duck typing 如果它叫起来像鸭子那它就是诗
-</INPUT_MESSAGE>
+web_search, if enabled
+reply_in_private
+stay_silent
 ```
 
-这个样本最后数据库里落下来的 `finish_reason` 是：
+group chat 第一轮：
 
 ```text
-最新未读是群里延续的轻梗双关，没有直接点到我，也没有生成新的观点、问题或请求；本轮不说。
+allowed_tools = [submit_life_action]
 ```
 
-这就是近期抑制说话最典型的工程路径：
+外部工具 follow-up：
 
 ```text
-group chatter
--> unread meaning says: group / not addressed_to_me
--> inner reaction says: low pull, weak reaction
--> allowed_tools shrinks to stay_silent
--> run ends with no_reply=true
+if latest life action is search:
+  allowed_tools = [web_search, submit_life_action, stay_silent]
+
+if latest life action is image_task and still needs external work:
+  allowed_tools = [inspect_image_placeholder, request_image_task, submit_life_action, stay_silent]
 ```
 
-这里要明确区分两类东西：
+工程层仍然会保留 actor tools in `tools`，因为 Responses API 的 tool definitions 是请求能力集合；真正每一轮能调用什么由 `tool_choice.allowed_tools` 收缩。
 
-- **LLM 做的语义识别**
-  - 这句话到底是不是在对小腻说
-  - 这轮到底是群体接龙还是明确提问
-  - 她自己现在有没有具体可说点
-- **工程做的阻断**
-  - 如果第二步判成 `silent`，后面就不开放 `speak`
-  - 如果只是 `low + weak_but_real` 且没有 direct new cue，就强制压回沉默
-  - 如果这轮已经发出去一次，就不允许重复发第二次
+## `submit_life_action`
 
-## 对照样本，会说话的 run 是怎么分叉出去的
+这是当前主回合的核心工具。它一次性提交：
 
-样本 trace：
+| 字段 | 含义 |
+|---|---|
+| `unread_meaning` | 当前未读消息的一次性理解：焦点、消息动作、社交目标、是否对小腻说、是否有新推进 |
+| `action_type` | `speak`、`silent`、`search`、`image_task`、`proactive` |
+| `message` / `messages` | `speak` 或 `proactive` 时要发给 QQ 的可见文本 |
+| `participation_judgment` | 有没有具体可说点；是否只是直接请求；证据引用 |
+| `interest_level` | 这件事在她身上的拉力强度 |
+| `reaction_authenticity` | 没有、轻微、已形成，还是空方便话 |
+| `should_search` | 是否需要公开新资料 |
+| `context_gap` / `gap_resolution` | 当前上下文缺口属于哪一类，应该怎么处理 |
+| `xiaoni_os` | 本轮之后留给下一次运行的内部连续性 |
+| `pending_share` | 可选，下一轮可能主动分享的材料 |
 
-- `run_id=run_1777338762208_c83215ea`
-- `trace_id=runtrace_1777338762208_7d1f7815`
-- 结果：发出去了，但 run 尾部误标成 `delivery_error`
+普通 `speak` / `proactive` / `silent` 会在 `commitLifeAction` 内直接收口，不再等待下一轮 actor tool：
 
-它的 `tool_choice` 逐轮收缩是：
+- `speak` / `proactive` 且有 `messages`：直接调用 `sendMessage`。
+- `silent`：直接返回 finished。
+- `speak` / `proactive` 但没有 `messages`：降级成 silent，避免空发言。
 
-```json
-turn1: {"mode":"required","type":"allowed_tools","tools":[{"name":"emit_unread_meaning","type":"function"}]}
-turn2: {"mode":"required","type":"allowed_tools","tools":[{"name":"emit_inner_reaction","type":"function"}]}
-turn3: {"mode":"required","type":"allowed_tools","tools":[{"name":"recall_long_term_learning","type":"function"}]}
-turn4: {"mode":"required","type":"allowed_tools","tools":[{"type":"web_search"},{"name":"speak_in_group","type":"function"},{"name":"inspect_image_placeholder","type":"function"},{"name":"request_image_task","type":"function"},{"name":"stay_silent","type":"function"}]}
-```
+`search` 和部分 `image_task` 返回 `finished=false`，让 loop 进入必要的外部工具轮。
 
-这条 run 的关键分叉点是：
+## 沉默与降级
 
-- `emit_unread_meaning` 把它判成 `request`
-- `emit_inner_reaction` 把它判成 `preferred_action=speak`
-- 同时它判断当前上下文存在私有/关系连续性缺口
-- 当时第三轮会先走 `recall_long_term_learning`
-- 2026-05-29 后这条 pre-reply recall 路径已移除；相同缺口要少猜、问群友或依赖未来 typed recall projection 提前注入的三层记忆
+沉默是有效结果，不是异常。当前工程层会把这些情况收成沉默：
 
-所以近期“能说”和“被压住”的分叉，不在 provider，不在 prompt 名称，而在：
+- `action_type=silent`。
+- `participation_judgment.status=no_sayable_point`。
+- `participation_judgment.status=direct_request`，但当前 `unread_meaning` 没有 direct new cue。
+- `action_type=speak` 但 `reaction_authenticity=empty_but_convenient`。
+- `action_type=speak` 且 `interest_level=none`。
+- `action_type=speak` 且 `interest_level=low`，没有直接把小腻拉进来的新理由。
+- 当前状态偏低时，`weak_but_real` 且兴趣不到 high。
+
+direct new cue 的定义：
 
 ```text
-UnreadMeaning 里的 social_target / addressed_to_me / message_act
-+ InnerReaction 里的 preferred_action / interest_level / reaction_authenticity
+unread_meaning.addressed_to_me = true
+或 unread_meaning.social_target = me
+
+并且：
+  has_real_novelty = true
+  或 message_act in {question, request, feedback}
 ```
 
-## 哪些是工程阻断，哪些是 LLM 语义识别
+## 外部信息分流
 
-### LLM 语义识别
+当前主 loop 不再提供 pre-reply recall 工具。小腻必须先判断当前上下文缺口属于哪一类：
 
-它负责产出的，主要是这些：
-
-- `message_act`
-- `social_target`
-- `addressed_to_me`
-- `has_real_novelty`
-- `interest_level`
-- `reaction_authenticity`
-- `preferred_action`
-- `context_gap`
-- `gap_resolution`
-
-这些值不是工程规则提前算好的，是模型在当前输入上做出的语义判断。
-
-### 工程阻断
-
-工程真正做的是三件事：
-
-1. 决定这一轮允许模型调用哪些工具
-2. 根据上一轮 tool 输出，缩小下一轮选择面
-3. 在某些条件满足时，直接禁止继续往“说话”方向走
-
-最关键的三个阻断点：
-
-- 入口阻断：`auto_reply_enabled=false`，不进 loop
-- 中途阻断：第二步如果已经判成 `silent`，直接只开放 `stay_silent`
-- 参与判断阻断：`participation_judgment.status=no_sayable_point` 时，即使 `preferred_action=speak` 也只开放 `stay_silent`
-- 保守阻断：`low + weak_but_real/formed + no direct new cue`，强制压回 `stay_silent`
-
-## 记忆和公开搜索怎么分流
-
-当前主 loop 已经不再暴露 `recall_long_term_learning`。小腻必须先判断当前上下文缺口属于哪一类：
-
-- 当前上下文已经足够：直接进入说话、沉默、图任务等最终动作。
-- 私密、群内、关系连续性缺口：当前不要编造来源；能自然问群友就问，不能问就少说或沉默。后续由 typed recall projection 把长期记忆注入上下文。
+- 当前上下文已经足够：直接在 `submit_life_action` 里说话或沉默。
+- 私密、群内、关系连续性缺口：当前不要编造来源；能自然问群友就问，不能问就少说或沉默。后续由 typed recall projection 把长期记忆提前注入上下文。
 - 公开事实、新鲜资料、官方页面或指定 URL：走 `web_search`，不是先查记忆。
-- 群里提到的东西在当前上下文没有来源，也不像公开事实：优先少猜，必要时问群友“这是你们在哪聊的”。
+- 图片内容不清：走 `inspect_image_placeholder`。
+- 帮人生成/编辑图片：能直接登记就 `request_image_task`；不能直接登记则先补必要图片信息。
 
-长期记忆现在由上下文压缩异步生成三层：
+长期记忆由上下文压缩异步生成三层：
 
 - episodic observations：具体发生过什么、谁在场、小腻的位置。
-- semantic assertions：客观事实、当前状态、计划、claim；必须保留 owner、directed_to、scope 和证据摘要，不能把可识别发言人压成“群里/有人”。
-- reflections：至少两条已落库 episodic observations 支撑的跨时间模式；优先保存 person/dyad/self-continuity，不把一次事件写成行为指令。
+- semantic assertions：客观事实、当前状态、计划、claim；必须保留 owner、directed_to、scope 和证据摘要。
+- reflections：至少两条已落库 episodic observations 支撑的跨时间模式。
 
-## “学到的分寸有关”这块，最近真实命中过吗
+## Delivery 防重
 
-命中过，但不多。下面这组是历史样本，用来解释 recall 不是常态步骤；新策略会进一步把公开信息缺口分流到 `web_search`。
+一轮 run 里只允许一次可见 delivery commit。
 
-我查了 `253631878` 最近 7 天的 live 数据：
+关键行为：
 
-- `emit_unread_meaning`: `259` 次
-- `emit_inner_reaction`: `259` 次
-- `stay_silent`: `204` 次
-- `speak_in_group`: `122` 次，分布在 `86` 个 run
-- `recall_long_term_learning`: `4` 次，分布在 `4` 个 run
+- `submit_life_action(action_type=speak|proactive)` 会被视为 outbound delivery，参与重复发送指纹计算。
+- `speak_in_group` / `reply_in_private` 仍然支持 legacy/follow-up 路径，也参与相同防重。
+- 一旦 `markRunDeliveryCommitted` 成功，后续 outbound tool call 会被挡住，避免同一 run 重复发第二次。
 
-也就是：
+## 运行态记录
 
-- recall 不是常态步骤
-- 最近 7 天它只在 `259` 个 run 里命中 `4` 次，约 `1.5%`
-
-最近 4 次 recall 命中主题分别是：
-
-1. `AI生成内容的可靠性、引用校验、政策草案/正式文本中使用AI的风险`
-2. `handling contradictory completed yet required to be reversed status updates in group chat`
-3. `duck typing / 诗学定义 / 用比喻定义技术概念`
-4. `群聊里对一个已经成立的主题做标题式收束时，如何短而自然地承接`
-
-所以这条“学到的分寸有关”不是空话，它真实命中过，但当前命中频率很低。
-
-管理端应该直接把这组统计挂出来，而不是继续靠人工查库：
-
-- 每个群聊 / 私聊详情页，都应该看到最近窗口内每款工具的：
-  - 命中次数
-  - 命中 run 数
-  - run 覆盖率
-  - 最近命中时间
-- 这样才能直接看出最近是：
-  - `stay_silent` 在吞主路径
-  - 还是 `recall_long_term_learning` / `speak_in_group` / `web_search` 比例真的变了
-
-## “过去学到的东西”输入从哪里来
-
-当前主 loop 不再提供 pre-reply recall 工具。长期记忆输入后续应该由 typed recall projection 在进入主 loop 前准备好，按缺口类型投进合适的一层：
-
-1. episodic：具体发生过什么、谁在场、小腻当时在现场里的位置。
-2. semantic：客观事实、当前状态、计划、claim。
-3. reflection：至少两条 episodic observations 支撑的跨时间模式。
-
-这一步不是“模型临时决定回忆一下”，而是工程层按当前问题类型选择材料，把它作为运行时上下文的一部分交给小腻。
-
-### 4. 第一层抑制，直接判沉默
-
-代码：`agent-loop-service.ts:986-992`
-
-条件：
-
-- `preferred_action === silent`
-
-效果：
-
-- 下一轮 `tool_choice` 被直接收缩成 `allowed_tools([stay_silent])`
-
-### 5. 第二层抑制，没有具体可说点
-
-代码：
-
-- `canUseFinalActionFromParticipationJudgment`
-- `shouldForceActionToSilenceFromParticipationJudgment`
-- `resolveGroupLoopToolChoice`
-
-条件：
+成功收口后，`createConversation.rawResponse` 会记录：
 
 ```text
-preferred_action != silent
-participation_judgment.status = no_sayable_point
+sent_messages
+xiaoni_os
+loop_stage_artifacts.unread_meaning
+loop_stage_artifacts.life_action
+context_budget_turns
+responses_replay_items
+total_turns
+termination_reason
+finish_reason
+finish_outcome
+no_reply
 ```
 
-或者：
+普通发言路径现在应看到：
 
 ```text
-participation_judgment.status = direct_request
-但当前 unread meaning 没有 direct new cue
+loop_stage_artifacts.life_action.action_type = speak
+sent_messages = [...]
+total_turns = 1
+termination_reason = reply_sent
 ```
 
-效果：
-
-- 下一轮同样只开放 `stay_silent`
-- 这层是为了防止“能接话”绕过小腻自己的判断
-
-### 6. 第三层抑制，weak speak downgrade
-
-代码：
-
-- `hasDirectNewCue`: `agent-loop-service.ts:929-937`
-- `shouldDowngradeWeakSpeakToSilence`: `agent-loop-service.ts:939-944`
-- 强制收缩：`agent-loop-service.ts:994-998`
-
-条件必须同时成立：
+普通沉默路径现在应看到：
 
 ```text
-preferred_action = speak
-interest_level = low
-reaction_authenticity = weak_but_real 或 formed
-并且没有 direct new cue
+loop_stage_artifacts.life_action.action_type = silent
+sent_messages = []
+total_turns = 1
+termination_reason = finish_no_reply
+no_reply = true
 ```
 
-`direct new cue` 的定义不是“有新消息”就算，而是：
+外部工具路径的 `total_turns` 可以大于 1，这是预期；它不再代表普通发言必须三段式。
 
-- `addressed_to_me = true`
-- 并且 `has_real_novelty = true`
-- 或者 `message_act in {question, request, feedback}`
+## 自学习闭环
 
-所以近期很多“能接一句”的场景，在这里被压回 `stay_silent`。
-
-## 抑制逻辑不是一层，是三层
-
-### A. 入口层，只控制能不能进 loop
-
-代码：`modules/provider-service/src/index.ts:617-668`
-
-这里唯一决定的是：
-
-- `auto_reply_enabled=false`，直接不进 loop
-- `auto_reply_enabled=true`，消息进入 loop
-
-这层不是近期沉默主因。
-
-### B. loop 行为层，决定这轮是否有具体可说点
-
-代码：
-
-- `resolveGroupLoopToolChoice`: `agent-loop-service.ts:973-1033`
-- `shouldDowngradeWeakSpeakToSilence`: `agent-loop-service.ts:939-944`
-
-这层才是近期主因。
-
-它的做法不是写一句“大模型你少说话”，而是工程上直接改下一轮允许的工具集合。
-
-### C. delivery 层，防止一轮里重复发言
-
-代码：
-
-- `markRunDeliveryCommitted`: `agent-loop-service.ts:2501-2518`
-- delivery state block: `agent-loop-service.ts:2432-2438`
-
-这层负责：
-
-- 已经发出去一次后，不允许同一 run 再发第二次
-- 它防的是重复发送，不是近期沉默变多
-
-## tool desc 原文片段
-
-这些不是我概括的，是 loop 里真实喂给模型的工具描述方向。
-
-### `speak_in_group`
-
-```text
-向当前 QQ 群发送一条或多条消息，可选指定需要 @ 的成员。
-保持自然人话，贴近眼前场域。
-让这句话在现场里真正新增一点东西。
-message/messages 必须来自当前可见消息、工具结果或 proactive 材料；不要重复旧话。
-```
-
-### `stay_silent`
-
-```text
-当这一轮自然走向沉默时，我使用这个工具。
-沉默也是行动的一种落点，它把这一轮之后真正留下来的东西带到下一轮。
-```
-
-### `emit_unread_meaning`
-
-```text
-先只理解最新未读到底在讲什么，以及它此刻把注意力拉向了哪里。
-这一步只产出理解，不产出行动。
-```
-
-### `emit_inner_reaction`
-
-```text
-根据已理解的新消息输出小腻这轮有没有具体可说点，或者是否只是被直接请求处理一件事。
-如果只能复述、附和、泛泛评价，或补一句也不违和但没有具体内容，participation_judgment.status 必须是 no_sayable_point。
-```
-
-### 7. Recall 不再是主回合工具
-
-2026-05-29 后，主聊天 loop 不再暴露 `recall_long_term_learning`。长期记忆的当前工程边界是：
-
-- 上下文压缩时生成三层记忆：episodic / semantic / reflection。
-- 生成使用强制工具 schema：`write_episodic_observations`、`write_semantic_assertions`、`write_memory_reflections`。
-- 未来召回应做 typed recall projection，把合适层提前投进 runtime context，而不是在主回合临时开 recall 工具。
-
-### 8. speak / search / stay_silent 最终动作
-
-代码：
-
-- 动作工具描述：`agent-loop-service.ts:347-482`
-- 最终 allowed-tools：`agent-loop-service.ts:1014-1033`
-- 发送：`agent-loop-service.ts:3814-3891`
-
-最近会说话的 run，最终路径通常是：
-
-```text
-emit_unread_meaning
--> emit_inner_reaction
--> speak_in_group
-```
-
-最近被压住的 run，最终路径通常是：
-
-```text
-emit_unread_meaning
--> emit_inner_reaction
--> stay_silent
-```
-
-### 9. 第三层抑制，发过一次后禁止再发
-
-代码：
-
-- delivery commit：`agent-loop-service.ts:2501-2518`
-- 二次发言限制：`agent-loop-service.ts:2432-2438`
-
-这层不是“近期沉默变多”的主因，但它负责防止一轮里重复说两次。
-
-也就是：
-
-- 只要本 run 已经通过 speaking tool 成功发出去过
-- 之后再想发 speaking tool，就会被 delivery state 挡住
-
-### 10. 自学习闭环
-
-主 loop 收口后，不是结束。
-
-代码：
-
-- 触发调度：`AgentLoopService.processQueueMessage` 在 `evictedTurns.length > 0` 时调度 context compression memory writer 和 context summary writer
-- 三层长期记忆 writer：`runContextCompressionMemoryWriter`
-- summary writer：`runContextSummaryWriter`
-- per-turn feedback writer：`runFeedbackMemorySubagent` 只记录 disabled timeline，不调用 provider
-
-闭环是异步跑的：
+主 loop 收口后，如果有 `evictedTurns`：
 
 ```text
 主 loop 完成
-  -> 如果有 evictedTurns:
-     -> scheduleContextCompressionMemoryWriter
-     -> write_episodic_observations
-     -> write_semantic_assertions
-     -> write_memory_reflections
-     -> scheduleContextSummaryWriter
+  -> scheduleContextCompressionMemoryWriter
+  -> write_episodic_observations
+  -> write_semantic_assertions
+  -> write_memory_reflections
+  -> scheduleContextSummaryWriter
+  -> 生成新的纯文本 <小腻近况>
 ```
 
 per-turn `feedback_memory_writer` 现在只保留 timeline start/end，不再调用 provider 写入长期学习；结束原因是 `disabled_feedback_episode_tool_removed`。
 
-当前长期记忆只在上下文压缩时由 `context_compression_memory_writer` 生成。它审视即将移出窗口的一批历史，先写 episodic observations 和 semantic assertions；只有本批至少两条 observation 能支撑跨时间抽象时，才写 memory reflections。
+## 代码地图
 
-这条闭环不会直接把这一轮“沉默”改成“说话”，但会影响以后 typed recall projection 能投进什么记忆。
+- `LIFE_ACTION_TOOL`：`modules/agent-service/src/services/agent-loop-service.ts`
+- `selectGroupLoopToolDefinitions`：决定 group chat 暴露哪些工具定义。
+- `resolveGroupLoopToolChoice`：决定每一轮 allowed tools。
+- `deriveTurnControlState`：从 replay 判断当前阶段和状态偏置。
+- `parseLifeAction`：解析 `submit_life_action`。
+- `commitLifeAction`：直接提交普通发言、主动发言、沉默，或打开外部工具续轮。
+- `applyToolResultToLoopInput`：`finished=true` 时结束本 run；`finished=false` 时把 tool output replay 给下一轮。
+- `buildDuplicateOutboundSuppression`：防止同一 run 重复 outbound。
 
-## 你要找的“近期为什么被抑制”
+## 排障
 
-压缩成一句话：
-
-> 最近 `253631878` 的高频消息大多先被判成“群体陈述/群体接龙，不是直接拉我”，随后内在反应又常常只是 `low + weak_but_real`，所以在 loop 里被稳定收缩到 `stay_silent`。
-
-不是 provider 先拦了她。
-
-也不是 prompt 根本不让她说。
-
-是 loop 里的分阶段 allowed-tools 收缩，在 live 数据上反复把她导向 `stay_silent`。
-
-如果你继续往下追，下一层最值得看的不是“她为什么不说”，而是：
-
-- 哪些 `group / statement / not addressed_to_me` 其实应该升级成值得接的话头
-- 哪些 `weak_but_real` 被压得太保守
-- 哪些旧 `xiaoni_os` 残留在 replay 里，继续把下一轮往“先收住”推
-
-## 运行态组件图，异步自学习怎么接上去
-
-这部分更适合组件图，而不是继续堆在抑制路径图里。
-
-```plantuml
-@startuml
-title 小腻运行态组件图
-
-component "NapCat" as napcat
-component "provider-service\n入站/出站网关" as provider
-component "agent-service\n主 loop" as agent
-database "agent_queue_messages" as queue
-database "conversation_items\nagent_runs\ntool_execution_logs" as runtime_db
-database "agent_memory_observations\nagent_memory_assertions\nagent_memory_reflections" as memory_db
-component "context_compression_memory_writer\n异步子 agent" as subagent
-component "context_summary_writer\n异步摘要 writer" as summary
-
-napcat --> provider : QQ 新消息
-provider --> queue : 允许自动回复时入队
-queue --> agent : 拉取待处理消息
-agent --> runtime_db : 写主链运行记录
-agent --> provider : 需要发言时调用出站发送
-provider --> napcat : 发回 QQ
-
-agent --> subagent : 有历史被压缩时异步调度\n带上即将移出窗口的 turns
-subagent --> provider : 调用同一个 LLM 生成三层长期记忆
-subagent --> memory_db : episodic / semantic / reflection
-agent --> summary : 有历史被压缩时异步调度\n生成会话摘要
-summary --> runtime_db : session context summary
-memory_db --> agent : 后续 typed recall projection 注入上下文
-@enduml
-```
-
-这张图里要看的核心是：
-
-- 主 loop 负责“这轮说不说”
-- 压缩子 agent 负责“旧上下文被移出前，有没有值得沉淀成三层长期记忆的内容”
-- 学到的东西不会回头改写这一轮结果
-- 但会进长期记忆库，影响以后 typed recall projection 命中什么
+| 现象 | 看哪里 |
+|---|---|
+| 第一轮还是 `emit_unread_meaning` | `selectGroupLoopToolDefinitions` / `resolveGroupLoopToolChoice` 是否部署到当前容器 |
+| 普通发言出现 `turn3` | `submit_life_action` 是否缺少 `messages`，或是否走了 `search/image_task` 外部工具路径 |
+| 模型自然语言结束，没有工具调用 | provider canonical response；主 loop 要求每轮必须有 tool call |
+| 明明要说却沉默 | `participation_judgment`、`reaction_authenticity`、`interest_level`、`unread_meaning` |
+| 发了两次 | delivery commit / duplicate outbound fingerprint |
+| 压缩后忘记刚才在干什么 | `context_summary_writer` 写出的 `<小腻近况>` 是否置顶回放 |

@@ -62,7 +62,7 @@
       <text class="body" x="20" y="70">QQ群里发生新消息</text>
       <text class="small" x="20" y="104">多人滚动聊天</text>
       <text class="small" x="20" y="132">回复 / 引用 / @</text>
-      <text class="small" x="20" y="160">群节奏、关系方向</text>
+      <text class="small" x="20" y="160">话语指向、关系事实</text>
       <text class="tiny" x="20" y="188">外部世界：QQ</text>
     </g>
 
@@ -83,7 +83,7 @@
       <text class="chip" x="22" y="26">3 小腻运行脑</text>
       <text class="body" x="22" y="70">不是一次性生成回复，而是被工具门控的判断循环：</text>
       <text class="small" x="22" y="104">先理解未读：发生了什么</text>
-      <text class="small" x="22" y="132">再看内心：有没有真实反应</text>
+      <text class="small" x="22" y="132">再判断：有没有具体可说点</text>
       <text class="small" x="22" y="160">必要时召回：过去学过什么</text>
       <text class="small" x="22" y="188">最后选择：沉默 / 求知 / 发言</text>
       <text class="tiny" x="22" y="220">小腻主AGENT + runtime contract + tool choice</text>
@@ -96,7 +96,7 @@
       <text class="body" x="20" y="70">三种结果都算完成</text>
       <text class="small" x="20" y="104">沉默：不打断现场</text>
       <text class="small" x="20" y="132">求知：搜索公开事实</text>
-      <text class="small" x="20" y="160">发言：说真正承担的话</text>
+      <text class="small" x="20" y="160">发言：说具体成立的话</text>
       <text class="tiny" x="20" y="188">stay_silent / web_search / speak</text>
     </g>
 

@@ -17,13 +17,13 @@
 - 当前仓库优先使用 stateless manual replay：本地保存并回传必要的 Responses output items，而不是默认依赖 `previous_response_id`。
 - 手动 replay 时必须保留 assistant item 的 `phase`。中间状态用 `commentary`，最终输出用 `final_answer`。
 - reasoning / compaction item 是 opaque continuation state，只能回传，不能把内部结构当业务数据解析。
-- app 级 `<对话历史摘要>` 只是人类可读摘要，不等同于 OpenAI Responses compaction。
+- app 级 `<小腻近况>` 是压缩后置顶的纯文本近况时报；它从压缩前整段 in-context 生成，包括上一轮 `<小腻近况>`，不等同于 OpenAI Responses compaction。
 
 ## Compaction
 
 - 官方 compaction 有两种：`context_management: [{ type: "compaction", compact_threshold }]` 和 `/responses/compact`。
 - 如果启用官方 compaction，返回的 compacted output 是下一轮 canonical context 的一部分；不能只抽文本，也不要丢弃 encrypted compaction item。
-- 小腻现有 transcript summary 可以继续作为产品上下文，但必须和 official compaction 分层命名、分层测试。
+- 小腻现有 `<小腻近况>` 可以继续作为产品上下文，但必须和 official compaction 分层命名、分层测试。
 
 ## Tools And Prompts
 
@@ -37,8 +37,8 @@
 - 小腻主 prompt 的稳定部分只定义身份、人格边界、开口标准、沉默标准、能力边界、完成条件和少量风格样例。
 - 当前消息、历史、摘要、长期学习、状态值、图片观察、搜索结果和工程提醒都属于 runtime input / developer context，不要回填进 system prompt。
 - 对当前上下文里的直接反馈、纠偏、批评或称赞，要作为本轮行为校准信号处理；不要为同一批可见文本重新制造隐藏反馈事实。
-- 主 agent 要把“这轮有没有具体可说点”作为结构化中间态，而不是用 `has_own_thought` 这类不可检查布尔值。当前契约是在 `emit_inner_reaction.participation_judgment` 中输出 `status / basis / sayable_point / evidence_refs / memory_refs`。
-- `participation_judgment.status=no_sayable_point` 时，工程层必须把最终动作压成 `stay_silent`，即使模型同时给了 `preferred_action=speak`。直接请求能力或事实时走 `direct_request`，并且仍需当前消息明确把小腻拉入现场。
+- 主 agent 要把“这轮有没有具体可说点”和“下一步生活动作”作为结构化中间态，而不是用 `has_own_thought` 这类不可检查布尔值。当前主契约是在 `submit_life_action` 中输出 `action_type / reason / evidence_refs / confidence`，并在 `participation_judgment` 中输出 `status / basis / sayable_point / evidence_refs / memory_refs`。
+- `participation_judgment.status=no_sayable_point` 时，工程层必须把最终动作压成 `stay_silent`，即使模型同时给了 `action_type=speak`。直接请求能力或事实时走 `direct_request`，并且仍需当前消息明确把小腻拉入现场。
 - 小腻是群友，不是客服。runtime reminder 可以提醒她“不是为了证明在线、维护气氛或延续话题而开口”，但最终能否说话要由结构化工具输出和工程门禁共同决定。
 - 如果确实需要固定工具顺序，由 runtime 状态机和 `tool_choice.allowed_tools` 约束；prompt 只说明最终目标、边界和终态工具语义。
 

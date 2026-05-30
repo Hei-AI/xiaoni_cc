@@ -1058,6 +1058,51 @@ capacity instead of only reacting as a thin chat participant.
   clarifies whether this belongs in identity facts, presence context,
   digital-life traces, prompt contract, or a new projection layer.
 
+### Task 13 - Context compression active-intention continuity
+
+**Status:** todo.
+
+**Source:** 2026-05-29 `$office-hours` follow-up question:
+"当前做完上下文压缩后, 小腻会不会忘她刚才在做什么?"
+
+**Problem:** context compression currently focuses on evicted conversation
+memory, durable observations/assertions/reflections, and future recall. It is
+not yet explicitly clear whether Xiaoni's active task, just-started intention,
+or "what I was in the middle of doing" survives a compaction boundary. If it
+does not, Xiaoni may preserve facts about the past while losing immediate
+agency continuity: she could forget that she had just decided to check
+something, continue a thought, prepare a reply, wait for an async result, or
+return to a self-initiated action.
+
+**Discussion seed:**
+
+- Inspect the current request assembly after compaction and identify which
+  surfaces can carry active intention: visible recent context, Xiaoni OS,
+  presence context, delivery state, async task state, compact summary, and the
+  three-layer memory tables.
+- Distinguish durable memory from live working state. "刚才在做什么" may belong
+  in a short-lived working-state projection, not in semantic long-term memory.
+- Decide whether compaction should emit an explicit active-intention record,
+  preserve it through `小腻当前状态`, or rely on existing task/delivery state.
+- Cover failure modes where a compacted boundary happens between "I will do X"
+  and the actual tool/task/result, especially image tasks, browsing/search,
+  delayed replies, and self-started creative actions.
+- Preserve source honesty: if the intention was synthetic or planned but not
+  executed, runtime context should say that, not phrase it as completed action.
+
+**Acceptance criteria:**
+
+- A design pass answers whether Xiaoni can currently remember what she was
+  actively doing across context compression, with evidence from request shape
+  and persisted state.
+- The design separates live working state, async task state, compact summaries,
+  durable long-term memory, and identity facts.
+- If a gap exists, follow-up implementation tasks define where active intention
+  is persisted/projected and how it expires.
+- Regression coverage includes a compaction boundary between an intention and
+  its follow-through, proving Xiaoni either resumes correctly or honestly says
+  the state is unavailable.
+
 ## P0-C - Runtime Data Readiness And Cleanup
 
 **Status:** todo.

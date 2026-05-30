@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
   <title id="title">小腻长期群聊对话与自进化闭环</title>
-  <desc id="desc">A one-page business diagram that explains how Xiaoni reads a group chat, forms an inner reaction, recalls prior learning, decides to stay silent, search, or speak, and turns the result into future learning.</desc>
+  <desc id="desc">A one-page business diagram that explains how Xiaoni reads a group chat, forms an life action, recalls prior learning, decides to stay silent, search, or speak, and turns the result into future learning.</desc>
   <defs>
     <style>
       .bg { fill: #f7f8f6; }
@@ -69,11 +69,11 @@
     <rect class="card-yellow" x="0" y="0" width="250" height="210"/>
     <rect class="bar-yellow" x="0" y="0" width="250" height="48" rx="18"/>
     <text class="label" x="24" y="31">3. 再观己</text>
-    <text class="body" x="24" y="78">看自己有没有真实反应</text>
+    <text class="body" x="24" y="78">看有没有具体可说点</text>
     <text class="small" x="24" y="112">兴趣强弱</text>
-    <text class="small" x="24" y="140">是真的想说，还是顺手能接</text>
-    <text class="small" x="24" y="168">该说、该查，还是该等</text>
-    <text class="tiny" x="24" y="196">工具：emit_inner_reaction</text>
+    <text class="small" x="24" y="140">观点、疑问、好奇、不适</text>
+    <text class="small" x="24" y="168">该说、该查，还是沉默</text>
+    <text class="tiny" x="24" y="196">工具：submit_life_action</text>
   </g>
 
   <g transform="translate(910 162)">

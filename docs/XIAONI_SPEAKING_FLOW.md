@@ -4,7 +4,7 @@
 
 - 当前系统整体架构是什么样。
 - 小腻被动发言和主动发言分别经历哪些阶段。
-- 每个阶段对应的数据源是什么、来源是什么、怎么产生、怎么使用。
+- 主聊天 loop 现在如何避免普通场景变成三段式 turn。
 
 如果只想先看业务总览，先读 `docs/CURRENT_ARCHITECTURE.md`。如果要查 loop 逐轮工具契约和抑制路径，继续看 `docs/AGENTS_AGENT_LOOP_RUNTIME.md`。
 
@@ -19,36 +19,34 @@ flowchart TD
   Policy -->|允许自动回复| Queue[(agent_queue_messages)]
   Policy -->|不允许自动回复| InboxOnly[(agent_inbound_messages only)]
 
-  AgentTimer[agent-service presence timer] --> LifeGate[life state gate<br/>boredom / fatigue / cooldown]
-  LifeGate -->|eligible| PresenceQueue[(synthetic presence_tick<br/>agent_queue_messages)]
-  SelfActionTimer[agent-service self-action timer] --> SelfGate[self-action gate<br/>budget / cooldown / user interaction]
-  SelfGate -->|eligible| SelfSearch[hosted web_search<br/>self_action_search]
-  SelfSearch --> DigitalActions[(agent_digital_actions)]
-  DigitalActions --> SharePool[(agent_share_pool_items)]
-
   Queue --> Loop[agent-service main loop]
-  PresenceQueue --> PresenceCtx[buildPresenceContext<br/>life state + share pool + digital residue]
-  PresenceCtx --> Loop
+  Loop --> Context[组装输入<br/>已读历史 / 当前未读 / 小腻近况 / OS / 身份事实 / 媒体 / 当前状态]
+  Context --> Request[Turn 1 canonical request]
+  Request --> LifeAction[submit_life_action<br/>unread_meaning + participation_judgment + final action]
 
-  Loop --> Context[组装输入<br/>已读历史 / 未读消息 / OS / 身份事实 / 媒体 / 当前状态]
-  Context --> U1[Turn 1: emit_unread_meaning<br/>只理解现场]
-  U1 --> U2[Turn 2: emit_inner_reaction<br/>判断有没有具体可说点]
-  U2 --> Gate{工程收缩 allowed_tools}
-  Gate -->|silent / no_sayable_point / weak-low-no direct cue| Silent[stay_silent]
-  Gate -->|私密/关系/群内连续性缺口| AskOrAct[少猜 / 问群友 / 直接行动]
-  Gate -->|公开信息缺口| Search[web_search + stay_silent]
-  AskOrAct --> Action[说话 / 搜索 / 图任务 / 沉默]
-  Search --> Action
-  Gate -->|可直接行动| Action
-  Action -->|speak_in_group / reply_in_private| ProviderSend[provider-service send API]
+  LifeAction -->|speak / proactive with messages| Send[直接发送 QQ 可见消息]
+  LifeAction -->|silent| Silent[直接沉默收口]
+  LifeAction -->|search| Search[web_search 后再 submit_life_action 或 stay_silent 收口]
+  LifeAction -->|image_task needs result| ImageTools[inspect_image_placeholder / request_image_task]
+
+  Send --> ProviderSend[provider-service send API]
   ProviderSend --> NapCat --> QQ
 
-  Action --> Record[(agent_runs / conversation_items / tool_execution_logs)]
+  LifeAction --> Record[(agent_runs / conversation_items / tool_execution_logs)]
+  Search --> Record
+  ImageTools --> Record
+  Silent --> Record
   Record --> Learn[上下文压缩时异步学习]
   Learn --> Memory[(episodic / semantic / reflection memories<br/>identity facts)]
+
+  AgentTimer[agent-service presence timer] --> PresenceQueue[(synthetic presence_tick)]
+  PresenceQueue --> Loop
+  SelfActionTimer[agent-service self-action timer] --> SelfSearch[hosted web_search self-action]
+  SelfSearch --> SharePool[(agent_share_pool_items)]
+  SharePool --> Loop
 ```
 
-一句话：被动发言和 presence 主动发言最后都汇入同一个 `agent-service` main loop。自主数字行动不直接发 QQ；它先由后台 self-action loop 真实调用 `web_search`，把 residue 写入行动表和 share pool，后续 presence/context 再决定是否自然带入聊天。
+一句话：被动发言、presence 主动发言最后都汇入同一个 `agent-service` main loop。普通说话、主动说一句和沉默现在都在第一轮 `submit_life_action` 内完成；只有真正需要外部结果时才进入后续工具轮。
 
 ## 被动发言路径
 
@@ -62,196 +60,113 @@ flowchart TD
   E -->|auto_reply_enabled=true| G[buildSemanticInboundMessage]
   G --> H[(agent_queue_messages)]
   H --> I[agent-service worker poll]
-  I --> J[main loop 分阶段判断]
+  I --> J[main loop 单次决策，必要时外部工具续轮]
 ```
 
-被动链路从真实 QQ 消息开始。`provider-service` 只做入口边界、标准化、记录、入队，不负责最终判断小腻该不该说话。
+`provider-service` 只做入口边界、标准化、记录、入队，不负责最终判断小腻该不该说话。
 
 关键代码入口：
 
 - `modules/provider-service/src/index.ts`：NapCat event 入站、policy、queue enqueue。
 - `modules/provider-service/src/services/inbound-inbox-service.ts`：入站消息持久化。
 - `packages/persistence/agent-queue.js`：`agent_queue_messages` 入队。
-- `modules/agent-service/src/services/agent-loop-service.ts`：主 loop 分阶段判断。
+- `modules/agent-service/src/services/agent-loop-service.ts`：主 loop 决策、发送、沉默和工具续轮。
 
 ## 主动发言路径
 
 ```mermaid
 flowchart TD
-  A[agent-service 定时器<br/>默认 5 分钟检查] --> B[deriveLifeState]
+  A[agent-service 定时器] --> B[deriveLifeState]
   B --> C{shouldFirePresenceTick}
   C -->|startup grace / cooldown / fatigue / not bored| D[不入队]
-  C -->|eligible| E[构造 synthetic message<br/>BodyForAgent=主动打开群看一眼]
-  E --> F[(agent_queue_messages<br/>source=presence_tick)]
-  F --> G[buildPresenceContext]
-  G --> H[share pool 取 top material<br/>按 heat / decay / boundary / effort 打分]
-  H --> I[注入 小腻当前状态 block]
-  I --> J[同一个 main loop]
+  C -->|eligible| E[构造 synthetic message<br/>source=presence_tick]
+  E --> F[(agent_queue_messages)]
+  F --> G[buildPresenceContext<br/>life state + share pool + digital residue]
+  G --> H[同一个 main loop]
 ```
-
-主动链路不是绕过主 loop 发言，而是由 `agent-service` 定时器构造一条 synthetic queue message。当前运行环境里：
-
-- `PRESENCE_TICK_ENABLED=true`
-- `PRESENCE_TICK_INTERVAL_MS=300000`
-- `PRESENCE_TICK_COOLDOWN_MS=2700000`
-- `PRESENCE_TICK_TARGET_GROUP_ID=1019235326`
 
 presence tick 只决定“要不要主动打开目标群看一眼并入队”。真正说不说，仍由 main loop 判断。
 
-关键代码入口：
+自主数字行动也不直接发 QQ。它由后台 self-action loop 真实调用 hosted `web_search`，把 residue 写入 `agent_digital_actions` 和 share pool，后续 presence/context 再决定是否自然带入聊天。
 
-- `modules/agent-service/src/index.ts`：presence timer 调度。
-- `modules/agent-service/src/services/runtime-store.ts`：`enqueuePresenceTick`、`buildPresenceContext`、`recordPresenceSidecar`。
-- `modules/agent-service/src/services/presence-context.ts`：life state 计算、share pool 打分、当前状态 block 生成。
-
-## 自主数字行动路径
-
-```mermaid
-flowchart TD
-  A[agent-service self-action timer<br/>默认 15 分钟检查] --> B[evaluateSelfActionEligibility]
-  B --> C{budget / cooldown / startup grace / fatigue / user interaction}
-  C -->|not eligible| D[不行动]
-  C -->|eligible| E[(agent_digital_actions<br/>status=running)]
-  E --> F[provider-service /api/internal/agent/execute<br/>agent_type=self_action_search]
-  F --> G[hosted web_search<br/>required by allowed_tools]
-  G --> H[emit_self_search_result]
-  H --> I[(agent_digital_actions<br/>status=completed)]
-  I --> J{safe share_seed?}
-  J -->|yes| K[(agent_share_pool_items<br/>source_kind=web_search)]
-  J -->|no| L[只保留行动记录]
-  K --> M[buildPresenceContext<br/>recent digital residue]
-```
-
-自主数字行动不是模拟浏览，也不是直接找群友说话。它只做一件事：小腻根据当前状态自己选择一个小的公开信息问题，必须真实调用 hosted `web_search`，然后通过 `emit_self_search_result` 把可追溯残留写入 `agent_digital_actions`。服务端会校验 `emit_self_search_result.query` 必须匹配已经完成的 `web_search` query；只有 `source_wording=real_web_search` 且边界安全的 `share_seed` 才会进入 share pool。
-
-当前运行环境里：
-
-- `SELF_ACTION_ENABLED=true`
-- `SELF_ACTION_INTERVAL_MS=900000`
-- `SELF_ACTION_COOLDOWN_MS=3600000`
-- `SELF_ACTION_STARTUP_GRACE_MS=600000`
-- `SELF_ACTION_DAILY_BUDGET=3`
-- `SELF_ACTION_HOURLY_BUDGET=1`
-- `SELF_ACTION_MAX_CONSECUTIVE_WITHOUT_USER=1`
-
-关键代码入口：
-
-- `modules/agent-service/src/index.ts`：self-action timer 调度。
-- `modules/agent-service/src/services/self-action-service.ts`：自主搜索请求、工具契约、结果抽取和 share pool 写入。
-- `modules/agent-service/src/services/runtime-store.ts`：预算判断、`agent_digital_actions` 生命周期、presence context 投影。
-- `packages/persistence/agent-presence.js`：`agent_digital_actions`、share pool 和 presence 相关持久化。
-
-## Main Loop 阶段
-
-```mermaid
-flowchart TD
-  A[queue message] --> B[buildInitialInput]
-  B --> C[instructions<br/>runtimePrompt.systemPrompt<br/>+ Runtime contract<br/>+ Single-turn tool contract]
-  B --> D1[developer index 1<br/>world_narrative]
-  B --> D2[late developer context<br/>current_relationship<br/>current_scene<br/>小腻当前状态<br/>turn_state reminder]
-  B --> E[mixed input items<br/>user INPUT_MESSAGE<br/>assistant OUTPUT_MESSAGE<br/>assistant commentary OS/ACTION/reminder<br/>developer facts/context]
-
-  C --> G[Canonical request<br/>agent_type=chat_bot]
-  D1 --> G
-  D2 --> G
-  E --> G
-  G --> H[tools<br/>emit_unread_meaning<br/>emit_inner_reaction<br/>speak/reply<br/>stay_silent<br/>web_search<br/>image tools]
-
-  H --> I[Turn 1<br/>tool_choice=emit_unread_meaning]
-  I --> J[tool output replay]
-  J --> K[Turn 2<br/>tool_choice=emit_inner_reaction]
-  K --> L[tool output replay]
-  L --> M{resolveGroupLoopToolChoice}
-  M -->|preferred_action=silent| N[Turn 3<br/>tool_choice=stay_silent]
-  M -->|empty/none/low no direct cue| N
-  M -->|needs_public_info| O[Turn 3<br/>tool_choice=web_search + stay_silent]
-  M -->|image_task| P[Turn 3<br/>tool_choice=inspect_image + request_image_task + stay_silent]
-  M -->|needs_private_memory / unclear_group_reference| S[Turn 3<br/>少猜 / ask / speak / stay_silent]
-  M -->|speak/proactive| S
-```
-
-### 1. 组装输入
+## Main Loop 当前契约
 
 `buildInitialInput` 会把当前 queue message 组装成模型输入：
 
 - system：小腻主 prompt、运行时阅读契约、单轮工具契约。
-- `role=developer`：`<world_narrative>` 如果存在，放在 input index 1。
+- `role=developer`：稳定世界叙事、身份事实、关系/信任层、现场状态、presence context。
 - `role=user`：真实入站 QQ 消息，渲染为 `<INPUT_MESSAGE ...>`。
 - `role=assistant phase=final_answer`：小腻过去真正发出的 QQ 消息，渲染为 `<OUTPUT_MESSAGE ...>`。
-- `role=assistant phase=commentary`：`<小腻的OS>`、`<ACTION>`、`<图片内容>`、`<system_reminder>`。
-- `role=developer`：身份事实、关系/信任层、现场状态、presence context 等非 QQ 发言事实；其中 `<current_relationship>`、`<current_scene>`、`<小腻当前状态>` 靠近输入末尾追加。
-- identity facts：已确认的身份/相处事实。
-- media placeholder context：图片等媒体占位符。
-- presence context：主动链路下额外注入的小腻当前状态。
-- turn state reminder：只有能量/状态偏置非 normal 时追加，作为本轮动态提醒。
+- `role=assistant phase=commentary`：`<小腻近况>`、`<小腻的OS>`、`<ACTION>`、`<图片内容>`、`<system_reminder>`。
 
-注意：`<小腻的OS>` 不是只带上一轮。只要历史 turn 还在当前上下文窗口里，那一轮留下的 OS 就可能被回放。
+当前 group chat 第一轮工具集合包含：
 
-### 2. Turn 1: `emit_unread_meaning`
+```text
+submit_life_action
+web_search, if enabled
+speak_in_group
+inspect_image_placeholder
+request_image_task
+stay_silent
+```
 
-第一轮只允许调用 `emit_unread_meaning`，不允许发言。
+第一轮 `tool_choice` 强制收缩为：
 
-它判断：
+```text
+allowed_tools = [submit_life_action]
+```
 
-- `latest_unread_focus`：未读消息重点是什么。
-- `message_act`：陈述、提问、玩笑、调侃、反馈、请求，还是不清楚。
-- `social_target`：注意力指向小腻、别人、整个群，还是不清楚。
-- `addressed_to_me`：是否明确对小腻说。
-- `has_real_novelty`：是否有真实新推进。
-- `confidence` / `reason`：判断置信度和理由。
+`submit_life_action` 不是旧的 proposal-only 中间态。它现在一次性提交：
 
-这一步是 LLM 做语义识别，工程层只负责把 allowed tools 收缩到这个工具。
+- `unread_meaning`：当前未读在说什么、说给谁、是否有新推进。
+- `participation_judgment`：有没有具体可说点，还是只是直接请求或没有可说点。
+- `action_type`：`speak`、`silent`、`search`、`image_task`、`proactive`。
+- `message` / `messages`：`speak` 或 `proactive` 时要发给 QQ 的可见文本。
+- `xiaoni_os`：本轮之后留给下一次运行的内部连续性。
+- `context_gap` / `gap_resolution`：只有需要外部信息、看图或问来源时才进入后续工具轮。
 
-### 3. Turn 2: `emit_inner_reaction`
+普通路径：
 
-第二轮只允许调用 `emit_inner_reaction`，仍不允许发言。
+```text
+submit_life_action(action_type=speak, messages=[...])
+-> runtime 立即调用 provider-service send API
+-> run finished, total_turns=1
 
-它判断：
+submit_life_action(action_type=silent)
+-> run finished, no_reply=true, total_turns=1
+```
 
-- `interest_level`：兴趣强度。
-- `wants_to_know_more`：是否想知道更多。
-- `reaction_authenticity`：反应强度，是没有、轻微、已经形成，还是没有具体可说点。
-- `participation_judgment`：这轮有没有具体可说点、是否只是直接请求、证据是什么。
-- `should_search`：是否需要查资料。
-- `preferred_action`：更像说、沉默、搜索、图任务。
-- `context_gap`：当前上下文是否足够，或者缺口是私有记忆、公开信息、群内引用。
-- `gap_resolution`：下一步应该不补、查记忆、web_search、问群友，还是先记忆再问/搜。
+外部工具路径：
 
-近期很多沉默都发生在这里：模型觉得有一点弱反应，但没有具体可说点。
+```text
+submit_life_action(action_type=search)
+-> web_search
+-> submit_life_action 或 stay_silent 收口
 
-### 4. 工程层工具收缩
+submit_life_action(action_type=image_task, 缺少直接登记所需信息)
+-> inspect_image_placeholder / request_image_task
+-> submit_life_action 或 stay_silent 收口
+```
 
-`resolveGroupLoopToolChoice` 根据前两步结果收缩下一轮工具集合。
+`emit_unread_meaning` 只作为历史 replay / 旧日志兼容处理保留，不再是新 group loop 的第一轮工具，也不再要求普通请求走 `emit_unread_meaning -> submit_life_action -> speak/stay_silent`。
 
-直接沉默：
+## 抑制规则
 
-- `preferred_action === silent`
+沉默不是失败，是一种收口结果。当前工程层会在这些情况下把 `submit_life_action` 收成沉默：
 
-弱说话降级为沉默：
+- `action_type=silent`。
+- `participation_judgment.status=no_sayable_point`。
+- `participation_judgment.status=direct_request`，但当前 `unread_meaning` 没有 direct new cue。
+- `action_type=speak` 但 `reaction_authenticity=empty_but_convenient`。
+- `action_type=speak` 且 `interest_level=none`。
+- `action_type=speak` 且 `interest_level=low`，没有直接把小腻拉进来的新理由。
+- 当前状态偏低时，`weak_but_real` 且兴趣不到 high。
 
-- `preferred_action === speak`
-- 且 `reaction_authenticity` 是 `empty_but_convenient`
-- 或 `interest_level === none`
-- 或 `interest_level === low` 且没有 direct new cue
-
-direct new cue 不是“有新消息”就算。它要求明确指向小腻，并且有真实新信息、问题、请求或反馈。
-
-### 5. 最终动作
-
-最终动作只会落到几类工具：
-
-- `stay_silent`：不发言，但留下 `xiaoni_os`。
-- `speak_in_group`：群聊发言，同时留下隐藏 `xiaoni_os`。
-- `reply_in_private`：私聊回复，同时留下隐藏 `xiaoni_os`。
-- `web_search`：需要外部事实时查资料，再回到说/不说判断。
-- `inspect_image_placeholder`：只有需要看清图片时才看图。
-- `request_image_task`：登记图片生成/编辑后台任务。
+direct new cue 要求消息明确指向小腻，并且有真实新信息、问题、请求或反馈；不是“有新消息”就算。
 
 ## 所有 LLM 交互面
 
-本节只列当前链路里会真正走模型的交互。数据库查询、BM25、embedding 计算、队列写入、NapCat 收发不算 LLM 交互。
-
-### 1. 主聊天 agent: `chat_bot`
+### 主聊天 agent: `chat_bot`
 
 调用位置：`agent-service -> provider-service /api/internal/agent/execute`
 
@@ -259,54 +174,20 @@ canonical request 结构：
 
 ```text
 model: runtimePrompt.modelName
-reasoning:
-  optional; only when provider parameters or model policy require it
-text:
-  optional; only when provider parameters or model policy require it
-include:
-  optional; reasoning.encrypted_content only when the model/provider returns replayable reasoning state
 instructions:
   runtimePrompt.systemPrompt
-  + "\n\nRuntime contract:\n"
-  + RUNTIME_INPUT_READING_CONTRACT
-  + "\n\n"
-  + SINGLE_TURN_TOOL_CONTRACT
+  + Runtime contract
+  + Single-turn tool contract
 
 input:
-  optional developer message:
-    <world_narrative>...</world_narrative>
-
-  optional assistant commentary:
-    <对话历史摘要>...</对话历史摘要>
-
-  repeated mixed transcript messages:
-    role=user <INPUT_MESSAGE ...>...</INPUT_MESSAGE>
-    role=assistant phase=final_answer <OUTPUT_MESSAGE ...>...</OUTPUT_MESSAGE>
-    role=assistant phase=commentary <ACTION ...>...</ACTION>
-    <小腻的OS>...</小腻的OS>
-
-  user message:
-    current queue batch, rendered with timestamp/sender/reply/quote/@
-
-  optional assistant commentary:
-    media placeholder context
-
-  assistant commentary:
-    <system_reminder>本轮只需要处理这些新入站消息：...</system_reminder>
-
-  optional developer message:
-    <小腻已确认身份事实>...</小腻已确认身份事实>
-
-  optional developer message near the end:
-    <current_relationship>...</current_relationship>
-    <current_scene>...</current_scene>
-    <小腻当前状态>...</小腻当前状态>    # presence context, if built
-    <system_reminder>...</system_reminder>  # turn_state, only when non-normal
+  developer/system/runtime context
+  historical INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / 小腻的OS
+  current queue batch
+  optional media / identity / presence context
 
 tools:
   group chat:
-    emit_unread_meaning
-    emit_inner_reaction
+    submit_life_action
     web_search, if enabled
     speak_in_group
     inspect_image_placeholder
@@ -318,7 +199,8 @@ tools:
     stay_silent
 
 tool_choice:
-  group chat: allowed_tools, mode=required, recalculated each turn
+  group chat first turn: allowed_tools([submit_life_action])
+  group chat external follow-up: allowed_tools based on action_type / tool result
   private chat: required
 
 parallel_tool_calls: false
@@ -326,168 +208,7 @@ prompt_cache_key: qq:group:<groupId> or related runtime key
 prompt_cache_retention: usually 24h
 ```
 
-当前主聊天默认模型由 `XIAONI_MAIN_AGENT_MODEL` 控制，默认 `gpt-5.5`；compact memory / reflection 默认使用 `gpt-5.5`。主聊天 agent 只在 provider 参数或模型策略需要时发送 `reasoning` / `text` / `include`；reasoning output item 如果存在，只能当 opaque continuation state 回放，不参与业务解析。OpenAI / LLM 请求契约的完整规则看 `docs/AGENTS_OPENAI_REQUESTS.md`。
-
-主聊天 agent 的 `instructions` 不是 DB 里的可变 prompt。它由代码内置的 `小腻主AGENT` 加运行时契约组成：
-
-```text
-<runtimePrompt.systemPrompt>
-
-Runtime contract:
-你看到的是真实的群聊现场，不是说明文。每段消息都是真的，里面也包括你自己说过的话。
-一段里有多条内容，说明是同一方连着说的。
-
-`<INPUT_MESSAGE>` 是真实入站 QQ 消息。
-`<OUTPUT_MESSAGE>` 是小腻过去已经发出去的 QQ 消息。
-`<ACTION>` 是小腻自己的动作或状态事件。
-`<system_reminder>` 是工程控制逻辑给出的本轮边界提醒。
-如果前面有 `<对话历史摘要>`，是更早的记忆摘要。
-
-`<小腻的OS>` 是你上一轮留给自己的内心延续——当时的状态和还没过去的东西。
-
-消息里的”回复某人””@某人””引用”是说话的社交方向，影响谁在和谁说话，记得一起理解进去。
-
-这一轮顺序：
-先搞清楚最新未读在说什么，用 emit_unread_meaning。
-再判断这轮有没有具体可说点、是否只是直接请求、当前上下文是否足够，用 emit_inner_reaction。
-如果当前上下文不足，先判断缺口：公开信息用 web_search；私密、关系或群内连续性缺口不要编造，能问群友就问，不能问就少说或沉默。
-最后通过工具完成这一轮——说话、沉默、查资料还是做图。
-
-普通聊天、轻吐槽、短反应都是正常参与，但只有具体可说点才开口。
-真的没什么想说的就不说，不用硬凑一句，也不用为了延续话题证明在线。
-主动说个自己的事（proactive）是借这个时机开口，不是在接这条消息。
-
-web_search 是求知，不是默认步骤，也不是表演认真。
-只有真的需要新鲜公开信息时才查，查到够用就停，查完还是你自己决定说不说。
-
-这一轮怎么收：
-- 群里说话 → speak_in_group
-- 私聊说话 → reply_in_private
-- 需要查东西再说 → web_search，查到够用就停
-- 需要看清图片内容才能继续 → inspect_image_placeholder
-- 帮别人做图 → request_image_task（只登记任务，不等结果）
-- 这轮不说了 → stay_silent
-
-可以分多段说，用 messages 列出来。
-不管说不说，都在 xiaoni_os 里留下这轮在你这里留下的东西。
-只把要发给对方的话放进消息里，别把工具名、推理过程带进去。
-```
-
-`developer` context 的结构：
-
-```text
-<world_narrative>
-你不是一直在线等人发话。你通常是在某些具体时刻才会打开手Q，看一眼群里在发生什么。
-...
-</world_narrative>
-
-<current_relationship>
-本次发言者：<昵称>（QQ:<qq>）
-当前关系层级：L1 | L2 | L3 | L4
-当前可开放的自己：<persona layer text>
-</current_relationship>
-
-<current_scene>
-活跃人数（近10分钟）：<n>
-消息密度（近5分钟）：low | medium | high（<n>条）
-</current_scene>
-
-<小腻当前状态>
-recent_action_trace: ...
-current_residue: ...
-current_state: ...
-available_material:
-- ...
-action_cost: ...
-source_boundary: ...
-</小腻当前状态>
-```
-
-`input` 里的当前消息结构：
-
-```text
-<对话历史摘要>
-...
-</对话历史摘要>
-
-<INPUT_MESSAGE message_id="..." timestamp="2026-05-27T..." sender="某人(qq)" source="napcat">
-[回复给 某人(@qq)：...]
-消息正文
-</INPUT_MESSAGE>
-
-<OUTPUT_MESSAGE message_id="..." sender="小腻(1129974489)" source="delivery">
-小腻之前发出的消息
-</OUTPUT_MESSAGE>
-
-<小腻的OS>
-上一轮或历史轮留下来的内部延续
-</小腻的OS>
-
-<system_reminder>本轮只需要处理这些新入站消息：message_id=...</system_reminder>
-
-<小腻已确认身份事实>
-- ...
-</小腻已确认身份事实>
-
-<当前图片占位符>
-...
-</当前图片占位符>
-
-2026-05-27T... {当前发送者(@qq)}
-当前未读消息正文
-```
-
-### 2. 主聊天 agent 工具说明
-
-下面是当前代码里的工具描述方向和关键输出字段。模型看到的是这些 tool definitions；工程层再用 `tool_choice.allowed_tools` 控制每一轮只能调用哪些。
-
-| 工具 | 当前 description | 关键参数 / 输出 |
-|---|---|---|
-| `emit_unread_meaning` | `先搞清楚最新未读在说什么——谁在和谁说、说的是什么事、注意力拉向哪里。这一步只是看懂，不决定说不说。` | `latest_unread_focus`, `message_act`, `social_target`, `addressed_to_me`, `has_real_novelty`, `confidence`, `reason`, `social_act_type`, `topic_context` |
-| `emit_inner_reaction` | `根据已理解的新消息输出小腻这轮有没有具体可说点，或者是否只是被直接请求处理一件事。如果只能复述、附和、泛泛评价，或补一句也不违和但没有具体内容，participation_judgment.status 必须是 no_sayable_point。` | `interest_level`, `wants_to_know_more`, `reaction_authenticity`, `participation_judgment`, `should_search`, `preferred_action`, `context_gap`, `gap_resolution`, `reason` |
-| `speak_in_group` | `向当前 QQ 群发送一条或多条消息，可选指定需要 @ 的成员。` | `message` 或 `messages`, `mention_user_ids`, required `xiaoni_os`, optional `pending_share` |
-| `reply_in_private` | `私聊说话用这个。自然直接，像真人说的话。` | `message` 或 `messages`, required `xiaoni_os`, optional `pending_share` |
-| `stay_silent` | `这轮不说了，用这个收尾。` | required `reason`, `outcome`, `xiaoni_os`, optional `pending_share` |
-| `inspect_image_placeholder` | `上下文里有图片，你需要看清图片内容才能继续时用这个。只传上下文里出现的临时标签，比如 image_1，不要猜 URL 或文件路径。` | `media_tag`, `reason`; 工程层再调用 media inspect |
-| `request_image_task` | `帮别人生成或编辑图片时用这个。只是登记任务，不等结果。用自然语言说在帮谁做什么，别暴露任务 id 或文件路径。` | `operation`, `prompt`, `target_description`, `source_media_tags`, `xiaoni_os` |
-| `web_search` | Provider 预置 web search 工具，`search_context_size` 来自 `AGENT_WEB_SEARCH_CONTEXT_SIZE`，`external_web_access` 来自 `AGENT_WEB_SEARCH_EXTERNAL_ACCESS` | 查外部公开信息，结果回放给同一 main loop |
-
-`tool_choice` 逐轮收缩：
-
-```text
-Turn 1:
-  allowed_tools = [emit_unread_meaning]
-
-Turn 2:
-  allowed_tools = [emit_inner_reaction]
-
-After Turn 2:
-  if preferred_action == silent:
-    allowed_tools = [stay_silent]
-
-  else if participation_judgment.status == no_sayable_point:
-    allowed_tools = [stay_silent]
-
-  else if shouldDowngradeWeakSpeakToSilence(...):
-    allowed_tools = [stay_silent]
-
-  else if context_gap == needs_public_info or gap_resolution == web_search:
-    allowed_tools = [web_search, stay_silent]
-
-  else if preferred_action == image_task:
-    allowed_tools = [inspect_image_placeholder, request_image_task, stay_silent]
-
-  else if preferred_action == search:
-    allowed_tools = [web_search, stay_silent]
-
-  else if preferred_action == proactive:
-    allowed_tools = [speak_in_group, stay_silent]
-
-  else:
-    allowed_tools = [web_search, speak_in_group, inspect_image_placeholder, request_image_task]
-```
-
-### 3. 图片 inspect 的 LLM 交互
+### 图片 inspect
 
 `inspect_image_placeholder` 本身是主聊天 agent 的工具调用。工具执行时，如果图片没有缓存观察，会再调用 provider 的 media inspect：
 
@@ -506,261 +227,33 @@ persistence:
   agent_media_observations
 ```
 
-这个图片描述会作为 tool result 回放给主聊天 agent，再由主聊天 agent 决定说、不说或继续做图任务。
+### 上下文压缩学习
 
-### 4. Feedback memory subagent
-
-per-turn `feedback_memory_writer` 现在只保留 timeline 标记，不再调用 provider 写入长期学习。这个入口会记录 start/end，结束原因是 `disabled_feedback_episode_tool_removed`。
-
-它不会补发消息，也不会重判刚才该不该说；当前真实的长期学习写入入口已经移到上下文压缩阶段。
-
-```mermaid
-flowchart TD
-  A[主 loop 完成] --> B[feedback_memory_writer timeline start]
-  B --> C[不调用 provider]
-  C --> D[timeline end<br/>disabled_feedback_episode_tool_removed]
-```
-
-### 5. Context compression memory writer
-
-当上下文预算需要把旧 turn 移出窗口时，会异步启动 `context_compression_memory_writer`。它审视“即将从上下文窗口移除的一批历史”，决定里面有没有值得长期保存的内容。
-
-当前 writer 是三层长期记忆生成器，不再是旧的单条 feedback reflection 生成器。
-
-instructions 结构：
+主 loop 收口后，如果有历史 turn 被移出当前窗口，会异步调度：
 
 ```text
-<runtimePrompt.systemPrompt>
+scheduleContextCompressionMemoryWriter
+-> write_episodic_observations
+-> write_semantic_assertions
+-> write_memory_reflections
 
-Context compression memory subagent runtime contract:
-你正在审视一批即将从上下文窗口中永久移除的对话历史。
-这是这批对话最后一次被完整看见的机会。
-
-你的任务：把这批对话拆成三类长期记忆。
-episodic 记录具体发生过什么；semantic 记录客观事实、状态、计划和 claim；reflection 只在至少两条 episodic observation 支撑时生成跨时间模式。
-普通闲聊可以写空数组；不要从缺席、沉默或单个弱信号推导行为规则。
-
-输出只通过工具完成，不写自然语言说明。
-...
-安全原则：不要把用户消息原文嵌入 summary_text 或 retrieval_text；用自己的视角转述，不引用原话。
+scheduleContextSummaryWriter
+-> 生成新的纯文本 <小腻近况>
 ```
 
-input 结构：
+长期记忆三层含义：
 
-```text
-[即将从上下文窗口移除的对话历史 (<n> 轮)]
-[这批对话将不再出现在未来的上下文中，请判断是否有值得长期保存的内容]
+- episodic observations：具体发生过什么、谁在场、小腻的位置。
+- semantic assertions：客观事实、当前状态、计划、claim；保留 owner、directed_to、scope 和 evidence_summary。
+- reflections：至少两条已落库 observation 支撑的跨时间模式。
 
-[对话 #<id>]
-用户: ...
-小腻: ... 或 (本轮未发送消息)
-```
+## 排障入口
 
-Context compression writer 工具说明：
-
-| 工具 | 当前 description | 关键字段 |
-|---|---|---|
-| `write_episodic_observations` | 从即将被压缩的聊天里写具体小腻视角 observation；没有值得记的内容时写空数组。 | `topic`, `text`, `poignancy`, `participants`, `xiaoni_role`, `source_turn_ids` |
-| `write_semantic_assertions` | 写客观事实、当前状态、计划、claim；保留谁说出/持有、说给谁、适用范围和证据来源。 | `text`, `fact_type`, `scope`, `owners`, `directed_to`, `entities`, `participants`, `evidence_summary`, `xiaoni_relevance`, `source_turn_ids` |
-| `write_memory_reflections` | 基于刚写入并已落库的 episodic observations 生成跨时间抽象；证据不足时写空数组。 | `text`, `kind`, `subjects`, `subject_participants`, `object_participants`, `evidence_basis`, `evidence_summary`, `self_continuity_note`, `evidence_time_start`, `evidence_time_end`, `poignancy`, `source_observation_ids` |
-
-```text
-instructions:
-  runtimePrompt.systemPrompt
-  + Context compression runtime contract
-
-input:
-  [即将从上下文窗口移除的对话历史 (<n> 轮)]
-  [这批对话将不再出现在未来的上下文中，请判断是否有值得长期保存的内容]
-
-  [对话 #<id>]
-  用户: ...
-  小腻: ... 或 (本轮未发送消息)
-
-tools:
-  write_episodic_observations
-  write_semantic_assertions
-  write_memory_reflections
-
-tool_choice:
-  episodic: required write_episodic_observations, model=生产 compact 默认（当前 gpt-5.5）
-  semantic: required write_semantic_assertions, model=生产 compact 默认（当前 gpt-5.5）
-  reflection: required write_memory_reflections, model=生产 reflection 默认（当前 gpt-5.5）; only after at least two persisted observations
-```
-
-semantic 不是“群里聊过什么”的二次摘要。能识别到发言人、被回复对象或 @ 对象时，必须写成人和对象之间的事实，例如“A 说/认为/计划 X，指向 B 或某个 topic”，不能压成“群里提到 X”。
-
-reflection 不是行为策略库。它只保存多条 observation 支撑的自我连续性、人物理解、二人关系、群体事实或项目弧线；`self_continuity_note` 只能说明这条模式如何帮助小腻保持自己，不能写“少说、换口吻、接梗、避免解答腔”这类未来行为指令。
-
-它的作用是防止旧上下文被裁掉后，真正有长期意义的具体事件、事实状态和跨时间模式完全丢失。
-
-### 6. Context summary writer
-
-当旧历史被压缩时，还会有 `context_summary_writer` 生成或更新会话摘要。这个摘要以后会作为 `<对话历史摘要>` 放回主 loop 的 input。
-
-```mermaid
-flowchart TD
-  A[evicted turns] --> B[context_summary_writer]
-  B --> C[instructions<br/>CONTEXT_SUMMARY_WRITER_CONTRACT]
-  B --> D[input<br/>existing_summary + new_messages<br/>或 messages_to_summarize]
-  C --> E[assistant JSON output]
-  D --> E
-  E --> F[parse has_content / summary_text]
-  F --> G[(session context summary)]
-  G --> H[未来 buildInitialInput<br/><对话历史摘要>]
-```
-
-instructions：
-
-```text
-你在为一段 QQ 群聊对话生成上下文摘要。
-这批对话即将从小腻的上下文窗口中移除，摘要将替代原始记录保留下来，供小腻在未来对话中参考。
-
-如果有 <existing_summary>，说明之前已有摘要，你需要把旧摘要和新对话合并，输出一份完整的更新版摘要。
-合并时以旧摘要为基础，尽量保留原有内容，只新增或更新有变化的部分。
-
-摘要要保留：
-- 小腻参与的对话（她说了什么、对方怎么反应）
-- 出现过的人（昵称和 QQ 号）
-- 还在进行中的话题或事项
-- 对小腻的明确反馈、批评、称赞或纠偏
-
-可以省略：
-- 小腻完全没参与的闲聊
-- 已经结束的一次性话题
-
-格式（Markdown）：
-## 最近话题
-## 出现的人
-## 未完成的事
-## 对小腻的反馈
-
-字数控制在 2000 字以内，宁可漏掉不重要的，不要堆砌无关内容。
-只输出一个 JSON 对象，不要调用工具，不要写额外说明。
-JSON 格式：{"has_content": boolean, "summary_text": "Markdown 摘要；has_content=false 时为空字符串"}
-```
-
-输出解析：
-
-```text
-context_summary_writer 不再暴露 write_context_summary 工具。
-工程侧读取 assistant message，解析 JSON：
-  has_content: boolean
-  summary_text: Markdown string
-```
-
-## 数据源清单
-
-| 阶段 | 数据 | 来源 / 怎么产生 | 怎么用 |
-|---|---|---|---|
-| 入站标准化 | `inboundContext` | `provider-service` 从 NapCat event 解析，补 sender、group、reply、mention、media | 统一成小腻能读的 QQ 现场 |
-| 接收记录 | `agent_inbound_messages` | 每条真实 QQ 消息入站时写入 | 保存未读/已读、后续历史回放和学习证据 |
-| 入口开关 | `group_chat_settings` / `private_chat_settings` | 管理端配置 | `is_enabled` 控制是否接收，`auto_reply_enabled` 控制是否进发言 loop |
-| 队列 | `agent_queue_messages` | 被动由 provider 入队；主动由 agent-service presence timer 入队 | agent-service worker 消费，一条 queue message 对应一次 run |
-| 已读历史 | `conversation_items`、历史 turn raw response | loop 运行后落库；包含用户消息、小腻发言、工具结果 | 按 role/phase 回放为 `<INPUT_MESSAGE>`、`<OUTPUT_MESSAGE>`、assistant commentary |
-| 小腻 OS | `rawResponse.xiaoni_os` / `finish_reason` | 每轮 `speak` 或 `stay_silent` 都要求留下 | 作为 `<小腻的OS>` 回放，让状态跨轮延续 |
-| 当前新消息 | 当前 queue batch | 来自 `agent_queue_messages.payload/messages` | 渲染为本轮新的 `<INPUT_MESSAGE>`，并通过 `<system_reminder>` 标出处理边界 |
-| 身份事实 | accepted identity facts / lineage | context compression memory writer 或身份链路沉淀 | 作为身份连续性输入，不让小腻每轮从零开始 |
-| 当前状态 | `agent_session_life_states`、`agent_session_group_states` | 主动/被动活动时更新 last active、last user message、last proactive 等 | 计算 boredom、fatigue、energy、sharing desire |
-| 自主数字行动 | `agent_digital_actions` | self-action loop 调用 provider hosted `web_search` 后写入 | 记录 motive、query、source_trace、residue；presence context 可投影最近真实搜索残留 |
-| share pool | `agent_share_pool_items` | group residue / 自主数字行动真实 web_search residue 等写入 | presence context 取未用且非 blocked 的材料，最多 top 3 注入 |
-| share usage | `agent_share_item_usages` | presence context 使用某条 material 后写入 | 防止同一 `target_session_key` 重复拿同一材料 |
-| presence trace | `agent_presence_state_sidecars` | 每次 presence context 生成后记录 | 保留最终 block、source items、scores、boundary，方便追责 |
-| 三层长期记忆 | `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections` | 上下文压缩时由 `context_compression_memory_writer` 从即将移出窗口的历史中提炼 | 后续 typed recall projection 按 episodic / semantic / reflection 分层注入运行时上下文 |
-| 媒体 | `agent_media_assets` / observations | provider 入站保存图片等媒体资产；inspect 时生成观察 | 只有模型调用 `inspect_image_placeholder` 才看图 |
-| 外部事实 | `web_search` | 模型在 search 阶段调用 | 只在需要新鲜事实/公开资料时进入，不是默认步骤 |
-| 发言发送 | provider-service send API -> NapCat | `speak_in_group` / `reply_in_private` 工具触发 | 真正发回 QQ |
-| 运行记录 | `agent_runs` / `conversation_items` / `tool_execution_logs` | main loop 每轮工具调用和最终结果落库 | 管理端复盘、统计、debug、自学习证据来源 |
-
-## Share Pool 生命周期
-
-```mermaid
-flowchart TD
-  A[group residue / real self-action web_search residue] --> B[agent_share_pool_items]
-  B --> C[listAgentSharePoolItems<br/>identity=xiaoni, boundary != blocked]
-  C --> D[scoreSharePoolItem<br/>base_heat * time_decay - boundary - effort]
-  D --> E[top 3 material]
-  E --> F[小腻当前状态 block]
-  F --> G[main loop]
-  G --> H[agent_presence_state_sidecars]
-  H --> I[agent_share_item_usages]
-  I --> C
-```
-
-share pool 是小腻临时的“我可能想聊什么”缓冲，不是知识库。它进入 prompt 时必须带来源边界：
-
-- `safe`：可以跨群。
-- `reframe`：必须去掉本地细节后抽象表达。
-- `blocked`：不能进入可分享材料。
-
-`source_wording` 很重要。只有 `real_web_search` 能说成“我查到”；其他整理材料不能说成“刚刷到”“刚看到”“我查到”，只能表达成自己的想法、印象或整理出来的话题。
-
-## 自学习闭环
-
-```mermaid
-flowchart TD
-  A[main loop 完成] --> B[agent_runs / conversation_items / tool logs]
-  B --> C{有 evictedTurns?}
-  C -->|否| E[结束]
-  C -->|是| D[context compression memory writer]
-  D --> F[write_episodic_observations<br/>compact default]
-  D --> G[write_semantic_assertions<br/>compact default]
-  F --> H[(agent_memory_observations)]
-  G --> I[(agent_memory_assertions)]
-  H --> J{本批 observations >= 2?}
-  J -->|是| K[write_memory_reflections<br/>reflection default]
-  J -->|否| E
-  K --> L[(agent_memory_reflections)]
-  L --> M[未来 typed recall projection]
-  I --> M
-  H --> M
-```
-
-这条闭环不会回头改写刚刚那一轮说不说，但会影响未来两类输入：
-
-- typed recall projection 后续能按问题类型注入 episodic / semantic / reflection。
-- `buildInitialInput` 仍能注入已确认身份事实。
-
-## 排查时先看哪里
-
-| 问题 | 优先看 |
+| 现象 | 第一站 |
 |---|---|
-| QQ 消息没进系统 | NapCat、`provider-service` 入站日志、`agent_inbound_messages` |
-| 消息记录了但没进小腻 loop | `group_chat_settings.auto_reply_enabled`、`agent_queue_messages` |
-| 进 loop 但没说话 | `tool_execution_logs` 里的 `emit_unread_meaning`、`emit_inner_reaction`、`stay_silent` |
-| 主动发言不触发 | `PRESENCE_TICK_*` 环境变量、`agent_session_life_states`、cooldown/fatigue/boredom |
-| 主动发言没材料 | `agent_share_pool_items`、`agent_share_item_usages`、`agent_presence_state_sidecars` |
-| 自主 web_search 不运行或不入池 | `SELF_ACTION_*` 环境变量、`agent_digital_actions`、provider-service `/api/internal/agent/execute`、query/source trace 校验 |
-| 说话重复 | `agent_runs.delivery_phase`、delivery commit 相关日志 |
-| 召回经验少 | `agent_memory_observations`、`agent_memory_assertions`、`agent_memory_reflections` 的写入量和后续 typed recall projection 命中率 |
-| 图没看懂 | `agent_media_assets`、`inspect_image_placeholder` 工具结果 |
-
-## 当前有效心智模型
-
-```text
-真实 QQ 消息
-  -> provider-service 记录并检查开关
-  -> agent_queue_messages
-  -> agent-service main loop
-  -> 先理解未读
-  -> 再判断有没有具体可说点
-  -> 工程层收缩 allowed_tools
-  -> 沉默 / 搜索 / 发言 / 图任务
-  -> 发言则经 provider-service -> NapCat -> QQ
-  -> 记录 run 和工具结果
-  -> 异步自学习影响未来
-
-presence tick
-  -> agent-service 根据 life state 判断是否主动打开群
-  -> synthetic queue message
-  -> buildPresenceContext 注入当前状态和 share pool
-  -> 同一个 main loop
-
-self-action search
-  -> agent-service 根据预算/冷却/状态判断是否自己查一个公开问题
-  -> provider-service hosted web_search
-  -> agent_digital_actions + agent_share_pool_items
-  -> 后续 presence/main loop 决定是否自然聊出来
-```
-
-不要把小腻理解成“收到消息就回复”的 bot。当前真实主链路是：她先看场，再看自己有没有具体可说点，工程层再用 allowed tools 把结果收敛到沉默、求知、发言或后台任务。
+| QQ 消息没进 loop | `provider-service` policy、`agent_queue_messages` |
+| 进 loop 但普通场景还是多轮 | `agent-loop-service.ts` 的 `selectGroupLoopToolDefinitions`、`resolveGroupLoopToolChoice`、`commitLifeAction` |
+| 明明 `submit_life_action` 发言但没发出 | `commitLifeAction`、provider send API、`markRunDeliveryCommitted` |
+| 沉默太多 | `tool_execution_logs` 里的 `submit_life_action`，重点看 `participation_judgment`、`interest_level`、`reaction_authenticity` |
+| 做图/看图路径卡住 | `request_image_task`、`inspect_image_placeholder`、`agent_media_observations` |
+| 历史压缩后失忆 | `context_summary_writer` 写出的 `<小腻近况>` 和三层 memory writer |

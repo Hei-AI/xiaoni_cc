@@ -223,75 +223,53 @@ Provider：codex
 + 当前阶段允许的工具
 ```
 
-### 3. 第一步：理解未读消息，不准行动
+### 3. 第一步：一次性决定当前生活动作
 
-第一步只允许小腻调用一个工具：
+group chat 第一轮现在只允许小腻调用一个工具：
 
 ```text
-emit_unread_meaning
+submit_life_action
 ```
 
-这一步要她回答的不是“要不要回”，而是“眼前这批新消息到底在干什么”。工具会要求她给出这些字段：
+这一步同时完成三件事：理解未读消息、判断有没有具体可说点、决定本轮动作。普通说话、主动说一句和沉默都在这个工具里直接收口，不再强制拆成 `emit_unread_meaning -> submit_life_action -> speak/stay_silent`。
 
 | 字段 | 业务含义 |
 |---|---|
-| `latest_unread_focus` | 当前未读消息的重点是什么 |
-| `message_act` | 这句话是在陈述、提问、玩笑、调侃、反馈、请求，还是不清楚 |
-| `social_target` | 注意力是指向小腻、别人、整个群，还是不清楚 |
-| `addressed_to_me` | 是否明确对小腻说 |
-| `has_real_novelty` | 是否真的出现了新信息 |
-| `confidence` | 她对这个理解有多确定 |
-| `reason` | 为什么这么判断 |
-
-这一步的业务意义是：先把“发生了什么”看清楚，避免她直接顺着话口回复。
-
-### 4. 第二步：看有没有具体可说点
-
-只有第一步完成后，系统才允许她调用：
-
-```text
-emit_inner_reaction
-```
-
-这一步也不允许她直接发言。它只问：这件事有没有真的在小腻身上碰出东西。
-
-| 字段 | 业务含义 |
-|---|---|
+| `unread_meaning` | 当前未读消息的重点、消息动作、社交目标、是否对小腻说、是否有真实新推进 |
 | `interest_level` | 兴趣强度：没有、低、中、高 |
 | `wants_to_know_more` | 是否真的想知道更多 |
 | `reaction_authenticity` | 反应强度：没有、轻微、已经形成，或没有具体可说点 |
 | `participation_judgment` | 这轮有没有具体可说点、是否是直接请求，以及证据引用 |
 | `should_search` | 是否需要查资料 |
-| `preferred_action` | 倾向动作：发言、沉默、搜索 |
+| `action_type` | 本轮动作：发言、沉默、搜索、图任务或主动分享 |
+| `message` / `messages` | `speak` / `proactive` 时真正发到 QQ 里的可见话 |
 | `context_gap` | 当前上下文是否足够，缺口是私有记忆、公开信息，还是群内来源不明 |
 | `gap_resolution` | 下一步应该不补、查记忆、web_search、问群友，还是先记忆再问/搜 |
+| `xiaoni_os` | 本轮之后留给下一轮自己的内在延续，不发给群里 |
 | `reason` | 为什么 |
 
 这里最重要的字段是 `participation_judgment`。如果只是“这句话好像能接一下”，会被标成 `empty_but_convenient` 或 `participation_judgment.status=no_sayable_point`，它不等于真正想说。小腻必须区分“我有具体可说点”和“我只是可以补一句”。
 
-### 5. 如果倾向沉默，就只能沉默
+### 4. 普通说话和沉默直接完成
 
-如果第二步给出的 `preferred_action` 是 `silent`，系统下一步只允许：
+普通路径现在是：
 
 ```text
-stay_silent
+submit_life_action(action_type=speak, messages=[...])
+-> runtime 直接发送 QQ 消息
+-> run finished, total_turns=1
+
+submit_life_action(action_type=silent)
+-> run finished, no_reply=true, total_turns=1
 ```
 
-`stay_silent` 不是“什么都没发生”。它会记录：
+`stay_silent` 仍然存在，但主要用于外部工具 follow-up 或 legacy/fallback 收口；它不再是普通沉默必须等待的第三轮。
 
-| 字段 | 业务含义 |
-|---|---|
-| `reason` | 为什么这一轮不说 |
-| `outcome` | 这一轮的沉默结果是什么 |
-| `xiaoni_os` | 沉默之后留在小腻身上的余波，下一轮会继续带着 |
+如果 `submit_life_action` 选择 `speak/proactive` 但没有给 `message/messages`，runtime 会降级成沉默，避免空发言。
 
-这就是为什么沉默也是有效结果。她不是失败了，而是判断“这轮不出现更自然”。
+### 5. 如果只是很弱地想说，还会被强制收住
 
-如果第二步没有具体可说点，系统同样只允许 `stay_silent`。也就是说，`preferred_action=speak` 不能绕过 `participation_judgment.status=no_sayable_point`；只有 `has_sayable_point`，或当前消息明确直接请求小腻处理时的 `direct_request`，才可能继续到最终动作。
-
-### 6. 如果只是很弱地想说，还会被强制收住
-
-系统还有一条额外保护：如果小腻第二步说“我想说”，但同时满足这些条件：
+系统还有一条额外保护：如果小腻说“我想说”，但同时满足这些条件：
 
 ```text
 interest_level = low
@@ -299,19 +277,15 @@ reaction_authenticity = weak_but_real
 没有直接把她拉进来的新理由
 ```
 
-那系统会把下一步限制成：
-
-```text
-stay_silent
-```
+那 runtime 会直接把这个 `submit_life_action` 收成沉默。
 
 “直接把她拉进来的新理由”必须是：有人明确对小腻说话，并且里面有新信息、问题、请求或反馈。否则，即使她有一点轻微反应，也不能为了显得活跃而开口。
 
-### 7. 如果上下文不够，先判断缺口来源
+### 6. 如果上下文不够，先判断缺口来源
 
-现在不是“可能要说或要查就先召回”。第二步会先给出 `context_gap` 和 `gap_resolution`：
+现在不是“可能要说或要查就先召回”。`submit_life_action` 会先给出 `context_gap` 和 `gap_resolution`：
 
-- `none`：当前上下文足够，直接进入最终动作。
+- `none`：当前上下文足够，直接说话或沉默。
 - `needs_private_memory` / `unclear_group_reference`：当前主 loop 不再调用 pre-reply recall；后续由 typed recall projection 提前把相关长期记忆投进上下文。没投进来时要少猜，必要时问群友来源。
 - `needs_public_info`：这是公开事实、新鲜资料、官方页面或指定 URL，直接走 `web_search`。
 - `current_context_insufficient`：上下文不足但来源不明，优先少猜；可以问群友来源，或者保持沉默。
@@ -324,36 +298,26 @@ stay_silent
 
 业务上，这一步的作用是让未来 runtime context 能按问题类型拿到合适记忆，而不是在当前回合临时让模型决定要不要召回。
 
-### 8. 最后才允许搜索、发言或沉默
+### 7. 只有外部结果才续轮
 
-经过缺口分流之后，系统才打开最后动作。
-
-如果第二步倾向是 `search`，下一步只允许：
+如果 `submit_life_action` 倾向是 `search`，下一步只允许：
 
 ```text
 web_search
+submit_life_action
 stay_silent
 ```
 
-也就是说，判断需要资料时，她可以查；但如果查这个动作本身并不成立，也可以沉默。搜索不是默认认真，也不是装样子。只有现场需要新鲜公开事实、官方页面或指定 URL，而她知道得不够时才用。
+也就是说，判断需要资料时，她可以查；查完以后仍要用 `submit_life_action` 或 `stay_silent` 收口。搜索不是默认认真，也不是装样子。只有现场需要新鲜公开事实、官方页面或指定 URL，而她知道得不够时才用。
 
-如果第二步倾向是 `speak`，下一步允许：
+如果倾向是 `image_task` 且需要图片内容或任务登记，下一步允许：
 
 ```text
-web_search
-speak_in_group
+inspect_image_placeholder
+request_image_task
+submit_life_action
 stay_silent
 ```
-
-她可以在搜索、问群友或读取已投影记忆后改变主意：说、继续查，或者沉默。
-
-`speak_in_group` 会要求她给出：
-
-| 字段 | 业务含义 |
-|---|---|
-| `message` / `messages` | 真正发到 QQ 群里的话，可以一段或多段 |
-| `mention_user_ids` | 如确实自然需要，可以艾特具体人 |
-| `xiaoni_os` | 这轮之后留给下一轮自己的内在延续，不发给群里 |
 
 最终发给群友的只有 `message/messages`。工具名、阶段、prompt、判断过程都不会出现在聊天里。
 

@@ -89,10 +89,10 @@
 
   <g transform="translate(90 555)">
     <rect class="callout-rose" x="0" y="0" width="360" height="145"/>
-    <text class="label" x="24" y="34">心脏：再看有没有真实反应</text>
-    <text class="body" x="24" y="68">不是问“能不能接一句”，而是问“我真的被碰到了吗”。</text>
-    <text class="small" x="24" y="100">兴趣、边界、想知道更多、是否只是顺手能接。</text>
-    <text class="tiny" x="24" y="128">对应工具：emit_inner_reaction</text>
+    <text class="label" x="24" y="34">心脏：再看有没有具体可说点</text>
+    <text class="body" x="24" y="68">不是问“能不能接一句”，而是问“我有什么具体内容”。</text>
+    <text class="small" x="24" y="100">观点、疑问、好奇、不适、联想或边界。</text>
+    <text class="tiny" x="24" y="128">对应工具：submit_life_action</text>
   </g>
   <path class="connector" d="M 450 620 C 560 595 670 520 792 430"/>
 
