@@ -97,3 +97,48 @@ test('buildPresenceContextBlock is factual and includes source boundary', () => 
   assert.match(block, /没有真实浏览器证据/);
   assert.doesNotMatch(block, /你应该|必须回复|请主动/);
 });
+
+test('buildPresenceContextBlock exposes real web search residue without treating mock material as source', () => {
+  const block = buildPresenceContextBlock({
+    state: {
+      boredom: 0.7,
+      fatigue: 0.2,
+      energy: 0.8,
+      sharingDesire: 0.6,
+      sleepPressure: 0.2,
+      cooldownActive: false,
+      startupGraceActive: false
+    },
+    items: [{
+      id: 2,
+      content: 'AI 检测工具把经典散文判高 AI 率这件事很反讽',
+      sourceKind: 'web_search',
+      boundaryLabel: 'safe',
+      sourceWording: 'real_web_search',
+      effortCost: 1,
+      baseHeat: 1,
+      createdAt: '2026-05-26T11:30:00.000Z'
+    }],
+    recentDigitalActions: [{
+      id: 'digital_action_1',
+      actionType: 'web_search',
+      surface: 'background',
+      motiveKind: 'curiosity',
+      motiveText: '突然想确认一个 AI 检测相关的怪现象',
+      query: 'AI detector classic literature false positive',
+      status: 'completed',
+      resultSummary: 'AI 检测器可能把人类文本误判为 AI 文本。',
+      residueText: 'AI 检测器连老文本都可能误判，这个工具更像风格探测器。',
+      residueKind: 'share_seed',
+      sourceWording: 'real_web_search',
+      createdAt: '2026-05-26T11:35:00.000Z'
+    }],
+    scores: [],
+    isPresenceTick: true
+  });
+
+  assert.match(block, /真实 web_search 残留/);
+  assert.match(block, /AI detector classic literature false positive/);
+  assert.match(block, /source_wording=real_web_search/);
+  assert.doesNotMatch(block, /没有真实浏览器证据/);
+});

@@ -36,6 +36,21 @@ export type PresenceSharePoolItem = {
   createdAt: string | Date | null;
 };
 
+export type PresenceDigitalAction = {
+  id: string;
+  actionType: string;
+  surface: string;
+  motiveKind: string | null;
+  motiveText: string | null;
+  query: string | null;
+  status: string;
+  resultSummary: string | null;
+  residueText: string | null;
+  residueKind: string | null;
+  sourceWording: string | null;
+  createdAt: string | Date | null;
+};
+
 const HOUR_MS = 60 * 60 * 1000;
 
 function toDate(value: Date | string | null | undefined): Date | null {
@@ -133,23 +148,37 @@ export function buildPresenceContextBlock(params: {
   state: PresenceLifeState;
   items: PresenceSharePoolItem[];
   scores: ReturnType<typeof scoreSharePoolItem>[];
+  recentDigitalActions?: PresenceDigitalAction[];
   isPresenceTick: boolean;
 }) {
   const stateLabel = params.state.fatigue > 0.75 ? '疲劳偏高'
     : params.state.boredom > 0.65 ? '有点无聊'
       : '平稳';
   const topItems = params.items.slice(0, 3);
+  const recentActions = (params.recentDigitalActions || [])
+    .filter((action) => action.status === 'completed' && action.actionType === 'web_search')
+    .slice(0, 3);
+  const latestRealSearch = recentActions.find((action) => action.sourceWording === 'real_web_search' && action.residueText);
+  const currentResidue = latestRealSearch
+    ? `最近一次真实 web_search 残留：${latestRealSearch.residueText}（query: ${latestRealSearch.query || '未记录'}；来源措辞：${latestRealSearch.sourceWording}）。`
+    : '没有真实浏览器证据；mock/constructed 材料不能说成刚看到、刚刷到或我查到。';
+  const actionTrace = recentActions.length > 0
+    ? recentActions
+      .map((action) => `- ${action.createdAt ? new Date(action.createdAt).toISOString() : 'unknown_time'} ${action.surface}/${action.motiveKind || 'unknown'}: ${action.query || '未记录 query'}`)
+      .join('\n')
+    : '- 暂无已完成的自主数字行动';
   const material = topItems.length > 0
     ? topItems.map((item) => `- ${item.content}（来源类型：${item.sourceKind}，边界：${item.boundaryLabel}，措辞：${item.sourceWording}）`).join('\n')
     : '- 暂无可用分享材料';
   return [
     '<小腻当前状态>',
     `recent_action_trace: ${params.isPresenceTick ? '本轮由 presence_tick 触发；小腻主动打开目标群查看。' : '本轮由群友消息触发。'}`,
-    `current_residue: 无实时浏览证据；mock/constructed 材料不能说成刚看到、刚刷到或我查到。`,
+    `recent_digital_actions:\n${actionTrace}`,
+    `current_residue: ${currentResidue}`,
     `current_state: ${stateLabel}；boredom=${params.state.boredom.toFixed(2)}；fatigue=${params.state.fatigue.toFixed(2)}；energy=${params.state.energy.toFixed(2)}；sharing_desire=${params.state.sharingDesire.toFixed(2)}。`,
     `available_material:\n${material}`,
     `action_cost: 低成本可潜水或短句；中成本可主动分享一句；高疲劳时不适合长篇展开。`,
-    `source_boundary: 只能表达自己的想法、印象或整理出来的话题；没有真实浏览器证据时不能声称实时来源。`,
+    `source_boundary: 只能表达自己的想法、印象或整理出来的话题；只有 source_wording=real_web_search 的材料能说成我查到，其他材料不能伪装成实时来源。`,
     '</小腻当前状态>'
   ].join('\n');
 }

@@ -164,14 +164,15 @@ typed query planning, not revive the old `recall_long_term_learning` tool.
 
 ### Task 5 - Browser-backed digital life / `presence_context` loop
 
-**Status:** implemented first engineering slice on 2026-05-26.
+**Status:** implemented first engineering slices on 2026-05-26 and 2026-05-30.
 
 **Design doc:** `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`
 
 **Design summary:** Xiaoni's `presence_context` must be a projection of a
-browser/digital-life action loop, not a standalone fake mood paragraph. First
-engineering slice should use mock digital-life actions and sidecar traces before
-connecting real browser side effects.
+browser/digital-life action loop, not a standalone fake mood paragraph. The
+2026-05-26 slice added presence/share-pool state. The 2026-05-30 slice added a
+narrow real hosted `web_search` self-action path without implementing full
+browser side effects.
 
 Locked decisions from office-hours:
 
@@ -186,7 +187,9 @@ Locked decisions from office-hours:
 - Interest growth is layered: seed interests, temporary heat, stable interests.
 - Share-pool recall uses time-decay scoring and only passes top material into
   current-state context.
-- Mock digital-life generation is state-triggered, not blind timer-based.
+- Mock digital-life generation, if added later, must be state-triggered, not
+  blind timer-based. The current self-action path is real hosted `web_search`
+  gated by budget, cooldown, startup grace, fatigue, and user-interaction limits.
 - Generated actions must be linked records so recent action traces can be
   compressed into in-context state.
 - `小腻当前状态` has six private sections: recent action trace, current residue,
@@ -215,6 +218,26 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
 - Verified with `npm --prefix packages/persistence run generate`,
   `npm --prefix modules/agent-service test` (113 passing), and
   `npm --prefix modules/provider-service test` (102 passing).
+
+**Implementation completed (2026-05-30):**
+- Added `agent_digital_actions` persistence and `RuntimeStore` lifecycle helpers
+  for autonomous `web_search` actions.
+- Added `SelfActionService` and the `agent-service` self-action timer. It creates
+  a running digital action, calls provider-service `/api/internal/agent/execute`
+  with hosted `web_search` plus `emit_self_search_result`, and completes or fails
+  the action with traceable source data.
+- Added budgets and controls: `SELF_ACTION_ENABLED`, interval, cooldown, startup
+  grace, daily/hourly budgets, max consecutive actions without user interaction,
+  and model name.
+- Added source-honesty validation: persisted `real_web_search` residue requires a
+  completed `web_search` search call before the result writer, and the emitted
+  query must match the actual completed search query.
+- Presence context now projects recent completed `web_search` digital actions so
+  only real `source_wording=real_web_search` residue can support "我查到" style
+  wording.
+- Verified with `npm --prefix modules/agent-service test` (126 passing),
+  `node --test packages/persistence/__tests__/*.test.js` (25 passing), and
+  `python3 scripts/validate_docs.py`.
 
 **Engineering decisions locked (2026-05-26 eng-review, updated 2026-05-26 second-pass):**
 
@@ -265,9 +288,9 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
   id               Int      @id @autoincrement
   identity_key     String                       // 'xiaoni'
   content          String
-  source_kind      String   // constructed / group_residue / real_browse / mock
+  source_kind      String   // group_residue / web_search / constructed / mock
   boundary_label   String   @default("safe")   // safe / reframe / blocked
-  source_wording   String   // allowed / mock_only
+  source_wording   String   // real_web_search / constructed / mock_only
   effort_cost      Int                          // 1=low, 4=medium, 8=high
   base_heat        Float    @default(1.0)
   created_at       DateTime @default(now())
@@ -318,6 +341,13 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
   No FK to `agent_runs` — that table is raw DDL, not in `schema.prisma`. Use `run_id`
   as a string join only. Do NOT use `@db.Uuid`; existing run IDs are `run_${Date.now()}_${uuid}`
   format, not bare UUIDs.
+
+- `AgentDigitalAction` — stores autonomous digital actions such as the current
+  self-action `web_search` path. Required fields include `identity_key`,
+  `action_type`, `surface`, `status`, `query`, `source_trace`,
+  `result_summary`, `residue_text`, `residue_kind`, `source_wording`,
+  `budget_snapshot`, and `completed_at`. Current production use is
+  `action_type='web_search'`; broader browser actions remain future work.
 
 **Migration (Codex finding — 3 steps required):**
 
@@ -880,6 +910,11 @@ to request edit-mode work without any actual source image, so the user sees
 **Source:** 2026-05-27 runtime context review against
 `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
 
+**Progress 2026-05-30:** recent real `web_search` digital actions are now stored
+in `agent_digital_actions` and projected into `buildPresenceContextBlock`.
+This closes the "no traceable recent digital action source at all" gap for the
+first hosted search slice. The broader v2 shape below is still open.
+
 **Problem:** the design already defines `小腻当前状态` as a six-section private
 context block with recent action trace, current residue, current state,
 available material, action cost, and source boundary. It also defines the
@@ -887,13 +922,13 @@ energy/fatigue/reward model: action budget, sleep pressure, fatigue,
 reward-sensitivity / dopamine-like attraction, pressure, boredom, sharing
 desire, and effort cost.
 
-The current implementation is only a first slice. `presence-context.ts` derives
-`boredom`, `fatigue`, `energy`, and `sharingDesire`, then injects raw decimals
-and a hard-coded `recent_action_trace` such as "本轮由 presence_tick 触发" or
-"本轮由群友消息触发". That means Xiaoni's real recent action experience is not
-yet present in the runtime context. The model cannot see whether she had been
-idling in QQ, watching the group, leaving and returning, doing a mock/real
-digital action, carrying group residue, or deciding that a topic is still alive.
+The current implementation is still a first slice. `presence-context.ts` derives
+`boredom`, `fatigue`, `energy`, and `sharingDesire`, then injects raw decimals.
+It can now list recent completed real `web_search` digital actions, but it does
+not yet produce the full six-section readable state with action budget, pressure,
+reward attraction, action costs, group residue, and multi-step presence history.
+The model can see the first kind of traceable digital action, but not yet the
+complete recent-life story described in the design doc.
 
 The older "dopamine / stress" surface is also only a compatibility mapping:
 `sharingDesire -> dopamine` and `fatigue -> stress`. It does not yet expose the
@@ -1069,7 +1104,7 @@ an explicit readiness pass instead of being left as operator folklore.
    - Add sleep/awake anchors, energy/fatigue history, short-term heat / durable
      interest candidates, and real or explicitly mocked digital action logs.
    - Ensure share pool items carry source wording and boundary labels, especially
-     `mock_only` vs real source language.
+     `mock_only` / constructed wording vs `real_web_search`.
    - Do not let QQ-visible wording imply real browsing when the underlying item is
      seed/mock/constructed material.
 

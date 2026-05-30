@@ -4,20 +4,24 @@ import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
 import { AgentLoopService } from './services/agent-loop-service';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
+import { SelfActionService } from './services/self-action-service';
 
 const moduleLogger = logger.createModuleLogger('agent-service');
 const app = express();
 const store = new RuntimeStore();
 const loopService = new AgentLoopService(store);
 const taskWorkerService = new AgentTaskWorkerService();
+const selfActionService = new SelfActionService(store);
 
 let stopping = false;
 let workerTimer: NodeJS.Timeout | null = null;
 let taskWorkerTimer: NodeJS.Timeout | null = null;
 let presenceTickTimer: NodeJS.Timeout | null = null;
+let selfActionTimer: NodeJS.Timeout | null = null;
 let workerBusy = false;
 let taskWorkerBusy = false;
 let presenceTickBusy = false;
+let selfActionBusy = false;
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -28,6 +32,7 @@ app.get('/health', async (_req, res) => {
     worker_busy: workerBusy,
     task_worker_busy: taskWorkerBusy,
     presence_tick_busy: presenceTickBusy,
+    self_action_busy: selfActionBusy,
     timestamp: new Date().toISOString()
   });
 });
@@ -139,6 +144,43 @@ function scheduleNextPresenceTick(delayMs: number) {
   }, delayMs);
 }
 
+async function runSelfActionOnce() {
+  if (stopping || selfActionBusy) {
+    scheduleNextSelfAction(agentConfig.selfActionIntervalMs);
+    return;
+  }
+
+  selfActionBusy = true;
+  try {
+    const result = await selfActionService.runOnce('background');
+    if (result.ran) {
+      moduleLogger.info('Self-action tick completed', {
+        action_id: result.actionId,
+        share_item_id: result.shareItemId
+      });
+    }
+  } catch (error) {
+    moduleLogger.error('Self-action tick failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  } finally {
+    selfActionBusy = false;
+    scheduleNextSelfAction(agentConfig.selfActionIntervalMs);
+  }
+}
+
+function scheduleNextSelfAction(delayMs: number) {
+  if (stopping || !agentConfig.selfActionEnabled) {
+    return;
+  }
+  if (selfActionTimer) {
+    clearTimeout(selfActionTimer);
+  }
+  selfActionTimer = setTimeout(() => {
+    void runSelfActionOnce();
+  }, delayMs);
+}
+
 async function shutdown(signal: string) {
   if (stopping) {
     return;
@@ -156,6 +198,10 @@ async function shutdown(signal: string) {
     clearTimeout(presenceTickTimer);
     presenceTickTimer = null;
   }
+  if (selfActionTimer) {
+    clearTimeout(selfActionTimer);
+    selfActionTimer = null;
+  }
   moduleLogger.info('Shutting down agent service', { signal });
   await store.close().catch(() => undefined);
   process.exit(0);
@@ -172,6 +218,7 @@ async function start() {
   scheduleNext(200);
   scheduleNextTaskPoll(500);
   scheduleNextPresenceTick(agentConfig.presenceTickIntervalMs);
+  scheduleNextSelfAction(agentConfig.selfActionIntervalMs);
 }
 
 process.on('SIGINT', () => {

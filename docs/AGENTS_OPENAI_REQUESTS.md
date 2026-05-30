@@ -49,6 +49,7 @@
 - 三层长期记忆的生成发生在 context compression：生产默认跟随 `AI_MODEL_NAME`，当前是 `gpt-5.4-mini`；memory reflections 也跟随同一生产默认，除非显式设置 `AGENT_COMPACT_MEMORY_REFLECTION_MODEL`。reflection 必须由至少两条 episodic observations 支撑。
 - 三层 writer 都使用强制 function schema：`write_episodic_observations`、`write_semantic_assertions`、`write_memory_reflections`。允许空数组；不要用 prose JSON 或 prompt 里的强格式要求替代 schema。
 - 群聊内部梗、别的小群/私聊里可能发生过的内容不能猜。当前上下文没有投影到相关记忆时，要少说、问群友来源，或沉默；公开事实、新鲜资料和互联网实体优先走 `web_search`。
+- self-action search 不是聊天回合，也不直接发 QQ。它必须使用 hosted `web_search`，再调用 `emit_self_search_result`；持久化前必须校验结构化结果里的 query 与已完成的 `web_search` query 匹配。
 
 ## Official References
 
