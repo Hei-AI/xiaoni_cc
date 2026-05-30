@@ -6321,6 +6321,7 @@ export class AgentLoopService {
         queueMessage.chatType === 'direct' ? 'private' : 'group',
         {
           ...toolCall.args,
+          message: null,
           messages,
           xiaoni_os: xiaoniOs,
           ...(pendingShare ? { pending_share: pendingShare } : {})
@@ -6351,6 +6352,7 @@ export class AgentLoopService {
             queueMessage.chatType === 'direct' ? 'private' : 'group',
             {
               ...toolCall.args,
+              message: null,
               messages,
               xiaoni_os: xiaoniOs,
               ...(pendingShare ? { pending_share: pendingShare } : {})

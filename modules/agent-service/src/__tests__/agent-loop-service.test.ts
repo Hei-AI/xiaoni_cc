@@ -2824,6 +2824,90 @@ test('sanitizeLowValueOpeningFiller only removes low-value opening fillers', () 
   assert.equal(sanitizeLowValueOpeningFiller('哈哈，确实。'), '哈哈，确实。');
 });
 
+test('submit_life_action with a single message sends it once', async () => {
+  const service = new AgentLoopService({
+    recordPresenceAssistantAction: async () => {}
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const queueMessage = createQueuePayload();
+  const originalFetch = globalThis.fetch;
+  const sendGroupCalls: Array<{ url: string; body: any }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    sendGroupCalls.push({
+      url: String(url),
+      body: JSON.parse(String(init?.body || '{}'))
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: [{ message_id: 9001 }]
+      })
+    } as any;
+  }) as typeof fetch;
+
+  try {
+    const result = await (service as any).commitLifeAction({
+      callId: 'call-single-life-action',
+      name: LIFE_ACTION_TOOL,
+      rawArguments: '{}',
+      args: {
+        unread_meaning: {
+          latest_unread_focus: '阿花问小腻干嘛呢',
+          message_act: 'question',
+          social_target: 'me',
+          addressed_to_me: true,
+          has_real_novelty: true,
+          confidence: 'high',
+          reason: '这是对小腻的直接提问',
+          social_act_type: 'yes_no_reaction',
+          topic_context: {
+            has_topic: true,
+            topic_summary: '阿花问当前状态',
+            addressed_to_me: true
+          }
+        },
+        action_type: 'speak',
+        message: '刚看了眼群，没干啥',
+        messages: null,
+        reason: '低成本状态回应。',
+        evidence_refs: ['message_id=10093'],
+        confidence: 0.86,
+        interest_level: 'low',
+        wants_to_know_more: false,
+        reaction_authenticity: 'formed',
+        participation_judgment: {
+          status: 'has_sayable_point',
+          basis: 'direct_request',
+          sayable_point: '简短回答当前状态。',
+          evidence_refs: ['message_id=10093'],
+          memory_refs: []
+        },
+        should_search: false,
+        context_gap: 'none',
+        gap_resolution: 'none',
+        xiaoni_os: '已短回。',
+        pending_share: null
+      }
+    }, queueMessage);
+
+    assert.deepEqual(result.sent_messages, ['刚看了眼群，没干啥']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(sendGroupCalls, [{
+    url: `${agentConfig.providerServiceUrl}/api/internal/send_group`,
+    body: {
+      session_key: 'qq:group:101',
+      group_id: 101,
+      messages: ['刚看了眼群，没干啥'],
+      mention_user_ids: []
+    }
+  }]);
+});
+
 test('processQueueMessage fails without a bound prompt and does not call the provider', async () => {
   const queueMessage = {
     id: 'run-queue-1',
