@@ -209,11 +209,11 @@ export function openResponseInputToOpenAIInput(
         ...(typeof item.content === 'string' && item.content.length > 0
           ? { content: item.content }
           : {}),
-        ...(typeof item.summary === 'string' && item.summary.length > 0
+        ...(typeof item.summary === 'string'
           ? { summary: item.summary }
-          : Array.isArray(item.summary) && item.summary.length > 0
+          : Array.isArray(item.summary)
           ? { summary: item.summary }
-          : {}),
+          : { summary: [] }),
         ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
           ? { encrypted_content: item.encrypted_content }
           : {})

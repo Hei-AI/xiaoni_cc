@@ -450,11 +450,11 @@ export class CodexProvider extends OpenAIProvider {
     if (item.type === 'reasoning') {
       return {
         type: 'reasoning',
-        ...(typeof item.summary === 'string' && item.summary.length > 0
+        ...(typeof item.summary === 'string'
           ? { summary: item.summary }
-          : Array.isArray(item.summary) && item.summary.length > 0
+          : Array.isArray(item.summary)
           ? { summary: item.summary }
-          : {}),
+          : { summary: [] }),
         ...(typeof item.content === 'string' && item.content.length > 0
           ? { content: item.content }
           : {}),

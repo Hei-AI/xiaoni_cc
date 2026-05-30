@@ -254,6 +254,31 @@ test('Codex provider accepts gpt-5.5 medium stateless reasoning replay contract'
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'context_management'), false);
 });
 
+test('Codex provider preserves empty reasoning summary for encrypted replay input', () => {
+  const provider = new TestCodexProvider({} as any);
+  const payload = provider.buildPayload({
+    ...createCanonicalRequest(),
+    input: [
+      {
+        type: 'message',
+        role: 'user',
+        content: 'Continue from the previous tool result.'
+      },
+      {
+        type: 'reasoning',
+        summary: [],
+        encrypted_content: 'enc-reasoning-state'
+      }
+    ]
+  });
+
+  assert.deepEqual(payload.input[1], {
+    type: 'reasoning',
+    summary: [],
+    encrypted_content: 'enc-reasoning-state'
+  });
+});
+
 test('Codex provider defaults proxy-key mode to CLIProxyAPI Codex direct route', async () => {
   const previousEnv = {
     CODEX_BASE_URL: process.env.CODEX_BASE_URL,
@@ -448,6 +473,23 @@ test('Codex provider preserves reasoning summary and encrypted content from SSE 
   });
   assert.equal(parsed.output[1]?.type, 'message');
   assert.equal(parsed.output_text, 'hello');
+});
+
+test('Codex provider keeps empty reasoning summary on SSE output when omitted', () => {
+  const provider = new TestCodexProvider({} as any);
+  const parsed = (provider as any).parseCodexSsePayload([
+    'event: response.output_item.done',
+    'data: {"type":"response.output_item.done","item":{"type":"reasoning","encrypted_content":"enc"}}',
+    '',
+    'event: response.completed',
+    'data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}'
+  ].join('\n'));
+
+  assert.deepEqual(parsed.output[0], {
+    type: 'reasoning',
+    summary: [],
+    encrypted_content: 'enc'
+  });
 });
 
 test('Codex provider preserves web search items from SSE output', () => {
