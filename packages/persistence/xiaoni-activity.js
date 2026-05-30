@@ -159,6 +159,49 @@ const LIFE_EVENT_LABELS = {
   terminal_action_blocked: '行动被阻止'
 };
 
+const AUTONOMOUS_QUEUE_SOURCES = ['presence_tick', 'proactive_im_open'];
+
+function isAutonomousQueueSource(source) {
+  return AUTONOMOUS_QUEUE_SOURCES.includes(String(source || ''));
+}
+
+function lifeEventTitle(eventKind, payload) {
+  if (eventKind === 'surface_visit') {
+    if (payload.wake_kind === 'proactive_use_im') {
+      return '主动打开 IM';
+    }
+    if (payload.wake_kind === 'explicit_mention') {
+      return '被 @ 打开会话';
+    }
+  }
+  if (eventKind === 'qq_message_seen' && payload.wake_kind === 'proactive_use_im') {
+    return '主动看见未读';
+  }
+  return LIFE_EVENT_LABELS[eventKind] || eventKind || '小腻行动';
+}
+
+function lifeEventBody(row, payload) {
+  if (row.event_kind === 'surface_visit') {
+    const peerName = firstString(payload.peer_name, row.session_key);
+    const batchSize = Number(payload.unread_batch_size || 0);
+    const countText = batchSize > 0 ? `${batchSize} 条未读` : '当前会话';
+    if (payload.wake_kind === 'proactive_use_im') {
+      return [peerName ? `打开 ${peerName}` : '主动打开 IM', `看到 ${countText}`].join('，');
+    }
+    if (payload.wake_kind === 'explicit_mention') {
+      return [peerName ? `进入 ${peerName}` : '打开会话', `@ 触发，看到 ${countText}`].join('，');
+    }
+  }
+
+  if (row.event_kind === 'qq_message_seen' && payload.wake_kind === 'proactive_use_im') {
+    const senderName = firstString(payload.sender_name, payload.sender_id);
+    const body = firstString(payload.body_for_agent, payload.raw_body);
+    return [senderName ? `${senderName}:` : null, body].filter(Boolean).join(' ');
+  }
+
+  return null;
+}
+
 function summarizeLifeEvent(row) {
   const payload = normalizeJsonObject(row.payload);
   const eventKind = String(row.event_kind || '');
@@ -166,6 +209,7 @@ function summarizeLifeEvent(row) {
     ? payload.sent_messages.filter((item) => typeof item === 'string').join('\n')
     : null;
   const body = firstString(
+    lifeEventBody(row, payload),
     payload.content,
     sentMessages,
     payload.body_for_agent,
@@ -182,7 +226,7 @@ function summarizeLifeEvent(row) {
     id: `life:${row.id}`,
     source: 'life_event',
     kind: eventKind,
-    title: LIFE_EVENT_LABELS[eventKind] || eventKind || '小腻行动',
+    title: lifeEventTitle(eventKind, payload),
     body: truncateText(body, 360),
     status: row.visibility || null,
     actor: row.actor_type || null,
@@ -407,21 +451,33 @@ function summarizeMedia(row) {
 function summarizeQueueMessage(row, staleCutoffMs) {
   const lockedAt = row.locked_at instanceof Date ? row.locked_at.getTime() : row.locked_at ? new Date(row.locked_at).getTime() : 0;
   const isStaleProcessing = row.status === 'processing' && lockedAt > 0 && Date.now() - lockedAt > staleCutoffMs;
+  const autonomousSource = isAutonomousQueueSource(row.source);
+  const title = row.source === 'presence_tick'
+    ? '主动看一眼群'
+    : row.source === 'proactive_im_open'
+      ? '主动打开 IM'
+      : isStaleProcessing
+        ? '旧处理锁残留'
+        : row.status === 'pending'
+          ? '等待处理消息'
+          : row.status === 'processing'
+            ? '正在处理消息'
+            : '队列消息';
   return {
     id: `queue:${row.id}`,
     source: 'queue_message',
-    kind: isStaleProcessing ? 'stale_processing' : row.status || 'queue',
-    title: isStaleProcessing ? '旧处理锁残留' : row.status === 'pending' ? '等待处理消息' : row.status === 'processing' ? '正在处理消息' : '队列消息',
+    kind: isStaleProcessing ? 'stale_processing' : row.source || row.status || 'queue',
+    title,
     body: truncateText(row.body_for_agent, 360),
     status: row.status || null,
-    actor: 'system',
-    actorName: firstString(row.sender_name, row.sender_id),
+    actor: autonomousSource ? 'xiaoni' : 'system',
+    actorName: autonomousSource ? '小腻' : firstString(row.sender_name, row.sender_id),
     timestamp: eventTimestamp(row.updated_at || row.created_at),
     sessionKey: row.session_key || null,
     peerName: row.peer_name || null,
     runId: row.run_id || null,
     traceId: row.trace_id || null,
-    tone: isStaleProcessing ? 'warning' : row.status === 'failed' ? 'danger' : row.status === 'processing' ? 'warning' : 'info',
+    tone: isStaleProcessing ? 'warning' : row.status === 'failed' ? 'danger' : row.status === 'processing' ? 'warning' : autonomousSource ? 'xiaoni' : 'info',
     metadata: {
       queueId: String(row.id),
       source: row.source || null,
@@ -455,6 +511,24 @@ function normalizeLifeState(row) {
   };
 }
 
+function latestByTimestamp(items) {
+  return items
+    .filter(Boolean)
+    .sort((left, right) => new Date(eventTimestamp(right.updated_at || right.created_at || right.occurred_at)).getTime()
+      - new Date(eventTimestamp(left.updated_at || left.created_at || left.occurred_at)).getTime())[0] || null;
+}
+
+function dedupeFeedItems(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    if (!item?.id || seen.has(item.id)) {
+      return false;
+    }
+    seen.add(item.id);
+    return true;
+  });
+}
+
 function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) {
   function getClient(config) {
     return getPrismaClient(config);
@@ -477,6 +551,7 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
         tasks,
         mediaAssets,
         queueItems,
+        autonomousQueueItems,
         traceToolRows,
         traceLlmRows,
         queueStats,
@@ -520,6 +595,13 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
         prisma.agentQueueMessage.findMany({
           where: {
             status: { in: ['pending', 'processing', 'failed'] }
+          },
+          orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
+          take: perSourceLimit
+        }),
+        prisma.agentQueueMessage.findMany({
+          where: {
+            source: { in: AUTONOMOUS_QUEUE_SOURCES }
           },
           orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
           take: perSourceLimit
@@ -582,15 +664,20 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
         ])
       ]);
 
-      const items = [
+      const latestPresenceQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'presence_tick'));
+      const latestProactiveImQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'proactive_im_open'));
+      const latestDigitalAction = latestByTimestamp(digitalActions);
+
+      const items = dedupeFeedItems([
         ...traceToolRows.map(summarizeToolCall),
         ...traceLlmRows.map(summarizeLlmCall),
         ...lifeEvents.map(summarizeLifeEvent),
         ...digitalActions.map(summarizeDigitalAction),
         ...tasks.map(summarizeTask),
         ...mediaAssets.map(summarizeMedia),
-        ...queueItems.map((row) => summarizeQueueMessage(row, staleProcessingMs))
-      ]
+        ...queueItems.map((row) => summarizeQueueMessage(row, staleProcessingMs)),
+        ...autonomousQueueItems.map((row) => summarizeQueueMessage(row, staleProcessingMs))
+      ])
         .filter((item) => item.timestamp)
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
         .slice(0, limit);
@@ -612,6 +699,15 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
             processing: digitalStats[1],
             completed: digitalStats[2],
             failed: digitalStats[3]
+          },
+          autonomy: {
+            latestPresenceTickAt: normalizeDate(latestPresenceQueue?.updated_at || latestPresenceQueue?.created_at),
+            latestPresenceTickStatus: latestPresenceQueue?.status || null,
+            latestProactiveImOpenAt: normalizeDate(latestProactiveImQueue?.updated_at || latestProactiveImQueue?.created_at),
+            latestProactiveImOpenStatus: latestProactiveImQueue?.status || null,
+            latestSelfActionAt: normalizeDate(latestDigitalAction?.updated_at || latestDigitalAction?.created_at),
+            latestSelfActionStatus: latestDigitalAction?.status || null,
+            latestSelfActionKind: latestDigitalAction?.action_type || null
           },
           tasks: {
             pending: taskStats[0],

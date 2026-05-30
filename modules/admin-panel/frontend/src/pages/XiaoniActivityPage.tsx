@@ -76,6 +76,15 @@ interface XiaoniActivityFeed {
       completed: number;
       failed: number;
     };
+    autonomy: {
+      latestPresenceTickAt: string | null;
+      latestPresenceTickStatus: string | null;
+      latestProactiveImOpenAt: string | null;
+      latestProactiveImOpenStatus: string | null;
+      latestSelfActionAt: string | null;
+      latestSelfActionStatus: string | null;
+      latestSelfActionKind: string | null;
+    };
     tasks: {
       pending: number;
       processing: number;
@@ -203,6 +212,7 @@ function RuntimeStrip({
   const queue = feed?.current.queue;
   const tasks = feed?.current.tasks;
   const digital = feed?.current.digitalActions;
+  const autonomy = feed?.current.autonomy;
   const latestTool = feed?.items.find((item) => item.source === 'tool_call');
 
   return (
@@ -231,6 +241,12 @@ function RuntimeStrip({
         </span>
         <span className="text-muted-foreground">
           background <span className="font-medium text-foreground">{(tasks?.pending || 0) + (tasks?.processing || 0) + (digital?.planned || 0) + (digital?.processing || 0)}</span>
+        </span>
+        <span className="text-muted-foreground">
+          自主 <span className="font-medium text-foreground">{autonomy?.latestPresenceTickAt ? formatTimestamp(autonomy.latestPresenceTickAt) : '-'}</span>
+        </span>
+        <span className="text-muted-foreground">
+          主动 IM <span className="font-medium text-foreground">{autonomy?.latestProactiveImOpenAt ? formatTimestamp(autonomy.latestProactiveImOpenAt) : '-'}</span>
         </span>
       </div>
     </section>

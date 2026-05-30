@@ -135,6 +135,7 @@ describe('buildTraceFlowViewModel', () => {
       'output',
       'evidence',
     ]);
+    expect(viewModel.selectedSpanId).toBe('turn-1');
     expect('rawEvidenceSections' in viewModel).toBe(false);
   });
 
@@ -305,7 +306,98 @@ describe('buildTraceFlowViewModel', () => {
     expect(providerRequestRow?.trafficLogId).toBe(101);
     expect(providerRequestRow?.llmCallId).toBe('llm-call-1');
     expect(providerRequestRow?.subtitle).toBe('responses / api.openai.com / /v1/responses');
+    expect(viewModel.selectedSpanId).toBe('provider-request:101');
     expect(viewModel.metrics.find((metric) => metric.label === 'HTTP')?.detail).toContain('Provider 1');
+  });
+
+  it('selects synthetic provider request spans first so wire payload detail is visible', () => {
+    const trace = makeTrace([
+      makeSpan({
+        span_id: 'trace-root',
+        sort_key: '000',
+        attributes: {
+          'semantic.role': 'trace_root',
+          'semantic.display_name': 'Conversation Trace',
+        },
+      }),
+      makeSpan({
+        span_id: 'turn-1',
+        parent_span_id: 'trace-root',
+        sort_key: '000.001',
+        depth: 1,
+        name: 'turn.1',
+        attributes: {
+          'semantic.role': 'turn',
+          'semantic.display_name': 'Turn 1',
+        },
+      }),
+      makeSpan({
+        span_id: 'llm-call:llm-call-wire',
+        parent_span_id: 'turn-1',
+        sort_key: '000.001.001',
+        depth: 2,
+        name: 'llm.generation',
+        kind: 'client',
+        attributes: {
+          'semantic.role': 'generation',
+          'semantic.display_name': 'codex-local / gpt-5.5',
+          'llm.model_name': 'gpt-5.5',
+          'llm.model_provider': 'codex-local',
+          'provider.request_count': 1,
+        },
+        evidence: {
+          llm_call_id: 'llm-call-wire',
+          synthetic_provider_request: {
+            span_id: 'provider-request:wire:llm-call-wire',
+            source: 'llm_call_logs.wire_request/wire_response',
+          },
+        },
+      }),
+      makeSpan({
+        span_id: 'provider-request:wire:llm-call-wire',
+        parent_span_id: 'llm-call:llm-call-wire',
+        sort_key: '000.001.001.001',
+        depth: 3,
+        name: 'provider.request',
+        kind: 'client',
+        attributes: {
+          'semantic.role': 'provider_request',
+          'semantic.display_name': 'POST codex-local',
+          'trace.llm_call_id': 'llm-call-wire',
+          'provider.api_type': 'codex-local/responses',
+          'provider.synthetic_source': 'llm_call_logs.wire_payload',
+          'http.host': 'codex-local',
+          'http.path': '/responses',
+        },
+        input: {
+          headers: null,
+          body: {
+            __trace_payload_truncated: true,
+            label: 'wire_request',
+          },
+        },
+        evidence: {
+          synthetic: true,
+          source: 'llm_call_logs.wire_request/wire_response',
+          llm_call_id: 'llm-call-wire',
+        },
+      }),
+    ]);
+    trace.data_quality.http_logs = 'missing';
+    trace.data_quality.trace_headers_propagated = 'missing';
+
+    const viewModel = buildTraceFlowViewModel(trace);
+    const generationRow = viewModel.rows.find((row) => row.id === 'llm-call:llm-call-wire');
+    const providerRequestRow = viewModel.rows.find((row) => row.id === 'provider-request:wire:llm-call-wire');
+
+    expect(viewModel.selectedSpanId).toBe('provider-request:wire:llm-call-wire');
+    expect(generationRow?.providerRequestSpanId).toBe('provider-request:wire:llm-call-wire');
+    expect(generationRow?.defaultExpanded).toBe(true);
+    expect(providerRequestRow).toMatchObject({
+      llmCallId: 'llm-call-wire',
+      trafficLogId: null,
+      semanticRole: 'provider_request',
+    });
   });
 
   it('flattens legacy provider.exchange traces under generation', () => {

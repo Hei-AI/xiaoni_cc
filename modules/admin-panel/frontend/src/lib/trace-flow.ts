@@ -357,7 +357,11 @@ function buildMetrics(trace: ConversationTraceData): TraceMetric[] {
 
 export function buildTraceFlowViewModel(trace: ConversationTraceData): TraceWaterfallViewModel {
   const rows = buildRows(trace);
-  const selectedSpanId = trace.trace.first_error?.span_id || rows.find((row) => row.semanticRole === 'turn')?.spanId || trace.trace.root_span_id;
+  const selectedSpanId =
+    trace.trace.first_error?.span_id
+    || rows.find((row) => row.semanticRole === 'provider_request')?.spanId
+    || rows.find((row) => row.semanticRole === 'turn')?.spanId
+    || trace.trace.root_span_id;
 
   return {
     rows,

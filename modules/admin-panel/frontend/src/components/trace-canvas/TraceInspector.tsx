@@ -123,6 +123,10 @@ function canLazyLoadSpanDetail(spanId: string): boolean {
   return spanId.startsWith('llm-call:') || spanId.startsWith('provider-request:') || spanId.startsWith('http:');
 }
 
+function shouldAlwaysLoadSpanDetail(node: TraceWaterfallRow | null): boolean {
+  return Boolean(node && node.semanticRole === 'provider_request' && node.spanId.startsWith('provider-request:wire:'));
+}
+
 interface TraceInspectorSurfaceProps {
   runId?: string;
   node: TraceWaterfallRow | null;
@@ -158,6 +162,18 @@ function TraceInspectorSurface({
   onDragStart,
   className,
 }: TraceInspectorSurfaceProps) {
+  const activeSection = node ? getSection(node, activeTab) : null;
+  const inputSection = node ? getSection(node, 'input') : null;
+  const outputSection = node ? getSection(node, 'output') : null;
+  const evidenceSection = node ? getSection(node, 'evidence') : null;
+  const hasDeferredSection = [inputSection?.value, outputSection?.value, evidenceSection?.value].some(hasDeferredTracePayload);
+  const needsDeferredDetail = Boolean(
+    node
+      && canLazyLoadSpanDetail(node.spanId)
+      && (hasDeferredSection || shouldAlwaysLoadSpanDetail(node))
+  );
+  const spanDetailQuery = useRunTraceSpanDetail(runId || null, needsDeferredDetail ? node?.spanId || null : null);
+
   if (!node) {
     return (
       <Card className={cn('h-full min-h-[420px] rounded-[22px]', className)}>
@@ -168,13 +184,6 @@ function TraceInspectorSurface({
     );
   }
 
-  const activeSection = getSection(node, activeTab);
-  const inputSection = getSection(node, 'input');
-  const outputSection = getSection(node, 'output');
-  const evidenceSection = getSection(node, 'evidence');
-  const hasDeferredSection = [inputSection?.value, outputSection?.value, evidenceSection?.value].some(hasDeferredTracePayload);
-  const needsDeferredDetail = hasDeferredSection && canLazyLoadSpanDetail(node.spanId);
-  const spanDetailQuery = useRunTraceSpanDetail(runId || null, needsDeferredDetail ? node.spanId : null);
   const resolvedInputValue = spanDetailQuery.data?.input ?? inputSection?.value;
   const resolvedOutputValue = spanDetailQuery.data?.output ?? outputSection?.value;
   const resolvedEvidenceValue = spanDetailQuery.data?.evidence ?? evidenceSection?.value;
@@ -253,15 +262,15 @@ function TraceInspectorSurface({
           {node.summary}
         </div>
 
-        {hasDeferredSection ? (
+        {hasDeferredSection || shouldAlwaysLoadSpanDetail(node) ? (
           <div className="mt-3 text-xs text-muted-foreground">
             {!canLazyLoadSpanDetail(node.spanId)
               ? '该节点包含裁剪预览；请切到具体 LLM 或 provider span 查看完整 payload。'
               : spanDetailQuery.isLoading
-              ? '正在按需加载完整 payload...'
+              ? '正在按需加载请求详情...'
               : spanDetailQuery.error
-                ? '完整 payload 加载失败，当前展示的是裁剪预览。'
-                : '已按需加载完整 payload。'}
+                ? '请求详情加载失败，当前展示的是 trace 初始 payload。'
+                : '已按需加载请求详情。'}
           </div>
         ) : null}
 
