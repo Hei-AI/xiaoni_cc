@@ -119,6 +119,22 @@ test('buildPresenceAnchorsFromLife preserves recent activity for fatigue derivat
   assert.ok(state.energy > 0.99);
 });
 
+test('buildPresenceAnchorsFromLife resets stale daily proactive count', () => {
+  const anchors = buildPresenceAnchorsFromLife({
+    service_started_at: '2026-05-26T04:00:00.000Z',
+    last_active_at: '2026-05-30T01:00:00.000Z',
+    last_boredom_reset_at: '2026-05-30T01:00:00.000Z',
+    last_sleep_at: null,
+    last_presence_tick_enqueued_at: null,
+    last_proactive_at: '2026-05-26T21:05:00.000Z',
+    last_user_message_at: null,
+    daily_proactive_count: 6,
+    daily_proactive_date: '2026-05-26T00:00:00.000Z'
+  }, new Date('2026-05-30T04:00:00.000Z'));
+
+  assert.equal(anchors.dailyProactiveCount, 0);
+});
+
 test('recordSilenceDecisionLifeEvent records lurked run as self-private silence decision', async () => {
   const store = createStoreWithSql({});
   const lifeEvents: any[] = [];

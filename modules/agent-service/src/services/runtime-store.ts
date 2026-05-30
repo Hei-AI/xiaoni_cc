@@ -116,9 +116,29 @@ type AgentLifeStateRow = {
   last_proactive_at?: Date | string | null;
   last_user_message_at?: Date | string | null;
   daily_proactive_count?: number | string | null;
+  daily_proactive_date?: Date | string | null;
 };
 
+function toValidDate(value: Date | string | null | undefined): Date | null {
+  if (!value) {
+    return null;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isSameUtcDate(left: Date | string | null | undefined, right: Date) {
+  const leftDate = toValidDate(left);
+  return Boolean(leftDate
+    && leftDate.getUTCFullYear() === right.getUTCFullYear()
+    && leftDate.getUTCMonth() === right.getUTCMonth()
+    && leftDate.getUTCDate() === right.getUTCDate());
+}
+
 export function buildPresenceAnchorsFromLife(life: AgentLifeStateRow, now: Date): PresenceAnchors {
+  const dailyProactiveCount = isSameUtcDate(life.daily_proactive_date, now)
+    ? Number(life.daily_proactive_count || 0)
+    : 0;
   return {
     now,
     lastActiveAt: life.last_active_at ?? null,
@@ -128,7 +148,7 @@ export function buildPresenceAnchorsFromLife(life: AgentLifeStateRow, now: Date)
     lastPresenceTickEnqueuedAt: life.last_presence_tick_enqueued_at ?? null,
     lastProactiveAt: life.last_proactive_at ?? null,
     lastUserMessageAt: life.last_user_message_at ?? null,
-    dailyProactiveCount: Number(life.daily_proactive_count || 0)
+    dailyProactiveCount
   };
 }
 
@@ -1371,7 +1391,9 @@ export class RuntimeStore {
       actionCost: 0.2,
       attentionDelta: 0.2,
       payload: {
+        source: queueMessage.source,
         wake_kind: wakeKind,
+        peer_name: queueMessage.peerName || null,
         unread_batch_size: queueMessage.messages.length,
         direct_materialization_policy: queueMessage.chatType === 'direct'
           ? 'private_dm_claimed_by_active_im_open'
@@ -1582,10 +1604,12 @@ export class RuntimeStore {
   async recordPresenceProactiveCompletion(queueMessage: QueueMessagePayload, outcome: string) {
     const now = new Date();
     const currentDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
+    const sameDay = isSameUtcDate(life.daily_proactive_date as Date | string | null | undefined, now);
     await updateAgentLifeState('xiaoni', {
       last_proactive_at: now,
       daily_proactive_date: currentDate,
-      daily_proactive_count: { increment: 1 }
+      daily_proactive_count: sameDay ? { increment: 1 } : 1
     }, databaseConfig);
     if (queueMessage.chatType === 'group') {
       await upsertAgentGroupPresenceState({
