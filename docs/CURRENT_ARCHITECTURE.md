@@ -2,7 +2,7 @@
 
 本页只回答一个问题：现在小腻在 QQ 里到底是怎么工作的。
 
-这里不讲历史上做过但现在没有进入主链路的设计。业务上只需要先理解一件事：小腻不是“收到消息就回复”的机器人，而是一个会先看场、再判断自己该不该出现的 QQ 角色。她也会低频做自己的数字行动：当前只允许受预算限制的真实 hosted `web_search`，不直接发 QQ。
+这里不讲历史上做过但现在没有进入主链路的设计。业务上只需要先理解一件事：小腻不是“收到消息就回复”的机器人，而是一个会先看场、再判断自己该不该出现的 QQ 角色。她会通过 presence tick 低频主动打开群看一眼；旧的随机 self-action hosted `web_search` runner 已退役，当前不会再自动发起后台搜索。
 
 ## 一句话版
 
@@ -48,26 +48,22 @@ QQ 群 / QQ 私聊
 如果回复，发回 QQ
 ```
 
-后台还有一条不由 QQ 新消息触发的自主数字行动链：
+后台还有一条不由 QQ 新消息触发的 presence 主动看群链：
 
 ```text
 小腻当前状态 / 预算 / 冷却
   |
   v
-self-action loop 判断是否值得行动
+presence tick 判断是否值得打开群
   |
   v
-真实 hosted web_search
+synthetic presence_tick 入队
   |
   v
-agent_digital_actions 记录 motive / query / source_trace / residue
-  |
-  v
-安全 share_seed 进入 agent_share_pool_items
-  |
-  v
-后续 presence context / main loop 决定是否自然聊出来
+同一个 main loop 决定沉默 / 主动说一句 / 搜索资料
 ```
+
+self-action 入口当前只做 eligibility/skip。看到 `legacy_self_action_search_removed` 说明旧的 random web_search runner 被正确跳过。历史 `agent_digital_actions` 和 share pool 记录仍可用于观测、Admin 展示和后续 presence context 投影，但当前代码不会新建这种后台搜索记录。
 
 技术对应关系只作为定位用：
 
@@ -76,7 +72,7 @@ agent_digital_actions 记录 motive / query / source_trace / residue
 | QQ 收发通道 | NapCat |
 | 收消息、发消息、调用模型的统一出口 | `provider-service` |
 | 小腻真正做行为判断的地方 | `agent-service` |
-| 小腻自主 web_search 行动记录 | `agent_digital_actions` / `agent_share_pool_items` |
+| 历史/后续数字行动记录 | `agent_digital_actions` / `agent_share_pool_items` |
 | 消息、开关、经历、学习结果的存储 | PostgreSQL / `packages/persistence` |
 
 ## 一条消息会经历什么
@@ -95,7 +91,7 @@ agent_digital_actions 记录 motive / query / source_trace / residue
 
 ## 小腻怎么决定说不说
 
-当前主逻辑是分阶段的，不是让模型一次性自由发挥。它更像一套“先读场、再看自己、判断缺口、最后行动”的内在流程。
+当前主逻辑用一次结构化 `submit_life_action` 承载“先读场、再看自己、判断缺口、最后行动”。它不是让模型自由发挥，也不是固定三段式 turn。
 
 ```text
 先读未读消息
@@ -196,16 +192,16 @@ Provider：codex
 <system_reminder> 是工程控制逻辑给出的本轮边界提醒。
 ```
 
-第三层是单轮工具契约。它把本轮收口限制在几种业务动作里：
+第三层是单轮工具契约。它把本轮收口限制在 `submit_life_action` 和必要的外部工具续轮里：
 
 ```text
 话已成立，而且值得我承担，就说。
 事已成立，但理解未足，就先求知。
 如果没有具体可说点，就沉默。
 
-群聊说话时，调用 speak_in_group。
-需要求知时，调用 web_search。
-最终不说时，调用 stay_silent。
+普通说话、主动说一句、沉默，都必须在 submit_life_action 里直接收口。
+需要求知时，submit_life_action 先选择 search，再进入 web_search 续轮。
+如果使用 web_search，搜索后仍要用 submit_life_action 或 stay_silent 收口。
 无论说、查还是不说，都留下自然的 xiaoni_os。
 ```
 
@@ -337,7 +333,7 @@ stay_silent
 | 三层长期记忆 | 写入已生效，召回投影待接入 | 上下文压缩时写 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`；后续由 typed recall projection 注入运行时上下文。 |
 | 身份连续性 | 生效 | 已确认的身份事实会进入当前场景。 |
 | 搜索外部信息 | 有条件生效 | 只有当前阶段允许、且她判断需要资料时才会用。 |
-| 自主 web_search 数字行动 | 生效 | 后台 self-action loop 低频触发真实 hosted `web_search`，写入 `agent_digital_actions` 和 share pool；不直接发 QQ。 |
+| 自主 web_search 数字行动 | 已退役旧 runner | 2026-05-30 的 hosted `web_search` slice 已留下表和历史记录投影能力；当前 self-action 入口只返回 `legacy_self_action_search_removed`，不会新建后台搜索。 |
 | 记录本次处理过程 | 生效 | 包括是否发言、用了什么工具、模型调用等。 |
 | 处理后沉淀经验 | 生效 | 完成的对话之后，后台可能生成新的反馈经验或身份候选。 |
 
@@ -364,7 +360,7 @@ stay_silent
 - topic projection 执行器。
 - transcript summary 结果接口。
 - 独立的 pre-agent gate 方案。
-- 完整浏览器生活侧效应，例如登录、点赞、关注、评论、下载或跨平台身份行为。当前 self-action 只做 hosted `web_search`。
+- 完整浏览器生活侧效应，例如登录、点赞、关注、评论、下载或跨平台身份行为。旧 self-action hosted `web_search` runner 也不是当前主链路；后续数字生活 runner 需要重新设计和接入。
 
 它们可能用于历史、实验或未来工作，但当前理解小腻真实行为时，先从这条链路开始：
 

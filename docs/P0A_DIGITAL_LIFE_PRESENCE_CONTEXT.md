@@ -1,13 +1,15 @@
 # Xiaoni Digital Life And Presence Context Design
 
 Status: design-locked from office-hours on 2026-05-26. Current implementation
-has landed the presence-context first slice and a constrained real hosted
-`web_search` self-action slice. This is still not the full browser-backed
-digital-life system.
+has landed the presence-context first slice. A constrained hosted `web_search`
+self-action slice landed on 2026-05-30, then its random runner was retired on
+2026-05-31; the tables and historical traces remain, but current runtime no
+longer starts new self-action searches. This is still not the full
+browser-backed digital-life system.
 
 This document is the system of record for browser-backed digital life,
-`presence_context`, and the current self-action slice. `TODOS.md` keeps only the
-execution summary.
+`presence_context`, the retired self-action search slice, and the next digital
+life runner shape. `TODOS.md` keeps only the execution summary.
 
 **Core framing:**
 
@@ -40,9 +42,10 @@ energy, dopamine, boredom, and sharing desire to act.
 - Original near-term implementation favored a mock-first external action layer.
   The 2026-05-30 implementation intentionally skipped mock for the first
   autonomous action and landed a narrower real hosted `web_search` path instead.
-  Mocked actions, if added later, must still be explicitly labeled internally
-  and must not be represented to QQ users as real browsing, liking, posting, or
-  downloading.
+  That random self-action runner was retired on 2026-05-31 because it was not
+  the right current life architecture. Future mocked or real actions must still
+  be explicitly labeled internally and must not be represented to QQ users as
+  real browsing, liking, posting, or downloading without evidence.
 - Digital-life exploration should be driven by internal state, not fixed
   frequency. Boredom, fatigue, dopamine, pressure, and sharing desire decide
   whether she browses, opens QQ, shares, lurks, sleeps, or says very little.
@@ -202,6 +205,12 @@ Current implemented slices:
   `emit_self_search_result`. Completed actions are written to
   `agent_digital_actions`; safe `share_seed` residue is written to
   `agent_share_pool_items`.
+- 2026-05-31: the legacy random self-action `web_search` runner was retired.
+  `SelfActionService` now evaluates eligibility and returns
+  `legacy_self_action_search_removed` instead of calling provider-service or
+  writing a new digital action. Existing tables, historical records, source
+  honesty checks, and presence projection support remain for replay and for the
+  next digital-life runner.
 - Real-source wording is allowed only when the action trace proves a completed
   `web_search` whose query matches the emitted result. Constructed or mock
   material still cannot be phrased as "刚看到 / 刚刷到 / 我查到 / 我刚在评论区看到".
@@ -658,11 +667,12 @@ is engineering decomposition and subagent execution planning.
 **Near-term implementation implication:**
 
 Do not treat the current self-action code as the full browser-backed digital-life
-loop. It proves the first real-source path: Xiaoni can perform a small hosted
-`web_search` for her own motive, store a traceable residue, and let later
-presence/main-loop context decide whether that residue naturally enters QQ.
-Everything beyond that, including navigation, reading, watching, posting,
-liking, downloading, and stable-interest mutation from digital activity, remains
-future work.
+loop. The 2026-05-30 slice proved the first real-source path, but the random
+runner is no longer active. The next implementation must create a deliberate
+digital-life runner that stores traceable records and lets later
+presence/main-loop context decide whether any residue naturally enters QQ.
+Everything beyond current presence, including navigation, reading, watching,
+posting, liking, downloading, autonomous search, and stable-interest mutation
+from digital activity, remains future work.
 
 ---

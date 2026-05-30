@@ -11,7 +11,7 @@ Archived pre-cleanup snapshot:
 Authoritative execution order:
 
 1. **P0-A: user-visible Xiaoni group-chat behavior.**
-   Tasks 1-7 are implemented. Tasks 8-12 are active follow-ups for current
+   Tasks 1-7 are implemented. Tasks 8-13 are active follow-ups for current
    runtime context quality, compact memory quality, image task routing,
    presence-context v2, and Xiaoni's creative agency. Keep verification notes
    here and move any next follow-up into a new task instead of reopening the old
@@ -164,7 +164,8 @@ typed query planning, not revive the old `recall_long_term_learning` tool.
 
 ### Task 5 - Browser-backed digital life / `presence_context` loop
 
-**Status:** implemented first engineering slices on 2026-05-26 and 2026-05-30.
+**Status:** presence slice implemented on 2026-05-26; hosted self-action search
+slice implemented on 2026-05-30 and retired as an active runner on 2026-05-31.
 
 **Design doc:** `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`
 
@@ -172,7 +173,9 @@ typed query planning, not revive the old `recall_long_term_learning` tool.
 browser/digital-life action loop, not a standalone fake mood paragraph. The
 2026-05-26 slice added presence/share-pool state. The 2026-05-30 slice added a
 narrow real hosted `web_search` self-action path without implementing full
-browser side effects.
+browser side effects; the random runner was retired on 2026-05-31, leaving the
+tables, source-honesty constraints, and historical projection support for the
+next deliberate digital-life runner.
 
 Locked decisions from office-hours:
 
@@ -187,9 +190,10 @@ Locked decisions from office-hours:
 - Interest growth is layered: seed interests, temporary heat, stable interests.
 - Share-pool recall uses time-decay scoring and only passes top material into
   current-state context.
-- Mock digital-life generation, if added later, must be state-triggered, not
-  blind timer-based. The current self-action path is real hosted `web_search`
-  gated by budget, cooldown, startup grace, fatigue, and user-interaction limits.
+- Mock or real digital-life generation, if added later, must be state-triggered,
+  not blind timer-based. The old hosted `web_search` self-action runner is no
+  longer active; current self-action only evaluates eligibility and skips with
+  `legacy_self_action_search_removed`.
 - Generated actions must be linked records so recent action traces can be
   compressed into in-context state.
 - `小腻当前状态` has six private sections: recent action trace, current residue,
@@ -238,6 +242,15 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
 - Verified with `npm --prefix modules/agent-service test` (126 passing),
   `node --test packages/persistence/__tests__/*.test.js` (25 passing), and
   `python3 scripts/validate_docs.py`.
+
+**Implementation update (2026-05-31):**
+- Retired the legacy random self-action search runner. `SelfActionService`
+  still checks eligibility, but an eligible run now returns
+  `legacy_self_action_search_removed` without calling provider-service, creating
+  a new digital action, or writing share-pool residue.
+- Kept `agent_digital_actions`, source-honesty validation, historical
+  projection, and Admin activity visibility as substrate for replay and the next
+  deliberate digital-life runner.
 
 **Engineering decisions locked (2026-05-26 eng-review, updated 2026-05-26 second-pass):**
 
@@ -342,12 +355,14 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
   as a string join only. Do NOT use `@db.Uuid`; existing run IDs are `run_${Date.now()}_${uuid}`
   format, not bare UUIDs.
 
-- `AgentDigitalAction` — stores autonomous digital actions such as the current
-  self-action `web_search` path. Required fields include `identity_key`,
+- `AgentDigitalAction` — stores autonomous digital actions such as the retired
+  self-action `web_search` slice and future digital-life runners. Required
+  fields include `identity_key`,
   `action_type`, `surface`, `status`, `query`, `source_trace`,
   `result_summary`, `residue_text`, `residue_kind`, `source_wording`,
-  `budget_snapshot`, and `completed_at`. Current production use is
-  `action_type='web_search'`; broader browser actions remain future work.
+  `budget_snapshot`, and `completed_at`. Existing records may use
+  `action_type='web_search'`; broader browser actions and a new deliberate
+  runner remain future work.
 
 **Migration (Codex finding — 3 steps required):**
 
@@ -910,10 +925,11 @@ to request edit-mode work without any actual source image, so the user sees
 **Source:** 2026-05-27 runtime context review against
 `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
 
-**Progress 2026-05-30:** recent real `web_search` digital actions are now stored
-in `agent_digital_actions` and projected into `buildPresenceContextBlock`.
-This closes the "no traceable recent digital action source at all" gap for the
-first hosted search slice. The broader v2 shape below is still open.
+**Progress 2026-05-30 / 2026-05-31:** recent real `web_search` digital actions
+can be stored in `agent_digital_actions` and projected into
+`buildPresenceContextBlock`, but the legacy random runner no longer creates new
+ones. This preserves traceability for historical records and future runners; the
+broader v2 shape below is still open.
 
 **Problem:** the design already defines `小腻当前状态` as a six-section private
 context block with recent action trace, current residue, current state,
@@ -924,10 +940,11 @@ desire, and effort cost.
 
 The current implementation is still a first slice. `presence-context.ts` derives
 `boredom`, `fatigue`, `energy`, and `sharingDesire`, then injects raw decimals.
-It can now list recent completed real `web_search` digital actions, but it does
-not yet produce the full six-section readable state with action budget, pressure,
-reward attraction, action costs, group residue, and multi-step presence history.
-The model can see the first kind of traceable digital action, but not yet the
+It can list existing completed real `web_search` digital actions, but the current
+self-action runner no longer creates new ones. It also does not yet produce the
+full six-section readable state with action budget, pressure, reward attraction,
+action costs, group residue, and multi-step presence history. The model can see
+the first kind of traceable digital action when records exist, but not yet the
 complete recent-life story described in the design doc.
 
 The older "dopamine / stress" surface is also only a compatibility mapping:

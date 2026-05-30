@@ -10,7 +10,7 @@
 - 先信这些入口：`README.md`、`docs/INDEX.md`、`AGENTS.md`
 
 ## First 15 Minutes
-- 想理解小腻怎么说话和怎么产生自主数字行动，先看 `docs/CURRENT_ARCHITECTURE.md`，再看 `docs/XIAONI_SPEAKING_FLOW.md`、`modules/provider-service`、`modules/agent-service`、`packages/persistence`。
+- 想理解小腻怎么说话、presence 怎么主动看群、数字生活设计现在落到哪一步，先看 `docs/CURRENT_ARCHITECTURE.md`，再看 `docs/XIAONI_SPEAKING_FLOW.md`、`modules/provider-service`、`modules/agent-service`、`packages/persistence`。
 - 想调管理端，先看 `modules/admin-panel/backend`、`modules/admin-panel/frontend`。
 - 次级入口：`modules/http-traffic-monitor`、`modules/embedding-server`
 - 当前运行数据库是 PostgreSQL
@@ -29,7 +29,7 @@
 - 不要把 `embedding-server` 当对外服务；对外是 `provider-service /v1/*`。
 - 不要默认前端直连 `provider-service`；默认是前端 -> admin backend。
 - 当前主发言判断在 `agent-service` loop。`topic projection`、`transcript snapshot`、三层长期记忆等能力可以作为 typed recall projection、观测、评测或异步产物存在，但不要把它们当成入口层“是否说话”的总决策器。
-- 不要把 self-action 当成“定时发群消息”；当前它只做受预算限制的真实 hosted `web_search`，写入数字行动记录和 share pool，是否在 QQ 里自然说出来仍由后续 presence/main loop 判断。
+- 不要把 self-action 当成“定时发群消息”，也不要假设它当前会定时查网页；旧 hosted `web_search` runner 已退役，当前只保留 eligibility/skip 入口。主动看群仍走 presence tick，是否在 QQ 里说话仍由 main loop 判断。
 - 不要把“本地前端联调”和“公网 Docker 前端”当成同一条链路；本地页面调试只起本地 Vite 前端，后端仍走容器。
 - 不要再让本地前端复用 `3003`；本地联调固定走 `13003`，公网 Docker 前端继续占用 `3003`。
 - 不要再参考 `database/` 里的历史 MySQL 文档；当前真实数据库以 PostgreSQL 初始化脚本和 `packages/persistence` 为准。

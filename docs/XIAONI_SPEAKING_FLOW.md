@@ -41,9 +41,8 @@ flowchart TD
 
   AgentTimer[agent-service presence timer] --> PresenceQueue[(synthetic presence_tick)]
   PresenceQueue --> Loop
-  SelfActionTimer[agent-service self-action timer] --> SelfSearch[hosted web_search self-action]
-  SelfSearch --> SharePool[(agent_share_pool_items)]
-  SharePool --> Loop
+  SelfActionTimer[agent-service self-action timer] --> SelfSkip[legacy_self_action_search_removed]
+  HistoricalActions[(historical agent_digital_actions / share pool)] --> Loop
 ```
 
 一句话：被动发言、presence 主动发言最后都汇入同一个 `agent-service` main loop。普通说话、主动说一句和沉默现在都在第一轮 `submit_life_action` 内完成；只有真正需要外部结果时才进入后续工具轮。
@@ -87,7 +86,7 @@ flowchart TD
 
 presence tick 只决定“要不要主动打开目标群看一眼并入队”。真正说不说，仍由 main loop 判断。
 
-自主数字行动也不直接发 QQ。它由后台 self-action loop 真实调用 hosted `web_search`，把 residue 写入 `agent_digital_actions` 和 share pool，后续 presence/context 再决定是否自然带入聊天。
+self-action 也不直接发 QQ。旧的后台 hosted `web_search` runner 已退役；当前 self-action timer 只会通过 eligibility 后返回 `legacy_self_action_search_removed`。历史 `agent_digital_actions` 和 share pool 记录仍可被 presence/context 读取，后续新的数字生活 runner 需要重新接入。
 
 ## Main Loop 当前契约
 
