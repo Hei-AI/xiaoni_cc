@@ -16,10 +16,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Switch } from '../components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { usePromptTemplates } from '../hooks/usePromptTemplates';
 import { applyChatSettingToggle, isChatSettingToggleDisabled } from '@/lib/chat-settings';
-import { formatPromptBindingLabel } from '@/lib/contract-display';
 import { formatTimestamp } from '@/lib/utils';
 import { 
   ArrowLeft,
@@ -146,22 +143,6 @@ const updateGroupSettings = async (groupId: string, settings: Partial<GroupSetti
   return response.json();
 };
 
-const updateGroupPrompt = async (groupId: string, promptId: string | null) => {
-  const response = await fetch(`/api/group-chats/${groupId}/prompt`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ prompt_id: promptId }),
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to update group prompt');
-  }
-
-  return response.json();
-};
-
 const fetchGroupToolMetrics = async (groupId: string, days = 7): Promise<ToolMetricsResponse> => {
   const response = await fetch(`/api/group-chats/${groupId}/tool-metrics?days=${days}`);
   if (!response.ok) {
@@ -222,43 +203,6 @@ export const GroupChatDetailPage: React.FC = () => {
       setEditingSettings(false);
     },
   });
-
-  const { data: promptTemplates = [], isLoading: promptLoading } = usePromptTemplates();
-  const chatPrompts = React.useMemo(
-    () => promptTemplates.filter(template => template.agent_type === 'chat_bot' && template.is_active),
-    [promptTemplates]
-  );
-
-  const updatePromptMutation = useMutation({
-    mutationFn: (promptId: string | null) => updateGroupPrompt(groupId!, promptId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['group-chat-detail', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['groups'] });
-    }
-  });
-
-  const currentPrompt = React.useMemo(() => {
-    if (!groupData?.data.group_settings.agent_prompt_id) {
-      return null;
-    }
-    return chatPrompts.find(prompt => prompt.id === groupData.data.group_settings.agent_prompt_id) || null;
-  }, [groupData, chatPrompts]);
-
-  const isPromptBindingResolving = Boolean(
-    groupData?.data.group_settings.agent_prompt_id &&
-    promptLoading &&
-    !currentPrompt
-  );
-
-  const currentPromptLabel = React.useMemo(() => {
-    if (isPromptBindingResolving) {
-      return '正在加载已绑定 Prompt...';
-    }
-    return formatPromptBindingLabel({
-      promptId: groupData?.data.group_settings.agent_prompt_id,
-      promptName: currentPrompt?.prompt_name ?? null
-    });
-  }, [currentPrompt?.prompt_name, groupData?.data.group_settings.agent_prompt_id, isPromptBindingResolving]);
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -517,33 +461,11 @@ export const GroupChatDetailPage: React.FC = () => {
               <div>
                 <p className="text-sm text-muted-foreground">当前使用</p>
                 <Badge variant="outline">
-                  {currentPromptLabel}
+                  小腻主AGENT
                 </Badge>
               </div>
-
-              <Select
-                value={groupData.data.group_settings.agent_prompt_id ?? 'unbound'}
-                onValueChange={(value) => {
-                  const promptValue = value === 'unbound' ? null : value;
-                  updatePromptMutation.mutate(promptValue);
-                }}
-                disabled={promptLoading || updatePromptMutation.isPending}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={promptLoading ? '加载中...' : '选择 Prompt'} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="unbound">未绑定</SelectItem>
-                  {chatPrompts.map(prompt => (
-                    <SelectItem key={prompt.id} value={prompt.id}>
-                      {prompt.prompt_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
               <p className="text-xs text-muted-foreground">
-                这里只展示群级显式绑定。未绑定表示后端当前没有群级 Prompt 契约。
+                小腻现在只有一套代码内置 Prompt。群级 Prompt 绑定字段只作为历史兼容数据展示，不再参与运行决策。
               </p>
             </CardContent>
           </Card>

@@ -50,8 +50,6 @@ const TOGGLE_FIELDS: readonly ChatSettingToggleField[] = [
   'auto_reply_enabled'
 ];
 
-const HAS_PROMPT_BINDING_SQL = "CASE WHEN agent_prompt_id IS NOT NULL AND TRIM(agent_prompt_id) <> '' THEN 1 ELSE 0 END";
-
 function buildRuntimeSessionKey(scope: 'group' | 'private', id: number): string {
   return scope === 'group' ? `qq:group:${id}` : `qq:private:${id}`;
 }
@@ -171,9 +169,6 @@ export function normalizeChatSettingUpdates(
 export function createChatRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
 
-  const hasAgentPromptBinding = (value: unknown): boolean =>
-    typeof value === 'string' && value.trim().length > 0;
-
   router.post('/group-chats', async (req, res) => {
     try {
       const groupId = Number(req.body?.group_id);
@@ -238,7 +233,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       }
 
       if (status === 'active') {
-        whereConditions.push(`g.is_enabled = 1 AND ${HAS_PROMPT_BINDING_SQL} = 1 AND g.auto_reply_enabled = 1`);
+        whereConditions.push('g.is_enabled = 1 AND g.auto_reply_enabled = 1');
       }
 
       const whereClause = whereConditions.join(' AND ');
@@ -256,10 +251,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           g.group_name,
           g.is_enabled,
           CASE WHEN g.is_enabled = 1 THEN g.continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
-          CASE
-            WHEN g.is_enabled = 1 AND ${HAS_PROMPT_BINDING_SQL} = 1 THEN g.auto_reply_enabled
-            ELSE 0
-          END as auto_reply_enabled,
+          CASE WHEN g.is_enabled = 1 THEN g.auto_reply_enabled ELSE 0 END as auto_reply_enabled,
           g.transcript_compact_offset,
           g.welcome_message,
           g.admin_user_id,
@@ -280,7 +272,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
             ELSE 10
           END as activity_level,
           CASE
-            WHEN g.is_enabled = 1 AND ${HAS_PROMPT_BINDING_SQL} = 1 AND g.auto_reply_enabled = 1 THEN 'active'
+            WHEN g.is_enabled = 1 AND g.auto_reply_enabled = 1 THEN 'active'
             WHEN g.is_enabled = 1 AND g.continuous_learning_enabled = 1 THEN 'learning_only'
             WHEN g.is_enabled = 1 THEN 'receiving_only'
             ELSE 'disabled'
@@ -321,7 +313,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         SELECT
           COUNT(DISTINCT g.group_id) as total_groups,
           COUNT(CASE WHEN g.is_enabled = 1 THEN 1 END) as enabled_groups,
-          COUNT(CASE WHEN g.is_enabled = 1 AND ${HAS_PROMPT_BINDING_SQL} = 1 AND g.auto_reply_enabled = 1 THEN 1 END) as auto_reply_groups,
+          COUNT(CASE WHEN g.is_enabled = 1 AND g.auto_reply_enabled = 1 THEN 1 END) as auto_reply_groups,
           COUNT(CASE WHEN g.last_activity >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 END) as active_groups
         FROM group_chat_settings g
       `);
@@ -376,10 +368,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       if (auto_reply_enabled !== undefined) {
         whereConditions.push(`(
           CASE
-            WHEN COALESCE(pcs.is_enabled, 1) = 1
-             AND pcs.agent_prompt_id IS NOT NULL
-             AND TRIM(pcs.agent_prompt_id) <> ''
-            THEN COALESCE(pcs.auto_reply_enabled, 0)
+            WHEN COALESCE(pcs.is_enabled, 1) = 1 THEN COALESCE(pcs.auto_reply_enabled, 0)
             ELSE 0
           END
         ) = ?`);
@@ -415,13 +404,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
             WHEN COALESCE(pcs.is_enabled, 1) = 1 THEN COALESCE(pcs.continuous_learning_enabled, 1)
             ELSE 0
           END as continuous_learning_enabled,
-          CASE
-            WHEN COALESCE(pcs.is_enabled, 1) = 1
-             AND pcs.agent_prompt_id IS NOT NULL
-             AND TRIM(pcs.agent_prompt_id) <> ''
-            THEN COALESCE(pcs.auto_reply_enabled, 0)
-            ELSE 0
-          END as auto_reply_enabled,
+          CASE WHEN COALESCE(pcs.is_enabled, 1) = 1 THEN COALESCE(pcs.auto_reply_enabled, 0) ELSE 0 END as auto_reply_enabled,
           COALESCE(pcs.transcript_compact_offset, 6) as transcript_compact_offset,
           pcs.user_notes,
           pcs.agent_prompt_id
@@ -529,10 +512,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       const userSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
         SELECT user_id, username, is_enabled,
                CASE WHEN is_enabled = 1 THEN continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
-               CASE
-                 WHEN is_enabled = 1 AND agent_prompt_id IS NOT NULL AND TRIM(agent_prompt_id) <> '' THEN auto_reply_enabled
-                 ELSE 0
-               END as auto_reply_enabled,
+               CASE WHEN is_enabled = 1 THEN auto_reply_enabled ELSE 0 END as auto_reply_enabled,
                welcome_message, user_notes,
                transcript_compact_offset, agent_prompt_id, last_activity
         FROM private_chat_settings
@@ -887,7 +867,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           'transcript_compact_offset',
           'welcome_message',
           'user_notes',
-          'agent_prompt_id'
         ]
       });
 
@@ -903,22 +882,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         return res.status(400).json({
           success: false,
           error: 'No valid fields to update',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      const currentSettings = await database.getPrivateChatSettingById(userId);
-      const nextAgentPromptId = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'agent_prompt_id')
-        ? sanitizedUpdates.agent_prompt_id
-        : currentSettings?.agent_prompt_id;
-      const nextAutoReplyEnabled = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'auto_reply_enabled')
-        ? sanitizedUpdates.auto_reply_enabled
-        : currentSettings?.auto_reply_enabled ?? 0;
-
-      if (nextAutoReplyEnabled === 1 && !hasAgentPromptBinding(nextAgentPromptId)) {
-        return res.status(400).json({
-          success: false,
-          error: 'Cannot enable auto reply without an agent prompt binding',
           timestamp: new Date().toISOString()
         });
       }
@@ -1028,10 +991,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       const groupSettingsRows = await database.executeQuery<GroupChatSettingRow>(`
         SELECT group_id, group_name, is_enabled,
                CASE WHEN is_enabled = 1 THEN continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
-               CASE
-                 WHEN is_enabled = 1 AND agent_prompt_id IS NOT NULL AND TRIM(agent_prompt_id) <> '' THEN auto_reply_enabled
-                 ELSE 0
-               END as auto_reply_enabled,
+               CASE WHEN is_enabled = 1 THEN auto_reply_enabled ELSE 0 END as auto_reply_enabled,
                welcome_message,
                transcript_compact_offset, admin_user_id, agent_prompt_id, last_activity
         FROM group_chat_settings
@@ -1189,20 +1149,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         });
       }
 
-      const currentSettings = await database.getGroupChatSettingById(groupId);
-      const nextAgentPromptId = currentSettings?.agent_prompt_id;
-      const nextAutoReplyEnabled = Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'auto_reply_enabled')
-        ? sanitizedUpdates.auto_reply_enabled
-        : currentSettings?.auto_reply_enabled ?? 0;
-
-      if (nextAutoReplyEnabled === 1 && !hasAgentPromptBinding(nextAgentPromptId)) {
-        return res.status(400).json({
-          success: false,
-          error: 'Cannot enable auto reply without an agent prompt binding',
-          timestamp: new Date().toISOString()
-        });
-      }
-
       const success = await database.upsertGroupChatSettings(groupId, sanitizedUpdates);
       const updatedSettings = await database.getGroupChatSettingById(groupId);
 
@@ -1240,11 +1186,10 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
     }
   });
 
-  // 更新私聊用户的 Prompt 绑定
+  // Deprecated: Xiaoni now uses one code-owned prompt, not per-private-chat bindings.
   router.put('/private-chats/:userId/prompt', async (req, res) => {
     try {
       const userId = parseInt(req.params.userId);
-      const { prompt_id } = req.body;
 
       if (!userId || isNaN(userId)) {
         return res.status(400).json({
@@ -1254,38 +1199,13 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         });
       }
 
-      // prompt_id can be null (to unbind) or a valid UUID string
-      const promptId = prompt_id === null ? null : String(prompt_id);
-
-      // Validate prompt exists if not null
-      if (promptId !== null) {
-        const prompt = await database.getAgentPromptById(promptId);
-        if (!prompt) {
-          return res.status(404).json({
-            success: false,
-            error: 'Prompt not found',
-            timestamp: new Date().toISOString()
-          });
-        }
-      }
-
-      const success = await database.updatePrivateChatPrompt(userId, promptId);
-
-      if (success) {
-        logger.info('Private chat prompt updated', { userId, promptId });
-        res.json({
-          success: true,
-          message: 'Prompt binding updated successfully',
-          data: { user_id: userId, agent_prompt_id: promptId },
-          timestamp: new Date().toISOString()
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          error: 'Failed to update prompt binding',
-          timestamp: new Date().toISOString()
-        });
-      }
+      logger.info('Ignored deprecated private chat prompt binding update', { userId });
+      res.json({
+        success: true,
+        message: 'Per-chat prompt binding is deprecated; Xiaoni uses the code-owned prompt.',
+        data: { user_id: userId, agent_prompt_id: null, prompt_source: 'code' },
+        timestamp: new Date().toISOString()
+      });
     } catch (error) {
       logger.error('Failed to update private chat prompt', { error, userId: req.params.userId });
       res.status(500).json({
@@ -1297,11 +1217,10 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
     }
   });
 
-  // 更新群聊的 Prompt 绑定
+  // Deprecated: Xiaoni now uses one code-owned prompt, not per-group bindings.
   router.put('/group-chats/:groupId/prompt', async (req, res) => {
     try {
       const groupId = parseInt(req.params.groupId);
-      const { prompt_id } = req.body;
 
       if (!groupId || isNaN(groupId)) {
         return res.status(400).json({
@@ -1311,38 +1230,13 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         });
       }
 
-      // prompt_id can be null (to unbind) or a valid UUID string
-      const promptId = prompt_id === null ? null : String(prompt_id);
-
-      // Validate prompt exists if not null
-      if (promptId !== null) {
-        const prompt = await database.getAgentPromptById(promptId);
-        if (!prompt) {
-          return res.status(404).json({
-            success: false,
-            error: 'Prompt not found',
-            timestamp: new Date().toISOString()
-          });
-        }
-      }
-
-      const success = await database.updateGroupChatPrompt(groupId, promptId);
-
-      if (success) {
-        logger.info('Group chat prompt updated', { groupId, promptId });
-        res.json({
-          success: true,
-          message: 'Prompt binding updated successfully',
-          data: { group_id: groupId, agent_prompt_id: promptId },
-          timestamp: new Date().toISOString()
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          error: 'Failed to update prompt binding',
-          timestamp: new Date().toISOString()
-        });
-      }
+      logger.info('Ignored deprecated group chat prompt binding update', { groupId });
+      res.json({
+        success: true,
+        message: 'Per-chat prompt binding is deprecated; Xiaoni uses the code-owned prompt.',
+        data: { group_id: groupId, agent_prompt_id: null, prompt_source: 'code' },
+        timestamp: new Date().toISOString()
+      });
     } catch (error) {
       logger.error('Failed to update group chat prompt', { error, groupId: req.params.groupId });
       res.status(500).json({

@@ -25,10 +25,7 @@ function createApp(database: ReturnType<typeof createDatabaseMock>) {
 }
 
 describe('chat settings route regressions', () => {
-  it('normalizes stale auto-reply flags to off when no prompt binding exists', async () => {
-    // Regression: ISSUE-001 — stale rows rendered auto reply as enabled without a prompt binding
-    // Found by /qa on 2026-04-01
-    // Report: .gstack/qa-reports/qa-report-127.0.0.1-2026-04-01.md
+  it('does not require prompt binding when rendering private auto-reply settings', async () => {
     const database = createDatabaseMock();
     database.executeQuery
       .mockResolvedValueOnce([

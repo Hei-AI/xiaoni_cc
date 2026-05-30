@@ -28,17 +28,12 @@ describe('chat settings routes', () => {
   it('normalizes boolean group toggle fields to integer flags', async () => {
     const database = createDatabaseMock();
     database.upsertGroupChatSettings.mockResolvedValue(true);
-    database.getGroupChatSettingById.mockResolvedValueOnce({
-      group_id: 123,
-      agent_prompt_id: 'prompt-123',
-      auto_reply_enabled: 0,
-    });
     database.getGroupChatSettingById.mockResolvedValue({
       group_id: 123,
       group_name: 'Test Group',
       is_enabled: 0,
       continuous_learning_enabled: 0,
-      auto_reply_enabled: 1,
+      auto_reply_enabled: 0,
       transcript_compact_offset: 6,
       agent_prompt_id: 'prompt-123',
     });
@@ -57,7 +52,7 @@ describe('chat settings routes', () => {
       group_id: 123,
       is_enabled: 0,
       continuous_learning_enabled: 0,
-      auto_reply_enabled: 1,
+      auto_reply_enabled: 0,
     });
   });
 
@@ -214,11 +209,12 @@ describe('chat settings routes', () => {
     expect(privateResponse.body.error).toBe('No valid fields to update');
   });
 
-  it('rejects enabling group auto reply without a prompt binding', async () => {
+  it('allows enabling group auto reply without a prompt binding', async () => {
     const database = createDatabaseMock();
+    database.upsertGroupChatSettings.mockResolvedValue(true);
     database.getGroupChatSettingById.mockResolvedValue({
       group_id: 123,
-      auto_reply_enabled: 0,
+      auto_reply_enabled: 1,
       agent_prompt_id: null,
     });
 
@@ -226,16 +222,18 @@ describe('chat settings routes', () => {
       .put('/api/group-chats/123/settings')
       .send({ auto_reply_enabled: true });
 
-    expect(response.status).toBe(400);
-    expect(response.body.error).toBe('Cannot enable auto reply without an agent prompt binding');
-    expect(database.upsertGroupChatSettings).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(database.upsertGroupChatSettings).toHaveBeenCalledWith(123, {
+      auto_reply_enabled: 1,
+    });
   });
 
-  it('rejects enabling private auto reply when the resulting settings have no prompt binding', async () => {
+  it('allows enabling private auto reply without a prompt binding', async () => {
     const database = createDatabaseMock();
+    database.upsertPrivateChatSettings.mockResolvedValue(true);
     database.getPrivateChatSettingById.mockResolvedValue({
       user_id: 456,
-      auto_reply_enabled: 0,
+      auto_reply_enabled: 1,
       agent_prompt_id: null,
     });
 
@@ -243,25 +241,20 @@ describe('chat settings routes', () => {
       .put('/api/private-chats/456/settings')
       .send({ auto_reply_enabled: true });
 
-    expect(response.status).toBe(400);
-    expect(response.body.error).toBe('Cannot enable auto reply without an agent prompt binding');
-    expect(database.upsertPrivateChatSettings).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(database.upsertPrivateChatSettings).toHaveBeenCalledWith(456, {
+      auto_reply_enabled: 1,
+    });
   });
 
-  it('allows enabling private auto reply when a prompt binding is provided in the same update', async () => {
+  it('ignores private prompt binding fields in settings updates', async () => {
     const database = createDatabaseMock();
     database.upsertPrivateChatSettings.mockResolvedValue(true);
-    database.getPrivateChatSettingById
-      .mockResolvedValueOnce({
-        user_id: 456,
-        auto_reply_enabled: 0,
-        agent_prompt_id: null,
-      })
-      .mockResolvedValue({
-        user_id: 456,
-        auto_reply_enabled: 1,
-        agent_prompt_id: 'prompt-456',
-      });
+    database.getPrivateChatSettingById.mockResolvedValue({
+      user_id: 456,
+      auto_reply_enabled: 1,
+      agent_prompt_id: null,
+    });
 
     const response = await request(createApp(database))
       .put('/api/private-chats/456/settings')
@@ -270,7 +263,6 @@ describe('chat settings routes', () => {
     expect(response.status).toBe(200);
     expect(database.upsertPrivateChatSettings).toHaveBeenCalledWith(456, {
       auto_reply_enabled: 1,
-      agent_prompt_id: 'prompt-456',
     });
   });
 

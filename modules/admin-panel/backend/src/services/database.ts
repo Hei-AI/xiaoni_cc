@@ -498,10 +498,7 @@ export class DatabaseManager {
       const query = `
         SELECT user_id, username, is_enabled,
                CASE WHEN is_enabled = 1 THEN continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
-               CASE
-                 WHEN is_enabled = 1 AND agent_prompt_id IS NOT NULL AND TRIM(agent_prompt_id) <> '' THEN auto_reply_enabled
-                 ELSE 0
-               END as auto_reply_enabled,
+               CASE WHEN is_enabled = 1 THEN auto_reply_enabled ELSE 0 END as auto_reply_enabled,
                welcome_message, user_notes,
                transcript_compact_offset, agent_prompt_id, last_activity, created_at, updated_at
         FROM private_chat_settings
@@ -703,10 +700,7 @@ export class DatabaseManager {
       const query = `
         SELECT group_id, group_name, is_enabled,
                CASE WHEN is_enabled = 1 THEN continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
-               CASE
-                 WHEN is_enabled = 1 AND agent_prompt_id IS NOT NULL AND TRIM(agent_prompt_id) <> '' THEN auto_reply_enabled
-                 ELSE 0
-               END as auto_reply_enabled,
+               CASE WHEN is_enabled = 1 THEN auto_reply_enabled ELSE 0 END as auto_reply_enabled,
                welcome_message,
                transcript_compact_offset, admin_user_id, agent_prompt_id, last_activity, created_at, updated_at
         FROM group_chat_settings

@@ -13,10 +13,7 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { Input } from '../components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { usePromptTemplates } from '../hooks/usePromptTemplates';
 import { applyChatSettingToggle, isChatSettingToggleDisabled, type ChatSettingsToggleField } from '@/lib/chat-settings';
-import { formatPromptBindingLabel } from '@/lib/contract-display';
 import { formatIsoOffset, formatTimestamp, getEast8StartOfDay } from '@/lib/utils';
 import { 
   ArrowLeft, 
@@ -144,22 +141,6 @@ const updateUserSettings = async (userId: string, settings: Partial<UserSettings
   return response.json();
 };
 
-const updateUserPrompt = async (userId: string, promptId: string | null) => {
-  const response = await fetch(`/api/private-chats/${userId}/prompt`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ prompt_id: promptId }),
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to update user prompt');
-  }
-
-  return response.json();
-};
-
 const fetchPrivateToolMetrics = async (userId: string, days = 7): Promise<ToolMetricsResponse> => {
   const response = await fetch(`/api/private-chats/${userId}/tool-metrics?days=${days}`);
   if (!response.ok) {
@@ -228,42 +209,6 @@ export const PrivateChatDetailPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['private-chat-details', userId] });
     },
   });
-
-  const { data: promptTemplates = [], isLoading: promptLoading } = usePromptTemplates();
-  const chatPrompts = React.useMemo(
-    () => promptTemplates.filter(template => template.agent_type === 'chat_bot' && template.is_active),
-    [promptTemplates]
-  );
-
-  const updatePromptMutation = useMutation({
-    mutationFn: (promptId: string | null) => updateUserPrompt(userId, promptId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['private-chat-details', userId] });
-    },
-  });
-
-  const currentPrompt = React.useMemo(() => {
-    if (!conversationData?.data.user_settings.agent_prompt_id) {
-      return null;
-    }
-    return chatPrompts.find(prompt => prompt.id === conversationData.data.user_settings.agent_prompt_id) || null;
-  }, [conversationData, chatPrompts]);
-
-  const isPromptBindingResolving = Boolean(
-    conversationData?.data.user_settings.agent_prompt_id &&
-    promptLoading &&
-    !currentPrompt
-  );
-
-  const currentPromptLabel = React.useMemo(() => {
-    if (isPromptBindingResolving) {
-      return '正在加载已绑定 Prompt...';
-    }
-    return formatPromptBindingLabel({
-      promptId: conversationData?.data.user_settings.agent_prompt_id,
-      promptName: currentPrompt?.prompt_name ?? null
-    });
-  }, [conversationData?.data.user_settings.agent_prompt_id, currentPrompt?.prompt_name, isPromptBindingResolving]);
 
   const formatDate = (dateString: string) => {
     return formatTimestamp(dateString);
@@ -403,35 +348,15 @@ export const PrivateChatDetailPage: React.FC = () => {
                 </div>
               </div>
               <div className="space-y-2">
-                <span className="text-sm font-medium">自定义 Prompt:</span>
+                <span className="text-sm font-medium">Prompt:</span>
                 <div className="mb-2">
                   <span className="text-xs text-muted-foreground">当前使用: </span>
                   <Badge variant="outline">
-                    {currentPromptLabel}
+                    小腻主AGENT
                   </Badge>
                 </div>
-                <Select
-                  value={conversationData.data.user_settings.agent_prompt_id || 'unbound'}
-                  onValueChange={(value) => {
-                    const promptValue = value === 'unbound' ? null : value;
-                    updatePromptMutation.mutate(promptValue);
-                  }}
-                  disabled={promptLoading || updatePromptMutation.isPending}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={promptLoading ? '加载中...' : '选择 Prompt'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unbound">未绑定</SelectItem>
-                    {chatPrompts.map(prompt => (
-                      <SelectItem key={prompt.id} value={prompt.id}>
-                        {prompt.prompt_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
                 <p className="text-xs text-muted-foreground mt-2">
-                  这里只展示私聊级显式绑定。未绑定表示后端当前没有私聊级 Prompt 契约。
+                  小腻现在只有一套代码内置 Prompt。私聊级 Prompt 绑定字段只作为历史兼容数据展示，不再参与运行决策。
                 </p>
               </div>
               <div className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">

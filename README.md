@@ -49,6 +49,7 @@ NapCat -> provider-service
 - 管理端默认链路是前端 -> `admin-panel/backend`。
 - `provider-service` 当前负责 provider debug、OneBot 入站和出站、queue 写入、image provider、embeddings 和 timeline 记录。
 - `agent-service` 负责消费消息批次、执行 loop agent，并把 run / trace / transcript / delivery state / 三层长期记忆写回 PostgreSQL。
+- 小腻主 prompt 只有一套，维护在 `modules/agent-service/src/prompts/xiaoni-main-agent.ts`；群/私聊不再绑定不同 prompt，DB prompt 表不再是小腻运行时来源。
 - `agent-service` 还运行两个低频后台循环：presence tick 会把“小腻主动打开群看一眼”入队到主 loop；self-action loop 不直接发 QQ，只调用 provider hosted `web_search`，把真实搜索 residue 写入 `agent_digital_actions` 和 share pool，后续由 presence/context 自然带入聊天。
 - provider 侧的 participation 现在保留为硬安全边界和观测事件，主行为判断逐步收口到 `agent-service` runtime。
 - 当前主发言判断在 `agent-service`；topic projection、transcript snapshot、三层长期记忆等后台能力可以用于观测、后续 typed recall projection、评测或异步产物，但不要把它们当成入口层“是否说话”的总决策器。
@@ -92,7 +93,7 @@ docker compose ps
 - `provider-service` 健康检查、消息模拟、LLM 调试、简单队列接口、embeddings
 - Admin agent run workspace、会话明细、participation events、runtime status、agent runtime task/media 观测
 - Admin Queue Management
-- Prompt 管理 / 编辑 / 调试
+- Prompt 管理 / 编辑 / 调试仍可用于 Playground 和历史调试；小腻主 prompt 不再从 DB 读取。
 - Playground case library、Trace / Conversation 导入、Provider 请求 payload 查看
 - 自主数字行动排障时，先看 `agent_digital_actions`、`agent_share_pool_items` 和 agent-service health 里的 `self_action_busy`
 - Trace 里没有 MITM 命中的真实流量时，会从 `llm_call_logs.wire_request/wire_response` 合成 `provider.request` span；配置了 CLIProxyAPI 请求日志目录时，span detail 会优先展示真实上游 request / response，并脱敏敏感 header
