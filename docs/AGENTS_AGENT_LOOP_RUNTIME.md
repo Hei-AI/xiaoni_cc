@@ -219,7 +219,7 @@ developer:
 developer:
 <current_relationship>...</current_relationship>
 <current_scene>...</current_scene>
-<小腻当前状态>...</小腻当前状态>  # optional presence context
+<小腻当前状态>...</小腻当前状态>  # optional presence context, may include recent real web_search residue
 
 developer:
 <system_reminder>...</system_reminder>  # optional turn_state reminder for low/high energy
@@ -234,6 +234,7 @@ assistant phase=commentary:
 - `<world_narrative>` 如果存在，作为 developer item 放在 index 1，尽早给出世界观阅读底色。
 - 历史、当前消息、媒体、当前处理边界留在中段，让模型先读真实现场。
 - `<current_relationship>`、`<current_scene>`、`<小腻当前状态>` 这类实时状态放在靠后位置，作为本轮最新运行态，而不是压在世界叙事前面。
+- `<小腻当前状态>` 可以带最近的真实 `web_search` 自主数字行动 residue。只有 `source_wording=real_web_search` 的材料能支持“我查到”这类来源措辞。
 - 能量/状态偏置不是 prompt 常驻规则；只有非 normal 时追加 `turn_state` system reminder。
 
 这里要特别纠正一个我前面图里的说法：

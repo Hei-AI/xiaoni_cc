@@ -217,6 +217,29 @@ exports.Prisma.AgentPresenceStateSidecarScalarFieldEnum = {
   created_at: 'created_at'
 };
 
+exports.Prisma.AgentDigitalActionScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  action_type: 'action_type',
+  surface: 'surface',
+  motive_kind: 'motive_kind',
+  motive_text: 'motive_text',
+  query: 'query',
+  status: 'status',
+  source_trace: 'source_trace',
+  result_summary: 'result_summary',
+  residue_text: 'residue_text',
+  residue_kind: 'residue_kind',
+  source_wording: 'source_wording',
+  budget_snapshot: 'budget_snapshot',
+  source_queue_ids: 'source_queue_ids',
+  source_run_ids: 'source_run_ids',
+  error_message: 'error_message',
+  created_at: 'created_at',
+  updated_at: 'updated_at',
+  completed_at: 'completed_at'
+};
+
 exports.Prisma.GroupChatSettingScalarFieldEnum = {
   group_id: 'group_id',
   group_name: 'group_name',
@@ -1017,6 +1040,7 @@ exports.Prisma.ModelName = {
   AgentSharePoolItem: 'AgentSharePoolItem',
   AgentShareItemUsage: 'AgentShareItemUsage',
   AgentPresenceStateSidecar: 'AgentPresenceStateSidecar',
+  AgentDigitalAction: 'AgentDigitalAction',
   GroupChatSetting: 'GroupChatSetting',
   PrivateChatSetting: 'PrivateChatSetting',
   AgentInboundMessage: 'AgentInboundMessage',

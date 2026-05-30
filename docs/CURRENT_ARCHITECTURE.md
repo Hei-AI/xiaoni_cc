@@ -2,7 +2,7 @@
 
 本页只回答一个问题：现在小腻在 QQ 里到底是怎么工作的。
 
-这里不讲历史上做过但现在没有进入主链路的设计。业务上只需要先理解一件事：小腻不是“收到消息就回复”的机器人，而是一个会先看场、再判断自己该不该出现的 QQ 角色。
+这里不讲历史上做过但现在没有进入主链路的设计。业务上只需要先理解一件事：小腻不是“收到消息就回复”的机器人，而是一个会先看场、再判断自己该不该出现的 QQ 角色。她也会低频做自己的数字行动：当前只允许受预算限制的真实 hosted `web_search`，不直接发 QQ。
 
 ## 一句话版
 
@@ -48,6 +48,27 @@ QQ 群 / QQ 私聊
 如果回复，发回 QQ
 ```
 
+后台还有一条不由 QQ 新消息触发的自主数字行动链：
+
+```text
+小腻当前状态 / 预算 / 冷却
+  |
+  v
+self-action loop 判断是否值得行动
+  |
+  v
+真实 hosted web_search
+  |
+  v
+agent_digital_actions 记录 motive / query / source_trace / residue
+  |
+  v
+安全 share_seed 进入 agent_share_pool_items
+  |
+  v
+后续 presence context / main loop 决定是否自然聊出来
+```
+
 技术对应关系只作为定位用：
 
 | 业务概念 | 技术落点 |
@@ -55,6 +76,7 @@ QQ 群 / QQ 私聊
 | QQ 收发通道 | NapCat |
 | 收消息、发消息、调用模型的统一出口 | `provider-service` |
 | 小腻真正做行为判断的地方 | `agent-service` |
+| 小腻自主 web_search 行动记录 | `agent_digital_actions` / `agent_share_pool_items` |
 | 消息、开关、经历、学习结果的存储 | PostgreSQL / `packages/persistence` |
 
 ## 一条消息会经历什么
@@ -353,6 +375,7 @@ stay_silent
 | 三层长期记忆 | 写入已生效，召回投影待接入 | 上下文压缩时写 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`；后续由 typed recall projection 注入运行时上下文。 |
 | 身份连续性 | 生效 | 已确认的身份事实会进入当前场景。 |
 | 搜索外部信息 | 有条件生效 | 只有当前阶段允许、且她判断需要资料时才会用。 |
+| 自主 web_search 数字行动 | 生效 | 后台 self-action loop 低频触发真实 hosted `web_search`，写入 `agent_digital_actions` 和 share pool；不直接发 QQ。 |
 | 记录本次处理过程 | 生效 | 包括是否发言、用了什么工具、模型调用等。 |
 | 处理后沉淀经验 | 生效 | 完成的对话之后，后台可能生成新的反馈经验或身份候选。 |
 
@@ -379,6 +402,7 @@ stay_silent
 - topic projection 执行器。
 - transcript summary 结果接口。
 - 独立的 pre-agent gate 方案。
+- 完整浏览器生活侧效应，例如登录、点赞、关注、评论、下载或跨平台身份行为。当前 self-action 只做 hosted `web_search`。
 
 它们可能用于历史、实验或未来工作，但当前理解小腻真实行为时，先从这条链路开始：
 

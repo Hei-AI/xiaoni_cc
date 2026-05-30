@@ -1,10 +1,13 @@
 # Xiaoni Digital Life And Presence Context Design
 
-Status: design-locked from office-hours on 2026-05-26. Not part of the current
-P0-A Tasks 1-4 patch set.
+Status: design-locked from office-hours on 2026-05-26. Current implementation
+has landed the presence-context first slice and a constrained real hosted
+`web_search` self-action slice. This is still not the full browser-backed
+digital-life system.
 
-This document is the system of record for the future browser-backed digital-life
-/ `presence_context` loop. `TODOS.md` keeps only the execution summary.
+This document is the system of record for browser-backed digital life,
+`presence_context`, and the current self-action slice. `TODOS.md` keeps only the
+execution summary.
 
 **Core framing:**
 
@@ -34,11 +37,12 @@ energy, dopamine, boredom, and sharing desire to act.
   post, download, save, organize, and revisit content as a normal digital user.
   The governing rule is not "what is forbidden", but whether the action follows
   Xiaoni's own motive, identity, energy, and traceable history.
-- Near-term implementation should mock this external action layer first. Mocked
-  actions must be explicitly labeled as mock/simulated internally and must not
-  be represented to QQ users as real browsing, liking, posting, or downloading.
-  The mock exists to validate action selection, state changes, trace shape, and
-  share-pool flow before connecting real browser side effects.
+- Original near-term implementation favored a mock-first external action layer.
+  The 2026-05-30 implementation intentionally skipped mock for the first
+  autonomous action and landed a narrower real hosted `web_search` path instead.
+  Mocked actions, if added later, must still be explicitly labeled internally
+  and must not be represented to QQ users as real browsing, liking, posting, or
+  downloading.
 - Digital-life exploration should be driven by internal state, not fixed
   frequency. Boredom, fatigue, dopamine, pressure, and sharing desire decide
   whether she browses, opens QQ, shares, lurks, sleeps, or says very little.
@@ -177,25 +181,30 @@ cannot become more and more active when she is already exhausted.
 
 **Not in current implementation scope:**
 
-- Real autonomous browser exploration with side effects.
+- Real autonomous browser exploration with page navigation or side effects beyond
+  hosted `web_search`.
 - Real external posting, liking, following, login-state usage, downloading, or
   cross-platform public identity mutation.
-- Production digital-life storage tables beyond the first mock/action-log shape.
+- Full digital reading / watching / gaming / organizing action storage beyond
+  the first `agent_digital_actions` web-search action shape.
 - Full share-pool ranking.
 - Full reaction feedback loop into interests and sharing desire.
 - Full state-driven action scheduling for browsing/opening QQ/sleeping.
 
-Current planned first slice:
+Current implemented slices:
 
-- Implement a mock external-action layer that can emit simulated actions such as
-  `search`, `open`, `read`, `watch`, `play`, `save`, `like`, `follow`,
-  `comment`, `post`, and `download` without touching the real internet.
-- Store/trace those mock actions so operators can inspect why Xiaoni wanted to
-  act, what state she was in, and whether the action produced a share candidate.
-- Mock output may enter group chat as Xiaoni's own thought, joke, topic, reading
-  impression, viewing impression, or game impression. The hard line is source
-  wording: constructed mock material cannot be phrased as "刚看到 / 刚刷到 /
-  我查到 / 我刚在评论区看到" and cannot claim a real external action happened.
+- 2026-05-26: presence tick, share pool, life-state anchors, and sidecar traces.
+  This lets Xiaoni proactively open a configured group and inject factual
+  `<小腻当前状态>` into the normal main loop.
+- 2026-05-30: self-action `web_search`. The agent-service background loop checks
+  budget, cooldown, startup grace, fatigue, and user-interaction limits, then
+  calls provider-service with hosted `web_search` plus
+  `emit_self_search_result`. Completed actions are written to
+  `agent_digital_actions`; safe `share_seed` residue is written to
+  `agent_share_pool_items`.
+- Real-source wording is allowed only when the action trace proves a completed
+  `web_search` whose query matches the emitted result. Constructed or mock
+  material still cannot be phrased as "刚看到 / 刚刷到 / 我查到 / 我刚在评论区看到".
 
 Mock-to-interest promotion rule:
 
@@ -648,9 +657,12 @@ is engineering decomposition and subagent execution planning.
 
 **Near-term implementation implication:**
 
-Do not implement a standalone fake `presence_context` now. The current P0-A code
-work should only add the stable `world_narrative` developer context explaining
-why Xiaoni opens and participates in group chat. The browser-backed digital-life
-loop remains a later design/architecture task.
+Do not treat the current self-action code as the full browser-backed digital-life
+loop. It proves the first real-source path: Xiaoni can perform a small hosted
+`web_search` for her own motive, store a traceable residue, and let later
+presence/main-loop context decide whether that residue naturally enters QQ.
+Everything beyond that, including navigation, reading, watching, posting,
+liking, downloading, and stable-interest mutation from digital activity, remains
+future work.
 
 ---

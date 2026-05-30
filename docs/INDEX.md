@@ -30,10 +30,12 @@
   - `docs/AGENTS_AGENT_LOOP_RUNTIME.md`
 - 小腻被动发言 / 主动发言阶段图、数据源和来源：
   - `docs/XIAONI_SPEAKING_FLOW.md`
-- 小腻数字生活 / `presence_context` 设计：
+- 小腻数字生活 / `presence_context` 设计与已落地 self-action slice：
   - `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`
 - 路线图：
   - `docs/ROADMAP.md`
+- 当前主动队列：
+  - `TODOS.md`
 - 执行计划归档与当前候选：
   - `docs/exec-plans/README.md`
   - `docs/exec-plans/active/`

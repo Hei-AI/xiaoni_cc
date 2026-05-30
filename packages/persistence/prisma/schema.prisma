@@ -129,6 +129,34 @@ model AgentPresenceStateSidecar {
   @@map("agent_presence_state_sidecars")
 }
 
+model AgentDigitalAction {
+  id               String    @id @db.VarChar(128)
+  identity_key     String    @db.VarChar(191)
+  action_type      String    @db.VarChar(64)
+  surface          String    @db.VarChar(64)
+  motive_kind      String?   @db.VarChar(64)
+  motive_text      String?
+  query            String?
+  status           String    @default("planned") @db.VarChar(32)
+  source_trace     Json      @default("{}")
+  result_summary   String?
+  residue_text     String?
+  residue_kind     String?   @db.VarChar(64)
+  source_wording   String?   @db.VarChar(64)
+  budget_snapshot  Json      @default("{}")
+  source_queue_ids Json      @default("[]")
+  source_run_ids   Json      @default("[]")
+  error_message    String?
+  created_at       DateTime  @default(now()) @db.Timestamp(3)
+  updated_at       DateTime  @updatedAt @db.Timestamp(3)
+  completed_at     DateTime? @db.Timestamp(3)
+
+  @@index([identity_key, created_at], map: "idx_agent_digital_actions_identity_created")
+  @@index([status, created_at], map: "idx_agent_digital_actions_status_created")
+  @@index([surface, created_at], map: "idx_agent_digital_actions_surface_created")
+  @@map("agent_digital_actions")
+}
+
 model GroupChatSetting {
   group_id           BigInt    @id @db.BigInt
   group_name         String?

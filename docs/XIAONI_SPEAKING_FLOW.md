@@ -21,9 +21,13 @@ flowchart TD
 
   AgentTimer[agent-service presence timer] --> LifeGate[life state gate<br/>boredom / fatigue / cooldown]
   LifeGate -->|eligible| PresenceQueue[(synthetic presence_tick<br/>agent_queue_messages)]
+  SelfActionTimer[agent-service self-action timer] --> SelfGate[self-action gate<br/>budget / cooldown / user interaction]
+  SelfGate -->|eligible| SelfSearch[hosted web_search<br/>self_action_search]
+  SelfSearch --> DigitalActions[(agent_digital_actions)]
+  DigitalActions --> SharePool[(agent_share_pool_items)]
 
   Queue --> Loop[agent-service main loop]
-  PresenceQueue --> PresenceCtx[buildPresenceContext<br/>life state + share pool]
+  PresenceQueue --> PresenceCtx[buildPresenceContext<br/>life state + share pool + digital residue]
   PresenceCtx --> Loop
 
   Loop --> Context[组装输入<br/>已读历史 / 未读消息 / OS / 身份事实 / 媒体 / 当前状态]
@@ -44,7 +48,7 @@ flowchart TD
   Learn --> Memory[(episodic / semantic / reflection memories<br/>identity facts)]
 ```
 
-一句话：被动发言和主动发言最后都汇入同一个 `agent-service` main loop。差别只在队列消息是怎么来的，以及主动发言在进入 loop 前会额外注入 `presence_context`。
+一句话：被动发言和 presence 主动发言最后都汇入同一个 `agent-service` main loop。自主数字行动不直接发 QQ；它先由后台 self-action loop 真实调用 `web_search`，把 residue 写入行动表和 share pool，后续 presence/context 再决定是否自然带入聊天。
 
 ## 被动发言路径
 
@@ -99,6 +103,43 @@ presence tick 只决定“要不要主动打开目标群看一眼并入队”。
 - `modules/agent-service/src/index.ts`：presence timer 调度。
 - `modules/agent-service/src/services/runtime-store.ts`：`enqueuePresenceTick`、`buildPresenceContext`、`recordPresenceSidecar`。
 - `modules/agent-service/src/services/presence-context.ts`：life state 计算、share pool 打分、当前状态 block 生成。
+
+## 自主数字行动路径
+
+```mermaid
+flowchart TD
+  A[agent-service self-action timer<br/>默认 15 分钟检查] --> B[evaluateSelfActionEligibility]
+  B --> C{budget / cooldown / startup grace / fatigue / user interaction}
+  C -->|not eligible| D[不行动]
+  C -->|eligible| E[(agent_digital_actions<br/>status=running)]
+  E --> F[provider-service /api/internal/agent/execute<br/>agent_type=self_action_search]
+  F --> G[hosted web_search<br/>required by allowed_tools]
+  G --> H[emit_self_search_result]
+  H --> I[(agent_digital_actions<br/>status=completed)]
+  I --> J{safe share_seed?}
+  J -->|yes| K[(agent_share_pool_items<br/>source_kind=web_search)]
+  J -->|no| L[只保留行动记录]
+  K --> M[buildPresenceContext<br/>recent digital residue]
+```
+
+自主数字行动不是模拟浏览，也不是直接找群友说话。它只做一件事：小腻根据当前状态自己选择一个小的公开信息问题，必须真实调用 hosted `web_search`，然后通过 `emit_self_search_result` 把可追溯残留写入 `agent_digital_actions`。服务端会校验 `emit_self_search_result.query` 必须匹配已经完成的 `web_search` query；只有 `source_wording=real_web_search` 且边界安全的 `share_seed` 才会进入 share pool。
+
+当前运行环境里：
+
+- `SELF_ACTION_ENABLED=true`
+- `SELF_ACTION_INTERVAL_MS=900000`
+- `SELF_ACTION_COOLDOWN_MS=3600000`
+- `SELF_ACTION_STARTUP_GRACE_MS=600000`
+- `SELF_ACTION_DAILY_BUDGET=3`
+- `SELF_ACTION_HOURLY_BUDGET=1`
+- `SELF_ACTION_MAX_CONSECUTIVE_WITHOUT_USER=1`
+
+关键代码入口：
+
+- `modules/agent-service/src/index.ts`：self-action timer 调度。
+- `modules/agent-service/src/services/self-action-service.ts`：自主搜索请求、工具契约、结果抽取和 share pool 写入。
+- `modules/agent-service/src/services/runtime-store.ts`：预算判断、`agent_digital_actions` 生命周期、presence context 投影。
+- `packages/persistence/agent-presence.js`：`agent_digital_actions`、share pool 和 presence 相关持久化。
 
 ## Main Loop 阶段
 
@@ -621,7 +662,8 @@ context_summary_writer 不再暴露 write_context_summary 工具。
 | 当前新消息 | 当前 queue batch | 来自 `agent_queue_messages.payload/messages` | 渲染为本轮新的 `<INPUT_MESSAGE>`，并通过 `<system_reminder>` 标出处理边界 |
 | 身份事实 | accepted identity facts / lineage | context compression memory writer 或身份链路沉淀 | 作为身份连续性输入，不让小腻每轮从零开始 |
 | 当前状态 | `agent_session_life_states`、`agent_session_group_states` | 主动/被动活动时更新 last active、last user message、last proactive 等 | 计算 boredom、fatigue、energy、sharing desire |
-| share pool | `agent_share_pool_items` | mock/constructed/digital-life/group residue/真实浏览材料等写入 | presence context 取未用且非 blocked 的材料，最多 top 3 注入 |
+| 自主数字行动 | `agent_digital_actions` | self-action loop 调用 provider hosted `web_search` 后写入 | 记录 motive、query、source_trace、residue；presence context 可投影最近真实搜索残留 |
+| share pool | `agent_share_pool_items` | group residue / 自主数字行动真实 web_search residue 等写入 | presence context 取未用且非 blocked 的材料，最多 top 3 注入 |
 | share usage | `agent_share_item_usages` | presence context 使用某条 material 后写入 | 防止同一 `target_session_key` 重复拿同一材料 |
 | presence trace | `agent_presence_state_sidecars` | 每次 presence context 生成后记录 | 保留最终 block、source items、scores、boundary，方便追责 |
 | 三层长期记忆 | `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections` | 上下文压缩时由 `context_compression_memory_writer` 从即将移出窗口的历史中提炼 | 后续 typed recall projection 按 episodic / semantic / reflection 分层注入运行时上下文 |
@@ -634,7 +676,7 @@ context_summary_writer 不再暴露 write_context_summary 工具。
 
 ```mermaid
 flowchart TD
-  A[group residue / digital action / mock constructed material / real browsing] --> B[agent_share_pool_items]
+  A[group residue / real self-action web_search residue] --> B[agent_share_pool_items]
   B --> C[listAgentSharePoolItems<br/>identity=xiaoni, boundary != blocked]
   C --> D[scoreSharePoolItem<br/>base_heat * time_decay - boundary - effort]
   D --> E[top 3 material]
@@ -651,7 +693,7 @@ share pool 是小腻临时的“我可能想聊什么”缓冲，不是知识库
 - `reframe`：必须去掉本地细节后抽象表达。
 - `blocked`：不能进入可分享材料。
 
-`source_wording` 很重要。mock 或 constructed 材料不能说成“刚刷到”“刚看到”“我查到”，只能表达成自己的想法、印象或整理出来的话题。
+`source_wording` 很重要。只有 `real_web_search` 能说成“我查到”；其他整理材料不能说成“刚刷到”“刚看到”“我查到”，只能表达成自己的想法、印象或整理出来的话题。
 
 ## 自学习闭环
 
@@ -688,6 +730,7 @@ flowchart TD
 | 进 loop 但没说话 | `tool_execution_logs` 里的 `emit_unread_meaning`、`emit_inner_reaction`、`stay_silent` |
 | 主动发言不触发 | `PRESENCE_TICK_*` 环境变量、`agent_session_life_states`、cooldown/fatigue/boredom |
 | 主动发言没材料 | `agent_share_pool_items`、`agent_share_item_usages`、`agent_presence_state_sidecars` |
+| 自主 web_search 不运行或不入池 | `SELF_ACTION_*` 环境变量、`agent_digital_actions`、provider-service `/api/internal/agent/execute`、query/source trace 校验 |
 | 说话重复 | `agent_runs.delivery_phase`、delivery commit 相关日志 |
 | 召回经验少 | `agent_memory_observations`、`agent_memory_assertions`、`agent_memory_reflections` 的写入量和后续 typed recall projection 命中率 |
 | 图没看懂 | `agent_media_assets`、`inspect_image_placeholder` 工具结果 |
@@ -712,6 +755,12 @@ presence tick
   -> synthetic queue message
   -> buildPresenceContext 注入当前状态和 share pool
   -> 同一个 main loop
+
+self-action search
+  -> agent-service 根据预算/冷却/状态判断是否自己查一个公开问题
+  -> provider-service hosted web_search
+  -> agent_digital_actions + agent_share_pool_items
+  -> 后续 presence/main loop 决定是否自然聊出来
 ```
 
 不要把小腻理解成“收到消息就回复”的 bot。当前真实主链路是：她先看场，再看自己有没有具体可说点，工程层再用 allowed tools 把结果收敛到沉默、求知、发言或后台任务。

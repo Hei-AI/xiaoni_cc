@@ -5,7 +5,7 @@
 当前主仓保留运行底座和管理端：
 
 - `provider-service`: NapCat / OneBot 入口、LLM provider 执行、消息模拟、embeddings、queue 入口
-- `agent-service`: 主 agent loop runtime，消费 queue batch、重建上下文、执行 agent run，并控制 delivery state
+- `agent-service`: 主 agent loop runtime，消费 queue batch、重建上下文、执行 agent run、控制 delivery state，并运行 presence / self-action 后台循环
 - `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、run workspace、Image Lab、Codex 账号池、流量查看/回放、runtime status
 - `admin-panel/frontend`: 管理界面
 - `postgres`: 数据存储
@@ -49,6 +49,7 @@ NapCat -> provider-service
 - 管理端默认链路是前端 -> `admin-panel/backend`。
 - `provider-service` 当前负责 provider debug、OneBot 入站和出站、queue 写入、image provider、embeddings 和 timeline 记录。
 - `agent-service` 负责消费消息批次、执行 loop agent，并把 run / trace / transcript / delivery state / 三层长期记忆写回 PostgreSQL。
+- `agent-service` 还运行两个低频后台循环：presence tick 会把“小腻主动打开群看一眼”入队到主 loop；self-action loop 不直接发 QQ，只调用 provider hosted `web_search`，把真实搜索 residue 写入 `agent_digital_actions` 和 share pool，后续由 presence/context 自然带入聊天。
 - provider 侧的 participation 现在保留为硬安全边界和观测事件，主行为判断逐步收口到 `agent-service` runtime。
 - 当前主发言判断在 `agent-service`；topic projection、transcript snapshot、三层长期记忆等后台能力可以用于观测、后续 typed recall projection、评测或异步产物，但不要把它们当成入口层“是否说话”的总决策器。
 - 当前对话历史里的 `<小腻的OS>` 视为小腻跨轮延续下来的内部状态与成长轨迹，按历史真相保留，并随已读历史一起参与上下文窗口管理。
@@ -93,6 +94,7 @@ docker compose ps
 - Admin Queue Management
 - Prompt 管理 / 编辑 / 调试
 - Playground case library、Trace / Conversation 导入、Provider 请求 payload 查看
+- 自主数字行动排障时，先看 `agent_digital_actions`、`agent_share_pool_items` 和 agent-service health 里的 `self_action_busy`
 - Trace 里没有 MITM 命中的真实流量时，会从 `llm_call_logs.wire_request/wire_response` 合成 `provider.request` span；配置了 CLIProxyAPI 请求日志目录时，span detail 会优先展示真实上游 request / response，并脱敏敏感 header
 - Image Lab 生成 / 编辑 / prompt assistant
 - Codex OAuth 账号池状态、导入、刷新与 active auth 投影
