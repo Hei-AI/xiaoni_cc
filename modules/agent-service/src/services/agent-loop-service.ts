@@ -124,6 +124,10 @@ type ToolContinuationContext = {
   hasVisibleReply: boolean;
 };
 
+type ExecuteToolOptions = {
+  stateBias?: TurnControlStateBias;
+};
+
 type TurnControlStage =
   | 'read_unread'
   | 'feel_reaction'
@@ -133,26 +137,25 @@ type TurnControlStage =
 type TurnControlStateBias = 'low_energy' | 'normal' | 'high_energy';
 type TurnControlRecallStatus = 'not_needed';
 type TurnControlExpectedNext =
-  | 'emit_unread_meaning'
-  | 'emit_inner_reaction'
+  | 'submit_life_action'
   | 'final_tool';
-type InnerReactionContextGap =
+type LifeActionContextGap =
   | 'none'
   | 'current_context_insufficient'
   | 'needs_private_memory'
   | 'needs_public_info'
   | 'unclear_group_reference';
-type InnerReactionGapResolution =
+type LifeActionGapResolution =
   | 'none'
   | 'memory'
   | 'web_search'
   | 'ask_group'
   | 'memory_then_ask_or_search';
-type InnerReactionParticipationJudgmentStatus =
+type LifeActionParticipationJudgmentStatus =
   | 'has_sayable_point'
   | 'no_sayable_point'
   | 'direct_request';
-type InnerReactionParticipationJudgmentBasis =
+type LifeActionParticipationJudgmentBasis =
   | 'opinion'
   | 'question'
   | 'curiosity'
@@ -259,6 +262,7 @@ type ContextBudgetTurnRecord = {
 
 type ContextBudgetPlan = {
   requestInput: OpenResponseInputItem[];
+  summarySourceInput: OpenResponseInputItem[] | null;
   retainedHistory: ConversationTurn[];
   runtimeIdentityFacts: RuntimeIdentityFactProjection[];
   readCutoffAfterConversationId: number | null;
@@ -294,21 +298,24 @@ type UnreadMeaning = {
   topicContext: UnreadMeaningTopicContext | null;
 };
 
-type InnerReaction = {
+type LifeAction = {
+  unreadMeaning: UnreadMeaning | null;
+  actionType: 'speak' | 'silent' | 'search' | 'image_task' | 'proactive';
+  evidenceRefs: string[];
+  confidence: number | null;
   interestLevel: 'none' | 'low' | 'medium' | 'high';
   wantsToKnowMore: boolean;
   reactionAuthenticity: 'none' | 'weak_but_real' | 'formed' | 'empty_but_convenient';
   participationJudgment: {
-    status: InnerReactionParticipationJudgmentStatus;
-    basis: InnerReactionParticipationJudgmentBasis;
+    status: LifeActionParticipationJudgmentStatus;
+    basis: LifeActionParticipationJudgmentBasis;
     sayablePoint: string | null;
     evidenceRefs: string[];
     memoryRefs: string[];
   };
   shouldSearch: boolean;
-  preferredAction: 'speak' | 'silent' | 'search' | 'image_task' | 'proactive';
-  contextGap: InnerReactionContextGap;
-  gapResolution: InnerReactionGapResolution;
+  contextGap: LifeActionContextGap;
+  gapResolution: LifeActionGapResolution;
   reason: string;
 };
 
@@ -370,7 +377,7 @@ type FeedbackMemorySubagentParams = {
   xiaoniOs: string | null;
   deliveredMessages: string[];
   unreadMeaningArtifact: Record<string, unknown> | null;
-  innerReactionArtifact: Record<string, unknown> | null;
+  lifeActionArtifact: Record<string, unknown> | null;
 };
 
 type ContextCompressionMemoryParams = {
@@ -415,7 +422,7 @@ const RUNTIME_IDENTITY_FACT_LIMIT = 4;
 
 const TOOL_NAMES = {
   unreadMeaning: 'emit_unread_meaning',
-  innerReaction: 'emit_inner_reaction',
+  lifeAction: 'submit_life_action',
   inspectImage: 'inspect_image_placeholder',
   imageTask: 'request_image_task',
   feedbackReflection: 'synthesize_feedback_reflection',
@@ -643,17 +650,96 @@ const UNREAD_MEANING_TOOL = {
   }
 } as const;
 
-const INNER_REACTION_TOOL = {
+const LIFE_ACTION_TOOL = {
   type: 'function',
   function: {
-    name: TOOL_NAMES.innerReaction,
+    name: TOOL_NAMES.lifeAction,
     description: [
-      '根据已理解的新消息输出小腻当前有没有具体可说点，或者是否只是被直接请求处理一件事。',
-      '如果只能复述、附和、泛泛评价，或补一句也不违和但没有具体内容，participation_judgment.status 必须是 no_sayable_point。'
+      '一次性完成小腻本轮生活动作决策。这个工具同时提交当前未读理解、参与判断、最终动作和必要的发言/沉默状态。',
+      '普通 speak/silent/proactive 必须直接用这个工具收口，不要先调用 emit_unread_meaning 再进入第二轮。',
+      '只有确实需要外部 web_search、看图或图片任务结果时，action_type 才能选 search/image_task 并进入后续工具轮。',
+      '如果只是能接话但没有具体可说点，action_type 必须是 silent。'
     ].join(' '),
     parameters: {
       type: 'object',
       properties: {
+        unread_meaning: {
+          type: 'object',
+          description: '当前新入站消息的一次性理解结果；替代旧的单独 emit_unread_meaning turn。',
+          properties: {
+            latest_unread_focus: { type: 'string' },
+            message_act: {
+              type: 'string',
+              enum: ['statement', 'question', 'joke', 'tease', 'feedback', 'reaction', 'request', 'unclear']
+            },
+            social_target: {
+              type: 'string',
+              enum: ['me', 'someone_else', 'group', 'unclear']
+            },
+            addressed_to_me: { type: 'boolean' },
+            has_real_novelty: { type: 'boolean' },
+            confidence: {
+              type: 'string',
+              enum: ['low', 'medium', 'high']
+            },
+            reason: { type: 'string' },
+            social_act_type: {
+              type: 'string',
+              enum: ['invitation_curiosity', 'emotional_release', 'relationship_probe', 'concrete_request', 'yes_no_reaction', 'casual_remark']
+            },
+            topic_context: {
+              type: 'object',
+              properties: {
+                has_topic: { type: 'boolean' },
+                topic_summary: { type: 'string' },
+                addressed_to_me: { type: 'boolean' }
+              },
+              required: ['has_topic', 'addressed_to_me'],
+              additionalProperties: false
+            }
+          },
+          required: ['latest_unread_focus', 'message_act', 'social_target', 'addressed_to_me', 'has_real_novelty', 'confidence', 'reason', 'topic_context'],
+          additionalProperties: false
+        },
+        action_type: {
+          type: 'string',
+          enum: ['speak', 'silent', 'search', 'image_task', 'proactive'],
+          description: '本轮最终动作。speak/proactive/silent 会直接收口；search/image_task 只在必须外部结果时进入后续工具轮。'
+        },
+        message: {
+          type: 'string',
+          description: 'action_type=speak/proactive 时可用。只放要发给 QQ 的一句话；多段时用 messages。'
+        },
+        messages: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'action_type=speak/proactive 时可用。多段 QQ 可见消息。'
+        },
+        mention_user_ids: {
+          type: 'array',
+          items: { type: 'integer' },
+          description: '群聊发言时可选。只在自然点名、回应或拉人进话题时填写。'
+        },
+        outcome: {
+          type: 'string',
+          description: 'action_type=silent 时的收口结果，例如 no_sayable_point、not_addressed_to_me、low_energy。'
+        },
+        reason: {
+          type: 'string',
+          description: '一句话说明为什么这个动作现在成立。不要写隐藏推理链。'
+        },
+        evidence_refs: {
+          type: 'array',
+          maxItems: 6,
+          items: { type: 'string' },
+          description: '支持这个动作的当前现场引用，例如 message_id、sender、wake_event 或 residue id。没有就空数组。'
+        },
+        confidence: {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+          description: '0 到 1 的动作确信度；低确信度优先 silent。'
+        },
         interest_level: {
           type: 'string',
           enum: ['none', 'low', 'medium', 'high']
@@ -671,29 +757,25 @@ const INNER_REACTION_TOOL = {
           properties: {
             status: {
               type: 'string',
-              enum: ['has_sayable_point', 'no_sayable_point', 'direct_request'],
-              description: 'has_sayable_point=小腻有一条具体可说点：观点、问题、好奇、不适、联想或边界；no_sayable_point=只能复述、附和或泛泛评价；direct_request=对方直接请求小腻处理能力或事实。'
+              enum: ['has_sayable_point', 'no_sayable_point', 'direct_request']
             },
             basis: {
               type: 'string',
-              enum: ['opinion', 'question', 'curiosity', 'discomfort', 'association', 'boundary', 'direct_request', 'none'],
-              description: '可说点的类型。status=no_sayable_point 时必须为 none；direct_request 时通常为 direct_request。'
+              enum: ['opinion', 'question', 'curiosity', 'discomfort', 'association', 'boundary', 'direct_request', 'none']
             },
             sayable_point: {
               type: 'string',
-              description: '一句话写清小腻当前具体想补充的内容点。status=no_sayable_point 时填空字符串。不要写内部推理链。'
+              description: '一句话写清小腻当前具体想补充的内容点。status=no_sayable_point 时填空字符串。'
             },
             evidence_refs: {
               type: 'array',
               maxItems: 6,
-              items: { type: 'string' },
-              description: '支持这个参与判断的当前消息引用，例如 message_id、sender 或短证据。没有就空数组。'
+              items: { type: 'string' }
             },
             memory_refs: {
               type: 'array',
               maxItems: 6,
-              items: { type: 'string' },
-              description: '当前运行时已提供的身份连续性或长期记忆引用。没有就空数组；不要编造记忆。'
+              items: { type: 'string' }
             }
           },
           required: ['status', 'basis', 'sayable_point', 'evidence_refs', 'memory_refs'],
@@ -701,27 +783,44 @@ const INNER_REACTION_TOOL = {
         },
         should_search: {
           type: 'boolean',
-          description: '只有当前上下文不足且缺口属于公开信息时才为 true；不要因为想多看一点就置 true。'
-        },
-        preferred_action: {
-          type: 'string',
-          enum: ['speak', 'silent', 'search', 'image_task', 'proactive']
+          description: '只有当前上下文不足且缺口属于公开信息时才为 true。'
         },
         context_gap: {
           type: 'string',
-          enum: ['none', 'current_context_insufficient', 'needs_private_memory', 'needs_public_info', 'unclear_group_reference'],
-          description: '当前上下文窗口是否足够判断。none=当前上下文足够；needs_private_memory=需要小腻长期记忆/关系连续性；needs_public_info=需要公开互联网事实；unclear_group_reference=群友在说一段当前窗口看不到、可能来自别处的内部上下文。'
+          enum: ['none', 'current_context_insufficient', 'needs_private_memory', 'needs_public_info', 'unclear_group_reference']
         },
         gap_resolution: {
           type: 'string',
-          enum: ['none', 'memory', 'web_search', 'ask_group', 'memory_then_ask_or_search'],
-          description: '如果有信息缺口，下一步最合适的信息来源。群聊内部梗或别的小群内容优先 memory；记忆找不到后可以 ask_group。公开实体/新鲜事实用 web_search。'
+          enum: ['none', 'memory', 'web_search', 'ask_group', 'memory_then_ask_or_search']
         },
-        reason: {
-          type: 'string'
+        xiaoni_os: {
+          type: 'string',
+          description: '给下一次运行保留的内部连续性：当前动作之后留在你这里的东西。不发给任何人。'
+        },
+        pending_share: {
+          type: 'string',
+          description: '如果有想找机会主动说的材料，写在这里带到下一轮。可选。'
+        },
+        operation: {
+          type: 'string',
+          enum: ['generate', 'edit'],
+          description: 'action_type=image_task 且可以直接登记任务时使用。'
+        },
+        prompt: {
+          type: 'string',
+          description: 'action_type=image_task 且可以直接登记任务时使用。'
+        },
+        target_description: {
+          type: 'string',
+          description: 'action_type=image_task 且可以直接登记任务时使用。'
+        },
+        source_media_tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'action_type=image_task 时引用当前上下文图片占位符。'
         }
       },
-      required: ['interest_level', 'wants_to_know_more', 'reaction_authenticity', 'participation_judgment', 'should_search', 'preferred_action', 'context_gap', 'gap_resolution', 'reason'],
+      required: ['unread_meaning', 'action_type', 'reason', 'evidence_refs', 'confidence', 'interest_level', 'wants_to_know_more', 'reaction_authenticity', 'participation_judgment', 'should_search', 'context_gap', 'gap_resolution', 'xiaoni_os'],
       additionalProperties: false
     }
   }
@@ -1099,24 +1198,23 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '`<小腻的OS>` 是你留给后续自己的内部连续性，不是 QQ 消息。',
   '`<图片内容>` 是你已经检查过图片后留下的观察；没有这个标签时，不要猜图里有什么。',
   '`<system_reminder>` 是工程控制逻辑给你的当前运行边界提醒，不是群友说的话。',
-  '`<对话历史摘要>` 是更早上下文的压缩摘要。',
+  '`<小腻近况>` 是压缩后置顶的纯文本近况时报，像人类对刚才、今天、最近一段的模糊记忆；它不是精确 transcript，也不是召回结果。',
   '',
   '只处理 `<system_reminder>` 指出的新消息范围。历史消息是背景，已经处理过的旧话只作为理解现场的上下文。',
   '',
   '消息里的”回复某人””@某人””引用”是说话的社交方向，影响谁在和谁说话，记得一起理解进去。',
   '当前可见输入里如果有人直接给小腻反馈、纠偏、批评或称赞，这是行为校准信号；从可见上下文处理，不要当作隐藏记忆来源。',
   '',
-  '本次运行顺序：',
-  '先看当前是否有 `<IM_INBOX_WINDOW>`。有窗口时，按窗口内 INPUT_MESSAGE 的时间顺序理解现场，并用 emit_unread_meaning 概括这次打开 IM 看到的重点。',
-  '如果当前只有 `<UNREAD_AVAILABLE>`，emit_unread_meaning 只能标记“有未打开未读”和等待/沉默的理由。',
-  '再判断当前有没有具体可说点、是否只是直接请求、当前上下文是否足够，用 emit_inner_reaction。',
-  '最后通过工具完成当前动作——说话、沉默、查资料还是做图。',
+  '本次运行默认只有一次决策请求：',
+  '直接用 submit_life_action 一次性提交 unread_meaning、参与判断、最终动作和 xiaoni_os。',
+  '普通说话、主动说一句、沉默，都必须在 submit_life_action 里直接收口；不要先调用 emit_unread_meaning，也不要把判断拆成多轮。',
+  '只有真的需要外部结果时才进入后续工具轮：公开新资料用 web_search，看图用 inspect_image_placeholder，登记图片任务用 request_image_task。',
   '',
   '工具阶段：',
-  'commentary 工具只整理现场或补充上下文：emit_unread_meaning、emit_inner_reaction、inspect_image_placeholder、web_search。',
+  'commentary 工具只补充必要外部上下文：inspect_image_placeholder、web_search。submit_life_action 是本轮决策入口；普通场景也是最终收口。',
   'final_answer 工具会结束当前动作或产生外部动作：speak_in_group、reply_in_private、stay_silent、request_image_task。',
   '',
-  'preferred_action 的含义：',
+  'submit_life_action.action_type 的含义：',
   'speak = 你有具体可说点，并且确实有一句要公开说的话。',
   'silent = 没什么想说的。',
   'search = 想查清楚再说。',
@@ -1133,6 +1231,7 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '',
   'web_search 是求知，不是默认步骤，也不是表演认真。',
   '只有真的需要新鲜公开信息时才查，查到够用就停，查完还是你自己决定说不说。',
+  '如果使用 web_search，搜索后仍要用 submit_life_action 或 stay_silent 收口；不要只给自然语言分析。',
   '群友在说当前窗口外的内部上下文时不要猜；当前上下文和摘要里没有就承认不知道，必要时问一句“这是你们在哪聊的”。'
 ].join('\n');
 
@@ -1163,8 +1262,8 @@ function hasUnreadMeaningReplay(loopInput: OpenResponseInputItem[]) {
   return hasToolReplay(loopInput, TOOL_NAMES.unreadMeaning);
 }
 
-function hasInnerReactionReplay(loopInput: OpenResponseInputItem[]) {
-  return hasToolReplay(loopInput, TOOL_NAMES.innerReaction);
+function hasLifeActionReplay(loopInput: OpenResponseInputItem[]) {
+  return hasToolReplay(loopInput, TOOL_NAMES.lifeAction);
 }
 
 function hasToolReplay(loopInput: OpenResponseInputItem[], toolName: string) {
@@ -1182,28 +1281,28 @@ function parseReplayJsonObject(value: string): Record<string, unknown> | null {
   }
 }
 
-function extractLatestInnerReaction(loopInput: OpenResponseInputItem[]): InnerReaction | null {
-  const innerReactionCallIds = new Set<string>();
+function extractLatestLifeAction(loopInput: OpenResponseInputItem[]): LifeAction | null {
+  const lifeActionCallIds = new Set<string>();
   for (const item of loopInput) {
-    if (item.type === 'function_call' && item.name === TOOL_NAMES.innerReaction) {
-      innerReactionCallIds.add(item.call_id);
+    if (item.type === 'function_call' && item.name === TOOL_NAMES.lifeAction) {
+      lifeActionCallIds.add(item.call_id);
     }
   }
 
   for (let index = loopInput.length - 1; index >= 0; index -= 1) {
     const item = loopInput[index];
-    if (item.type === 'function_call_output' && innerReactionCallIds.has(item.call_id)) {
+    if (item.type === 'function_call_output' && lifeActionCallIds.has(item.call_id)) {
       const parsed = parseReplayJsonObject(item.output);
-      const reaction = parseInnerReaction(parsed);
-      if (reaction) {
-        return reaction;
+      const action = parseLifeAction(parsed);
+      if (action) {
+        return action;
       }
     }
-    if (item.type === 'function_call' && item.name === TOOL_NAMES.innerReaction) {
+    if (item.type === 'function_call' && item.name === TOOL_NAMES.lifeAction) {
       const parsed = parseReplayJsonObject(item.arguments);
-      const reaction = parseInnerReaction(parsed);
-      if (reaction) {
-        return reaction;
+      const action = parseLifeAction(parsed);
+      if (action) {
+        return action;
       }
     }
   }
@@ -1212,6 +1311,11 @@ function extractLatestInnerReaction(loopInput: OpenResponseInputItem[]): InnerRe
 }
 
 function extractLatestUnreadMeaning(loopInput: OpenResponseInputItem[]): UnreadMeaning | null {
+  const latestLifeAction = extractLatestLifeAction(loopInput);
+  if (latestLifeAction?.unreadMeaning) {
+    return latestLifeAction.unreadMeaning;
+  }
+
   const unreadMeaningCallIds = new Set<string>();
   for (const item of loopInput) {
     if (item.type === 'function_call' && item.name === TOOL_NAMES.unreadMeaning) {
@@ -1290,22 +1394,9 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
   const stateBias = extractStateBiasFromLoopInput(loopInput);
   const recallAttempts = 0;
   const emptyRecallAttempts = 0;
-  if (!hasUnreadMeaningReplay(loopInput)) {
-    return {
-      stage: 'read_unread',
-      targetFound: false,
-      stateBias,
-      recallStatus: 'not_needed',
-      recallAttempts,
-      emptyRecallAttempts,
-      expectedNext: TOOL_NAMES.unreadMeaning,
-      reason: '还没有整理当前未读消息。'
-    };
-  }
-
   const meaning = extractLatestUnreadMeaning(loopInput);
   const targetFound = hasUsableGroupTarget(meaning);
-  if (!hasInnerReactionReplay(loopInput)) {
+  if (!hasLifeActionReplay(loopInput)) {
     return {
       stage: 'feel_reaction',
       targetFound,
@@ -1313,17 +1404,17 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
       recallStatus: 'not_needed',
       recallAttempts,
       emptyRecallAttempts,
-      expectedNext: TOOL_NAMES.innerReaction,
+      expectedNext: TOOL_NAMES.lifeAction,
       reason: targetFound
-        ? '当前未读里有可回应目标，下一步判断是否有具体可说点。'
-        : '当前未读没有明确找小腻或强话题，下一步只确认是否有具体可说点。'
+        ? '当前未读里有可回应目标，下一步提交本轮 life action proposal。'
+        : '当前未读没有明确找小腻或强话题，下一步只提交是否继续生活或沉默的 proposal。'
     };
   }
 
-  const reaction = extractLatestInnerReaction(loopInput);
+  const action = extractLatestLifeAction(loopInput);
   const recallStatus: TurnControlRecallStatus = 'not_needed';
 
-  if (reaction?.preferredAction === 'search' || reaction?.preferredAction === 'image_task' || reaction?.gapResolution === 'web_search') {
+  if (action?.actionType === 'search' || action?.actionType === 'image_task' || action?.gapResolution === 'web_search') {
     return {
       stage: 'maybe_search_or_inspect',
       targetFound,
@@ -1344,60 +1435,60 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
     recallAttempts,
     emptyRecallAttempts,
     expectedNext: 'final_tool',
-    reason: '当前已经完成现场理解和内在反应判断，应进入最终动作。'
+    reason: '当前已经完成现场理解和 life action proposal，应进入最终动作。'
   };
 }
 
 function shouldDowngradeWeakSpeakToSilence(
-  reaction: InnerReaction | null,
+  action: LifeAction | null,
   meaning: UnreadMeaning | null,
   stateBias: TurnControlStateBias = 'normal'
 ) {
-  if (reaction?.preferredAction !== 'speak') {
+  if (action?.actionType !== 'speak') {
     return false;
   }
   // Model explicitly flagged the reaction as empty — always silence
-  if (reaction.reactionAuthenticity === 'empty_but_convenient') {
+  if (action.reactionAuthenticity === 'empty_but_convenient') {
     return true;
   }
   // Safety catch: model chose speak despite no interest at all
-  if (reaction.interestLevel === 'none') {
+  if (action.interestLevel === 'none') {
     return true;
   }
-  if (stateBias === 'low_energy' && reaction.reactionAuthenticity === 'weak_but_real' && reaction.interestLevel !== 'high') {
+  if (stateBias === 'low_energy' && action.reactionAuthenticity === 'weak_but_real' && action.interestLevel !== 'high') {
     return true;
   }
-  if (reaction.interestLevel === 'low' && !hasDirectNewCue(meaning)) {
+  if (action.interestLevel === 'low' && !hasDirectNewCue(meaning)) {
     // Original: weak reaction with no direct cue
-    if (reaction.reactionAuthenticity === 'weak_but_real') {
+    if (action.reactionAuthenticity === 'weak_but_real') {
       return true;
     }
     // Extended: even a formed reaction isn't enough when interest is low and nobody's addressing us
-    if (reaction.reactionAuthenticity === 'formed') {
+    if (action.reactionAuthenticity === 'formed') {
       return true;
     }
   }
   return false;
 }
 
-function canUseFinalActionFromParticipationJudgment(reaction: InnerReaction | null, meaning: UnreadMeaning | null) {
-  if (!reaction) {
+function canUseFinalActionFromParticipationJudgment(action: LifeAction | null, meaning: UnreadMeaning | null) {
+  if (!action) {
     return false;
   }
-  if (reaction.participationJudgment.status === 'has_sayable_point') {
+  if (action.participationJudgment.status === 'has_sayable_point') {
     return true;
   }
-  if (reaction.preferredAction === 'proactive') {
+  if (action.actionType === 'proactive') {
     return false;
   }
-  return reaction.participationJudgment.status === 'direct_request' && hasDirectNewCue(meaning);
+  return action.participationJudgment.status === 'direct_request' && hasDirectNewCue(meaning);
 }
 
-function shouldForceActionToSilenceFromParticipationJudgment(reaction: InnerReaction | null, meaning: UnreadMeaning | null) {
-  if (!reaction || reaction.preferredAction === 'silent') {
+function shouldForceActionToSilenceFromParticipationJudgment(action: LifeAction | null, meaning: UnreadMeaning | null) {
+  if (!action || action.actionType === 'silent') {
     return false;
   }
-  return !canUseFinalActionFromParticipationJudgment(reaction, meaning);
+  return !canUseFinalActionFromParticipationJudgment(action, meaning);
 }
 
 function buildAllowedToolsToolChoice(tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }>): OpenResponseToolChoice {
@@ -1420,56 +1511,51 @@ function selectActorToolDefinitions(chatType: 'group' | 'direct', modelName: str
 
 function selectGroupLoopToolDefinitions(modelName: string) {
   return [
-    UNREAD_MEANING_TOOL,
-    INNER_REACTION_TOOL,
+    LIFE_ACTION_TOOL,
     ...selectActorToolDefinitions('group', modelName)
   ] satisfies OpenResponseToolDefinition[];
 }
 
 function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResponseToolChoice {
   const turnControl = deriveTurnControlState(loopInput);
-  if (turnControl.expectedNext === TOOL_NAMES.unreadMeaning) {
+  if (turnControl.expectedNext === TOOL_NAMES.lifeAction) {
     return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.unreadMeaning }
+      { type: 'function', name: TOOL_NAMES.lifeAction }
     ]);
   }
 
-  if (turnControl.expectedNext === TOOL_NAMES.innerReaction) {
-    return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.innerReaction }
-    ]);
-  }
-
-  const latestInnerReaction = extractLatestInnerReaction(loopInput);
+  const latestLifeAction = extractLatestLifeAction(loopInput);
   const latestUnreadMeaning = extractLatestUnreadMeaning(loopInput);
-  if (latestInnerReaction?.preferredAction === 'silent') {
+  if (latestLifeAction?.actionType === 'silent') {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.silentFinish }
     ]);
   }
 
-  if (shouldForceActionToSilenceFromParticipationJudgment(latestInnerReaction, latestUnreadMeaning)) {
+  if (shouldForceActionToSilenceFromParticipationJudgment(latestLifeAction, latestUnreadMeaning)) {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.silentFinish }
     ]);
   }
 
-  if (shouldDowngradeWeakSpeakToSilence(latestInnerReaction, latestUnreadMeaning, turnControl.stateBias)) {
+  if (shouldDowngradeWeakSpeakToSilence(latestLifeAction, latestUnreadMeaning, turnControl.stateBias)) {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.silentFinish }
     ]);
   }
 
-  if (latestInnerReaction?.preferredAction === 'image_task') {
+  if (latestLifeAction?.actionType === 'image_task') {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.inspectImage },
       { type: 'function', name: TOOL_NAMES.imageTask },
+      { type: 'function', name: TOOL_NAMES.lifeAction },
       { type: 'function', name: TOOL_NAMES.silentFinish }
     ]);
   }
 
-  if (latestInnerReaction?.preferredAction === 'search') {
+  if (latestLifeAction?.actionType === 'search') {
     const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
+      { type: 'function', name: TOOL_NAMES.lifeAction },
       { type: 'function', name: TOOL_NAMES.silentFinish }
     ];
     if (agentConfig.webSearchEnabled) {
@@ -1480,7 +1566,7 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
 
   // Proactive: Xiaoni wants to share something she finds interesting, not reacting to this message.
   // Offer speak + silent (she can still decide nothing worth sharing after all).
-  if (latestInnerReaction?.preferredAction === 'proactive') {
+  if (latestLifeAction?.actionType === 'proactive') {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.groupReply },
       { type: 'function', name: TOOL_NAMES.silentFinish }
@@ -1943,7 +2029,9 @@ function buildOutboundFingerprint(payload: OutboundDeliveryFingerprint) {
 }
 
 function buildDuplicateOutboundSuppression(toolCall: Pick<AgentToolCall, 'name' | 'args'>) {
-  if (!isPrivateReplyToolName(toolCall.name) && !isGroupReplyToolName(toolCall.name)) {
+  const isLifeActionOutbound = toolCall.name === TOOL_NAMES.lifeAction
+    && (toolCall.args.action_type === 'speak' || toolCall.args.action_type === 'proactive');
+  if (!isPrivateReplyToolName(toolCall.name) && !isGroupReplyToolName(toolCall.name) && !isLifeActionOutbound) {
     return null;
   }
 
@@ -1955,7 +2043,7 @@ function buildDuplicateOutboundSuppression(toolCall: Pick<AgentToolCall, 'name' 
   const payload: OutboundDeliveryFingerprint = {
     messageType: isPrivateReplyToolName(toolCall.name) ? 'private' : 'group',
     messages,
-    mentionUserIds: isGroupReplyToolName(toolCall.name)
+    mentionUserIds: isGroupReplyToolName(toolCall.name) || isLifeActionOutbound
       ? normalizeOptionalIntegerList(toolCall.args.mention_user_ids)
       : []
   };
@@ -2400,7 +2488,7 @@ function renderPresenceTickAction(queueMessage: QueueMessageRecord['payload']) {
 
 const COMMENTARY_TOOL_MONITOR_NAMES = new Set<string>([
   TOOL_NAMES.unreadMeaning,
-  TOOL_NAMES.innerReaction,
+  TOOL_NAMES.lifeAction,
   TOOL_NAMES.inspectImage,
   'web_search'
 ]);
@@ -2802,67 +2890,54 @@ function collectSourceMessageIds(sourceTurnIds: number[], messageIdsByTurnId: Ma
 }
 
 const CONTEXT_SUMMARY_WRITER_CONTRACT = [
-  '你在为一段 QQ 群聊对话生成上下文摘要。',
-  '这批对话即将从小腻的上下文窗口中移除，摘要将替代原始记录保留下来，供小腻在未来对话中参考。',
+  '你在为小腻生成压缩后置顶的 `<小腻近况>`。',
+  '这不是 transcript 摘要，也不是长期召回；它是一段纯文本近况时报，像一个人隔了半小时或一小时后回过神时，对自己刚才、今天、最近一段状态的模糊记忆。',
   '',
-  '如果有 <existing_summary>，说明之前已有摘要，你需要把旧摘要和新对话合并，输出一份完整的更新版摘要。',
-  '合并时以旧摘要为基础，尽量保留原有内容，只新增或更新有变化的部分。',
+  '输入是这次压缩前主回合实际可见的整体 in-context，其中可能已经包含上一轮 `<小腻近况>`。',
+  '你要把整个 in-context 重新揉成一段新的近况，而不是只总结新被移出的消息。',
   '',
-  '摘要要保留：',
-  '- 小腻参与的对话（她说了什么、对方怎么反应）',
-  '- 出现过的人（昵称和 QQ 号）',
-  '- 还在进行中的话题或事项',
-  '- 对小腻的明确反馈、批评、称赞或纠偏',
+  '保留：',
+  '- 刚才小腻大概在做什么、被什么打断或拉回当前 surface',
+  '- 脑子里还残留的热话题、情绪、判断、未收口动作',
+  '- 今天整体的状态和互动惯性',
+  '- 最近一段反复出现的兴趣、关系姿态、自我连续性',
   '',
-  '可以省略：',
-  '- 小腻完全没参与的闲聊',
-  '- 已经结束的一次性话题',
+  '丢掉：',
+  '- 精确消息顺序、完整发言列表、无关闲聊、工具调用细节、debug id',
+  '- system prompt 规则、工程阶段名、JSON 字段、格式说明',
+  '- 没有来源支持的私聊/别的 surface 原文',
   '',
-  '格式（Markdown）：',
-  '## 最近话题',
-  '## 出现的人',
-  '## 未完成的事',
-  '## 对小腻的反馈',
+  '写法：',
+  '- 只输出纯文本，不要 JSON，不要 Markdown 标题，不要项目符号，不要包 `<小腻近况>` 标签',
+  '- 中文自然段即可，像人类近况记忆，不像工作流 checkpoint',
+  '- 默认 300 到 900 个中文字符；宁可模糊，不要硬还原所有细节',
   '',
-  '字数控制在 2000 字以内，宁可漏掉不重要的，不要堆砌无关内容。',
-  '只输出一个 JSON 对象，不要调用工具，不要写额外说明。',
-  'JSON 格式：{"has_content": boolean, "summary_text": "Markdown 摘要；has_content=false 时为空字符串"}'
+  '如果这段 in-context 里确实没有可保留近况，只输出空字符串。'
 ].join('\n');
 
 type ContextSummaryParams = {
   queueMessage: QueueMessageRecord['payload'];
   conversationId: number;
   evictedTurns: ConversationTurn[];
+  summarySourceInput: OpenResponseInputItem[];
   existingSummary: string | null;
   runtimePrompt: ResolvedAgentRuntimePrompt;
 };
 
 function buildContextSummaryWriterInput(params: {
-  evictedTurns: ConversationTurn[];
-  existingSummary: string | null;
+  summarySourceInput: OpenResponseInputItem[];
 }): OpenResponseInputItem[] {
-  const turnLines = params.evictedTurns.map((turn) => {
-    const userLine = `用户: ${turn.userMessage || '(无消息)'}`;
-    const aiLine = turn.aiResponse ? `小腻: ${turn.aiResponse}` : `小腻: (未回复)`;
-    return `[#${turn.id}]\n${userLine}\n${aiLine}`;
-  });
-
-  const parts: string[] = [];
-  if (params.existingSummary) {
-    parts.push(`<existing_summary>\n${params.existingSummary}\n</existing_summary>`);
-    parts.push('');
-    parts.push(`<new_messages>\n${turnLines.join('\n\n')}\n</new_messages>`);
-    parts.push('');
-    parts.push('请整合生成更新后的完整摘要。');
-  } else {
-    parts.push(`<messages_to_summarize>\n${turnLines.join('\n\n')}\n</messages_to_summarize>`);
-    parts.push('');
-    parts.push('请为以上对话生成摘要。');
-  }
-
   return [
     { type: 'message', role: 'system', content: CONTEXT_SUMMARY_WRITER_CONTRACT },
-    buildUserSceneInputItem([parts.join('\n')])
+    buildUserSceneInputItem([
+      [
+        '<in_context_to_digest>',
+        renderInContextForDigest(params.summarySourceInput),
+        '</in_context_to_digest>',
+        '',
+        '请基于上面整体 in-context，输出新的纯文本 `<小腻近况>` 内容。'
+      ].join('\n')
+    ])
   ];
 }
 
@@ -2942,12 +3017,58 @@ function extractMessageText(item: OpenResponseInputItem) {
     .trim();
 }
 
+function renderInContextForDigest(items: OpenResponseInputItem[]) {
+  return items
+    .map((item, index) => {
+      if (item.type === 'message') {
+        if (item.role === 'system') {
+          return '';
+        }
+        const text = extractMessageText(item);
+        if (!text) {
+          return '';
+        }
+        const phase = item.phase ? ` phase=${item.phase}` : '';
+        return `[input_item ${index + 1} role=${item.role}${phase}]\n${text}`;
+      }
+      if (item.type === 'function_call') {
+        return `[input_item ${index + 1} tool_call ${item.name}]\n${item.arguments}`;
+      }
+      if (item.type === 'function_call_output') {
+        return `[input_item ${index + 1} tool_result ${item.call_id}]\n${item.output}`;
+      }
+      if (item.type === 'reasoning') {
+        const summary = typeof item.summary === 'string'
+          ? item.summary
+          : Array.isArray(item.summary)
+          ? JSON.stringify(item.summary)
+          : '';
+        return summary ? `[input_item ${index + 1} reasoning_summary]\n${summary}` : '';
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function normalizeContextDigestText(text: string) {
+  const trimmed = text.trim()
+    .replace(/^<小腻近况>\s*/u, '')
+    .replace(/\s*<\/小腻近况>$/u, '')
+    .trim();
+  return trimmed;
+}
+
 function parseContextSummaryWriterOutput(text: string) {
-  const parsed = parseReplayJsonObject(stripJsonCodeFence(text));
-  if (!parsed) return null;
+  const stripped = stripJsonCodeFence(text);
+  const parsed = parseReplayJsonObject(stripped);
+  if (!parsed) {
+    const summaryText = normalizeContextDigestText(stripped);
+    return { hasContent: summaryText.length > 0, summaryText };
+  }
   const hasContent = Boolean(parsed.has_content ?? parsed.hasContent);
   const summaryText = typeof (parsed.summary_text ?? parsed.summaryText) === 'string'
-    ? String(parsed.summary_text ?? parsed.summaryText).trim()
+    ? normalizeContextDigestText(String(parsed.summary_text ?? parsed.summaryText))
     : '';
   return { hasContent, summaryText };
 }
@@ -3083,25 +3204,35 @@ function parseUnreadMeaning(value: unknown): UnreadMeaning | null {
   };
 }
 
-function parseInnerReaction(value: unknown): InnerReaction | null {
+function parseLifeAction(value: unknown): LifeAction | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
   }
 
   const record = value as Record<string, unknown>;
+  const unreadMeaning = parseUnreadMeaning(record.unread_meaning ?? record.unreadMeaning);
+  const rawActionType = record.action_type ?? record.actionType;
+  const rawReason = record.reason;
+  const evidenceRefs = parseStringArray(record.evidence_refs ?? record.evidenceRefs);
+  const rawConfidence = Number(record.confidence);
   const rawInterestLevel = record.interest_level ?? record.interestLevel;
   const wantsToKnowMore = parseOptionalBoolean(record.wants_to_know_more ?? record.wantsToKnowMore);
   const rawReactionAuthenticity = record.reaction_authenticity ?? record.reactionAuthenticity;
-  const rawParticipationJudgment = record.participation_judgment
-    ?? record.participationJudgment
-    // Backward compatibility for traces written before the field was renamed.
-    ?? record.self_position
-    ?? record.selfPosition;
+  const rawParticipationJudgment = record.participation_judgment ?? record.participationJudgment;
   const shouldSearch = parseOptionalBoolean(record.should_search ?? record.shouldSearch);
-  const rawPreferredAction = record.preferred_action ?? record.preferredAction;
   const rawContextGap = record.context_gap ?? record.contextGap;
   const rawGapResolution = record.gap_resolution ?? record.gapResolution;
-  const rawReason = record.reason;
+  const actionType = rawActionType === 'speak'
+    || rawActionType === 'silent'
+    || rawActionType === 'search'
+    || rawActionType === 'image_task'
+    || rawActionType === 'proactive'
+    ? rawActionType
+    : null;
+  const reason = typeof rawReason === 'string' ? rawReason.trim() : '';
+  const confidence = Number.isFinite(rawConfidence)
+    ? Math.max(0, Math.min(1, rawConfidence))
+    : null;
   const interestLevel = rawInterestLevel === 'none'
     || rawInterestLevel === 'low'
     || rawInterestLevel === 'medium'
@@ -3114,61 +3245,96 @@ function parseInnerReaction(value: unknown): InnerReaction | null {
     || rawReactionAuthenticity === 'empty_but_convenient'
     ? rawReactionAuthenticity
     : null;
-  const preferredAction = rawPreferredAction === 'speak'
-    || rawPreferredAction === 'silent'
-    || rawPreferredAction === 'search'
-    || rawPreferredAction === 'image_task'
-    || rawPreferredAction === 'proactive'
-    ? rawPreferredAction
-    : null;
-  const explicitContextGap: InnerReactionContextGap | null = rawContextGap === 'none'
+  const explicitContextGap: LifeActionContextGap | null = rawContextGap === 'none'
     || rawContextGap === 'current_context_insufficient'
     || rawContextGap === 'needs_private_memory'
     || rawContextGap === 'needs_public_info'
     || rawContextGap === 'unclear_group_reference'
     ? rawContextGap
     : null;
-  const explicitGapResolution: InnerReactionGapResolution | null = rawGapResolution === 'none'
+  const explicitGapResolution: LifeActionGapResolution | null = rawGapResolution === 'none'
     || rawGapResolution === 'memory'
     || rawGapResolution === 'web_search'
     || rawGapResolution === 'ask_group'
     || rawGapResolution === 'memory_then_ask_or_search'
     ? rawGapResolution
     : null;
-  const reason = typeof rawReason === 'string' ? rawReason.trim() : '';
 
-  if (!interestLevel || wantsToKnowMore === null || !reactionAuthenticity || shouldSearch === null || !preferredAction || !reason) {
+  if (!actionType || !reason || !interestLevel || wantsToKnowMore === null || !reactionAuthenticity || shouldSearch === null) {
     return null;
   }
-  const inferredContextGap: InnerReactionContextGap = explicitContextGap
-    || (shouldSearch || preferredAction === 'search'
+  const inferredContextGap: LifeActionContextGap = explicitContextGap
+    || (shouldSearch || actionType === 'search'
       ? 'needs_public_info'
       : wantsToKnowMore
       ? 'needs_private_memory'
       : 'none');
-  const inferredGapResolution: InnerReactionGapResolution = explicitGapResolution
+  const inferredGapResolution: LifeActionGapResolution = explicitGapResolution
     || (inferredContextGap === 'needs_public_info'
       ? 'web_search'
       : inferredContextGap === 'needs_private_memory' || inferredContextGap === 'unclear_group_reference'
       ? 'memory'
       : 'none');
-  const participationJudgment = parseInnerReactionParticipationJudgment(rawParticipationJudgment, {
+  const participationJudgment = parseLifeActionParticipationJudgment(rawParticipationJudgment, {
     reactionAuthenticity,
-    preferredAction,
+    actionType,
     shouldSearch,
     wantsToKnowMore
   });
 
   return {
+    unreadMeaning,
+    actionType,
+    evidenceRefs,
+    confidence,
     interestLevel,
     wantsToKnowMore,
     reactionAuthenticity,
     participationJudgment,
     shouldSearch,
-    preferredAction,
     contextGap: inferredContextGap,
     gapResolution: inferredGapResolution,
     reason
+  };
+}
+
+function serializeUnreadMeaning(meaning: UnreadMeaning | null) {
+  if (!meaning) {
+    return null;
+  }
+  return {
+    latest_unread_focus: meaning.latestUnreadFocus,
+    message_act: meaning.messageAct,
+    social_target: meaning.socialTarget,
+    addressed_to_me: meaning.addressedToMe,
+    has_real_novelty: meaning.hasRealNovelty,
+    confidence: meaning.confidence,
+    reason: meaning.reason,
+    ...(meaning.socialActType !== null ? { social_act_type: meaning.socialActType } : {}),
+    ...(meaning.topicContext !== null ? { topic_context: meaning.topicContext } : {})
+  };
+}
+
+function serializeLifeAction(action: LifeAction) {
+  return {
+    unread_meaning: serializeUnreadMeaning(action.unreadMeaning),
+    action_type: action.actionType,
+    reason: action.reason,
+    evidence_refs: action.evidenceRefs,
+    confidence: action.confidence,
+    interest_level: action.interestLevel,
+    wants_to_know_more: action.wantsToKnowMore,
+    reaction_authenticity: action.reactionAuthenticity,
+    participation_judgment: {
+      status: action.participationJudgment.status,
+      basis: action.participationJudgment.basis,
+      sayable_point: action.participationJudgment.sayablePoint || '',
+      evidence_refs: action.participationJudgment.evidenceRefs,
+      memory_refs: action.participationJudgment.memoryRefs
+    },
+    should_search: action.shouldSearch,
+    context_gap: action.contextGap,
+    gap_resolution: action.gapResolution
   };
 }
 
@@ -3578,27 +3744,27 @@ function parseCompactMemoryObservations(value: unknown) {
   }).filter((item): item is NonNullable<typeof item> => Boolean(item));
 }
 
-function parseInnerReactionParticipationJudgment(
+function parseLifeActionParticipationJudgment(
   value: unknown,
   fallback: {
-    reactionAuthenticity: InnerReaction['reactionAuthenticity'];
-    preferredAction: InnerReaction['preferredAction'];
+    reactionAuthenticity: LifeAction['reactionAuthenticity'];
+    actionType: LifeAction['actionType'];
     shouldSearch: boolean;
     wantsToKnowMore: boolean;
   }
-): InnerReaction['participationJudgment'] {
-  const inferredStatus: InnerReactionParticipationJudgmentStatus =
+): LifeAction['participationJudgment'] {
+  const inferredStatus: LifeActionParticipationJudgmentStatus =
     fallback.reactionAuthenticity === 'formed'
-      && fallback.preferredAction !== 'silent'
-      && fallback.preferredAction !== 'image_task'
+      && fallback.actionType !== 'silent'
+      && fallback.actionType !== 'image_task'
       ? 'has_sayable_point'
-    : fallback.reactionAuthenticity === 'weak_but_real' && fallback.preferredAction === 'speak'
+    : fallback.reactionAuthenticity === 'weak_but_real' && fallback.actionType === 'speak'
       ? 'direct_request'
-    : fallback.preferredAction === 'image_task' || fallback.shouldSearch || fallback.wantsToKnowMore
+    : fallback.actionType === 'image_task' || fallback.shouldSearch || fallback.wantsToKnowMore
       ? 'direct_request'
       : 'no_sayable_point';
-  const inferredBasis: InnerReactionParticipationJudgmentBasis = inferredStatus === 'has_sayable_point'
-    ? fallback.preferredAction === 'proactive'
+  const inferredBasis: LifeActionParticipationJudgmentBasis = inferredStatus === 'has_sayable_point'
+    ? fallback.actionType === 'proactive'
       ? 'association'
     : fallback.shouldSearch || fallback.wantsToKnowMore
       ? 'question'
@@ -3620,15 +3786,11 @@ function parseInnerReactionParticipationJudgment(
   const record = value as Record<string, unknown>;
   const rawStatus = record.status
     ?? record.participation_judgment_status
-    ?? record.participationJudgmentStatus
-    ?? record.self_position_status
-    ?? record.selfPositionStatus;
+    ?? record.participationJudgmentStatus;
   const rawBasis = record.basis
     ?? record.reason_type
-    ?? record.reasonType
-    ?? record.self_position_basis
-    ?? record.selfPositionBasis;
-  const status: InnerReactionParticipationJudgmentStatus = rawStatus === 'has_sayable_point'
+    ?? record.reasonType;
+  const status: LifeActionParticipationJudgmentStatus = rawStatus === 'has_sayable_point'
     || rawStatus === 'has_own_judgment'
     || rawStatus === 'formed'
     ? 'has_sayable_point'
@@ -3640,7 +3802,7 @@ function parseInnerReactionParticipationJudgment(
     || rawStatus === 'direct_request_only'
     ? 'direct_request'
     : inferredStatus;
-  const parsedBasis: InnerReactionParticipationJudgmentBasis = rawBasis === 'opinion'
+  const parsedBasis: LifeActionParticipationJudgmentBasis = rawBasis === 'opinion'
     || rawBasis === 'stance'
     ? 'opinion'
     : rawBasis === 'question'
@@ -4032,7 +4194,7 @@ export function applyToolResultToLoopInput(
     };
   }
 
-  if (toolResult.finished === true && extractSentMessages(toolResult).length === 0) {
+  if (toolResult.finished === true) {
     return {
       inputItems: [],
       finishResult: toolResult,
@@ -4055,7 +4217,7 @@ export function applyToolResultToLoopInput(
     },
     inputItems[0]
   ];
-  if (toolCall.name === TOOL_NAMES.unreadMeaning || toolCall.name === TOOL_NAMES.innerReaction) {
+  if (toolCall.name === TOOL_NAMES.unreadMeaning || toolCall.name === TOOL_NAMES.lifeAction) {
     const turnControl = deriveTurnControlState(loopInputAfterTool);
     const reminder = buildTurnControlReminder(turnControl);
     if (reminder) {
@@ -4257,12 +4419,13 @@ export class AgentLoopService {
     let runtimePrompt: ResolvedAgentRuntimePrompt | null = null;
     let storedFeedbackReflectionIds: number[] = [];
     let unreadMeaningArtifact: Record<string, unknown> | null = null;
-    let innerReactionArtifact: Record<string, unknown> | null = null;
+    let lifeActionArtifact: Record<string, unknown> | null = null;
     let presenceContext: RuntimePresenceContext | null = null;
     let runtimeIdentityFacts: RuntimeIdentityFactProjection[] = [];
     const contextBudgetTurns: ContextBudgetTurnRecord[] = [];
     let budgetPlan: ContextBudgetPlan = {
       requestInput: [],
+      summarySourceInput: null,
       retainedHistory: [],
       runtimeIdentityFacts: [],
       readCutoffAfterConversationId: null,
@@ -4362,6 +4525,7 @@ export class AgentLoopService {
             (budgetPlan.previousReadCutoffAfterConversationId === null || t.id > budgetPlan.previousReadCutoffAfterConversationId)
           )
         : [];
+      const summarySourceInput = budgetPlan.summarySourceInput ?? budgetPlan.requestInput;
       let requestInput = budgetPlan.requestInput;
       let finishResult: Record<string, unknown> | null = null;
       let deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
@@ -4443,10 +4607,10 @@ export class AgentLoopService {
 
           try {
             const duplicateOutbound = buildDuplicateOutboundSuppression(toolCall);
-            if (isSpeakingToolName(toolCall.name)) {
+            if (duplicateOutbound) {
               deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
             }
-            if (isSpeakingToolName(toolCall.name) && deliveryState.deliveryPhase !== 'reasoning_open') {
+            if (duplicateOutbound && deliveryState.deliveryPhase !== 'reasoning_open') {
               const duplicateSuppressed = Boolean(duplicateOutbound && deliveredFingerprints.has(duplicateOutbound.fingerprint));
               const blockReason = 'Outbound delivery already committed earlier in this run.';
               const toolResult = {
@@ -4490,7 +4654,9 @@ export class AgentLoopService {
               break;
             }
 
-            const rawToolResult = await this.executeTool(toolCall, payload);
+            const rawToolResult = await this.executeTool(toolCall, payload, {
+              stateBias: deriveTurnControlState(requestInput).stateBias
+            });
             const toolResult = isSilentFinishToolName(toolCall.name)
               ? {
                   ...rawToolResult,
@@ -4506,15 +4672,18 @@ export class AgentLoopService {
             if (toolCall.name === TOOL_NAMES.unreadMeaning) {
               unreadMeaningArtifact = toolResult;
             }
-            if (toolCall.name === TOOL_NAMES.innerReaction) {
-              innerReactionArtifact = toolResult;
+            if (toolCall.name === TOOL_NAMES.lifeAction) {
+              if (toolResult.unread_meaning && typeof toolResult.unread_meaning === 'object' && !Array.isArray(toolResult.unread_meaning)) {
+                unreadMeaningArtifact = toolResult.unread_meaning as Record<string, unknown>;
+              }
+              lifeActionArtifact = toolResult;
             }
             await this.store.completeToolExecutionLog(logId, {
               status: 'completed',
               result: toolResult
             });
 
-            if (isSpeakingToolName(toolCall.name) && extractSentMessages(toolResult).length > 0) {
+            if (extractSentMessages(toolResult).length > 0) {
               await this.store.markRunDeliveryCommitted(queueMessage.id);
               await this.recordVisibleDeliveryLifeEvents(payload, queueMessage.id, toolCall.name, toolResult);
               await this.store.logTimelineEvent({
@@ -4708,7 +4877,7 @@ export class AgentLoopService {
           xiaoni_os: persistedXiaoniOs,
           loop_stage_artifacts: {
             unread_meaning: unreadMeaningArtifact,
-            inner_reaction: innerReactionArtifact
+            life_action: lifeActionArtifact
           },
           context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
           responses_replay_items: extractReasoningReplayInputItems(loopContinuation),
@@ -4730,6 +4899,7 @@ export class AgentLoopService {
           queueMessage: payload,
           conversationId,
           evictedTurns,
+          summarySourceInput,
           existingSummary: budgetPlan.contextSummary,
           runtimePrompt
         });
@@ -5166,8 +5336,7 @@ export class AgentLoopService {
     if (typeof summaryUpserter !== 'function') return;
 
     const baseInput = buildContextSummaryWriterInput({
-      evictedTurns: params.evictedTurns,
-      existingSummary: params.existingSummary
+      summarySourceInput: Array.isArray(params.summarySourceInput) ? params.summarySourceInput : []
     });
     const traceId = `${params.queueMessage.traceId}:subagent:${CONTEXT_SUMMARY_SUBAGENT_TYPE}`;
     const promptCacheKey = buildSubagentPromptCacheKey({
@@ -5806,6 +5975,16 @@ export class AgentLoopService {
     // evict everything except the most recent HISTORY_COMPACT_KEEP turns regardless of token budget.
     // This ensures context stays manageable and triggers summary generation at a human-scale frequency.
     if (initialRetainedHistory.length > HISTORY_COMPACT_AT) {
+      const summarySourceInput = buildLoopRequestInput({
+        history: initialRetainedHistory,
+        queueMessage: params.queueMessage,
+        runtimePrompt: params.runtimePrompt,
+        loopContinuation: params.loopContinuation,
+        runtimeIdentityFacts: params.runtimeIdentityFacts,
+        contextSummary,
+        pendingProactiveShare,
+        developerContextBlock: params.developerContextBlock ?? null
+      });
       const retainedHistory = initialRetainedHistory.slice(-HISTORY_COMPACT_KEEP);
       const newCutoffTurn = initialRetainedHistory[initialRetainedHistory.length - HISTORY_COMPACT_KEEP - 1];
       const newCutoffId = newCutoffTurn?.id ?? cutoffState?.readCutoffAfterConversationId ?? null;
@@ -5836,6 +6015,7 @@ export class AgentLoopService {
 
       return {
         requestInput,
+        summarySourceInput,
         retainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
         readCutoffAfterConversationId: newCutoffId,
@@ -5872,6 +6052,7 @@ export class AgentLoopService {
     if (!contextWindowTokens || !targetBudgetTokens || !hardBudgetTokens || initialEstimate.inputTokens <= hardBudgetTokens) {
       return {
         requestInput: initialRequestInput,
+        summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
         readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
@@ -5911,6 +6092,7 @@ export class AgentLoopService {
 
     return {
       requestInput: recomputed.requestInput,
+      summarySourceInput: initialRequestInput,
       retainedHistory: recomputed.retainedHistory,
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
@@ -5975,15 +6157,15 @@ export class AgentLoopService {
   private async executeTool(
     toolCall: AgentToolCall,
     queueMessage: QueueMessageRecord['payload'],
-    options: Record<string, never> = {}
+    options: ExecuteToolOptions = {}
   ): Promise<Record<string, unknown>> {
     switch (toolCall.name) {
       case TOOL_NAMES.privateReply:
       case 'send_private_message':
-        return this.sendMessage('private', toolCall.args, queueMessage, options);
+        return this.sendMessage('private', toolCall.args, queueMessage);
       case TOOL_NAMES.groupReply:
       case 'send_group_message':
-        return this.sendMessage('group', toolCall.args, queueMessage, options);
+        return this.sendMessage('group', toolCall.args, queueMessage);
       case TOOL_NAMES.unreadMeaning: {
         const meaning = parseUnreadMeaning(toolCall.args);
         if (!meaning) {
@@ -6001,28 +6183,8 @@ export class AgentLoopService {
           ...(meaning.topicContext !== null ? { topic_context: meaning.topicContext } : {})
         };
       }
-      case TOOL_NAMES.innerReaction: {
-        const reaction = parseInnerReaction(toolCall.args);
-        if (!reaction) {
-          throw new Error(`${TOOL_NAMES.innerReaction} returned invalid arguments`);
-        }
-        return {
-          interest_level: reaction.interestLevel,
-          wants_to_know_more: reaction.wantsToKnowMore,
-          reaction_authenticity: reaction.reactionAuthenticity,
-          participation_judgment: {
-            status: reaction.participationJudgment.status,
-            basis: reaction.participationJudgment.basis,
-            sayable_point: reaction.participationJudgment.sayablePoint || '',
-            evidence_refs: reaction.participationJudgment.evidenceRefs,
-            memory_refs: reaction.participationJudgment.memoryRefs
-          },
-          should_search: reaction.shouldSearch,
-          preferred_action: reaction.preferredAction,
-          context_gap: reaction.contextGap,
-          gap_resolution: reaction.gapResolution,
-          reason: reaction.reason
-        };
+      case TOOL_NAMES.lifeAction: {
+        return this.commitLifeAction(toolCall, queueMessage, options);
       }
       case TOOL_NAMES.inspectImage: {
         return this.inspectImagePlaceholder(toolCall.args, queueMessage);
@@ -6046,6 +6208,144 @@ export class AgentLoopService {
       default:
         throw new Error(`Unsupported tool: ${toolCall.name}`);
     }
+  }
+
+  private async commitLifeAction(
+    toolCall: AgentToolCall,
+    queueMessage: QueueMessageRecord['payload'],
+    options: ExecuteToolOptions = {}
+  ) {
+    const action = parseLifeAction(toolCall.args);
+    if (!action) {
+      throw new Error(`${toolCall.name} returned invalid arguments`);
+    }
+
+    const base = serializeLifeAction(action);
+    const xiaoniOs = typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
+      ? toolCall.args.xiaoni_os.trim()
+      : action.reason;
+    const pendingShare = typeof toolCall.args.pending_share === 'string' && toolCall.args.pending_share.trim()
+      ? toolCall.args.pending_share.trim()
+      : null;
+    const outcome = typeof toolCall.args.outcome === 'string' && toolCall.args.outcome.trim()
+      ? toolCall.args.outcome.trim()
+      : null;
+
+    const forceSilentReason = action.actionType === 'speak'
+      ? shouldForceActionToSilenceFromParticipationJudgment(action, action.unreadMeaning)
+        ? 'participation_judgment_not_sayable'
+        : shouldDowngradeWeakSpeakToSilence(action, action.unreadMeaning, options.stateBias ?? 'normal')
+        ? 'weak_speak_downgraded'
+        : null
+      : null;
+    const messages = normalizeMessages(toolCall.args);
+    if (action.actionType === 'silent' || forceSilentReason || ((action.actionType === 'speak' || action.actionType === 'proactive') && messages.length === 0)) {
+      return {
+        ...base,
+        action_type: 'silent',
+        proposed_action_type: action.actionType,
+        finished: true,
+        reason: forceSilentReason || (messages.length === 0 && action.actionType !== 'silent' ? 'missing_visible_message' : action.reason),
+        outcome: outcome || forceSilentReason || (messages.length === 0 && action.actionType !== 'silent' ? 'missing_visible_message' : 'silent'),
+        xiaoni_os: xiaoniOs,
+        pending_share: pendingShare
+      };
+    }
+
+    if (action.actionType === 'speak' || action.actionType === 'proactive') {
+      const sendResult = await this.sendMessage(
+        queueMessage.chatType === 'direct' ? 'private' : 'group',
+        {
+          ...toolCall.args,
+          messages,
+          xiaoni_os: xiaoniOs,
+          ...(pendingShare ? { pending_share: pendingShare } : {})
+        },
+        queueMessage
+      );
+      return {
+        ...base,
+        ...sendResult,
+        finished: true,
+        outcome: 'reply_sent',
+        reason: action.reason
+      };
+    }
+
+    if (action.actionType === 'image_task') {
+      const prompt = typeof toolCall.args.prompt === 'string' && toolCall.args.prompt.trim()
+        ? toolCall.args.prompt.trim()
+        : '';
+      if (prompt) {
+        const imageResult = await this.requestImageTask({
+          ...toolCall.args,
+          xiaoni_os: xiaoniOs
+        }, queueMessage);
+        let sendResult: Record<string, unknown> = {};
+        if (messages.length > 0) {
+          sendResult = await this.sendMessage(
+            queueMessage.chatType === 'direct' ? 'private' : 'group',
+            {
+              ...toolCall.args,
+              messages,
+              xiaoni_os: xiaoniOs,
+              ...(pendingShare ? { pending_share: pendingShare } : {})
+            },
+            queueMessage
+          );
+        }
+        return {
+          ...base,
+          ...imageResult,
+          ...sendResult,
+          finished: true,
+          outcome: messages.length > 0 ? 'image_task_queued_and_replied' : 'image_task_queued',
+          reason: action.reason,
+          xiaoni_os: xiaoniOs,
+          pending_share: pendingShare
+        };
+      }
+      return {
+        ...base,
+        finished: false,
+        needs_external_tool: 'image_task',
+        reason: action.reason,
+        xiaoni_os: xiaoniOs,
+        pending_share: pendingShare
+      };
+    }
+
+    if (action.actionType === 'search') {
+      if (!agentConfig.webSearchEnabled) {
+        return {
+          ...base,
+          action_type: 'silent',
+          proposed_action_type: action.actionType,
+          finished: true,
+          reason: 'web_search_disabled',
+          outcome: 'web_search_disabled',
+          xiaoni_os: xiaoniOs,
+          pending_share: pendingShare
+        };
+      }
+      return {
+        ...base,
+        finished: false,
+        needs_external_tool: 'web_search',
+        reason: action.reason,
+        xiaoni_os: xiaoniOs,
+        pending_share: pendingShare
+      };
+    }
+
+    return {
+      ...base,
+      finished: true,
+      reason: action.reason,
+      outcome: outcome || 'silent',
+      xiaoni_os: xiaoniOs,
+      pending_share: pendingShare
+    };
   }
 
   private async inspectImagePlaceholder(
@@ -6810,7 +7110,7 @@ export function buildInitialInput(
   }
 
   if (contextSummary) {
-    items.push(buildAssistantCommentaryInputItem([`<对话历史摘要>\n${contextSummary}\n</对话历史摘要>`]));
+    items.push(buildAssistantCommentaryInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
   }
 
   for (const turn of history) {
