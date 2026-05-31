@@ -93,39 +93,57 @@ test('reduceXiaoniLifeState does not treat silence as boredom reset', () => {
   assert.doesNotMatch(result.explanation.summary, /无聊=|疲劳=|分享欲=|困倦压力=/);
 });
 
-test('rest and sleep events lower fatigue pressure', () => {
+test('action cost directly drives fatigue and rest or sleep restores it', () => {
   const now = new Date('2026-05-31T12:00:00.000Z');
   const tired = reduceXiaoniLifeState({
     now,
-    legacyAnchors: {
-      now,
-      serviceStartedAt: '2026-05-30T00:00:00.000Z',
-      lastBoredomResetAt: '2026-05-30T00:00:00.000Z',
-      lastActiveAt: '2026-05-30T00:00:00.000Z',
-      lastSleepAt: '2026-05-30T00:00:00.000Z'
-    },
-    events: []
-  });
-  const rested = reduceXiaoniLifeState({
-    now,
-    legacyAnchors: {
-      now,
-      serviceStartedAt: '2026-05-30T00:00:00.000Z',
-      lastBoredomResetAt: '2026-05-30T00:00:00.000Z',
-      lastActiveAt: '2026-05-30T00:00:00.000Z',
-      lastSleepAt: '2026-05-30T00:00:00.000Z'
-    },
     events: [
       event({
         id: '4',
+        eventKind: 'speak_in_group',
+        occurredAt: '2026-05-31T09:00:00.000Z',
+        actionCost: 0.8
+      })
+    ]
+  });
+  const rested = reduceXiaoniLifeState({
+    now,
+    events: [
+      event({
+        id: '4',
+        eventKind: 'speak_in_group',
+        occurredAt: '2026-05-31T09:00:00.000Z',
+        actionCost: 0.8
+      }),
+      event({
+        id: '5',
+        eventKind: 'rest_period',
+        occurredAt: '2026-05-31T10:00:00.000Z'
+      })
+    ]
+  });
+  const slept = reduceXiaoniLifeState({
+    now,
+    events: [
+      event({
+        id: '4',
+        eventKind: 'speak_in_group',
+        occurredAt: '2026-05-31T09:00:00.000Z',
+        actionCost: 0.8
+      }),
+      event({
+        id: '6',
         eventKind: 'sleep_period',
         occurredAt: '2026-05-31T10:00:00.000Z'
       })
     ]
   });
 
+  assert.equal(tired.projection.state.fatigue, tired.projection.state.actionCost);
+  assert.equal(tired.projection.state.energy, 1 - tired.projection.state.actionCost);
   assert.ok(rested.projection.state.fatigue < tired.projection.state.fatigue);
-  assert.ok(rested.projection.state.sleepPressure < tired.projection.state.sleepPressure);
+  assert.equal(slept.projection.state.fatigue, 0);
+  assert.equal(slept.projection.state.energy, 1);
 });
 
 test('presence tick evaluation event drives cooldown only when enqueued', () => {

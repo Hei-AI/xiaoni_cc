@@ -1933,7 +1933,12 @@ test('context summary writer stores plain-text digest from whole in-context, not
   const originalFetch = globalThis.fetch;
   const runtimePrompt = createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' });
   const summarySourceInput = buildInitialInput(
-    [createConversationTurn()],
+    [{
+      ...createConversationTurn(),
+      rawResponse: {
+        xiaoni_os: '我想回头分享这个：压缩前留下的待分享意图应该进入近况。'
+      }
+    }],
     createQueuePayload(),
     runtimePrompt,
     [],
@@ -1979,6 +1984,7 @@ test('context summary writer stores plain-text digest from whole in-context, not
   const writerInputText = calls[0].canonicalRequest.input.map(getMessageContent).join('\n');
   assert.match(writerInputText, /<in_context_to_digest>/);
   assert.match(writerInputText, /上一轮近况：小腻刚被提醒不要公式化接话。/);
+  assert.match(writerInputText, /我想回头分享这个：压缩前留下的待分享意图应该进入近况。/);
   assert.match(writerInputText, /<INPUT_MESSAGE message_id="11"/);
   assert.deepEqual(summaries, [{
     sessionKey: 'qq:group:101',
@@ -2965,6 +2971,73 @@ test('submit_life_action with a single message sends it once', async () => {
       mention_user_ids: []
     }
   }]);
+});
+
+test('life-only submit_life_action defers proactive text into Xiaoni OS without sending QQ', async () => {
+  const service = new AgentLoopService({
+    recordPresenceAssistantAction: async () => {}
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const queueMessage = createLifePresenceTickQueueMessageForTest().payload;
+  const originalFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = (async () => {
+    fetchCalled = true;
+    throw new Error('life-only presence tick must not send QQ');
+  }) as typeof fetch;
+
+  try {
+    const result = await (service as any).commitLifeAction({
+      callId: 'call-life-only-proactive',
+      name: LIFE_ACTION_TOOL,
+      rawArguments: '{}',
+      args: {
+        unread_meaning: {
+          latest_unread_focus: '空闲生活事件，还没有打开任何具体会话',
+          message_act: 'statement',
+          social_target: 'me',
+          addressed_to_me: false,
+          has_real_novelty: true,
+          confidence: 'high',
+          reason: 'presence tick 只是在检查自己的状态',
+          social_act_type: 'casual_remark',
+          topic_context: {
+            has_topic: true,
+            topic_summary: '想回头分享一个小发现',
+            addressed_to_me: false
+          }
+        },
+        action_type: 'proactive',
+        message: '回头可以跟阿花说一下：今天这个精力系统其实缺的是上下文里的待分享意图。',
+        reason: '现在没有具体 QQ 目标，所以只能先留给后续上下文。',
+        evidence_refs: ['presence_tick'],
+        confidence: 0.82,
+        interest_level: 'high',
+        wants_to_know_more: false,
+        reaction_authenticity: 'formed',
+        participation_judgment: {
+          status: 'has_sayable_point',
+          basis: 'curiosity',
+          sayable_point: '把想分享的内容留到后面打开 QQ 时使用。',
+          evidence_refs: ['presence_tick'],
+          memory_refs: []
+        },
+        should_search: false,
+        context_gap: 'none',
+        gap_resolution: 'none',
+        xiaoni_os: '先把这个作为内部连续性留住。',
+        pending_share: null
+      }
+    }, queueMessage);
+
+    assert.equal(fetchCalled, false);
+    assert.equal(result.outcome, 'deferred_share_context');
+    assert.match(String(result.pending_share), /精力系统/);
+    assert.match(String(result.xiaoni_os), /我想回头分享这个/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('processQueueMessage fails without a bound prompt and does not call the provider', async () => {

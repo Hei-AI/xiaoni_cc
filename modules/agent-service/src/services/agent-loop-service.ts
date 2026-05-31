@@ -1210,8 +1210,8 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '直接用 submit_life_action 一次性提交 unread_meaning、参与判断、最终动作和 xiaoni_os。',
   '普通说话、主动说一句、沉默，都必须在 submit_life_action 里直接收口；不要先调用 emit_unread_meaning，也不要把判断拆成多轮。',
   '只有真的需要外部结果时才进入后续工具轮：公开新资料用 web_search，看图用 inspect_image_placeholder，登记图片任务用 request_image_task。',
-  '当本轮只有 `<ACTION source="presence_tick">` 且还没有打开具体会话时，这是同一事件流里的空闲生活事件；只能 web_search 或 stay_silent，不要给任何 QQ 对象发消息。',
-  '空闲生活事件可以顺着当前可见上下文、压缩近况或自己的 OS 里的建议去查一个小问题；如果没有自然线索，就休息，不要编造兴趣或装作读过材料。',
+  '当本轮只有 `<ACTION source="presence_tick">` 且还没有打开具体会话时，这是同一事件流里的空闲生活事件；可以 submit_life_action、web_search 或 stay_silent，但不要给任何 QQ 对象发消息。',
+  '空闲生活事件可以顺着当前可见上下文、压缩近况或自己的 OS 里的建议去查一个小问题；有想回头分享的内容就写进 xiaoni_os 或 pending_share，让它留在上下文里。如果没有自然线索，就休息，不要编造兴趣或装作读过材料。',
   '',
   '工具阶段：',
   'commentary 工具只补充必要外部上下文：inspect_image_placeholder、web_search。submit_life_action 是本轮决策入口；普通场景也是最终收口。',
@@ -1544,11 +1544,12 @@ function isLifeOnlyPresenceLoop(loopInput: OpenResponseInputItem[]) {
 
 function selectLifeOnlyPresenceToolDefinitions(): OpenResponseToolDefinition[] {
   const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled ? [WEB_SEARCH_TOOL] : [];
-  return [...tools, FINISH_TOOL];
+  return [LIFE_ACTION_TOOL, ...tools, FINISH_TOOL];
 }
 
 function resolveLifeOnlyPresenceToolChoice(): OpenResponseToolChoice {
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
+    { type: 'function', name: TOOL_NAMES.lifeAction },
     { type: 'function', name: TOOL_NAMES.silentFinish }
   ];
   if (agentConfig.webSearchEnabled) {
@@ -3185,6 +3186,24 @@ function sanitizeXiaoniOsForReplay(params: {
   }
 
   return trimmed;
+}
+
+function normalizePendingShare(value: string | null | undefined) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function appendPendingShareToXiaoniOs(xiaoniOs: string | null, pendingShare: string | null) {
+  const share = normalizePendingShare(pendingShare);
+  const os = typeof xiaoniOs === 'string' && xiaoniOs.trim().length > 0 ? xiaoniOs.trim() : '';
+  if (!share) {
+    return os || null;
+  }
+
+  const line = `我想回头分享这个：${share}`;
+  if (os.includes('我想回头分享这个') && os.includes(share)) {
+    return os;
+  }
+  return os ? `${os}\n${line}` : line;
 }
 
 function parseOptionalBoolean(value: unknown) {
@@ -4896,6 +4915,7 @@ export class AgentLoopService {
         deliveredMessages,
         errorMessage: null
       });
+      persistedXiaoniOs = appendPendingShareToXiaoniOs(persistedXiaoniOs, persistedPendingShare);
       conversationId = await this.store.createConversation({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
@@ -4955,6 +4975,7 @@ export class AgentLoopService {
         rawResponse: {
           sent_messages: sentMessages,
           xiaoni_os: persistedXiaoniOs,
+          pending_share: persistedPendingShare,
           loop_stage_artifacts: {
             unread_meaning: unreadMeaningArtifact,
             life_action: lifeActionArtifact
@@ -4999,6 +5020,7 @@ export class AgentLoopService {
           no_reply: termination.noReply,
           sent_messages: sentMessages,
           xiaoni_os: persistedXiaoniOs,
+          pending_share: persistedPendingShare,
           stored_feedback_reflection_ids: storedFeedbackReflectionIds,
           total_turns: turnsExecuted,
           finish_result: finishResult,
@@ -6322,6 +6344,22 @@ export class AgentLoopService {
         : null
       : null;
     const messages = normalizeMessages(toolCall.args);
+    if (isLifePresenceTickPayload(queueMessage)
+      && (action.actionType === 'speak' || action.actionType === 'proactive' || action.actionType === 'image_task')) {
+      const deferredShare = normalizePendingShare(pendingShare)
+        || normalizePendingShare(messages.join('\n\n'));
+      return {
+        ...base,
+        proposed_action_type: action.actionType,
+        finished: true,
+        reason: action.reason,
+        outcome: deferredShare ? 'deferred_share_context' : 'life_only_no_external_target',
+        no_reply: true,
+        xiaoni_os: appendPendingShareToXiaoniOs(xiaoniOs, deferredShare),
+        pending_share: deferredShare
+      };
+    }
+
     if (action.actionType === 'silent' || forceSilentReason || ((action.actionType === 'speak' || action.actionType === 'proactive') && messages.length === 0)) {
       return {
         ...base,

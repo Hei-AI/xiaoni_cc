@@ -18,8 +18,10 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
   exists, the main loop can materialize it as `proactive_im_open`. If no unread
   IM exists, it stays life-only and must not send QQ directly.
 - Life-only `presence_tick` reads the global recent append stream, compressed
-  `<小腻近况>`, and `<小腻的OS>`. It can use `web_search` or `stay_silent`, not a
-  private planner context.
+  `<小腻近况>`, and `<小腻的OS>`. It can use `submit_life_action`,
+  `web_search`, or `stay_silent`, not a private planner context. If it produces
+  a "想回头分享" residue, that residue is appended into `<小腻的OS>` so it stays
+  in normal context and later compression.
 - `agent_digital_actions` is historical data only. The old write helpers are
   gone from `@qq-bot/persistence`, and prompt construction no longer reads this
   table for current state.
@@ -49,7 +51,7 @@ agent_life_events append stream
   -> deterministic reducer
   -> homeostasis snapshot
   -> presence/context projection
-  -> main loop decides: speak / search / stay_silent / visible action
+  -> main loop decides: speak / search / stay_silent / internal residue
   -> resulting action appends new events
 ```
 
@@ -57,9 +59,8 @@ The reducer computes current state from durable facts, not from a standalone
 planner loop. At minimum it should derive:
 
 - boredom and novelty need
-- fatigue, sleep pressure, and sleep inertia
-- pressure and effort cost multiplier
-- current action budget
+- fatigue derived directly from accumulated action cost
+- current energy/action budget (`energy = 1 - actionCost`)
 - sharing desire and reward sensitivity
 - material scarcity and current residue
 - recent action trace for prompt and admin explanation
@@ -75,8 +76,8 @@ Append events for facts that happened, not inferred personality:
 - `terminal_action_committed` / `terminal_action_blocked`: delivery boundary.
 - `presence_tick_evaluated`: a scheduler check happened, including skip or
   enqueue reason and the state snapshot used for the decision.
-- `rest_period` / `sleep_period`: rest facts that the reducer can consume to
-  lower pressure/fatigue.
+- `rest_period` / `sleep_period`: rest facts that lower or clear accumulated
+  action cost, which directly restores energy.
 - future digital events: real or explicitly constructed digital actions, each
   carrying source honesty, action cost, and source evidence.
 
@@ -116,6 +117,8 @@ Do not restore or add:
 
 - a second planner context
 - autonomous runner timers beyond the current presence tick
+- a separate share-pool queue for "想回头分享" residue; keep it in normal
+  context / `<小腻的OS>` / compressed summary
 - hardcoded web-search motives or query templates
 - fake reading/watching/browsing records
 - source wording that implies real evidence without a matching real event
@@ -129,7 +132,7 @@ Do not restore or add:
 - A group/private suggestion can affect state only after it appears as visible
   context or compacted Xiaoni continuity, not through a separate suggestion
   channel.
-- Admin activity can explain which events moved boredom, fatigue, pressure,
+- Admin activity can explain which events moved boredom, action cost/fatigue,
   reward, or sharing desire.
 - The prompt receives facts, costs, residues, and source boundaries. It does not
   receive a forced recommended action.

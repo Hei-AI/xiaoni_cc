@@ -62,7 +62,6 @@ type ReducerInternalState = {
   lastRestAt: Date | null;
   lastPresenceTickEnqueuedAt: Date | null;
   boredomOffset: number;
-  pressureOffset: number;
   rewardAttraction: number;
   attention: number;
   actionCost: number;
@@ -81,6 +80,21 @@ export type ReduceXiaoniLifeStateInput = {
 };
 
 const HOUR_MS = 60 * 60 * 1000;
+
+// Historical life events may predate explicit actionCost writes. New events
+// should carry actionCost at the write site and use these values only as a
+// compatibility fallback.
+const DEFAULT_ACTION_COST_BY_EVENT_KIND: Record<string, number> = {
+  surface_visit: 0.2,
+  qq_message_seen: 0,
+  qq_self_message: 1,
+  speak_in_group: 1,
+  silence_decision: 0.1,
+  web_search_result: 0,
+  pending_share_created: 0,
+  pending_share_consumed: 0.04,
+  presence_tick_evaluated: 0
+};
 
 function clamp01(value: number) {
   if (!Number.isFinite(value)) {
@@ -161,7 +175,6 @@ function initialState(input: ReduceXiaoniLifeStateInput): { state: ReducerIntern
         lastRestAt: toDate(previous.anchors.lastRestAt),
         lastPresenceTickEnqueuedAt: toDate(previous.anchors.lastPresenceTickEnqueuedAt),
         boredomOffset: 0,
-        pressureOffset: 0,
         rewardAttraction: clamp01(previous.state.rewardAttraction),
         attention: clamp01(previous.state.attention),
         actionCost: clamp01(previous.state.actionCost),
@@ -190,10 +203,9 @@ function initialState(input: ReduceXiaoniLifeStateInput): { state: ReducerIntern
       lastRestAt,
       lastPresenceTickEnqueuedAt: toDate(anchors?.lastPresenceTickEnqueuedAt),
       boredomOffset: legacyState ? legacyState.boredom * 0.25 : 0,
-      pressureOffset: legacyState ? legacyState.sleepPressure * 0.2 : 0,
       rewardAttraction: legacyState ? legacyState.sharingDesire * 0.35 : 0.25,
       attention: 0.25,
-      actionCost: legacyState ? legacyState.fatigue * 0.15 : 0,
+      actionCost: 0,
       materialEventCount: 0,
       contributors: []
     }
@@ -223,94 +235,107 @@ function formatCost(value: number) {
   return Number.isFinite(value) ? value.toFixed(2) : '0.00';
 }
 
-function visibleActionCost(eventCost: number, fallbackCost = 0) {
-  return eventCost > 0 ? eventCost : fallbackCost;
-}
-
 function actionCostText(cost: number) {
   return `本次行动成本 ${formatCost(cost)}`;
+}
+
+function resolveActionCost(eventKind: string, eventCost: number) {
+  if (eventCost > 0) {
+    return eventCost;
+  }
+  return DEFAULT_ACTION_COST_BY_EVENT_KIND[eventKind] ?? 0;
+}
+
+function applyActionCost(state: ReducerInternalState, eventKind: string, eventCost: number) {
+  const resolvedCost = resolveActionCost(eventKind, eventCost);
+  if (resolvedCost > 0) {
+    state.actionCost = clamp01(state.actionCost + resolvedCost);
+  }
+  return resolvedCost;
 }
 
 function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection) {
   const occurredAt = toDate(event.occurredAt);
   const payload = event.payload || {};
   const actionCost = Math.max(0, numberValue(event.actionCost, 0));
-  const pressureDelta = numberValue(event.pressureDelta, 0);
   const rewardDelta = numberValue(event.rewardDelta, 0);
   const boredomDelta = numberValue(event.boredomDelta, 0);
   const attentionDelta = numberValue(event.attentionDelta, 0);
 
   state.boredomOffset = clamp01(state.boredomOffset + boredomDelta);
-  state.pressureOffset = clamp01(state.pressureOffset + pressureDelta);
   state.rewardAttraction = clamp01(state.rewardAttraction + rewardDelta);
   state.attention = clamp01(state.attention + attentionDelta);
-  state.actionCost = clamp01(state.actionCost + actionCost);
 
   switch (event.eventKind) {
     case 'surface_visit':
+      applyActionCost(state, event.eventKind, actionCost);
       state.attention = clamp01(state.attention + 0.18);
       state.boredomOffset = clamp01(state.boredomOffset - 0.2);
       state.lastBoredomResetAt = occurredAt || state.lastBoredomResetAt;
       state.lastMeaningfulActivityAt = occurredAt || state.lastMeaningfulActivityAt;
       state.materialEventCount += 1;
-      rememberContributor(state, event, `打开或进入会话，${actionCostText(visibleActionCost(actionCost, 0.2))}`);
+      rememberContributor(state, event, `打开或进入会话，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'qq_message_seen':
+      applyActionCost(state, event.eventKind, actionCost);
       state.attention = clamp01(state.attention + 0.12);
       state.boredomOffset = clamp01(state.boredomOffset - 0.12);
       state.lastBoredomResetAt = occurredAt || state.lastBoredomResetAt;
       state.materialEventCount += 1;
-      rememberContributor(state, event, `看见真实消息，${actionCostText(visibleActionCost(actionCost, 0))}`);
+      rememberContributor(state, event, `看见真实消息，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'qq_self_message':
     case 'speak_in_group':
-      state.actionCost = clamp01(state.actionCost + 0.12);
+      applyActionCost(state, event.eventKind, actionCost);
       state.rewardAttraction = clamp01(state.rewardAttraction - 0.15);
       state.boredomOffset = clamp01(state.boredomOffset - 0.25);
       state.lastBoredomResetAt = occurredAt || state.lastBoredomResetAt;
       state.lastMeaningfulActivityAt = occurredAt || state.lastMeaningfulActivityAt;
       state.materialEventCount += 1;
-      rememberContributor(state, event, `已经开口，${actionCostText(visibleActionCost(actionCost, 1))}`);
+      rememberContributor(state, event, `已经开口，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'silence_decision':
-      state.actionCost = clamp01(state.actionCost + 0.02);
+      applyActionCost(state, event.eventKind, actionCost);
       state.attention = clamp01(state.attention - 0.04);
-      rememberContributor(state, event, `看过但选择沉默，${actionCostText(visibleActionCost(actionCost, 0.1))}`);
+      rememberContributor(state, event, `看过但选择沉默，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'web_search_result':
     case 'pending_share_created':
+      applyActionCost(state, event.eventKind, actionCost);
       state.rewardAttraction = clamp01(state.rewardAttraction + 0.18);
       state.boredomOffset = clamp01(state.boredomOffset - 0.05);
       state.materialEventCount += 1;
-      rememberContributor(state, event, `产生可分享材料，${actionCostText(visibleActionCost(actionCost, 0))}`);
+      rememberContributor(state, event, `产生可分享材料，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'pending_share_consumed':
       state.rewardAttraction = clamp01(state.rewardAttraction - 0.12);
-      state.actionCost = clamp01(state.actionCost + 0.04);
-      rememberContributor(state, event, `用掉一条可分享材料，${actionCostText(visibleActionCost(actionCost, 0.04))}`);
+      applyActionCost(state, event.eventKind, actionCost);
+      rememberContributor(state, event, `用掉一条可分享材料，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'presence_tick_evaluated':
+      applyActionCost(state, event.eventKind, actionCost);
       if (payload.eligible === true && (payload.enqueued === true || payload.queue_id || payload.queueId)) {
         state.lastPresenceTickEnqueuedAt = occurredAt || state.lastPresenceTickEnqueuedAt;
       }
-      rememberContributor(state, event, payload.eligible === true ? '这次空闲检查可以进入队列，本次行动成本 0.00' : '这次空闲检查被跳过，本次行动成本 0.00');
+      rememberContributor(state, event, payload.eligible === true
+        ? `这次空闲检查可以进入队列，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`
+        : `这次空闲检查被跳过，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'rest_period':
       state.actionCost = clamp01(state.actionCost - 0.25);
-      state.pressureOffset = clamp01(state.pressureOffset - 0.2);
       state.attention = clamp01(state.attention - 0.08);
       state.lastRestAt = occurredAt || state.lastRestAt;
       rememberContributor(state, event, '刚才短暂休息了一会儿，行动成本恢复 0.25');
       break;
     case 'sleep_period':
       state.actionCost = 0;
-      state.pressureOffset = clamp01(state.pressureOffset - 0.5);
       state.attention = clamp01(state.attention - 0.12);
       state.lastRestAt = occurredAt || state.lastRestAt;
       state.lastMeaningfulActivityAt = occurredAt || state.lastMeaningfulActivityAt;
       rememberContributor(state, event, '刚才记录了一次睡眠恢复，醒来后累计行动成本重置为 0.00');
       break;
     default:
+      applyActionCost(state, event.eventKind, actionCost);
       break;
   }
 }
@@ -327,10 +352,9 @@ export function reduceXiaoniLifeState(input: ReduceXiaoniLifeStateInput): {
 
   const reducedThroughEvent = orderedEvents[orderedEvents.length - 1] || null;
   const hoursSinceBoredomReset = hoursBetween(input.now, state.lastBoredomResetAt);
-  const hoursSinceRest = hoursBetween(input.now, state.lastRestAt || state.serviceStartedAt);
   const boredom = clamp01(state.boredomOffset + (hoursSinceBoredomReset / 3));
-  const restPressure = clamp01((hoursSinceRest / 16) + state.pressureOffset + (state.actionCost * 0.12));
-  const fatigue = clamp01((restPressure * 0.72) + (state.actionCost * 0.18));
+  const actionCost = clamp01(state.actionCost);
+  const fatigue = actionCost;
   const energy = clamp01(1 - fatigue);
   const rewardAttraction = clamp01(state.rewardAttraction);
   const sharingDesire = clamp01((boredom * 0.52) + (rewardAttraction * 0.28) + (energy * 0.2) - (fatigue * 0.08));
@@ -343,13 +367,13 @@ export function reduceXiaoniLifeState(input: ReduceXiaoniLifeStateInput): {
     fatigue,
     energy,
     sharingDesire,
-    sleepPressure: restPressure,
+    sleepPressure: actionCost,
     cooldownActive,
     startupGraceActive,
     attention: clamp01(state.attention),
     rewardAttraction,
-    restPressure,
-    actionCost: clamp01(state.actionCost)
+    restPressure: actionCost,
+    actionCost
   };
 
   const projection: XiaoniLifeStateProjection = {

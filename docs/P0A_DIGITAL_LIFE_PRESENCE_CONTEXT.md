@@ -6,8 +6,9 @@ implementation has landed the presence-context first slice. Earlier self-action
 side runners were removed from the current runtime because they created a second
 context and made hardcoded interests look like Xiaoni's own life. The current
 shape appends idle/presence life events into the same main loop; a life-only
-event can only read the global recent append stream, then run grounded hosted
-`web_search` or `stay_silent`. This is still not the full browser-backed
+event can read the global recent append stream, submit an internal life action,
+run grounded hosted `web_search`, or `stay_silent`. It still cannot send QQ
+without a concrete IM target. This is still not the full browser-backed
 digital-life system.
 
 This document is the system of record for browser-backed digital life,
@@ -102,6 +103,13 @@ energy, dopamine, boredom, and sharing desire to act.
 
 **Energy / fatigue model to engineer:**
 
+Current implemented slice is intentionally simpler than the broader design:
+each life event carries one `actionCost` or falls back to the reducer's
+event-kind default cost. The reducer accumulates that cost, then derives
+`fatigue = actionCost` and `energy = 1 - actionCost`. `rest_period` subtracts
+from accumulated cost; `sleep_period` clears it. Wall-clock time since the last
+rest does not currently create fatigue by itself.
+
 Use a lightweight human-like curve, not a fake dopamine gauge. The research shape
 to copy is the two-process sleep model: sleep pressure rises while awake and
 falls during sleep, while circadian alertness follows a daily rhythm.
@@ -117,8 +125,8 @@ Core variables:
   late at night. Shift this curve by Xiaoni's configured schedule.
 - `sleep_inertia`: short wake-up drag. After waking, keep 20-60 minutes of lower
   action tendency before she is fully online.
-- `fatigue`: derived from sleep pressure, recent action cost, pressure, and
-  active time. This is a curve, not a boolean.
+- `fatigue`: in the current reducer, directly mirrors accumulated action cost.
+  Broader sleep-pressure and circadian modeling remain future design scope.
 - `effort_cost_multiplier`: fatigue raises the felt cost of acting. This is the
   main mechanism for "too tired to do the thing".
 - `reward_sensitivity`: attraction to novelty, interaction, fun, and being
@@ -217,8 +225,10 @@ Current implemented slices:
   compatibility data for admin replay only.
 - 2026-05-31: life-only `presence_tick` now stays inside the main loop. It reads
   the global recent append stream, compressed `<小腻近况>`, and `<小腻的OS>`;
-  without a concrete IM target it cannot send QQ directly and can only choose
-  `web_search` or `stay_silent`.
+  without a concrete IM target it cannot send QQ directly. It can still use
+  `submit_life_action`, `web_search`, or `stay_silent`; any "想回头分享" residue
+  is appended to `<小腻的OS>` and therefore survives normal context replay or
+  later summary compression.
 - 2026-05-31: homeostasis design correction locked. The next reducer uses
   `agent_life_events` as the canonical append stream. `agent_session_life_states`
   is only a projection/cache. Do not restore a separate self-action planner, and

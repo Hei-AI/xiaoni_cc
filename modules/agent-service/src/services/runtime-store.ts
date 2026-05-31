@@ -1732,7 +1732,6 @@ export class RuntimeStore {
         targetId: queueMessage.peerId,
         visibility: 'active_surface',
         actionCost: 1,
-        pressureDelta: -0.1,
         payload: {
           tool_name: input.toolName,
           forced: Boolean(input.forced),
@@ -1958,6 +1957,7 @@ export class RuntimeStore {
         actorId: input.queueMessage.accountId,
         targetId: input.queueMessage.peerId,
         visibility: 'self_private',
+        actionCost: 0.04,
         payload: {
           share_pool_item_id: item.id,
           source_kind: item.sourceKind,

@@ -101,7 +101,7 @@ function createRuntimeStoreQueuePayload(overrides: Partial<QueueMessagePayload> 
   };
 }
 
-test('buildPresenceAnchorsFromLife preserves recent activity for fatigue derivation', () => {
+test('buildPresenceAnchorsFromLife preserves recent activity for presence anchors', () => {
   const now = new Date('2026-05-30T04:00:00.000Z');
   const anchors = buildPresenceAnchorsFromLife({
     service_started_at: '2026-05-26T04:00:00.000Z',
@@ -117,8 +117,8 @@ test('buildPresenceAnchorsFromLife preserves recent activity for fatigue derivat
   const state = deriveLifeState(anchors);
 
   assert.equal(anchors.lastActiveAt, '2026-05-30T03:55:00.000Z');
-  assert.ok(state.fatigue < 0.01);
-  assert.ok(state.energy > 0.99);
+  assert.equal(state.fatigue, 0);
+  assert.equal(state.energy, 1);
 });
 
 test('buildPresenceAnchorsFromLife resets stale daily proactive count', () => {
