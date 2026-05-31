@@ -52,6 +52,9 @@ interface UserSettings {
   is_enabled: number;
   continuous_learning_enabled: number;
   auto_reply_enabled: number;
+  im_receive_enabled?: number;
+  agent_im_entry_enabled?: number;
+  direct_force_im_trigger_enabled?: number;
   transcript_compact_offset: number;
   welcome_message: string | null;
   user_notes: string | null;
@@ -237,10 +240,14 @@ export const PrivateChatDetailPage: React.FC = () => {
 
   const handleQuickToggle = (field: ChatSettingsToggleField) => {
     if (!conversationData?.data.user_settings) return;
+    const settings = conversationData.data.user_settings;
+    if (settings.direct_force_im_trigger_enabled && (field === 'is_enabled' || field === 'auto_reply_enabled')) {
+      return;
+    }
     
-    const currentValue = conversationData.data.user_settings[field];
+    const currentValue = settings[field];
     updateSettingsMutation.mutate(applyChatSettingToggle(
-      conversationData.data.user_settings,
+      settings,
       field,
       !currentValue
     ));
@@ -258,7 +265,7 @@ export const PrivateChatDetailPage: React.FC = () => {
           <div>
             <h1 className="text-2xl font-bold">私聊详情</h1>
             <p className="text-muted-foreground">
-              {conversationData?.data.user_settings.nickname || `用户 ${userId}`} 的对话历史
+              {conversationData?.data.user_settings.nickname || `用户 ${userId}`} 的小腻 IM 入口和对话历史
             </p>
           </div>
         </div>
@@ -310,14 +317,16 @@ export const PrivateChatDetailPage: React.FC = () => {
               </div>
               <div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">接收状态:</span>
+                  <span className="text-sm font-medium">IM 入口:</span>
                   <Button
                     size="sm"
-                    variant={conversationData.data.user_settings.is_enabled ? "default" : "outline"}
+                    variant={(conversationData.data.user_settings.im_receive_enabled ?? conversationData.data.user_settings.is_enabled) ? "default" : "outline"}
                     onClick={() => handleQuickToggle('is_enabled')}
-                    disabled={updateSettingsMutation.isPending}
+                    disabled={updateSettingsMutation.isPending || Boolean(conversationData.data.user_settings.direct_force_im_trigger_enabled)}
                   >
-                    {conversationData.data.user_settings.is_enabled ? '接收中' : '已忽略'}
+                    {conversationData.data.user_settings.direct_force_im_trigger_enabled
+                      ? '工程强制'
+                      : (conversationData.data.user_settings.im_receive_enabled ?? conversationData.data.user_settings.is_enabled) ? '可进 IM' : '不进 IM'}
                   </Button>
                 </div>
               </div>
@@ -336,14 +345,16 @@ export const PrivateChatDetailPage: React.FC = () => {
               </div>
               <div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">自动回复:</span>
+                  <span className="text-sm font-medium">agent 投递:</span>
                   <Button
                     size="sm"
-                    variant={conversationData.data.user_settings.auto_reply_enabled ? "default" : "outline"}
+                    variant={(conversationData.data.user_settings.agent_im_entry_enabled ?? conversationData.data.user_settings.auto_reply_enabled) ? "default" : "outline"}
                     onClick={() => handleQuickToggle('auto_reply_enabled')}
-                    disabled={updateSettingsMutation.isPending || isChatSettingToggleDisabled(conversationData.data.user_settings, 'auto_reply_enabled')}
+                    disabled={updateSettingsMutation.isPending || Boolean(conversationData.data.user_settings.direct_force_im_trigger_enabled) || isChatSettingToggleDisabled(conversationData.data.user_settings, 'auto_reply_enabled')}
                   >
-                    {conversationData.data.user_settings.auto_reply_enabled ? '开启' : '关闭'}
+                    {conversationData.data.user_settings.direct_force_im_trigger_enabled
+                      ? '工程强制'
+                      : (conversationData.data.user_settings.agent_im_entry_enabled ?? conversationData.data.user_settings.auto_reply_enabled) ? '投递' : '不投递'}
                   </Button>
                 </div>
               </div>

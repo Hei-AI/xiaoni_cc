@@ -54,6 +54,33 @@ function buildRuntimeSessionKey(scope: 'group' | 'private', id: number): string 
   return scope === 'group' ? `qq:group:${id}` : `qq:private:${id}`;
 }
 
+function parseDirectAgentTriggerUserIds(): number[] {
+  const raw = process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS || process.env.AUTHORIZED_USER_ID || '85178516';
+  const ids = new Set<number>();
+  String(raw)
+    .split(',')
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isFinite(item) && item > 0)
+    .forEach((item) => ids.add(Math.trunc(item)));
+  return Array.from(ids);
+}
+
+function buildDirectAgentTriggerCaseSql(columnName: string): string {
+  const ids = parseDirectAgentTriggerUserIds();
+  if (ids.length === 0) {
+    return '0';
+  }
+  return `CASE WHEN ${columnName} IN (${ids.join(',')}) THEN 1 ELSE 0 END`;
+}
+
+function buildDirectAgentTriggerTargetUnionSql(): string {
+  const ids = parseDirectAgentTriggerUserIds();
+  if (ids.length === 0) {
+    return '';
+  }
+  return ids.map((id) => `UNION SELECT ${id} AS user_id`).join('\n');
+}
+
 function parseMetricsWindowDays(raw: unknown): number {
   const value = Number(raw);
   if (!Number.isFinite(value)) {
@@ -228,7 +255,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       let queryParams: any[] = [];
 
       if (search) {
-        whereConditions.push('(g.group_name LIKE ? OR g.group_id LIKE ?)');
+        whereConditions.push('(g.group_name LIKE ? OR CAST(g.group_id AS TEXT) LIKE ?)');
         queryParams.push(`%${search}%`, `%${search}%`);
       }
 
@@ -252,6 +279,8 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           g.is_enabled,
           CASE WHEN g.is_enabled = 1 THEN g.continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
           CASE WHEN g.is_enabled = 1 THEN g.auto_reply_enabled ELSE 0 END as auto_reply_enabled,
+          g.is_enabled as im_receive_enabled,
+          CASE WHEN g.is_enabled = 1 AND g.auto_reply_enabled = 1 THEN 1 ELSE 0 END as agent_im_entry_enabled,
           g.transcript_compact_offset,
           g.welcome_message,
           g.admin_user_id,
@@ -314,6 +343,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           COUNT(DISTINCT g.group_id) as total_groups,
           COUNT(CASE WHEN g.is_enabled = 1 THEN 1 END) as enabled_groups,
           COUNT(CASE WHEN g.is_enabled = 1 AND g.auto_reply_enabled = 1 THEN 1 END) as auto_reply_groups,
+          COUNT(CASE WHEN g.is_enabled = 1 AND g.auto_reply_enabled = 1 THEN 1 END) as agent_im_entry_groups,
           COUNT(CASE WHEN g.last_activity >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 END) as active_groups
         FROM group_chat_settings g
       `);
@@ -350,24 +380,32 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       const search = req.query.search as string || '';
       const is_enabled = req.query.is_enabled;
       const auto_reply_enabled = req.query.auto_reply_enabled;
+      const directForceCase = buildDirectAgentTriggerCaseSql('targets.user_id');
+      const directTriggerTargetsSql = buildDirectAgentTriggerTargetUnionSql();
 
       // 构建查询条件
       let whereConditions = ['1=1'];
       let queryParams: any[] = [];
 
       if (search) {
-        whereConditions.push('(pcs.username LIKE ? OR targets.user_id LIKE ?)');
+        whereConditions.push('(pcs.username LIKE ? OR CAST(targets.user_id AS TEXT) LIKE ?)');
         queryParams.push(`%${search}%`, `%${search}%`);
       }
 
       if (is_enabled !== undefined) {
-        whereConditions.push('COALESCE(pcs.is_enabled, 1) = ?');
+        whereConditions.push(`(
+          CASE
+            WHEN ${directForceCase} = 1 THEN 1
+            ELSE COALESCE(pcs.is_enabled, 1)
+          END
+        ) = ?`);
         queryParams.push(is_enabled === 'true' ? 1 : 0);
       }
 
       if (auto_reply_enabled !== undefined) {
         whereConditions.push(`(
           CASE
+            WHEN ${directForceCase} = 1 THEN 1
             WHEN COALESCE(pcs.is_enabled, 1) = 1 THEN COALESCE(pcs.auto_reply_enabled, 0)
             ELSE 0
           END
@@ -388,6 +426,16 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
             WHEN COALESCE(stats.failed_replies, 0) > 0 THEN 'failed'
             ELSE 'pending'
           END as status,
+          ${directForceCase} as direct_force_im_trigger_enabled,
+          CASE
+            WHEN ${directForceCase} = 1 THEN 1
+            ELSE COALESCE(pcs.is_enabled, 1)
+          END as im_receive_enabled,
+          CASE
+            WHEN ${directForceCase} = 1 THEN 1
+            WHEN COALESCE(pcs.is_enabled, 1) = 1 AND COALESCE(pcs.auto_reply_enabled, 0) = 1 THEN 1
+            ELSE 0
+          END as agent_im_entry_enabled,
           COALESCE(stats.total_conversations, 0) as total_conversations,
           COALESCE(stats.successful_replies, 0) as successful_replies,
           COALESCE(stats.failed_replies, 0) as failed_replies,
@@ -412,6 +460,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           SELECT user_id FROM private_chat_settings
           UNION
           SELECT DISTINCT user_id FROM conversations WHERE group_id IS NULL
+          ${directTriggerTargetsSql}
         ) targets
         LEFT JOIN private_chat_settings pcs ON targets.user_id = pcs.user_id
         LEFT JOIN (
@@ -439,6 +488,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           SELECT user_id FROM private_chat_settings
           UNION
           SELECT DISTINCT user_id FROM conversations WHERE group_id IS NULL
+          ${directTriggerTargetsSql}
         ) targets
         LEFT JOIN private_chat_settings pcs ON targets.user_id = pcs.user_id
         WHERE ${whereClause}
@@ -520,12 +570,18 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       `, [userId]);
 
       const userSettingRow = userSettingsRows[0];
+      const directForceImTriggerEnabled = parseDirectAgentTriggerUserIds().includes(userId) ? 1 : 0;
+      const baseReceiveEnabled = userSettingRow?.is_enabled ?? 1;
+      const baseAutoReplyEnabled = userSettingRow?.auto_reply_enabled ?? 0;
       const userSettings = {
         user_id: userId,
         nickname: userSettingRow?.username || `用户${userId}`,
-        is_enabled: userSettingRow?.is_enabled ?? 1,
+        is_enabled: baseReceiveEnabled,
         continuous_learning_enabled: userSettingRow?.continuous_learning_enabled ?? 1,
-        auto_reply_enabled: userSettingRow?.auto_reply_enabled ?? 0,
+        auto_reply_enabled: baseAutoReplyEnabled,
+        direct_force_im_trigger_enabled: directForceImTriggerEnabled,
+        im_receive_enabled: directForceImTriggerEnabled ? 1 : baseReceiveEnabled,
+        agent_im_entry_enabled: directForceImTriggerEnabled || (baseReceiveEnabled === 1 && baseAutoReplyEnabled === 1) ? 1 : 0,
         transcript_compact_offset: userSettingRow?.transcript_compact_offset ?? 6,
         welcome_message: userSettingRow?.welcome_message || null,
         user_notes: userSettingRow?.user_notes || null,
@@ -999,12 +1055,16 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       `, [groupId]);
 
       const groupSettingsRow = groupSettingsRows[0];
+      const groupReceiveEnabled = groupSettingsRow?.is_enabled ?? 1;
+      const groupAutoReplyEnabled = groupSettingsRow?.auto_reply_enabled ?? 0;
       const groupSettings = {
         group_id: groupId,
         group_name: groupSettingsRow?.group_name || `群聊${groupId}`,
-        is_enabled: groupSettingsRow?.is_enabled ?? 1,
+        is_enabled: groupReceiveEnabled,
         continuous_learning_enabled: groupSettingsRow?.continuous_learning_enabled ?? 1,
-        auto_reply_enabled: groupSettingsRow?.auto_reply_enabled ?? 0,
+        auto_reply_enabled: groupAutoReplyEnabled,
+        im_receive_enabled: groupReceiveEnabled,
+        agent_im_entry_enabled: groupReceiveEnabled === 1 && groupAutoReplyEnabled === 1 ? 1 : 0,
         transcript_compact_offset: groupSettingsRow?.transcript_compact_offset ?? 6,
         welcome_message: groupSettingsRow?.welcome_message || null,
         admin_user_id: groupSettingsRow?.admin_user_id || null,

@@ -41,6 +41,8 @@ interface GroupSettings {
   is_enabled: number;
   continuous_learning_enabled: number;
   auto_reply_enabled: number;
+  im_receive_enabled?: number;
+  agent_im_entry_enabled?: number;
   transcript_compact_offset: number;
   welcome_message: string | null;
   admin_user_id: number | null;
@@ -266,7 +268,7 @@ export const GroupChatDetailPage: React.FC = () => {
               群聊详情 - {groupData?.data.group_settings.group_name || `群${groupId}`}
             </h1>
             <p className="text-muted-foreground">
-              群号: {groupId} | 管理群聊设置和对话历史
+              群号: {groupId} | 配置小腻 IM 入口和对话历史
             </p>
           </div>
         </div>
@@ -374,7 +376,7 @@ export const GroupChatDetailPage: React.FC = () => {
                         checked={!!settingsForm.is_enabled}
                         onCheckedChange={(checked) => handleSettingsChange('is_enabled', checked)}
                       />
-                      <Label htmlFor="is_enabled">接收群聊消息</Label>
+                      <Label htmlFor="is_enabled">进入小腻 IM</Label>
                     </div>
 
                     <div className="flex items-center space-x-2">
@@ -394,7 +396,7 @@ export const GroupChatDetailPage: React.FC = () => {
                         onCheckedChange={(checked) => handleSettingsChange('auto_reply_enabled', checked)}
                         disabled={isChatSettingToggleDisabled(settingsForm, 'auto_reply_enabled')}
                       />
-                      <Label htmlFor="auto_reply_enabled">开启自动回复</Label>
+                      <Label htmlFor="auto_reply_enabled">被 @ 后投递 agent</Label>
                     </div>
                   </div>
 
@@ -420,9 +422,9 @@ export const GroupChatDetailPage: React.FC = () => {
                     <p className="font-medium">{groupData.data.group_settings.group_name || '未设置'}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">接收状态</p>
-                    <Badge variant={groupData.data.group_settings.is_enabled ? "default" : "secondary"}>
-                      {groupData.data.group_settings.is_enabled ? "接收中" : "已忽略"}
+                    <p className="text-sm text-muted-foreground">IM 入口</p>
+                    <Badge variant={(groupData.data.group_settings.im_receive_enabled ?? groupData.data.group_settings.is_enabled) ? "default" : "secondary"}>
+                      {(groupData.data.group_settings.im_receive_enabled ?? groupData.data.group_settings.is_enabled) ? "可进 IM" : "不进 IM"}
                     </Badge>
                   </div>
                   <div>
@@ -432,9 +434,9 @@ export const GroupChatDetailPage: React.FC = () => {
                     </Badge>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">自动回复</p>
-                    <Badge variant={groupData.data.group_settings.auto_reply_enabled ? "default" : "outline"}>
-                      {groupData.data.group_settings.auto_reply_enabled ? "开启" : "关闭"}
+                    <p className="text-sm text-muted-foreground">@ 投递</p>
+                    <Badge variant={(groupData.data.group_settings.agent_im_entry_enabled ?? groupData.data.group_settings.auto_reply_enabled) ? "default" : "outline"}>
+                      {(groupData.data.group_settings.agent_im_entry_enabled ?? groupData.data.group_settings.auto_reply_enabled) ? "投递" : "不投递"}
                     </Badge>
                   </div>
                   <div>

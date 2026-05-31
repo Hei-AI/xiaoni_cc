@@ -43,6 +43,7 @@ import {
 import { FinalizedInboundContext, InboxMessageRecord } from './types';
 import { runtimeStoreService } from './services/runtime-store-service';
 import {
+  applyForcedInboundAgentQueuePolicy,
   decideInboundAgentQueueTrigger,
   processInboundAgentQueueTrigger
 } from './services/inbound-agent-trigger-service';
@@ -649,13 +650,18 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     userId,
     groupId
   });
+  const effectivePolicy = applyForcedInboundAgentQueuePolicy(policy, {
+    chatType: messageType === 'group' ? 'group' : 'direct',
+    wasMentioned: false,
+    senderId: String(userId)
+  });
 
-  if (!policy.isEnabled) {
+  if (!effectivePolicy.isEnabled) {
     return {
       accepted: false,
       reason: 'receive_disabled' as const,
       policy: {
-        ...policy,
+        ...effectivePolicy,
         allowed: false,
         reason: 'receive_disabled' as const
       }
@@ -706,7 +712,7 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     rawPayload: message as Record<string, unknown>,
     traceId: result.traceId,
     source: 'napcat',
-    policyState: policy
+    policyState: effectivePolicy
   });
   const inboxOnly = isInboxOnlyInboundMessage(result.event);
   const learning = !autoReply.queued
@@ -728,7 +734,7 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
   return {
     accepted: true,
     policy: {
-      ...policy,
+      ...effectivePolicy,
       allowed: true,
       reason: 'accepted' as const
     },
@@ -1818,15 +1824,20 @@ app.post('/api/inbox/simulate', async (req, res) => {
       userId: targets.userId,
       groupId: targets.groupId
     });
+    const effectivePolicy = applyForcedInboundAgentQueuePolicy(policy, {
+      chatType: targets.messageType === 'group' ? 'group' : 'direct',
+      wasMentioned: finalizedContext.WasMentioned === true,
+      senderId: String(targets.userId)
+    });
 
-    if (!policy.isEnabled) {
+    if (!effectivePolicy.isEnabled) {
       return res.json({
         success: true,
         data: {
           accepted: false,
           reason: 'receive_disabled',
           policy: {
-            ...policy,
+            ...effectivePolicy,
             allowed: false,
             reason: 'receive_disabled'
           }
@@ -1863,7 +1874,7 @@ app.post('/api/inbox/simulate', async (req, res) => {
       data: {
         accepted: true,
         policy: {
-          ...policy,
+          ...effectivePolicy,
           allowed: true,
           reason: 'accepted'
         },

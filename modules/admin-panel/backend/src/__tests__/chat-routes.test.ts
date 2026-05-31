@@ -101,6 +101,105 @@ describe('chat settings routes', () => {
     });
   });
 
+  it('marks the configured owner private chat as forced into Xiaoni IM', async () => {
+    const previousDirectIds = process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS;
+    process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS = '85178516';
+    try {
+      const database = createDatabaseMock();
+      database.executeQuery
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ today_conversations: '0', today_success: '0', today_failed: '0' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ total: '0' }]);
+
+      const response = await request(createApp(database))
+        .get('/api/private-chats/85178516');
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.user_settings).toMatchObject({
+        user_id: 85178516,
+        direct_force_im_trigger_enabled: 1,
+        im_receive_enabled: 1,
+        agent_im_entry_enabled: 1,
+      });
+    } finally {
+      if (previousDirectIds === undefined) {
+        delete process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS;
+      } else {
+        process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS = previousDirectIds;
+      }
+    }
+  });
+
+  it('filters forced owner private chats by effective IM entry state', async () => {
+    const previousDirectIds = process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS;
+    process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS = '85178516';
+    try {
+      const database = createDatabaseMock();
+      database.executeQuery
+        .mockResolvedValueOnce([
+          {
+            user_id: 85178516,
+            nickname: '用户85178516',
+            direct_force_im_trigger_enabled: 1,
+            im_receive_enabled: 1,
+            agent_im_entry_enabled: 1,
+            total_conversations: 0,
+            successful_replies: 0,
+            failed_replies: 0,
+            success_rate: 0,
+            avg_response_time: '0ms',
+            is_enabled: 0,
+            continuous_learning_enabled: 0,
+            auto_reply_enabled: 0,
+          },
+        ])
+        .mockResolvedValueOnce([{ total: '1' }]);
+
+      const response = await request(createApp(database))
+        .get('/api/private-chats?search=85178516&is_enabled=true&auto_reply_enabled=true');
+
+      expect(response.status).toBe(200);
+      expect(response.body.data[0]).toMatchObject({
+        user_id: 85178516,
+        direct_force_im_trigger_enabled: 1,
+        im_receive_enabled: 1,
+        agent_im_entry_enabled: 1,
+      });
+      expect(database.executeQuery).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining('WHEN targets.user_id IN (85178516) THEN 1'),
+        ['%85178516%', '%85178516%', 1, 1]
+      );
+      expect(database.executeQuery.mock.calls[0][0]).toContain('CAST(targets.user_id AS TEXT) LIKE ?');
+    } finally {
+      if (previousDirectIds === undefined) {
+        delete process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS;
+      } else {
+        process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS = previousDirectIds;
+      }
+    }
+  });
+
+  it('casts group ids to text for group chat search', async () => {
+    const database = createDatabaseMock();
+    database.executeQuery
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: '0' }])
+      .mockResolvedValueOnce([{ total_groups: '0' }]);
+
+    const response = await request(createApp(database))
+      .get('/api/group-chats?search=123');
+
+    expect(response.status).toBe(200);
+    expect(database.executeQuery.mock.calls[0][0]).toContain('CAST(g.group_id AS TEXT) LIKE ?');
+    expect(database.executeQuery).toHaveBeenNthCalledWith(
+      1,
+      expect.any(String),
+      ['%123%', '%123%']
+    );
+  });
+
   it('normalizes continuous learning updates to integer flags', async () => {
     const database = createDatabaseMock();
     database.upsertPrivateChatSettings.mockResolvedValue(true);

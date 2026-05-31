@@ -11,6 +11,13 @@ export type InboundAgentQueueTriggerDecision = {
   reason: InboundAgentQueueTriggerReason;
 };
 
+export type InboundAgentQueuePolicyState = {
+  exists: boolean;
+  isEnabled: boolean;
+  continuousLearningEnabled: boolean;
+  autoReplyEnabled: boolean;
+};
+
 export type InboundAgentQueueRuntimeStore = {
   buildSemanticInboundMessage(message: InboxMessageRecord, sourceContext: {
     source: string;
@@ -67,6 +74,32 @@ export function decideInboundAgentQueueTrigger(
   return {
     shouldEnqueue: false,
     reason: 'direct_inbox_only'
+  };
+}
+
+export function shouldForceInboundAgentQueueTrigger(
+  message: Pick<InboxMessageRecord, 'chatType' | 'wasMentioned' | 'senderId'>,
+  options: { directTriggerUserIds?: Set<string> } = {}
+) {
+  const triggerDecision = decideInboundAgentQueueTrigger(message, options);
+  return message.chatType === 'direct'
+    && triggerDecision.shouldEnqueue
+    && triggerDecision.reason === 'direct_authorized_user_im_trigger';
+}
+
+export function applyForcedInboundAgentQueuePolicy(
+  policy: InboundAgentQueuePolicyState,
+  message: Pick<InboxMessageRecord, 'chatType' | 'wasMentioned' | 'senderId'>,
+  options: { directTriggerUserIds?: Set<string> } = {}
+): InboundAgentQueuePolicyState {
+  if (!shouldForceInboundAgentQueueTrigger(message, options)) {
+    return policy;
+  }
+
+  return {
+    ...policy,
+    isEnabled: true,
+    autoReplyEnabled: true
   };
 }
 

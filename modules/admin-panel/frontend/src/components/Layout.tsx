@@ -26,6 +26,8 @@ import {
   Search,
   ShieldCheck,
   ServerCog,
+  User,
+  Users,
 } from 'lucide-react';
 import { cn, formatTimestamp } from '../lib/utils';
 
@@ -175,6 +177,20 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           icon: MessageCircle,
           description: '按会话和 agent run 查看输入批次与回复原因',
           active: location.pathname.startsWith('/conversations') || location.pathname.startsWith('/runs/'),
+        },
+        {
+          href: '/groups',
+          label: '群聊 IM 入口',
+          icon: Users,
+          description: '配置哪些群进入小腻 IM 与被 @ 后投递',
+          active: location.pathname.startsWith('/groups'),
+        },
+        {
+          href: '/private-chats',
+          label: '私聊 IM 入口',
+          icon: User,
+          description: '配置哪些私聊进入小腻 IM 与 agent 投递',
+          active: location.pathname.startsWith('/private-chats'),
         },
       ],
     },

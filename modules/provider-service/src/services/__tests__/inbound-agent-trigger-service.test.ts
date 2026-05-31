@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applyForcedInboundAgentQueuePolicy,
   processInboundAgentQueueTrigger,
+  shouldForceInboundAgentQueueTrigger,
   type InboundAgentQueueRuntimeStore
 } from '../inbound-agent-trigger-service';
 import type { FinalizedInboundContext, InboxMessageRecord, SemanticInboundMessage } from '../../types';
@@ -315,4 +317,43 @@ test('enqueues private messages from authorized user as IM triggers', async () =
   assert.equal(store.enqueuedMessages[1]?.chatType, 'direct');
   assert.equal(store.enqueuedMessages[1]?.senderId, '85178516');
   assert.equal(store.enqueuedMessages[1]?.bodyForAgent, '现在这句要让小腻看到');
+});
+
+test('forces private authorized user through disabled receive and auto-reply policy', () => {
+  const disabledPolicy = {
+    exists: true,
+    isEnabled: false,
+    continuousLearningEnabled: false,
+    autoReplyEnabled: false
+  };
+  const message = {
+    chatType: 'direct' as const,
+    wasMentioned: false,
+    senderId: '85178516'
+  };
+
+  assert.equal(shouldForceInboundAgentQueueTrigger(message), true);
+  assert.deepEqual(applyForcedInboundAgentQueuePolicy(disabledPolicy, message), {
+    exists: true,
+    isEnabled: true,
+    continuousLearningEnabled: false,
+    autoReplyEnabled: true
+  });
+});
+
+test('does not force non-authorized private users through disabled policy', () => {
+  const disabledPolicy = {
+    exists: true,
+    isEnabled: false,
+    continuousLearningEnabled: false,
+    autoReplyEnabled: false
+  };
+  const message = {
+    chatType: 'direct' as const,
+    wasMentioned: false,
+    senderId: '20001'
+  };
+
+  assert.equal(shouldForceInboundAgentQueueTrigger(message), false);
+  assert.equal(applyForcedInboundAgentQueuePolicy(disabledPolicy, message), disabledPolicy);
 });
