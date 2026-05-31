@@ -115,7 +115,7 @@ test('buildPresenceContextBlock is factual and includes source boundary', () => 
   assert.doesNotMatch(block, /你应该|必须回复|请主动/);
 });
 
-test('buildPresenceContextBlock exposes real web search residue without treating mock material as source', () => {
+test('buildPresenceContextBlock exposes real web search material without old runner residue', () => {
   const block = buildPresenceContextBlock({
     state: {
       boredom: 0.7,
@@ -136,31 +136,16 @@ test('buildPresenceContextBlock exposes real web search residue without treating
       baseHeat: 1,
       createdAt: '2026-05-26T11:30:00.000Z'
     }],
-    recentDigitalActions: [{
-      id: 'digital_action_1',
-      actionType: 'web_search',
-      surface: 'background',
-      motiveKind: 'curiosity',
-      motiveText: '突然想确认一个 AI 检测相关的怪现象',
-      query: 'AI detector classic literature false positive',
-      status: 'completed',
-      resultSummary: 'AI 检测器可能把人类文本误判为 AI 文本。',
-      residueText: 'AI 检测器连老文本都可能误判，这个工具更像风格探测器。',
-      residueKind: 'share_seed',
-      sourceWording: 'real_web_search',
-      createdAt: '2026-05-26T11:35:00.000Z'
-    }],
     scores: [],
     isPresenceTick: true
   });
 
-  assert.match(block, /真实 web_search 残留/);
-  assert.match(block, /AI detector classic literature false positive/);
-  assert.match(block, /source_wording=real_web_search/);
+  assert.match(block, /存在真实 web_search 残留/);
+  assert.match(block, /措辞：real_web_search/);
   assert.doesNotMatch(block, /没有真实浏览器证据/);
 });
 
-test('buildPresenceContextBlock includes constructed local actions without source inflation', () => {
+test('buildPresenceContextBlock includes constructed material without source inflation', () => {
   const block = buildPresenceContextBlock({
     state: {
       boredom: 0.6,
@@ -181,26 +166,11 @@ test('buildPresenceContextBlock includes constructed local actions without sourc
       baseHeat: 0.9,
       createdAt: '2026-05-31T01:30:00.000Z'
     }],
-    recentDigitalActions: [{
-      id: 'digital_action_reflect_1',
-      actionType: 'reflect',
-      surface: 'background',
-      motiveKind: 'curiosity',
-      motiveText: '整理已有材料，但不把它说成新来源',
-      query: null,
-      status: 'completed',
-      resultSummary: '把旧构造材料降级成内部整理。',
-      residueText: '这条只能先放着，不能说成我刚看到。',
-      residueKind: 'private_note',
-      sourceWording: 'constructed_only',
-      createdAt: '2026-05-31T01:35:00.000Z'
-    }],
     scores: [],
     isPresenceTick: true
   });
 
-  assert.match(block, /background\/reflect\/curiosity/);
-  assert.match(block, /source_wording=constructed_only/);
+  assert.match(block, /措辞：constructed_only/);
   assert.match(block, /没有真实浏览器证据/);
   assert.match(block, /不能伪装成实时来源/);
 });

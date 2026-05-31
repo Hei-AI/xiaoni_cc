@@ -25,7 +25,7 @@ function createPersistence(overrides = {}) {
   };
 }
 
-test('ensureAgentPresenceSchema creates digital action table and indexes', async () => {
+test('ensureAgentPresenceSchema keeps historical digital action table for archived records', async () => {
   const { statements, persistence } = createPersistence();
 
   await persistence.ensureAgentPresenceSchema();
@@ -34,40 +34,9 @@ test('ensureAgentPresenceSchema creates digital action table and indexes', async
   assert.ok(statements.some((statement) => statement.includes('idx_agent_digital_actions_identity_created')));
   assert.ok(statements.some((statement) => statement.includes('idx_agent_digital_actions_status_created')));
   assert.ok(statements.some((statement) => statement.includes('idx_agent_digital_actions_surface_created')));
-});
-
-test('createAgentDigitalAction normalizes autonomous web search action rows', async () => {
-  let createPayload = null;
-  const { persistence } = createPersistence({
-    prisma: {
-      agentDigitalAction: {
-        create: async (payload) => {
-          createPayload = payload;
-          return {
-            created_at: new Date('2026-05-29T00:00:00.000Z'),
-            updated_at: new Date('2026-05-29T00:00:00.000Z'),
-            completed_at: null,
-            ...payload.data
-          };
-        }
-      }
-    }
-  });
-
-  const row = await persistence.createAgentDigitalAction({
-    id: 'digital_action_1',
-    actionType: 'web_search',
-    surface: 'background',
-    status: 'running',
-    budgetSnapshot: { daily_count: 0 }
-  });
-
-  assert.equal(createPayload.data.identity_key, 'xiaoni');
-  assert.equal(createPayload.data.action_type, 'web_search');
-  assert.deepEqual(createPayload.data.budget_snapshot, { daily_count: 0 });
-  assert.equal(row.id, 'digital_action_1');
-  assert.equal(row.actionType, 'web_search');
-  assert.deepEqual(row.sourceQueueIds, []);
+  assert.ok(statements.some((statement) => statement.includes('projection_json JSONB')));
+  assert.ok(statements.some((statement) => statement.includes('reduced_through_event_id BIGINT')));
+  assert.ok(statements.some((statement) => statement.includes('projection_version VARCHAR(64)')));
 });
 
 test('createAgentSharePoolItem writes real web search residue with source boundary', async () => {

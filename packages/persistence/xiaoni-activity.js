@@ -167,7 +167,10 @@ const LIFE_EVENT_LABELS = {
   web_search_result: '得到搜索结果',
   state_snapshot: '状态快照',
   terminal_action_committed: '行动已提交',
-  terminal_action_blocked: '行动被阻止'
+  terminal_action_blocked: '行动被阻止',
+  presence_tick_evaluated: '抬头检查已评估',
+  rest_period: '休息了一段时间',
+  sleep_period: '睡了一段时间'
 };
 
 const AUTONOMOUS_QUEUE_SOURCES = ['presence_tick', 'proactive_im_open'];
@@ -200,6 +203,15 @@ function lifeEventTitle(eventKind, payload) {
   if (eventKind === 'qq_message_seen' && payload.wake_kind === 'proactive_use_im') {
     return '主动看见未读';
   }
+  if (eventKind === 'presence_tick_evaluated') {
+    return payload.eligible ? '决定抬头看一眼' : '暂时没有抬头';
+  }
+  if (eventKind === 'rest_period') {
+    return '短暂休息';
+  }
+  if (eventKind === 'sleep_period') {
+    return '睡了一段时间';
+  }
   return LIFE_EVENT_LABELS[eventKind] || eventKind || '小腻行动';
 }
 
@@ -228,6 +240,15 @@ function lifeEventBody(row, payload) {
       payload.action_type === 'web_search' ? payload.result_summary : null,
       payload.motive_text
     );
+  }
+  if (row.event_kind === 'presence_tick_evaluated') {
+    const reason = firstString(payload.skip_reason, payload.reason) || (payload.eligible ? 'eligible' : 'unknown');
+    return payload.eligible
+      ? `状态允许抬头；${payload.queue_id ? `queue ${payload.queue_id}` : '等待入队'}`
+      : `跳过原因：${reason}`;
+  }
+  if (row.event_kind === 'rest_period' || row.event_kind === 'sleep_period') {
+    return firstString(payload.reason, payload.duration_label, payload.bucket);
   }
 
   return null;
@@ -307,20 +328,20 @@ function summarizeDigitalAction(row) {
       ? firstString(row.result_summary, row.residue_text, row.motive_text, row.query)
       : firstString(row.residue_text, row.result_summary, row.motive_text, row.query);
   const titleByAction = {
-    web_search: '查了点公开资料',
-    read: '翻了点材料',
-    reflect: '把念头先放一放',
-    idle_restore: '短暂休息'
+    web_search: '历史记录：查过公开资料',
+    read: '历史记录：翻过材料',
+    reflect: '历史记录：整理过念头',
+    idle_restore: '历史记录：休息记录'
   };
   return {
     id: `digital:${row.id}`,
     source: 'digital_action',
     kind: row.action_type || 'digital_action',
-    title: titleByAction[row.action_type] || '后台行动',
+    title: titleByAction[row.action_type] || '历史数字行动记录',
     body: truncateText(body, 360),
     status: row.status || null,
     actor: 'xiaoni',
-    actorName: '小腻',
+    actorName: '历史记录',
     timestamp: eventTimestamp(row.created_at),
     sessionKey: null,
     peerName: null,
@@ -329,6 +350,7 @@ function summarizeDigitalAction(row) {
     tone: row.status === 'failed' ? 'danger' : row.status === 'completed' ? 'success' : 'info',
     metadata: {
       actionId: row.id,
+      historicalOnly: true,
       surface: row.surface || null,
       motiveKind: row.motive_kind || null,
       motiveText: row.motive_text || null,
@@ -580,6 +602,14 @@ function normalizeLifeState(row) {
     lastUserMessageAt: normalizeDate(row.last_user_message_at),
     dailyProactiveCount: Number(row.daily_proactive_count || 0),
     dailyProactiveDate: normalizeDate(row.daily_proactive_date),
+    projection: normalizeJsonObject(row.projection_json, {}),
+    explanation: normalizeJsonObject(row.explanation_json, {}),
+    reducedThroughEventId: row.reduced_through_event_id === null || typeof row.reduced_through_event_id === 'undefined'
+      ? null
+      : String(row.reduced_through_event_id),
+    reducedThroughOccurredAt: normalizeDate(row.reduced_through_occurred_at),
+    projectionVersion: row.projection_version || null,
+    projectionUpdatedAt: normalizeDate(row.projection_updated_at),
     updatedAt: normalizeDate(row.updated_at)
   };
 }
@@ -739,6 +769,8 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
 
       const latestPresenceQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'presence_tick'));
       const latestProactiveImQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'proactive_im_open'));
+      const latestPresenceEvaluation = latestByTimestamp(lifeEvents.filter((row) => row.event_kind === 'presence_tick_evaluated'));
+      const latestPresenceEvaluationPayload = normalizeJsonObject(latestPresenceEvaluation?.payload, {});
       const latestDigitalAction = latestByTimestamp(digitalActions);
 
       const items = dedupeFeedItems([
@@ -778,9 +810,18 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
             latestPresenceTickStatus: latestPresenceQueue?.status || null,
             latestProactiveImOpenAt: normalizeDate(latestProactiveImQueue?.updated_at || latestProactiveImQueue?.created_at),
             latestProactiveImOpenStatus: latestProactiveImQueue?.status || null,
-            latestSelfActionAt: normalizeDate(latestDigitalAction?.updated_at || latestDigitalAction?.created_at),
-            latestSelfActionStatus: latestDigitalAction?.status || null,
-            latestSelfActionKind: latestDigitalAction?.action_type || null
+            latestPresenceEvaluationAt: normalizeDate(latestPresenceEvaluation?.occurred_at),
+            latestPresenceEvaluationReason: firstString(
+              latestPresenceEvaluationPayload.skip_reason,
+              latestPresenceEvaluationPayload.reason
+            ),
+            latestPresenceEvaluationEligible: typeof latestPresenceEvaluationPayload.eligible === 'boolean'
+              ? latestPresenceEvaluationPayload.eligible
+              : null,
+            liveSelfActionRunner: false,
+            latestHistoricalDigitalActionAt: normalizeDate(latestDigitalAction?.updated_at || latestDigitalAction?.created_at),
+            latestHistoricalDigitalActionStatus: latestDigitalAction?.status || null,
+            latestHistoricalDigitalActionKind: latestDigitalAction?.action_type || null
           },
           tasks: {
             pending: taskStats[0],

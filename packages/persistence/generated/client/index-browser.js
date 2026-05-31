@@ -166,6 +166,12 @@ exports.Prisma.AgentSessionLifeStateScalarFieldEnum = {
   last_user_message_at: 'last_user_message_at',
   daily_proactive_count: 'daily_proactive_count',
   daily_proactive_date: 'daily_proactive_date',
+  projection_json: 'projection_json',
+  explanation_json: 'explanation_json',
+  reduced_through_event_id: 'reduced_through_event_id',
+  reduced_through_occurred_at: 'reduced_through_occurred_at',
+  projection_version: 'projection_version',
+  projection_updated_at: 'projection_updated_at',
   updated_at: 'updated_at'
 };
 

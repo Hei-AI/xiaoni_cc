@@ -36,7 +36,7 @@ import {
   listAgentSharePoolItems,
   createAgentShareItemUsage,
   createAgentPresenceStateSidecar,
-  listAgentDigitalActions,
+  listAgentLifeEvents,
   recordAgentLifeEvent,
   createAgentMemoryAssertion,
   createAgentMemoryObservation,
@@ -45,6 +45,7 @@ import {
   ensureAgentMemorySchema,
   incrementRelationshipTrust,
   serializeTimestampForApi,
+  type AgentLifeEventProjection,
   type RecordAgentLifeEventInput,
   type SqlAdapter
 } from '@qq-bot/persistence';
@@ -53,13 +54,17 @@ import { agentConfig, databaseConfig } from '../config';
 import { logger } from '../utils/logger';
 import {
   buildPresenceContextBlock,
-  deriveLifeState,
   scoreSharePoolItem,
   shouldFirePresenceTick,
   type PresenceAnchors,
-  type PresenceDigitalAction,
   type PresenceSharePoolItem
 } from './presence-context';
+import {
+  reduceXiaoniLifeState,
+  XIAONI_LIFE_PROJECTION_VERSION,
+  type XiaoniLifeStateExplanation,
+  type XiaoniLifeStateProjection
+} from './xiaoni-life-reducer';
 import type { UnreadMeaningSocialActType } from '../types/social-act-type';
 import {
   ConversationTranscriptItem,
@@ -113,6 +118,12 @@ type AgentLifeStateRow = {
   last_user_message_at?: Date | string | null;
   daily_proactive_count?: number | string | null;
   daily_proactive_date?: Date | string | null;
+  projection_json?: Record<string, unknown> | null;
+  explanation_json?: Record<string, unknown> | null;
+  reduced_through_event_id?: bigint | number | string | null;
+  reduced_through_occurred_at?: Date | string | null;
+  projection_version?: string | null;
+  projection_updated_at?: Date | string | null;
 };
 
 function toValidDate(value: Date | string | null | undefined): Date | null {
@@ -146,6 +157,53 @@ export function buildPresenceAnchorsFromLife(life: AgentLifeStateRow, now: Date)
     lastUserMessageAt: life.last_user_message_at ?? null,
     dailyProactiveCount
   };
+}
+
+function normalizeProjectionJson(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
+function eventOccurredAfterProjection(
+  event: AgentLifeEventProjection,
+  reducedThroughEventId: bigint | null,
+  reducedThroughOccurredAt: Date | null
+) {
+  if (!reducedThroughEventId || !reducedThroughOccurredAt) {
+    return true;
+  }
+  const occurredAt = event.occurredAt ? new Date(event.occurredAt) : null;
+  if (!occurredAt || Number.isNaN(occurredAt.getTime())) {
+    return true;
+  }
+  if (occurredAt.getTime() > reducedThroughOccurredAt.getTime()) {
+    return true;
+  }
+  if (occurredAt.getTime() < reducedThroughOccurredAt.getTime()) {
+    return false;
+  }
+  try {
+    return BigInt(event.id || '0') > reducedThroughEventId;
+  } catch {
+    return true;
+  }
+}
+
+function projectionEventId(value: bigint | number | string | null | undefined): bigint | null {
+  if (value === null || typeof value === 'undefined' || value === '') {
+    return null;
+  }
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
+function presenceEvaluationBucket(now: Date) {
+  return Math.floor(now.getTime() / (5 * 60 * 1000));
 }
 
 type StructuredReplayQueueRow = {
@@ -286,10 +344,11 @@ export type RuntimeFeedbackEpisode = {
 export type RuntimePresenceContext = {
   block: string;
   sourceItems: PresenceSharePoolItem[];
-  recentDigitalActions: PresenceDigitalAction[];
   recallScores: Record<string, unknown>[];
   boundaryJudgments: Record<string, unknown>[];
   compressionMapping: Record<string, unknown>;
+  lifeProjection: XiaoniLifeStateProjection;
+  lifeExplanation: XiaoniLifeStateExplanation;
 };
 
 function isImmediateVisibleImWake(queueMessage: QueueMessagePayload) {
@@ -1192,6 +1251,93 @@ export class RuntimeStore {
     }
   }
 
+  private async refreshXiaoniLifeProjection(now = new Date()) {
+    const life = (await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig)) as AgentLifeStateRow;
+    const projectionIsCurrent = life.projection_version === XIAONI_LIFE_PROJECTION_VERSION;
+    const previousProjection = projectionIsCurrent ? normalizeProjectionJson(life.projection_json) : null;
+    const reducedThroughEventId = projectionIsCurrent ? projectionEventId(life.reduced_through_event_id) : null;
+    const reducedThroughOccurredAt = projectionIsCurrent ? toValidDate(life.reduced_through_occurred_at) : null;
+    const candidateEvents = await listAgentLifeEvents({
+      identityKey: 'xiaoni',
+      ...(reducedThroughOccurredAt ? { occurredAfter: reducedThroughOccurredAt } : {}),
+      chronological: true,
+      limit: 1000
+    }, databaseConfig) as AgentLifeEventProjection[];
+    const events = previousProjection
+      ? candidateEvents.filter((event) => eventOccurredAfterProjection(event, reducedThroughEventId, reducedThroughOccurredAt))
+      : candidateEvents;
+    const { projection, explanation } = reduceXiaoniLifeState({
+      identityKey: 'xiaoni',
+      now,
+      events,
+      previousProjection,
+      legacyAnchors: buildPresenceAnchorsFromLife(life, now),
+      cooldownMs: agentConfig.presenceTickCooldownMs,
+      startupGraceMs: agentConfig.presenceTickStartupGraceMs
+    });
+    const reducedThroughEventIdForDb = projection.reducedThroughEventId
+      ? projectionEventId(projection.reducedThroughEventId)
+      : null;
+    await updateAgentLifeState('xiaoni', {
+      projection_json: projection,
+      explanation_json: explanation,
+      reduced_through_event_id: reducedThroughEventIdForDb,
+      reduced_through_occurred_at: projection.reducedThroughOccurredAt ? new Date(projection.reducedThroughOccurredAt) : null,
+      projection_version: XIAONI_LIFE_PROJECTION_VERSION,
+      projection_updated_at: now
+    }, databaseConfig);
+    return { projection, explanation };
+  }
+
+  private async recordPresenceTickEvaluation(input: {
+    now: Date;
+    state: XiaoniLifeStateProjection['state'];
+    decision: ReturnType<typeof shouldFirePresenceTick>;
+    queueId?: number | string | null;
+    queueStatus?: string | null;
+    messageSid?: string | null;
+  }) {
+    const { now, state, decision } = input;
+    await this.recordLifeEventSafe({
+      identityKey: 'xiaoni',
+      eventKind: 'presence_tick_evaluated',
+      occurredAt: now,
+      surface: 'presence_tick',
+      actorType: 'xiaoni',
+      actorId: agentConfig.botAccountId,
+      visibility: 'self_private',
+      payload: {
+        eligible: decision.shouldEnqueue,
+        reason: decision.reason,
+        skip_reason: decision.shouldEnqueue ? null : decision.reason,
+        enqueued: Boolean(input.queueId),
+        queue_id: input.queueId ? String(input.queueId) : null,
+        queue_status: input.queueStatus || null,
+        message_sid: input.messageSid || null,
+        thresholds: {
+          max_fatigue: 0.82,
+          min_boredom: 0.45,
+          min_sharing_desire: 0.35,
+          cooldown_ms: agentConfig.presenceTickCooldownMs,
+          startup_grace_ms: agentConfig.presenceTickStartupGraceMs
+        },
+        snapshot: {
+          boredom: state.boredom,
+          fatigue: state.fatigue,
+          energy: state.energy,
+          sharing_desire: state.sharingDesire,
+          sleep_pressure: state.sleepPressure,
+          attention: state.attention,
+          reward_attraction: state.rewardAttraction,
+          action_cost: state.actionCost,
+          cooldown_active: state.cooldownActive,
+          startup_grace_active: state.startupGraceActive
+        }
+      },
+      dedupeKey: `presence_tick_evaluated:xiaoni:${presenceEvaluationBucket(now)}:${decision.reason}`
+    });
+  }
+
   async initialize() {
     await this.ensureSchema();
     await ensureFeedbackReflectionSchema(databaseConfig);
@@ -1203,6 +1349,11 @@ export class RuntimeStore {
     await ensureAgentLifeEventSchema(databaseConfig);
     await ensureAgentMemorySchema(databaseConfig);
     await ensureAgentLifeState('xiaoni', databaseConfig);
+    await this.refreshXiaoniLifeProjection(new Date()).catch((error) => {
+      moduleLogger.warn('Failed to refresh Xiaoni life projection during startup', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
   }
 
   async close() {
@@ -1215,13 +1366,14 @@ export class RuntimeStore {
     }
 
     const now = new Date();
-    const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
-    const state = deriveLifeState(buildPresenceAnchorsFromLife(life, now), {
-      cooldownMs: agentConfig.presenceTickCooldownMs,
-      startupGraceMs: agentConfig.presenceTickStartupGraceMs
-    });
-    const decision = shouldFirePresenceTick(state);
+    const { projection } = await this.refreshXiaoniLifeProjection(now);
+    const decision = shouldFirePresenceTick(projection.state);
     if (!decision.shouldEnqueue) {
+      await this.recordPresenceTickEvaluation({
+        now,
+        state: projection.state,
+        decision
+      });
       return { enqueued: false, reason: decision.reason };
     }
 
@@ -1278,8 +1430,7 @@ export class RuntimeStore {
     };
 
     await updateAgentLifeState('xiaoni', {
-      last_presence_tick_enqueued_at: now,
-      last_active_at: now
+      last_presence_tick_enqueued_at: now
     }, databaseConfig);
 
     const result = await enqueueAgentQueueMessage({
@@ -1287,6 +1438,14 @@ export class RuntimeStore {
       payload: message,
       availableAt: now
     }, databaseConfig);
+    await this.recordPresenceTickEvaluation({
+      now,
+      state: projection.state,
+      decision,
+      queueId: result.queueId,
+      queueStatus: result.status,
+      messageSid
+    });
     return {
       enqueued: result.status === 'pending',
       reason: result.status,
@@ -1569,11 +1728,7 @@ export class RuntimeStore {
 
   async buildPresenceContext(queueMessage: QueueMessagePayload): Promise<RuntimePresenceContext> {
     const now = new Date();
-    const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
-    const state = deriveLifeState(buildPresenceAnchorsFromLife(life, now), {
-      cooldownMs: agentConfig.presenceTickCooldownMs,
-      startupGraceMs: agentConfig.presenceTickStartupGraceMs
-    });
+    const { projection, explanation } = await this.refreshXiaoniLifeProjection(now);
     const items = await listAgentSharePoolItems({
       identityKey: 'xiaoni',
       targetSessionKey: queueMessage.sessionKey,
@@ -1584,21 +1739,15 @@ export class RuntimeStore {
       .sort((left, right) => right.score.finalScore - left.score.finalScore);
     const selectedItems = scored.slice(0, 3).map((entry) => entry.item);
     const recallScores = scored.map((entry) => entry.score);
-    const recentDigitalActions = await listAgentDigitalActions({
-      identityKey: 'xiaoni',
-      status: 'completed',
-      limit: 6
-    }, databaseConfig) as PresenceDigitalAction[];
     return {
       block: buildPresenceContextBlock({
-        state,
+        state: projection.state,
         items: selectedItems,
         scores: recallScores,
-        recentDigitalActions,
+        stateExplanation: explanation.summary,
         isPresenceTick: isPresenceTickPayload(queueMessage)
       }),
       sourceItems: selectedItems,
-      recentDigitalActions,
       recallScores,
       boundaryJudgments: selectedItems.map((item) => ({
         item_id: item.id,
@@ -1607,9 +1756,13 @@ export class RuntimeStore {
       })),
       compressionMapping: {
         selected_item_ids: selectedItems.map((item) => item.id),
-        recent_digital_action_ids: recentDigitalActions.map((action) => action.id),
-        sections: ['recent_action_trace', 'recent_digital_actions', 'current_residue', 'current_state', 'available_material', 'action_cost', 'source_boundary']
-      }
+        life_projection_version: projection.version,
+        reduced_through_event_id: projection.reducedThroughEventId,
+        explanation_contributors: explanation.contributors,
+        sections: ['recent_action_trace', 'current_residue', 'current_state', 'state_explanation', 'available_material', 'action_cost', 'source_boundary']
+      },
+      lifeProjection: projection,
+      lifeExplanation: explanation
     };
   }
 
@@ -2576,12 +2729,8 @@ export class RuntimeStore {
 
   async getSessionEmotionalState(_sessionKey: string): Promise<{ dopamine: 'low' | 'medium' | 'high'; stress: 'low' | 'medium' | 'high' } | null> {
     try {
-      const now = new Date();
-      const life = await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig);
-      const state = deriveLifeState(buildPresenceAnchorsFromLife(life, now), {
-        cooldownMs: agentConfig.presenceTickCooldownMs,
-        startupGraceMs: agentConfig.presenceTickStartupGraceMs
-      });
+      const { projection } = await this.refreshXiaoniLifeProjection(new Date());
+      const state = projection.state;
       const dopamine: 'low' | 'medium' | 'high' = state.sharingDesire > 0.66 ? 'high' : state.sharingDesire < 0.33 ? 'low' : 'medium';
       const stress: 'low' | 'medium' | 'high' = state.fatigue > 0.75 ? 'high' : state.fatigue > 0.45 ? 'medium' : 'low';
       return { dopamine, stress };

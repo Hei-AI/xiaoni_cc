@@ -43,34 +43,6 @@ function normalizeShareItem(row) {
   };
 }
 
-function normalizeDigitalAction(row) {
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    identityKey: row.identity_key,
-    actionType: row.action_type,
-    surface: row.surface,
-    motiveKind: row.motive_kind || null,
-    motiveText: row.motive_text || null,
-    query: row.query || null,
-    status: row.status,
-    sourceTrace: row.source_trace || {},
-    resultSummary: row.result_summary || null,
-    residueText: row.residue_text || null,
-    residueKind: row.residue_kind || null,
-    sourceWording: row.source_wording || null,
-    budgetSnapshot: row.budget_snapshot || {},
-    sourceQueueIds: normalizeJsonArray(row.source_queue_ids),
-    sourceRunIds: normalizeJsonArray(row.source_run_ids),
-    errorMessage: row.error_message || null,
-    createdAt: normalizeDate(row.created_at),
-    updatedAt: normalizeDate(row.updated_at),
-    completedAt: normalizeDate(row.completed_at)
-  };
-}
-
 function createAgentPresencePersistence({ getPrismaClient, createSqlAdapter }) {
   function getClient(config) {
     return getPrismaClient(config);
@@ -92,9 +64,21 @@ function createAgentPresencePersistence({ getPrismaClient, createSqlAdapter }) {
           last_user_message_at TIMESTAMP(3) NULL,
           daily_proactive_count INTEGER NOT NULL DEFAULT 0,
           daily_proactive_date TIMESTAMP(3) NULL,
+          projection_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          explanation_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          reduced_through_event_id BIGINT NULL,
+          reduced_through_occurred_at TIMESTAMP(3) NULL,
+          projection_version VARCHAR(64) NULL,
+          projection_updated_at TIMESTAMP(3) NULL,
           updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      await sql.execute("ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS projection_json JSONB NOT NULL DEFAULT '{}'::jsonb");
+      await sql.execute("ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS explanation_json JSONB NOT NULL DEFAULT '{}'::jsonb");
+      await sql.execute('ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS reduced_through_event_id BIGINT NULL');
+      await sql.execute('ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS reduced_through_occurred_at TIMESTAMP(3) NULL');
+      await sql.execute('ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS projection_version VARCHAR(64) NULL');
+      await sql.execute('ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS projection_updated_at TIMESTAMP(3) NULL');
       await sql.execute(`
         CREATE TABLE IF NOT EXISTS agent_session_group_states (
           session_key VARCHAR(191) PRIMARY KEY,
@@ -319,125 +303,6 @@ function createAgentPresencePersistence({ getPrismaClient, createSqlAdapter }) {
     });
   }
 
-  async function createAgentDigitalAction(input, config = {}) {
-    const prisma = getClient(config);
-    const id = String(input.id || input.actionId || input.action_id || '');
-    if (!id) {
-      throw new Error('Agent digital action id is required');
-    }
-    return normalizeDigitalAction(await prisma.agentDigitalAction.create({
-      data: {
-        id,
-        identity_key: String(input.identityKey || input.identity_key || 'xiaoni'),
-        action_type: String(input.actionType || input.action_type || 'web_search'),
-        surface: String(input.surface || 'background'),
-        motive_kind: normalizeOptionalString(input.motiveKind || input.motive_kind),
-        motive_text: normalizeOptionalString(input.motiveText || input.motive_text),
-        query: normalizeOptionalString(input.query),
-        status: String(input.status || 'planned'),
-        source_trace: normalizeJsonObject(input.sourceTrace || input.source_trace),
-        result_summary: normalizeOptionalString(input.resultSummary || input.result_summary),
-        residue_text: normalizeOptionalString(input.residueText || input.residue_text),
-        residue_kind: normalizeOptionalString(input.residueKind || input.residue_kind),
-        source_wording: normalizeOptionalString(input.sourceWording || input.source_wording),
-        budget_snapshot: normalizeJsonObject(input.budgetSnapshot || input.budget_snapshot),
-        source_queue_ids: normalizeJsonArray(input.sourceQueueIds || input.source_queue_ids),
-        source_run_ids: normalizeJsonArray(input.sourceRunIds || input.source_run_ids),
-        error_message: normalizeOptionalString(input.errorMessage || input.error_message),
-        completed_at: input.completedAt || input.completed_at || null
-      }
-    }));
-  }
-
-  async function updateAgentDigitalAction(id, data, config = {}) {
-    const prisma = getClient(config);
-    const update = {};
-    const stringFields = [
-      ['motiveKind', 'motive_kind'],
-      ['motiveText', 'motive_text'],
-      ['query', 'query'],
-      ['status', 'status'],
-      ['resultSummary', 'result_summary'],
-      ['residueText', 'residue_text'],
-      ['residueKind', 'residue_kind'],
-      ['sourceWording', 'source_wording'],
-      ['errorMessage', 'error_message']
-    ];
-    for (const [camel, snake] of stringFields) {
-      if (Object.prototype.hasOwnProperty.call(data, camel) || Object.prototype.hasOwnProperty.call(data, snake)) {
-        update[snake] = normalizeOptionalString(data[camel] || data[snake]);
-      }
-    }
-    if (Object.prototype.hasOwnProperty.call(data, 'sourceTrace') || Object.prototype.hasOwnProperty.call(data, 'source_trace')) {
-      update.source_trace = normalizeJsonObject(data.sourceTrace || data.source_trace);
-    }
-    if (Object.prototype.hasOwnProperty.call(data, 'budgetSnapshot') || Object.prototype.hasOwnProperty.call(data, 'budget_snapshot')) {
-      update.budget_snapshot = normalizeJsonObject(data.budgetSnapshot || data.budget_snapshot);
-    }
-    if (Object.prototype.hasOwnProperty.call(data, 'sourceQueueIds') || Object.prototype.hasOwnProperty.call(data, 'source_queue_ids')) {
-      update.source_queue_ids = normalizeJsonArray(data.sourceQueueIds || data.source_queue_ids);
-    }
-    if (Object.prototype.hasOwnProperty.call(data, 'sourceRunIds') || Object.prototype.hasOwnProperty.call(data, 'source_run_ids')) {
-      update.source_run_ids = normalizeJsonArray(data.sourceRunIds || data.source_run_ids);
-    }
-    if (Object.prototype.hasOwnProperty.call(data, 'completedAt') || Object.prototype.hasOwnProperty.call(data, 'completed_at')) {
-      update.completed_at = data.completedAt || data.completed_at || null;
-    }
-    return normalizeDigitalAction(await prisma.agentDigitalAction.update({
-      where: { id: String(id) },
-      data: update
-    }));
-  }
-
-  async function listAgentDigitalActions(input = {}, config = {}) {
-    const prisma = getClient(config);
-    const identityKey = String(input.identityKey || input.identity_key || 'xiaoni');
-    const where = { identity_key: identityKey };
-    const status = normalizeOptionalString(input.status);
-    const surface = normalizeOptionalString(input.surface);
-    const actionType = normalizeOptionalString(input.actionType || input.action_type);
-    if (status) {
-      where.status = status;
-    }
-    if (surface) {
-      where.surface = surface;
-    }
-    if (actionType) {
-      where.action_type = actionType;
-    }
-    if (input.createdAfter || input.created_after) {
-      where.created_at = { gte: input.createdAfter || input.created_after };
-    }
-    const rows = await prisma.agentDigitalAction.findMany({
-      where,
-      orderBy: [{ created_at: 'desc' }],
-      take: Math.max(1, Math.min(Number(input.limit || 8), 100))
-    });
-    return rows.map(normalizeDigitalAction).filter(Boolean);
-  }
-
-  async function countAgentDigitalActions(input = {}, config = {}) {
-    const prisma = getClient(config);
-    const identityKey = String(input.identityKey || input.identity_key || 'xiaoni');
-    const where = { identity_key: identityKey };
-    const status = normalizeOptionalString(input.status);
-    const surface = normalizeOptionalString(input.surface);
-    const actionType = normalizeOptionalString(input.actionType || input.action_type);
-    if (status) {
-      where.status = status;
-    }
-    if (surface) {
-      where.surface = surface;
-    }
-    if (actionType) {
-      where.action_type = actionType;
-    }
-    if (input.createdAfter || input.created_after) {
-      where.created_at = { gte: input.createdAfter || input.created_after };
-    }
-    return prisma.agentDigitalAction.count({ where });
-  }
-
   return {
     ensureAgentPresenceSchema,
     ensureAgentLifeState,
@@ -447,11 +312,7 @@ function createAgentPresencePersistence({ getPrismaClient, createSqlAdapter }) {
     listAgentSharePoolItems,
     createAgentSharePoolItem,
     createAgentShareItemUsage,
-    createAgentPresenceStateSidecar,
-    createAgentDigitalAction,
-    updateAgentDigitalAction,
-    listAgentDigitalActions,
-    countAgentDigitalActions
+    createAgentPresenceStateSidecar
   };
 }
 

@@ -58,6 +58,12 @@ model AgentSessionLifeState {
   last_user_message_at           DateTime?                @db.Timestamp(3)
   daily_proactive_count          Int                      @default(0)
   daily_proactive_date           DateTime?                @db.Timestamp(3)
+  projection_json                Json                     @default("{}")
+  explanation_json               Json                     @default("{}")
+  reduced_through_event_id       BigInt?                  @db.BigInt
+  reduced_through_occurred_at    DateTime?                @db.Timestamp(3)
+  projection_version             String?                  @db.VarChar(64)
+  projection_updated_at          DateTime?                @db.Timestamp(3)
   updated_at                     DateTime                 @updatedAt @db.Timestamp(3)
   group_states                   AgentSessionGroupState[]
 
@@ -192,6 +198,7 @@ model AgentLifeEvent {
   created_at           DateTime @default(now()) @db.Timestamp(3)
 
   @@index([identity_key, occurred_at], map: "idx_agent_life_events_identity_time")
+  @@index([identity_key, occurred_at, id], map: "idx_agent_life_events_identity_time_id")
   @@index([session_key, occurred_at], map: "idx_agent_life_events_session_time")
   @@index([chat_type, peer_id, occurred_at], map: "idx_agent_life_events_peer_time")
   @@index([message_sid], map: "idx_agent_life_events_message_sid")

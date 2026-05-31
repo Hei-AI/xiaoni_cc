@@ -1,8 +1,8 @@
 # Xiaoni Homeostasis Loop
 
-Status: design locked on 2026-05-31 after office-hours review. This is the
-system of record for the next Xiaoni homeostasis reducer. It does not claim the
-reducer is implemented yet.
+Status: first reducer/projection slice implemented on 2026-05-31 after
+office-hours, CEO, and eng review. This is the system of record for Xiaoni's
+homeostasis reducer.
 
 Read this together with `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`. That older
 doc remains the broader digital-life and presence-context design. This page
@@ -13,15 +13,16 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
 - `agent-service` currently starts queue polling, task polling, and
   `presenceTickTimer`.
 - There is no active standalone self-action runner in `agent-service/src/index.ts`.
-  `/health` exposes `self_action_busy: false`.
+  `/health` no longer exposes a `self_action_busy` compatibility field.
 - `presence_tick:xiaoni` is a synthetic life-level queue event. If unread IM
   exists, the main loop can materialize it as `proactive_im_open`. If no unread
   IM exists, it stays life-only and must not send QQ directly.
 - Life-only `presence_tick` reads the global recent append stream, compressed
   `<小腻近况>`, and `<小腻的OS>`. It can use `web_search` or `stay_silent`, not a
   private planner context.
-- `agent_digital_actions` is historical/substrate data. Do not treat it as the
-  current autonomous-action source of truth.
+- `agent_digital_actions` is historical data only. The old write helpers are
+  gone from `@qq-bot/persistence`, and prompt construction no longer reads this
+  table for current state.
 
 ## Locked Decisions
 
@@ -72,6 +73,10 @@ Append events for facts that happened, not inferred personality:
 - `speak_in_group` / `qq_self_message`: Xiaoni actually sent text.
 - `silence_decision`: Xiaoni chose to stay silent or lurk.
 - `terminal_action_committed` / `terminal_action_blocked`: delivery boundary.
+- `presence_tick_evaluated`: a scheduler check happened, including skip or
+  enqueue reason and the state snapshot used for the decision.
+- `rest_period` / `sleep_period`: rest facts that the reducer can consume to
+  lower pressure/fatigue.
 - future digital events: real or explicitly constructed digital actions, each
   carrying source honesty, action cost, and source evidence.
 
@@ -94,13 +99,18 @@ same reducer output should feed both:
 
 ## Phase 1 Scope
 
-Implement only the reducer and explainability path:
+The first implemented slice includes:
 
 - read recent `agent_life_events` for identity `xiaoni`
 - compute homeostasis snapshot deterministically
 - render a concise six-section `小腻当前状态`
 - expose enough sidecar/admin data to explain the values
 - add tests for event-stream replay, projection rebuild, and no-material cases
+- persist `projection_json`, `explanation_json`, `reduced_through_event_id`,
+  `reduced_through_occurred_at`, `projection_version`, and
+  `projection_updated_at` on `agent_session_life_states`
+- persist `presence_tick_evaluated` for both skipped and enqueued presence ticks
+- keep `presence_tick` from refreshing `last_active_at`
 
 Do not restore or add:
 

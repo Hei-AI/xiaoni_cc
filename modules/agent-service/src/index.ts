@@ -28,7 +28,6 @@ app.get('/health', async (_req, res) => {
     worker_busy: workerBusy,
     task_worker_busy: taskWorkerBusy,
     presence_tick_busy: presenceTickBusy,
-    self_action_busy: false,
     timestamp: new Date().toISOString()
   });
 });

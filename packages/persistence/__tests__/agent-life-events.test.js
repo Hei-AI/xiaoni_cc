@@ -36,6 +36,7 @@ test('ensureAgentLifeEventSchema creates ledger table without implicit prompt vi
   assert.match(createTable, /visibility VARCHAR\(32\) NOT NULL/);
   assert.doesNotMatch(createTable, /visibility VARCHAR\(32\) NOT NULL DEFAULT 'self_private'/);
   assert.ok(statements.some((statement) => statement.includes('idx_agent_life_events_identity_time')));
+  assert.ok(statements.some((statement) => statement.includes('idx_agent_life_events_identity_time_id')));
   assert.ok(statements.some((statement) => statement.includes('idx_agent_life_events_session_time')));
   assert.ok(statements.some((statement) => statement.includes('idx_agent_life_events_kind_time')));
 });
@@ -114,4 +115,68 @@ test('recordAgentLifeEvent returns existing row on duplicate dedupe key', async 
   assert.equal(event.id, '7');
   assert.equal(event.dedupeKey, 'surface:1');
   assert.deepEqual(event.payload, { restored: true });
+});
+
+test('recordAgentLifeEvent accepts homeostasis projection event kinds', async () => {
+  const createdKinds = [];
+  const { persistence } = createPersistence({
+    prisma: {
+      agentLifeEvent: {
+        create: async (payload) => {
+          createdKinds.push(payload.data.event_kind);
+          return {
+            id: BigInt(createdKinds.length),
+            identity_key: 'xiaoni',
+            occurred_at: new Date('2026-05-31T00:00:00.000Z'),
+            created_at: new Date('2026-05-31T00:00:00.000Z'),
+            ...payload.data
+          };
+        }
+      }
+    }
+  });
+
+  for (const eventKind of ['presence_tick_evaluated', 'rest_period', 'sleep_period']) {
+    const event = await persistence.recordAgentLifeEvent({
+      eventKind,
+      visibility: 'self_private',
+      payload: { test: true },
+      dedupeKey: `${eventKind}:1`
+    });
+    assert.equal(event.eventKind, eventKind);
+  }
+
+  assert.deepEqual(createdKinds, ['presence_tick_evaluated', 'rest_period', 'sleep_period']);
+});
+
+test('listAgentLifeEvents can read oldest-first batches for projection replay', async () => {
+  let findPayload = null;
+  const { persistence } = createPersistence({
+    prisma: {
+      agentLifeEvent: {
+        findMany: async (payload) => {
+          findPayload = payload;
+          return [{
+            id: 1n,
+            identity_key: 'xiaoni',
+            event_kind: 'qq_message_seen',
+            occurred_at: new Date('2026-05-31T00:00:00.000Z'),
+            visibility: 'self_private',
+            payload: {},
+            dedupe_key: 'seen:1',
+            created_at: new Date('2026-05-31T00:00:00.000Z')
+          }];
+        }
+      }
+    }
+  });
+
+  const rows = await persistence.listAgentLifeEvents({
+    identityKey: 'xiaoni',
+    chronological: true,
+    limit: 10
+  });
+
+  assert.deepEqual(findPayload.orderBy, [{ occurred_at: 'asc' }, { id: 'asc' }]);
+  assert.equal(rows[0].id, '1');
 });

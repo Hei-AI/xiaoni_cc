@@ -1057,28 +1057,6 @@ export type AgentSharePoolItemProjection = {
   createdAt: string | null;
   metadata: Record<string, unknown>;
 };
-export type AgentDigitalActionProjection = {
-  id: string;
-  identityKey: string;
-  actionType: string;
-  surface: string;
-  motiveKind: string | null;
-  motiveText: string | null;
-  query: string | null;
-  status: string;
-  sourceTrace: Record<string, unknown>;
-  resultSummary: string | null;
-  residueText: string | null;
-  residueKind: string | null;
-  sourceWording: string | null;
-  budgetSnapshot: Record<string, unknown>;
-  sourceQueueIds: unknown[];
-  sourceRunIds: unknown[];
-  errorMessage: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
-  completedAt: string | null;
-};
 export type AgentLifeEventKind =
   | 'surface_visit'
   | 'qq_message_seen'
@@ -1086,14 +1064,15 @@ export type AgentLifeEventKind =
   | 'speak_in_group'
   | 'silence_decision'
   | 'surface_leave'
-  | 'self_action_started'
-  | 'self_action_completed'
   | 'web_search_result'
   | 'pending_share_created'
   | 'pending_share_consumed'
   | 'state_snapshot'
   | 'terminal_action_committed'
-  | 'terminal_action_blocked';
+  | 'terminal_action_blocked'
+  | 'presence_tick_evaluated'
+  | 'rest_period'
+  | 'sleep_period';
 export type AgentLifeEventVisibility =
   | 'active_surface'
   | 'public_residue'
@@ -1168,6 +1147,19 @@ export type XiaoniActivityFeedResult = {
       processing: number;
       completed: number;
       failed: number;
+    };
+    autonomy: {
+      latestPresenceTickAt: string | null;
+      latestPresenceTickStatus: string | null;
+      latestProactiveImOpenAt: string | null;
+      latestProactiveImOpenStatus: string | null;
+      latestPresenceEvaluationAt: string | null;
+      latestPresenceEvaluationReason: string | null;
+      latestPresenceEvaluationEligible: boolean | null;
+      liveSelfActionRunner: boolean;
+      latestHistoricalDigitalActionAt: string | null;
+      latestHistoricalDigitalActionStatus: string | null;
+      latestHistoricalDigitalActionKind: string | null;
     };
     tasks: {
       pending: number;
@@ -1246,10 +1238,6 @@ export function listAgentSharePoolItems(input?: Record<string, unknown>, config?
 export function createAgentSharePoolItem(input: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentSharePoolItemProjection>;
 export function createAgentShareItemUsage(input: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<Record<string, unknown>>;
 export function createAgentPresenceStateSidecar(input: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<Record<string, unknown>>;
-export function createAgentDigitalAction(input: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentDigitalActionProjection>;
-export function updateAgentDigitalAction(id: string, data: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentDigitalActionProjection>;
-export function listAgentDigitalActions(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentDigitalActionProjection[]>;
-export function countAgentDigitalActions(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<number>;
 export function ensureAgentLifeEventSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function recordAgentLifeEvent(input: RecordAgentLifeEventInput, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection>;
 export function listAgentLifeEvents(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection[]>;

@@ -195,7 +195,7 @@ cannot become more and more active when she is already exhausted.
 - Real external posting, liking, following, login-state usage, downloading, or
   cross-platform public identity mutation.
 - Full digital reading / watching / gaming / organizing action storage beyond
-  the first `agent_digital_actions` web-search action shape.
+  historical `agent_digital_actions` compatibility records.
 - Full share-pool ranking.
 - Full reaction feedback loop into interests and sharing desire.
 - Full state-driven action scheduling for browsing/opening QQ/sleeping.
@@ -212,9 +212,9 @@ Current implemented slices:
   `agent_digital_actions`; safe `share_seed` residue is written to
   `agent_share_pool_items`.
 - 2026-05-31: the legacy random self-action `web_search` runner was removed
-  from agent-service runtime. Existing tables, historical records, source
-  honesty checks, and presence projection support remain for replay and for the
-  next digital-life runner.
+  from agent-service runtime. The old `AgentDigitalAction` write helpers are
+  also removed from `@qq-bot/persistence`; the table remains historical
+  compatibility data for admin replay only.
 - 2026-05-31: life-only `presence_tick` now stays inside the main loop. It reads
   the global recent append stream, compressed `<小腻近况>`, and `<小腻的OS>`;
   without a concrete IM target it cannot send QQ directly and can only choose
@@ -224,13 +224,17 @@ Current implemented slices:
   is only a projection/cache. Do not restore a separate self-action planner, and
   do not hardcode `motiveText`, exact queries, interest keys, reading seeds, or
   fake source wording as Xiaoni's inner life.
+- 2026-05-31: first homeostasis reducer slice landed. `presence_tick` now uses
+  the event-derived projection, persists `presence_tick_evaluated`, no longer
+  refreshes `last_active_at`, and `小腻当前状态` no longer reads
+  `agent_digital_actions` as current residue.
 - 2026-05-31: `/xiaoni-activity` now treats self-action web-search prompts and
   canonical requests as operator-only trace data. The feed should show life-event
   wording and residue, not tool-control instructions such as exact-query
   enforcement.
-- Real-source wording is allowed only when the action trace proves a completed
-  `web_search` whose query matches the emitted result. Constructed or mock
-  material still cannot be phrased as "刚看到 / 刚刷到 / 我查到 / 我刚在评论区看到".
+- Real-source wording is allowed only when the current event/share-pool trace
+  carries `source_wording=real_web_search`. Historical `agent_digital_actions`
+  records do not by themselves create current-source wording.
 
 Mock-to-interest promotion rule:
 
@@ -658,8 +662,9 @@ stable identity / world narrative
 
 First-slice recall sources for `小腻当前状态`:
 
-- `当天数字生活记录`: what Xiaoni mock/real read, watched, played, browsed,
-  saved, organized, or thought about today.
+- `当天数字生活记录`: future life events for what Xiaoni mock/real read, watched,
+  played, browsed, saved, organized, or thought about today. Historical
+  `agent_digital_actions` rows are not a current runner input.
 - `持续在场状态`: whether Xiaoni has been watching QQ, following the current
   group flow, waiting for a reply, intermittently checking the phone, or simply
   idling in chat without a separate external activity.

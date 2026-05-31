@@ -7,14 +7,15 @@ const B1_EVENT_KINDS = new Set([
   'speak_in_group',
   'silence_decision',
   'surface_leave',
-  'self_action_started',
-  'self_action_completed',
   'web_search_result',
   'pending_share_created',
   'pending_share_consumed',
   'state_snapshot',
   'terminal_action_committed',
-  'terminal_action_blocked'
+  'terminal_action_blocked',
+  'presence_tick_evaluated',
+  'rest_period',
+  'sleep_period'
 ]);
 
 const LIFE_EVENT_VISIBILITIES = new Set([
@@ -182,6 +183,7 @@ function createAgentLifeEventPersistence({ getPrismaClient, createSqlAdapter }) 
       `);
       await sql.execute('ALTER TABLE agent_life_events ALTER COLUMN visibility DROP DEFAULT');
       await sql.execute('CREATE INDEX IF NOT EXISTS idx_agent_life_events_identity_time ON agent_life_events (identity_key, occurred_at DESC)');
+      await sql.execute('CREATE INDEX IF NOT EXISTS idx_agent_life_events_identity_time_id ON agent_life_events (identity_key, occurred_at DESC, id DESC)');
       await sql.execute('CREATE INDEX IF NOT EXISTS idx_agent_life_events_session_time ON agent_life_events (session_key, occurred_at DESC)');
       await sql.execute('CREATE INDEX IF NOT EXISTS idx_agent_life_events_peer_time ON agent_life_events (chat_type, peer_id, occurred_at DESC)');
       await sql.execute('CREATE INDEX IF NOT EXISTS idx_agent_life_events_message_sid ON agent_life_events (message_sid)');
@@ -272,12 +274,16 @@ function createAgentLifeEventPersistence({ getPrismaClient, createSqlAdapter }) 
         where.occurred_at.lte = input.occurredBefore || input.occurred_before;
       }
     }
+    const chronological = input.chronological === true || input.order === 'asc';
     const rows = await prisma.agentLifeEvent.findMany({
       where,
-      orderBy: [{ occurred_at: 'desc' }, { id: 'desc' }],
+      orderBy: chronological
+        ? [{ occurred_at: 'asc' }, { id: 'asc' }]
+        : [{ occurred_at: 'desc' }, { id: 'desc' }],
       take: Math.max(1, Math.min(Number(input.limit || 100), 1000))
     });
-    return rows.map(normalizeLifeEvent).filter(Boolean).reverse();
+    const normalized = rows.map(normalizeLifeEvent).filter(Boolean);
+    return chronological ? normalized : normalized.reverse();
   }
 
   async function listAgentLifeEventsForPrompt(input = {}, config = {}) {

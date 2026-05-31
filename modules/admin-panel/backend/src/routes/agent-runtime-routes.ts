@@ -82,7 +82,6 @@ export function createAgentRuntimeRoutes(_database: DatabaseManager) {
               workerBusy: Boolean(agentPayload.worker_busy),
               taskWorkerBusy: Boolean(agentPayload.task_worker_busy),
               presenceTickBusy: Boolean(agentPayload.presence_tick_busy),
-              selfActionBusy: Boolean(agentPayload.self_action_busy),
               timestamp: typeof agentPayload.timestamp === 'string' ? agentPayload.timestamp : null,
               url: AGENT_SERVICE_URL,
               healthStatusCode: agentProbe.statusCode,

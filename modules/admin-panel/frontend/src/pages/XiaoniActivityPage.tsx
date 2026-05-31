@@ -51,7 +51,6 @@ interface RuntimeSnapshot {
   workerBusy: boolean;
   taskWorkerBusy: boolean;
   presenceTickBusy: boolean;
-  selfActionBusy: boolean;
   timestamp: string | null;
   url: string;
   healthStatusCode: number | null;
@@ -81,9 +80,13 @@ interface XiaoniActivityFeed {
       latestPresenceTickStatus: string | null;
       latestProactiveImOpenAt: string | null;
       latestProactiveImOpenStatus: string | null;
-      latestSelfActionAt: string | null;
-      latestSelfActionStatus: string | null;
-      latestSelfActionKind: string | null;
+      latestPresenceEvaluationAt: string | null;
+      latestPresenceEvaluationReason: string | null;
+      latestPresenceEvaluationEligible: boolean | null;
+      liveSelfActionRunner: boolean;
+      latestHistoricalDigitalActionAt: string | null;
+      latestHistoricalDigitalActionStatus: string | null;
+      latestHistoricalDigitalActionKind: string | null;
     };
     tasks: {
       pending: number;
@@ -158,7 +161,7 @@ function sourceLabel(source: string) {
     case 'llm_call':
       return 'LLM';
     case 'digital_action':
-      return 'digital';
+      return 'history';
     case 'media_observation':
       return 'media';
     case 'queue_message':
@@ -176,7 +179,6 @@ function runtimeBusyLabel(runtime: RuntimeSnapshot | undefined) {
     runtime.workerBusy && 'run',
     runtime.taskWorkerBusy && 'task',
     runtime.presenceTickBusy && 'presence',
-    runtime.selfActionBusy && 'self-action',
   ].filter(Boolean);
   return busy.length ? busy.join(' / ') : 'idle';
 }
@@ -214,6 +216,13 @@ function RuntimeStrip({
   const digital = feed?.current.digitalActions;
   const autonomy = feed?.current.autonomy;
   const latestTool = feed?.items.find((item) => item.source === 'tool_call');
+  const activeBackground = (tasks?.pending || 0) + (tasks?.processing || 0);
+  const historicalDigital = (digital?.completed || 0) + (digital?.failed || 0) + (digital?.planned || 0) + (digital?.processing || 0);
+  const lifeState = feed?.current.lifeState as {
+    explanation?: { summary?: unknown };
+    projection?: { state?: Record<string, unknown> };
+  } | null | undefined;
+  const stateSummary = typeof lifeState?.explanation?.summary === 'string' ? lifeState.explanation.summary : null;
 
   return (
     <section className="rounded-lg border border-border bg-card px-4 py-3">
@@ -240,15 +249,29 @@ function RuntimeStrip({
           {queue?.staleProcessing ? <span className="ml-1 text-amber-700">stale {queue.staleProcessing}</span> : null}
         </span>
         <span className="text-muted-foreground">
-          background <span className="font-medium text-foreground">{(tasks?.pending || 0) + (tasks?.processing || 0) + (digital?.planned || 0) + (digital?.processing || 0)}</span>
+          background <span className="font-medium text-foreground">{activeBackground}</span>
         </span>
         <span className="text-muted-foreground">
-          自主 <span className="font-medium text-foreground">{autonomy?.latestPresenceTickAt ? formatTimestamp(autonomy.latestPresenceTickAt) : '-'}</span>
+          presence <span className="font-medium text-foreground">{autonomy?.latestPresenceTickAt ? formatTimestamp(autonomy.latestPresenceTickAt) : '-'}</span>
         </span>
         <span className="text-muted-foreground">
           主动 IM <span className="font-medium text-foreground">{autonomy?.latestProactiveImOpenAt ? formatTimestamp(autonomy.latestProactiveImOpenAt) : '-'}</span>
         </span>
+        <span className="text-muted-foreground">
+          eval <span className="font-medium text-foreground">{autonomy?.latestPresenceEvaluationReason || '-'}</span>
+        </span>
+        <span className="text-muted-foreground">
+          legacy digital <span className="font-medium text-foreground">{historicalDigital}</span>
+        </span>
+        <span className="text-muted-foreground">
+          old runner <span className="font-medium text-foreground">{autonomy?.liveSelfActionRunner ? 'live' : 'removed'}</span>
+        </span>
       </div>
+      {stateSummary ? (
+        <div className="mt-2 truncate text-xs text-muted-foreground">
+          state <span className="font-medium text-foreground">{stateSummary}</span>
+        </div>
+      ) : null}
     </section>
   );
 }

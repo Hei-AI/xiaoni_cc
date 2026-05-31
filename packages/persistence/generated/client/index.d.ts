@@ -6567,10 +6567,12 @@ export namespace Prisma {
 
   export type AgentSessionLifeStateAvgAggregateOutputType = {
     daily_proactive_count: number | null
+    reduced_through_event_id: number | null
   }
 
   export type AgentSessionLifeStateSumAggregateOutputType = {
     daily_proactive_count: number | null
+    reduced_through_event_id: bigint | null
   }
 
   export type AgentSessionLifeStateMinAggregateOutputType = {
@@ -6584,6 +6586,10 @@ export namespace Prisma {
     last_user_message_at: Date | null
     daily_proactive_count: number | null
     daily_proactive_date: Date | null
+    reduced_through_event_id: bigint | null
+    reduced_through_occurred_at: Date | null
+    projection_version: string | null
+    projection_updated_at: Date | null
     updated_at: Date | null
   }
 
@@ -6598,6 +6604,10 @@ export namespace Prisma {
     last_user_message_at: Date | null
     daily_proactive_count: number | null
     daily_proactive_date: Date | null
+    reduced_through_event_id: bigint | null
+    reduced_through_occurred_at: Date | null
+    projection_version: string | null
+    projection_updated_at: Date | null
     updated_at: Date | null
   }
 
@@ -6612,6 +6622,12 @@ export namespace Prisma {
     last_user_message_at: number
     daily_proactive_count: number
     daily_proactive_date: number
+    projection_json: number
+    explanation_json: number
+    reduced_through_event_id: number
+    reduced_through_occurred_at: number
+    projection_version: number
+    projection_updated_at: number
     updated_at: number
     _all: number
   }
@@ -6619,10 +6635,12 @@ export namespace Prisma {
 
   export type AgentSessionLifeStateAvgAggregateInputType = {
     daily_proactive_count?: true
+    reduced_through_event_id?: true
   }
 
   export type AgentSessionLifeStateSumAggregateInputType = {
     daily_proactive_count?: true
+    reduced_through_event_id?: true
   }
 
   export type AgentSessionLifeStateMinAggregateInputType = {
@@ -6636,6 +6654,10 @@ export namespace Prisma {
     last_user_message_at?: true
     daily_proactive_count?: true
     daily_proactive_date?: true
+    reduced_through_event_id?: true
+    reduced_through_occurred_at?: true
+    projection_version?: true
+    projection_updated_at?: true
     updated_at?: true
   }
 
@@ -6650,6 +6672,10 @@ export namespace Prisma {
     last_user_message_at?: true
     daily_proactive_count?: true
     daily_proactive_date?: true
+    reduced_through_event_id?: true
+    reduced_through_occurred_at?: true
+    projection_version?: true
+    projection_updated_at?: true
     updated_at?: true
   }
 
@@ -6664,6 +6690,12 @@ export namespace Prisma {
     last_user_message_at?: true
     daily_proactive_count?: true
     daily_proactive_date?: true
+    projection_json?: true
+    explanation_json?: true
+    reduced_through_event_id?: true
+    reduced_through_occurred_at?: true
+    projection_version?: true
+    projection_updated_at?: true
     updated_at?: true
     _all?: true
   }
@@ -6765,6 +6797,12 @@ export namespace Prisma {
     last_user_message_at: Date | null
     daily_proactive_count: number
     daily_proactive_date: Date | null
+    projection_json: JsonValue
+    explanation_json: JsonValue
+    reduced_through_event_id: bigint | null
+    reduced_through_occurred_at: Date | null
+    projection_version: string | null
+    projection_updated_at: Date | null
     updated_at: Date
     _count: AgentSessionLifeStateCountAggregateOutputType | null
     _avg: AgentSessionLifeStateAvgAggregateOutputType | null
@@ -6798,6 +6836,12 @@ export namespace Prisma {
     last_user_message_at?: boolean
     daily_proactive_count?: boolean
     daily_proactive_date?: boolean
+    projection_json?: boolean
+    explanation_json?: boolean
+    reduced_through_event_id?: boolean
+    reduced_through_occurred_at?: boolean
+    projection_version?: boolean
+    projection_updated_at?: boolean
     updated_at?: boolean
     group_states?: boolean | AgentSessionLifeState$group_statesArgs<ExtArgs>
     _count?: boolean | AgentSessionLifeStateCountOutputTypeDefaultArgs<ExtArgs>
@@ -6814,6 +6858,12 @@ export namespace Prisma {
     last_user_message_at?: boolean
     daily_proactive_count?: boolean
     daily_proactive_date?: boolean
+    projection_json?: boolean
+    explanation_json?: boolean
+    reduced_through_event_id?: boolean
+    reduced_through_occurred_at?: boolean
+    projection_version?: boolean
+    projection_updated_at?: boolean
     updated_at?: boolean
   }, ExtArgs["result"]["agentSessionLifeState"]>
 
@@ -6828,6 +6878,12 @@ export namespace Prisma {
     last_user_message_at?: boolean
     daily_proactive_count?: boolean
     daily_proactive_date?: boolean
+    projection_json?: boolean
+    explanation_json?: boolean
+    reduced_through_event_id?: boolean
+    reduced_through_occurred_at?: boolean
+    projection_version?: boolean
+    projection_updated_at?: boolean
     updated_at?: boolean
   }, ExtArgs["result"]["agentSessionLifeState"]>
 
@@ -6842,10 +6898,16 @@ export namespace Prisma {
     last_user_message_at?: boolean
     daily_proactive_count?: boolean
     daily_proactive_date?: boolean
+    projection_json?: boolean
+    explanation_json?: boolean
+    reduced_through_event_id?: boolean
+    reduced_through_occurred_at?: boolean
+    projection_version?: boolean
+    projection_updated_at?: boolean
     updated_at?: boolean
   }
 
-  export type AgentSessionLifeStateOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"identity_key" | "last_active_at" | "last_boredom_reset_at" | "last_sleep_at" | "service_started_at" | "last_presence_tick_enqueued_at" | "last_proactive_at" | "last_user_message_at" | "daily_proactive_count" | "daily_proactive_date" | "updated_at", ExtArgs["result"]["agentSessionLifeState"]>
+  export type AgentSessionLifeStateOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"identity_key" | "last_active_at" | "last_boredom_reset_at" | "last_sleep_at" | "service_started_at" | "last_presence_tick_enqueued_at" | "last_proactive_at" | "last_user_message_at" | "daily_proactive_count" | "daily_proactive_date" | "projection_json" | "explanation_json" | "reduced_through_event_id" | "reduced_through_occurred_at" | "projection_version" | "projection_updated_at" | "updated_at", ExtArgs["result"]["agentSessionLifeState"]>
   export type AgentSessionLifeStateInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     group_states?: boolean | AgentSessionLifeState$group_statesArgs<ExtArgs>
     _count?: boolean | AgentSessionLifeStateCountOutputTypeDefaultArgs<ExtArgs>
@@ -6869,6 +6931,12 @@ export namespace Prisma {
       last_user_message_at: Date | null
       daily_proactive_count: number
       daily_proactive_date: Date | null
+      projection_json: Prisma.JsonValue
+      explanation_json: Prisma.JsonValue
+      reduced_through_event_id: bigint | null
+      reduced_through_occurred_at: Date | null
+      projection_version: string | null
+      projection_updated_at: Date | null
       updated_at: Date
     }, ExtArgs["result"]["agentSessionLifeState"]>
     composites: {}
@@ -7304,6 +7372,12 @@ export namespace Prisma {
     readonly last_user_message_at: FieldRef<"AgentSessionLifeState", 'DateTime'>
     readonly daily_proactive_count: FieldRef<"AgentSessionLifeState", 'Int'>
     readonly daily_proactive_date: FieldRef<"AgentSessionLifeState", 'DateTime'>
+    readonly projection_json: FieldRef<"AgentSessionLifeState", 'Json'>
+    readonly explanation_json: FieldRef<"AgentSessionLifeState", 'Json'>
+    readonly reduced_through_event_id: FieldRef<"AgentSessionLifeState", 'BigInt'>
+    readonly reduced_through_occurred_at: FieldRef<"AgentSessionLifeState", 'DateTime'>
+    readonly projection_version: FieldRef<"AgentSessionLifeState", 'String'>
+    readonly projection_updated_at: FieldRef<"AgentSessionLifeState", 'DateTime'>
     readonly updated_at: FieldRef<"AgentSessionLifeState", 'DateTime'>
   }
     
@@ -60575,6 +60649,12 @@ export namespace Prisma {
     last_user_message_at: 'last_user_message_at',
     daily_proactive_count: 'daily_proactive_count',
     daily_proactive_date: 'daily_proactive_date',
+    projection_json: 'projection_json',
+    explanation_json: 'explanation_json',
+    reduced_through_event_id: 'reduced_through_event_id',
+    reduced_through_occurred_at: 'reduced_through_occurred_at',
+    projection_version: 'projection_version',
+    projection_updated_at: 'projection_updated_at',
     updated_at: 'updated_at'
   };
 
@@ -61926,6 +62006,12 @@ export namespace Prisma {
     last_user_message_at?: DateTimeNullableFilter<"AgentSessionLifeState"> | Date | string | null
     daily_proactive_count?: IntFilter<"AgentSessionLifeState"> | number
     daily_proactive_date?: DateTimeNullableFilter<"AgentSessionLifeState"> | Date | string | null
+    projection_json?: JsonFilter<"AgentSessionLifeState">
+    explanation_json?: JsonFilter<"AgentSessionLifeState">
+    reduced_through_event_id?: BigIntNullableFilter<"AgentSessionLifeState"> | bigint | number | null
+    reduced_through_occurred_at?: DateTimeNullableFilter<"AgentSessionLifeState"> | Date | string | null
+    projection_version?: StringNullableFilter<"AgentSessionLifeState"> | string | null
+    projection_updated_at?: DateTimeNullableFilter<"AgentSessionLifeState"> | Date | string | null
     updated_at?: DateTimeFilter<"AgentSessionLifeState"> | Date | string
     group_states?: AgentSessionGroupStateListRelationFilter
   }
@@ -61941,6 +62027,12 @@ export namespace Prisma {
     last_user_message_at?: SortOrderInput | SortOrder
     daily_proactive_count?: SortOrder
     daily_proactive_date?: SortOrderInput | SortOrder
+    projection_json?: SortOrder
+    explanation_json?: SortOrder
+    reduced_through_event_id?: SortOrderInput | SortOrder
+    reduced_through_occurred_at?: SortOrderInput | SortOrder
+    projection_version?: SortOrderInput | SortOrder
+    projection_updated_at?: SortOrderInput | SortOrder
     updated_at?: SortOrder
     group_states?: AgentSessionGroupStateOrderByRelationAggregateInput
   }
@@ -61959,6 +62051,12 @@ export namespace Prisma {
     last_user_message_at?: DateTimeNullableFilter<"AgentSessionLifeState"> | Date | string | null
     daily_proactive_count?: IntFilter<"AgentSessionLifeState"> | number
     daily_proactive_date?: DateTimeNullableFilter<"AgentSessionLifeState"> | Date | string | null
+    projection_json?: JsonFilter<"AgentSessionLifeState">
+    explanation_json?: JsonFilter<"AgentSessionLifeState">
+    reduced_through_event_id?: BigIntNullableFilter<"AgentSessionLifeState"> | bigint | number | null
+    reduced_through_occurred_at?: DateTimeNullableFilter<"AgentSessionLifeState"> | Date | string | null
+    projection_version?: StringNullableFilter<"AgentSessionLifeState"> | string | null
+    projection_updated_at?: DateTimeNullableFilter<"AgentSessionLifeState"> | Date | string | null
     updated_at?: DateTimeFilter<"AgentSessionLifeState"> | Date | string
     group_states?: AgentSessionGroupStateListRelationFilter
   }, "identity_key">
@@ -61974,6 +62072,12 @@ export namespace Prisma {
     last_user_message_at?: SortOrderInput | SortOrder
     daily_proactive_count?: SortOrder
     daily_proactive_date?: SortOrderInput | SortOrder
+    projection_json?: SortOrder
+    explanation_json?: SortOrder
+    reduced_through_event_id?: SortOrderInput | SortOrder
+    reduced_through_occurred_at?: SortOrderInput | SortOrder
+    projection_version?: SortOrderInput | SortOrder
+    projection_updated_at?: SortOrderInput | SortOrder
     updated_at?: SortOrder
     _count?: AgentSessionLifeStateCountOrderByAggregateInput
     _avg?: AgentSessionLifeStateAvgOrderByAggregateInput
@@ -61996,6 +62100,12 @@ export namespace Prisma {
     last_user_message_at?: DateTimeNullableWithAggregatesFilter<"AgentSessionLifeState"> | Date | string | null
     daily_proactive_count?: IntWithAggregatesFilter<"AgentSessionLifeState"> | number
     daily_proactive_date?: DateTimeNullableWithAggregatesFilter<"AgentSessionLifeState"> | Date | string | null
+    projection_json?: JsonWithAggregatesFilter<"AgentSessionLifeState">
+    explanation_json?: JsonWithAggregatesFilter<"AgentSessionLifeState">
+    reduced_through_event_id?: BigIntNullableWithAggregatesFilter<"AgentSessionLifeState"> | bigint | number | null
+    reduced_through_occurred_at?: DateTimeNullableWithAggregatesFilter<"AgentSessionLifeState"> | Date | string | null
+    projection_version?: StringNullableWithAggregatesFilter<"AgentSessionLifeState"> | string | null
+    projection_updated_at?: DateTimeNullableWithAggregatesFilter<"AgentSessionLifeState"> | Date | string | null
     updated_at?: DateTimeWithAggregatesFilter<"AgentSessionLifeState"> | Date | string
   }
 
@@ -67245,6 +67355,12 @@ export namespace Prisma {
     last_user_message_at?: Date | string | null
     daily_proactive_count?: number
     daily_proactive_date?: Date | string | null
+    projection_json?: JsonNullValueInput | InputJsonValue
+    explanation_json?: JsonNullValueInput | InputJsonValue
+    reduced_through_event_id?: bigint | number | null
+    reduced_through_occurred_at?: Date | string | null
+    projection_version?: string | null
+    projection_updated_at?: Date | string | null
     updated_at?: Date | string
     group_states?: AgentSessionGroupStateCreateNestedManyWithoutLife_stateInput
   }
@@ -67260,6 +67376,12 @@ export namespace Prisma {
     last_user_message_at?: Date | string | null
     daily_proactive_count?: number
     daily_proactive_date?: Date | string | null
+    projection_json?: JsonNullValueInput | InputJsonValue
+    explanation_json?: JsonNullValueInput | InputJsonValue
+    reduced_through_event_id?: bigint | number | null
+    reduced_through_occurred_at?: Date | string | null
+    projection_version?: string | null
+    projection_updated_at?: Date | string | null
     updated_at?: Date | string
     group_states?: AgentSessionGroupStateUncheckedCreateNestedManyWithoutLife_stateInput
   }
@@ -67275,6 +67397,12 @@ export namespace Prisma {
     last_user_message_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     daily_proactive_count?: IntFieldUpdateOperationsInput | number
     daily_proactive_date?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    projection_json?: JsonNullValueInput | InputJsonValue
+    explanation_json?: JsonNullValueInput | InputJsonValue
+    reduced_through_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    reduced_through_occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    projection_version?: NullableStringFieldUpdateOperationsInput | string | null
+    projection_updated_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
     group_states?: AgentSessionGroupStateUpdateManyWithoutLife_stateNestedInput
   }
@@ -67290,6 +67418,12 @@ export namespace Prisma {
     last_user_message_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     daily_proactive_count?: IntFieldUpdateOperationsInput | number
     daily_proactive_date?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    projection_json?: JsonNullValueInput | InputJsonValue
+    explanation_json?: JsonNullValueInput | InputJsonValue
+    reduced_through_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    reduced_through_occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    projection_version?: NullableStringFieldUpdateOperationsInput | string | null
+    projection_updated_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
     group_states?: AgentSessionGroupStateUncheckedUpdateManyWithoutLife_stateNestedInput
   }
@@ -67305,6 +67439,12 @@ export namespace Prisma {
     last_user_message_at?: Date | string | null
     daily_proactive_count?: number
     daily_proactive_date?: Date | string | null
+    projection_json?: JsonNullValueInput | InputJsonValue
+    explanation_json?: JsonNullValueInput | InputJsonValue
+    reduced_through_event_id?: bigint | number | null
+    reduced_through_occurred_at?: Date | string | null
+    projection_version?: string | null
+    projection_updated_at?: Date | string | null
     updated_at?: Date | string
   }
 
@@ -67319,6 +67459,12 @@ export namespace Prisma {
     last_user_message_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     daily_proactive_count?: IntFieldUpdateOperationsInput | number
     daily_proactive_date?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    projection_json?: JsonNullValueInput | InputJsonValue
+    explanation_json?: JsonNullValueInput | InputJsonValue
+    reduced_through_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    reduced_through_occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    projection_version?: NullableStringFieldUpdateOperationsInput | string | null
+    projection_updated_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
@@ -67333,6 +67479,12 @@ export namespace Prisma {
     last_user_message_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     daily_proactive_count?: IntFieldUpdateOperationsInput | number
     daily_proactive_date?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    projection_json?: JsonNullValueInput | InputJsonValue
+    explanation_json?: JsonNullValueInput | InputJsonValue
+    reduced_through_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    reduced_through_occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    projection_version?: NullableStringFieldUpdateOperationsInput | string | null
+    projection_updated_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
@@ -73855,11 +74007,18 @@ export namespace Prisma {
     last_user_message_at?: SortOrder
     daily_proactive_count?: SortOrder
     daily_proactive_date?: SortOrder
+    projection_json?: SortOrder
+    explanation_json?: SortOrder
+    reduced_through_event_id?: SortOrder
+    reduced_through_occurred_at?: SortOrder
+    projection_version?: SortOrder
+    projection_updated_at?: SortOrder
     updated_at?: SortOrder
   }
 
   export type AgentSessionLifeStateAvgOrderByAggregateInput = {
     daily_proactive_count?: SortOrder
+    reduced_through_event_id?: SortOrder
   }
 
   export type AgentSessionLifeStateMaxOrderByAggregateInput = {
@@ -73873,6 +74032,10 @@ export namespace Prisma {
     last_user_message_at?: SortOrder
     daily_proactive_count?: SortOrder
     daily_proactive_date?: SortOrder
+    reduced_through_event_id?: SortOrder
+    reduced_through_occurred_at?: SortOrder
+    projection_version?: SortOrder
+    projection_updated_at?: SortOrder
     updated_at?: SortOrder
   }
 
@@ -73887,11 +74050,16 @@ export namespace Prisma {
     last_user_message_at?: SortOrder
     daily_proactive_count?: SortOrder
     daily_proactive_date?: SortOrder
+    reduced_through_event_id?: SortOrder
+    reduced_through_occurred_at?: SortOrder
+    projection_version?: SortOrder
+    projection_updated_at?: SortOrder
     updated_at?: SortOrder
   }
 
   export type AgentSessionLifeStateSumOrderByAggregateInput = {
     daily_proactive_count?: SortOrder
+    reduced_through_event_id?: SortOrder
   }
 
   export type AgentSessionLifeStateScalarRelationFilter = {
@@ -77991,6 +78159,12 @@ export namespace Prisma {
     last_user_message_at?: Date | string | null
     daily_proactive_count?: number
     daily_proactive_date?: Date | string | null
+    projection_json?: JsonNullValueInput | InputJsonValue
+    explanation_json?: JsonNullValueInput | InputJsonValue
+    reduced_through_event_id?: bigint | number | null
+    reduced_through_occurred_at?: Date | string | null
+    projection_version?: string | null
+    projection_updated_at?: Date | string | null
     updated_at?: Date | string
   }
 
@@ -78005,6 +78179,12 @@ export namespace Prisma {
     last_user_message_at?: Date | string | null
     daily_proactive_count?: number
     daily_proactive_date?: Date | string | null
+    projection_json?: JsonNullValueInput | InputJsonValue
+    explanation_json?: JsonNullValueInput | InputJsonValue
+    reduced_through_event_id?: bigint | number | null
+    reduced_through_occurred_at?: Date | string | null
+    projection_version?: string | null
+    projection_updated_at?: Date | string | null
     updated_at?: Date | string
   }
 
@@ -78035,6 +78215,12 @@ export namespace Prisma {
     last_user_message_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     daily_proactive_count?: IntFieldUpdateOperationsInput | number
     daily_proactive_date?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    projection_json?: JsonNullValueInput | InputJsonValue
+    explanation_json?: JsonNullValueInput | InputJsonValue
+    reduced_through_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    reduced_through_occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    projection_version?: NullableStringFieldUpdateOperationsInput | string | null
+    projection_updated_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
@@ -78049,6 +78235,12 @@ export namespace Prisma {
     last_user_message_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     daily_proactive_count?: IntFieldUpdateOperationsInput | number
     daily_proactive_date?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    projection_json?: JsonNullValueInput | InputJsonValue
+    explanation_json?: JsonNullValueInput | InputJsonValue
+    reduced_through_event_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    reduced_through_occurred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    projection_version?: NullableStringFieldUpdateOperationsInput | string | null
+    projection_updated_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 

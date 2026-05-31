@@ -194,7 +194,8 @@ Locked decisions from office-hours:
 - Mock or real digital-life generation, if added later, must be state-triggered,
   not blind timer-based. The old hosted `web_search` self-action runner is no
   longer active; current `agent-service` runtime starts queue polling, task
-  polling, and presence tick only, with `/health.self_action_busy=false`.
+  polling, and presence tick only. `/health` no longer exposes the retired
+  `self_action_busy` field.
 - Generated actions must be linked records so recent action traces can be
   compressed into in-context state.
 - `小腻当前状态` has six private sections: recent action trace, current residue,
@@ -254,9 +255,9 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
   `agent-service` process. The current process starts queue polling, task
   polling, and `presenceTickTimer`; it does not start a standalone self-action
   timer.
-- Kept `agent_digital_actions`, source-honesty validation, historical
-  projection, and Admin activity visibility as substrate for replay and the next
-  deliberate digital-life runner.
+- Removed the old `AgentDigitalAction` write helpers from `@qq-bot/persistence`
+  and stopped prompt construction from reading `agent_digital_actions` as
+  current state. The table remains historical Admin replay data only.
 
 **Engineering decisions locked (2026-05-26 eng-review, updated 2026-05-26 second-pass):**
 
@@ -362,9 +363,10 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
   as a string join only. Do NOT use `@db.Uuid`; existing run IDs are `run_${Date.now()}_${uuid}`
   format, not bare UUIDs.
 
-- `AgentDigitalAction` — stores autonomous digital actions such as the retired
-  self-action `web_search` slice and future digital-life runners. Required
-  fields include `identity_key`,
+- `AgentDigitalAction` — historical table for the retired self-action
+  `web_search` slice. Do not use it as the write API for future runners; new
+  runtime facts should enter `agent_life_events`. Existing fields include
+  `identity_key`,
   `action_type`, `surface`, `status`, `query`, `source_trace`,
   `result_summary`, `residue_text`, `residue_kind`, `source_wording`,
   `budget_snapshot`, and `completed_at`. Existing records may use
@@ -928,13 +930,13 @@ to request edit-mode work without any actual source image, so the user sees
 **Source:** 2026-05-27 runtime context review against
 `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
 
-**Progress 2026-05-30 / 2026-05-31:** recent real `web_search` digital actions
-can be stored in `agent_digital_actions` and projected into
-`buildPresenceContextBlock`, but the legacy random runner no longer creates new
-ones. Current runtime writes `agent_life_events` for QQ surface visits, seen
-messages, visible delivery, silence, and terminal delivery state. The broader v2
-shape below is still open and should be fed by the event-sourced homeostasis
-reducer in Task 14.
+**Progress 2026-05-30 / 2026-05-31:** the legacy random runner no longer creates
+new digital actions, and prompt construction no longer projects
+`agent_digital_actions` into `buildPresenceContextBlock`. Current runtime writes
+`agent_life_events` for QQ surface visits, seen messages, visible delivery,
+silence, terminal delivery state, and presence tick evaluations. The broader v2
+shape below is now fed by the first event-sourced homeostasis reducer slice in
+Task 14.
 
 **Problem:** the design already defines `小腻当前状态` as a six-section private
 context block with recent action trace, current residue, current state,
@@ -945,12 +947,10 @@ desire, and effort cost.
 
 The current implementation is still a first slice. `presence-context.ts` derives
 `boredom`, `fatigue`, `energy`, and `sharingDesire`, then injects raw decimals.
-It can list existing completed real `web_search` digital actions, but the current
-self-action runner no longer creates new ones. It also does not yet produce the
-full six-section readable state with action budget, pressure, reward attraction,
-action costs, group residue, and multi-step presence history. The model can see
-the first kind of traceable digital action when records exist, but not yet the
-complete recent-life story described in the design doc.
+It no longer reads historical `agent_digital_actions` as current state. It
+produces the first event-derived six-section state with action cost, source
+boundary, and reducer explanation, but rest/sleep event generation and broader
+digital-life action classes remain follow-up work.
 
 The older "dopamine / stress" surface is also only a compatibility mapping:
 `sharingDesire -> dopamine` and `fatigue -> stress`. It does not yet expose the
@@ -1018,7 +1018,7 @@ a human-readable way.
 
 ### Task 12 - Xiaoni creative agency and latent capability activation
 
-**Status:** todo.
+**Status:** first slice implemented 2026-05-31; follow-up hardening remains.
 
 **Source:** 2026-05-28 `$office-hours` note before follow-up discussion.
 
@@ -1143,19 +1143,22 @@ scheduling, prompt context, and admin explanation.
 
 **Action:**
 
-- Implement a deterministic reducer over `agent_life_events` for identity
+- Implemented: deterministic reducer over `agent_life_events` for identity
   `xiaoni`.
-- Treat `agent_session_life_states` and group state rows as rebuildable
-  projections/caches, not canonical state.
-- Compute boredom, fatigue, sleep pressure, pressure, reward sensitivity,
-  sharing desire, action budget, material scarcity, and recent action trace from
-  event facts and decay rules.
-- Render the reducer output into the six-section `小腻当前状态` block and the
-  admin activity explanation surface.
+- Implemented: `agent_session_life_states` stores projection/cache fields
+  (`projection_json`, `explanation_json`, reduced-through fields, and version).
+- Implemented: boredom, fatigue, sleep pressure, reward attraction, sharing
+  desire, action cost, and attention are derived from event facts and decay
+  rules.
+- Implemented: reducer output is rendered into `小腻当前状态` and Admin activity
+  receives projection/explanation data.
 - Keep suggestions from QQ inside the normal event stream / OS / compact summary.
   Do not add planner-only suggestion channels, hardcoded interest keys, or query
   templates.
 - Do not restore autonomous self-action timers in this task.
+- Follow-up: generate real `rest_period` / `sleep_period` events instead of only
+  supporting them in the reducer, and add broader runtime integration tests for
+  projection refresh conflicts.
 
 **Acceptance criteria:**
 
