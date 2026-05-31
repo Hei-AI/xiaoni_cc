@@ -110,7 +110,7 @@ test('buildPresenceContextBlock is factual and includes source boundary', () => 
   });
 
   assert.match(block, /<小腻当前状态>/);
-  assert.match(block, /mock\/constructed 材料不能说成刚看到/);
+  assert.match(block, /模拟或整理出来的材料不能说成刚看到/);
   assert.match(block, /没有真实浏览器证据/);
   assert.doesNotMatch(block, /你应该|必须回复|请主动/);
 });
@@ -140,8 +140,8 @@ test('buildPresenceContextBlock exposes real web search material without old run
     isPresenceTick: true
   });
 
-  assert.match(block, /存在真实 web_search 残留/);
-  assert.match(block, /措辞：real_web_search/);
+  assert.match(block, /有真实网页搜索留下的内容/);
+  assert.match(block, /来源：真实网页搜索材料/);
   assert.doesNotMatch(block, /没有真实浏览器证据/);
 });
 
@@ -170,7 +170,7 @@ test('buildPresenceContextBlock includes constructed material without source inf
     isPresenceTick: true
   });
 
-  assert.match(block, /措辞：constructed_only/);
+  assert.match(block, /来源：整理出来的材料/);
   assert.match(block, /没有真实浏览器证据/);
   assert.match(block, /不能伪装成实时来源/);
 });

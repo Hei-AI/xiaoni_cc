@@ -17,7 +17,7 @@ test('life-only presence tick stays inside the agent loop and cannot send QQ mes
       type: 'message',
       role: 'assistant',
       phase: 'commentary',
-      content: '<ACTION source="presence_tick">小腻从自己的生活里抬头看了一眼 IM 列表；还没有打开任何具体会话。</ACTION>'
+      content: '<ACTION source="presence_tick">小腻从自己的生活里抬头看了一眼消息列表；还没有打开任何具体会话。</ACTION>'
     }
   ], 'direct');
 

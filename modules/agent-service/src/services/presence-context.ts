@@ -53,6 +53,26 @@ function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
+function renderMaterialSource(item: PresenceSharePoolItem) {
+  if (item.sourceWording === 'real_web_search') {
+    return '真实网页搜索材料，可以说是查到或看到的资料';
+  }
+  if (item.sourceWording === 'mock_only') {
+    return '模拟材料，只能当作内部假设';
+  }
+  if (item.sourceWording === 'constructed_only') {
+    return '整理出来的材料，不能说成刚查到';
+  }
+  return `${item.sourceKind} 材料，使用前注意来源边界`;
+}
+
+function renderBoundaryLabel(boundaryLabel: string) {
+  if (boundaryLabel === 'safe') return '可以使用';
+  if (boundaryLabel === 'reframe') return '需要换个说法';
+  if (boundaryLabel === 'blocked') return '不要使用';
+  return boundaryLabel;
+}
+
 function hoursBetween(left: Date, right: Date) {
   return Math.max(0, (left.getTime() - right.getTime()) / HOUR_MS);
 }
@@ -142,20 +162,20 @@ export function buildPresenceContextBlock(params: {
   const topItems = params.items.slice(0, 3);
   const hasRealWebSearchMaterial = topItems.some((item) => item.sourceWording === 'real_web_search');
   const currentResidue = hasRealWebSearchMaterial
-    ? 'available_material 中存在真实 web_search 残留；只能基于对应材料表达，不能补造未记录的实时来源。'
-    : '没有真实浏览器证据；mock/constructed 材料不能说成刚看到、刚刷到或我查到。';
+    ? '可用材料里有真实网页搜索留下的内容；只能基于这些材料表达，不能补造没有记录的实时来源。'
+    : '没有真实浏览器证据；模拟或整理出来的材料不能说成刚看到、刚刷到或我查到。';
   const material = topItems.length > 0
-    ? topItems.map((item) => `- ${item.content}（来源类型：${item.sourceKind}，边界：${item.boundaryLabel}，措辞：${item.sourceWording}）`).join('\n')
+    ? topItems.map((item) => `- ${item.content}（来源：${renderMaterialSource(item)}；边界：${renderBoundaryLabel(item.boundaryLabel)}）`).join('\n')
     : '- 暂无可用分享材料';
   return [
     '<小腻当前状态>',
-    `recent_action_trace: ${params.isPresenceTick ? '本轮由 presence_tick 触发；小腻从自己的生活里检查 IM 列表。' : '本轮由群友消息触发。'}`,
-    `current_residue: ${currentResidue}`,
-    `current_state: ${stateLabel}；boredom=${params.state.boredom.toFixed(2)}；fatigue=${params.state.fatigue.toFixed(2)}；energy=${params.state.energy.toFixed(2)}；sharing_desire=${params.state.sharingDesire.toFixed(2)}。`,
-    params.stateExplanation ? `state_explanation: ${params.stateExplanation}` : null,
-    `available_material:\n${material}`,
-    `action_cost: 低成本可潜水或短句；中成本可主动分享一句；高疲劳时不适合长篇展开。`,
-    `source_boundary: 只能表达自己的想法、印象或整理出来的话题；只有 source_wording=real_web_search 的材料能说成我查到，其他材料不能伪装成实时来源。`,
+    `本轮动作：${params.isPresenceTick ? '小腻从自己的生活里检查了一下消息列表。' : '本轮由群友消息触发。'}`,
+    `材料边界：${currentResidue}`,
+    `当前状态：${stateLabel}；无聊=${params.state.boredom.toFixed(2)}；疲劳=${params.state.fatigue.toFixed(2)}；精力=${params.state.energy.toFixed(2)}；分享欲=${params.state.sharingDesire.toFixed(2)}。`,
+    params.stateExplanation ? `状态说明：${params.stateExplanation}` : null,
+    `可用材料：\n${material}`,
+    `行动成本：低成本可潜水或短句；中成本可主动分享一句；高疲劳时不适合长篇展开。`,
+    `来源边界：只能表达自己的想法、印象或整理出来的话题；只有明确标成真实网页搜索的材料，才能说成我查到；其他材料不能伪装成实时来源。`,
     '</小腻当前状态>'
   ].filter(Boolean).join('\n');
 }

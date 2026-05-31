@@ -191,13 +191,13 @@ test('fatigue recovery event tells Xiaoni the numeric reason for sleep', async (
     },
     explanation: {
       meterDrivers: {
-        fatigue: '距离上次 rest/sleep 16.0h，加上 actionCost=1.00、sleepPressure=1.00'
+        fatigue: '距离上次休息/睡眠 16.0h，加上行动负担=1.00、困倦压力=1.00'
       },
       contributors: [{
         eventId: '2',
         eventKind: 'speak_in_group',
         occurredAt: '2026-05-31T06:30:00.000Z',
-        effect: '已经开口，分享欲下降且行动成本上升'
+        effect: '已经开口，分享欲下降，行动负担上升'
       }]
     },
     decision: { shouldEnqueue: false, reason: 'fatigue' }
@@ -205,16 +205,16 @@ test('fatigue recovery event tells Xiaoni the numeric reason for sleep', async (
 
   assert.equal(lifeEvents.length, 1);
   assert.equal(lifeEvents[0].eventKind, 'sleep_period');
-  assert.match(lifeEvents[0].payload.duration_label, /fatigue=0\.90 > max_fatigue=0\.82/);
-  assert.match(lifeEvents[0].payload.duration_label, /sleep_pressure=1\.00/);
-  assert.match(lifeEvents[0].payload.duration_label, /action_cost=1\.00/);
-  assert.match(lifeEvents[0].payload.duration_label, /sleep_period 恢复/);
+  assert.match(lifeEvents[0].payload.duration_label, /疲劳=0\.90（阈值 0\.82）/);
+  assert.match(lifeEvents[0].payload.duration_label, /困倦压力=1\.00/);
+  assert.match(lifeEvents[0].payload.duration_label, /行动负担=1\.00/);
+  assert.match(lifeEvents[0].payload.duration_label, /睡眠恢复/);
 });
 
 test('renderXiaoniLifeStateExplanation tells the next wake why Xiaoni is tired or rested', () => {
   const text = renderXiaoniLifeStateExplanation({
     version: 'xiaoni-life-v1',
-    summary: '疲劳偏高；boredom=0.60 fatigue=0.90 energy=0.10 sharing_desire=0.38 action_cost=1.00 sleep_pressure=1.00',
+    summary: '疲劳偏高；无聊=0.60 疲劳=0.90 精力=0.10 分享欲=0.38 行动负担=1.00 困倦压力=1.00',
     generatedAt: '2026-05-31T08:00:00.000Z',
     rebuiltFromEvents: false,
     eventCount: 3,
@@ -224,35 +224,35 @@ test('renderXiaoniLifeStateExplanation tells the next wake why Xiaoni is tired o
         eventId: '3',
         eventKind: 'sleep_period',
         occurredAt: '2026-05-31T07:30:00.000Z',
-        effect: '刚才因为 fatigue/sleepPressure 太高，记录了 sleep_period；醒来后 actionCost 被重置'
+        effect: '刚才因为疲劳和困倦压力都太高，先不继续看消息，记录了一次睡眠恢复；醒来后行动负担被重置'
       },
       {
         eventId: '2',
         eventKind: 'speak_in_group',
         occurredAt: '2026-05-31T06:30:00.000Z',
-        effect: '已经开口，分享欲下降且行动成本上升'
+        effect: '已经开口，分享欲下降，行动负担上升'
       },
       {
         eventId: '1',
         eventKind: 'presence_tick_evaluated',
         occurredAt: '2026-05-31T06:00:00.000Z',
-        effect: 'presence tick 被跳过'
+        effect: '这次空闲检查被跳过'
       }
     ],
     meterDrivers: {
-      boredom: '距离上次 boredom reset 1.0h，加上事件偏移',
-      fatigue: '距离上次 rest/sleep 16.0h，加上 actionCost=1.00、sleepPressure=1.00',
-      sharingDesire: 'boredom=0.60、reward=0.30、energy=0.10、fatigue=0.90',
-      attention: '最近会话/消息事件把 attention 调到 1.00'
+      boredom: '距离上次打断无聊 1.0h，加上事件偏移',
+      fatigue: '距离上次休息/睡眠 16.0h，加上行动负担=1.00、困倦压力=1.00',
+      sharingDesire: '无聊=0.60、可分享材料吸引力=0.30、精力=0.10、疲劳=0.90',
+      attention: '最近会话/消息事件把注意力拉到 1.00'
     }
   });
 
   assert.match(text, /现在的状态：疲劳偏高/);
-  assert.match(text, /action_cost=1\.00 sleep_pressure=1\.00/);
-  assert.match(text, /疲劳怎么算出来的：距离上次 rest\/sleep 16\.0h，加上 actionCost=1\.00、sleepPressure=1\.00/);
-  assert.match(text, /刚才怎么恢复的：刚才因为 fatigue\/sleepPressure 太高，记录了 sleep_period；醒来后 actionCost 被重置/);
-  assert.match(text, /为什么会累：已经开口，分享欲下降且行动成本上升/);
-  assert.doesNotMatch(text, /为什么会累：.*presence tick 被跳过/);
+  assert.match(text, /行动负担=1\.00 困倦压力=1\.00/);
+  assert.match(text, /疲劳怎么算出来的：距离上次休息\/睡眠 16\.0h，加上行动负担=1\.00、困倦压力=1\.00/);
+  assert.match(text, /刚才怎么恢复的：刚才因为疲劳和困倦压力都太高，先不继续看消息，记录了一次睡眠恢复；醒来后行动负担被重置/);
+  assert.match(text, /为什么会累：已经开口，分享欲下降，行动负担上升/);
+  assert.doesNotMatch(text, /为什么会累：.*空闲检查被跳过/);
 });
 
 test('recordSilenceDecisionLifeEvent records lurked run as self-private silence decision', async () => {

@@ -249,15 +249,15 @@ function renderRecoveryLabel(
   state: XiaoniLifeStateProjection['state']
 ) {
   const metrics = [
-    `fatigue=${metric(state.fatigue)} > max_fatigue=${metric(PRESENCE_FATIGUE_RECOVERY_THRESHOLD)}`,
-    `sleep_pressure=${metric(state.sleepPressure)}`,
-    `action_cost=${metric(state.actionCost)}`,
-    `energy=${metric(state.energy)}`
+    `疲劳=${metric(state.fatigue)}（阈值 ${metric(PRESENCE_FATIGUE_RECOVERY_THRESHOLD)}）`,
+    `困倦压力=${metric(state.sleepPressure)}`,
+    `行动负担=${metric(state.actionCost)}`,
+    `精力=${metric(state.energy)}`
   ].join('，');
   if (eventKind === 'sleep_period') {
-    return `运行指标显示 ${metrics}；本轮不继续打开 IM，记录一次 sleep_period 恢复。`;
+    return `运行指标显示 ${metrics}；本轮先不继续打开消息列表，记录一次睡眠恢复。`;
   }
-  return `运行指标显示 ${metrics}；本轮不继续主动看群，记录一次 rest_period 恢复。`;
+  return `运行指标显示 ${metrics}；本轮先不继续主动看群，记录一次短暂休息。`;
 }
 
 export function renderXiaoniLifeStateExplanation(explanation: XiaoniLifeStateExplanation) {
@@ -1301,7 +1301,7 @@ function buildStructuredReplayConversationItems(params: {
       role: isPresenceAction ? 'assistant' : 'user',
       phase: isPresenceAction ? 'commentary' : null,
       content: isPresenceAction
-        ? '<ACTION source="presence_tick">我从自己的生活里抬头看了一眼 IM 列表。</ACTION>'
+        ? '<ACTION source="presence_tick">我从自己的生活里抬头看了一眼消息列表。</ACTION>'
         : renderRuntimeBatchMessage(message, items.length),
       groupIndex: 0,
       itemIndex: items.length,
@@ -1527,7 +1527,7 @@ export class RuntimeStore {
 
     const messageSid = `presence_tick:${now.getTime()}`;
     const dedupeKey = `presence_tick:xiaoni:${Math.floor(now.getTime() / agentConfig.presenceTickCooldownMs)}`;
-    const bodyForAgent = '小腻从自己的生活里抬头看了一眼 IM 列表；还没有打开任何具体会话。';
+    const bodyForAgent = '小腻从自己的生活里抬头看了一眼消息列表；还没有打开任何具体会话。';
     const inboundContext: FinalizedInboundContext = {
       Body: 'presence_tick',
       BodyForAgent: bodyForAgent,

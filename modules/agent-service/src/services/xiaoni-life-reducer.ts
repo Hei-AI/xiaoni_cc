@@ -258,7 +258,7 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       state.lastBoredomResetAt = occurredAt || state.lastBoredomResetAt;
       state.lastMeaningfulActivityAt = occurredAt || state.lastMeaningfulActivityAt;
       state.materialEventCount += 1;
-      rememberContributor(state, event, '已经开口，分享欲下降且行动成本上升');
+      rememberContributor(state, event, '已经开口，分享欲下降，行动负担上升');
       break;
     case 'silence_decision':
       state.actionCost = clamp01(state.actionCost + 0.02);
@@ -281,14 +281,14 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       if (payload.eligible === true && (payload.enqueued === true || payload.queue_id || payload.queueId)) {
         state.lastPresenceTickEnqueuedAt = occurredAt || state.lastPresenceTickEnqueuedAt;
       }
-      rememberContributor(state, event, payload.eligible === true ? 'presence tick 评估为可入队' : 'presence tick 被跳过');
+      rememberContributor(state, event, payload.eligible === true ? '这次空闲检查可以进入队列' : '这次空闲检查被跳过');
       break;
     case 'rest_period':
       state.actionCost = clamp01(state.actionCost - 0.25);
       state.pressureOffset = clamp01(state.pressureOffset - 0.2);
       state.attention = clamp01(state.attention - 0.08);
       state.lastRestAt = occurredAt || state.lastRestAt;
-      rememberContributor(state, event, '刚才因为 fatigue 超过阈值，记录了 rest_period；actionCost 和 sleepPressure 降下来了一点');
+      rememberContributor(state, event, '刚才因为疲劳超过阈值，先从消息列表里退出来休息了一会儿；行动负担和困倦压力降下来了一点');
       break;
     case 'sleep_period':
       state.actionCost = 0;
@@ -296,7 +296,7 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       state.attention = clamp01(state.attention - 0.12);
       state.lastRestAt = occurredAt || state.lastRestAt;
       state.lastMeaningfulActivityAt = occurredAt || state.lastMeaningfulActivityAt;
-      rememberContributor(state, event, '刚才因为 fatigue/sleepPressure 太高，记录了 sleep_period；醒来后 actionCost 被重置');
+      rememberContributor(state, event, '刚才因为疲劳和困倦压力都太高，先不继续看消息，记录了一次睡眠恢复；醒来后行动负担被重置');
       break;
     default:
       break;
@@ -369,17 +369,17 @@ export function reduceXiaoniLifeState(input: ReduceXiaoniLifeStateInput): {
 
   const explanation: XiaoniLifeStateExplanation = {
     version: XIAONI_LIFE_PROJECTION_VERSION,
-    summary: `${stateLabel(projectedState)}；boredom=${boredom.toFixed(2)} fatigue=${fatigue.toFixed(2)} energy=${energy.toFixed(2)} sharing_desire=${sharingDesire.toFixed(2)} action_cost=${projectedState.actionCost.toFixed(2)} sleep_pressure=${projectedState.sleepPressure.toFixed(2)}`,
+    summary: `${stateLabel(projectedState)}；无聊=${boredom.toFixed(2)} 疲劳=${fatigue.toFixed(2)} 精力=${energy.toFixed(2)} 分享欲=${sharingDesire.toFixed(2)} 行动负担=${projectedState.actionCost.toFixed(2)} 困倦压力=${projectedState.sleepPressure.toFixed(2)}`,
     generatedAt: input.now.toISOString(),
     rebuiltFromEvents,
     eventCount: projection.counters.eventCount,
     reducedThroughEventId: projection.reducedThroughEventId,
     contributors: state.contributors.slice(-5).reverse(),
     meterDrivers: {
-      boredom: `距离上次 boredom reset ${hoursSinceBoredomReset.toFixed(1)}h，加上事件偏移`,
-      fatigue: `距离上次 rest/sleep ${hoursSinceRest.toFixed(1)}h，加上 actionCost=${projectedState.actionCost.toFixed(2)}、sleepPressure=${projectedState.sleepPressure.toFixed(2)}`,
-      sharingDesire: `boredom=${boredom.toFixed(2)}、reward=${rewardAttraction.toFixed(2)}、energy=${energy.toFixed(2)}、fatigue=${fatigue.toFixed(2)}`,
-      attention: `最近会话/消息事件把 attention 调到 ${projectedState.attention.toFixed(2)}`
+      boredom: `距离上次打断无聊 ${hoursSinceBoredomReset.toFixed(1)}h，加上事件偏移`,
+      fatigue: `距离上次休息/睡眠 ${hoursSinceRest.toFixed(1)}h，加上行动负担=${projectedState.actionCost.toFixed(2)}、困倦压力=${projectedState.sleepPressure.toFixed(2)}`,
+      sharingDesire: `无聊=${boredom.toFixed(2)}、可分享材料吸引力=${rewardAttraction.toFixed(2)}、精力=${energy.toFixed(2)}、疲劳=${fatigue.toFixed(2)}`,
+      attention: `最近会话/消息事件把注意力拉到 ${projectedState.attention.toFixed(2)}`
     }
   };
 

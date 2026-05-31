@@ -4572,7 +4572,7 @@ test('participation_judgment=no_sayable_point forces stay_silent even if action_
 test('buildTurnStateReminder turns low energy presence context into a commentary system reminder', () => {
   const reminder = buildTurnStateReminder([
     '<小腻当前状态>',
-    'current_state: 疲劳偏高；boredom=0.20；fatigue=0.86；energy=0.14；sharing_desire=0.22。',
+    '当前状态：疲劳偏高；无聊=0.20；疲劳=0.86；精力=0.14；分享欲=0.22。',
     '</小腻当前状态>'
   ].join('\n'));
 
@@ -4594,7 +4594,7 @@ test('low energy turn state downgrades weak speak to stay_silent', () => {
     null,
     [
       '<小腻当前状态>',
-      'current_state: 疲劳偏高；boredom=0.20；fatigue=0.86；energy=0.14；sharing_desire=0.22。',
+      '当前状态：疲劳偏高；无聊=0.20；疲劳=0.86；精力=0.14；分享欲=0.22。',
       '</小腻当前状态>'
     ].join('\n')
   );
@@ -4715,7 +4715,7 @@ function createLifePresenceTickQueueMessageForTest() {
       chatType: 'direct' as const,
       peerId: 'xiaoni',
       peerName: '小腻',
-      bodyForAgent: '小腻从自己的生活里抬头看了一眼 IM 列表；还没有打开任何具体会话。',
+      bodyForAgent: '小腻从自己的生活里抬头看了一眼消息列表；还没有打开任何具体会话。',
       inboundContext: {
         ...queueMessage.payload.inboundContext,
         ChatType: 'direct',
@@ -4730,7 +4730,7 @@ function createLifePresenceTickQueueMessageForTest() {
         chatType: 'direct' as const,
         peerId: 'xiaoni',
         peerName: '小腻',
-        bodyForAgent: '小腻从自己的生活里抬头看了一眼 IM 列表；还没有打开任何具体会话。',
+        bodyForAgent: '小腻从自己的生活里抬头看了一眼消息列表；还没有打开任何具体会话。',
         inboundContext: {
           ...message.inboundContext,
           ChatType: 'direct',
@@ -4762,7 +4762,7 @@ test('life-level presence tick does not materialize a legacy target group withou
 
   const loopInput = buildInitialInput([], materialized.payload, createRuntimePrompt());
   const rendered = loopInput.map(getMessageContent).join('\n');
-  assert.match(rendered, /IM 列表/);
+  assert.match(rendered, /消息列表/);
   assert.doesNotMatch(rendered, /主动打开群看了一眼/);
   assert.doesNotMatch(rendered, /target_group_id/);
 });

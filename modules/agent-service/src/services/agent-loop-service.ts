@@ -2474,12 +2474,18 @@ function deriveStateBiasFromDeveloperContext(developerContextBlock: string | nul
   if (!developerContextBlock) {
     return 'normal';
   }
-  const energyMatch = developerContextBlock.match(/energy=([0-9.]+)/);
-  const fatigueMatch = developerContextBlock.match(/fatigue=([0-9.]+)/);
-  const sharingMatch = developerContextBlock.match(/sharing_desire=([0-9.]+)/);
-  const energy = energyMatch ? Number.parseFloat(energyMatch[1]) : null;
-  const fatigue = fatigueMatch ? Number.parseFloat(fatigueMatch[1]) : null;
-  const sharingDesire = sharingMatch ? Number.parseFloat(sharingMatch[1]) : null;
+  const readMetric = (...names: string[]) => {
+    for (const name of names) {
+      const match = developerContextBlock.match(new RegExp(`${name}[=:：]([0-9.]+)`));
+      if (match) {
+        return Number.parseFloat(match[1]);
+      }
+    }
+    return null;
+  };
+  const energy = readMetric('精力', 'energy');
+  const fatigue = readMetric('疲劳', 'fatigue');
+  const sharingDesire = readMetric('分享欲', 'sharing_desire');
 
   if ((fatigue !== null && fatigue >= 0.72) || (energy !== null && energy <= 0.3)) {
     return 'low_energy';
@@ -2543,7 +2549,7 @@ export function buildTurnControlReminder(turnControl: TurnControlState): OpenRes
 function renderPresenceTickAction(queueMessage: QueueMessageRecord['payload']) {
   const body = typeof queueMessage.bodyForAgent === 'string' && queueMessage.bodyForAgent.trim() && queueMessage.bodyForAgent.trim() !== 'presence_tick'
     ? queueMessage.bodyForAgent.trim()
-    : '我从自己的生活里抬头看了一眼 IM 列表。';
+    : '我从自己的生活里抬头看了一眼消息列表。';
   return renderAssistantAction({
     timestamp: queueMessage.messageTimestamp || queueMessage.receivedAt,
     source: 'presence_tick',
