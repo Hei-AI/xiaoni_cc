@@ -7261,10 +7261,6 @@ export function buildInitialInput(
     });
   }
 
-  if (contextSummary) {
-    items.push(buildAssistantCommentaryInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
-  }
-
   for (const turn of history) {
     const transcriptItems = Array.isArray(turn.items) && turn.items.length > 0
       ? turn.items
@@ -7311,6 +7307,10 @@ export function buildInitialInput(
     }
 
     items.push(...buildTurnReasoningReplayItems(turn));
+  }
+
+  if (contextSummary) {
+    items.push(buildAssistantCommentaryInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
   }
 
   items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));

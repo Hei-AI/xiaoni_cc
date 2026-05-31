@@ -288,7 +288,7 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       state.pressureOffset = clamp01(state.pressureOffset - 0.2);
       state.attention = clamp01(state.attention - 0.08);
       state.lastRestAt = occurredAt || state.lastRestAt;
-      rememberContributor(state, event, '休息降低行动成本和疲劳压力');
+      rememberContributor(state, event, '刚才因为 fatigue 超过阈值，记录了 rest_period；actionCost 和 sleepPressure 降下来了一点');
       break;
     case 'sleep_period':
       state.actionCost = 0;
@@ -296,7 +296,7 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       state.attention = clamp01(state.attention - 0.12);
       state.lastRestAt = occurredAt || state.lastRestAt;
       state.lastMeaningfulActivityAt = occurredAt || state.lastMeaningfulActivityAt;
-      rememberContributor(state, event, '睡眠重置主要疲劳成本');
+      rememberContributor(state, event, '刚才因为 fatigue/sleepPressure 太高，记录了 sleep_period；醒来后 actionCost 被重置');
       break;
     default:
       break;
@@ -369,17 +369,17 @@ export function reduceXiaoniLifeState(input: ReduceXiaoniLifeStateInput): {
 
   const explanation: XiaoniLifeStateExplanation = {
     version: XIAONI_LIFE_PROJECTION_VERSION,
-    summary: `${stateLabel(projectedState)}；boredom=${boredom.toFixed(2)} fatigue=${fatigue.toFixed(2)} sharing_desire=${sharingDesire.toFixed(2)}`,
+    summary: `${stateLabel(projectedState)}；boredom=${boredom.toFixed(2)} fatigue=${fatigue.toFixed(2)} energy=${energy.toFixed(2)} sharing_desire=${sharingDesire.toFixed(2)} action_cost=${projectedState.actionCost.toFixed(2)} sleep_pressure=${projectedState.sleepPressure.toFixed(2)}`,
     generatedAt: input.now.toISOString(),
     rebuiltFromEvents,
     eventCount: projection.counters.eventCount,
     reducedThroughEventId: projection.reducedThroughEventId,
     contributors: state.contributors.slice(-5).reverse(),
     meterDrivers: {
-      boredom: `${hoursSinceBoredomReset.toFixed(1)}h since boredom reset plus event offsets`,
-      fatigue: `${hoursSinceRest.toFixed(1)}h since rest plus action cost ${projectedState.actionCost.toFixed(2)}`,
-      sharingDesire: `boredom ${boredom.toFixed(2)}, reward ${rewardAttraction.toFixed(2)}, energy ${energy.toFixed(2)}`,
-      attention: `recent surface/message events set attention ${projectedState.attention.toFixed(2)}`
+      boredom: `距离上次 boredom reset ${hoursSinceBoredomReset.toFixed(1)}h，加上事件偏移`,
+      fatigue: `距离上次 rest/sleep ${hoursSinceRest.toFixed(1)}h，加上 actionCost=${projectedState.actionCost.toFixed(2)}、sleepPressure=${projectedState.sleepPressure.toFixed(2)}`,
+      sharingDesire: `boredom=${boredom.toFixed(2)}、reward=${rewardAttraction.toFixed(2)}、energy=${energy.toFixed(2)}、fatigue=${fatigue.toFixed(2)}`,
+      attention: `最近会话/消息事件把 attention 调到 ${projectedState.attention.toFixed(2)}`
     }
   };
 

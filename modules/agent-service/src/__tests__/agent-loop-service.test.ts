@@ -307,20 +307,32 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.deepEqual(planFunction?.parameters?.required, ['unread_meaning', 'action_type', 'reason', 'evidence_refs', 'confidence', 'interest_level', 'wants_to_know_more', 'reaction_authenticity', 'participation_judgment', 'should_search', 'context_gap', 'gap_resolution', 'xiaoni_os']);
 });
 
-test('buildInitialInput places xiaoni digest before current unread message', () => {
+test('buildInitialInput places xiaoni digest after stable history and before current unread message', () => {
   const loopInput = buildInitialInput(
-    [],
+    [{
+      id: 1,
+      userId: 202,
+      groupId: 101,
+      batchId: null,
+      sessionKey: 'qq:group:101',
+      userMessage: '昨天有什么好玩的',
+      aiResponse: '可以去看电影',
+      items: []
+    }],
     createQueuePayload(),
     createRuntimePrompt(),
     [],
     '上一轮近况：小腻刚被提醒不要公式化接话，正在把上下文压缩改成纯文本时报。'
   );
   const contents = loopInput.map(getMessageContent);
+  const historyIndex = contents.findIndex((content) => content.includes('<INPUT_MESSAGE') && content.includes('legacy_user_message'));
   const digestIndex = contents.findIndex((content) => content.startsWith('<小腻近况>'));
   const currentMessageIndex = contents.findIndex((content) => content.includes('<INPUT_MESSAGE message_id="11"'));
 
+  assert.ok(historyIndex >= 0);
   assert.ok(digestIndex >= 0);
   assert.ok(currentMessageIndex >= 0);
+  assert.ok(historyIndex < digestIndex);
   assert.ok(digestIndex < currentMessageIndex);
   assert.match(contents[digestIndex], /上一轮近况/);
   assert.doesNotMatch(contents[digestIndex], /对话历史摘要/);

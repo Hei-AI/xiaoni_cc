@@ -206,6 +206,101 @@ function presenceEvaluationBucket(now: Date) {
   return Math.floor(now.getTime() / (5 * 60 * 1000));
 }
 
+const REST_RECOVERY_BUCKET_MS = 60 * 60 * 1000;
+const SLEEP_RECOVERY_BUCKET_MS = 6 * 60 * 60 * 1000;
+const PRESENCE_FATIGUE_RECOVERY_THRESHOLD = 0.82;
+
+function shanghaiHour(now: Date) {
+  const value = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    hourCycle: 'h23'
+  }).format(now);
+  const hour = Number.parseInt(value, 10);
+  return Number.isFinite(hour) ? hour : now.getHours();
+}
+
+function compactContributor(contributor: XiaoniLifeStateExplanation['contributors'][number]) {
+  return [
+    contributor.effect
+  ].filter(Boolean).join(' ');
+}
+
+function fatigueSourceContributors(explanation: XiaoniLifeStateExplanation) {
+  return explanation.contributors
+    .filter((item) => item.eventKind !== 'rest_period'
+      && item.eventKind !== 'sleep_period'
+      && item.eventKind !== 'presence_tick_evaluated')
+    .slice(0, 5);
+}
+
+function recoveryContributors(explanation: XiaoniLifeStateExplanation) {
+  return explanation.contributors
+    .filter((item) => item.eventKind === 'rest_period' || item.eventKind === 'sleep_period')
+    .slice(0, 3);
+}
+
+function metric(value: number) {
+  return Number.isFinite(value) ? value.toFixed(2) : '0.00';
+}
+
+function renderRecoveryLabel(
+  eventKind: 'rest_period' | 'sleep_period',
+  state: XiaoniLifeStateProjection['state']
+) {
+  const metrics = [
+    `fatigue=${metric(state.fatigue)} > max_fatigue=${metric(PRESENCE_FATIGUE_RECOVERY_THRESHOLD)}`,
+    `sleep_pressure=${metric(state.sleepPressure)}`,
+    `action_cost=${metric(state.actionCost)}`,
+    `energy=${metric(state.energy)}`
+  ].join('，');
+  if (eventKind === 'sleep_period') {
+    return `运行指标显示 ${metrics}；本轮不继续打开 IM，记录一次 sleep_period 恢复。`;
+  }
+  return `运行指标显示 ${metrics}；本轮不继续主动看群，记录一次 rest_period 恢复。`;
+}
+
+export function renderXiaoniLifeStateExplanation(explanation: XiaoniLifeStateExplanation) {
+  const fatigueSources = fatigueSourceContributors(explanation)
+    .map(compactContributor)
+    .join('；');
+  const recoveries = recoveryContributors(explanation)
+    .map(compactContributor)
+    .join('；');
+  return [
+    `现在的状态：${explanation.summary}`,
+    fatigueSources ? `为什么会累：${fatigueSources}` : null,
+    explanation.meterDrivers?.fatigue ? `疲劳怎么算出来的：${explanation.meterDrivers.fatigue}` : null,
+    recoveries ? `刚才怎么恢复的：${recoveries}` : null
+  ].filter(Boolean).join('；');
+}
+
+export function resolvePresenceRecoveryEvent(
+  state: XiaoniLifeStateProjection['state'],
+  now: Date
+): {
+  eventKind: 'rest_period' | 'sleep_period';
+  reason: string;
+  bucketMs: number;
+} | null {
+  if (state.fatigue <= PRESENCE_FATIGUE_RECOVERY_THRESHOLD) {
+    return null;
+  }
+  const hour = shanghaiHour(now);
+  if (hour >= 1 && hour < 9) {
+    return {
+      eventKind: 'sleep_period',
+      reason: 'fatigue_sleep_window',
+      bucketMs: SLEEP_RECOVERY_BUCKET_MS
+    };
+  }
+  return {
+    eventKind: 'rest_period',
+    reason: 'fatigue_recovery',
+    bucketMs: REST_RECOVERY_BUCKET_MS
+  };
+}
+
 type StructuredReplayQueueRow = {
   id: number;
   trace_id: string;
@@ -1315,7 +1410,7 @@ export class RuntimeStore {
         queue_status: input.queueStatus || null,
         message_sid: input.messageSid || null,
         thresholds: {
-          max_fatigue: 0.82,
+          max_fatigue: PRESENCE_FATIGUE_RECOVERY_THRESHOLD,
           min_boredom: 0.45,
           min_sharing_desire: 0.35,
           cooldown_ms: agentConfig.presenceTickCooldownMs,
@@ -1336,6 +1431,45 @@ export class RuntimeStore {
       },
       dedupeKey: `presence_tick_evaluated:xiaoni:${presenceEvaluationBucket(now)}:${decision.reason}`
     });
+  }
+
+  private async recordPresenceRecoveryIfNeeded(input: {
+    now: Date;
+    projection: XiaoniLifeStateProjection;
+    explanation: XiaoniLifeStateExplanation;
+    decision: ReturnType<typeof shouldFirePresenceTick>;
+  }) {
+    if (input.decision.reason !== 'fatigue') {
+      return false;
+    }
+    const recovery = resolvePresenceRecoveryEvent(input.projection.state, input.now);
+    if (!recovery) {
+      return false;
+    }
+    const fatigueSources = fatigueSourceContributors(input.explanation);
+    await this.recordLifeEventSafe({
+      identityKey: 'xiaoni',
+      eventKind: recovery.eventKind,
+      occurredAt: input.now,
+      surface: 'presence_tick',
+      actorType: 'xiaoni',
+      actorId: agentConfig.botAccountId,
+      visibility: 'self_private',
+      payload: {
+        reason: recovery.reason,
+        duration_label: renderRecoveryLabel(recovery.eventKind, input.projection.state),
+        before_snapshot: input.projection.state,
+        fatigue_driver: input.explanation.meterDrivers?.fatigue || null,
+        fatigue_sources: fatigueSources.map((item) => ({
+          event_id: item.eventId,
+          event_kind: item.eventKind,
+          occurred_at: item.occurredAt,
+          effect: item.effect
+        }))
+      },
+      dedupeKey: `${recovery.eventKind}:xiaoni:${Math.floor(input.now.getTime() / recovery.bucketMs)}:${recovery.reason}`
+    });
+    return true;
   }
 
   async initialize() {
@@ -1366,9 +1500,23 @@ export class RuntimeStore {
     }
 
     const now = new Date();
-    const { projection } = await this.refreshXiaoniLifeProjection(now);
+    const life = await this.refreshXiaoniLifeProjection(now);
+    const { projection, explanation } = life;
     const decision = shouldFirePresenceTick(projection.state);
     if (!decision.shouldEnqueue) {
+      const recordedRecovery = await this.recordPresenceRecoveryIfNeeded({
+        now,
+        projection,
+        explanation,
+        decision
+      });
+      if (recordedRecovery) {
+        await this.refreshXiaoniLifeProjection(now).catch((error) => {
+          moduleLogger.warn('Failed to refresh Xiaoni life projection after recovery event', {
+            error: error instanceof Error ? error.message : String(error)
+          });
+        });
+      }
       await this.recordPresenceTickEvaluation({
         now,
         state: projection.state,
@@ -1744,7 +1892,7 @@ export class RuntimeStore {
         state: projection.state,
         items: selectedItems,
         scores: recallScores,
-        stateExplanation: explanation.summary,
+        stateExplanation: renderXiaoniLifeStateExplanation(explanation),
         isPresenceTick: isPresenceTickPayload(queueMessage)
       }),
       sourceItems: selectedItems,

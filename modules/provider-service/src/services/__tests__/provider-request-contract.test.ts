@@ -184,7 +184,7 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.equal(payload.tool_choice, 'required');
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'previous_response_id'), false);
   assert.equal(payload.prompt_cache_key, 'qq:group:101');
-  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
+  assert.equal(payload.prompt_cache_retention, '24h');
   assert.equal(payload.tools[1]?.type, 'web_search');
   assert.equal(payload.tools[1]?.search_context_size, 'medium');
   assert.equal(payload.tools[1]?.external_web_access, true);

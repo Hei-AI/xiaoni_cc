@@ -28,6 +28,12 @@ function createPersistence(overrides = {}) {
   };
   const sqlAdapter = () => ({
     query: async (statement) => {
+      if (statement.includes('FROM agent_queue_messages') && statement.includes("source IN ('presence_tick', 'proactive_im_open')")) {
+        return overrides.autonomousQueueRows || [];
+      }
+      if (statement.includes('FROM agent_queue_messages')) {
+        return overrides.queueRows || [];
+      }
       if (statement.includes('FROM tool_execution_logs')) {
         return overrides.toolRows || [];
       }
@@ -68,6 +74,38 @@ test('Xiaoni activity feed serializes Date values as real instants', async () =>
   assert.equal(feed.items[0].timestamp, '2026-05-31T04:14:59.037Z');
   assert.equal(feed.current.latestActivityAt, '2026-05-31T04:14:59.037Z');
   assert.equal(feed.items[0].body, '这句先放着，没必要马上发。');
+});
+
+test('Xiaoni activity feed keeps SQL queue timestamps in storage timezone', async () => {
+  const queueRow = {
+    id: 4161,
+    trace_id: 'runtrace_1',
+    run_id: 'run_1',
+    source: 'presence_tick',
+    status: 'completed',
+    body_for_agent: '小腻从自己的生活里抬头看了一眼 IM 列表；还没有打开任何具体会话。',
+    updated_at: '2026-05-31T14:29:23.395+08:00',
+    created_at: '2026-05-31T06:28:55.635+08:00',
+    locked_at: null,
+    available_at: '2026-05-31T06:28:55.635+08:00',
+    completed_at: '2026-05-31T14:29:23.395+08:00',
+    attempts: 1,
+    session_key: 'qq:group:253631878',
+    peer_name: '小腻',
+    sender_name: '小腻',
+    sender_id: '1129974489',
+    error_message: null
+  };
+  const persistence = createPersistence({
+    autonomousQueueRows: [queueRow]
+  });
+
+  const feed = await persistence.getXiaoniActivityFeed({ limit: 5 });
+
+  assert.equal(feed.items[0].id, 'queue:4161');
+  assert.equal(feed.items[0].timestamp, '2026-05-31T14:29:23.395+08:00');
+  assert.equal(feed.current.latestActivityAt, '2026-05-31T14:29:23.395+08:00');
+  assert.equal(feed.current.autonomy.latestPresenceTickAt, '2026-05-31T14:29:23.395+08:00');
 });
 
 test('Xiaoni activity feed hides operator-only self-action LLM prompts', async () => {

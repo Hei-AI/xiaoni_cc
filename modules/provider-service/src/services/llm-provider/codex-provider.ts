@@ -121,6 +121,9 @@ export class CodexProvider extends OpenAIProvider {
     if (promptCacheKey) {
       payload.prompt_cache_key = promptCacheKey;
     }
+    if (typeof request.prompt_cache_retention === 'string' && request.prompt_cache_retention.trim()) {
+      payload.prompt_cache_retention = request.prompt_cache_retention.trim();
+    }
 
     if (Array.isArray(request.tools) && request.tools.length > 0) {
       payload.tools = request.tools.map((tool: any) => this.serializeToolDefinition(tool));

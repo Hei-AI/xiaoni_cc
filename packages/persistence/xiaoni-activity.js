@@ -10,6 +10,42 @@ function normalizeDate(value) {
   return typeof value === 'string' ? value : String(value);
 }
 
+const QUEUE_ACTIVITY_SELECT = `
+  SELECT
+    id,
+    trace_id,
+    batch_id,
+    run_id,
+    source,
+    message_sid,
+    dedupe_key,
+    chat_type,
+    session_key,
+    peer_id,
+    peer_name,
+    sender_id,
+    sender_name,
+    account_id,
+    body_for_agent,
+    raw_payload,
+    inbound_context,
+    payload,
+    status,
+    attempts,
+    max_attempts,
+    available_at,
+    locked_at,
+    locked_by,
+    processing_started_at,
+    completed_at,
+    conversation_id,
+    error_message,
+    result,
+    created_at,
+    updated_at
+  FROM agent_queue_messages
+`;
+
 function normalizeValue(value) {
   if (value === null || typeof value === 'undefined') {
     return value;
@@ -695,20 +731,18 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
             }
           }
         }),
-        prisma.agentQueueMessage.findMany({
-          where: {
-            status: { in: ['pending', 'processing', 'failed'] }
-          },
-          orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
-          take: perSourceLimit
-        }),
-        prisma.agentQueueMessage.findMany({
-          where: {
-            source: { in: AUTONOMOUS_QUEUE_SOURCES }
-          },
-          orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
-          take: perSourceLimit
-        }),
+        sql.query(`
+          ${QUEUE_ACTIVITY_SELECT}
+          WHERE status IN ('pending', 'processing', 'failed')
+          ORDER BY updated_at DESC, id DESC
+          LIMIT ?
+        `, [perSourceLimit]),
+        sql.query(`
+          ${QUEUE_ACTIVITY_SELECT}
+          WHERE source IN ('presence_tick', 'proactive_im_open')
+          ORDER BY updated_at DESC, id DESC
+          LIMIT ?
+        `, [perSourceLimit]),
         sql.query(`
           SELECT
             t.*,

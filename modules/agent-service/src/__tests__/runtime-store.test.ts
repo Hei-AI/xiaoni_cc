@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   buildPresenceAnchorsFromLife,
   rankFeedbackReflectionsForRecall,
+  renderXiaoniLifeStateExplanation,
+  resolvePresenceRecoveryEvent,
   RuntimeStore
 } from '../services/runtime-store';
 import { deriveLifeState } from '../services/presence-context';
@@ -133,6 +135,124 @@ test('buildPresenceAnchorsFromLife resets stale daily proactive count', () => {
   }, new Date('2026-05-30T04:00:00.000Z'));
 
   assert.equal(anchors.dailyProactiveCount, 0);
+});
+
+test('resolvePresenceRecoveryEvent records visible rest or sleep facts for fatigue recovery', () => {
+  const tiredState = {
+    boredom: 0.6,
+    fatigue: 0.9,
+    energy: 0.1,
+    sharingDesire: 0.4,
+    sleepPressure: 1,
+    cooldownActive: false,
+    startupGraceActive: false,
+    attention: 1,
+    rewardAttraction: 0.3,
+    restPressure: 1,
+    actionCost: 1
+  };
+
+  assert.deepEqual(resolvePresenceRecoveryEvent(tiredState, new Date('2026-05-31T00:30:00.000Z')), {
+    eventKind: 'sleep_period',
+    reason: 'fatigue_sleep_window',
+    bucketMs: 6 * 60 * 60 * 1000
+  });
+  assert.deepEqual(resolvePresenceRecoveryEvent(tiredState, new Date('2026-05-31T07:00:00.000Z')), {
+    eventKind: 'rest_period',
+    reason: 'fatigue_recovery',
+    bucketMs: 60 * 60 * 1000
+  });
+  assert.equal(resolvePresenceRecoveryEvent({ ...tiredState, fatigue: 0.5 }, new Date('2026-05-31T07:00:00.000Z')), null);
+});
+
+test('fatigue recovery event tells Xiaoni the numeric reason for sleep', async () => {
+  const store = new RuntimeStore() as any;
+  const lifeEvents: any[] = [];
+  store.recordLifeEventSafe = async (input: any) => {
+    lifeEvents.push(input);
+  };
+
+  await store.recordPresenceRecoveryIfNeeded({
+    now: new Date('2026-05-31T00:30:00.000Z'),
+    projection: {
+      state: {
+        boredom: 0.6,
+        fatigue: 0.9,
+        energy: 0.1,
+        sharingDesire: 0.38,
+        sleepPressure: 1,
+        cooldownActive: false,
+        startupGraceActive: false,
+        attention: 1,
+        rewardAttraction: 0.34,
+        restPressure: 1,
+        actionCost: 1
+      }
+    },
+    explanation: {
+      meterDrivers: {
+        fatigue: '距离上次 rest/sleep 16.0h，加上 actionCost=1.00、sleepPressure=1.00'
+      },
+      contributors: [{
+        eventId: '2',
+        eventKind: 'speak_in_group',
+        occurredAt: '2026-05-31T06:30:00.000Z',
+        effect: '已经开口，分享欲下降且行动成本上升'
+      }]
+    },
+    decision: { shouldEnqueue: false, reason: 'fatigue' }
+  });
+
+  assert.equal(lifeEvents.length, 1);
+  assert.equal(lifeEvents[0].eventKind, 'sleep_period');
+  assert.match(lifeEvents[0].payload.duration_label, /fatigue=0\.90 > max_fatigue=0\.82/);
+  assert.match(lifeEvents[0].payload.duration_label, /sleep_pressure=1\.00/);
+  assert.match(lifeEvents[0].payload.duration_label, /action_cost=1\.00/);
+  assert.match(lifeEvents[0].payload.duration_label, /sleep_period 恢复/);
+});
+
+test('renderXiaoniLifeStateExplanation tells the next wake why Xiaoni is tired or rested', () => {
+  const text = renderXiaoniLifeStateExplanation({
+    version: 'xiaoni-life-v1',
+    summary: '疲劳偏高；boredom=0.60 fatigue=0.90 energy=0.10 sharing_desire=0.38 action_cost=1.00 sleep_pressure=1.00',
+    generatedAt: '2026-05-31T08:00:00.000Z',
+    rebuiltFromEvents: false,
+    eventCount: 3,
+    reducedThroughEventId: '3',
+    contributors: [
+      {
+        eventId: '3',
+        eventKind: 'sleep_period',
+        occurredAt: '2026-05-31T07:30:00.000Z',
+        effect: '刚才因为 fatigue/sleepPressure 太高，记录了 sleep_period；醒来后 actionCost 被重置'
+      },
+      {
+        eventId: '2',
+        eventKind: 'speak_in_group',
+        occurredAt: '2026-05-31T06:30:00.000Z',
+        effect: '已经开口，分享欲下降且行动成本上升'
+      },
+      {
+        eventId: '1',
+        eventKind: 'presence_tick_evaluated',
+        occurredAt: '2026-05-31T06:00:00.000Z',
+        effect: 'presence tick 被跳过'
+      }
+    ],
+    meterDrivers: {
+      boredom: '距离上次 boredom reset 1.0h，加上事件偏移',
+      fatigue: '距离上次 rest/sleep 16.0h，加上 actionCost=1.00、sleepPressure=1.00',
+      sharingDesire: 'boredom=0.60、reward=0.30、energy=0.10、fatigue=0.90',
+      attention: '最近会话/消息事件把 attention 调到 1.00'
+    }
+  });
+
+  assert.match(text, /现在的状态：疲劳偏高/);
+  assert.match(text, /action_cost=1\.00 sleep_pressure=1\.00/);
+  assert.match(text, /疲劳怎么算出来的：距离上次 rest\/sleep 16\.0h，加上 actionCost=1\.00、sleepPressure=1\.00/);
+  assert.match(text, /刚才怎么恢复的：刚才因为 fatigue\/sleepPressure 太高，记录了 sleep_period；醒来后 actionCost 被重置/);
+  assert.match(text, /为什么会累：已经开口，分享欲下降且行动成本上升/);
+  assert.doesNotMatch(text, /为什么会累：.*presence tick 被跳过/);
 });
 
 test('recordSilenceDecisionLifeEvent records lurked run as self-private silence decision', async () => {
