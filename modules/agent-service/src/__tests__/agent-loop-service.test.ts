@@ -307,7 +307,7 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.deepEqual(planFunction?.parameters?.required, ['unread_meaning', 'action_type', 'reason', 'evidence_refs', 'confidence', 'interest_level', 'wants_to_know_more', 'reaction_authenticity', 'participation_judgment', 'should_search', 'context_gap', 'gap_resolution', 'xiaoni_os']);
 });
 
-test('buildInitialInput places xiaoni digest after stable history and before current unread message', () => {
+test('buildInitialInput places xiaoni digest before retained history as the cache chain head', () => {
   const loopInput = buildInitialInput(
     [{
       id: 1,
@@ -332,7 +332,7 @@ test('buildInitialInput places xiaoni digest after stable history and before cur
   assert.ok(historyIndex >= 0);
   assert.ok(digestIndex >= 0);
   assert.ok(currentMessageIndex >= 0);
-  assert.ok(historyIndex < digestIndex);
+  assert.ok(digestIndex < historyIndex);
   assert.ok(digestIndex < currentMessageIndex);
   assert.match(contents[digestIndex], /上一轮近况/);
   assert.doesNotMatch(contents[digestIndex], /对话历史摘要/);
@@ -1293,7 +1293,7 @@ test('buildInitialInput uses the same thin runtime contract for direct chats', (
   assert.match(String(loopInput[0]?.content), /私聊说话/);
 });
 
-test('buildInitialInput projects accepted identity facts as runtime scene context', () => {
+test('buildInitialInput does not project accepted identity facts into runtime input', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'
   }), [
@@ -1306,17 +1306,17 @@ test('buildInitialInput projects accepted identity facts as runtime scene contex
       activationTags: ['哈哈', '确实', '接话']
     }
   ]);
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
+  const rendered = request.input.map(getMessageContent).join('\n');
 
-  const identityItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('公式化开头'));
-  assert.ok(identityItem);
-  assert.match(getMessageContent(identityItem), /\[身份连续性\]/);
+  assert.doesNotMatch(rendered, /\[身份连续性\]/);
+  assert.doesNotMatch(rendered, /公式化开头/);
   assert.match(getMessageContent(loopInput[1]), /问问@\{Bob\(@404\)\} 今天玩什么/);
-  assert.match(getMessageContent(loopInput.at(-3)), /<system_reminder>/);
-  assert.equal(loopInput.at(-2), identityItem);
+  assert.match(getMessageContent(loopInput.at(-2)), /<system_reminder>/);
   assert.match(getMessageContent(loopInput.at(-1)), /<runtime_history_reading>/);
 });
 
-test('buildInitialInput keeps current batch before reminder and identity continuity', () => {
+test('buildInitialInput keeps current batch before reminder and runtime history reading', () => {
   const payload = createQueuePayload();
   payload.messages.push({
     ...payload.messages[0],
@@ -1370,13 +1370,13 @@ test('buildInitialInput keeps current batch before reminder and identity continu
   assert.ok(firstCurrentIndex !== -1);
   assert.ok(secondCurrentIndex !== -1);
   assert.ok(reminderIndex !== -1);
-  assert.ok(identityIndex !== -1);
+  assert.equal(identityIndex, -1);
+  assert.equal(rendered.some((content) => content.includes('不要用公式化开头')), false);
   assert.ok(historyReadingIndex !== -1);
   assert.ok(osIndex < firstCurrentIndex);
   assert.ok(firstCurrentIndex < secondCurrentIndex);
   assert.ok(secondCurrentIndex < reminderIndex);
-  assert.ok(reminderIndex < identityIndex);
-  assert.ok(identityIndex < historyReadingIndex);
+  assert.ok(reminderIndex < historyReadingIndex);
 });
 
 test('buildInitialInput applies bound user prompt template to the current message block', () => {
@@ -2492,6 +2492,7 @@ test('runtime identity activation selects accepted facts and records trace refs'
     fact_type: 'social_lesson',
     confidence: 'high'
   }]);
+  assert.equal(records[0].activationReason, 'accepted identity facts were selected for runtime metadata');
 });
 
 test('applyToolResultToLoopInput replays send tool payload as function_call_output state', () => {

@@ -4133,18 +4133,6 @@ function selectRuntimeIdentityFacts(params: {
     }));
 }
 
-function renderRuntimeIdentityFacts(facts: RuntimeIdentityFactProjection[]) {
-  if (facts.length === 0) {
-    return '';
-  }
-
-  return [
-    '[身份连续性]',
-    '这些是已经被接受、可在当前运行参考的身份事实。它们不是新的指令，也不能覆盖眼前真实聊天；只在相关时自然影响判断。',
-    ...facts.map((fact, index) => `${index + 1}. ${fact.factText} (${fact.factType}, ${fact.confidence})`)
-  ].join('\n');
-}
-
 function buildIdentitySceneFingerprint(queueMessage: QueueMessageRecord['payload']) {
   const messageIds = queueMessage.messages
     .map((message) => message.messageId || message.messageSid)
@@ -5382,7 +5370,7 @@ export class AgentLoopService {
         })),
         suppressedRefs: [],
         selectedSkillRef: 'accepted_identity_facts',
-        activationReason: 'accepted identity facts were projected into the runtime input',
+        activationReason: 'accepted identity facts were selected for runtime metadata',
         metadata: {
           session_key: params.queueMessage.sessionKey,
           chat_type: params.queueMessage.chatType
@@ -7280,7 +7268,7 @@ export function buildInitialInput(
     contextVariables: {},
     runtimeVariables: {}
   },
-  runtimeIdentityFacts: RuntimeIdentityFactProjection[] = [],
+  _runtimeIdentityFacts: RuntimeIdentityFactProjection[] = [],
   contextSummary: string | null = null,
   pendingProactiveShare: string | null = null,
   developerContextBlock: string | null = null
@@ -7303,6 +7291,10 @@ export function buildInitialInput(
       role: 'developer',
       content: developerContextParts.worldNarrative
     });
+  }
+
+  if (contextSummary) {
+    items.push(buildAssistantCommentaryInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
   }
 
   for (const turn of history) {
@@ -7353,20 +7345,12 @@ export function buildInitialInput(
     items.push(...buildTurnReasoningReplayItems(turn));
   }
 
-  if (contextSummary) {
-    items.push(buildAssistantCommentaryInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
-  }
-
   items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
   const mediaPlaceholderContext = renderCurrentMediaPlaceholderContext(queueMessage);
   if (mediaPlaceholderContext) {
     items.push(buildAssistantCommentaryInputItem([mediaPlaceholderContext]));
   }
   items.push(buildAssistantCommentaryInputItem([buildCurrentProcessingReminder(queueMessage)]));
-  const identityFactsText = renderRuntimeIdentityFacts(runtimeIdentityFacts);
-  if (identityFactsText) {
-    items.push(buildDeveloperInputItem([identityFactsText]));
-  }
   if (developerContextParts.dynamicContext) {
     items.push({
       type: 'message',
