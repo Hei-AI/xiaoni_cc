@@ -365,6 +365,7 @@ async function claimImWindowForAgentTrigger(params: {
   const claimedMessages = await inboxService.claimMessages({
     sessionKey: params.inboxEvent.sessionKey,
     limit: IM_TRIGGER_CLAIM_LIMIT,
+    order: 'latest',
     markRead: false,
     includeMessageIds: [params.inboxEvent.id]
   });

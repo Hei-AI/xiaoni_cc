@@ -113,8 +113,42 @@ test('claimMessages supports latest unread window for proactive IM opens', async
     order: 'latest'
   });
 
-  assert.match(queries[0], /ORDER BY received_at DESC, id DESC/);
+  assert.match(queries[0], /ORDER BY m\.received_at DESC, m\.id DESC/);
+  assert.match(queries[0], /MAX\(r\.received_at\)/);
+  assert.match(queries[0], /r\.is_read = 1/);
   assert.deepEqual(claimed.map((message: any) => message.messageSid), ['sid-2', 'sid-3']);
+});
+
+test('listConversations exposes latest unread timestamp separately from latest activity', async () => {
+  const service = new InboundInboxService() as any;
+  const queries: string[] = [];
+  service.db = {
+    query: async (sql: string) => {
+      queries.push(sql);
+      return [{
+        session_key: 'qq:group:1040740258',
+        chat_type: 'group',
+        peer_id: '1040740258',
+        peer_name: '群 1040740258',
+        account_id: '1129974489',
+        unread_count: 3,
+        total_messages: 20,
+        last_received_at: '2026-05-31T22:00:00.000+08:00',
+        last_read_received_at: '2026-05-31T21:57:00.000+08:00',
+        latest_unread_received_at: '2026-05-31T21:58:00.000+08:00',
+        latest_body_for_agent: '最新已读消息',
+        latest_sender_id: '100',
+        latest_sender_name: 'tester'
+      }];
+    },
+    close: async () => undefined
+  };
+
+  const conversations = await service.listConversations(10, 0);
+
+  assert.match(queries[0], /latest_unread_received_at/);
+  assert.equal(conversations[0]?.lastReceivedAt, '2026-05-31T22:00:00.000+08:00');
+  assert.equal(conversations[0]?.latestUnreadReceivedAt, '2026-05-31T21:58:00.000+08:00');
 });
 
 test('claimMessages can include a trigger row without marking read before enqueue succeeds', async () => {

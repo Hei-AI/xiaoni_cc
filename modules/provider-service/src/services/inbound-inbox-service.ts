@@ -68,6 +68,8 @@ type ConversationSummaryRow = {
   unread_count: number;
   total_messages: number;
   last_received_at: Date | string | null;
+  last_read_received_at: Date | string | null;
+  latest_unread_received_at: Date | string | null;
   latest_body_for_agent: string | null;
   latest_sender_id: string | null;
   latest_sender_name: string | null;
@@ -84,6 +86,15 @@ type StatsRow = {
 const TABLE_NAME = 'agent_inbound_messages';
 const DEFAULT_CLAIM_LIMIT = 20;
 const DEFAULT_MESSAGE_LIMIT = 100;
+
+function effectiveUnreadPredicate(alias: string, lastReadExpression?: string) {
+  return `${alias}.is_read = 0 AND ${alias}.received_at > COALESCE(${lastReadExpression || `(
+            SELECT MAX(r.received_at)
+            FROM ${TABLE_NAME} r
+            WHERE r.session_key = ${alias}.session_key
+              AND r.is_read = 1
+          )`}, '-infinity'::timestamp)`;
+}
 
 function normalizeIso(value: Date | string | null | undefined): string | null {
   return serializeTimestampForApi(value) as string | null;
@@ -267,13 +278,20 @@ export class InboundInboxService {
   async getStats(): Promise<InboxStats> {
     const rows = await this.db.query<StatsRow>(
       `
+        WITH last_read AS (
+          SELECT session_key, MAX(received_at) AS last_read_received_at
+          FROM ${TABLE_NAME}
+          WHERE is_read = 1
+          GROUP BY session_key
+        )
         SELECT
-          COUNT(DISTINCT session_key) AS total_conversations,
+          COUNT(DISTINCT m.session_key) AS total_conversations,
           COUNT(*) AS total_messages,
-          COUNT(DISTINCT CASE WHEN is_read = 0 THEN session_key END) AS unread_conversations,
-          SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) AS unread_messages,
-          MAX(received_at) AS last_received_at
-        FROM ${TABLE_NAME}
+          COUNT(DISTINCT CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} THEN m.session_key END) AS unread_conversations,
+          SUM(CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} THEN 1 ELSE 0 END) AS unread_messages,
+          MAX(m.received_at) AS last_received_at
+        FROM ${TABLE_NAME} m
+        LEFT JOIN last_read lr ON lr.session_key = m.session_key
       `
     );
 
@@ -297,9 +315,11 @@ export class InboundInboxService {
           MIN(m.peer_id) AS peer_id,
           MIN(m.peer_name) AS peer_name,
           MIN(m.account_id) AS account_id,
-          SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END) AS unread_count,
+          SUM(CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} THEN 1 ELSE 0 END) AS unread_count,
           COUNT(*) AS total_messages,
           MAX(m.received_at) AS last_received_at,
+          MAX(CASE WHEN m.is_read = 1 THEN m.received_at ELSE NULL END) AS last_read_received_at,
+          MAX(CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} THEN m.received_at ELSE NULL END) AS latest_unread_received_at,
           (
             SELECT x.body_for_agent
             FROM ${TABLE_NAME} x
@@ -322,7 +342,13 @@ export class InboundInboxService {
             LIMIT 1
           ) AS latest_sender_name
         FROM ${TABLE_NAME} m
-        GROUP BY m.session_key
+        LEFT JOIN (
+          SELECT session_key, MAX(received_at) AS last_read_received_at
+          FROM ${TABLE_NAME}
+          WHERE is_read = 1
+          GROUP BY session_key
+        ) lr ON lr.session_key = m.session_key
+        GROUP BY m.session_key, lr.last_read_received_at
         ORDER BY last_received_at DESC
         LIMIT ? OFFSET ?
       `,
@@ -338,6 +364,7 @@ export class InboundInboxService {
       unreadCount: Number(row.unread_count || 0),
       totalMessages: Number(row.total_messages || 0),
       lastReceivedAt: normalizeIso(row.last_received_at),
+      latestUnreadReceivedAt: normalizeIso(row.latest_unread_received_at),
       latestBodyForAgent: row.latest_body_for_agent || undefined,
       latestSenderId: row.latest_sender_id || undefined,
       latestSenderName: row.latest_sender_name || undefined
@@ -379,11 +406,11 @@ export class InboundInboxService {
       ? input.includeMessageIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
       : [];
     const rows = await this.db.withTransaction(async (tx) => {
-      const filters = ['is_read = 0'];
+      const filters = [effectiveUnreadPredicate('m')];
       const params: Array<string | number> = [];
 
       if (input.sessionKey) {
-        filters.push('session_key = ?');
+        filters.push('m.session_key = ?');
         params.push(input.sessionKey);
       }
 
@@ -391,10 +418,10 @@ export class InboundInboxService {
 
       const idRows = await tx.query<{ id: number }>(
         `
-          SELECT id
-          FROM ${TABLE_NAME}
+          SELECT m.id
+          FROM ${TABLE_NAME} m
           WHERE ${filters.join(' AND ')}
-          ORDER BY ${claimOrder}
+          ORDER BY m.${claimOrder.replace(', ', ', m.')}
           LIMIT ?
           FOR UPDATE
         `,
@@ -633,10 +660,10 @@ export class InboundInboxService {
   private async reloadUnreadBuffer() {
     const rows = await this.db.query<InboxRow>(
       `
-        SELECT *
-        FROM ${TABLE_NAME}
-        WHERE is_read = 0
-        ORDER BY received_at DESC, id DESC
+        SELECT m.*
+        FROM ${TABLE_NAME} m
+        WHERE ${effectiveUnreadPredicate('m')}
+        ORDER BY m.received_at DESC, m.id DESC
       `
     );
 

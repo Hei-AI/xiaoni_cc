@@ -4896,6 +4896,220 @@ test('materializePresenceTickInboxWindow turns claimed unread into a proactive I
   assert.doesNotMatch(sceneRendered, /小腻主动打开群看了一眼；当前没有新的群友消息触发/);
 });
 
+test('processQueueMessage preserves global OS context after presence tick opens an IM window', async () => {
+  const queueMessage = createLifePresenceTickQueueMessageForTest();
+  const now = Date.now();
+  const recentUnreadAt = new Date(now - 60_000).toISOString();
+  const recentActivityAt = new Date(now - 30_000).toISOString();
+  const staleUnreadAt = new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const listRecentTurnsCalls: any[] = [];
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    completeQueueMessage: []
+  };
+  let deliveryPhase = 'reasoning_open';
+  let renderedModelInput = '';
+
+  const store = {
+    createLlmJob: async () => 'job-presence-global',
+    logTimelineEvent: async () => {},
+    listRecentTurns: async (params: any) => {
+      listRecentTurnsCalls.push(params);
+      return [{
+        id: 4727,
+        userId: 85178516,
+        groupId: null,
+        batchId: null,
+        sessionKey: 'private:85178516',
+        userMessage: '你可以在253631878这个群里面多分享一些你对海涅的理解和研究',
+        aiResponse: '可以。我会挑那种真有触动的句子说。',
+        items: [],
+        rawResponse: {
+          xiaoni_os: '刚才已在私聊里答应阿花：会挑真有触动的海涅句子去 253631878 群里说。'
+        }
+      }];
+    },
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getRunDeliveryState: async () => ({
+      deliveryPhase,
+      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    markRunDeliveryCommitted: async () => {
+      deliveryPhase = 'delivery_committed';
+    },
+    markRunDeliveryBlocked: async () => {},
+    createToolExecutionLog: async () => 1,
+    completeToolExecutionLog: async () => {},
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 2001;
+    },
+    ensureXiaoniIdentityRoot: async () => ({ root: { id: 1 }, event: { id: 2 }, created: false }),
+    attachConversationIdToTrace: async () => {},
+    completeQueueMessage: async (_runId: string, params: any) => { storeCalls.completeQueueMessage.push(params); },
+    completeAgentRun: async () => {},
+    updateLlmJob: async () => {}
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  (service as any).executeAgentTurn = async (requestInput: any[]) => {
+    renderedModelInput = requestInput.map(getMessageContent).join('\n');
+    return {
+      success: true,
+      llm_call_id: 'llm-presence-global',
+      canonical_response: {
+        output: [{
+          type: 'function_call',
+          call_id: 'call-presence-global',
+          name: LIFE_ACTION_TOOL,
+          arguments: JSON.stringify({
+            unread_meaning: {
+              latest_unread_focus: '群里有未读',
+              message_act: 'statement',
+              social_target: 'group',
+              addressed_to_me: false,
+              has_real_novelty: true,
+              confidence: 'medium',
+              reason: '主动打开 IM',
+              topic_context: {
+                has_topic: true,
+                topic_summary: '群聊未读',
+                addressed_to_me: false
+              }
+            },
+            action_type: 'speak',
+            message: '收到刚才的连续性。',
+            reason: '测试全局 OS 是否进入上下文。',
+            evidence_refs: ['global-os'],
+            confidence: 0.8,
+            interest_level: 'medium',
+            wants_to_know_more: false,
+            reaction_authenticity: 'formed',
+            participation_judgment: {
+              status: 'has_sayable_point',
+              basis: 'opinion',
+              sayable_point: '全局 OS 可见。',
+              evidence_refs: ['global-os'],
+              memory_refs: []
+            },
+            should_search: false,
+            context_gap: 'none',
+            gap_resolution: 'none',
+            xiaoni_os: '全局 OS 已被看见。'
+          })
+        }]
+      }
+    };
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const urlText = String(url);
+    if (urlText.endsWith('/api/inbox/conversations?limit=100')) {
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              sessionKey: 'qq:group:old-backlog',
+              unreadCount: 1,
+              lastReceivedAt: recentActivityAt,
+              latestUnreadReceivedAt: staleUnreadAt
+            },
+            {
+              sessionKey: 'qq:group:999',
+              unreadCount: 1,
+              lastReceivedAt: recentUnreadAt,
+              latestUnreadReceivedAt: recentUnreadAt
+            }
+          ]
+        })
+      } as any;
+    }
+    if (urlText.endsWith('/api/inbox/messages/claim')) {
+      const body = JSON.parse(String(init?.body || '{}'));
+      assert.equal(body.session_key, 'qq:group:999');
+      assert.equal(body.limit, agentConfig.activeImClaimLimit);
+      assert.equal(body.order, 'latest');
+      assert.equal('received_after' in body, false);
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: {
+            claimed: [{
+              id: 901,
+              traceId: 'trace-inbox-901',
+              source: 'napcat',
+              messageSid: 'sid-inbox-901',
+              chatType: 'group',
+              sessionKey: 'qq:group:999',
+              peerId: '999',
+              peerName: 'Presence Group',
+              senderId: '202',
+              senderName: 'Alice',
+              accountId: '303',
+              bodyForAgent: '群里新的未读',
+              rawBody: '群里新的未读',
+              commandBody: '群里新的未读',
+              wasMentioned: false,
+              receivedAt: '2026-03-28T08:01:00.000Z',
+              messageTimestamp: '2026-03-28T08:01:00.000Z',
+              rawPayload: {},
+              inboundContext: {
+                Body: '群里新的未读',
+                BodyForAgent: '群里新的未读',
+                BodyForCommands: '群里新的未读',
+                ChatType: 'group',
+                NativeChannelId: '999',
+                SessionKey: 'qq:group:999',
+                AccountId: '303',
+                MessageSid: 'sid-inbox-901',
+                SenderId: '202',
+                SenderName: 'Alice',
+                WasMentioned: false,
+                CommandAuthorized: false
+              }
+            }]
+          }
+        })
+      } as any;
+    }
+    if (urlText.endsWith('/api/internal/send_group')) {
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [{ message_id: 6001 }]
+        })
+      } as any;
+    }
+    throw new Error(`Unexpected fetch: ${urlText}`);
+  }) as typeof fetch;
+
+  try {
+    await service.processQueueMessage(queueMessage as any);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(listRecentTurnsCalls[0]?.scope, 'global');
+  assert.equal(listRecentTurnsCalls[0]?.limit, 160);
+  assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:global');
+  assert.match(renderedModelInput, /刚才已在私聊里答应阿花/);
+  assert.match(renderedModelInput, /海涅/);
+  assert.match(renderedModelInput, /253631878/);
+  assert.equal(storeCalls.completeQueueMessage[0]?.result?.termination_reason, 'reply_sent');
+});
+
 // F: 社交认知帧 — social cognitive frame substrings appear in agent instructions
 test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in instructions', () => {
   const loopInput = buildInitialInput([], createQueuePayload());

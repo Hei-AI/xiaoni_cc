@@ -63,7 +63,7 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
 同一个 main loop 决定沉默 / 打开未读 IM / 搜索资料 / 主动说一句
 ```
 
-没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；life-only `presence_tick` 读取全局最近事件流切片，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文。压缩后通过 `<小腻近况>` / `<小腻的OS>` 延续。life-only `presence_tick` 没有打开具体会话时不能发 QQ，但可以用 `submit_life_action` 形成内部行动、用 `web_search` 求知，或 `stay_silent` 休息；“想回头分享”的内容会追加进 `<小腻的OS>`，不是写入单独分享池。
+没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；presence 起源的 tick 读取全局最近事件流切片，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文。即使它因为发现未读 IM 被 materialize 成 `proactive_im_open`，后续 main loop 也继续使用全局上下文和 `xiaoni:global` 压缩 key。压缩后通过 `<小腻近况>` / `<小腻的OS>` 延续。IM 未读来源是 `agent_inbound_messages` 的持久化状态；每个群/私聊按该 session 上次已读最后一条作为游标，只 materialize 游标之后的未读窗口，避免历史 backlog 被当成当前现场。life-only `presence_tick` 没有打开具体会话时不能发 QQ，但可以用 `submit_life_action` 形成内部行动、用 `web_search` 求知，或 `stay_silent` 休息；“想回头分享”的内容会追加进 `<小腻的OS>`，不是写入单独分享池。
 
 技术对应关系只作为定位用：
 

@@ -17,11 +17,15 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
 - `presence_tick:xiaoni` is a synthetic life-level queue event. If unread IM
   exists, the main loop can materialize it as `proactive_im_open`. If no unread
   IM exists, it stays life-only and must not send QQ directly.
-- Life-only `presence_tick` reads the global recent append stream, compressed
-  `<小腻近况>`, and `<小腻的OS>`. It can use `submit_life_action`,
-  `web_search`, or `stay_silent`, not a private planner context. If it produces
-  a "想回头分享" residue, that residue is appended into `<小腻的OS>` so it stays
-  in normal context and later compression.
+- IM unread is persisted in `agent_inbound_messages`; each session uses its
+  last-read message as the cursor, and opening IM materializes unread messages
+  after that cursor so stale backlog is not treated as the current scene.
+- Presence-originated ticks read the global recent append stream, compressed
+  `<小腻近况>`, and `<小腻的OS>`, even when unread IM materializes the current
+  run into `proactive_im_open`. Life-only `presence_tick` can use
+  `submit_life_action`, `web_search`, or `stay_silent`, not a private planner
+  context. If it produces a "想回头分享" residue, that residue is appended into
+  `<小腻的OS>` so it stays in normal context and later compression.
 - `agent_digital_actions` is historical data only. The old write helpers are
   gone from `@qq-bot/persistence`, and prompt construction no longer reads this
   table for current state.

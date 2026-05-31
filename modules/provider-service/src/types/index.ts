@@ -211,6 +211,7 @@ export interface InboxConversationSummary {
   unreadCount: number;
   totalMessages: number;
   lastReceivedAt?: string | null;
+  latestUnreadReceivedAt?: string | null;
   latestBodyForAgent?: string;
   latestSenderId?: string;
   latestSenderName?: string;

@@ -4401,6 +4401,7 @@ export class AgentLoopService {
 
   async processQueueMessage(queueMessage: QueueMessageRecord) {
     const startedAt = Date.now();
+    const originatedFromLifePresenceTick = isLifePresenceTickPayload(queueMessage.payload);
     const activeQueueMessage = await materializeActiveImQueueMessage(queueMessage);
     const payload = activeQueueMessage.payload;
     const inboundContext = payload.inboundContext;
@@ -4488,13 +4489,12 @@ export class AgentLoopService {
           });
         }
       }
-      const lifePresenceTick = isLifePresenceTickPayload(payload);
-      const contextSessionKey = lifePresenceTick ? GLOBAL_LIFE_CONTEXT_SESSION_KEY : payload.sessionKey;
+      const contextSessionKey = originatedFromLifePresenceTick ? GLOBAL_LIFE_CONTEXT_SESSION_KEY : payload.sessionKey;
       const history = await this.store.listRecentTurns({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
         afterConversationId: null,
-        ...(lifePresenceTick ? { scope: 'global' as const, limit: 160 } : {})
+        ...(originatedFromLifePresenceTick ? { scope: 'global' as const, limit: 160 } : {})
       });
       historyCount = history.length;
 
@@ -6732,6 +6732,8 @@ type InboxConversationSummaryRecord = {
   unread_count?: number;
   lastReceivedAt?: string | null;
   last_received_at?: string | null;
+  latestUnreadReceivedAt?: string | null;
+  latest_unread_received_at?: string | null;
 };
 
 async function materializeActiveImQueueMessage(queueMessage: QueueMessageRecord): Promise<QueueMessageRecord> {
@@ -6784,8 +6786,20 @@ async function selectUnreadInboxSessionForActiveIm(params: { traceId: string }):
         return count > 0 && sessionKey.length > 0;
       })
       .sort((left, right) => {
-        const leftTime = Date.parse(String(left.lastReceivedAt ?? left.last_received_at ?? '')) || 0;
-        const rightTime = Date.parse(String(right.lastReceivedAt ?? right.last_received_at ?? '')) || 0;
+        const leftTime = Date.parse(String(
+          left.latestUnreadReceivedAt
+          ?? left.latest_unread_received_at
+          ?? left.lastReceivedAt
+          ?? left.last_received_at
+          ?? ''
+        )) || 0;
+        const rightTime = Date.parse(String(
+          right.latestUnreadReceivedAt
+          ?? right.latest_unread_received_at
+          ?? right.lastReceivedAt
+          ?? right.last_received_at
+          ?? ''
+        )) || 0;
         return rightTime - leftTime;
       });
     const selected = unreadConversations[0];
