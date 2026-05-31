@@ -110,6 +110,8 @@ test('buildPresenceContextBlock is factual and includes source boundary', () => 
   });
 
   assert.match(block, /<小腻当前状态>/);
+  assert.match(block, /当前状态：当前精力=0\.80/);
+  assert.doesNotMatch(block, /当前状态：.*无聊=|当前状态：.*疲劳=|当前状态：.*分享欲=/);
   assert.match(block, /模拟或整理出来的材料不能说成刚看到/);
   assert.match(block, /没有真实浏览器证据/);
   assert.doesNotMatch(block, /你应该|必须回复|请主动/);

@@ -2503,11 +2503,11 @@ export function buildTurnStateReminder(developerContextBlock: string | null | un
   }
   const text = stateBias === 'low_energy'
     ? [
-        '当前状态控制：精力偏低或疲劳偏高，话量阈值提高。',
+        '当前精力偏低，话量阈值提高。',
         '只有明确找我处理的直接请求、或 participation_judgment.status=has_sayable_point 且确实有内容时才继续到说话；弱反应、顺手接话、没找到目标时优先 stay_silent。'
       ].join('\n')
     : [
-        '当前状态控制：精力或分享欲偏高，可以接受更轻的短句参与。',
+        '当前精力较高，可以接受更轻的短句参与。',
         '仍然只表达当前未读触发出的具体可说点；不要为了证明在线而硬说。'
       ].join('\n');
   return buildAssistantCommentaryInputItem([

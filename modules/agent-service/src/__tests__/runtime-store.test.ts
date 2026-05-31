@@ -165,7 +165,7 @@ test('resolvePresenceRecoveryEvent records visible rest or sleep facts for fatig
   assert.equal(resolvePresenceRecoveryEvent({ ...tiredState, fatigue: 0.5 }, new Date('2026-05-31T07:00:00.000Z')), null);
 });
 
-test('fatigue recovery event tells Xiaoni the numeric reason for sleep', async () => {
+test('fatigue recovery event tells Xiaoni only current energy for sleep', async () => {
   const store = new RuntimeStore() as any;
   const lifeEvents: any[] = [];
   store.recordLifeEventSafe = async (input: any) => {
@@ -191,13 +191,13 @@ test('fatigue recovery event tells Xiaoni the numeric reason for sleep', async (
     },
     explanation: {
       meterDrivers: {
-        fatigue: '距离上次休息/睡眠 16.0h，加上行动负担=1.00、困倦压力=1.00'
+        fatigue: '当前精力=0.10，累计行动成本=1.00'
       },
       contributors: [{
         eventId: '2',
         eventKind: 'speak_in_group',
         occurredAt: '2026-05-31T06:30:00.000Z',
-        effect: '已经开口，分享欲下降，行动负担上升'
+        effect: '已经开口，本次行动成本 1.00'
       }]
     },
     decision: { shouldEnqueue: false, reason: 'fatigue' }
@@ -205,16 +205,18 @@ test('fatigue recovery event tells Xiaoni the numeric reason for sleep', async (
 
   assert.equal(lifeEvents.length, 1);
   assert.equal(lifeEvents[0].eventKind, 'sleep_period');
-  assert.match(lifeEvents[0].payload.duration_label, /疲劳=0\.90（阈值 0\.82）/);
-  assert.match(lifeEvents[0].payload.duration_label, /困倦压力=1\.00/);
-  assert.match(lifeEvents[0].payload.duration_label, /行动负担=1\.00/);
+  assert.match(lifeEvents[0].payload.duration_label, /当前精力=0\.10/);
+  assert.doesNotMatch(lifeEvents[0].payload.duration_label, /疲劳=|困倦压力=|行动负担=/);
   assert.match(lifeEvents[0].payload.duration_label, /睡眠恢复/);
+  assert.equal(lifeEvents[0].payload.energy_note, '当前精力=0.10，累计行动成本=1.00');
+  assert.equal(lifeEvents[0].payload.action_cost_sources[0].effect, '已经开口，本次行动成本 1.00');
+  assert.equal('fatigue_driver' in lifeEvents[0].payload, false);
 });
 
-test('renderXiaoniLifeStateExplanation tells the next wake why Xiaoni is tired or rested', () => {
+test('renderXiaoniLifeStateExplanation tells the next wake energy and recent action costs', () => {
   const text = renderXiaoniLifeStateExplanation({
     version: 'xiaoni-life-v1',
-    summary: '疲劳偏高；无聊=0.60 疲劳=0.90 精力=0.10 分享欲=0.38 行动负担=1.00 困倦压力=1.00',
+    summary: '当前精力=0.10',
     generatedAt: '2026-05-31T08:00:00.000Z',
     rebuiltFromEvents: false,
     eventCount: 3,
@@ -224,13 +226,13 @@ test('renderXiaoniLifeStateExplanation tells the next wake why Xiaoni is tired o
         eventId: '3',
         eventKind: 'sleep_period',
         occurredAt: '2026-05-31T07:30:00.000Z',
-        effect: '刚才因为疲劳和困倦压力都太高，先不继续看消息，记录了一次睡眠恢复；醒来后行动负担被重置'
+        effect: '刚才记录了一次睡眠恢复，醒来后累计行动成本重置为 0.00'
       },
       {
         eventId: '2',
         eventKind: 'speak_in_group',
         occurredAt: '2026-05-31T06:30:00.000Z',
-        effect: '已经开口，分享欲下降，行动负担上升'
+        effect: '已经开口，本次行动成本 1.00'
       },
       {
         eventId: '1',
@@ -240,19 +242,17 @@ test('renderXiaoniLifeStateExplanation tells the next wake why Xiaoni is tired o
       }
     ],
     meterDrivers: {
-      boredom: '距离上次打断无聊 1.0h，加上事件偏移',
-      fatigue: '距离上次休息/睡眠 16.0h，加上行动负担=1.00、困倦压力=1.00',
-      sharingDesire: '无聊=0.60、可分享材料吸引力=0.30、精力=0.10、疲劳=0.90',
-      attention: '最近会话/消息事件把注意力拉到 1.00'
+      boredom: '当前精力=0.10',
+      fatigue: '当前精力=0.10，累计行动成本=1.00',
+      sharingDesire: '当前精力=0.10',
+      attention: '当前精力=0.10'
     }
   });
 
-  assert.match(text, /现在的状态：疲劳偏高/);
-  assert.match(text, /行动负担=1\.00 困倦压力=1\.00/);
-  assert.match(text, /疲劳怎么算出来的：距离上次休息\/睡眠 16\.0h，加上行动负担=1\.00、困倦压力=1\.00/);
-  assert.match(text, /刚才怎么恢复的：刚才因为疲劳和困倦压力都太高，先不继续看消息，记录了一次睡眠恢复；醒来后行动负担被重置/);
-  assert.match(text, /为什么会累：已经开口，分享欲下降，行动负担上升/);
-  assert.doesNotMatch(text, /为什么会累：.*空闲检查被跳过/);
+  assert.match(text, /现在的精力：当前精力=0\.10/);
+  assert.match(text, /最近行动消耗：已经开口，本次行动成本 1\.00/);
+  assert.match(text, /刚才怎么恢复：刚才记录了一次睡眠恢复，醒来后累计行动成本重置为 0\.00/);
+  assert.doesNotMatch(text, /无聊=|疲劳=|分享欲=|困倦压力=|疲劳怎么算|空闲检查被跳过/);
 });
 
 test('recordSilenceDecisionLifeEvent records lurked run as self-private silence decision', async () => {

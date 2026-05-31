@@ -226,7 +226,7 @@ function compactContributor(contributor: XiaoniLifeStateExplanation['contributor
   ].filter(Boolean).join(' ');
 }
 
-function fatigueSourceContributors(explanation: XiaoniLifeStateExplanation) {
+function actionCostContributors(explanation: XiaoniLifeStateExplanation) {
   return explanation.contributors
     .filter((item) => item.eventKind !== 'rest_period'
       && item.eventKind !== 'sleep_period'
@@ -248,30 +248,24 @@ function renderRecoveryLabel(
   eventKind: 'rest_period' | 'sleep_period',
   state: XiaoniLifeStateProjection['state']
 ) {
-  const metrics = [
-    `疲劳=${metric(state.fatigue)}（阈值 ${metric(PRESENCE_FATIGUE_RECOVERY_THRESHOLD)}）`,
-    `困倦压力=${metric(state.sleepPressure)}`,
-    `行动负担=${metric(state.actionCost)}`,
-    `精力=${metric(state.energy)}`
-  ].join('，');
+  const energy = `当前精力=${metric(state.energy)}`;
   if (eventKind === 'sleep_period') {
-    return `运行指标显示 ${metrics}；本轮先不继续打开消息列表，记录一次睡眠恢复。`;
+    return `${energy}；本轮先不继续打开消息列表，记录一次睡眠恢复。`;
   }
-  return `运行指标显示 ${metrics}；本轮先不继续主动看群，记录一次短暂休息。`;
+  return `${energy}；本轮先不继续主动看群，记录一次短暂休息。`;
 }
 
 export function renderXiaoniLifeStateExplanation(explanation: XiaoniLifeStateExplanation) {
-  const fatigueSources = fatigueSourceContributors(explanation)
+  const actionCosts = actionCostContributors(explanation)
     .map(compactContributor)
     .join('；');
   const recoveries = recoveryContributors(explanation)
     .map(compactContributor)
     .join('；');
   return [
-    `现在的状态：${explanation.summary}`,
-    fatigueSources ? `为什么会累：${fatigueSources}` : null,
-    explanation.meterDrivers?.fatigue ? `疲劳怎么算出来的：${explanation.meterDrivers.fatigue}` : null,
-    recoveries ? `刚才怎么恢复的：${recoveries}` : null
+    `现在的精力：${explanation.summary}`,
+    actionCosts ? `最近行动消耗：${actionCosts}` : null,
+    recoveries ? `刚才怎么恢复：${recoveries}` : null
   ].filter(Boolean).join('；');
 }
 
@@ -1446,7 +1440,7 @@ export class RuntimeStore {
     if (!recovery) {
       return false;
     }
-    const fatigueSources = fatigueSourceContributors(input.explanation);
+    const actionCosts = actionCostContributors(input.explanation);
     await this.recordLifeEventSafe({
       identityKey: 'xiaoni',
       eventKind: recovery.eventKind,
@@ -1459,8 +1453,8 @@ export class RuntimeStore {
         reason: recovery.reason,
         duration_label: renderRecoveryLabel(recovery.eventKind, input.projection.state),
         before_snapshot: input.projection.state,
-        fatigue_driver: input.explanation.meterDrivers?.fatigue || null,
-        fatigue_sources: fatigueSources.map((item) => ({
+        energy_note: input.explanation.meterDrivers?.fatigue || null,
+        action_cost_sources: actionCosts.map((item) => ({
           event_id: item.eventId,
           event_kind: item.eventKind,
           occurred_at: item.occurredAt,

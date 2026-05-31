@@ -89,7 +89,8 @@ test('reduceXiaoniLifeState does not treat silence as boredom reset', () => {
   });
 
   assert.ok(result.projection.state.boredom > 0.9);
-  assert.match(result.explanation.summary, /无聊=/);
+  assert.match(result.explanation.summary, /当前精力=/);
+  assert.doesNotMatch(result.explanation.summary, /无聊=|疲劳=|分享欲=|困倦压力=/);
 });
 
 test('rest and sleep events lower fatigue pressure', () => {

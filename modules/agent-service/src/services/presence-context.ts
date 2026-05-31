@@ -156,9 +156,6 @@ export function buildPresenceContextBlock(params: {
   stateExplanation?: string | null;
   isPresenceTick: boolean;
 }) {
-  const stateLabel = params.state.fatigue > 0.75 ? '疲劳偏高'
-    : params.state.boredom > 0.65 ? '有点无聊'
-      : '平稳';
   const topItems = params.items.slice(0, 3);
   const hasRealWebSearchMaterial = topItems.some((item) => item.sourceWording === 'real_web_search');
   const currentResidue = hasRealWebSearchMaterial
@@ -171,10 +168,10 @@ export function buildPresenceContextBlock(params: {
     '<小腻当前状态>',
     `本轮动作：${params.isPresenceTick ? '小腻从自己的生活里检查了一下消息列表。' : '本轮由群友消息触发。'}`,
     `材料边界：${currentResidue}`,
-    `当前状态：${stateLabel}；无聊=${params.state.boredom.toFixed(2)}；疲劳=${params.state.fatigue.toFixed(2)}；精力=${params.state.energy.toFixed(2)}；分享欲=${params.state.sharingDesire.toFixed(2)}。`,
+    `当前状态：当前精力=${params.state.energy.toFixed(2)}。`,
     params.stateExplanation ? `状态说明：${params.stateExplanation}` : null,
     `可用材料：\n${material}`,
-    `行动成本：低成本可潜水或短句；中成本可主动分享一句；高疲劳时不适合长篇展开。`,
+    `行动成本：状态说明里会列最近动作的成本；精力低时更适合潜水或短句。`,
     `来源边界：只能表达自己的想法、印象或整理出来的话题；只有明确标成真实网页搜索的材料，才能说成我查到；其他材料不能伪装成实时来源。`,
     '</小腻当前状态>'
   ].filter(Boolean).join('\n');

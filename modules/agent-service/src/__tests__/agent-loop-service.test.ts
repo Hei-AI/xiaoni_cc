@@ -4572,7 +4572,7 @@ test('participation_judgment=no_sayable_point forces stay_silent even if action_
 test('buildTurnStateReminder turns low energy presence context into a commentary system reminder', () => {
   const reminder = buildTurnStateReminder([
     '<小腻当前状态>',
-    '当前状态：疲劳偏高；无聊=0.20；疲劳=0.86；精力=0.14；分享欲=0.22。',
+    '当前状态：当前精力=0.14。',
     '</小腻当前状态>'
   ].join('\n'));
 
@@ -4594,7 +4594,7 @@ test('low energy turn state downgrades weak speak to stay_silent', () => {
     null,
     [
       '<小腻当前状态>',
-      '当前状态：疲劳偏高；无聊=0.20；疲劳=0.86；精力=0.14；分享欲=0.22。',
+      '当前状态：当前精力=0.14。',
       '</小腻当前状态>'
     ].join('\n')
   );

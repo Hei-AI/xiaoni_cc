@@ -219,6 +219,18 @@ function rememberContributor(
   }
 }
 
+function formatCost(value: number) {
+  return Number.isFinite(value) ? value.toFixed(2) : '0.00';
+}
+
+function visibleActionCost(eventCost: number, fallbackCost = 0) {
+  return eventCost > 0 ? eventCost : fallbackCost;
+}
+
+function actionCostText(cost: number) {
+  return `本次行动成本 ${formatCost(cost)}`;
+}
+
 function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection) {
   const occurredAt = toDate(event.occurredAt);
   const payload = event.payload || {};
@@ -241,14 +253,14 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       state.lastBoredomResetAt = occurredAt || state.lastBoredomResetAt;
       state.lastMeaningfulActivityAt = occurredAt || state.lastMeaningfulActivityAt;
       state.materialEventCount += 1;
-      rememberContributor(state, event, '打开或进入会话，注意力上升，无聊感被打断');
+      rememberContributor(state, event, `打开或进入会话，${actionCostText(visibleActionCost(actionCost, 0.2))}`);
       break;
     case 'qq_message_seen':
       state.attention = clamp01(state.attention + 0.12);
       state.boredomOffset = clamp01(state.boredomOffset - 0.12);
       state.lastBoredomResetAt = occurredAt || state.lastBoredomResetAt;
       state.materialEventCount += 1;
-      rememberContributor(state, event, '看见真实消息，注意力上升');
+      rememberContributor(state, event, `看见真实消息，${actionCostText(visibleActionCost(actionCost, 0))}`);
       break;
     case 'qq_self_message':
     case 'speak_in_group':
@@ -258,37 +270,37 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       state.lastBoredomResetAt = occurredAt || state.lastBoredomResetAt;
       state.lastMeaningfulActivityAt = occurredAt || state.lastMeaningfulActivityAt;
       state.materialEventCount += 1;
-      rememberContributor(state, event, '已经开口，分享欲下降，行动负担上升');
+      rememberContributor(state, event, `已经开口，${actionCostText(visibleActionCost(actionCost, 1))}`);
       break;
     case 'silence_decision':
       state.actionCost = clamp01(state.actionCost + 0.02);
       state.attention = clamp01(state.attention - 0.04);
-      rememberContributor(state, event, '看过但选择沉默，不重置无聊时钟');
+      rememberContributor(state, event, `看过但选择沉默，${actionCostText(visibleActionCost(actionCost, 0.1))}`);
       break;
     case 'web_search_result':
     case 'pending_share_created':
       state.rewardAttraction = clamp01(state.rewardAttraction + 0.18);
       state.boredomOffset = clamp01(state.boredomOffset - 0.05);
       state.materialEventCount += 1;
-      rememberContributor(state, event, '产生可分享材料，分享吸引力上升');
+      rememberContributor(state, event, `产生可分享材料，${actionCostText(visibleActionCost(actionCost, 0))}`);
       break;
     case 'pending_share_consumed':
       state.rewardAttraction = clamp01(state.rewardAttraction - 0.12);
       state.actionCost = clamp01(state.actionCost + 0.04);
-      rememberContributor(state, event, '可分享材料被消费，分享冲动回落');
+      rememberContributor(state, event, `用掉一条可分享材料，${actionCostText(visibleActionCost(actionCost, 0.04))}`);
       break;
     case 'presence_tick_evaluated':
       if (payload.eligible === true && (payload.enqueued === true || payload.queue_id || payload.queueId)) {
         state.lastPresenceTickEnqueuedAt = occurredAt || state.lastPresenceTickEnqueuedAt;
       }
-      rememberContributor(state, event, payload.eligible === true ? '这次空闲检查可以进入队列' : '这次空闲检查被跳过');
+      rememberContributor(state, event, payload.eligible === true ? '这次空闲检查可以进入队列，本次行动成本 0.00' : '这次空闲检查被跳过，本次行动成本 0.00');
       break;
     case 'rest_period':
       state.actionCost = clamp01(state.actionCost - 0.25);
       state.pressureOffset = clamp01(state.pressureOffset - 0.2);
       state.attention = clamp01(state.attention - 0.08);
       state.lastRestAt = occurredAt || state.lastRestAt;
-      rememberContributor(state, event, '刚才因为疲劳超过阈值，先从消息列表里退出来休息了一会儿；行动负担和困倦压力降下来了一点');
+      rememberContributor(state, event, '刚才短暂休息了一会儿，行动成本恢复 0.25');
       break;
     case 'sleep_period':
       state.actionCost = 0;
@@ -296,18 +308,11 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       state.attention = clamp01(state.attention - 0.12);
       state.lastRestAt = occurredAt || state.lastRestAt;
       state.lastMeaningfulActivityAt = occurredAt || state.lastMeaningfulActivityAt;
-      rememberContributor(state, event, '刚才因为疲劳和困倦压力都太高，先不继续看消息，记录了一次睡眠恢复；醒来后行动负担被重置');
+      rememberContributor(state, event, '刚才记录了一次睡眠恢复，醒来后累计行动成本重置为 0.00');
       break;
     default:
       break;
   }
-}
-
-function stateLabel(state: XiaoniLifeStateProjection['state']) {
-  if (state.fatigue > 0.75) return '疲劳偏高';
-  if (state.boredom > 0.65) return '有点无聊';
-  if (state.sharingDesire > 0.65) return '有分享冲动';
-  return '平稳';
 }
 
 export function reduceXiaoniLifeState(input: ReduceXiaoniLifeStateInput): {
@@ -369,17 +374,17 @@ export function reduceXiaoniLifeState(input: ReduceXiaoniLifeStateInput): {
 
   const explanation: XiaoniLifeStateExplanation = {
     version: XIAONI_LIFE_PROJECTION_VERSION,
-    summary: `${stateLabel(projectedState)}；无聊=${boredom.toFixed(2)} 疲劳=${fatigue.toFixed(2)} 精力=${energy.toFixed(2)} 分享欲=${sharingDesire.toFixed(2)} 行动负担=${projectedState.actionCost.toFixed(2)} 困倦压力=${projectedState.sleepPressure.toFixed(2)}`,
+    summary: `当前精力=${energy.toFixed(2)}`,
     generatedAt: input.now.toISOString(),
     rebuiltFromEvents,
     eventCount: projection.counters.eventCount,
     reducedThroughEventId: projection.reducedThroughEventId,
     contributors: state.contributors.slice(-5).reverse(),
     meterDrivers: {
-      boredom: `距离上次打断无聊 ${hoursSinceBoredomReset.toFixed(1)}h，加上事件偏移`,
-      fatigue: `距离上次休息/睡眠 ${hoursSinceRest.toFixed(1)}h，加上行动负担=${projectedState.actionCost.toFixed(2)}、困倦压力=${projectedState.sleepPressure.toFixed(2)}`,
-      sharingDesire: `无聊=${boredom.toFixed(2)}、可分享材料吸引力=${rewardAttraction.toFixed(2)}、精力=${energy.toFixed(2)}、疲劳=${fatigue.toFixed(2)}`,
-      attention: `最近会话/消息事件把注意力拉到 ${projectedState.attention.toFixed(2)}`
+      boredom: `当前精力=${energy.toFixed(2)}`,
+      fatigue: `当前精力=${energy.toFixed(2)}，累计行动成本=${projectedState.actionCost.toFixed(2)}`,
+      sharingDesire: `当前精力=${energy.toFixed(2)}`,
+      attention: `当前精力=${energy.toFixed(2)}`
     }
   };
 
