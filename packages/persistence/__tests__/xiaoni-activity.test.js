@@ -76,6 +76,46 @@ test('Xiaoni activity feed serializes Date values as real instants', async () =>
   assert.equal(feed.items[0].body, '这句先放着，没必要马上发。');
 });
 
+test('Xiaoni activity feed hides life-event engineering payload fields', async () => {
+  const persistence = createPersistence({
+    lifeEvents: [{
+      id: 443,
+      identity_key: 'xiaoni',
+      event_kind: 'silence_decision',
+      occurred_at: new Date('2026-05-31T11:37:13.467Z'),
+      surface: 'qq',
+      chat_type: 'group',
+      actor_type: 'xiaoni',
+      visibility: 'self_private',
+      payload: {
+        reason: '没有具体可说点。',
+        source: 'proactive_im_open',
+        run_id: 'run_1',
+        trace_id: 'trace_1',
+        batch_id: 'batch_1',
+        message_sid: 'sid_1',
+        account_id: '1129974489',
+        chat_type: 'group',
+        peer_name: '群 1040740258'
+      }
+    }]
+  });
+
+  const feed = await persistence.getXiaoniActivityFeed({ limit: 5 });
+  const item = feed.items[0];
+  const serializedPayload = JSON.stringify(item.metadata.payload);
+
+  assert.equal(item.body, '没有具体可说点。');
+  assert.equal(item.metadata.payload.reason, '没有具体可说点。');
+  assert.equal(item.metadata.payload.chat_type, 'group');
+  assert.equal(item.metadata.payload.peer_name, '群 1040740258');
+  assert.equal(serializedPayload.includes('run_1'), false);
+  assert.equal(serializedPayload.includes('trace_1'), false);
+  assert.equal(serializedPayload.includes('proactive_im_open'), false);
+  assert.equal(serializedPayload.includes('sid_1'), false);
+  assert.equal(String(item.metadata.payloadPreview).includes('run_1'), false);
+});
+
 test('Xiaoni activity feed keeps SQL queue timestamps in storage timezone', async () => {
   const queueRow = {
     id: 4161,

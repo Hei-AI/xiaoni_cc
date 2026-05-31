@@ -139,7 +139,7 @@ developer message at index 1
 <world_narrative> 当前世界叙事
 
 role=user
-<INPUT_MESSAGE message_id="..." timestamp="..." sender="昵称(qq)" source="napcat">
+<INPUT_MESSAGE message_id="..." chat_type="群聊" group="群名(群号)">
 真实入站 QQ 消息
 </INPUT_MESSAGE>
 

@@ -259,7 +259,7 @@ function getMessageContent(item: unknown) {
 }
 
 function expectedCurrentInputMessage() {
-  return '<INPUT_MESSAGE message_id="11" message_sid="sid-1" timestamp="2026-03-28T08:00:00.000Z" sender="Alice(202)" source="napcat">\n问问@{Bob(@404)} 今天玩什么\n</INPUT_MESSAGE>';
+  return '<INPUT_MESSAGE message_id="11" chat_type="群聊" group="Test Group(101)">\n问问@{Bob(@404)} 今天玩什么\n</INPUT_MESSAGE>';
 }
 
 test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into instructions', () => {
@@ -327,7 +327,7 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
   const contents = loopInput.map(getMessageContent);
   const historyIndex = contents.findIndex((content) => content.includes('<INPUT_MESSAGE') && content.includes('legacy_user_message'));
   const digestIndex = contents.findIndex((content) => content.startsWith('<小腻近况>'));
-  const currentMessageIndex = contents.findIndex((content) => content.includes('<INPUT_MESSAGE message_id="11"'));
+  const currentMessageIndex = contents.findIndex((content) => content.includes('<INPUT_MESSAGE message_id="11"') && content.includes('chat_type="群聊"'));
 
   assert.ok(historyIndex >= 0);
   assert.ok(digestIndex >= 0);
@@ -1042,8 +1042,9 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /BatchId:/);
   assert.doesNotMatch(currentPrompt, /SessionKey:/);
   assert.doesNotMatch(currentPrompt, /ToolUsage:/);
-  assert.match(currentPrompt, /<INPUT_MESSAGE message_id="11"/);
-  assert.match(currentPrompt, /sender="Alice\(202\)"/);
+  assert.match(currentPrompt, /<INPUT_MESSAGE message_id="11" chat_type="群聊"/);
+  assert.doesNotMatch(currentPrompt, /message_sid=|source="napcat"/);
+  assert.doesNotMatch(currentPrompt, /sender=|timestamp=/);
   assert.match(currentPrompt, /问问@\{Bob\(@404\)\} 今天玩什么/);
   assert.doesNotMatch(currentPrompt, /\[mentioned bot\]/);
 });
@@ -1120,8 +1121,9 @@ test('buildInitialInput materializes full group IM window when an unread batch m
   assert.match(rendered, /<IM_INBOX_WINDOW[^>]*materialization="opened"[^>]*trigger="explicit_mention"/);
   assert.match(rendered, /前面普通未读/);
   assert.match(rendered, /@小腻 看到前面了吗/);
-  assert.match(rendered, /message_id="11"/);
-  assert.match(rendered, /message_id="12"/);
+  assert.match(rendered, /message_id="11" chat_type="群聊"/);
+  assert.match(rendered, /message_id="12" chat_type="群聊"/);
+  assert.doesNotMatch(rendered, /message_sid=|source="napcat"/);
   assert.doesNotMatch(sceneRendered, /<UNREAD_AVAILABLE/);
   assert.equal(loopInput.some((item: any) => item.role === 'developer' && /Alice|202|<IM_INBOX_WINDOW|<UNREAD_AVAILABLE/.test(getMessageContent(item))), false);
 });
@@ -1160,11 +1162,12 @@ test('buildInitialInput materializes full direct IM window when active IM use en
     .map(getMessageContent)
     .join('\n');
 
-  assert.match(rendered, /<IM_INBOX_WINDOW[^>]*chat_type="direct"[^>]*materialization="opened"[^>]*trigger="proactive_use_im"/);
+  assert.match(rendered, /<IM_INBOX_WINDOW[^>]*chat_type="私聊"[^>]*materialization="opened"[^>]*trigger="proactive_use_im"/);
   assert.match(rendered, /第一条私聊/);
   assert.match(rendered, /第二条私聊/);
-  assert.match(rendered, /message_id="11"/);
-  assert.match(rendered, /message_id="12"/);
+  assert.match(rendered, /message_id="11" chat_type="私聊"/);
+  assert.match(rendered, /message_id="12" chat_type="私聊"/);
+  assert.doesNotMatch(rendered, /message_sid=|source="napcat"/);
   assert.doesNotMatch(sceneRendered, /<UNREAD_AVAILABLE/);
   assert.equal(loopInput.some((item: any) => item.role === 'developer' && /Alice|202|<IM_INBOX_WINDOW|<UNREAD_AVAILABLE/.test(getMessageContent(item))), false);
 });
@@ -1215,7 +1218,7 @@ test('buildInitialInput renders reply context in natural language format', () =>
   const loopInput = buildInitialInput([], payload);
   const currentPrompt = getMessageContent(loopInput[1]);
 
-  assert.match(currentPrompt, /sender="Alice\(202\)"/);
+  assert.doesNotMatch(currentPrompt, /sender=|timestamp=/);
   assert.match(currentPrompt, /\[回复给 \{Carol\(@505\)\}：上一条消息\]/);
   assert.match(currentPrompt, /@\{Bob\(@404\)\} 嘿/);
 });
@@ -1246,8 +1249,9 @@ test('buildInitialInput renders each message in a batch as its own user message 
   assert.match(getMessageContent(loopInput.at(-2)), /<system_reminder>/);
 
   assert.equal(currentTurnItems.length, 2);
-  assert.match(getMessageContent(currentTurnItems[0]), /sender="Alice\(202\)"/);
-  assert.match(getMessageContent(currentTurnItems[1]), /sender="Carol\(606\)"/);
+  assert.match(getMessageContent(currentTurnItems[0]), /<INPUT_MESSAGE message_id="11" chat_type="群聊" group="Test Group\(101\)">/);
+  assert.match(getMessageContent(currentTurnItems[1]), /<INPUT_MESSAGE message_id="12" chat_type="群聊" group="Test Group\(101\)">/);
+  assert.equal(currentTurnItems.some((item) => /sender=|timestamp=/.test(getMessageContent(item))), false);
 });
 
 test('buildInitialInput does not append transcript summary to the system prompt by default', () => {
@@ -1360,9 +1364,9 @@ test('buildInitialInput keeps current batch before reminder and runtime history 
   const rendered = request.input.map(getMessageContent);
 
   const osIndex = rendered.findIndex((content) => content.includes('上一轮留下的内在延续'));
-  const firstCurrentIndex = rendered.findIndex((content) => content.includes('message_id="11"'));
-  const secondCurrentIndex = rendered.findIndex((content) => content.includes('message_id="12"'));
-  const reminderIndex = rendered.findIndex((content) => content.includes('<system_reminder>本次已打开 IM；从这些消息开始是我还没看过的新消息'));
+  const firstCurrentIndex = rendered.findIndex((content) => content.includes('message_id="11" chat_type="群聊"'));
+  const secondCurrentIndex = rendered.findIndex((content) => content.includes('message_id="12" chat_type="群聊"'));
+  const reminderIndex = rendered.findIndex((content) => content.includes('<system_reminder>本次已打开 IM；以下是这段时间看到的未读列表'));
   const identityIndex = rendered.findIndex((content) => content.includes('[身份连续性]'));
   const historyReadingIndex = rendered.findIndex((content) => content.includes('<runtime_history_reading>'));
 
@@ -1985,7 +1989,8 @@ test('context summary writer stores plain-text digest from whole in-context, not
   assert.match(writerInputText, /<in_context_to_digest>/);
   assert.match(writerInputText, /上一轮近况：小腻刚被提醒不要公式化接话。/);
   assert.match(writerInputText, /我想回头分享这个：压缩前留下的待分享意图应该进入近况。/);
-  assert.match(writerInputText, /<INPUT_MESSAGE message_id="11"/);
+  assert.match(writerInputText, /<INPUT_MESSAGE message_id="11" chat_type="群聊"/);
+  assert.doesNotMatch(writerInputText, /message_sid=|source="napcat"/);
   assert.deepEqual(summaries, [{
     sessionKey: 'qq:group:101',
     contextSummary: '刚才主要在聊小腻的压缩后记忆。她已经被提醒不要公式化接话，也知道新的近况应该像时报一样概括整段可见上下文。'
@@ -2177,7 +2182,7 @@ test('context compression memory writer generates episodic, semantic, and reflec
         id: 12,
         userId: 3375477814,
         userDeliveryMessageId: 203,
-        userMessage: '<INPUT_MESSAGE message_id="203" timestamp="2026-05-29T00:00:00.000Z" sender="Nova(3375477814)" source="manual_memory_replay">nova 说自己凌晨给小伊发过消息。</INPUT_MESSAGE>'
+        userMessage: '<INPUT_MESSAGE message_id="203" chat_type="私聊" private_peer="Nova(3375477814)">nova 说自己凌晨给小伊发过消息。</INPUT_MESSAGE>'
       })],
       runtimePrompt: createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' })
     });
@@ -4643,22 +4648,18 @@ test('participation_judgment=no_sayable_point forces stay_silent even if action_
   assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL]);
 });
 
-test('buildTurnStateReminder turns low energy presence context into a commentary system reminder', () => {
+test('buildTurnStateReminder does not turn energy into an extra system reminder', () => {
   const reminder = buildTurnStateReminder([
     '<小腻当前状态>',
-    '当前状态：当前精力=0.14。',
+    '当前精力：0.14',
+    '精力成本：已经开口，本次行动成本 1.00',
     '</小腻当前状态>'
   ].join('\n'));
 
-  assert.ok(reminder, 'low energy context should produce a reminder');
-  assert.equal((reminder as any).role, 'assistant');
-  assert.equal((reminder as any).phase, 'commentary');
-  assert.match(getMessageContent(reminder), /source="turn_state"/);
-  assert.match(getMessageContent(reminder), /state_bias="low_energy"/);
-  assert.match(getMessageContent(reminder), /话量阈值提高/);
+  assert.equal(reminder, null);
 });
 
-test('low energy turn state downgrades weak speak to stay_silent', () => {
+test('energy context does not downgrade a weak but real speak decision by itself', () => {
   const loopInput = buildInitialInput(
     [],
     createQueuePayload(),
@@ -4668,7 +4669,8 @@ test('low energy turn state downgrades weak speak to stay_silent', () => {
     null,
     [
       '<小腻当前状态>',
-      '当前状态：当前精力=0.14。',
+      '当前精力：0.14',
+      '精力成本：已经开口，本次行动成本 1.00',
       '</小腻当前状态>'
     ].join('\n')
   );
@@ -4676,12 +4678,12 @@ test('low energy turn state downgrades weak speak to stay_silent', () => {
     type: 'function_call',
     call_id: 'call-meaning',
     name: UNREAD_MEANING_TOOL,
-    arguments: '{"latest_unread_focus":"群里随口吐槽天气","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":true,"confidence":"medium","reason":"公共闲聊"}'
+    arguments: '{"latest_unread_focus":"直接问小腻天气","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"medium","reason":"直接 cue 小腻"}'
   });
   loopInput.push({
     type: 'function_call_output',
     call_id: 'call-meaning',
-    output: '{"latest_unread_focus":"群里随口吐槽天气","message_act":"statement","social_target":"group","addressed_to_me":false,"has_real_novelty":true,"confidence":"medium","reason":"公共闲聊"}'
+    output: '{"latest_unread_focus":"直接问小腻天气","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"medium","reason":"直接 cue 小腻"}'
   });
   loopInput.push({
     type: 'function_call',
@@ -4696,7 +4698,7 @@ test('low energy turn state downgrades weak speak to stay_silent', () => {
   });
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [SILENT_FINISH_TOOL]);
+  assert.ok(getAllowedToolNames(request.tool_choice).includes(GROUP_REPLY_TOOL));
 });
 
 // B: LIFE_ACTION_TOOL schema must not contain recalled_prior_pattern or felt_direction

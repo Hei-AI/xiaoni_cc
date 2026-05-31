@@ -7,7 +7,7 @@ import {
   shouldFirePresenceTick
 } from '../services/presence-context';
 
-test('deriveLifeState makes boredom grow with idle time and respects cooldown', () => {
+test('shouldFirePresenceTick lets Xiaoni decide without scheduler state gates', () => {
   const now = new Date('2026-05-26T12:00:00.000Z');
   const state = deriveLifeState({
     now,
@@ -23,10 +23,10 @@ test('deriveLifeState makes boredom grow with idle time and respects cooldown', 
   assert.ok(state.boredom >= 0.9);
   assert.ok(state.energy > 0.5);
   assert.equal(state.cooldownActive, true);
-  assert.equal(shouldFirePresenceTick(state).reason, 'cooldown');
+  assert.equal(shouldFirePresenceTick(state).reason, 'eligible');
 });
 
-test('shouldFirePresenceTick allows bored, energetic state after cooldown', () => {
+test('shouldFirePresenceTick also allows checks during startup grace', () => {
   const state = deriveLifeState({
     now: new Date('2026-05-26T12:00:00.000Z'),
     serviceStartedAt: '2026-05-26T06:00:00.000Z',
@@ -38,10 +38,13 @@ test('shouldFirePresenceTick allows bored, energetic state after cooldown', () =
     startupGraceMs: 5 * 60 * 1000
   });
 
-  assert.equal(shouldFirePresenceTick(state).shouldEnqueue, true);
+  assert.deepEqual(shouldFirePresenceTick({
+    ...state,
+    startupGraceActive: true
+  }), { shouldEnqueue: true, reason: 'eligible' });
 });
 
-test('presence sharing desire is not suppressed by previous proactive count', () => {
+test('presence decision does not depend on sharing desire or previous proactive count', () => {
   const state = deriveLifeState({
     now: new Date('2026-05-26T12:00:00.000Z'),
     serviceStartedAt: '2026-05-26T06:00:00.000Z',
@@ -110,8 +113,9 @@ test('buildPresenceContextBlock is factual and includes source boundary', () => 
   });
 
   assert.match(block, /<小腻当前状态>/);
-  assert.match(block, /当前状态：当前精力=0\.80/);
-  assert.doesNotMatch(block, /当前状态：.*无聊=|当前状态：.*疲劳=|当前状态：.*分享欲=/);
+  assert.match(block, /当前精力：0\.80/);
+  assert.match(block, /精力成本：暂无最近行动成本记录/);
+  assert.doesNotMatch(block, /当前状态：|无聊=|疲劳=|分享欲=|cooldown|精力低时更适合/);
   assert.match(block, /模拟或整理出来的材料不能说成刚看到/);
   assert.match(block, /没有真实浏览器证据/);
   assert.doesNotMatch(block, /你应该|必须回复|请主动/);

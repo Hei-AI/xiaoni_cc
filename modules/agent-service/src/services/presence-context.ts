@@ -105,26 +105,8 @@ export function deriveLifeState(anchors: PresenceAnchors, options: {
   };
 }
 
-export function shouldFirePresenceTick(state: PresenceLifeState, options: {
-  minBoredom?: number;
-  minSharingDesire?: number;
-  maxFatigue?: number;
-} = {}): PresenceTickDecision {
-  if (state.startupGraceActive) {
-    return { shouldEnqueue: false, reason: 'startup_grace' };
-  }
-  if (state.cooldownActive) {
-    return { shouldEnqueue: false, reason: 'cooldown' };
-  }
-  if (state.fatigue > (options.maxFatigue ?? 0.82)) {
-    return { shouldEnqueue: false, reason: 'fatigue' };
-  }
-  if (state.boredom < (options.minBoredom ?? 0.45)) {
-    return { shouldEnqueue: false, reason: 'not_bored' };
-  }
-  if (state.sharingDesire < (options.minSharingDesire ?? 0.35)) {
-    return { shouldEnqueue: false, reason: 'low_sharing_desire' };
-  }
+export function shouldFirePresenceTick(state: PresenceLifeState): PresenceTickDecision {
+  void state;
   return { shouldEnqueue: true, reason: 'eligible' };
 }
 
@@ -153,6 +135,9 @@ export function buildPresenceContextBlock(params: {
   isPresenceTick: boolean;
 }) {
   const topItems = params.items.slice(0, 3);
+  const costExplanation = typeof params.stateExplanation === 'string'
+    ? params.stateExplanation.replace(/^现在的精力：当前精力=[0-9.]+；?/u, '').trim()
+    : '';
   const hasRealWebSearchMaterial = topItems.some((item) => item.sourceWording === 'real_web_search');
   const currentResidue = hasRealWebSearchMaterial
     ? '可用材料里有真实网页搜索留下的内容；只能基于这些材料表达，不能补造没有记录的实时来源。'
@@ -162,12 +147,10 @@ export function buildPresenceContextBlock(params: {
     : '- 暂无可用分享材料';
   return [
     '<小腻当前状态>',
-    `本轮动作：${params.isPresenceTick ? '小腻从自己的生活里检查了一下消息列表。' : '本轮由群友消息触发。'}`,
-    `材料边界：${currentResidue}`,
-    `当前状态：当前精力=${params.state.energy.toFixed(2)}。`,
-    params.stateExplanation ? `状态说明：${params.stateExplanation}` : null,
+    `当前精力：${params.state.energy.toFixed(2)}`,
+    `精力成本：${costExplanation || '暂无最近行动成本记录。'}`,
     `可用材料：\n${material}`,
-    `行动成本：状态说明里会列最近动作的成本；精力低时更适合潜水或短句。`,
+    `材料边界：${currentResidue}`,
     `来源边界：只能表达自己的想法、印象或整理出来的话题；只有明确标成真实网页搜索的材料，才能说成我查到；其他材料不能伪装成实时来源。`,
     '</小腻当前状态>'
   ].filter(Boolean).join('\n');

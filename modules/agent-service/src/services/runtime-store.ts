@@ -1384,7 +1384,6 @@ export class RuntimeStore {
     decision: ReturnType<typeof shouldFirePresenceTick>;
     queueId?: number | string | null;
     queueStatus?: string | null;
-    messageSid?: string | null;
   }) {
     const { now, state, decision } = input;
     await this.recordLifeEventSafe({
@@ -1402,24 +1401,10 @@ export class RuntimeStore {
         enqueued: Boolean(input.queueId),
         queue_id: input.queueId ? String(input.queueId) : null,
         queue_status: input.queueStatus || null,
-        message_sid: input.messageSid || null,
-        thresholds: {
-          max_fatigue: PRESENCE_FATIGUE_RECOVERY_THRESHOLD,
-          min_boredom: 0.45,
-          min_sharing_desire: 0.35,
-          cooldown_ms: agentConfig.presenceTickCooldownMs,
-          startup_grace_ms: agentConfig.presenceTickStartupGraceMs
-        },
+        startup_grace_ms: agentConfig.presenceTickStartupGraceMs,
         snapshot: {
-          boredom: state.boredom,
-          fatigue: state.fatigue,
           energy: state.energy,
-          sharing_desire: state.sharingDesire,
-          sleep_pressure: state.sleepPressure,
-          attention: state.attention,
-          reward_attraction: state.rewardAttraction,
           action_cost: state.actionCost,
-          cooldown_active: state.cooldownActive,
           startup_grace_active: state.startupGraceActive
         }
       },
@@ -1520,7 +1505,8 @@ export class RuntimeStore {
     }
 
     const messageSid = `presence_tick:${now.getTime()}`;
-    const dedupeKey = `presence_tick:xiaoni:${Math.floor(now.getTime() / agentConfig.presenceTickCooldownMs)}`;
+    const dedupeWindowMs = Math.max(1000, agentConfig.presenceTickIntervalMs);
+    const dedupeKey = `presence_tick:xiaoni:${Math.floor(now.getTime() / dedupeWindowMs)}`;
     const bodyForAgent = '小腻从自己的生活里抬头看了一眼消息列表；还没有打开任何具体会话。';
     const inboundContext: FinalizedInboundContext = {
       Body: 'presence_tick',
@@ -1585,8 +1571,7 @@ export class RuntimeStore {
       state: projection.state,
       decision,
       queueId: result.queueId,
-      queueStatus: result.status,
-      messageSid
+      queueStatus: result.status
     });
     return {
       enqueued: result.status === 'pending',

@@ -124,17 +124,12 @@ type ToolContinuationContext = {
   hasVisibleReply: boolean;
 };
 
-type ExecuteToolOptions = {
-  stateBias?: TurnControlStateBias;
-};
-
 type TurnControlStage =
   | 'read_unread'
   | 'feel_reaction'
   | 'maybe_search_or_inspect'
   | 'finalize';
 
-type TurnControlStateBias = 'low_energy' | 'normal' | 'high_energy';
 type TurnControlRecallStatus = 'not_needed';
 type TurnControlExpectedNext =
   | 'submit_life_action'
@@ -167,7 +162,6 @@ type LifeActionParticipationJudgmentBasis =
 export type TurnControlState = {
   stage: TurnControlStage;
   targetFound: boolean;
-  stateBias: TurnControlStateBias;
   recallStatus: TurnControlRecallStatus;
   recallAttempts: number;
   emptyRecallAttempts: number;
@@ -733,7 +727,7 @@ const LIFE_ACTION_TOOL = {
           type: 'array',
           maxItems: 6,
           items: { type: 'string' },
-          description: '支持这个动作的当前现场引用，例如 message_id、sender、wake_event 或 residue id。没有就空数组。'
+          description: '支持这个动作的当前现场引用，例如第几条消息、发言者、wake_event 或 residue。没有就空数组。'
         },
         confidence: {
           type: 'number',
@@ -1191,9 +1185,9 @@ const COMPACT_MEMORY_TOOL_NAME_BY_LAYER = {
 const RUNTIME_INPUT_READING_CONTRACT = [
   '这些输入按来源分层：QQ 现场、动作状态、运行提醒、压缩历史。逐段按标签读取。',
   '',
-  '`<INPUT_MESSAGE>` 是已经进入当前可见现场的真实 QQ 消息。里面的 sender、message_id、message_sid、timestamp 都是现场事实。',
-  '`<IM_INBOX_WINDOW>` 是一次打开/使用 IM 的边界。trigger=explicit_mention/proactive_use_im；其后的 INPUT_MESSAGE 按时间顺序组成这次 append 的 unread/inbox 瀑布流。',
-  '`<UNREAD_AVAILABLE>` 是未打开的 IM 元数据，只包含数量和发送者线索；正文还没进入当前现场。',
+  '`<INPUT_MESSAGE>` 是已经进入当前可见现场的真实 QQ 消息。标签只保留 message_id、chat_type="群聊/私聊"、group/private_peer；message_sid/source/trace/run、时间、发言人属于工程/日志字段，不参与对话判断。',
+  '`<IM_INBOX_WINDOW>` 是一次打开/使用 IM 的边界。trigger=explicit_mention/proactive_use_im；其后的 INPUT_MESSAGE 按时间顺序组成这次看到的未读列表。',
+  '`<UNREAD_AVAILABLE>` 是未打开的 IM 元数据，只包含数量和消息定位线索；正文还没进入当前现场。',
   '`<OUTPUT_MESSAGE>` 是你过去已经发出去的 QQ 消息。它是你的历史输出，不是别人说的话。',
   '`<ACTION>` 是你自己的动作或状态事件，比如打开群、潜水、找话题、看图、等待。',
   '`<小腻的OS>` 是你留给后续自己的内部连续性，不是 QQ 消息。',
@@ -1241,7 +1235,7 @@ const RUNTIME_INPUT_READING_CONTRACT = [
 const RUNTIME_HISTORY_READING_DEVELOPER_CONTEXT = [
   '<runtime_history_reading>',
   '历史里的 INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / 小腻的OS 只是上下文，不要重复回应已经处理过的旧内容。',
-  '当前轮的 `<system_reminder>` 只用来指出从哪些 message_id / message_sid 开始是你还没看过的新消息。',
+  '当前轮的 `<system_reminder>` 只用来说明哪些消息属于这次打开 IM 后看到的未读列表。',
   '</runtime_history_reading>'
 ].join('\n');
 
@@ -1382,31 +1376,7 @@ function hasUsableGroupTarget(meaning: UnreadMeaning | null) {
   return Boolean(meaning.topicContext?.hasTopic && meaning.hasRealNovelty);
 }
 
-function extractStateBiasFromLoopInput(loopInput: OpenResponseInputItem[]): TurnControlStateBias {
-  for (let index = loopInput.length - 1; index >= 0; index -= 1) {
-    const item = loopInput[index];
-    if (item.type !== 'message' || item.role !== 'assistant') {
-      continue;
-    }
-    const content = flattenMessageContent(item.content);
-    if (!content.includes('source="turn_state"')) {
-      continue;
-    }
-    if (content.includes('state_bias="low_energy"')) {
-      return 'low_energy';
-    }
-    if (content.includes('state_bias="high_energy"')) {
-      return 'high_energy';
-    }
-    if (content.includes('state_bias="normal"')) {
-      return 'normal';
-    }
-  }
-  return 'normal';
-}
-
 export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): TurnControlState {
-  const stateBias = extractStateBiasFromLoopInput(loopInput);
   const recallAttempts = 0;
   const emptyRecallAttempts = 0;
   const meaning = extractLatestUnreadMeaning(loopInput);
@@ -1415,7 +1385,6 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
     return {
       stage: 'feel_reaction',
       targetFound,
-      stateBias,
       recallStatus: 'not_needed',
       recallAttempts,
       emptyRecallAttempts,
@@ -1433,7 +1402,6 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
     return {
       stage: 'maybe_search_or_inspect',
       targetFound,
-      stateBias,
       recallStatus,
       recallAttempts,
       emptyRecallAttempts,
@@ -1445,7 +1413,6 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
   return {
     stage: 'finalize',
     targetFound,
-    stateBias,
     recallStatus,
     recallAttempts,
     emptyRecallAttempts,
@@ -1456,8 +1423,7 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
 
 function shouldDowngradeWeakSpeakToSilence(
   action: LifeAction | null,
-  meaning: UnreadMeaning | null,
-  stateBias: TurnControlStateBias = 'normal'
+  meaning: UnreadMeaning | null
 ) {
   if (action?.actionType !== 'speak') {
     return false;
@@ -1468,9 +1434,6 @@ function shouldDowngradeWeakSpeakToSilence(
   }
   // Safety catch: model chose speak despite no interest at all
   if (action.interestLevel === 'none') {
-    return true;
-  }
-  if (stateBias === 'low_energy' && action.reactionAuthenticity === 'weak_but_real' && action.interestLevel !== 'high') {
     return true;
   }
   if (action.interestLevel === 'low' && !hasDirectNewCue(meaning)) {
@@ -1587,7 +1550,7 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
     ]);
   }
 
-  if (shouldDowngradeWeakSpeakToSilence(latestLifeAction, latestUnreadMeaning, turnControl.stateBias)) {
+  if (shouldDowngradeWeakSpeakToSilence(latestLifeAction, latestUnreadMeaning)) {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.silentFinish }
     ]);
@@ -1784,7 +1747,7 @@ function renderTranscriptBatchMessage(
   message: QueueMessageRecord['payload']['messages'][number],
   index: number
 ) {
-  const timestamp = message.messageTimestamp || message.receivedAt || `第${index + 1}条`;
+  void index;
   const lines: string[] = [];
 
   if (message.inboundContext.ReplyToBody) {
@@ -1813,10 +1776,9 @@ function renderTranscriptBatchMessage(
 
   return formatTaggedBlock('INPUT_MESSAGE', {
     message_id: message.messageId,
-    message_sid: message.messageSid,
-    timestamp,
-    sender: formatTagSpeaker(message.senderName, message.senderId),
-    source: message.source
+    chat_type: renderPromptChatType(message.chatType),
+    group: message.chatType === 'group' ? formatTagSpeaker(message.peerName, message.peerId) : undefined,
+    private_peer: message.chatType === 'direct' ? formatTagSpeaker(message.peerName, message.peerId) : undefined
   }, lines.join('\n') || '(空消息)');
 }
 
@@ -2271,6 +2233,35 @@ function formatTaggedBlock(tagName: string, attributes: Record<string, unknown>,
   ].join('\n');
 }
 
+function renderPromptChatType(chatType: string | null | undefined) {
+  const normalized = typeof chatType === 'string' ? chatType.trim().toLowerCase() : '';
+  if (normalized === 'group' || normalized === '群聊') {
+    return '群聊';
+  }
+  if (normalized === 'direct' || normalized === 'private' || normalized === '私聊') {
+    return '私聊';
+  }
+  return typeof chatType === 'string' && chatType.trim() ? chatType.trim() : undefined;
+}
+
+function readTagAttribute(attributes: string, name: string) {
+  const match = attributes.match(new RegExp(`\\b${name}="([^"]*)"`));
+  return match?.[1] || null;
+}
+
+function sanitizeInputMessageTags(content: string) {
+  return content.replace(/<INPUT_MESSAGE\b([^>]*)>/g, (_match, rawAttributes: string) => {
+    const attributes = {
+      message_id: readTagAttribute(rawAttributes, 'message_id') ?? undefined,
+      chat_type: renderPromptChatType(readTagAttribute(rawAttributes, 'chat_type')),
+      group: readTagAttribute(rawAttributes, 'group') ?? undefined,
+      private_peer: readTagAttribute(rawAttributes, 'private_peer') ?? undefined
+    };
+    const renderedAttributes = formatTagAttributes(attributes);
+    return renderedAttributes ? `<INPUT_MESSAGE ${renderedAttributes}>` : '<INPUT_MESSAGE>';
+  });
+}
+
 function formatTagSpeaker(name: string | null | undefined, id: string | null | undefined) {
   const normalizedName = typeof name === 'string' ? name.trim() : '';
   const normalizedId = typeof id === 'string' ? id.trim() : '';
@@ -2385,12 +2376,8 @@ function renderTranscriptItemForRuntimeContext(
 
   return buildUserSceneInputItem([
     content.startsWith('<INPUT_MESSAGE')
-      ? content
-      : formatTaggedBlock('INPUT_MESSAGE', {
-          source: item.source,
-          run_id: item.runId ?? undefined,
-          trace_id: item.traceId ?? undefined
-        }, content)
+      ? sanitizeInputMessageTags(content)
+      : formatTaggedBlock('INPUT_MESSAGE', {}, content)
   ]);
 }
 
@@ -2401,21 +2388,7 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
     return `<system_reminder>当前 ${queueMessage.sessionKey} 有 ${noun}未读元数据，尚未触发小腻打开 IM；可见现场只有 UNREAD_AVAILABLE，正文等待 @ 或主动使用 IM 后 append。</system_reminder>`;
   }
 
-  const messageRefs = queueMessage.messages
-    .map((message) => {
-      const messageId = Number.isFinite(Number(message.messageId)) ? String(message.messageId) : '';
-      const sid = typeof message.messageSid === 'string' && message.messageSid.trim()
-        ? message.messageSid.trim()
-        : '';
-      return [messageId ? `message_id=${messageId}` : null, sid ? `message_sid=${sid}` : null]
-        .filter(Boolean)
-        .join(' ');
-    })
-    .filter(Boolean);
-  const rangeText = messageRefs.length > 0
-    ? `从这些消息开始是我还没看过的新消息：${messageRefs.join('；')}。`
-    : '这里开始是我还没看过的新消息。';
-  return `<system_reminder>本次已打开 IM；${rangeText}按顺序读这个 unread/inbox window。</system_reminder>`;
+  return '<system_reminder>本次已打开 IM；以下是这段时间看到的未读列表，按时间顺序阅读。列表前的历史只作为背景，不要重复回应。</system_reminder>';
 }
 
 function isImmediateVisibleImWake(queueMessage: QueueMessageRecord['payload']) {
@@ -2434,25 +2407,25 @@ function isImmediateVisibleImWake(queueMessage: QueueMessageRecord['payload']) {
 }
 
 function renderUnreadAvailable(queueMessage: QueueMessageRecord['payload']) {
-  const senders = queueMessage.messages.map((message) => {
+  const messages = queueMessage.messages.map((message) => {
     return {
       message_id: message.messageId,
-      message_sid: message.messageSid,
-      sender: formatIdentity(message.senderName, message.senderId),
-      timestamp: message.messageTimestamp || message.receivedAt || null
+      chat_type: renderPromptChatType(message.chatType),
+      group: message.chatType === 'group' ? formatTagSpeaker(message.peerName, message.peerId) : undefined,
+      private_peer: message.chatType === 'direct' ? formatTagSpeaker(message.peerName, message.peerId) : undefined
     };
   });
 
   return formatTaggedBlock('UNREAD_AVAILABLE', {
     surface: 'qq',
-    chat_type: queueMessage.chatType,
+    chat_type: renderPromptChatType(queueMessage.chatType),
     session_key: queueMessage.sessionKey,
     peer_id: queueMessage.peerId,
     count: queueMessage.messages.length,
     materialization: 'not_opened'
   }, JSON.stringify({
-    policy: 'metadata only until explicit_mention or proactive_use_im opens IM and appends the unread/inbox window',
-    senders
+    policy: 'metadata only until explicit_mention or proactive_use_im opens IM and exposes the unread list',
+    messages
   }));
 }
 
@@ -2462,61 +2435,18 @@ function renderImInboxWindowAvailable(queueMessage: QueueMessageRecord['payload'
     : queueMessage.wasMentioned ? 'explicit_mention' : 'proactive_use_im';
   return formatTaggedBlock('IM_INBOX_WINDOW', {
     surface: 'qq',
-    chat_type: queueMessage.chatType,
+    chat_type: renderPromptChatType(queueMessage.chatType),
     session_key: queueMessage.sessionKey,
     peer_id: queueMessage.peerId,
     count: queueMessage.messages.length,
     materialization: 'opened',
     trigger
-  }, '小腻正在使用 IM；下面 append 的 INPUT_MESSAGE 是这次打开时 claim 到的 unread/inbox window，按时间顺序阅读。');
-}
-
-function deriveStateBiasFromDeveloperContext(developerContextBlock: string | null | undefined): TurnControlStateBias {
-  if (!developerContextBlock) {
-    return 'normal';
-  }
-  const readMetric = (...names: string[]) => {
-    for (const name of names) {
-      const match = developerContextBlock.match(new RegExp(`${name}[=:：]([0-9.]+)`));
-      if (match) {
-        return Number.parseFloat(match[1]);
-      }
-    }
-    return null;
-  };
-  const energy = readMetric('精力', 'energy');
-  const fatigue = readMetric('疲劳', 'fatigue');
-  const sharingDesire = readMetric('分享欲', 'sharing_desire');
-
-  if ((fatigue !== null && fatigue >= 0.72) || (energy !== null && energy <= 0.3)) {
-    return 'low_energy';
-  }
-  if ((energy !== null && energy >= 0.72) || (sharingDesire !== null && sharingDesire >= 0.68)) {
-    return 'high_energy';
-  }
-  return 'normal';
+  }, '小腻正在使用 IM；下面是这次打开后看到的未读消息列表，按时间顺序阅读。');
 }
 
 export function buildTurnStateReminder(developerContextBlock: string | null | undefined): OpenResponseInputItem | null {
-  const stateBias = deriveStateBiasFromDeveloperContext(developerContextBlock);
-  if (stateBias === 'normal') {
-    return null;
-  }
-  const text = stateBias === 'low_energy'
-    ? [
-        '当前精力偏低，话量阈值提高。',
-        '只有明确找我处理的直接请求、或 participation_judgment.status=has_sayable_point 且确实有内容时才继续到说话；弱反应、顺手接话、没找到目标时优先 stay_silent。'
-      ].join('\n')
-    : [
-        '当前精力较高，可以接受更轻的短句参与。',
-        '仍然只表达当前未读触发出的具体可说点；不要为了证明在线而硬说。'
-      ].join('\n');
-  return buildAssistantCommentaryInputItem([
-    formatTaggedBlock('system_reminder', {
-      source: 'turn_state',
-      state_bias: stateBias
-    }, text)
-  ]);
+  void developerContextBlock;
+  return null;
 }
 
 export function buildTurnControlReminder(turnControl: TurnControlState): OpenResponseInputItem | null {
@@ -2527,9 +2457,6 @@ export function buildTurnControlReminder(turnControl: TurnControlState): OpenRes
   const lines: string[] = [];
   if (!turnControl.targetFound && turnControl.stage === 'feel_reaction') {
     lines.push('当前未读没有明确找小腻，也没有稳定的新目标；下一步只确认是否有具体可说点，不要为了接话而制造目标。');
-  }
-  if (turnControl.stateBias === 'low_energy' && turnControl.stage === 'finalize') {
-    lines.push('当前状态偏低，弱反应不要升级成发言；如果 participation_judgment 不是 has_sayable_point，也不是 direct_request，stay_silent 是有效收口。');
   }
 
   if (lines.length === 0) {
@@ -4740,9 +4667,7 @@ export class AgentLoopService {
               break;
             }
 
-            const rawToolResult = await this.executeTool(toolCall, payload, {
-              stateBias: deriveTurnControlState(requestInput).stateBias
-            });
+            const rawToolResult = await this.executeTool(toolCall, payload);
             const toolResult = isSilentFinishToolName(toolCall.name)
               ? {
                   ...rawToolResult,
@@ -6249,8 +6174,7 @@ export class AgentLoopService {
 
   private async executeTool(
     toolCall: AgentToolCall,
-    queueMessage: QueueMessageRecord['payload'],
-    options: ExecuteToolOptions = {}
+    queueMessage: QueueMessageRecord['payload']
   ): Promise<Record<string, unknown>> {
     switch (toolCall.name) {
       case TOOL_NAMES.privateReply:
@@ -6277,7 +6201,7 @@ export class AgentLoopService {
         };
       }
       case TOOL_NAMES.lifeAction: {
-        return this.commitLifeAction(toolCall, queueMessage, options);
+        return this.commitLifeAction(toolCall, queueMessage);
       }
       case TOOL_NAMES.inspectImage: {
         return this.inspectImagePlaceholder(toolCall.args, queueMessage);
@@ -6305,8 +6229,7 @@ export class AgentLoopService {
 
   private async commitLifeAction(
     toolCall: AgentToolCall,
-    queueMessage: QueueMessageRecord['payload'],
-    options: ExecuteToolOptions = {}
+    queueMessage: QueueMessageRecord['payload']
   ) {
     const action = parseLifeAction(toolCall.args);
     if (!action) {
@@ -6327,7 +6250,7 @@ export class AgentLoopService {
     const forceSilentReason = action.actionType === 'speak'
       ? shouldForceActionToSilenceFromParticipationJudgment(action, action.unreadMeaning)
         ? 'participation_judgment_not_sayable'
-        : shouldDowngradeWeakSpeakToSilence(action, action.unreadMeaning, options.stateBias ?? 'normal')
+        : shouldDowngradeWeakSpeakToSilence(action, action.unreadMeaning)
         ? 'weak_speak_downgraded'
         : null
       : null;

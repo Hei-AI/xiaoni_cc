@@ -56,14 +56,17 @@ agent_life_events append stream
 ```
 
 The reducer computes current state from durable facts, not from a standalone
-planner loop. At minimum it should derive:
+planner loop. Current runtime projection intentionally exposes only:
 
-- boredom and novelty need
-- fatigue derived directly from accumulated action cost
-- current energy/action budget (`energy = 1 - actionCost`)
-- sharing desire and reward sensitivity
+- current energy
+- recent action cost / recovery trace
 - material scarcity and current residue
-- recent action trace for prompt and admin explanation
+- source boundaries for any shareable material
+
+Older meters such as boredom, fatigue, sharing desire, and cooldown can exist as
+legacy internal projection fields, but they are not prompt-facing decision gates.
+The runtime should not decide Xiaoni's action from those meters; Xiaoni receives
+energy plus cost context and chooses inside the main loop.
 
 ## Event Rules
 
@@ -132,7 +135,6 @@ Do not restore or add:
 - A group/private suggestion can affect state only after it appears as visible
   context or compacted Xiaoni continuity, not through a separate suggestion
   channel.
-- Admin activity can explain which events moved boredom, action cost/fatigue,
-  reward, or sharing desire.
-- The prompt receives facts, costs, residues, and source boundaries. It does not
+- Admin activity can explain current energy and recent action-cost/recovery facts.
+- The prompt receives facts, energy, costs, residues, and source boundaries. It does not
   receive a forced recommended action.

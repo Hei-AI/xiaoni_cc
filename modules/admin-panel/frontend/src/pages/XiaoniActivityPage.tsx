@@ -258,9 +258,6 @@ function RuntimeStrip({
           主动 IM <span className="font-medium text-foreground">{autonomy?.latestProactiveImOpenAt ? formatTimestamp(autonomy.latestProactiveImOpenAt) : '-'}</span>
         </span>
         <span className="text-muted-foreground">
-          eval <span className="font-medium text-foreground">{autonomy?.latestPresenceEvaluationReason || '-'}</span>
-        </span>
-        <span className="text-muted-foreground">
           legacy digital <span className="font-medium text-foreground">{historicalDigital}</span>
         </span>
         <span className="text-muted-foreground">

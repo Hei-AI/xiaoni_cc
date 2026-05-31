@@ -240,7 +240,7 @@ function lifeEventTitle(eventKind, payload) {
     return '主动看见未读';
   }
   if (eventKind === 'presence_tick_evaluated') {
-    return payload.eligible ? '决定抬头看一眼' : '暂时没有抬头';
+    return payload.eligible ? '准备抬头看一眼' : '空闲检查记录';
   }
   if (eventKind === 'rest_period') {
     return '短暂休息';
@@ -278,10 +278,9 @@ function lifeEventBody(row, payload) {
     );
   }
   if (row.event_kind === 'presence_tick_evaluated') {
-    const reason = firstString(payload.skip_reason, payload.reason) || (payload.eligible ? 'eligible' : 'unknown');
     return payload.eligible
-      ? `状态允许抬头；${payload.queue_id ? `queue ${payload.queue_id}` : '等待入队'}`
-      : `跳过原因：${reason}`;
+      ? `调度器已放行；${payload.queue_id ? `queue ${payload.queue_id}` : '等待入队'}`
+      : '旧版调度器未入队；当前运行时只提供精力和行动成本。';
   }
   if (row.event_kind === 'rest_period' || row.event_kind === 'sleep_period') {
     return firstString(payload.reason, payload.duration_label, payload.bucket);
@@ -292,6 +291,7 @@ function lifeEventBody(row, payload) {
 
 function summarizeLifeEvent(row) {
   const payload = normalizeJsonObject(row.payload);
+  const feedPayload = sanitizeLifeEventPayloadForFeed(row.event_kind, payload);
   const eventKind = String(row.event_kind || '');
   const sentMessages = Array.isArray(payload.sent_messages)
     ? payload.sent_messages.filter((item) => typeof item === 'string').join('\n')
@@ -335,8 +335,56 @@ function summarizeLifeEvent(row) {
       rewardDelta: Number(row.reward_delta || 0),
       boredomDelta: Number(row.boredom_delta || 0),
       attentionDelta: Number(row.attention_delta || 0),
-      payloadPreview: previewJson(payload),
-      payload
+      payloadPreview: previewJson(feedPayload),
+      payload: feedPayload
+    }
+  };
+}
+
+const LIFE_EVENT_FEED_NOISE_KEYS = new Set([
+  'account_id',
+  'batch_id',
+  'claimed_message_sids',
+  'conversation_id',
+  'llm_call_id',
+  'message_sid',
+  'message_sids',
+  'request_id',
+  'run_id',
+  'session_key',
+  'source',
+  'trace_id'
+]);
+
+function omitLifeEventFeedNoise(value) {
+  if (Array.isArray(value)) {
+    return value.map(omitLifeEventFeedNoise);
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !LIFE_EVENT_FEED_NOISE_KEYS.has(key))
+      .map(([key, entry]) => [key, omitLifeEventFeedNoise(entry)])
+  );
+}
+
+function sanitizeLifeEventPayloadForFeed(eventKind, payload) {
+  if (eventKind !== 'presence_tick_evaluated') {
+    return omitLifeEventFeedNoise(payload);
+  }
+  const snapshot = normalizeJsonObject(payload.snapshot, {});
+  const energy = Number(snapshot.energy);
+  const actionCost = Number(snapshot.action_cost ?? snapshot.actionCost);
+  return {
+    eligible: typeof payload.eligible === 'boolean' ? payload.eligible : null,
+    enqueued: typeof payload.enqueued === 'boolean' ? payload.enqueued : null,
+    queue_id: payload.queue_id ? String(payload.queue_id) : null,
+    queue_status: firstString(payload.queue_status),
+    snapshot: {
+      energy: Number.isFinite(energy) ? energy : null,
+      action_cost: Number.isFinite(actionCost) ? actionCost : null
     }
   };
 }
@@ -627,19 +675,29 @@ function normalizeLifeState(row) {
   if (!row) {
     return null;
   }
+  const projection = normalizeJsonObject(row.projection_json, {});
+  const projectedState = normalizeJsonObject(projection.state, {});
+  const explanation = normalizeJsonObject(row.explanation_json, {});
+  const contributors = Array.isArray(explanation.contributors)
+    ? explanation.contributors.filter((item) => item?.eventKind !== 'presence_tick_evaluated')
+    : [];
+  const energy = Number(projectedState.energy);
+  const actionCost = Number(projectedState.actionCost);
   return {
     identityKey: row.identity_key,
-    lastActiveAt: normalizeDate(row.last_active_at),
-    lastBoredomResetAt: normalizeDate(row.last_boredom_reset_at),
-    lastSleepAt: normalizeDate(row.last_sleep_at),
-    serviceStartedAt: normalizeDate(row.service_started_at),
-    lastPresenceTickEnqueuedAt: normalizeDate(row.last_presence_tick_enqueued_at),
-    lastProactiveAt: normalizeDate(row.last_proactive_at),
-    lastUserMessageAt: normalizeDate(row.last_user_message_at),
-    dailyProactiveCount: Number(row.daily_proactive_count || 0),
-    dailyProactiveDate: normalizeDate(row.daily_proactive_date),
-    projection: normalizeJsonObject(row.projection_json, {}),
-    explanation: normalizeJsonObject(row.explanation_json, {}),
+    projection: {
+      version: projection.version || null,
+      generatedAt: normalizeDate(projection.generatedAt),
+      state: {
+        energy: Number.isFinite(energy) ? energy : null,
+        actionCost: Number.isFinite(actionCost) ? actionCost : null
+      }
+    },
+    explanation: {
+      summary: typeof explanation.summary === 'string' ? explanation.summary : null,
+      generatedAt: normalizeDate(explanation.generatedAt),
+      contributors: normalizeValue(contributors.slice(-5))
+    },
     reducedThroughEventId: row.reduced_through_event_id === null || typeof row.reduced_through_event_id === 'undefined'
       ? null
       : String(row.reduced_through_event_id),
@@ -845,10 +903,9 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
             latestProactiveImOpenAt: normalizeDate(latestProactiveImQueue?.updated_at || latestProactiveImQueue?.created_at),
             latestProactiveImOpenStatus: latestProactiveImQueue?.status || null,
             latestPresenceEvaluationAt: normalizeDate(latestPresenceEvaluation?.occurred_at),
-            latestPresenceEvaluationReason: firstString(
-              latestPresenceEvaluationPayload.skip_reason,
-              latestPresenceEvaluationPayload.reason
-            ),
+            latestPresenceEvaluationReason: latestPresenceEvaluationPayload.eligible === false
+              ? 'skipped_legacy'
+              : firstString(latestPresenceEvaluationPayload.reason),
             latestPresenceEvaluationEligible: typeof latestPresenceEvaluationPayload.eligible === 'boolean'
               ? latestPresenceEvaluationPayload.eligible
               : null,

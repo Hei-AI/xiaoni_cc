@@ -13,6 +13,12 @@ it is appended into `<小腻的OS>` and later `<小腻近况>`, not routed throu
 separate share-pool queue. This is still not the full browser-backed
 digital-life system.
 
+2026-05-31 runtime correction: prompt-facing state is current energy plus recent
+action cost/recovery context only. Earlier design language about boredom,
+fatigue, sharing desire, dopamine, pressure, or cooldown is background design
+history unless a later current-runtime section explicitly reintroduces it. Those
+meters must not be used as hard prompt-facing action gates.
+
 This document is the system of record for browser-backed digital life,
 `presence_context`, current idle life events, and the next browser-backed runner
 shape. `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md` is the source of record for the
@@ -23,11 +29,11 @@ execution summary.
 **Core framing:**
 
 Xiaoni is a group member who participates in group chat. She does not need to
-wait for another person to hand her a turn. She may open QQ because she is bored,
-wants low-cost company, wants to kill time, wants to chat, or has something from
-her own digital life that she feels like sharing. Do not optimize this around
-"will this disturb the group"; optimize around whether Xiaoni currently has the
-energy, dopamine, boredom, and sharing desire to act.
+wait for another person to hand her a turn. She may open QQ because she wants to
+look around, wants low-cost company, wants to kill time, wants to chat, or has
+something from her own digital life that she feels like sharing. Do not optimize
+this around "will this disturb the group"; provide current energy and action
+cost context, then let Xiaoni choose.
 
 **Locked decisions, 2026-05-25:**
 
@@ -183,9 +189,9 @@ high fatigue     -> small gain
 extreme fatigue  -> near zero actionable gain
 ```
 
-The exact numbers can be decided during engineering, but the shape is fixed:
-fatigue must cap both reward-to-action conversion and action intensity so Xiaoni
-cannot become more and more active when she is already exhausted.
+Current runtime does not expose fatigue, boredom, sharing desire, or cooldown as
+action gates. It exposes energy and recent action cost so Xiaoni can choose
+whether to act inside the main loop.
 
 **Possible future `presence_context` shape:**
 
@@ -193,7 +199,8 @@ cannot become more and more active when she is already exhausted.
 [本轮开始前的小腻状态]
 刚刚的数字活动：浏览过一个关于 AI 检测的吐槽内容。
 自己的反应：觉得它有点像玄学算命。
-现在的状态：有点无聊，分享欲中等。
+当前精力：0.80。
+精力成本：最近没有明显消耗。
 来源：真实浏览器记录。
 [/本轮开始前的小腻状态]
 ```
@@ -217,7 +224,7 @@ Current implemented slices:
   group and inject factual `<小腻当前状态>` into the normal main loop; the current
   runtime now materializes unread IM targets dynamically and otherwise stays
   life-only inside the same loop.
-- 2026-05-30: self-action `web_search`. The agent-service background loop checks
+- 2026-05-30: self-action `web_search`. The historical agent-service background loop checked
   budget, cooldown, startup grace, fatigue, and user-interaction limits, then
   calls provider-service with hosted `web_search` plus
   `emit_self_search_result`. Completed actions are written to
@@ -233,6 +240,9 @@ Current implemented slices:
   `submit_life_action`, `web_search`, or `stay_silent`; any "想回头分享" residue
   is appended to `<小腻的OS>` and therefore survives normal context replay or
   later summary compression.
+- 2026-05-31: presence enqueue no longer uses cooldown/boredom/sharing desire or
+  startup grace as hard gates. Prompt-facing state is current energy and recent
+  action cost/recovery context; Xiaoni chooses the action inside the main loop.
 - 2026-05-31: homeostasis design correction locked. The next reducer uses
   `agent_life_events` as the canonical append stream. `agent_session_life_states`
   is only a projection/cache. Do not restore a separate self-action planner, and
@@ -523,15 +533,12 @@ In-context action arbitration rule:
 
 ```text
 [小腻当前状态]
-当前近况：你刚才在读一段关于夏天和死亡意象的文字，里面有一句
-  "盛到最满的时候反而像要安静下来"让你停了一下。你没有完整读完，
-  只是翻了几页，脑子里留下的是季节、生命极盛、安眠这几个词。
-自己的反应：你觉得这个说法有点矫情，但又不是完全没道理。它让你
-  想到人有时候不是怕结束，而是怕最热闹的东西忽然静下来。
-现在状态：你有点累，眼睛有点发干；有点无聊，分享欲中等。
-可用材料：这个意象，自己的联想。
-当前体感耗力：盯群很轻，短句很轻；认真解释明显费力；连续多轮会很吃力。
-来源：mock 构造。真实浏览器证据：无。公开可表述为自己的联想。
+当前精力：0.80
+精力成本：最近行动消耗：已经开口，本次行动成本 0.20
+可用材料：
+- 一个关于夏天和死亡意象的文字联想
+材料边界：整理出来的材料，不能说成刚查到
+来源边界：只能表达自己的想法、印象或整理出来的话题；只有明确标成真实网页搜索的材料，才能说成我查到。
 [/小腻当前状态]
 ```
 
@@ -539,25 +546,22 @@ In-context action arbitration rule:
   it gives the model a concrete mental scene. Do not shorten it into abstract
   labels just to save tokens.
 - Do not tell the model "now you are more suitable for X" as a final judgment.
-  Provide current fatigue/pressure/reward state and action cost points instead;
-  the model should decide whether a low-cost or high-cost action makes sense in
-  the current group scene.
+  Provide current energy and action cost points instead; the model should decide
+  whether an action makes sense in the current group scene.
 - First version cost points can be simple and relative, not calibrated money:
   low-cost actions around 1-3, proactive/light sharing around 4, longer
   elaboration around 6, multi-round serious involvement around 8+.
-- Numeric state must include a scale and budget. Raw decimals such as
-  "疲惫 0.62，无聊 0.74" are not enough. The model needs to know current
-  available action budget and how action costs relate to it.
-- Use one readable cost scale in the prompt, for example:
+- Numeric state should not expose extra meters such as fatigue, boredom, sharing
+  desire, or cooldown. The model needs current energy and how recent action costs
+  relate to it.
+- Use one readable energy/cost shape in the prompt, for example:
 
 ```text
-当前行动预算：5 / 10
-疲惫负荷：6 / 10，压力负荷：2 / 10
-无聊：7 / 10，找刺激/新鲜感：6 / 10，分享欲：5 / 10
+当前精力：0.80
+精力成本：最近行动消耗：已经开口，本次行动成本 0.20
 ```
-- The action budget must not become an isolated new meter. It should be derived
-  from Xiaoni's existing energy/stamina, fatigue curve, dopamine/reward system,
-  pressure, sleep pressure, and current action history. Discuss this together
+- The action budget must not become an extra scheduler deciding for Xiaoni.
+  It should be derived from current energy and current action history. Discuss this together
   with the full prompt/developer/tool-description/in-context closure before
   engineering the final formula.
 - Length strategy should be flexible, not a hard word-count target:
