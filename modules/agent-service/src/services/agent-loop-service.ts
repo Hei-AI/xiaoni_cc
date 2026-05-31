@@ -417,6 +417,7 @@ const HISTORY_COMPACT_KEEP = 80;
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
 const CONTEXT_SUMMARY_SUBAGENT_TYPE = 'context_summary_writer';
+const GLOBAL_LIFE_CONTEXT_SESSION_KEY = 'xiaoni:global';
 export const XIAONI_IDENTITY_KEY = 'xiaoni';
 const RUNTIME_IDENTITY_FACT_LIMIT = 4;
 
@@ -1209,6 +1210,8 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '直接用 submit_life_action 一次性提交 unread_meaning、参与判断、最终动作和 xiaoni_os。',
   '普通说话、主动说一句、沉默，都必须在 submit_life_action 里直接收口；不要先调用 emit_unread_meaning，也不要把判断拆成多轮。',
   '只有真的需要外部结果时才进入后续工具轮：公开新资料用 web_search，看图用 inspect_image_placeholder，登记图片任务用 request_image_task。',
+  '当本轮只有 `<ACTION source="presence_tick">` 且还没有打开具体会话时，这是同一事件流里的空闲生活事件；只能 web_search 或 stay_silent，不要给任何 QQ 对象发消息。',
+  '空闲生活事件可以顺着当前可见上下文、压缩近况或自己的 OS 里的建议去查一个小问题；如果没有自然线索，就休息，不要编造兴趣或装作读过材料。',
   '',
   '工具阶段：',
   'commentary 工具只补充必要外部上下文：inspect_image_placeholder、web_search。submit_life_action 是本轮决策入口；普通场景也是最终收口。',
@@ -1521,6 +1524,39 @@ function selectActorToolDefinitions(chatType: 'group' | 'direct', modelName: str
   return [...tools, PRIVATE_MESSAGE_TOOL, FINISH_TOOL];
 }
 
+function isLifeOnlyPresenceLoop(loopInput: OpenResponseInputItem[]) {
+  return loopInput.some((item) => {
+    if (item.type !== 'message') {
+      return false;
+    }
+    const content = typeof item.content === 'string'
+      ? item.content
+      : item.content.map((part) => {
+        if (part.type === 'input_text' || part.type === 'output_text') return part.text;
+        if (part.type === 'refusal') return part.refusal;
+        return '';
+      }).join('\n');
+    return content.includes('<ACTION')
+      && content.includes('source="presence_tick"')
+      && content.includes('还没有打开任何具体会话');
+  });
+}
+
+function selectLifeOnlyPresenceToolDefinitions(): OpenResponseToolDefinition[] {
+  const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled ? [WEB_SEARCH_TOOL] : [];
+  return [...tools, FINISH_TOOL];
+}
+
+function resolveLifeOnlyPresenceToolChoice(): OpenResponseToolChoice {
+  const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
+    { type: 'function', name: TOOL_NAMES.silentFinish }
+  ];
+  if (agentConfig.webSearchEnabled) {
+    tools.unshift({ type: 'web_search' });
+  }
+  return buildAllowedToolsToolChoice(tools);
+}
+
 function selectGroupLoopToolDefinitions(modelName: string) {
   return [
     LIFE_ACTION_TOOL,
@@ -1634,11 +1670,16 @@ export function buildCanonicalAgentTurnRequest(
     ? firstItem.content
     : undefined;
   const instructions = baseInstructions;
+  const lifeOnlyPresenceLoop = chatType === 'direct' && isLifeOnlyPresenceLoop(loopInput);
   const tools = chatType === 'group'
     ? selectGroupLoopToolDefinitions(modelName)
+    : lifeOnlyPresenceLoop
+    ? selectLifeOnlyPresenceToolDefinitions()
     : selectActorToolDefinitions(chatType, modelName);
   const toolChoice = chatType === 'group'
     ? resolveGroupLoopToolChoice(loopInput)
+    : lifeOnlyPresenceLoop
+    ? resolveLifeOnlyPresenceToolChoice()
     : 'required';
 
   return {
@@ -2947,6 +2988,7 @@ type ContextSummaryParams = {
   evictedTurns: ConversationTurn[];
   summarySourceInput: OpenResponseInputItem[];
   existingSummary: string | null;
+  contextSessionKey?: string;
   runtimePrompt: ResolvedAgentRuntimePrompt;
 };
 
@@ -4417,74 +4459,10 @@ export class AgentLoopService {
     private readonly promptResolver: AgentPromptResolver = new AgentPromptService()
   ) {}
 
-  private async completeIdlePresenceTick(
-    queueMessage: QueueMessageRecord,
-    payload: QueueMessageRecord['payload'],
-    startedAt: number
-  ) {
-    const termination = {
-      terminationReason: 'finish_no_reply',
-      finishReason: '当前没有未读 IM 会话可打开。',
-      finishOutcome: '小腻停留在自己的生活里，没有进入任何具体会话。',
-      noReply: true
-    };
-    const finishResult = {
-      reason: termination.finishReason,
-      outcome: termination.finishOutcome,
-      finished: true,
-      no_reply: true,
-      xiaoni_os: 'presence_tick 只是检查 IM 列表；没有未读会话，不进入任何目标群或私聊。'
-    };
-
-    await this.store.completeQueueMessage(queueMessage.id, {
-      result: {
-        no_reply: true,
-        sent_messages: [],
-        xiaoni_os: finishResult.xiaoni_os,
-        stored_feedback_reflection_ids: [],
-        total_turns: 0,
-        finish_result: finishResult,
-        termination_reason: termination.terminationReason
-      }
-    });
-    await this.store.completeAgentRun(queueMessage.id, {
-      status: 'completed',
-      terminationReason: termination.terminationReason,
-      finishReason: termination.finishReason,
-      finishOutcome: termination.finishOutcome,
-      noReply: true,
-      finalResponse: null,
-      sentMessages: [],
-      totalTurns: 0,
-      conversationId: null
-    });
-    await this.recordSilenceDecisionLifeEvent(payload, queueMessage.id, 'idle', termination, 0, null);
-    await this.store.logTimelineEvent({
-      traceId: payload.traceId,
-      eventType: 'decision',
-      eventName: 'presence_tick_idle',
-      eventPhase: 'end',
-      metadata: {
-        sent_count: 0,
-        total_turns: 0
-      },
-      durationMs: Date.now() - startedAt
-    });
-
-    moduleLogger.info('Presence tick completed without active IM', {
-      traceId: payload.traceId,
-      runId: queueMessage.id
-    });
-  }
-
   async processQueueMessage(queueMessage: QueueMessageRecord) {
     const startedAt = Date.now();
     const activeQueueMessage = await materializeActiveImQueueMessage(queueMessage);
     const payload = activeQueueMessage.payload;
-    if (isIdleLifePresenceTickPayload(payload)) {
-      await this.completeIdlePresenceTick(queueMessage, payload, startedAt);
-      return;
-    }
     const inboundContext = payload.inboundContext;
     const sessionIds = resolveSessionTargets(payload);
     const jobId = await this.store.createLlmJob({
@@ -4570,10 +4548,13 @@ export class AgentLoopService {
           });
         }
       }
+      const lifePresenceTick = isLifePresenceTickPayload(payload);
+      const contextSessionKey = lifePresenceTick ? GLOBAL_LIFE_CONTEXT_SESSION_KEY : payload.sessionKey;
       const history = await this.store.listRecentTurns({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
-        afterConversationId: null
+        afterConversationId: null,
+        ...(lifePresenceTick ? { scope: 'global' as const, limit: 160 } : {})
       });
       historyCount = history.length;
 
@@ -4605,7 +4586,8 @@ export class AgentLoopService {
         runtimePrompt,
         loopContinuation,
         runtimeIdentityFacts,
-        developerContextBlock
+        developerContextBlock,
+        contextSessionKey
       });
       // Compute evicted turns once at the start: turns pushed out by the new cutoff that
       // weren't already excluded by the previous cutoff.
@@ -4629,7 +4611,8 @@ export class AgentLoopService {
             runtimePrompt,
             loopContinuation,
             runtimeIdentityFacts,
-            developerContextBlock
+            developerContextBlock,
+            contextSessionKey
           });
           requestInput = budgetPlan.requestInput;
         }
@@ -4944,6 +4927,7 @@ export class AgentLoopService {
           history_count: historyCount,
           retained_history_count: budgetPlan.retainedHistory.length,
           context_budget: {
+            context_session_key: contextSessionKey,
             context_window_tokens: budgetPlan.contextWindowTokens,
             target_budget_tokens: budgetPlan.targetBudgetTokens,
             hard_budget_tokens: budgetPlan.hardBudgetTokens,
@@ -4991,6 +4975,7 @@ export class AgentLoopService {
           evictedTurns,
           summarySourceInput,
           existingSummary: budgetPlan.contextSummary,
+          contextSessionKey,
           runtimePrompt
         });
       }
@@ -5483,7 +5468,7 @@ export class AgentLoopService {
     if (!summary?.hasContent || !summary.summaryText) return;
 
     await summaryUpserter.call(this.store, {
-      sessionKey: params.queueMessage.sessionKey,
+      sessionKey: params.contextSessionKey || params.queueMessage.sessionKey,
       contextSummary: summary.summaryText
     });
 
@@ -6047,6 +6032,7 @@ export class AgentLoopService {
     loopContinuation: OpenResponseInputItem[];
     runtimeIdentityFacts: RuntimeIdentityFactProjection[];
     developerContextBlock?: string | null;
+    contextSessionKey?: string;
   }): Promise<ContextBudgetPlan> {
     const policy = resolveModelContextPolicy(
       params.runtimePrompt.modelName,
@@ -6055,7 +6041,8 @@ export class AgentLoopService {
     const contextWindowTokens = policy?.contextWindowTokens ?? null;
     const targetBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_TARGET_RATIO)) : null;
     const hardBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_HARD_RATIO)) : null;
-    const cutoffState = await this.store.getSessionReadCutoffState(params.queueMessage.sessionKey);
+    const contextSessionKey = params.contextSessionKey || params.queueMessage.sessionKey;
+    const cutoffState = await this.store.getSessionReadCutoffState(contextSessionKey);
     const contextSummary = cutoffState?.contextSummary ?? null;
     const pendingProactiveShare = cutoffState?.pendingProactiveShare ?? null;
     const pendingProactiveShareAge = cutoffState?.pendingProactiveShareAge ?? 0;
@@ -6080,7 +6067,7 @@ export class AgentLoopService {
       const newCutoffId = newCutoffTurn?.id ?? cutoffState?.readCutoffAfterConversationId ?? null;
 
       await this.store.upsertSessionReadCutoffState({
-        sessionKey: params.queueMessage.sessionKey,
+        sessionKey: contextSessionKey,
         readCutoffAfterConversationId: newCutoffId,
         lastContextWindowTokens: contextWindowTokens ?? 0,
         lastTargetBudgetTokens: targetBudgetTokens ?? 0,
@@ -6173,7 +6160,7 @@ export class AgentLoopService {
     });
 
     await this.store.upsertSessionReadCutoffState({
-      sessionKey: params.queueMessage.sessionKey,
+      sessionKey: contextSessionKey,
       readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
       lastContextWindowTokens: contextWindowTokens,
       lastTargetBudgetTokens: targetBudgetTokens,
@@ -6937,11 +6924,6 @@ function isLifePresenceTickPayload(queueMessage: QueueMessageRecord['payload']) 
   return queueMessage.source === 'presence_tick'
     && queueMessage.sessionKey === 'presence_tick:xiaoni'
     && Boolean(queueMessage.presenceTick);
-}
-
-function isIdleLifePresenceTickPayload(queueMessage: QueueMessageRecord['payload']) {
-  return isLifePresenceTickPayload(queueMessage)
-    && !(typeof queueMessage.presenceTick?.targetSessionKey === 'string' && queueMessage.presenceTick.targetSessionKey.trim());
 }
 
 export function materializePresenceTickQueueMessage(queueMessage: QueueMessageRecord): QueueMessageRecord {

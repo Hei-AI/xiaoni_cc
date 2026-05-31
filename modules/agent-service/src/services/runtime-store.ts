@@ -1586,9 +1586,8 @@ export class RuntimeStore {
     const recallScores = scored.map((entry) => entry.score);
     const recentDigitalActions = await listAgentDigitalActions({
       identityKey: 'xiaoni',
-      actionType: 'web_search',
       status: 'completed',
-      limit: 3
+      limit: 6
     }, databaseConfig) as PresenceDigitalAction[];
     return {
       block: buildPresenceContextBlock({
@@ -2195,6 +2194,7 @@ export class RuntimeStore {
     groupId?: number | null;
     afterConversationId?: number | null;
     limit?: number;
+    scope?: 'session' | 'global';
   }): Promise<ConversationTurn[]> {
     const limit = typeof params.limit === 'number'
       ? Math.max(1, Math.min(params.limit, 1000))
@@ -2202,13 +2202,15 @@ export class RuntimeStore {
     const conditions: string[] = [];
     const values: Array<number | null> = [];
 
-    if (params.groupId && Number.isFinite(params.groupId)) {
-      conditions.push('group_id = ?');
-      values.push(params.groupId);
-    } else {
-      conditions.push('group_id IS NULL');
-      conditions.push('user_id = ?');
-      values.push(params.userId);
+    if (params.scope !== 'global') {
+      if (params.groupId && Number.isFinite(params.groupId)) {
+        conditions.push('group_id = ?');
+        values.push(params.groupId);
+      } else {
+        conditions.push('group_id IS NULL');
+        conditions.push('user_id = ?');
+        values.push(params.userId);
+      }
     }
 
     if (params.afterConversationId && Number.isFinite(params.afterConversationId)) {
@@ -2229,7 +2231,7 @@ export class RuntimeStore {
       `
         SELECT id, batch_id, trace_id, user_id, group_id, user_message, ai_response, raw_response
         FROM conversations
-        WHERE ${conditions.join(' AND ')}
+        WHERE ${conditions.length > 0 ? conditions.join(' AND ') : 'TRUE'}
         ORDER BY id DESC
         ${limit ? `LIMIT ${limit}` : ''}
       `,

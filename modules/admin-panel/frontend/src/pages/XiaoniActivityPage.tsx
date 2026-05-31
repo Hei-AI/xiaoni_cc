@@ -261,6 +261,14 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
   const toolResultPreview = metadataText(item.metadata, 'toolResultPreview');
   const responsePreview = metadataText(item.metadata, 'responsePreview');
   const spanId = metadataText(item.metadata, 'spanId');
+  const actionTracePreview = metadataText(item.metadata, 'actionTracePreview');
+  const budgetSnapshotPreview = metadataText(item.metadata, 'budgetSnapshotPreview');
+  const payloadPreview = metadataText(item.metadata, 'payloadPreview');
+  const interestCandidatesPreview = metadataText(item.metadata, 'interestCandidatesPreview');
+  const decisionLlmCallId = metadataText(item.metadata, 'decisionLlmCallId');
+  const searchLlmCallId = metadataText(item.metadata, 'searchLlmCallId');
+  const sourceActionId = metadataText(item.metadata, 'sourceActionId') || metadataText(item.metadata, 'actionId');
+  const hasActionTrace = Boolean(actionTracePreview || budgetSnapshotPreview || payloadPreview || interestCandidatesPreview || decisionLlmCallId || searchLlmCallId || sourceActionId);
 
   return (
     <div className="relative md:grid md:grid-cols-[7rem_minmax(0,1fr)] md:gap-6">
@@ -346,6 +354,58 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
                   </summary>
                   <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{responsePreview}</pre>
                 </details>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
+        {hasActionTrace ? (
+          <section className="mt-4 border-t border-border/70 pt-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              <Waypoints className="h-3.5 w-3.5" />
+              <span>action trace</span>
+              {sourceActionId ? <span className="font-mono normal-case tracking-normal">{sourceActionId}</span> : null}
+            </div>
+            {decisionLlmCallId || searchLlmCallId ? (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {decisionLlmCallId ? (
+                  <Button variant="outline" size="sm" onClick={() => navigate(`/traffic?llm_call_id=${encodeURIComponent(decisionLlmCallId)}`)}>
+                    <Waypoints className="mr-2 h-4 w-4" />
+                    decision traffic
+                  </Button>
+                ) : null}
+                {searchLlmCallId ? (
+                  <Button variant="outline" size="sm" onClick={() => navigate(`/traffic?llm_call_id=${encodeURIComponent(searchLlmCallId)}`)}>
+                    <Search className="mr-2 h-4 w-4" />
+                    search traffic
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="grid gap-3 lg:grid-cols-2">
+              {interestCandidatesPreview ? (
+                <div className="min-w-0">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">interest candidates</div>
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{interestCandidatesPreview}</pre>
+                </div>
+              ) : null}
+              {actionTracePreview ? (
+                <div className="min-w-0">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">source trace</div>
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{actionTracePreview}</pre>
+                </div>
+              ) : null}
+              {budgetSnapshotPreview ? (
+                <div className="min-w-0">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">budget</div>
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{budgetSnapshotPreview}</pre>
+                </div>
+              ) : null}
+              {payloadPreview ? (
+                <div className="min-w-0">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">event payload</div>
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{payloadPreview}</pre>
+                </div>
               ) : null}
             </div>
           </section>

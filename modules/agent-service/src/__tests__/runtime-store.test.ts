@@ -397,6 +397,63 @@ test('listRecentTurns rebuilds historical user items from inbound messages when 
   assert.equal(turns[0]?.items[1]?.content, '历史助手回复');
 });
 
+test('listRecentTurns can read the global append stream for life-only presence ticks', async () => {
+  const conversationQueries: Array<{ sql: string; params?: unknown[] }> = [];
+  const store = createStoreWithQuery(async (sql, params) => {
+    if (sql.includes('FROM conversations')) {
+      conversationQueries.push({ sql, params });
+      return [{
+        id: 2,
+        batch_id: null,
+        trace_id: null,
+        user_id: 303,
+        group_id: null,
+        user_message: '私聊建议：闲着可以看一本文学书',
+        ai_response: null,
+        raw_response: '{}'
+      }, {
+        id: 1,
+        batch_id: null,
+        trace_id: null,
+        user_id: 202,
+        group_id: 101,
+        user_message: '群聊里有人提到一个新的兴趣点',
+        ai_response: null,
+        raw_response: '{}'
+      }];
+    }
+
+    if (sql.includes('FROM conversation_items')) {
+      return [];
+    }
+
+    if (sql.includes('FROM agent_queue_messages q')) {
+      return [];
+    }
+
+    if (sql.includes('FROM agent_inbound_messages m')) {
+      return [];
+    }
+
+    throw new Error(`Unexpected query: ${sql}`);
+  });
+
+  const turns = await store.listRecentTurns({
+    userId: 1129974489,
+    groupId: null,
+    scope: 'global',
+    limit: 160
+  });
+
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0]?.groupId, 101);
+  assert.equal(turns[1]?.groupId, null);
+  assert.equal(turns[1]?.userMessage, '私聊建议：闲着可以看一本文学书');
+  assert.match(conversationQueries[0]?.sql || '', /WHERE TRUE/);
+  assert.doesNotMatch(conversationQueries[0]?.sql || '', /group_id = \?|user_id = \?|group_id IS NULL/);
+  assert.deepEqual(conversationQueries[0]?.params, []);
+});
+
 test('getRunDeliveryState returns normalized persisted delivery state', async () => {
   const store = createStoreWithSql({
     query: async () => [{

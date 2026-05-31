@@ -159,3 +159,48 @@ test('buildPresenceContextBlock exposes real web search residue without treating
   assert.match(block, /source_wording=real_web_search/);
   assert.doesNotMatch(block, /没有真实浏览器证据/);
 });
+
+test('buildPresenceContextBlock includes constructed local actions without source inflation', () => {
+  const block = buildPresenceContextBlock({
+    state: {
+      boredom: 0.6,
+      fatigue: 0.2,
+      energy: 0.8,
+      sharingDesire: 0.5,
+      sleepPressure: 0.2,
+      cooldownActive: false,
+      startupGraceActive: false
+    },
+    items: [{
+      id: 3,
+      content: '旧构造材料只能当作内部整理，不等于真的刚看过资料。',
+      sourceKind: 'reflect',
+      boundaryLabel: 'safe',
+      sourceWording: 'constructed_only',
+      effortCost: 1,
+      baseHeat: 0.9,
+      createdAt: '2026-05-31T01:30:00.000Z'
+    }],
+    recentDigitalActions: [{
+      id: 'digital_action_reflect_1',
+      actionType: 'reflect',
+      surface: 'background',
+      motiveKind: 'curiosity',
+      motiveText: '整理已有材料，但不把它说成新来源',
+      query: null,
+      status: 'completed',
+      resultSummary: '把旧构造材料降级成内部整理。',
+      residueText: '这条只能先放着，不能说成我刚看到。',
+      residueKind: 'private_note',
+      sourceWording: 'constructed_only',
+      createdAt: '2026-05-31T01:35:00.000Z'
+    }],
+    scores: [],
+    isPresenceTick: true
+  });
+
+  assert.match(block, /background\/reflect\/curiosity/);
+  assert.match(block, /source_wording=constructed_only/);
+  assert.match(block, /没有真实浏览器证据/);
+  assert.match(block, /不能伪装成实时来源/);
+});

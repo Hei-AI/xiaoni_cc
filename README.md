@@ -50,7 +50,7 @@ NapCat -> provider-service
 - `provider-service` 当前负责 provider debug、OneBot 入站和出站、queue 写入、image provider、embeddings 和 timeline 记录。
 - `agent-service` 负责消费消息批次、执行 loop agent，并把 run / trace / transcript / delivery state / 三层长期记忆写回 PostgreSQL。
 - 小腻主 prompt 只有一套，维护在 `modules/agent-service/src/prompts/xiaoni-main-agent.ts`；群/私聊不再绑定不同 prompt，DB prompt 表不再是小腻运行时来源。
-- `agent-service` 还运行 presence tick：它会把“小腻主动打开群看一眼”入队到主 loop。旧 self-action hosted `web_search` runner 已退役；当前 self-action 入口只做 eligibility/skip，不会再随机发起后台搜索。历史 `agent_digital_actions` 和 share pool 记录仍可用于观测和后续投影。
+- `agent-service` 运行 presence tick：它会把“小腻从自己的生活里抬头看一眼”的动作 append 进同一个 queue / agent loop。没有未读会话时也会走主 loop，读取全局最近事件流切片并形成可追溯 LLM run，只能 `web_search` 或 `stay_silent`，不能走旁路写硬编码兴趣。
 - provider 侧的 participation 现在保留为硬安全边界和观测事件，主行为判断逐步收口到 `agent-service` runtime。
 - 当前主发言判断在 `agent-service`；topic projection、transcript snapshot、三层长期记忆等后台能力可以用于观测、后续 typed recall projection、评测或异步产物，但不要把它们当成入口层“是否说话”的总决策器。
 - 当前对话历史里的 `<小腻的OS>` 视为小腻跨轮延续下来的内部状态与成长轨迹，按历史真相保留，并随已读历史一起参与上下文窗口管理。
@@ -96,7 +96,7 @@ docker compose ps
 - Admin Queue Management
 - Prompt 管理 / 编辑 / 调试仍可用于 Playground 和历史调试；小腻主 prompt 不再从 DB 读取。
 - Playground case library、Trace / Conversation 导入、Provider 请求 payload 查看
-- self-action 排障时，`legacy_self_action_search_removed` 是当前预期 skip；历史自主数字行动记录看 `agent_digital_actions`、`agent_share_pool_items` 和 agent-service health 里的 `self_action_busy`
+- 空闲生活事件排障时，看 `presence_tick` / `proactive_im_open` 队列项、agent run trace、`agent_life_events`、`conversation_items` 和 Traffic 里的 `llm_call_id`；不要再把 `agent_digital_actions` 当成新自主行动主链路。
 - Trace 里没有 MITM 命中的真实流量时，会从 `llm_call_logs.wire_request/wire_response` 合成 `provider.request` span；配置了 CLIProxyAPI 请求日志目录时，span detail 会优先展示真实上游 request / response，并脱敏敏感 header
 - Image Lab 生成 / 编辑 / prompt assistant
 - Codex OAuth 账号池状态、导入、刷新与 active auth 投影

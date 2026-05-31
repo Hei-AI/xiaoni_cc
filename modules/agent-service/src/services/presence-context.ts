@@ -156,15 +156,15 @@ export function buildPresenceContextBlock(params: {
       : '平稳';
   const topItems = params.items.slice(0, 3);
   const recentActions = (params.recentDigitalActions || [])
-    .filter((action) => action.status === 'completed' && action.actionType === 'web_search')
-    .slice(0, 3);
+    .filter((action) => action.status === 'completed')
+    .slice(0, 6);
   const latestRealSearch = recentActions.find((action) => action.sourceWording === 'real_web_search' && action.residueText);
   const currentResidue = latestRealSearch
     ? `最近一次真实 web_search 残留：${latestRealSearch.residueText}（query: ${latestRealSearch.query || '未记录'}；来源措辞：${latestRealSearch.sourceWording}）。`
     : '没有真实浏览器证据；mock/constructed 材料不能说成刚看到、刚刷到或我查到。';
   const actionTrace = recentActions.length > 0
     ? recentActions
-      .map((action) => `- ${action.createdAt ? new Date(action.createdAt).toISOString() : 'unknown_time'} ${action.surface}/${action.motiveKind || 'unknown'}: ${action.query || '未记录 query'}`)
+      .map((action) => `- ${action.createdAt ? new Date(action.createdAt).toISOString() : 'unknown_time'} ${action.surface}/${action.actionType}/${action.motiveKind || 'unknown'}: ${action.query || action.residueText || '未记录内容'}（source_wording=${action.sourceWording || 'unknown'}）`)
       .join('\n')
     : '- 暂无已完成的自主数字行动';
   const material = topItems.length > 0

@@ -1,15 +1,16 @@
 # Xiaoni Digital Life And Presence Context Design
 
 Status: design-locked from office-hours on 2026-05-26. Current implementation
-has landed the presence-context first slice. A constrained hosted `web_search`
-self-action slice landed on 2026-05-30, then its random runner was deleted from
-runtime on 2026-05-31; the tables and historical traces remain, but current
-runtime no longer starts new self-action searches. This is still not the full
-browser-backed digital-life system.
+has landed the presence-context first slice. Earlier self-action side runners
+were removed from the current runtime because they created a second context and
+made hardcoded interests look like Xiaoni's own life. The current shape appends
+idle/presence life events into the same main loop; a life-only event can only
+read the global recent append stream, then run grounded hosted `web_search` or
+`stay_silent`. This is still not the full browser-backed digital-life system.
 
 This document is the system of record for browser-backed digital life,
-`presence_context`, the retired self-action search slice, and the next digital
-life runner shape. `TODOS.md` keeps only the execution summary.
+`presence_context`, current idle life events, and the next browser-backed runner
+shape. `TODOS.md` keeps only the execution summary.
 
 **Core framing:**
 
@@ -42,10 +43,10 @@ energy, dopamine, boredom, and sharing desire to act.
 - Original near-term implementation favored a mock-first external action layer.
   The 2026-05-30 implementation intentionally skipped mock for the first
   autonomous action and landed a narrower real hosted `web_search` path instead.
-  That random self-action runner was retired on 2026-05-31 because it was not
-  the right current life architecture. Future mocked or real actions must still
-  be explicitly labeled internally and must not be represented to QQ users as
-  real browsing, liking, posting, or downloading without evidence.
+  That runner and the later self-action side tick were retired on 2026-05-31
+  because the current architecture has one append-only event stream, not a
+  second planner context or hardcoded interest table. Only real hosted
+  `web_search` traces may be represented as searched web evidence.
 - Digital-life exploration should be driven by internal state, not fixed
   frequency. Boredom, fatigue, dopamine, pressure, and sharing desire decide
   whether she browses, opens QQ, shares, lurks, sleeps, or says very little.
@@ -209,6 +210,15 @@ Current implemented slices:
   from agent-service runtime. Existing tables, historical records, source
   honesty checks, and presence projection support remain for replay and for the
   next digital-life runner.
+- 2026-05-31: state-driven self-action digital-life tick landed. It runs from
+  `agent-service`, chooses `idle_restore`, `read`, `reflect`, or hosted
+  `web_search` from energy/fatigue/boredom/sharing desire/material scarcity and
+  budgets, writes `agent_digital_actions` / `agent_life_events`, and only seeds
+  share pool items. It never sends QQ directly.
+- 2026-05-31: `/xiaoni-activity` now treats self-action web-search prompts and
+  canonical requests as operator-only trace data. The feed should show life-event
+  wording and residue, not tool-control instructions such as exact-query
+  enforcement.
 - Real-source wording is allowed only when the action trace proves a completed
   `web_search` whose query matches the emitted result. Constructed or mock
   material still cannot be phrased as "刚看到 / 刚刷到 / 我查到 / 我刚在评论区看到".
@@ -664,13 +674,11 @@ is engineering decomposition and subagent execution planning.
 
 **Near-term implementation implication:**
 
-Do not treat the current self-action code as the full browser-backed digital-life
-loop. The 2026-05-30 slice proved the first real-source path, but the random
-runner is no longer active. The next implementation must create a deliberate
-digital-life runner that stores traceable records and lets later
-presence/main-loop context decide whether any residue naturally enters QQ.
-Everything beyond current presence, including navigation, reading, watching,
-posting, liking, downloading, autonomous search, and stable-interest mutation
-from digital activity, remains future work.
+Do not treat the removed self-action side runner as the browser-backed
+digital-life loop. The current runtime appends idle life events into the same
+main loop and lets that loop decide whether to search or stay silent. Everything
+beyond this slice, including page navigation, watching, posting, liking,
+downloading, richer autonomous browsing, and stable-interest mutation from
+repeated digital activity, remains future work.
 
 ---

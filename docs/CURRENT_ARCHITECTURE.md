@@ -2,7 +2,7 @@
 
 本页只回答一个问题：现在小腻在 QQ 里到底是怎么工作的。
 
-这里不讲历史上做过但现在没有进入主链路的设计。业务上只需要先理解一件事：小腻不是“收到消息就回复”的机器人，而是一个会先看场、再判断自己该不该出现的 QQ 角色。她会通过 presence tick 低频主动打开群看一眼；旧的随机 self-action hosted `web_search` runner 已退役，当前不会再自动发起后台搜索。
+这里不讲历史上做过但现在没有进入主链路的设计。业务上只需要先理解一件事：小腻不是“收到消息就回复”的机器人，而是一个会先看场、再判断自己该不该出现的 QQ 角色。她会通过 presence tick 低频把“抬头看一眼”append 到同一条事件流里；是否打开 IM、搜索、沉默或发言仍由同一个 main loop 判断。
 
 ## 一句话版
 
@@ -48,22 +48,22 @@ QQ 群 / QQ 私聊
 如果回复，发回 QQ
 ```
 
-后台还有一条不由 QQ 新消息触发的 presence 主动看群链：
+后台还有一条不由 QQ 新消息触发的 presence 生活事件链：
 
 ```text
 小腻当前状态 / 预算 / 冷却
   |
   v
-presence tick 判断是否值得打开群
+presence tick 判断是否值得 append 一个空闲/看 IM 事件
   |
   v
 synthetic presence_tick 入队
   |
   v
-同一个 main loop 决定沉默 / 主动说一句 / 搜索资料
+同一个 main loop 决定沉默 / 打开未读 IM / 搜索资料 / 主动说一句
 ```
 
-旧 random web_search self-action runner 已从 runtime 删除。历史 `agent_digital_actions` 和 share pool 记录仍可用于观测、Admin 展示和后续 presence context 投影，但当前代码不会新建这种后台搜索记录。
+没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；life-only `presence_tick` 读取全局最近事件流切片，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文。压缩后通过 `<小腻近况>` / `<小腻的OS>` 延续。life-only `presence_tick` 没有打开具体会话时不能发 QQ，只能 `web_search` 或 `stay_silent`。
 
 技术对应关系只作为定位用：
 
@@ -72,7 +72,7 @@ synthetic presence_tick 入队
 | QQ 收发通道 | NapCat |
 | 收消息、发消息、调用模型的统一出口 | `provider-service` |
 | 小腻真正做行为判断的地方 | `agent-service` |
-| 历史/后续数字行动记录 | `agent_digital_actions` / `agent_share_pool_items` |
+| 历史/后续行动记录 | `agent_queue_messages` / `agent_runs` / `conversation_items` / `agent_life_events` |
 | 消息、开关、经历、学习结果的存储 | PostgreSQL / `packages/persistence` |
 
 ## 一条消息会经历什么
@@ -333,7 +333,7 @@ stay_silent
 | 三层长期记忆 | 写入已生效，召回投影待接入 | 上下文压缩时写 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`；后续由 typed recall projection 注入运行时上下文。 |
 | 身份连续性 | 生效 | 已确认的身份事实会进入当前场景。 |
 | 搜索外部信息 | 有条件生效 | 只有当前阶段允许、且她判断需要资料时才会用。 |
-| 自主 web_search 数字行动 | 已删除旧 runner | 2026-05-30 的 hosted `web_search` slice 已留下表和历史记录投影能力；当前 runtime 不再挂载 random self-action timer，也不会新建后台搜索。 |
+| 空闲生活事件 | 生效 | presence tick 会 append life-only 事件到 main loop；没有具体会话时只能 `web_search` 或 `stay_silent`，不会走旁路兴趣表。 |
 | 记录本次处理过程 | 生效 | 包括是否发言、用了什么工具、模型调用等。 |
 | 处理后沉淀经验 | 生效 | 完成的对话之后，后台可能生成新的反馈经验或身份候选。 |
 
@@ -360,7 +360,7 @@ stay_silent
 - topic projection 执行器。
 - transcript summary 结果接口。
 - 独立的 pre-agent gate 方案。
-- 完整浏览器生活侧效应，例如登录、点赞、关注、评论、下载或跨平台身份行为。旧 self-action hosted `web_search` runner 也不是当前主链路；后续数字生活 runner 需要重新设计和接入。
+- 完整浏览器生活侧效应，例如登录、点赞、关注、评论、下载或跨平台身份行为。当前只覆盖 presence tick 进入主 loop 后的低风险 `web_search` / `stay_silent`，还不是完整浏览器生活。
 
 它们可能用于历史、实验或未来工作，但当前理解小腻真实行为时，先从这条链路开始：
 

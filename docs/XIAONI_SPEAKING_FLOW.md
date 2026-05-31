@@ -41,8 +41,6 @@ flowchart TD
 
   AgentTimer[agent-service presence timer] --> PresenceQueue[(synthetic presence_tick)]
   PresenceQueue --> Loop
-  RetiredSelfAction[旧 random self-action runner 已删除]
-  HistoricalActions[(historical agent_digital_actions / share pool)] --> Loop
 ```
 
 一句话：被动发言、presence 主动发言最后都汇入同一个 `agent-service` main loop。普通说话、主动说一句和沉默现在都在第一轮 `submit_life_action` 内完成；只有真正需要外部结果时才进入后续工具轮。
@@ -84,9 +82,11 @@ flowchart TD
   G --> H[同一个 main loop]
 ```
 
-presence tick 只决定“要不要从小腻自己的生活里抬头检查 IM 列表并入队”。它不再读取固定目标群；处理时如果 inbox 有未读，会选择一个未读会话 claim 成 `proactive_im_open`，真正说不说仍由 main loop 判断。
+presence tick 只决定“要不要把小腻从自己的生活里抬头看一眼这件事 append 进同一个事件流”。处理时如果 inbox 有未读，会选择一个未读会话 claim 成 `proactive_im_open`；如果没有未读，也会作为 life-only `presence_tick` 进入同一个 main loop。life-only tick 读取全局最近事件流切片，不能发 QQ，只能按当前事件流、压缩近况和 `<小腻的OS>` 选择 `web_search` 或 `stay_silent`。
 
-旧的后台 hosted `web_search` self-action runner 已从 runtime 删除。历史 `agent_digital_actions` 和 share pool 记录仍可被 presence/context 读取，后续新的数字生活 runner 需要重新接入。
+已经移除 self-action 旁路数字生活 tick。代码里不能硬编码兴趣、动机或读书 seed；群聊/私聊里的建议本来就在事件流里，life-only tick 未压缩时从全局最近事件流读取，压缩后通过 `<小腻近况>` / `<小腻的OS>` 延续。
+
+`/xiaoni-activity` 展示 Xiaoni 层面的生活事件和安全 trace 摘要。旧 `agent_digital_actions` 只作为历史观测兼容展示，不再作为新自主行动主链路。
 
 ## Main Loop 当前契约
 

@@ -1,15 +1,11 @@
 'use strict';
 
-function pad(value, width = 2) {
-  return String(value).padStart(width, '0');
-}
-
 function normalizeDate(value) {
   if (!value) {
     return null;
   }
   if (value instanceof Date) {
-    return `${value.getUTCFullYear()}-${pad(value.getUTCMonth() + 1)}-${pad(value.getUTCDate())}T${pad(value.getUTCHours())}:${pad(value.getUTCMinutes())}:${pad(value.getUTCSeconds())}.${pad(value.getUTCMilliseconds(), 3)}+08:00`;
+    return value.toISOString();
   }
   return typeof value === 'string' ? value : String(value);
 }
@@ -144,6 +140,21 @@ function eventTimestamp(value) {
   return normalizeDate(value) || new Date(0).toISOString();
 }
 
+function canonicalMetadata(row) {
+  const request = normalizeJsonObject(row?.canonical_request, null);
+  return normalizeJsonObject(request?.metadata, {});
+}
+
+function isSelfActionSearchLlm(row) {
+  const metadata = canonicalMetadata(row);
+  return row?.agent_type === 'self_action_search'
+    || row?.llm_agent_type === 'self_action_search'
+    || row?.prompt_template === 'self_action_search:web_search'
+    || row?.prompt_name === 'self_action_search:web_search'
+    || metadata.action_type === 'self_action_search'
+    || metadata.session_id === 'self_action:xiaoni';
+}
+
 const LIFE_EVENT_LABELS = {
   surface_visit: '打开会话',
   qq_message_seen: '看到消息',
@@ -166,6 +177,18 @@ function isAutonomousQueueSource(source) {
 }
 
 function lifeEventTitle(eventKind, payload) {
+  if (eventKind === 'self_action_started') {
+    if (payload.action_type === 'web_search') return '开始查一点资料';
+    if (payload.action_type === 'read') return '翻了点材料';
+    if (payload.action_type === 'reflect') return '整理刚才的念头';
+    if (payload.action_type === 'idle_restore') return '离开刺激源';
+  }
+  if (eventKind === 'self_action_completed') {
+    if (payload.action_type === 'web_search') return '记下一条搜索残留';
+    if (payload.action_type === 'read') return '留下一个阅读念头';
+    if (payload.action_type === 'reflect') return '把念头先放一放';
+    if (payload.action_type === 'idle_restore') return '短暂休息';
+  }
   if (eventKind === 'surface_visit') {
     if (payload.wake_kind === 'proactive_use_im') {
       return '主动打开 IM';
@@ -197,6 +220,14 @@ function lifeEventBody(row, payload) {
     const senderName = firstString(payload.sender_name, payload.sender_id);
     const body = firstString(payload.body_for_agent, payload.raw_body);
     return [senderName ? `${senderName}:` : null, body].filter(Boolean).join(' ');
+  }
+
+  if (row.event_kind === 'self_action_completed') {
+    return firstString(
+      payload.residue_text,
+      payload.action_type === 'web_search' ? payload.result_summary : null,
+      payload.motive_text
+    );
   }
 
   return null;
@@ -238,6 +269,7 @@ function summarizeLifeEvent(row) {
     traceId: row.trace_id || null,
     tone: row.actor_type === 'human' ? 'neutral' : eventKind.includes('blocked') ? 'danger' : eventKind.includes('silence') ? 'warning' : 'xiaoni',
     metadata: {
+      sourceActionId: row.source_action_id || payload.action_id || null,
       surface: row.surface || null,
       chatType: row.chat_type || null,
       peerId: row.peer_id || null,
@@ -246,20 +278,45 @@ function summarizeLifeEvent(row) {
       rewardDelta: Number(row.reward_delta || 0),
       boredomDelta: Number(row.boredom_delta || 0),
       attentionDelta: Number(row.attention_delta || 0),
+      payloadPreview: previewJson(payload),
       payload
     }
   };
 }
 
 function summarizeDigitalAction(row) {
+  const sourceTrace = normalizeJsonObject(row.source_trace);
+  const budgetSnapshot = normalizeJsonObject(row.budget_snapshot);
+  const decisionLlmCallId = firstString(
+    sourceTrace.decision_llm_call_id,
+    sourceTrace.planner_llm_call_id,
+    sourceTrace.planner?.llm_call_id
+  );
+  const searchLlmCallId = firstString(
+    sourceTrace.search_llm_call_id,
+    sourceTrace.llm_call_id
+  );
+  const interestCandidates = Array.isArray(sourceTrace.interest_candidates)
+    ? sourceTrace.interest_candidates
+    : Array.isArray(sourceTrace.interests)
+      ? sourceTrace.interests
+      : null;
   const body = row.error_message
     ? row.error_message
-    : firstString(row.result_summary, row.residue_text, row.motive_text, row.query);
+    : row.action_type === 'web_search'
+      ? firstString(row.result_summary, row.residue_text, row.motive_text, row.query)
+      : firstString(row.residue_text, row.result_summary, row.motive_text, row.query);
+  const titleByAction = {
+    web_search: '查了点公开资料',
+    read: '翻了点材料',
+    reflect: '把念头先放一放',
+    idle_restore: '短暂休息'
+  };
   return {
     id: `digital:${row.id}`,
     source: 'digital_action',
     kind: row.action_type || 'digital_action',
-    title: row.action_type === 'web_search' ? '后台搜索' : '数字行动',
+    title: titleByAction[row.action_type] || '后台行动',
     body: truncateText(body, 360),
     status: row.status || null,
     actor: 'xiaoni',
@@ -281,8 +338,13 @@ function summarizeDigitalAction(row) {
       sourceWording: row.source_wording || null,
       completedAt: normalizeDate(row.completed_at),
       updatedAt: normalizeDate(row.updated_at),
-      sourceTrace: normalizeJsonObject(row.source_trace),
-      budgetSnapshot: normalizeJsonObject(row.budget_snapshot)
+      decisionLlmCallId,
+      searchLlmCallId,
+      actionTracePreview: previewJson(sourceTrace),
+      budgetSnapshotPreview: previewJson(budgetSnapshot),
+      interestCandidatesPreview: interestCandidates ? previewJson(interestCandidates) : null,
+      sourceTrace,
+      budgetSnapshot
     }
   };
 }
@@ -291,6 +353,7 @@ function summarizeToolCall(row) {
   const args = normalizeJsonObject(row.arguments);
   const result = normalizeJsonObject(row.result);
   const inContext = buildInContextSnapshot(row.canonical_request, row.context_summary, row.input_prompt);
+  const operatorOnly = isSelfActionSearchLlm(row);
   const isBlockedTransition = Boolean(result.blocked_transition);
   const sentMessages = Array.isArray(result.sent_messages)
     ? result.sent_messages.filter((item) => typeof item === 'string' && item.trim()).join('\n')
@@ -344,16 +407,17 @@ function summarizeToolCall(row) {
       errorMessage: row.error_message || null,
       llmAgentType: row.llm_agent_type || null,
       llmModelName: row.llm_model_name || null,
-      inContextPreview: inContext.preview,
+      inContextPreview: operatorOnly ? null : inContext.preview,
       inContextMessageCount: inContext.messageCount,
-      toolArgumentsPreview: previewJson(args),
-      toolResultPreview: previewJson(result)
+      toolArgumentsPreview: operatorOnly ? null : previewJson(args),
+      toolResultPreview: operatorOnly ? null : previewJson(result)
     }
   };
 }
 
 function summarizeLlmCall(row) {
   const inContext = buildInContextSnapshot(row.canonical_request, row.context_summary, row.input_prompt);
+  const operatorOnly = isSelfActionSearchLlm(row);
   const title = `LLM: ${row.agent_type || row.prompt_template || 'runtime'}`;
   const modelName = row.model_name || row.model_provider || 'LLM';
   const inputTokens = Number(row.input_tokens || 0);
@@ -390,9 +454,9 @@ function summarizeLlmCall(row) {
       outputTokens,
       completedAt: normalizeDate(row.completed_at),
       errorMessage: row.error_message || null,
-      inContextPreview: inContext.preview,
+      inContextPreview: operatorOnly ? null : inContext.preview,
       inContextMessageCount: inContext.messageCount,
-      responsePreview: truncateText(firstString(row.processed_response, row.raw_response), 520),
+      responsePreview: operatorOnly ? null : truncateText(firstString(row.processed_response, row.raw_response), 520),
       tokenUsage: normalizeJsonObject(row.token_usage)
     }
   };
@@ -678,8 +742,8 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
       const latestDigitalAction = latestByTimestamp(digitalActions);
 
       const items = dedupeFeedItems([
-        ...traceToolRows.map(summarizeToolCall),
-        ...traceLlmRows.map(summarizeLlmCall),
+        ...traceToolRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeToolCall),
+        ...traceLlmRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeLlmCall),
         ...lifeEvents.map(summarizeLifeEvent),
         ...digitalActions.map(summarizeDigitalAction),
         ...tasks.map(summarizeTask),

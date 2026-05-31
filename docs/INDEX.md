@@ -32,7 +32,7 @@
   - `docs/AGENTS_AGENT_LOOP_RUNTIME.md`
 - 小腻被动发言 / 主动发言阶段图、数据源和来源：
   - `docs/XIAONI_SPEAKING_FLOW.md`
-- 小腻数字生活 / `presence_context` 设计、已落地 presence slice 与已退役 self-action search slice：
+- 小腻数字生活 / `presence_context` 设计、已落地 presence slice 与当前空闲生活事件：
   - `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`
 - 路线图：
   - `docs/ROADMAP.md`
