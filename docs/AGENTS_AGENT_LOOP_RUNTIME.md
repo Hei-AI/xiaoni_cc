@@ -72,6 +72,14 @@ reply_in_private
 stay_silent
 ```
 
+life-only presence tick 当前工具定义：
+
+```text
+submit_life_action
+web_search, if enabled
+stay_silent
+```
+
 group chat 第一轮：
 
 ```text
@@ -105,13 +113,14 @@ if latest life action is image_task and still needs external work:
 | `should_search` | 是否需要公开新资料 |
 | `context_gap` / `gap_resolution` | 当前上下文缺口属于哪一类，应该怎么处理 |
 | `xiaoni_os` | 本轮之后留给下一次运行的内部连续性 |
-| `pending_share` | 可选，下一轮可能主动分享的材料 |
+| `pending_share` | 可选，下一轮可能主动分享的材料；life-only 场景会并入 `<小腻的OS>` |
 
 普通 `speak` / `proactive` / `silent` 会在 `commitLifeAction` 内直接收口，不再等待下一轮 actor tool：
 
 - `speak` / `proactive` 且有 `messages`：直接调用 `sendMessage`。
 - `silent`：直接返回 finished。
 - `speak` / `proactive` 但没有 `messages`：降级成 silent，避免空发言。
+- life-only `presence_tick` 的 `speak` / `proactive` / `image_task` 不会发送 QQ；runtime 会把可分享文本整理成 `我想回头分享这个：...` 并写回 `xiaoni_os`。
 
 `search` 和部分 `image_task` 返回 `finished=false`，让 loop 进入必要的外部工具轮。
 
@@ -171,6 +180,7 @@ unread_meaning.addressed_to_me = true
 ```text
 sent_messages
 xiaoni_os
+pending_share
 loop_stage_artifacts.unread_meaning
 loop_stage_artifacts.life_action
 context_budget_turns
@@ -239,4 +249,5 @@ per-turn `feedback_memory_writer` 现在只保留 timeline start/end，不再调
 | 模型自然语言结束，没有工具调用 | provider canonical response；主 loop 要求每轮必须有 tool call |
 | 明明要说却沉默 | `participation_judgment`、`reaction_authenticity`、`interest_level`、`unread_meaning` |
 | 发了两次 | delivery commit / duplicate outbound fingerprint |
-| 压缩后忘记刚才在干什么 | `context_summary_writer` 写出的 `<小腻近况>` 是否置顶回放 |
+| life-only tick 想分享但没发出来 | 这是预期；无具体 IM 目标时看 `raw_response.xiaoni_os` 是否包含“我想回头分享这个” |
+| 压缩后忘记刚才在干什么 | `context_summary_writer` 输入是否包含 `<小腻的OS>`，以及写出的 `<小腻近况>` 是否置顶回放 |

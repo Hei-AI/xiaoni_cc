@@ -8,7 +8,9 @@ context and made hardcoded interests look like Xiaoni's own life. The current
 shape appends idle/presence life events into the same main loop; a life-only
 event can read the global recent append stream, submit an internal life action,
 run grounded hosted `web_search`, or `stay_silent`. It still cannot send QQ
-without a concrete IM target. This is still not the full browser-backed
+without a concrete IM target. "想回头分享" material is current-context residue:
+it is appended into `<小腻的OS>` and later `<小腻近况>`, not routed through a
+separate share-pool queue. This is still not the full browser-backed
 digital-life system.
 
 This document is the system of record for browser-backed digital life,
@@ -74,7 +76,7 @@ energy, dopamine, boredom, and sharing desire to act.
 兴趣画像 / 群聊残留
 → 小腻自己探索数字内容：读、看、玩、搜、收藏、整理
 → 形成数字生活所得和自己的反应
-→ 进入待分享池
+→ 追加成上下文残留 / `<小腻的OS>`
 → 情绪能量决定她是否打开群、主动分享、接当前话题、潜水或睡觉
 → 群友反应回流到分享欲、关系温度、偏好和边界
 → 影响下一轮浏览和分享
@@ -93,9 +95,9 @@ energy, dopamine, boredom, and sharing desire to act.
   type, platform, target, motive, current state, result, whether it formed a
   share candidate, and whether it should affect interests. Mock records must be
   marked as mock and cannot justify "刚看到 / 刚刷到 / 我查到" wording.
-- `待分享池`: shareable fragments derived from digital-life material, each with
-  possible phrasings, tone, source visibility, and whether it can be shared
-  without a group trigger.
+- `上下文残留`: shareable fragments derived from digital-life material, expressed
+  as Xiaoni's own continuity in `<小腻的OS>` / `<小腻近况>`, with source honesty
+  and whether it can be shared without a group trigger.
 - `情绪能量`: dopamine, pressure, fatigue, boredom, sharing desire, and
   willingness to elaborate. This translates inner state into action.
 - `群友反应`: whether people picked up her share, ignored it, pushed back,
@@ -204,15 +206,17 @@ cannot become more and more active when she is already exhausted.
   cross-platform public identity mutation.
 - Full digital reading / watching / gaming / organizing action storage beyond
   historical `agent_digital_actions` compatibility records.
-- Full share-pool ranking.
+- A separate share-pool queue / ranking path for "想回头分享" residue.
 - Full reaction feedback loop into interests and sharing desire.
 - Full state-driven action scheduling for browsing/opening QQ/sleeping.
 
 Current implemented slices:
 
-- 2026-05-26: presence tick, share pool, life-state anchors, and sidecar traces.
-  This lets Xiaoni proactively open a configured group and inject factual
-  `<小腻当前状态>` into the normal main loop.
+- 2026-05-26: presence tick, historical share-pool tables, life-state anchors,
+  and sidecar traces. The original slice let Xiaoni proactively open a configured
+  group and inject factual `<小腻当前状态>` into the normal main loop; the current
+  runtime now materializes unread IM targets dynamically and otherwise stays
+  life-only inside the same loop.
 - 2026-05-30: self-action `web_search`. The agent-service background loop checks
   budget, cooldown, startup grace, fatigue, and user-interaction limits, then
   calls provider-service with hosted `web_search` plus
@@ -242,9 +246,10 @@ Current implemented slices:
   canonical requests as operator-only trace data. The feed should show life-event
   wording and residue, not tool-control instructions such as exact-query
   enforcement.
-- Real-source wording is allowed only when the current event/share-pool trace
-  carries `source_wording=real_web_search`. Historical `agent_digital_actions`
-  records do not by themselves create current-source wording.
+- Real-source wording is allowed only when the current life-event / context
+  residue trace carries `source_wording=real_web_search`. Historical
+  `agent_digital_actions` records do not by themselves create current-source
+  wording.
 
 Mock-to-interest promotion rule:
 
@@ -306,11 +311,15 @@ Cross-group sharing rule:
 - If abstract reframing preserves the interesting part, prefer `reframe` over
   `blocked`.
 
-Share-pool rule:
+Context-residue rule:
 
-- The share pool is Xiaoni's temporary "what I might want to talk about" buffer,
-  not a knowledge base. It should make her feel like a person with lingering
-  thoughts, not a retrieval bot answering questions.
+- The current live path for "what I might want to talk about" is normal context:
+  `pending_share` is merged into `<小腻的OS>` as "我想回头分享这个：...". It should
+  make her feel like a person with lingering thoughts, not a retrieval bot
+  answering questions.
+- Historical share-pool tables and sidecars may still exist for compatibility
+  and old traces, but they are not the required current path for new life-only
+  residue.
 - First implementation should support `刚热起来的材料` and `当天残留`:
   - `刚热起来的材料`: a joke, topic, reading impression, viewing impression, game
     thought, or tucao that is hot right now and likely expires quickly.
@@ -318,7 +327,7 @@ Share-pool rule:
     appeared repeatedly, touched her interests, or got a meaningful reaction.
 - `长期收藏` should not auto-mutate stable interests in the first slice. It can
   produce durable-interest candidates for operator/reviewer inspection.
-- Each share-pool item should carry plain fields:
+- Each context residue item should carry plain fields:
   - `source_kind`: constructed thought/meme/topic, group residue, real browsing,
     real reading, real watching, real gaming, or real external action.
   - `heat`: how much Xiaoni wants to say it now.
@@ -335,7 +344,7 @@ Share-pool rule:
 
 Expiration / recall ranking rule:
 
-- Use time-decay scoring for same-day residue, share-pool items, and recent
+- Use time-decay scoring for same-day residue, context residue, and recent
   action traces. Do not rely on the LLM to remember which materials are stale.
   Retrieval should sort by decayed score and only pass the top material into
   the current-state block.
@@ -374,8 +383,8 @@ Mock digital-life generation timing:
   state-triggered generation plus a low-frequency fallback.
 - Main triggers:
   - high boredom: Xiaoni is not pulled by the current chat but wants stimulation.
-  - material scarcity: the share pool has no usable recent material and Xiaoni
-    has some sharing desire.
+  - material scarcity: the current context has no usable residue and Xiaoni has
+    some sharing desire.
   - medium fatigue: Xiaoni is tired but not exhausted, so low-cost digital
     actions such as reading a few lines, watching a short clip, browsing saved
     material, or playing something light are plausible.
@@ -412,7 +421,7 @@ mock_generation_score =
     relief, or low-cost stimulation.
   - `result`: what Xiaoni encountered or thought.
   - `reaction`: Xiaoni's own reaction.
-  - `share_candidate_id`: generated share-pool item, if any.
+  - `share_candidate_id`: generated context residue item, if any.
   - `next_state_delta`: how the action changed heat, boredom, fatigue, sharing
     desire, or pressure.
   - `source_honesty`: mock/constructed versus real evidence and what wording is
@@ -427,7 +436,7 @@ Operator traceability rule:
 - Every generated `小腻当前状态` block must have a sidecar trace. Do not store
   only the final prompt text.
 - The sidecar trace should record:
-  - `source_items`: action records, share-pool items, group residue, energy
+  - `source_items`: action records, context residue items, group residue, energy
     snapshot, and short-term interest candidates used.
   - `recall_scores`: each candidate's base heat, time-decayed score, strong
     pickup boost, self-selection boost, digital revisit boost, weak feedback
@@ -446,7 +455,7 @@ Operator traceability rule:
 
 ```text
 group residue / digital action
-→ share-pool candidate
+→ context residue candidate
 → recall score with decay and boosts
 → boundary label
 → compressed current-state block
@@ -459,7 +468,7 @@ group residue / digital action
 State persistence rule:
 
 - `一轮内状态`: whether Xiaoni wants to speak now, speak briefly or at length,
-  engage the current topic, proactively share, pick from the share pool, or
+  engage the current topic, proactively share from current residue, or
   lurk. This is consumed by the current turn and should not be persisted as
   personality.
 - `当天状态`: fatigue curve, boredom, sharing desire, current mood, hot material,
@@ -481,7 +490,7 @@ In-context action arbitration rule:
   in-context block, then let the model choose the socially natural action inside
   the current group scene.
 - The block should be retrieved and synthesized from actual state stores:
-  digital-life traces, mock digital-life traces, share-pool items, same-day
+  digital-life traces, mock digital-life traces, context residue, same-day
   residue, short-term preference candidates, fatigue/energy curves, and current
   group residue. It should not be a static list of generic options.
 - The block should describe Xiaoni's current mental/social scene with enough
@@ -500,12 +509,12 @@ In-context action arbitration rule:
   Good shape: "刚才读到的段落让她想到 X，她现在有点累，眼睛有点发干";
   bad shape: "you must reply now" or "you must use this topic".
 - "刚刚在做什么" must come from a real digital trace, recalled same-day residue,
-  share-pool item, ongoing group-presence state, or explicitly constructed mock
+  context residue item, ongoing group-presence state, or explicitly constructed mock
   material. If Xiaoni has simply been present in the group, say that. If there
   is no concrete material, say there is no concrete shareable residue instead of
   inventing a source.
 - The model may decide among: lurk, short reaction, emoji-like light response,
-  engage current topic, proactively share from the share pool, briefly tucao,
+  engage current topic, proactively share from context residue, briefly tucao,
   or stay away because fatigue/pressure is too high.
 - State wording should bias toward human-like behavior without over-controlling
   output. It should be rich enough to help the model continue from Xiaoni's
@@ -644,9 +653,9 @@ In-context state writing principle (locked 2026-05-26):
   Familiarity answers "how open can Xiaoni be here"; energy/action budget answers
   "how much effort can she spend now".
 - Digital-life traces are records of what Xiaoni did, saw, read, watched, played,
-  saved, or constructed as mock material. They become share-pool items and
-  current-state material through recall/ranking, not by being pasted wholesale
-  into every prompt.
+  saved, or constructed as mock material. In the current architecture they
+  become context residue and current-state material through recall/ranking, not
+  by being pasted wholesale into every prompt.
 - The in-context block is private and disposable. It may affect this turn's
   action and wording, but it should not mutate stable interests or identity
   unless the promotion rules produce evidence.
@@ -655,7 +664,7 @@ In-context state writing principle (locked 2026-05-26):
 ```text
 stable identity / world narrative
 → tools create real or mock digital-life/action records
-→ records update share pool, same-day residue, energy/fatigue/action history
+→ records update context residue, same-day residue, energy/fatigue/action history
 → recall/ranking selects source items with decay and boundary labels
 → current-state block projects selected state into prompt
 → model chooses socially natural action
@@ -681,8 +690,10 @@ First-slice recall sources for `小腻当前状态`:
 - `近期行动轨迹`: a compressed sequence of recent presence/digital actions, such
   as putting the phone down, doing another digital task, returning to QQ,
   watching the group continue, and deciding whether the topic is still alive.
-- `待分享池`: currently hot material, including whether each item is better as
-  a short line, light chat, or longer explanation.
+- `上下文残留`: currently hot material, including whether each item is better as
+  a short line, light chat, or longer explanation. In the live path this is
+  carried by `<小腻的OS>` / `<小腻近况>` and trace metadata, not by a separate
+  share-pool queue.
 - `当天情绪能量`: fatigue, boredom, sharing desire, pressure, and current action
   cost.
 - `近期群聊残留`: topics, jokes, disputes, or questions from the recent group

@@ -78,11 +78,11 @@ flowchart TD
   C -->|startup grace / cooldown / fatigue / not bored| D[不入队]
   C -->|eligible| E[构造 synthetic message<br/>source=presence_tick]
   E --> F[(agent_queue_messages)]
-  F --> G[buildPresenceContext<br/>life state + share pool + digital residue]
+  F --> G[buildPresenceContext<br/>life state + OS / context residue]
   G --> H[同一个 main loop]
 ```
 
-presence tick 只决定“要不要把小腻从自己的生活里抬头看一眼这件事 append 进同一个事件流”。处理时如果 inbox 有未读，会选择一个未读会话 claim 成 `proactive_im_open`；如果没有未读，也会作为 life-only `presence_tick` 进入同一个 main loop。life-only tick 读取全局最近事件流切片，不能发 QQ，只能按当前事件流、压缩近况和 `<小腻的OS>` 选择 `web_search` 或 `stay_silent`。
+presence tick 只决定“要不要把小腻从自己的生活里抬头看一眼这件事 append 进同一个事件流”。处理时如果 inbox 有未读，会选择一个未读会话 claim 成 `proactive_im_open`；如果没有未读，也会作为 life-only `presence_tick` 进入同一个 main loop。life-only tick 读取全局最近事件流切片，不能发 QQ，但可以按当前事件流、压缩近况和 `<小腻的OS>` 选择内部 `submit_life_action`、`web_search` 或 `stay_silent`。如果内部行动产生“想回头分享”的内容，它会进入 `xiaoni_os`，后续通过普通上下文或 `<小腻近况>` 压缩延续。
 
 已经移除 self-action 旁路数字生活 tick。代码里不能硬编码兴趣、动机或读书 seed；群聊/私聊里的建议本来就在事件流里，life-only tick 未压缩时从全局最近事件流读取，压缩后通过 `<小腻近况>` / `<小腻的OS>` 延续。
 

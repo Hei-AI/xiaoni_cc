@@ -172,7 +172,8 @@ slice implemented on 2026-05-30 and retired as an active runner on 2026-05-31.
 
 **Design summary:** Xiaoni's `presence_context` must be a projection of a
 browser/digital-life action loop, not a standalone fake mood paragraph. The
-2026-05-26 slice added presence/share-pool state. The 2026-05-30 slice added a
+2026-05-26 slice added presence state plus the historical share-pool tables. The
+2026-05-30 slice added a
 narrow real hosted `web_search` self-action path without implementing full
 browser side effects; the random runner was retired on 2026-05-31, leaving the
 tables, source-honesty constraints, and historical projection support for the
@@ -189,8 +190,9 @@ Locked decisions from office-hours:
   explicit boundaries, privacy, identifying details, private conflict, or obvious
   local constraints.
 - Interest growth is layered: seed interests, temporary heat, stable interests.
-- Share-pool recall uses time-decay scoring and only passes top material into
-  current-state context.
+- Current residue uses time-decay scoring and only passes top material into
+  current-state context; the historical share-pool tables are compatibility
+  surfaces, not the required path for new "想回头分享" material.
 - Mock or real digital-life generation, if added later, must be state-triggered,
   not blind timer-based. The old hosted `web_search` self-action runner is no
   longer active; current `agent-service` runtime starts queue polling, task
@@ -223,7 +225,7 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
 - Removed the old raw-SQL `agent_session_state` persistence export and stopped
   creating/writing that table from agent-service; compatibility emotional-state
   reads now derive from `AgentSessionLifeState` anchors.
-- Added focused tests for presence state derivation, share-pool scoring,
+- Added focused tests for presence state derivation, historical share-pool scoring,
   factual context block shape, legacy pending-share retirement, and
   `presence_tick:xiaoni` target session replacement.
 - Verified with `npm --prefix packages/persistence run generate`,
@@ -320,7 +322,7 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
   No `target_group_id` — shareable material is identity-level; usage is tracked per
   materialized session when a proactive IM open actually happens.
 
-- `AgentShareItemUsage` — per-group usage record for share pool items (locked 2026-05-26
+- `AgentShareItemUsage` — per-group usage record for historical share-pool items (locked 2026-05-26
   second-pass, replaces `consumed_at`):
   ```
   id                  Int      @id @autoincrement
@@ -347,7 +349,7 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
   trace_id             String?  @db.VarChar(128)
   identity_key         String
   target_session_key   String?
-  source_items         Json     // array of item ids + share pool items used
+  source_items         Json     // array of item ids + historical share-pool/context residue items used
   recall_scores        Json     // base_heat, decay, boosts, boundary_penalty, final_score per item
   boundary_judgments   Json     // safe/reframe/blocked labels per item
   compression_mapping  Json     // which items became which sections
@@ -397,13 +399,14 @@ enqueue helper in `packages/persistence` must not use raw SQL (CLAUDE.md constra
 Add `AgentQueueMessage` to `schema.prisma` before implementing the enqueue helper.
 Sequence: schema migration → Prisma client regeneration → enqueue helper implementation.
 
-**Proactive share state — retire old system (Codex finding):**
-`upsertProactiveShareState` at `runtime-store.ts:2236` already stores one pending
-share string per session with aging/incrementing logic (see `agent-loop-service.ts:2979`).
-`AgentSharePoolItem` is a richer inventory table. These are two competing proactive
-share state machines. When implementing `AgentSharePoolItem`, explicitly retire the
-`pendingProactiveShare` / `pendingProactiveShareAge` fields: stop writing them,
-stop reading them, remove the aging logic. Do not let both run simultaneously.
+**Proactive residue state — current boundary (updated 2026-05-31):**
+Do not add another proactive share queue. Life-only "想回头分享" material is
+emitted as `pending_share` and merged into `xiaoni_os` / `<小腻的OS>` so normal
+context replay and summary compression carry it forward. Existing
+`AgentSharePoolItem`, `AgentShareItemUsage`, `pendingProactiveShare`, and
+`pendingProactiveShareAge` surfaces are historical/compatibility surfaces unless
+a later task explicitly replaces them; they are not the required path for new
+life-only residue.
 
 **Proactive trigger — presence_tick timer:**
 - Add `presenceTickTimer` to `modules/agent-service/src/index.ts` following the
@@ -415,9 +418,10 @@ stop reading them, remove the aging logic. Do not let both run simultaneously.
   not importing provider-service). Must generate unique `message_sid` and
   `dedupe_key` per tick window — `dedupe_key` is globally unique in the schema
   (`runtime-store.ts:3442`).
-- Thresholds: boredom >= 65, fatigue < 60, energy >= 35, sharePool has available
-  item, 45 min cooldown since last proactive, 2/session, 12/day global. Soft
-  signals fed into in-context state — model infers whether to post.
+- Thresholds: boredom/reward pressure high enough, fatigue/cooldown within
+  limits, and no startup/user-interaction suppression. Context residue is a
+  prompt input, not a hard enqueue prerequisite. Soft signals feed into
+  in-context state; the model infers whether to act.
 
 **Type discriminator and active IM selection (updated 2026-05-31):**
 `claimNextQueueMessage` batches every pending row for the same `session_key` and
@@ -433,8 +437,10 @@ Timer flow:
    target group. The row means “小腻从自己的生活里抬头看 IM 列表”.
 4. Agent loop selects an unread inbox conversation at runtime. If one exists, it
    claims that session and materializes the run as `source = proactive_im_open`.
-5. If no unread conversation exists, the run completes as an idle no-reply tick
-   without calling the model and without creating any group/private delivery target.
+5. If no unread conversation exists, the row still runs through the main loop as
+   a life-only `presence_tick` with no group/private delivery target. It may
+   submit an internal life action, use `web_search`, or `stay_silent`, but it
+   must not send QQ directly.
 
 **Crash window (known risk, accepted this version — locked 2A):** If the process
 crashes between step 4 (anchor write) and step 5 (enqueue), the anchor is written
@@ -487,9 +493,10 @@ candidate items as arguments; no Date.now(), DB reads, or store calls inside):
 
 - Proactive trigger: unit test that `shouldFireProactiveTick(state)` returns true
   only when all thresholds pass, and false when any single threshold fails (boredom
-  too low, fatigue too high, cooldown active, share pool empty).
-- Share-pool decay: unit test that `scoreSharePoolItem(item, now)` returns a lower
-  score as `now - item.createdAt` increases (monotone decay).
+  too low, fatigue too high, cooldown active, no usable context residue).
+- Residue decay: unit test that `scoreSharePoolItem(item, now)` returns a lower
+  score as `now - item.createdAt` increases (monotone decay; function name is
+  historical).
 - State derivation: unit test that `deriveLifeState(anchors, now)` produces
   correct meter values from fixed anchor timestamps (no DB call needed in test).
 
@@ -962,7 +969,7 @@ a human-readable way.
 - Implement a presence-context v2 projection that follows the design doc's
   six-section `小腻当前状态` shape instead of the current thin key/value block.
 - Add a real recent-action trace source. It should be built from stored
-  presence/digital-action records, ongoing QQ presence state, share-pool source
+  presence/digital-action records, ongoing QQ presence state, context residue
   items, same-day group residue, and explicit mock/constructed records. Do not
   invent offline or unsupported external experiences.
 - Replace raw decimals in prompt context with readable scaled state, for example
@@ -979,7 +986,7 @@ a human-readable way.
   thought or topic, but cannot be phrased as "刚看到 / 刚刷到 / 我查到" unless
   there is real browser evidence.
 - Expand `agent_presence_state_sidecars` or its `compression_mapping` so a
-  generated block can be audited back to action records, share-pool items,
+  generated block can be audited back to action records, context residue items,
   energy snapshot, group residue, and source-boundary decisions.
 
 **Likely implementation areas:**
@@ -1127,7 +1134,7 @@ return to a self-initiated action.
 
 ### Task 14 - Xiaoni homeostasis reducer
 
-**Status:** todo.
+**Status:** first reducer slice implemented 2026-05-31; follow-up hardening remains.
 
 **Design doc:** `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`
 
@@ -1215,8 +1222,9 @@ an explicit readiness pass instead of being left as operator folklore.
 4. Backfill presence foundation data with source honesty.
    - Add sleep/awake anchors, energy/fatigue history, short-term heat / durable
      interest candidates, and real or explicitly mocked digital action logs.
-   - Ensure share pool items carry source wording and boundary labels, especially
-     `mock_only` / constructed wording vs `real_web_search`.
+   - Ensure context residue and any historical share-pool rows carry source
+     wording and boundary labels, especially `mock_only` / constructed wording
+     vs `real_web_search`.
    - Do not let QQ-visible wording imply real browsing when the underlying item is
      seed/mock/constructed material.
 
@@ -1242,8 +1250,8 @@ an explicit readiness pass instead of being left as operator folklore.
   and disabled/test rows without deleting anything by default.
 - Zero enabled auto-reply chats are missing a valid `agent_prompt_id`, unless
   fallback behavior is explicitly documented and tested.
-- Presence data has explicit anchors/action-log/share-pool source labels and does
-  not blur mock material into real-source language.
+- Presence data has explicit anchors/action-log/context-residue source labels and
+  does not blur mock material into real-source language.
 - Current runtime/admin views separate current, legacy, test, seed/mock, and
   incident data.
 - Schema drift between Prisma, runtime DDL, and live DB is either eliminated or
