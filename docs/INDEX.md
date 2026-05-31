@@ -34,6 +34,8 @@
   - `docs/XIAONI_SPEAKING_FLOW.md`
 - 小腻数字生活 / `presence_context` 设计、已落地 presence slice 与当前空闲生活事件：
   - `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`
+- 小腻 homeostasis reducer、`agent_life_events` 事件流真相源和下一阶段边界：
+  - `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`
 - 路线图：
   - `docs/ROADMAP.md`
 - 当前主动队列：

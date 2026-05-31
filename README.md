@@ -5,7 +5,7 @@
 当前主仓保留运行底座和管理端：
 
 - `provider-service`: NapCat / OneBot 入口、LLM provider 执行、消息模拟、embeddings、queue 入口
-- `agent-service`: 主 agent loop runtime，消费 queue batch、重建上下文、执行 agent run、控制 delivery state，并运行 presence 后台循环和 self-action eligibility 入口
+- `agent-service`: 主 agent loop runtime，消费 queue batch、重建上下文、执行 agent run、控制 delivery state，并运行 presence 后台循环和 life event 投影
 - `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、run workspace、Image Lab、Codex 账号池、流量查看/回放、runtime status
 - `admin-panel/frontend`: 管理界面，默认从“小腻活动”看她当前在做什么
 - `postgres`: 数据存储

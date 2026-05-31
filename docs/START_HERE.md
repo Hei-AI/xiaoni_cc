@@ -10,7 +10,7 @@
 - 先信这些入口：`README.md`、`docs/INDEX.md`、`AGENTS.md`
 
 ## First 15 Minutes
-- 想理解小腻怎么说话、presence 怎么主动看群、数字生活设计现在落到哪一步，先看 `docs/CURRENT_ARCHITECTURE.md`，再看 `docs/XIAONI_SPEAKING_FLOW.md`、`modules/provider-service`、`modules/agent-service`、`packages/persistence`。
+- 想理解小腻怎么说话、presence 怎么主动看群、数字生活设计现在落到哪一步，先看 `docs/CURRENT_ARCHITECTURE.md`，再看 `docs/XIAONI_SPEAKING_FLOW.md`、`docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`、`docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`、`modules/provider-service`、`modules/agent-service`、`packages/persistence`。
 - 想调管理端，先看 `modules/admin-panel/backend`、`modules/admin-panel/frontend`。
 - 次级入口：`modules/http-traffic-monitor`、`modules/embedding-server`
 - 当前运行数据库是 PostgreSQL

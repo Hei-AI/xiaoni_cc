@@ -11,7 +11,7 @@ Archived pre-cleanup snapshot:
 Authoritative execution order:
 
 1. **P0-A: user-visible Xiaoni group-chat behavior.**
-   Tasks 1-7 are implemented. Tasks 8-13 are active follow-ups for current
+   Tasks 1-7 are implemented. Tasks 8-14 are active follow-ups for current
    runtime context quality, compact memory quality, image task routing,
    presence-context v2, and Xiaoni's creative agency. Keep verification notes
    here and move any next follow-up into a new task instead of reopening the old
@@ -167,7 +167,8 @@ typed query planning, not revive the old `recall_long_term_learning` tool.
 **Status:** presence slice implemented on 2026-05-26; hosted self-action search
 slice implemented on 2026-05-30 and retired as an active runner on 2026-05-31.
 
-**Design doc:** `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`
+**Design docs:** `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`,
+`docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`
 
 **Design summary:** Xiaoni's `presence_context` must be a projection of a
 browser/digital-life action loop, not a standalone fake mood paragraph. The
@@ -192,14 +193,19 @@ Locked decisions from office-hours:
   current-state context.
 - Mock or real digital-life generation, if added later, must be state-triggered,
   not blind timer-based. The old hosted `web_search` self-action runner is no
-  longer active; current self-action only evaluates eligibility and skips with
-  `legacy_self_action_search_removed`.
+  longer active; current `agent-service` runtime starts queue polling, task
+  polling, and presence tick only, with `/health.self_action_busy=false`.
 - Generated actions must be linked records so recent action traces can be
   compressed into in-context state.
 - `小腻当前状态` has six private sections: recent action trace, current residue,
   current state, available material, action cost, and source boundary.
 - Prompt/developer/tool-description/in-context state have separate roles and one
   engineering source of truth for numeric meters.
+- 2026-05-31 homeostasis correction: `agent_life_events` is the source of truth;
+  `agent_session_life_states` is projection/cache only. Phase 1 should implement
+  the reducer and admin explanation before restoring any autonomous runner.
+  Suggestions from QQ affect Xiaoni only through the event stream, `<小腻的OS>`,
+  or compact summary, not via hardcoded motive/query/interest fields.
 
 The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
 
@@ -244,10 +250,10 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
   `python3 scripts/validate_docs.py`.
 
 **Implementation update (2026-05-31):**
-- Retired the legacy random self-action search runner. `SelfActionService`
-  still checks eligibility, but an eligible run now returns
-  `legacy_self_action_search_removed` without calling provider-service, creating
-  a new digital action, or writing share-pool residue.
+- Retired the legacy random self-action search runner from the live
+  `agent-service` process. The current process starts queue polling, task
+  polling, and `presenceTickTimer`; it does not start a standalone self-action
+  timer.
 - Kept `agent_digital_actions`, source-honesty validation, historical
   projection, and Admin activity visibility as substrate for replay and the next
   deliberate digital-life runner.
@@ -925,8 +931,10 @@ to request edit-mode work without any actual source image, so the user sees
 **Progress 2026-05-30 / 2026-05-31:** recent real `web_search` digital actions
 can be stored in `agent_digital_actions` and projected into
 `buildPresenceContextBlock`, but the legacy random runner no longer creates new
-ones. This preserves traceability for historical records and future runners; the
-broader v2 shape below is still open.
+ones. Current runtime writes `agent_life_events` for QQ surface visits, seen
+messages, visible delivery, silence, and terminal delivery state. The broader v2
+shape below is still open and should be fed by the event-sourced homeostasis
+reducer in Task 14.
 
 **Problem:** the design already defines `小腻当前状态` as a six-section private
 context block with recent action trace, current residue, current state,
@@ -1116,6 +1124,50 @@ return to a self-initiated action.
 - Regression coverage includes a compaction boundary between an intention and
   its follow-through, proving Xiaoni either resumes correctly or honestly says
   the state is unavailable.
+
+### Task 14 - Xiaoni homeostasis reducer
+
+**Status:** todo.
+
+**Design doc:** `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`
+
+**Source:** 2026-05-31 office-hours review after rejecting the separate
+self-action runner, hardcoded `motiveText`, exact-query personality, and reading
+seed shortcuts.
+
+**Problem:** current boredom/fatigue/energy/sharing desire are derived mostly
+from timestamp anchors in `agent_session_life_states`. That is useful as a
+cache, but it lets the cache become the truth source. Xiaoni's real state should
+be replayable from the append-only life event stream, then projected into
+scheduling, prompt context, and admin explanation.
+
+**Action:**
+
+- Implement a deterministic reducer over `agent_life_events` for identity
+  `xiaoni`.
+- Treat `agent_session_life_states` and group state rows as rebuildable
+  projections/caches, not canonical state.
+- Compute boredom, fatigue, sleep pressure, pressure, reward sensitivity,
+  sharing desire, action budget, material scarcity, and recent action trace from
+  event facts and decay rules.
+- Render the reducer output into the six-section `小腻当前状态` block and the
+  admin activity explanation surface.
+- Keep suggestions from QQ inside the normal event stream / OS / compact summary.
+  Do not add planner-only suggestion channels, hardcoded interest keys, or query
+  templates.
+- Do not restore autonomous self-action timers in this task.
+
+**Acceptance criteria:**
+
+- Given the same ordered `agent_life_events`, the reducer returns the same
+  snapshot.
+- Clearing `agent_session_life_states` does not destroy Xiaoni's state; the
+  projection can be rebuilt from the event stream.
+- Tests cover no-material, high-fatigue, recent-visible-message, recent-silence,
+  and real-source-vs-constructed-source cases.
+- Admin activity can explain which events moved each displayed state value.
+- Prompt context receives facts, residues, costs, and source boundaries without a
+  forced recommended action.
 
 ## P0-C - Runtime Data Readiness And Cleanup
 

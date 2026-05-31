@@ -1,16 +1,21 @@
 # Xiaoni Digital Life And Presence Context Design
 
-Status: design-locked from office-hours on 2026-05-26. Current implementation
-has landed the presence-context first slice. Earlier self-action side runners
-were removed from the current runtime because they created a second context and
-made hardcoded interests look like Xiaoni's own life. The current shape appends
-idle/presence life events into the same main loop; a life-only event can only
-read the global recent append stream, then run grounded hosted `web_search` or
-`stay_silent`. This is still not the full browser-backed digital-life system.
+Status: design-locked from office-hours on 2026-05-26, with the 2026-05-31
+homeostasis correction in `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`. Current
+implementation has landed the presence-context first slice. Earlier self-action
+side runners were removed from the current runtime because they created a second
+context and made hardcoded interests look like Xiaoni's own life. The current
+shape appends idle/presence life events into the same main loop; a life-only
+event can only read the global recent append stream, then run grounded hosted
+`web_search` or `stay_silent`. This is still not the full browser-backed
+digital-life system.
 
 This document is the system of record for browser-backed digital life,
 `presence_context`, current idle life events, and the next browser-backed runner
-shape. `TODOS.md` keeps only the execution summary.
+shape. `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md` is the source of record for the
+event-stream reducer rule: `agent_life_events` is truth, while
+`agent_session_life_states` is projection/cache. `TODOS.md` keeps only the
+execution summary.
 
 **Core framing:**
 
@@ -210,11 +215,15 @@ Current implemented slices:
   from agent-service runtime. Existing tables, historical records, source
   honesty checks, and presence projection support remain for replay and for the
   next digital-life runner.
-- 2026-05-31: state-driven self-action digital-life tick landed. It runs from
-  `agent-service`, chooses `idle_restore`, `read`, `reflect`, or hosted
-  `web_search` from energy/fatigue/boredom/sharing desire/material scarcity and
-  budgets, writes `agent_digital_actions` / `agent_life_events`, and only seeds
-  share pool items. It never sends QQ directly.
+- 2026-05-31: life-only `presence_tick` now stays inside the main loop. It reads
+  the global recent append stream, compressed `<小腻近况>`, and `<小腻的OS>`;
+  without a concrete IM target it cannot send QQ directly and can only choose
+  `web_search` or `stay_silent`.
+- 2026-05-31: homeostasis design correction locked. The next reducer uses
+  `agent_life_events` as the canonical append stream. `agent_session_life_states`
+  is only a projection/cache. Do not restore a separate self-action planner, and
+  do not hardcode `motiveText`, exact queries, interest keys, reading seeds, or
+  fake source wording as Xiaoni's inner life.
 - 2026-05-31: `/xiaoni-activity` now treats self-action web-search prompts and
   canonical requests as operator-only trace data. The feed should show life-event
   wording and residue, not tool-control instructions such as exact-query
@@ -676,7 +685,9 @@ is engineering decomposition and subagent execution planning.
 
 Do not treat the removed self-action side runner as the browser-backed
 digital-life loop. The current runtime appends idle life events into the same
-main loop and lets that loop decide whether to search or stay silent. Everything
+main loop and lets that loop decide whether to search or stay silent. The next
+engineering step is the event-sourced homeostasis reducer described in
+`docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`, not another side planner. Everything
 beyond this slice, including page navigation, watching, posting, liking,
 downloading, richer autonomous browsing, and stable-interest mutation from
 repeated digital activity, remains future work.
