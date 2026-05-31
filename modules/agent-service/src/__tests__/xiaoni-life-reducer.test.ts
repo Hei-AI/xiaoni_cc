@@ -146,6 +146,27 @@ test('action cost directly drives fatigue and rest or sleep restores it', () => 
   assert.equal(slept.projection.state.energy, 1);
 });
 
+test('default speech accounting does not exhaust all energy for one group reply', () => {
+  const result = reduceXiaoniLifeState({
+    now: new Date('2026-05-31T12:00:00.000Z'),
+    events: [
+      event({
+        id: 'speech-1',
+        eventKind: 'speak_in_group',
+        occurredAt: '2026-05-31T11:00:00.000Z'
+      }),
+      event({
+        id: 'speech-2',
+        eventKind: 'qq_self_message',
+        occurredAt: '2026-05-31T11:00:01.000Z'
+      })
+    ]
+  });
+
+  assert.equal(result.projection.state.actionCost, 0.01);
+  assert.equal(result.projection.state.energy, 0.99);
+});
+
 test('presence tick evaluation event drives cooldown only when enqueued', () => {
   const now = new Date('2026-05-31T12:00:00.000Z');
   const skipped = reduceXiaoniLifeState({

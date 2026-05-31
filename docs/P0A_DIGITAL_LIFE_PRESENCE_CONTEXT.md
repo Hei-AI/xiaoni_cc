@@ -189,9 +189,10 @@ high fatigue     -> small gain
 extreme fatigue  -> near zero actionable gain
 ```
 
-Current runtime does not expose fatigue, boredom, sharing desire, or cooldown as
-action gates. It exposes energy and recent action cost so Xiaoni can choose
-whether to act inside the main loop.
+Current runtime does not expose boredom, sharing desire, or cooldown as action
+gates. It exposes energy and recent action cost so Xiaoni can choose whether to
+act inside the main loop; the scheduler still blocks proactive IM opening while
+fatigue is high enough that energy is below the active-use threshold.
 
 **Possible future `presence_context` shape:**
 
@@ -241,8 +242,10 @@ Current implemented slices:
   is appended to `<小腻的OS>` and therefore survives normal context replay or
   later summary compression.
 - 2026-05-31: presence enqueue no longer uses cooldown/boredom/sharing desire or
-  startup grace as hard gates. Prompt-facing state is current energy and recent
-  action cost/recovery context; Xiaoni chooses the action inside the main loop.
+  startup grace as hard gates. It still blocks proactive IM opening when fatigue
+  is too high, recording `rest_period` or `sleep_period` instead. Prompt-facing
+  state is current energy and recent action cost/recovery context; Xiaoni chooses
+  the action inside the main loop after a tick is admitted.
 - 2026-05-31: homeostasis design correction locked. The next reducer uses
   `agent_life_events` as the canonical append stream. `agent_session_life_states`
   is only a projection/cache. Do not restore a separate self-action planner, and
@@ -534,7 +537,7 @@ In-context action arbitration rule:
 ```text
 [小腻当前状态]
 当前精力：0.80
-精力成本：最近行动消耗：已经开口，本次行动成本 0.20
+精力成本：最近行动消耗：已经开口，本次行动成本 0.02
 可用材料：
 - 一个关于夏天和死亡意象的文字联想
 材料边界：整理出来的材料，不能说成刚查到
@@ -548,9 +551,9 @@ In-context action arbitration rule:
 - Do not tell the model "now you are more suitable for X" as a final judgment.
   Provide current energy and action cost points instead; the model should decide
   whether an action makes sense in the current group scene.
-- First version cost points can be simple and relative, not calibrated money:
-  low-cost actions around 1-3, proactive/light sharing around 4, longer
-  elaboration around 6, multi-round serious involvement around 8+.
+- First version cost points are deliberately small because energy is a long-lived
+  0-1 activity meter. Ordinary visible replies should stay around `0.01-0.02`;
+  lightweight IM usage should also be in the low hundredths, not tenths.
 - Numeric state should not expose extra meters such as fatigue, boredom, sharing
   desire, or cooldown. The model needs current energy and how recent action costs
   relate to it.
@@ -558,7 +561,7 @@ In-context action arbitration rule:
 
 ```text
 当前精力：0.80
-精力成本：最近行动消耗：已经开口，本次行动成本 0.20
+精力成本：最近行动消耗：已经开口，本次行动成本 0.02
 ```
 - The action budget must not become an extra scheduler deciding for Xiaoni.
   It should be derived from current energy and current action history. Discuss this together

@@ -65,8 +65,30 @@ planner loop. Current runtime projection intentionally exposes only:
 
 Older meters such as boredom, fatigue, sharing desire, and cooldown can exist as
 legacy internal projection fields, but they are not prompt-facing decision gates.
-The runtime should not decide Xiaoni's action from those meters; Xiaoni receives
-energy plus cost context and chooses inside the main loop.
+Fatigue is used only by the scheduler to suppress proactive IM opening while
+energy is too low; after a presence tick is admitted, Xiaoni receives energy plus
+cost context and chooses inside the main loop.
+
+Current action-cost rules:
+
+- `presence_tick_evaluated`: `0`.
+- `qq_message_seen`: `0`.
+- `surface_visit`: `0.01`.
+- `silence_decision`: `0.005`, or `0.01` for a presence-opened IM that ends
+  silent.
+- visible reply: `0.01` for one message, plus `0.005` per extra message, capped
+  at `0.02`.
+- group visible reply charges the aggregate `speak_in_group` event only;
+  per-message `qq_self_message` rows are audit rows with `0` cost.
+- direct visible reply charges the first `qq_self_message` row with the aggregate
+  visible-reply cost.
+- `pending_share_consumed`: `0.002`.
+- `rest_period`: restores `0.10` action cost and is deduped by a 1-hour bucket.
+- `sleep_period`: clears accumulated action cost to `0` in the 01:00-09:00
+  Asia/Shanghai sleep window and is deduped by a 6-hour bucket.
+
+`rest_period` and `sleep_period` do not currently model a real wall-clock sleep
+duration. They are recovery facts recorded by skipped presence checks.
 
 ## Event Rules
 

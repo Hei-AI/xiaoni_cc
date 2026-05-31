@@ -54,6 +54,7 @@ import { agentConfig, databaseConfig } from '../config';
 import { logger } from '../utils/logger';
 import {
   buildPresenceContextBlock,
+  PRESENCE_FATIGUE_RECOVERY_THRESHOLD,
   scoreSharePoolItem,
   shouldFirePresenceTick,
   type PresenceAnchors,
@@ -208,7 +209,9 @@ function presenceEvaluationBucket(now: Date) {
 
 const REST_RECOVERY_BUCKET_MS = 60 * 60 * 1000;
 const SLEEP_RECOVERY_BUCKET_MS = 6 * 60 * 60 * 1000;
-const PRESENCE_FATIGUE_RECOVERY_THRESHOLD = 0.82;
+const VISIBLE_REPLY_BASE_ACTION_COST = 0.01;
+const VISIBLE_REPLY_EXTRA_MESSAGE_ACTION_COST = 0.005;
+const VISIBLE_REPLY_MAX_ACTION_COST = 0.02;
 
 function shanghaiHour(now: Date) {
   const value = new Intl.DateTimeFormat('en-US', {
@@ -267,6 +270,14 @@ export function renderXiaoniLifeStateExplanation(explanation: XiaoniLifeStateExp
     actionCosts ? `最近行动消耗：${actionCosts}` : null,
     recoveries ? `刚才怎么恢复：${recoveries}` : null
   ].filter(Boolean).join('；');
+}
+
+function visibleReplyActionCost(messageCount: number) {
+  const extraCount = Math.max(0, Math.floor(messageCount) - 1);
+  return Math.min(
+    VISIBLE_REPLY_MAX_ACTION_COST,
+    VISIBLE_REPLY_BASE_ACTION_COST + (extraCount * VISIBLE_REPLY_EXTRA_MESSAGE_ACTION_COST)
+  );
 }
 
 export function resolvePresenceRecoveryEvent(
@@ -1617,7 +1628,7 @@ export class RuntimeStore {
       actorId: queueMessage.accountId,
       targetId: queueMessage.peerId,
       visibility: 'active_surface',
-      actionCost: 0.2,
+      actionCost: 0.01,
       attentionDelta: 0.2,
       payload: {
         source: queueMessage.source,
@@ -1697,6 +1708,7 @@ export class RuntimeStore {
     if (messages.length === 0) {
       return;
     }
+    const replyActionCost = visibleReplyActionCost(messages.length);
 
     if (queueMessage.chatType === 'group') {
       await this.recordLifeEventSafe({
@@ -1716,7 +1728,7 @@ export class RuntimeStore {
         actorId: queueMessage.accountId,
         targetId: queueMessage.peerId,
         visibility: 'active_surface',
-        actionCost: 1,
+        actionCost: replyActionCost,
         payload: {
           tool_name: input.toolName,
           forced: Boolean(input.forced),
@@ -1746,7 +1758,7 @@ export class RuntimeStore {
         actorId: queueMessage.accountId,
         targetId: queueMessage.peerId,
         visibility: queueMessage.chatType === 'direct' ? 'private_surface' : 'active_surface',
-        actionCost: 1,
+        actionCost: queueMessage.chatType === 'direct' && index === 0 ? replyActionCost : 0,
         payload: {
           tool_name: input.toolName,
           forced: Boolean(input.forced),
@@ -1801,7 +1813,7 @@ export class RuntimeStore {
       actorId: queueMessage.accountId,
       targetId: queueMessage.peerId,
       visibility: 'self_private',
-      actionCost: isPresenceTickPayload(queueMessage) ? 0.2 : 0.1,
+      actionCost: isPresenceTickPayload(queueMessage) ? 0.01 : 0.005,
       payload: {
         run_id: runId,
         trace_id: traceId,
@@ -1942,7 +1954,7 @@ export class RuntimeStore {
         actorId: input.queueMessage.accountId,
         targetId: input.queueMessage.peerId,
         visibility: 'self_private',
-        actionCost: 0.04,
+        actionCost: 0.002,
         payload: {
           share_pool_item_id: item.id,
           source_kind: item.sourceKind,
@@ -2883,29 +2895,6 @@ export class RuntimeStore {
       await incrementRelationshipTrust({ identityKey, speakerQq, delta }, databaseConfig);
     } catch {
       // Non-fatal — trust increment failure doesn't block the main flow
-    }
-  }
-
-  async getRecentGroupActivity(sessionKey: string): Promise<{ activeSenderCount: number; recentMessageCount: number }> {
-    try {
-      const rows = await this.sql.query<{ active_sender_count: string; recent_msg_count: string }>(
-        `
-          SELECT
-            COUNT(DISTINCT sender_id)::text AS active_sender_count,
-            COUNT(*) FILTER (WHERE received_at > NOW() - INTERVAL '5 minutes')::text AS recent_msg_count
-          FROM agent_inbound_messages
-          WHERE session_key = ?
-            AND received_at > NOW() - INTERVAL '10 minutes'
-        `,
-        [sessionKey]
-      );
-      const row = rows[0];
-      return {
-        activeSenderCount: parseInt(row?.active_sender_count || '0', 10),
-        recentMessageCount: parseInt(row?.recent_msg_count || '0', 10)
-      };
-    } catch {
-      return { activeSenderCount: 0, recentMessageCount: 0 };
     }
   }
 

@@ -278,9 +278,14 @@ function lifeEventBody(row, payload) {
     );
   }
   if (row.event_kind === 'presence_tick_evaluated') {
-    return payload.eligible
-      ? `调度器已放行；${payload.queue_id ? `queue ${payload.queue_id}` : '等待入队'}`
-      : '旧版调度器未入队；当前运行时只提供精力和行动成本。';
+    if (payload.eligible) {
+      return `空闲检查已放行；${payload.queue_id ? `queue ${payload.queue_id}` : '等待入队'}`;
+    }
+    const skipReason = firstString(payload.skip_reason, payload.reason);
+    if (skipReason === 'fatigue') {
+      return '精力不足，本轮不主动看群；恢复按休息或睡眠节奏记录。';
+    }
+    return skipReason ? `空闲检查未入队；原因：${skipReason}` : '空闲检查未入队。';
   }
   if (row.event_kind === 'rest_period' || row.event_kind === 'sleep_period') {
     return firstString(payload.reason, payload.duration_label, payload.bucket);
@@ -380,6 +385,8 @@ function sanitizeLifeEventPayloadForFeed(eventKind, payload) {
   return {
     eligible: typeof payload.eligible === 'boolean' ? payload.eligible : null,
     enqueued: typeof payload.enqueued === 'boolean' ? payload.enqueued : null,
+    reason: firstString(payload.reason),
+    skip_reason: firstString(payload.skip_reason),
     queue_id: payload.queue_id ? String(payload.queue_id) : null,
     queue_status: firstString(payload.queue_status),
     snapshot: {
@@ -904,7 +911,7 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
             latestProactiveImOpenStatus: latestProactiveImQueue?.status || null,
             latestPresenceEvaluationAt: normalizeDate(latestPresenceEvaluation?.occurred_at),
             latestPresenceEvaluationReason: latestPresenceEvaluationPayload.eligible === false
-              ? 'skipped_legacy'
+              ? firstString(latestPresenceEvaluationPayload.skip_reason, latestPresenceEvaluationPayload.reason, 'skipped')
               : firstString(latestPresenceEvaluationPayload.reason),
             latestPresenceEvaluationEligible: typeof latestPresenceEvaluationPayload.eligible === 'boolean'
               ? latestPresenceEvaluationPayload.eligible

@@ -85,14 +85,14 @@ const HOUR_MS = 60 * 60 * 1000;
 // should carry actionCost at the write site and use these values only as a
 // compatibility fallback.
 const DEFAULT_ACTION_COST_BY_EVENT_KIND: Record<string, number> = {
-  surface_visit: 0.2,
+  surface_visit: 0.01,
   qq_message_seen: 0,
-  qq_self_message: 1,
-  speak_in_group: 1,
-  silence_decision: 0.1,
+  qq_self_message: 0,
+  speak_in_group: 0.01,
+  silence_decision: 0.005,
   web_search_result: 0,
   pending_share_created: 0,
-  pending_share_consumed: 0.04,
+  pending_share_consumed: 0.002,
   presence_tick_evaluated: 0
 };
 
@@ -322,10 +322,10 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
         : `这次空闲检查被跳过，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'rest_period':
-      state.actionCost = clamp01(state.actionCost - 0.25);
+      state.actionCost = clamp01(state.actionCost - 0.1);
       state.attention = clamp01(state.attention - 0.08);
       state.lastRestAt = occurredAt || state.lastRestAt;
-      rememberContributor(state, event, '刚才短暂休息了一会儿，行动成本恢复 0.25');
+      rememberContributor(state, event, '刚才短暂休息了一会儿，行动成本恢复 0.10');
       break;
     case 'sleep_period':
       state.actionCost = 0;

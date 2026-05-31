@@ -7,7 +7,7 @@ import {
   shouldFirePresenceTick
 } from '../services/presence-context';
 
-test('shouldFirePresenceTick lets Xiaoni decide without scheduler state gates', () => {
+test('shouldFirePresenceTick still ignores cooldown when energy is available', () => {
   const now = new Date('2026-05-26T12:00:00.000Z');
   const state = deriveLifeState({
     now,
@@ -24,6 +24,27 @@ test('shouldFirePresenceTick lets Xiaoni decide without scheduler state gates', 
   assert.ok(state.energy > 0.5);
   assert.equal(state.cooldownActive, true);
   assert.equal(shouldFirePresenceTick(state).reason, 'eligible');
+});
+
+test('shouldFirePresenceTick blocks presence checks when fatigue exhausts energy', () => {
+  assert.deepEqual(shouldFirePresenceTick({
+    boredom: 1,
+    fatigue: 0.95,
+    energy: 0.05,
+    sharingDesire: 0.4,
+    sleepPressure: 0.95,
+    cooldownActive: false,
+    startupGraceActive: false
+  }), { shouldEnqueue: false, reason: 'fatigue' });
+  assert.deepEqual(shouldFirePresenceTick({
+    boredom: 0.4,
+    fatigue: 0.75,
+    energy: 0.25,
+    sharingDesire: 0.2,
+    sleepPressure: 0.75,
+    cooldownActive: false,
+    startupGraceActive: false
+  }), { shouldEnqueue: false, reason: 'fatigue' });
 });
 
 test('shouldFirePresenceTick also allows checks during startup grace', () => {

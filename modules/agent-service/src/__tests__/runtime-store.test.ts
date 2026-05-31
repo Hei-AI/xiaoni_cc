@@ -162,6 +162,11 @@ test('resolvePresenceRecoveryEvent records visible rest or sleep facts for fatig
     reason: 'fatigue_recovery',
     bucketMs: 60 * 60 * 1000
   });
+  assert.deepEqual(resolvePresenceRecoveryEvent({ ...tiredState, fatigue: 0.75, energy: 0.25 }, new Date('2026-05-31T07:00:00.000Z')), {
+    eventKind: 'rest_period',
+    reason: 'fatigue_recovery',
+    bucketMs: 60 * 60 * 1000
+  });
   assert.equal(resolvePresenceRecoveryEvent({ ...tiredState, fatigue: 0.5 }, new Date('2026-05-31T07:00:00.000Z')), null);
 });
 
@@ -211,6 +216,34 @@ test('fatigue recovery event tells Xiaoni only current energy for sleep', async 
   assert.equal(lifeEvents[0].payload.energy_note, '当前精力=0.10，累计行动成本=1.00');
   assert.equal(lifeEvents[0].payload.action_cost_sources[0].effect, '已经开口，本次行动成本 1.00');
   assert.equal('fatigue_driver' in lifeEvents[0].payload, false);
+});
+
+test('visible group replies charge one bounded action cost without per-message double counting', async () => {
+  const store = new RuntimeStore() as any;
+  const lifeEvents: any[] = [];
+  store.recordLifeEventSafe = async (input: any) => {
+    lifeEvents.push(input);
+  };
+
+  await store.recordVisibleDeliveryLifeEvents({
+    queueMessage: createRuntimeStoreQueuePayload({
+      source: 'agent_queue',
+      presenceTick: undefined
+    }),
+    runId: 'run-visible-cost',
+    toolName: 'speak_in_group',
+    toolResult: {
+      sent_messages: ['第一句', '第二句']
+    }
+  });
+
+  assert.equal(lifeEvents.length, 3);
+  assert.equal(lifeEvents[0].eventKind, 'speak_in_group');
+  assert.equal(lifeEvents[0].actionCost, 0.015);
+  assert.equal(lifeEvents[1].eventKind, 'qq_self_message');
+  assert.equal(lifeEvents[1].actionCost, 0);
+  assert.equal(lifeEvents[2].eventKind, 'qq_self_message');
+  assert.equal(lifeEvents[2].actionCost, 0);
 });
 
 test('renderXiaoniLifeStateExplanation tells the next wake energy and recent action costs', () => {

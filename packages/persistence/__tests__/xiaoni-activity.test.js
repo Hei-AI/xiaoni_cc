@@ -116,6 +116,42 @@ test('Xiaoni activity feed hides life-event engineering payload fields', async (
   assert.equal(String(item.metadata.payloadPreview).includes('run_1'), false);
 });
 
+test('Xiaoni activity feed explains skipped presence checks without legacy scheduler wording', async () => {
+  const persistence = createPersistence({
+    lifeEvents: [{
+      id: 1146,
+      identity_key: 'xiaoni',
+      event_kind: 'presence_tick_evaluated',
+      occurred_at: new Date('2026-05-31T13:20:04.715Z'),
+      surface: 'presence_tick',
+      actor_type: 'xiaoni',
+      visibility: 'self_private',
+      payload: {
+        eligible: false,
+        enqueued: false,
+        reason: 'fatigue',
+        skip_reason: 'fatigue',
+        queue_id: null,
+        queue_status: null,
+        snapshot: {
+          energy: 0,
+          action_cost: 1
+        }
+      }
+    }]
+  });
+
+  const feed = await persistence.getXiaoniActivityFeed({ limit: 5 });
+  const item = feed.items[0];
+
+  assert.equal(item.title, '空闲检查记录');
+  assert.equal(item.body, '精力不足，本轮不主动看群；恢复按休息或睡眠节奏记录。');
+  assert.equal(item.metadata.payload.reason, 'fatigue');
+  assert.equal(item.metadata.payload.skip_reason, 'fatigue');
+  assert.equal(feed.current.autonomy.latestPresenceEvaluationReason, 'fatigue');
+  assert.equal(JSON.stringify(item).includes('旧版调度器'), false);
+});
+
 test('Xiaoni activity feed keeps SQL queue timestamps in storage timezone', async () => {
   const queueRow = {
     id: 4161,

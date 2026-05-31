@@ -37,6 +37,7 @@ export type PresenceSharePoolItem = {
 };
 
 const HOUR_MS = 60 * 60 * 1000;
+export const PRESENCE_FATIGUE_RECOVERY_THRESHOLD = 0.65;
 
 function toDate(value: Date | string | null | undefined): Date | null {
   if (!value) {
@@ -106,7 +107,9 @@ export function deriveLifeState(anchors: PresenceAnchors, options: {
 }
 
 export function shouldFirePresenceTick(state: PresenceLifeState): PresenceTickDecision {
-  void state;
+  if (state.fatigue > PRESENCE_FATIGUE_RECOVERY_THRESHOLD) {
+    return { shouldEnqueue: false, reason: 'fatigue' };
+  }
   return { shouldEnqueue: true, reason: 'eligible' };
 }
 

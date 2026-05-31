@@ -57,7 +57,7 @@ QQ 群 / QQ 私聊
 presence tick 判断是否值得 append 一个空闲/看 IM 事件
   |
   v
-synthetic presence_tick 入队
+疲劳过高则记录 rest/sleep recovery；否则 synthetic presence_tick 入队
   |
   v
 同一个 main loop 决定沉默 / 打开未读 IM / 搜索资料 / 主动说一句
@@ -154,7 +154,6 @@ role=assistant phase=commentary
 <system_reminder>本轮只需要处理指定的新入站消息</system_reminder>
 
 developer message near the end
-<current_scene>现场状态</current_scene>
 <小腻当前状态>presence context</小腻当前状态>
 <system_reminder>turn_state 动态提醒</system_reminder>
 ```

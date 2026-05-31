@@ -5146,28 +5146,11 @@ export class AgentLoopService {
     }
   }
 
-  private async buildDeveloperContextBlock(queueMessage: QueueMessageRecord['payload']): Promise<string | null> {
+  private async buildDeveloperContextBlock(_queueMessage: QueueMessageRecord['payload']): Promise<string | null> {
     const parts: string[] = [];
 
     if (agentConfig.worldNarrative && agentConfig.worldNarrative.trim()) {
       parts.push(`<world_narrative>\n${agentConfig.worldNarrative.trim()}\n</world_narrative>`);
-    }
-
-    const isGroupChat = queueMessage.sessionKey && queueMessage.sessionKey !== String(queueMessage.senderId);
-    if (isGroupChat) {
-      const activityLoader = (this.store as RuntimeStore & {
-        getRecentGroupActivity?: RuntimeStore['getRecentGroupActivity'];
-      }).getRecentGroupActivity;
-
-      if (typeof activityLoader === 'function') {
-        const activity = await activityLoader.call(this.store, queueMessage.sessionKey).catch(() => ({ activeSenderCount: 0, recentMessageCount: 0 }));
-        const density: 'low' | 'medium' | 'high' =
-          activity.recentMessageCount > 10 ? 'high' :
-          activity.recentMessageCount >= 3 ? 'medium' : 'low';
-        parts.push(
-          `<current_scene>\n活跃人数（近10分钟）：${activity.activeSenderCount}\n消息密度（近5分钟）：${density}（${activity.recentMessageCount}条）\n</current_scene>`
-        );
-      }
     }
 
     return parts.length > 0 ? parts.join('\n\n') : null;
