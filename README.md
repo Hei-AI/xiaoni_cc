@@ -50,7 +50,7 @@ NapCat -> provider-service
 - `provider-service` 当前负责 provider debug、OneBot 入站和出站、queue 写入、image provider、embeddings 和 timeline 记录。
 - `agent-service` 负责消费消息批次、执行 loop agent，并把 run / trace / transcript / delivery state / 三层长期记忆写回 PostgreSQL。
 - 小腻主 prompt 只有一套，维护在 `modules/agent-service/src/prompts/xiaoni-main-agent.ts`；群/私聊不再绑定不同 prompt，DB prompt 表不再是小腻运行时来源。
-- `agent-service` 运行 presence tick：它会把“小腻从自己的生活里抬头看一眼”的动作 append 进同一个 queue / agent loop。没有未读会话时也会走主 loop，读取全局最近事件流切片并形成可追溯 LLM run；可以提交内部 `submit_life_action`、`web_search` 或 `stay_silent`，但不能无目标直接发 QQ。想回头分享的内容会留进 `<小腻的OS>`，不走旁路兴趣表。
+- `agent-service` 运行 presence tick：它会把“小腻从自己的生活里抬头看一眼”的动作 append 进同一个 queue / agent loop。存在游标后的未读时，会打开最新未读会话并 materialize 成 `proactive_im_open`；每个群/私聊以上次已读最后一条为游标，旧 backlog 不会被当成当前现场。presence 起源的 tick 无论是否打开 IM，都读取全局最近事件流和 `xiaoni:global` 连续性；没有具体会话时也会走主 loop，可以提交内部 `submit_life_action`、`web_search` 或 `stay_silent`，但不能无目标直接发 QQ。想回头分享的内容会留进 `<小腻的OS>`，不走旁路兴趣表。
 - provider 侧的 participation 现在保留为硬安全边界和观测事件，主行为判断逐步收口到 `agent-service` runtime。
 - 当前主发言判断在 `agent-service`；topic projection、transcript snapshot、三层长期记忆等后台能力可以用于观测、后续 typed recall projection、评测或异步产物，但不要把它们当成入口层“是否说话”的总决策器。
 - 当前对话历史里的 `<小腻的OS>` 视为小腻跨轮延续下来的内部状态与成长轨迹，按历史真相保留，并随已读历史一起参与上下文窗口管理。

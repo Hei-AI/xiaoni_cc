@@ -80,6 +80,8 @@ web_search, if enabled
 stay_silent
 ```
 
+presence 起源的 tick 是一个上下文特例：如果发现游标后的未读 IM，它可以先 materialize 出一个具体 delivery 目标；但输入组装仍读取全局最近事件流和 `xiaoni:global` 连续性，不把阿花/海涅这类跨会话 OS 丢进单个群/私聊局部历史之外。
+
 group chat 第一轮：
 
 ```text

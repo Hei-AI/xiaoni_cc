@@ -193,6 +193,10 @@ Locked decisions from office-hours:
 - Current residue uses time-decay scoring and only passes top material into
   current-state context; the historical share-pool tables are compatibility
   surfaces, not the required path for new "想回头分享" material.
+- Presence tick opens IM only from per-session cursor-visible unread. If it
+  materializes into `proactive_im_open`, the run still preserves the
+  presence-originated global context and `xiaoni:global` continuity instead of
+  falling back to only that group/private local history.
 - Mock or real digital-life generation, if added later, must be state-triggered,
   not blind timer-based. The old hosted `web_search` self-action runner is no
   longer active; current `agent-service` runtime starts queue polling, task
@@ -218,8 +222,8 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
   `AgentPresenceStateSidecar`; regenerated `packages/persistence` Prisma Client.
 - Added shared persistence enqueue helper and moved provider-service
   `enqueueSemanticMessage` onto it.
-- Added agent-service presence tick timer, config keys, target-group payload
-  materialization, anchor updates, sidecar tracing, and factual
+- Added agent-service presence tick timer, config keys, active IM
+  materialization, cursor-unread selection, anchor updates, sidecar tracing, and factual
   `<小腻当前状态>` context injection before the normal reasoning tools run.
 - Retired the old `[待分享]` prompt injection / pending-share aging write path.
 - Removed the old raw-SQL `agent_session_state` persistence export and stopped
@@ -227,7 +231,7 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
   reads now derive from `AgentSessionLifeState` anchors.
 - Added focused tests for presence state derivation, historical share-pool scoring,
   factual context block shape, legacy pending-share retirement, and
-  `presence_tick:xiaoni` target session replacement.
+  presence-originated context handling after IM materialization.
 - Verified with `npm --prefix packages/persistence run generate`,
   `npm --prefix modules/agent-service test` (113 passing), and
   `npm --prefix modules/provider-service test` (102 passing).
@@ -435,8 +439,9 @@ Timer flow:
 2. Write `last_presence_tick_enqueued_at = now()` to `AgentSessionLifeState`.
 3. Enqueue a queue message with `session_key = 'presence_tick:xiaoni'` and no fixed
    target group. The row means “小腻从自己的生活里抬头看 IM 列表”.
-4. Agent loop selects an unread inbox conversation at runtime. If one exists, it
-   claims that session and materializes the run as `source = proactive_im_open`.
+4. Agent loop selects an unread inbox conversation at runtime from messages
+   after each session's last-read cursor. If one exists, it claims that session
+   and materializes the run as `source = proactive_im_open`.
 5. If no unread conversation exists, the row still runs through the main loop as
    a life-only `presence_tick` with no group/private delivery target. It may
    submit an internal life action, use `web_search`, or `stay_silent`, but it
@@ -449,23 +454,27 @@ crashes after claim but before run completion, the queue row stays `processing`
 forever (orphaned run). Both are accepted as low-probability in this version and
 will be addressed in a future hardening pass.
 
-**presence_tick session replacement in agent loop:**
+**presence_tick materialization in agent loop:**
 `payload.sessionKey = 'presence_tick:xiaoni'` must NOT flow into downstream runtime
-paths that can speak. It is either replaced by a claimed `proactive_im_open` session
-or completed as an idle self-private tick.
+paths that can speak. It is either materialized into a claimed `proactive_im_open`
+delivery target or completed as an idle self-private tick.
 
 `processQueueMessage` detects `payload.sessionKey.startsWith('presence_tick:')` at
-entry and immediately replaces:
+entry and preserves that origin before any materialization:
 ```ts
-payload.sessionKey     = payload.targetSessionKey   // e.g. 'qq:group:12345'
-payload.peerId         = payload.targetPeerId
-payload.chatType       = 'group'
-payload.accountId      = payload.targetAccountId
+originatedFromLifePresenceTick = true
+payload.sessionKey = payload.targetSessionKey   // delivery target, e.g. 'qq:group:12345'
+payload.peerId = payload.targetPeerId
+payload.chatType = 'group'
+payload.accountId = payload.targetAccountId
 ```
-All subsequent paths (conversation, transcript, cache key, context state) then use
-the resolved target session naturally. This is a session-replacement approach — the
-presence_tick:* code path is NOT a separate processPresenceTick function; it reuses
-the existing processQueueMessage flow after the early substitution.
+Delivery and conversation identity use the resolved target session, but context
+assembly and compression state continue to use the global life context key
+(`xiaoni:global`) for presence-originated runs. This prevents IM materialization
+from hiding cross-session OS such as "go share the Heine thought in group
+253631878". The presence_tick:* code path is NOT a separate processPresenceTick
+function; it reuses the existing processQueueMessage flow with the origin flag
+preserved.
 
 **Anchor reset rules (Codex finding — stale anchors after restart):**
 After a service restart, old anchors immediately derive high boredom (100) and may

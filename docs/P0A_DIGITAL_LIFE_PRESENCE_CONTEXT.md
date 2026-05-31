@@ -5,13 +5,15 @@ homeostasis correction in `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`. Current
 implementation has landed the presence-context first slice. Earlier self-action
 side runners were removed from the current runtime because they created a second
 context and made hardcoded interests look like Xiaoni's own life. The current
-shape appends idle/presence life events into the same main loop; a life-only
-event can read the global recent append stream, submit an internal life action,
-run grounded hosted `web_search`, or `stay_silent`. It still cannot send QQ
-without a concrete IM target. "想回头分享" material is current-context residue:
-it is appended into `<小腻的OS>` and later `<小腻近况>`, not routed through a
-separate share-pool queue. This is still not the full browser-backed
-digital-life system.
+shape appends idle/presence life events into the same main loop. A
+presence-originated event reads the global recent append stream and
+`xiaoni:global` continuity. If an IM has unread messages after that session's
+last-read cursor, the run can materialize that target as `proactive_im_open`;
+otherwise it stays life-only and can submit an internal life action, run
+grounded hosted `web_search`, or `stay_silent`. It still cannot send QQ without
+a concrete IM target. "想回头分享" material is current-context residue: it is
+appended into `<小腻的OS>` and later `<小腻近况>`, not routed through a separate
+share-pool queue. This is still not the full browser-backed digital-life system.
 
 2026-05-31 runtime correction: prompt-facing state is current energy plus recent
 action cost/recovery context only. Earlier design language about boredom,
@@ -223,8 +225,9 @@ Current implemented slices:
 - 2026-05-26: presence tick, historical share-pool tables, life-state anchors,
   and sidecar traces. The original slice let Xiaoni proactively open a configured
   group and inject factual `<小腻当前状态>` into the normal main loop; the current
-  runtime now materializes unread IM targets dynamically and otherwise stays
-  life-only inside the same loop.
+  runtime now materializes unread IM targets dynamically from cursor-visible
+  unread, preserves global presence context when materialized, and otherwise
+  stays life-only inside the same loop.
 - 2026-05-30: self-action `web_search`. The historical agent-service background loop checked
   budget, cooldown, startup grace, fatigue, and user-interaction limits, then
   calls provider-service with hosted `web_search` plus
@@ -235,12 +238,13 @@ Current implemented slices:
   from agent-service runtime. The old `AgentDigitalAction` write helpers are
   also removed from `@qq-bot/persistence`; the table remains historical
   compatibility data for admin replay only.
-- 2026-05-31: life-only `presence_tick` now stays inside the main loop. It reads
-  the global recent append stream, compressed `<小腻近况>`, and `<小腻的OS>`;
-  without a concrete IM target it cannot send QQ directly. It can still use
-  `submit_life_action`, `web_search`, or `stay_silent`; any "想回头分享" residue
-  is appended to `<小腻的OS>` and therefore survives normal context replay or
-  later summary compression.
+- 2026-05-31: presence-originated `presence_tick` now stays inside the main loop
+  context. It reads the global recent append stream, compressed `<小腻近况>`,
+  and `<小腻的OS>` even if unread IM materializes the run into
+  `proactive_im_open`; without a concrete IM target it cannot send QQ directly.
+  It can still use `submit_life_action`, `web_search`, or `stay_silent`; any
+  "想回头分享" residue is appended to `<小腻的OS>` and therefore survives normal
+  context replay or later summary compression.
 - 2026-05-31: presence enqueue no longer uses cooldown/boredom/sharing desire or
   startup grace as hard gates. It still blocks proactive IM opening when fatigue
   is too high, recording `rest_period` or `sleep_period` instead. Prompt-facing
