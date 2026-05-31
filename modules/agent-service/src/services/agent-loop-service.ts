@@ -1234,7 +1234,7 @@ const RUNTIME_INPUT_READING_CONTRACT = [
 
 const RUNTIME_HISTORY_READING_DEVELOPER_CONTEXT = [
   '<runtime_history_reading>',
-  '历史里的 INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / 小腻的OS 只是上下文，不要重复回应已经处理过的旧内容。',
+  '历史里的 INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / 小腻的OS 可以帮助理解现场，也可以被当前未读自然 callback。',
   '当前轮的 `<system_reminder>` 只用来说明哪些消息属于这次打开 IM 后看到的未读列表。',
   '</runtime_history_reading>'
 ].join('\n');
@@ -2388,7 +2388,7 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
     return `<system_reminder>当前 ${queueMessage.sessionKey} 有 ${noun}未读元数据，尚未触发小腻打开 IM；可见现场只有 UNREAD_AVAILABLE，正文等待 @ 或主动使用 IM 后 append。</system_reminder>`;
   }
 
-  return '<system_reminder>本次已打开 IM；以下是这段时间看到的未读列表，按时间顺序阅读。列表前的历史只作为背景，不要重复回应。</system_reminder>';
+  return '<system_reminder>本次已打开 IM；以下是这段时间看到的未读列表，按时间顺序阅读；可以自然接续前面的聊天内容。</system_reminder>';
 }
 
 function isImmediateVisibleImWake(queueMessage: QueueMessageRecord['payload']) {
@@ -5153,28 +5153,6 @@ export class AgentLoopService {
       parts.push(`<world_narrative>\n${agentConfig.worldNarrative.trim()}\n</world_narrative>`);
     }
 
-    const speakerQq = queueMessage.senderId != null && Number.isFinite(Number(queueMessage.senderId))
-      ? Number(queueMessage.senderId)
-      : null;
-    const speakerName = (queueMessage.inboundContext as { SenderName?: string })?.SenderName?.trim() || null;
-
-    if (speakerQq !== null && speakerQq > 0) {
-      const trustLoader = (this.store as RuntimeStore & {
-        getSpeakerTrustLevel?: RuntimeStore['getSpeakerTrustLevel'];
-      }).getSpeakerTrustLevel;
-
-      let trustLevel: 'L1' | 'L2' | 'L3' | 'L4' = 'L1';
-      if (typeof trustLoader === 'function') {
-        trustLevel = await trustLoader.call(this.store, XIAONI_IDENTITY_KEY, speakerQq).catch(() => 'L1' as const);
-      }
-
-      const personaText = agentConfig.xiaoniPersonaLayers[trustLevel];
-      const nameDisplay = speakerName ? `${speakerName}（QQ:${speakerQq}）` : `QQ:${speakerQq}`;
-      parts.push(
-        `<current_relationship>\n本次发言者：${nameDisplay}\n当前关系层级：${trustLevel}\n当前可开放的自己：${personaText}\n</current_relationship>`
-      );
-    }
-
     const isGroupChat = queueMessage.sessionKey && queueMessage.sessionKey !== String(queueMessage.senderId);
     if (isGroupChat) {
       const activityLoader = (this.store as RuntimeStore & {
@@ -7291,7 +7269,9 @@ export function buildInitialInput(
 }
 
 function splitDeveloperContextBlock(developerContextBlock: string | null | undefined) {
-  const block = developerContextBlock?.trim();
+  const block = developerContextBlock
+    ?.replace(/<current_relationship>[\s\S]*?<\/current_relationship>/g, '')
+    .trim();
   if (!block) {
     return {
       worldNarrative: null,

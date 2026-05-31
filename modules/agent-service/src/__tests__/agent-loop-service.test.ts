@@ -4907,8 +4907,8 @@ test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in in
 });
 
 // H: developer role injection — stable world narrative stays early while turn-dynamic context stays late
-test('buildInitialInput splits stable world narrative from turn-dynamic developer context', () => {
-  const devBlock = '<world_narrative>test</world_narrative>\n\n<current_relationship>\n本次发言者：foo（QQ:12345）\n当前关系层级：L2\n当前可开放的自己：偶尔吐槽，有自己的语气\n</current_relationship>';
+test('buildInitialInput strips relationship layer while keeping stable and scene context', () => {
+  const devBlock = '<world_narrative>test</world_narrative>\n\n<current_relationship>\n本次发言者：foo（QQ:12345）\n当前关系层级：L2\n当前可开放的自己：偶尔吐槽，有自己的语气\n</current_relationship>\n\n<current_scene>\n消息密度：low\n</current_scene>';
   const items = buildInitialInput([], createQueuePayload(), undefined, [], null, null, devBlock);
   assert.equal(items[0]?.type, 'message');
   assert.equal((items[0] as { role?: string })?.role, 'system');
@@ -4916,13 +4916,14 @@ test('buildInitialInput splits stable world narrative from turn-dynamic develope
   assert.equal((items[1] as { role?: string })?.role, 'developer');
   assert.match(getMessageContent(items[1]), /world_narrative/);
   assert.doesNotMatch(getMessageContent(items[1]), /current_relationship/);
-  const developerIndex = items.findIndex((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('current_relationship'));
-  const currentReminderIndex = items.findIndex((item) => getMessageContent(item).includes('还没看过的新消息'));
+  const developerIndex = items.findIndex((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('current_scene'));
+  const currentReminderIndex = items.findIndex((item) => getMessageContent(item).includes('看到的未读列表'));
   const historyReadingIndex = items.findIndex((item) => getMessageContent(item).includes('<runtime_history_reading>'));
   assert.ok(developerIndex > currentReminderIndex);
   assert.ok(developerIndex < historyReadingIndex);
   assert.doesNotMatch(getMessageContent(items[developerIndex]), /world_narrative/);
-  assert.match(getMessageContent(items[developerIndex]), /current_relationship/);
+  assert.doesNotMatch(getMessageContent(items[developerIndex]), /current_relationship|当前关系层级|当前可开放的自己/);
+  assert.match(getMessageContent(items[developerIndex]), /current_scene/);
 });
 
 // I: developer role injection — buildInitialInput skips developer message when block is null
@@ -4994,7 +4995,7 @@ test('XIAONI_IDENTITY_KEY is a plain identity string, not a session-scoped key',
   assert.ok(!XIAONI_IDENTITY_KEY.includes(':'), 'trust key must not contain a colon (not a session key format)');
 });
 
-test('buildDeveloperContextBlock reads speaker trust using XIAONI_IDENTITY_KEY', async () => {
+test('buildDeveloperContextBlock does not read speaker trust or inject relationship layer', async () => {
   const trustCalls: any[][] = [];
   const store = {
     getSpeakerTrustLevel: async (...args: any[]) => {
@@ -5010,8 +5011,8 @@ test('buildDeveloperContextBlock reads speaker trust using XIAONI_IDENTITY_KEY',
     senderId: '202'
   });
 
-  assert.deepEqual(trustCalls, [[XIAONI_IDENTITY_KEY, 202]]);
-  assert.match(String(block), /当前关系层级：L3/);
+  assert.deepEqual(trustCalls, []);
+  assert.doesNotMatch(String(block), /current_relationship|当前关系层级|当前可开放的自己|本次发言者/);
 });
 
 test('group loop no longer exposes recall_long_term_learning as a pre-reply tool', () => {

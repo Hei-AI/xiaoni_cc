@@ -93,7 +93,7 @@ presence tick 只决定“要不要把小腻从自己的生活里抬头看一眼
 `buildInitialInput` 会把当前 queue message 组装成模型输入：
 
 - system：小腻主 prompt、运行时阅读契约、单轮工具契约。
-- `role=developer`：稳定世界叙事、身份事实、关系/信任层、现场状态、presence context。
+- `role=developer`：稳定世界叙事、身份事实、现场状态、presence context。
 - `role=user`：真实入站 QQ 消息，渲染为 `<INPUT_MESSAGE ...>`。
 - `role=assistant phase=final_answer`：小腻过去真正发出的 QQ 消息，渲染为 `<OUTPUT_MESSAGE ...>`。
 - `role=assistant phase=commentary`：`<小腻近况>`、`<小腻的OS>`、`<ACTION>`、`<图片内容>`、`<system_reminder>`。

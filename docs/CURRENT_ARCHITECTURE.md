@@ -154,7 +154,6 @@ role=assistant phase=commentary
 <system_reminder>本轮只需要处理指定的新入站消息</system_reminder>
 
 developer message near the end
-<current_relationship>关系/信任层</current_relationship>
 <current_scene>现场状态</current_scene>
 <小腻当前状态>presence context</小腻当前状态>
 <system_reminder>turn_state 动态提醒</system_reminder>
@@ -215,7 +214,7 @@ Provider：codex
 + 当前未读消息
 + 相关身份事实
 + 当前这批消息
-+ 靠近末尾的当前关系、场景、小腻状态和可选 turn_state reminder
++ 靠近末尾的场景、小腻状态和可选 turn_state reminder
 + 当前阶段允许的工具
 ```
 

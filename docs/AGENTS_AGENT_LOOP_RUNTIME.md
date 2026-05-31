@@ -42,7 +42,7 @@ submit_life_action(action_type=image_task, 缺少直接登记所需信息)
 `buildInitialInput` 给主 loop 的输入由这些层组成：
 
 - system：`runtimePrompt.systemPrompt` + Runtime contract + Single-turn tool contract。
-- developer：稳定世界叙事、当前关系、当前场景、小腻当前精力/行动成本、身份事实。
+- developer：稳定世界叙事、当前场景、小腻当前精力/行动成本、身份事实。
 - user：真实入站 QQ 消息，渲染为 `<INPUT_MESSAGE ...>`；标签只保留 `message_id`、`chat_type="群聊/私聊"`、`group` / `private_peer`。
 - assistant final：小腻过去真正发出的 QQ 消息，渲染为 `<OUTPUT_MESSAGE ...>`。
 - assistant commentary：`<小腻近况>`、`<小腻的OS>`、`<ACTION>`、`<图片内容>`、`<system_reminder>`。
